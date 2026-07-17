@@ -1,41 +1,128 @@
-// taskController.js
+// controllers/taskController.js
 import Task from '../models/taskModel.js';
 import Project from '../models/projectModel.js';
 import Workspace from '../models/workspaceModel.js';
-import User from '../models/userModel.js';
-import mongoose from 'mongoose';
+import Feedback from '../models/feedbackModel.js';
+import { v2 as cloudinary } from 'cloudinary';
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
 // HELPERS
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
 
-const isWorkspaceOwner = (workspace, userId) => 
-  workspace.owner.toString() === userId;
+const isWorkspaceOwner = (workspace, userId) =>
+  workspace.owner?._id
+    ? workspace.owner._id.toString() === userId
+    : workspace.owner?.toString() === userId;
 
-const isProjectManager = (project, userId) => 
-  project.projectManagers.some(pm => pm.toString() === userId);
+const isProjectManager = (project, userId) =>
+  project.projectManagers.some((pm) => {
+    const id = pm._id ? pm._id.toString() : pm?.toString();
+    return id === userId;
+  });
 
-const isProjectMember = (project, userId) => 
-  project.teamMembers.some(tm => tm.user.toString() === userId && tm.status === 'active');
+const isProjectMember = (project, userId) =>
+  project.teamMembers.some((tm) => {
+    const user = tm.user;
+    const memberId = user?._id ? user._id.toString() : user?.toString();
+    return memberId === userId && tm.status === 'active';
+  });
 
-const canManageTasks = (workspace, project, userId) => {
-  if (isWorkspaceOwner(workspace, userId)) return true;
-  if (isProjectManager(project, userId)) return true;
-  return false;
-};
+const canManageTasks = (workspace, project, userId) =>
+  isWorkspaceOwner(workspace, userId) || isProjectManager(project, userId);
 
 const canViewTask = (workspace, project, userId, task) => {
-  if (isWorkspaceOwner(workspace, userId)) return true;
-  if (isProjectManager(project, userId)) return true;
+  if (canManageTasks(workspace, project, userId)) return true;
   if (task.assignee?.toString() === userId) return true;
   if (task.createdBy?.toString() === userId) return true;
   return false;
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CREATE TASK (Owner + Project Managers)
+// Parse a field that may arrive as JSON string (FormData) or real array
+const parseArrayField = (value) => {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [parsed];
+    } catch {
+      return [value];
+    }
+  }
+  return [];
+};
+
+// Make sure a user is an active member of the project team.
+// If they're an active workspace member but not on the project yet, add them.
+const ensureProjectMember = async (project, workspace, assigneeId) => {
+  const alreadyActive = project.teamMembers.some(
+    (tm) => tm.user.toString() === assigneeId && tm.status === 'active'
+  );
+  if (alreadyActive) return;
+
+  const isWorkspaceMember = workspace.members.some(
+    (m) => m.user.toString() === assigneeId && m.status === 'active'
+  );
+  if (!isWorkspaceMember) {
+    throw new Error('Assignee must be an active member of the workspace.');
+  }
+
+  // Revive a removed membership or add fresh
+  const existing = project.teamMembers.find(
+    (tm) => tm.user.toString() === assigneeId
+  );
+  if (existing) {
+    existing.status = 'active';
+    existing.leftAt = null;
+  } else {
+    project.teamMembers.push({
+      user: assigneeId,
+      role: 'member',
+      status: 'active',
+      joinedAt: new Date(),
+    });
+  }
+  await project.save();
+};
+
+// ── Recalculate project progress from CONFIRMED task progress ──
+// Also flips `readyForCompletion` when every task is done, waiting
+// for the workspace owner to confirm project completion.
+const updateProjectProgress = async (projectId) => {
+  const project = await Project.findById(projectId);
+  if (!project) return;
+
+  const tasks = await Task.find({ project: projectId, isDeleted: false });
+
+  if (tasks.length === 0) {
+    project.progress = 0;
+    project.readyForCompletion = false;
+  } else {
+    const total = tasks.reduce((sum, t) => sum + (t.progress || 0), 0);
+    project.progress = Math.round(total / tasks.length);
+
+    const allDone = tasks.every((t) =>
+      ['completed', 'cancelled'].includes(t.status)
+    );
+
+    if (project.status !== 'completed') {
+      project.readyForCompletion = allDone;
+      if (allDone) {
+        // stays 'in-progress' until owner confirms, but flagged
+        project.status = 'in-progress';
+      } else if (project.progress > 0 && project.status === 'planning') {
+        project.status = 'in-progress';
+      }
+    }
+  }
+
+  await project.save();
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// CREATE TASK  (Owner / PM only)
 // POST /api/tasks
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
 
 const createTask = async (req, res) => {
   try {
@@ -43,692 +130,878 @@ const createTask = async (req, res) => {
     const {
       projectId,
       title,
-      description,
+      description = '',
+      detailedDescription = '',
+      taskType = 'general',
       assigneeId,
       priority = 'medium',
-      dueDate,
-      stages,
-      estimatedHours,
-      dependencies = [] // Task dependencies
+      dueDate = null,
+      estimatedHours = null,
+      dependencies,
     } = req.body;
 
-    if (!projectId || !title?.trim()) {
-      return res.status(400).json({ message: "Project ID and task title are required." });
+    const links = parseArrayField(req.body.links);
+    const stages = parseArrayField(req.body.stages);
+    const deps = parseArrayField(dependencies);
+
+    if (!projectId || !title?.trim() || !assigneeId) {
+      return res.status(400).json({
+        success: false,
+        message: 'projectId, title and assigneeId are required.',
+      });
     }
 
     const project = await Project.findById(projectId);
     if (!project) {
-      return res.status(404).json({ message: "Project not found." });
+      return res.status(404).json({ success: false, message: 'Project not found.' });
     }
 
     const workspace = await Workspace.findById(project.workspace);
-    if (!workspace) {
-      return res.status(404).json({ message: "Workspace not found." });
-    }
-
-    // Only owner or project managers can create tasks
     if (!canManageTasks(workspace, project, userId)) {
-      return res.status(403).json({ message: "Only workspace owner or project managers can create tasks." });
+      return res.status(403).json({
+        success: false,
+        message: 'Only the workspace owner or project managers can create tasks.',
+      });
     }
 
-    // Verify assignee is active project member (or manager)
-    if (assigneeId) {
-      const isValidAssignee = project.teamMembers.some(
-        tm => tm.user.toString() === assigneeId && tm.status === 'active'
-      ) || project.projectManagers.some(pm => pm.toString() === assigneeId);
-      
-      if (!isValidAssignee) {
-        return res.status(400).json({ message: "Assignee must be an active project team member or manager." });
+    // Assignee must be an active workspace member; auto-add to project team
+    await ensureProjectMember(project, workspace, assigneeId);
+
+    // ─── Attachments ────────────────────────────────────────────────
+    let attachments = [];
+
+    // 1. Real file uploads (multer)
+    if (req.files?.attachments) {
+      for (const file of req.files.attachments) {
+        attachments.push({
+          name: file.originalname,
+          url: file.path,
+          publicId: file.filename || file.public_id,
+          size: file.size,
+          type: file.mimetype,
+        });
       }
     }
 
-    // Create default stages if not provided
-    const taskStages = stages && stages.length > 0 ? stages : [
-      { name: 'To Do', order: 1, completed: false, completedAt: null },
-      { name: 'In Progress', order: 2, completed: false, completedAt: null },
-      { name: 'Review', order: 3, completed: false, completedAt: null },
-      { name: 'Done', order: 4, completed: false, completedAt: null }
-    ];
+    // 2. Fallback: if client sent attachments as a JSON string (e.g. from a
+    //    text input or an older version of the frontend)
+    if (req.body.attachments && typeof req.body.attachments === 'string') {
+      try {
+        const parsed = JSON.parse(req.body.attachments);
+        if (Array.isArray(parsed)) {
+          // Expect objects with { name, url, publicId, size, type }
+          attachments = parsed;
+        }
+      } catch (e) {
+        // ignore invalid JSON – leave attachments as is
+      }
+    }
+    // Remove the field so Mongoose doesn't try to cast it again
+    delete req.body.attachments;
 
+    // ─── Normalize stages ───────────────────────────────────────────
+    const normalizedStages = stages.map((s, i) => ({
+      name: typeof s === 'string' ? s : s.name,
+      order: typeof s === 'string' ? i + 1 : s.order ?? i + 1,
+    }));
+
+    // ─── Create the task ────────────────────────────────────────────
     const task = await Task.create({
       project: projectId,
       workspace: project.workspace,
       title: title.trim(),
-      description: description?.trim() || '',
-      assignee: assigneeId || null,
+      description,
+      detailedDescription,
+      taskType,
+      assignee: assigneeId,
       createdBy: userId,
       priority,
-      dueDate: dueDate || null,
-      stages: taskStages,
-      currentStage: taskStages[0].name,
-      estimatedHours: estimatedHours || null,
-      actualHours: null,
+      dueDate,
+      estimatedHours,
+      dependencies: deps,
+      links,
+      attachments,
+      stages: normalizedStages,
       status: 'pending',
-      dependencies: dependencies.map(dep => new mongoose.Types.ObjectId(dep))
+      progress: 0,
+      submittedProgress: 0,
     });
 
-    // Update project task count and progress
-    await updateProjectProgress(projectId);
-
-    // Populate and return
-    const populatedTask = await Task.findById(task._id)
+    const populated = await Task.findById(task._id)
       .populate('assignee', 'name email profile')
-      .populate('createdBy', 'name email profile')
-      .populate('dependencies', 'title status');
+      .populate('createdBy', 'name email profile');
 
-    res.status(201).json({
-      success: true,
-      message: 'Task created successfully',
-      task: populatedTask
-    });
+    res.status(201).json({ success: true, message: 'Task created', task: populated });
   } catch (error) {
+    console.error('❌ Create task error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
 // GET PROJECT TASKS
+// Owner/PM → all tasks. Regular member → ONLY their own tasks.
 // GET /api/tasks/project/:projectId
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
 
 const getProjectTasks = async (req, res) => {
   try {
     const userId = req.user.id;
     const { projectId } = req.params;
-    const { status, priority, assigneeId, view } = req.query;
+    const { status, priority, assigneeId, taskType } = req.query;
 
     const project = await Project.findById(projectId);
     if (!project) {
-      return res.status(404).json({ message: "Project not found." });
+      return res.status(404).json({ success: false, message: 'Project not found.' });
     }
 
     const workspace = await Workspace.findById(project.workspace);
-
-    // Check access
     const isOwner = isWorkspaceOwner(workspace, userId);
     const isPM = isProjectManager(project, userId);
     const isMember = isProjectMember(project, userId);
 
     if (!isOwner && !isPM && !isMember) {
-      return res.status(403).json({ message: "Access denied." });
+      return res.status(403).json({ success: false, message: 'Access denied.' });
     }
 
-    // Build query
-    const query = { project: projectId };
+    const query = { project: projectId, isDeleted: false };
     if (status) query.status = status;
     if (priority) query.priority = priority;
-    if (assigneeId) query.assignee = assigneeId;
+    if (taskType) query.taskType = taskType;
 
-    // Non-managers only see their assigned tasks
-    if (!isOwner && !isPM) {
-      query.$or = [
-        { assignee: userId },
-        { createdBy: userId }
-      ];
+    if (isOwner || isPM) {
+      // managers can optionally filter by assignee
+      if (assigneeId) query.assignee = assigneeId;
+    } else {
+      // staff see ONLY tasks assigned to them — no exceptions
+      query.assignee = userId;
     }
 
     const tasks = await Task.find(query)
       .populate('assignee', 'name email profile')
       .populate('createdBy', 'name email profile')
-      .populate('dependencies', 'title status')
       .sort({ createdAt: -1 });
 
-    // Group by status for board view
-    let response = { tasks, count: tasks.length };
-    
-    if (view === 'board') {
-      const boardColumns = {
-        pending: tasks.filter(t => t.status === 'pending'),
-        'in-progress': tasks.filter(t => t.status === 'in-progress'),
-        review: tasks.filter(t => t.currentStage === 'Review' && t.status !== 'completed'),
-        completed: tasks.filter(t => t.status === 'completed')
-      };
-      response = { board: boardColumns, count: tasks.length };
-    }
-
-    res.status(200).json({
-      success: true,
-      ...response,
-      userRole: isOwner ? 'workspaceOwner' : (isPM ? 'projectManager' : 'teamMember')
-    });
+    res.status(200).json({ success: true, tasks, count: tasks.length });
   } catch (error) {
+    console.error('❌ Get project tasks error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
+// GET MY TASKS  (everything assigned to the logged-in user)
+// GET /api/tasks/my-tasks
+// ─────────────────────────────────────────────────────────────────────
+
+const getMyTasks = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { status, priority, workspaceId, projectId } = req.query;
+
+    const query = { assignee: userId, isDeleted: false };
+    if (status) query.status = status;
+    if (priority) query.priority = priority;
+    if (workspaceId) query.workspace = workspaceId;
+    if (projectId) query.project = projectId;
+
+    const tasks = await Task.find(query)
+      .populate('project', 'name status dailyReportTime')
+      .populate('createdBy', 'name email profile')
+      .sort({ dueDate: 1, createdAt: -1 });
+
+    res.status(200).json({ success: true, tasks, count: tasks.length });
+  } catch (error) {
+    console.error('❌ Get my tasks error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
 // GET SINGLE TASK
 // GET /api/tasks/:taskId
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
 
 const getTaskById = async (req, res) => {
   try {
     const userId = req.user.id;
     const { taskId } = req.params;
 
-    const task = await Task.findById(taskId)
+    const task = await Task.findOne({ _id: taskId, isDeleted: false })
       .populate('assignee', 'name email profile')
       .populate('createdBy', 'name email profile')
       .populate('completedBy', 'name email profile')
-      .populate('dependencies', 'title status currentStage')
-      .populate('project', 'name projectManagers teamMembers');
+      .populate('approvedBy', 'name email profile')
+      .populate('comments.user', 'name email profile');
 
     if (!task) {
-      return res.status(404).json({ message: "Task not found." });
+      return res.status(404).json({ success: false, message: 'Task not found.' });
     }
 
     const project = await Project.findById(task.project);
     const workspace = await Workspace.findById(project.workspace);
 
     if (!canViewTask(workspace, project, userId, task)) {
-      return res.status(403).json({ message: "Access denied." });
+      return res.status(403).json({ success: false, message: 'Access denied.' });
     }
 
-    // Get dependent tasks (tasks that depend on this one)
-    const dependentTasks = await Task.find({ dependencies: taskId })
-      .populate('assignee', 'name email')
-      .select('title status assignee');
-
-    const taskObj = task.toObject();
-    taskObj.dependentTasks = dependentTasks;
-    taskObj.userRole = isWorkspaceOwner(workspace, userId) ? 'workspaceOwner' : 
-                       (isProjectManager(project, userId) ? 'projectManager' : 'teamMember');
-    taskObj.canManage = canManageTasks(workspace, project, userId);
-
-    res.status(200).json({
-      success: true,
-      task: taskObj
-    });
+    res.status(200).json({ success: true, task });
   } catch (error) {
+    console.error('❌ Get task error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// UPDATE TASK (Owner + Project Managers)
+// ─────────────────────────────────────────────────────────────────────
+// UPDATE TASK  (Owner / PM only — assignees cannot redefine a task)
 // PUT /api/tasks/:taskId
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
 
 const updateTask = async (req, res) => {
   try {
     const userId = req.user.id;
     const { taskId } = req.params;
+
+    const task = await Task.findOne({ _id: taskId, isDeleted: false });
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found.' });
+    }
+
+    const project = await Project.findById(task.project);
+    const workspace = await Workspace.findById(project.workspace);
+
+    if (!canManageTasks(workspace, project, userId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the workspace owner or project managers can edit tasks.',
+      });
+    }
+
     const {
       title,
       description,
-      assigneeId,
+      detailedDescription,
+      taskType,
       priority,
+      status,
       dueDate,
       estimatedHours,
-      status,
-      dependencies
+      actualHours,
     } = req.body;
 
-    const task = await Task.findById(taskId);
-    if (!task) {
-      return res.status(404).json({ message: "Task not found." });
-    }
-
-    const project = await Project.findById(task.project);
-    const workspace = await Workspace.findById(project.workspace);
-
-    // Only owner or project managers can update tasks
-    if (!canManageTasks(workspace, project, userId)) {
-      return res.status(403).json({ message: "Only workspace owner or project managers can update tasks." });
-    }
-
-    // Update fields
-    if (title) task.title = title.trim();
-    if (description !== undefined) task.description = description?.trim() || '';
-    if (priority) task.priority = priority;
+    if (title !== undefined) task.title = title.trim();
+    if (description !== undefined) task.description = description;
+    if (detailedDescription !== undefined) task.detailedDescription = detailedDescription;
+    if (taskType !== undefined) task.taskType = taskType;
+    if (priority !== undefined) task.priority = priority;
     if (dueDate !== undefined) task.dueDate = dueDate;
     if (estimatedHours !== undefined) task.estimatedHours = estimatedHours;
-    if (status) task.status = status;
-    if (dependencies) task.dependencies = dependencies.map(dep => new mongoose.Types.ObjectId(dep));
+    if (actualHours !== undefined) task.actualHours = actualHours;
 
-    // Update assignee
-    if (assigneeId !== undefined && assigneeId !== task.assignee?.toString()) {
-      if (assigneeId === null) {
-        task.assignee = null;
-      } else {
-        // Verify new assignee is project member
-        const isValid = project.teamMembers.some(
-          tm => tm.user.toString() === assigneeId && tm.status === 'active'
-        ) || project.projectManagers.some(pm => pm.toString() === assigneeId);
-        
-        if (!isValid) {
-          return res.status(400).json({ message: "Assignee must be an active project member." });
-        }
-        task.assignee = assigneeId;
-      }
+    // Status changes here are limited — completion must go through review/approve
+    if (status !== undefined && !['completed'].includes(status)) {
+      task.status = status;
     }
 
-    await task.save();
-    await updateProjectProgress(task.project);
-
-    const updatedTask = await Task.findById(taskId)
-      .populate('assignee', 'name email profile')
-      .populate('createdBy', 'name email profile')
-      .populate('dependencies', 'title status');
-
-    res.status(200).json({
-      success: true,
-      message: 'Task updated successfully',
-      task: updatedTask
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// REASSIGN TASK (Owner + Project Managers) - Quick reassignment endpoint
-// PATCH /api/tasks/:taskId/reassign
-// ─────────────────────────────────────────────────────────────────────────────
-
-const reassignTask = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { taskId } = req.params;
-    const { assigneeId, reason } = req.body;
-
-    const task = await Task.findById(taskId);
-    if (!task) {
-      return res.status(404).json({ message: "Task not found." });
+    if (req.body.links !== undefined) task.links = parseArrayField(req.body.links);
+    if (req.body.dependencies !== undefined) {
+      task.dependencies = parseArrayField(req.body.dependencies);
     }
 
-    const project = await Project.findById(task.project);
-    const workspace = await Workspace.findById(project.workspace);
-
-    if (!canManageTasks(workspace, project, userId)) {
-      return res.status(403).json({ message: "Only workspace owner or project managers can reassign tasks." });
-    }
-
-    const previousAssignee = task.assignee;
-
-    // Validate new assignee
-    if (assigneeId) {
-      const isValid = project.teamMembers.some(
-        tm => tm.user.toString() === assigneeId && tm.status === 'active'
-      ) || project.projectManagers.some(pm => pm.toString() === assigneeId);
-      
-      if (!isValid) {
-        return res.status(400).json({ message: "New assignee must be an active project member." });
-      }
-    }
-
-    task.assignee = assigneeId || null;
-    task.reassignmentHistory = task.reassignmentHistory || [];
-    task.reassignmentHistory.push({
-      from: previousAssignee,
-      to: assigneeId,
-      reassignedBy: userId,
-      reason: reason || 'Task reassigned',
-      reassignedAt: new Date()
-    });
-
-    await task.save();
-
-    const updatedTask = await Task.findById(taskId)
-      .populate('assignee', 'name email profile')
-      .populate('reassignmentHistory.reassignedBy', 'name email');
-
-    res.status(200).json({
-      success: true,
-      message: `Task reassigned successfully`,
-      task: updatedTask
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// UPDATE TASK STAGE (Assignee, Project Managers, or Owner)
-// PATCH /api/tasks/:taskId/stage
-// ─────────────────────────────────────────────────────────────────────────────
-
-const updateTaskStage = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { taskId } = req.params;
-    const { stageName, notes, actualHours } = req.body;
-
-    if (!stageName) {
-      return res.status(400).json({ message: "Stage name is required." });
-    }
-
-    const task = await Task.findById(taskId);
-    if (!task) {
-      return res.status(404).json({ message: "Task not found." });
-    }
-
-    const project = await Project.findById(task.project);
-    const workspace = await Workspace.findById(project.workspace);
-
-    // Check permissions
-    const isOwner = isWorkspaceOwner(workspace, userId);
-    const isPM = isProjectManager(project, userId);
-    const isAssignee = task.assignee?.toString() === userId;
-
-    if (!isOwner && !isPM && !isAssignee) {
-      return res.status(403).json({ message: "Only assignee, project managers, or workspace owner can update stages." });
-    }
-
-    // Find stage
-    const stageIndex = task.stages.findIndex(s => s.name === stageName);
-    if (stageIndex === -1) {
-      return res.status(400).json({ message: "Invalid stage name." });
-    }
-
-    // Check dependencies if trying to start
-    if (stageName === 'In Progress' && !task.stages[stageIndex].completed) {
-      const blockingDeps = await Task.find({
-        _id: { $in: task.dependencies },
-        status: { $ne: 'completed' }
-      });
-      
-      if (blockingDeps.length > 0) {
-        return res.status(400).json({
-          message: "Cannot start task. Dependencies not completed.",
-          blockingDependencies: blockingDeps.map(d => ({ id: d._id, title: d.title }))
+    // New attachments are appended
+    if (req.files?.attachments) {
+      for (const file of req.files.attachments) {
+        task.attachments.push({
+          name: file.originalname,
+          url: file.path,
+          publicId: file.filename || file.public_id,
+          size: file.size,
+          type: file.mimetype,
         });
       }
     }
 
-    // Mark stage complete
-    if (!task.stages[stageIndex].completed) {
-      // Check sequential completion
-      for (let i = 0; i < stageIndex; i++) {
-        if (!task.stages[i].completed) {
-          return res.status(400).json({ 
-            message: `Complete "${task.stages[i].name}" first.` 
-          });
-        }
-      }
-      
-      task.stages[stageIndex].completed = true;
-      task.stages[stageIndex].completedAt = new Date();
-      task.stages[stageIndex].completedBy = userId;
-      if (notes) task.stages[stageIndex].notes = notes;
-      
-      // Move to next stage or complete
-      const nextIncomplete = task.stages.findIndex((s, idx) => idx > stageIndex && !s.completed);
-      if (nextIncomplete !== -1) {
-        task.currentStage = task.stages[nextIncomplete].name;
-      } else {
-        task.currentStage = stageName;
-        const allDone = task.stages.every(s => s.completed);
-        if (allDone) {
-          task.status = 'review'; // Ready for PM review, not fully completed
-        }
-      }
-    }
-
-    if (actualHours) task.actualHours = actualHours;
-
     await task.save();
     await updateProjectProgress(task.project);
 
-    const updatedTask = await Task.findById(taskId)
+    const updated = await Task.findById(taskId)
       .populate('assignee', 'name email profile')
-      .populate('stages.completedBy', 'name email profile');
+      .populate('createdBy', 'name email profile');
 
-    res.status(200).json({
-      success: true,
-      message: 'Task stage updated',
-      task: updatedTask
-    });
+    res.status(200).json({ success: true, message: 'Task updated', task: updated });
   } catch (error) {
+    console.error('❌ Update task error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// APPROVE TASK COMPLETION (Owner + Project Managers only)
-// PATCH /api/tasks/:taskId/approve
-// ─────────────────────────────────────────────────────────────────────────────
-
-const approveTaskCompletion = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { taskId } = req.params;
-    const { feedback, finalHours } = req.body;
-
-    const task = await Task.findById(taskId);
-    if (!task) {
-      return res.status(404).json({ message: "Task not found." });
-    }
-
-    const project = await Project.findById(task.project);
-    const workspace = await Workspace.findById(project.workspace);
-
-    if (!canManageTasks(workspace, project, userId)) {
-      return res.status(403).json({ message: "Only workspace owner or project managers can approve task completion." });
-    }
-
-    // Verify all stages done
-    const allStagesDone = task.stages.every(s => s.completed);
-    if (!allStagesDone) {
-      return res.status(400).json({ 
-        message: "Cannot approve. Not all stages completed.",
-        incompleteStages: task.stages.filter(s => !s.completed).map(s => s.name)
-      });
-    }
-
-    task.status = 'completed';
-    task.completedAt = new Date();
-    task.completedBy = userId;
-    task.approvedBy = userId;
-    if (finalHours) task.actualHours = finalHours;
-    if (feedback) task.completionFeedback = feedback;
-
-    await task.save();
-    await updateProjectProgress(task.project);
-
-    const completedTask = await Task.findById(taskId)
-      .populate('assignee', 'name email profile')
-      .populate('completedBy', 'name email profile')
-      .populate('approvedBy', 'name email profile');
-
-    res.status(200).json({
-      success: true,
-      message: 'Task approved and completed',
-      task: completedTask
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// DELETE TASK (Owner + Project Managers)
+// ─────────────────────────────────────────────────────────────────────
+// DELETE TASK  (Owner / PM only) — also removes its Feedback entries
 // DELETE /api/tasks/:taskId
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
 
 const deleteTask = async (req, res) => {
   try {
     const userId = req.user.id;
     const { taskId } = req.params;
 
-    const task = await Task.findById(taskId);
+    const task = await Task.findOne({ _id: taskId, isDeleted: false });
     if (!task) {
-      return res.status(404).json({ message: "Task not found." });
+      return res.status(404).json({ success: false, message: 'Task not found.' });
     }
 
     const project = await Project.findById(task.project);
     const workspace = await Workspace.findById(project.workspace);
 
     if (!canManageTasks(workspace, project, userId)) {
-      return res.status(403).json({ message: "Only workspace owner or project managers can delete tasks." });
+      return res.status(403).json({
+        success: false,
+        message: 'Only the workspace owner or project managers can delete tasks.',
+      });
     }
 
     const projectId = task.project;
-    await task.deleteOne();
+
+    // Soft-delete the task + wipe its feedback history
+    task.isDeleted = true;
+    await task.save();
+    await Feedback.deleteMany({ task: taskId });
+
+    // Best-effort cleanup of Cloudinary files
+    for (const att of task.attachments || []) {
+      if (att.publicId) {
+        cloudinary.uploader.destroy(att.publicId).catch(() => {});
+      }
+    }
+
     await updateProjectProgress(projectId);
 
-    res.status(200).json({
-      success: true,
-      message: 'Task deleted successfully'
-    });
+    res.status(200).json({ success: true, message: 'Task deleted' });
   } catch (error) {
+    console.error('❌ Delete task error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HELPER: Update project progress based on completed tasks
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
+// SUBMIT PROGRESS  (Assignee only)
+// PATCH /api/tasks/:taskId/progress
+//
+// Creates a 'progress_update' Feedback entry and stores it as
+// submittedProgress. Task.progress (the confirmed number) does NOT
+// move until a PM/owner approves via /review.
+// ─────────────────────────────────────────────────────────────────────
 
-const updateProjectProgress = async (projectId) => {
-  const stats = await Task.aggregate([
-    { $match: { project: new mongoose.Types.ObjectId(projectId) } },
-    {
-      $group: {
-        _id: null,
-        total: { $sum: 1 },
-        completed: {
-          $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] }
-        }
-      }
-    }
-  ]);
-
-  if (stats.length > 0) {
-    const progress = Math.round((stats[0].completed / stats[0].total) * 100);
-    await Project.findByIdAndUpdate(projectId, { 
-      progress,
-      $set: { 
-        status: progress === 100 ? 'completed' : progress > 0 ? 'in-progress' : 'planning'
-      }
-    });
-  }
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ADD TASK COMMENT (Owner, PMs, Assignee)
-// POST /api/tasks/:taskId/comments
-// ─────────────────────────────────────────────────────────────────────────────
-
-const addComment = async (req, res) => {
+const updateTaskProgress = async (req, res) => {
   try {
     const userId = req.user.id;
     const { taskId } = req.params;
-    const { comment, mentions = [] } = req.body;
+    const { progress, notes = '' } = req.body;
+    const links = parseArrayField(req.body.links);
+    const attachments = parseArrayField(req.body.attachments);
 
-    if (!comment?.trim()) {
-      return res.status(400).json({ message: "Comment is required." });
+    if (progress === undefined || progress === null || progress < 0 || progress > 100) {
+      return res.status(400).json({
+        success: false,
+        message: 'Progress must be a number between 0 and 100.',
+      });
     }
 
-    const task = await Task.findById(taskId);
+    const task = await Task.findOne({ _id: taskId, isDeleted: false });
     if (!task) {
-      return res.status(404).json({ message: "Task not found." });
+      return res.status(404).json({ success: false, message: 'Task not found.' });
+    }
+
+    // Only the assignee reports progress on their own task
+    if (task.assignee?.toString() !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the assignee can submit progress for this task.',
+      });
+    }
+
+    if (task.status === 'completed') {
+      return res.status(400).json({
+        success: false,
+        message: 'This task is already completed.',
+      });
+    }
+
+    const feedback = await Feedback.create({
+      task: taskId,
+      user: userId,
+      type: 'progress_update',
+      progress,
+      notes,
+      links,
+      attachments,
+    });
+
+    // Awaiting confirmation — confirmed progress stays put
+    task.submittedProgress = progress;
+    task.status = progress >= 100 ? 'review' : 'in-progress';
+    await task.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Progress submitted, awaiting review.',
+      task,
+      feedback,
+    });
+  } catch (error) {
+    console.error('❌ Submit progress error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// REVIEW PROGRESS  (Owner / PM only)
+// PATCH /api/tasks/:taskId/review
+// body: { approved: boolean, feedback?: string, approvedProgress?: number }
+//
+// approve → confirmed progress moves to approvedProgress ?? submittedProgress
+//           (100 ⇒ task completed)
+// reject  → submittedProgress rolls back to last confirmed progress
+// ─────────────────────────────────────────────────────────────────────
+
+const reviewTaskProgress = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId } = req.params;
+    const { approved, feedback: reviewFeedback = '', approvedProgress } = req.body;
+
+    if (typeof approved !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        message: '"approved" (boolean) is required.',
+      });
+    }
+
+    const task = await Task.findOne({ _id: taskId, isDeleted: false });
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found.' });
     }
 
     const project = await Project.findById(task.project);
     const workspace = await Workspace.findById(project.workspace);
 
-    // Check access
-    const isOwner = isWorkspaceOwner(workspace, userId);
-    const isPM = isProjectManager(project, userId);
-    const isAssignee = task.assignee?.toString() === userId;
-    const isMember = isProjectMember(project, userId);
-
-    if (!isOwner && !isPM && !isAssignee && !isMember) {
-      return res.status(403).json({ message: "Access denied." });
+    if (!canManageTasks(workspace, project, userId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the workspace owner or project managers can review progress.',
+      });
     }
 
-    // Filter valid mentions to project members only
-    const validMentions = mentions.filter(m => 
-      project.teamMembers.some(tm => tm.user.toString() === m && tm.status === 'active') ||
-      project.projectManagers.some(pm => pm.toString() === m)
-    );
+    if (approved) {
+      const confirmed =
+        approvedProgress !== undefined && approvedProgress !== null
+          ? Math.min(100, Math.max(0, approvedProgress))
+          : task.submittedProgress;
 
-    task.comments.push({
-      user: userId,
-      comment: comment.trim(),
-      mentions: validMentions,
-      createdAt: new Date()
+      task.progress = confirmed;
+      task.submittedProgress = confirmed;
+      task.approved = true;
+      task.approvedBy = userId;
+      task.approvedAt = new Date();
+
+      if (confirmed >= 100) {
+        task.status = 'completed';
+        task.completedAt = new Date();
+        task.completedBy = task.assignee;
+        task.completionFeedback = reviewFeedback;
+        task.stages.forEach((s) => {
+          if (!s.completed) {
+            s.completed = true;
+            s.completedAt = new Date();
+            s.completedBy = userId;
+          }
+        });
+      } else {
+        task.status = confirmed > 0 ? 'in-progress' : 'pending';
+      }
+
+      await Feedback.create({
+        task: taskId,
+        user: userId,
+        type: 'review',
+        progress: confirmed,
+        notes: reviewFeedback,
+        approved: true,
+        feedback: reviewFeedback,
+        reviewedBy: userId,
+        reviewedAt: new Date(),
+      });
+    } else {
+      // Reject: submission is thrown out, confirmed progress stays
+      task.submittedProgress = task.progress;
+      task.approved = false;
+      if (task.status === 'review') {
+        task.status = task.progress > 0 ? 'in-progress' : 'pending';
+      }
+
+      await Feedback.create({
+        task: taskId,
+        user: userId,
+        type: 'review',
+        progress: task.progress,
+        notes: reviewFeedback,
+        approved: false,
+        feedback: reviewFeedback,
+        reviewedBy: userId,
+        reviewedAt: new Date(),
+      });
+    }
+
+    await task.save();
+    await updateProjectProgress(task.project);
+
+    const updated = await Task.findById(taskId)
+      .populate('assignee', 'name email profile')
+      .populate('createdBy', 'name email profile');
+
+    res.status(200).json({
+      success: true,
+      message: approved ? 'Progress approved.' : 'Progress rejected.',
+      task: updated,
     });
+  } catch (error) {
+    console.error('❌ Review progress error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// DAILY CHECK-IN  (Assignee only)
+// POST /api/tasks/:taskId/daily-report
+// body: { notes, links?, blocks?, progress? }
+//
+// One report per task per user per day — submitting again the same
+// day UPDATES the existing report. If `progress` is included it is
+// treated like a progress submission (awaiting review).
+// ─────────────────────────────────────────────────────────────────────
+
+const submitDailyReport = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId } = req.params;
+    const { notes = '', progress } = req.body;
+    const links = parseArrayField(req.body.links);
+    const blocks = parseArrayField(req.body.blocks);
+    const attachments = parseArrayField(req.body.attachments);
+
+    if (!notes.trim() && blocks.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please describe what you worked on today.',
+      });
+    }
+
+    const task = await Task.findOne({ _id: taskId, isDeleted: false });
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found.' });
+    }
+
+    if (task.assignee?.toString() !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the assignee can check in on this task.',
+      });
+    }
+
+    const project = await Project.findById(task.project);
+
+    // Late check: project.dailyReportTime "HH:mm"
+    const now = new Date();
+    const [h, m] = (project.dailyReportTime || '17:00').split(':').map(Number);
+    const cutoff = new Date(now);
+    cutoff.setHours(h || 17, m || 0, 0, 0);
+    const isLate = now > cutoff;
+
+    // One report per day: find today's existing report
+    const startOfDay = new Date(now);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(now);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    let report = await Feedback.findOne({
+      task: taskId,
+      user: userId,
+      type: 'daily_report',
+      createdAt: { $gte: startOfDay, $lte: endOfDay },
+    });
+
+    if (report) {
+      report.notes = notes;
+      report.links = links;
+      report.blocks = blocks;
+      report.attachments = attachments;
+      report.isLate = report.isLate || isLate; // once late, stays late
+      if (progress !== undefined && progress !== null) report.progress = progress;
+      await report.save();
+    } else {
+      report = await Feedback.create({
+        task: taskId,
+        user: userId,
+        type: 'daily_report',
+        progress: progress ?? task.submittedProgress,
+        notes,
+        links,
+        blocks,
+        attachments,
+        isLate,
+      });
+    }
+
+    // Optional: check-in can also carry a progress submission
+    if (progress !== undefined && progress !== null && task.status !== 'completed') {
+      task.submittedProgress = progress;
+      task.status = progress >= 100 ? 'review' : 'in-progress';
+      await task.save();
+    }
+
+    res.status(report.createdAt >= startOfDay && report.updatedAt > report.createdAt ? 200 : 201).json({
+      success: true,
+      message: report.createdAt < startOfDay ? 'Daily report submitted.' : 'Daily report saved.',
+      dailyReport: report,
+      isLate: report.isLate,
+    });
+  } catch (error) {
+    console.error('❌ Daily report error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// REASSIGN TASK  (Owner / PM only)
+// PATCH /api/tasks/:taskId/reassign
+// ─────────────────────────────────────────────────────────────────────
+
+const reassignTask = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId } = req.params;
+    const { assigneeId, reason = '' } = req.body;
+
+    if (!assigneeId) {
+      return res.status(400).json({ success: false, message: 'assigneeId is required.' });
+    }
+
+    const task = await Task.findOne({ _id: taskId, isDeleted: false });
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found.' });
+    }
+
+    const project = await Project.findById(task.project);
+    const workspace = await Workspace.findById(project.workspace);
+
+    if (!canManageTasks(workspace, project, userId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the workspace owner or project managers can reassign tasks.',
+      });
+    }
+
+    await ensureProjectMember(project, workspace, assigneeId);
+
+    task.reassignmentHistory.push({
+      from: task.assignee,
+      to: assigneeId,
+      reassignedBy: userId,
+      reason,
+    });
+    task.assignee = assigneeId;
+
+    // Fresh assignee starts from confirmed state; pending submissions are void
+    task.submittedProgress = task.progress;
+    if (task.status === 'review') {
+      task.status = task.progress > 0 ? 'in-progress' : 'pending';
+    }
 
     await task.save();
 
-    const updatedTask = await Task.findById(taskId)
-      .populate('comments.user', 'name email profile')
-      .populate('comments.mentions', 'name email');
+    const updated = await Task.findById(taskId)
+      .populate('assignee', 'name email profile')
+      .populate('createdBy', 'name email profile');
 
-    res.status(200).json({
-      success: true,
-      message: 'Comment added',
-      comments: updatedTask.comments
-    });
+    res.status(200).json({ success: true, message: 'Task reassigned', task: updated });
   } catch (error) {
+    console.error('❌ Reassign task error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET USER'S TASKS ACROSS PROJECTS
-// GET /api/tasks/my-tasks
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
+// UPDATE TASK STAGE  (Assignee / Owner / PM)
+// PATCH /api/tasks/:taskId/stage
+// ─────────────────────────────────────────────────────────────────────
 
-const getMyTasks = async (req, res) => {
+const updateTaskStage = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { status, priority, workspaceId } = req.query;
+    const { taskId } = req.params;
+    const { stageName, notes = '', actualHours } = req.body;
 
-    const query = { assignee: userId };
-    if (status) query.status = status;
-    if (priority) query.priority = priority;
-    if (workspaceId) query.workspace = workspaceId;
+    const task = await Task.findOne({ _id: taskId, isDeleted: false });
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found.' });
+    }
 
-    const tasks = await Task.find(query)
-      .populate('project', 'name status')
-      .populate('workspace', 'name')
-      .sort({ dueDate: 1, priority: -1 });
+    const project = await Project.findById(task.project);
+    const workspace = await Workspace.findById(project.workspace);
 
-    // Group by project
-    const groupedByProject = tasks.reduce((acc, task) => {
-      const projId = task.project._id.toString();
-      if (!acc[projId]) {
-        acc[projId] = {
-          project: task.project,
-          workspace: task.workspace,
-          tasks: []
-        };
-      }
-      acc[projId].tasks.push(task);
-      return acc;
-    }, {});
+    const isAssignee = task.assignee?.toString() === userId;
+    if (!isAssignee && !canManageTasks(workspace, project, userId)) {
+      return res.status(403).json({ success: false, message: 'Access denied.' });
+    }
 
-    res.status(200).json({
-      success: true,
-      tasks: tasks,
-      groupedByProject: Object.values(groupedByProject),
-      stats: {
-        total: tasks.length,
-        completed: tasks.filter(t => t.status === 'completed').length,
-        pending: tasks.filter(t => t.status === 'pending').length,
-        inProgress: tasks.filter(t => t.status === 'in-progress').length,
-        overdue: tasks.filter(t => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== 'completed').length
-      }
-    });
+    const stage = task.stages.find((s) => s.name === stageName);
+    if (!stage) {
+      return res.status(404).json({ success: false, message: 'Stage not found.' });
+    }
+
+    stage.completed = true;
+    stage.completedAt = new Date();
+    stage.completedBy = userId;
+    if (notes) stage.notes = notes;
+    if (actualHours !== undefined) task.actualHours = actualHours;
+
+    // Move pointer to next incomplete stage
+    const next = task.stages
+      .filter((s) => !s.completed)
+      .sort((a, b) => a.order - b.order)[0];
+    task.currentStage = next ? next.name : 'Done';
+
+    await task.save();
+
+    res.status(200).json({ success: true, message: 'Stage updated', task });
   } catch (error) {
+    console.error('❌ Update stage error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
+// APPROVE TASK COMPLETION  (Owner / PM)
+// PATCH /api/tasks/:taskId/approve
+// Kept for frontend compatibility — equivalent to a review approval at 100%.
+// ─────────────────────────────────────────────────────────────────────
 
+const approveTaskCompletion = async (req, res) => {
+  req.body.approved = true;
+  req.body.approvedProgress = 100;
+  req.body.feedback = req.body.feedback || req.body.completionFeedback || '';
+  if (req.body.finalHours !== undefined) {
+    await Task.findByIdAndUpdate(req.params.taskId, {
+      actualHours: req.body.finalHours,
+      finalLinks: parseArrayField(req.body.finalLinks),
+      finalAttachments: parseArrayField(req.body.finalAttachments),
+    });
+  }
+  return reviewTaskProgress(req, res);
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// ADD COMMENT  (anyone who can view the task)
+// POST /api/tasks/:taskId/comments
+// ─────────────────────────────────────────────────────────────────────
+
+const addComment = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId } = req.params;
+    const { comment } = req.body;
+    const mentions = parseArrayField(req.body.mentions);
+    const attachments = parseArrayField(req.body.attachments);
+
+    if (!comment?.trim()) {
+      return res.status(400).json({ success: false, message: 'Comment is required.' });
+    }
+
+    const task = await Task.findOne({ _id: taskId, isDeleted: false });
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found.' });
+    }
+
+    const project = await Project.findById(task.project);
+    const workspace = await Workspace.findById(project.workspace);
+
+    if (!canViewTask(workspace, project, userId, task)) {
+      return res.status(403).json({ success: false, message: 'Access denied.' });
+    }
+
+    task.comments.push({ user: userId, comment: comment.trim(), mentions, attachments });
+    await task.save();
+
+    const updated = await Task.findById(taskId).populate(
+      'comments.user',
+      'name email profile'
+    );
+
+    res.status(201).json({
+      success: true,
+      message: 'Comment added',
+      comments: updated.comments,
+    });
+  } catch (error) {
+    console.error('❌ Add comment error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// GET TASK FEEDBACK  (full history: progress updates, reports, reviews)
+// GET /api/tasks/:taskId/feedback?type=progress_update|daily_report|review
+// ─────────────────────────────────────────────────────────────────────
+
+const getTaskFeedback = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId } = req.params;
+    const { type } = req.query;
+
+    const task = await Task.findById(taskId);
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found.' });
+    }
+
+    const project = await Project.findById(task.project);
+    const workspace = await Workspace.findById(project.workspace);
+
+    if (!canViewTask(workspace, project, userId, task)) {
+      return res.status(403).json({ success: false, message: 'Access denied.' });
+    }
+
+    const query = { task: taskId };
+    if (type && ['progress_update', 'daily_report', 'review'].includes(type)) {
+      query.type = type;
+    }
+
+    const feedback = await Feedback.find(query)
+      .populate('user', 'name email profile')
+      .populate('reviewedBy', 'name email profile')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({ success: true, feedback, count: feedback.length });
+  } catch (error) {
+    console.error('❌ Get task feedback error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─── EXPORTS ──────────────────────────────────────────────────────────
 export {
   createTask,
   getProjectTasks,
+  getMyTasks,
   getTaskById,
   updateTask,
+  deleteTask,
+  updateTaskProgress,
+  reviewTaskProgress,
+  submitDailyReport,
   reassignTask,
   updateTaskStage,
   approveTaskCompletion,
-  deleteTask,
   addComment,
-  getMyTasks
+  getTaskFeedback,
 };

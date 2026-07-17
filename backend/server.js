@@ -7,11 +7,11 @@ import cookieParser from "cookie-parser";
 
 //routes
 import userRoutes from "./routes/userRoutes.js";
-import workspaceRoutes from './routes/workspaceRoutes.js';
-import teamRoutes from './routes/teamRoutes.js';
-import taskRoutes from './routes/taskRoutes.js';
-import messagingRoutes from './routes/messagingRoutes.js';
-import projectRoutes from './routes/projectRoutes.js';
+import workspaceRoutes from "./routes/workspaceRoutes.js";
+import teamRoutes from "./routes/teamRoutes.js";
+import taskRoutes from "./routes/taskRoutes.js";
+import messagingRoutes from "./routes/messagingRoutes.js";
+import projectRoutes from "./routes/projectRoutes.js";
 
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 import { initSocket } from "./controllers/socket.js";
@@ -44,12 +44,12 @@ app.get("/api/health", (req, res) => {
 });
 
 // ✅ Routes
-app.use("/api/user", userRoutes);
-app.use('/api/workspaces', workspaceRoutes);
-app.use('/api/team', teamRoutes);
-app.use('/api/tasks', taskRoutes);
-app.use('/api/message', messagingRoutes);
-app.use('/api/projects', projectRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/workspaces", workspaceRoutes);
+app.use("/api/team", teamRoutes);
+app.use("/api/tasks", taskRoutes);
+app.use("/api/messages", messagingRoutes);
+app.use("/api/projects", projectRoutes);
 
 // ✅ Error middleware order (notFound first)
 app.use(notFound);
@@ -60,15 +60,15 @@ mongoose
   .connect(MONGO_URL)
   .then(() => {
     console.log("✅ Connected to MongoDB");
-    
+
     // Initialize Socket.io after MongoDB connection
     const io = initSocket(server);
-    
+
     // Make io available to routes if needed
-    app.set('io', io);
-    
-    server.listen(PORT, "0.0.0.0", () => {
-      console.log(`✅ Server running on http://0.0.0.0:${PORT}`);
+    app.set("io", io);
+
+    server.listen(PORT, () => {
+      console.log(`✅ Server running on http://localhost:${PORT}`);
       console.log(`✅ Socket.io ready for connections`);
     });
   })

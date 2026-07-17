@@ -1,7 +1,5 @@
-// routes/workspaceRoutes.js
-
-import express from 'express'
-import { protect } from "../middleware/authMiddleware.js";
+import express from 'express';
+import { protect } from '../middleware/authMiddleware.js';
 import {
   createWorkspace,
   getMyWorkspaces,
@@ -12,18 +10,51 @@ import {
   removeMember,
   regenerateInviteCode,
   migrateWorkspaces,
-} from "../controllers/workspaceController.js";
+} from '../controllers/workspaceController.js';
+
+import multer from 'multer';
+import { v2 as cloudinary } from 'cloudinary';
+import { CloudinaryStorage } from 'multer-storage-cloudinary';
 
 const router = express.Router();
 
-router.post("/",              protect, createWorkspace);
-router.get("/my",             protect, getMyWorkspaces);
-router.get("/:id",            protect, getWorkspace);
-router.put("/:id",            protect, updateWorkspace);
-router.delete("/:id",         protect, deleteWorkspace);
-router.post("/:id/leave",     protect, leaveWorkspace);
-router.delete("/:id/members/:memberId", protect, removeMember);
-router.patch("/:id/invite-code", protect, regenerateInviteCode);
-router.post("/migrate",       protect, migrateWorkspaces);
+// ── Cloudinary config ──────────────────────────────────────────────────────
+cloudinary.config({
+  cloud_name: process.env.CLOUD_NAME,
+  api_key: process.env.API_KEY,
+  api_secret: process.env.API_SECRET,
+});
+
+// ── Multer storage for workspace logos ───────────────────────────────────
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: 'Xircle_WorkspaceLogos',
+    allowed_formats: ['jpg', 'png', 'jpeg', 'webp', 'avif'],
+    transformation: [{ width: 300, height: 300, crop: 'limit' }],
+  },
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+});
+
+// ── Routes ────────────────────────────────────────────────────────────────
+
+// Create workspace with optional logo upload
+router.post('/', protect, upload.single('logo'), createWorkspace);
+
+router.get('/my', protect, getMyWorkspaces);
+router.get('/:id', protect, getWorkspace);
+
+// Update workspace with optional logo upload
+router.put('/:id', protect, upload.single('logo'), updateWorkspace);
+
+router.delete('/:id', protect, deleteWorkspace);
+router.post('/:id/leave', protect, leaveWorkspace);
+router.delete('/:id/members/:memberId', protect, removeMember);
+router.patch('/:id/invite-code', protect, regenerateInviteCode);
+router.post('/migrate', protect, migrateWorkspaces);
 
 export default router;

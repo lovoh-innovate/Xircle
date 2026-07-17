@@ -1,26 +1,60 @@
+// middleware/errorMiddleware.js
+
+/**
+ * 404 Not Found middleware
+ * Creates an error and passes it to the error handler
+ */
 const notFound = (req, res, next) => {
-    const error = new Error(`Not Found`);
-    error.status = 404;
-    next(error);
+  const error = new Error(`Not Found - ${req.originalUrl}`);
+  error.status = 404;
+  next(error);
 };
 
+/**
+ * Global error handler
+ * Handles all errors and sends appropriate status & message
+ */
 const errorHandler = (err, req, res, next) => {
-    let statusCode = res.statusCode === 200 ? 500 : res.statusCode;
-    let message = err.message;
+  // ✅ Read status from error object first
+  let statusCode = err.status || err.statusCode || 500;
+  let message = err.message || 'Something went wrong';
 
-    //Mongoose bad ObjectId
-    if(err.name === 'CastError' && err.kind === 'ObjectId'){
-        statusCode = 404;
-        message = 'Resource not found';
-    }
+  // ✅ Mongoose bad ObjectId
+  if (err.name === 'CastError' && err.kind === 'ObjectId') {
+    statusCode = 404;
+    message = 'Resource not found';
+  }
 
-    res.status(statusCode).json({
-        message,
-        stack: process.env.NODE_ENV === 'production' ? null : err.stack
-    });
-}
+  // ✅ Mongoose duplicate key error (e.g., duplicate email)
+  if (err.code === 11000) {
+    statusCode = 400;
+    const field = Object.keys(err.keyPattern)[0];
+    message = `${field} already exists`;
+  }
 
-export {
-    notFound,
-    errorHandler
-}
+  // ✅ Mongoose validation error
+  if (err.name === 'ValidationError') {
+    statusCode = 400;
+    message = Object.values(err.errors).map(e => e.message).join(', ');
+  }
+
+  // ✅ JWT errors
+  if (err.name === 'JsonWebTokenError') {
+    statusCode = 401;
+    message = 'Invalid token. Please login again.';
+  }
+
+  if (err.name === 'TokenExpiredError') {
+    statusCode = 401;
+    message = 'Token expired. Please login again.';
+  }
+
+  // Send response
+  res.status(statusCode).json({
+    success: false,
+    message,
+    stack: process.env.NODE_ENV === 'production' ? null : err.stack,
+  });
+};
+
+export { notFound, errorHandler };

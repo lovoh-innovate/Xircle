@@ -1,4 +1,3 @@
-// models/Workspace.js
 import mongoose from "mongoose";
 
 const memberSchema = new mongoose.Schema({
@@ -23,6 +22,7 @@ const workspaceSchema = new mongoose.Schema(
     description: { type: String, default: "" },
     initials:    { type: String },
     color:       { type: String, default: "#1a3a6b" },
+    logo:        { type: String, default: "" },
     size:        { type: String, default: "" },
     website:     { type: String, default: "" },
     location:    { type: String, default: "" },
@@ -35,6 +35,17 @@ const workspaceSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+// ✅ FIXED: No `next` parameter – just use a regular function
+workspaceSchema.pre("save", function () {
+  if (this.isModified("name") && this.name) {
+    const words = this.name.trim().split(/\s+/);
+    this.initials = words
+      .slice(0, 2)
+      .map((w) => w[0]?.toUpperCase() || "")
+      .join("");
+  }
+});
 
 // Index for faster queries
 workspaceSchema.index({ inviteCode: 1 });

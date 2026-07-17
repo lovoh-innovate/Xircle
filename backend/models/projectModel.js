@@ -1,112 +1,175 @@
-// projectModel.js
+// models/projectModel.js
 import mongoose from 'mongoose';
 
-const projectSchema = new mongoose.Schema({
-  workspace: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Workspace',
-    required: true,
-    index: true
-  },
-  name: {
-    type: String,
-    required: true,
-    trim: true
-  },
-  description: {
-    type: String,
-    trim: true,
-    default: ''
-  },
-  createdBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
-  },
-  // Multiple project managers supported
-  projectManagers: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
-  }],
-  // Team members with roles
-  teamMembers: [{
-    user: {
+const projectSchema = new mongoose.Schema(
+  {
+    workspace: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Workspace',
+      required: true,
+      index: true,
+    },
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    description: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    detailedDescription: {
+      type: String,
+      default: '',
+    },
+    links: [
+      {
+        type: String,
+      },
+    ],
+    documents: [
+      {
+        name: String,
+        url: String,
+        publicId: String,
+        size: Number,
+        uploadedAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
+    coverImage: {
+      type: String,
+      default: '',
+    },
+    createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true
+      required: true,
     },
-    role: {
+    projectManagers: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
+    teamMembers: [
+      {
+        user: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
+          required: true,
+        },
+        role: {
+          type: String,
+          enum: ['lead', 'senior', 'member', 'junior'],
+          default: 'member',
+        },
+        status: {
+          type: String,
+          enum: ['active', 'inactive', 'removed'],
+          default: 'active',
+        },
+        joinedAt: {
+          type: Date,
+          default: Date.now,
+        },
+        leftAt: {
+          type: Date,
+          default: null,
+        },
+      },
+    ],
+    startDate: {
+      type: Date,
+      default: Date.now,
+    },
+    endDate: {
+      type: Date,
+      default: null,
+    },
+    priority: {
       type: String,
-      enum: ['lead', 'senior', 'member', 'junior'],
-      default: 'member'
+      enum: ['low', 'medium', 'high', 'urgent'],
+      default: 'medium',
     },
     status: {
       type: String,
-      enum: ['active', 'inactive', 'removed'],
-      default: 'active'
+      enum: ['planning', 'in-progress', 'on-hold', 'completed', 'cancelled'],
+      default: 'planning',
     },
-    joinedAt: {
-      type: Date,
-      default: Date.now
+    progress: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100,
     },
-    leftAt: {
-      type: Date,
-      default: null
-    }
-  }],
-  startDate: {
-    type: Date,
-    default: Date.now
-  },
-  endDate: {
-    type: Date,
-    default: null
-  },
-  priority: {
-    type: String,
-    enum: ['low', 'medium', 'high', 'urgent'],
-    default: 'medium'
-  },
-  status: {
-    type: String,
-    enum: ['planning', 'in-progress', 'on-hold', 'completed', 'cancelled'],
-    default: 'planning'
-  },
-  progress: {
-    type: Number,
-    default: 0,
-    min: 0,
-    max: 100
-  },
-  teamChat: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Chat',
-    default: null
-  },
-  tags: [{
-    type: String,
-    trim: true
-  }],
-  attachments: [{
-    name: String,
-    url: String,
-    uploadedBy: {
+    // ─── NEW FIELDS ───
+    projectType: {
+      type: String,
+      enum: ['general', 'software', 'design', 'social_media', 'marketing'],
+      default: 'general',
+    },
+    dailyReportTime: {
+      type: String,
+      default: '17:00', // Format: HH:mm (24-hour)
+    },
+    tags: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
+    teamChat: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
+      ref: 'Chat',
+      default: null,
     },
-    uploadedAt: {
+    attachments: [
+      {
+        name: String,
+        url: String,
+        uploadedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
+        },
+        uploadedAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
+    // models/projectModel.js — ADD these fields to your existing schema:
+
+    // ── Completion confirmation ──
+    // Set automatically when every task is completed/cancelled,
+    // waiting for the workspace owner to confirm completion.
+    readyForCompletion: {
+      type: Boolean,
+      default: false,
+    },
+    completedAt: {
       type: Date,
-      default: Date.now
-    }
-  }]
-}, {
-  timestamps: true
-});
+      default: null,
+    },
+    completedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
 
 // Indexes for performance
 projectSchema.index({ workspace: 1, status: 1 });
 projectSchema.index({ projectManagers: 1 });
 projectSchema.index({ 'teamMembers.user': 1 });
+projectSchema.index({ projectType: 1 });
 
 const Project = mongoose.model('Project', projectSchema);
 export default Project;
