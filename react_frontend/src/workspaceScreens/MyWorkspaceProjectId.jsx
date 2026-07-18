@@ -44,14 +44,8 @@ import {
   FaFlag,
   FaFire,
   FaAngleDown,
-  FaFileAlt,
   FaLink,
   FaPercent,
-  FaDownload,
-  FaExternalLinkAlt,
-  FaFilePdf,
-  FaImage,
-  FaFile,
   FaHistory,
   FaCommentDots,
   FaPaperclip,
@@ -59,7 +53,7 @@ import {
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
-// ─── Helpers (unchanged) ──────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────
 const formatDate = (date) => {
   if (!date) return 'N/A';
   return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -68,32 +62,27 @@ const formatDateTime = (date) => {
   if (!date) return 'N/A';
   return new Date(date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
-const formatTime = (time) => {
-  if (!time) return 'N/A';
-  const [h, m] = time.split(':');
-  const hour = parseInt(h);
-  const ampm = hour >= 12 ? 'PM' : 'AM';
-  const h12 = hour % 12 || 12;
-  return `${h12}:${m} ${ampm}`;
-};
 
-// ─── Dropdown (unchanged) ─────────────────────────────────────────────
+// ─── Custom Dropdown ──────────────────────────────────────────────────
 const CustomDropdown = ({ options, value, onChange, placeholder, label, brandColor }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
-    const fn = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('mousedown', fn);
-    return () => document.removeEventListener('mousedown', fn);
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, []);
   const selected = options.find(o => o.value === value);
   return (
     <div className="relative" ref={ref}>
       {label && <label className="block text-sm font-medium text-gray-700 mb-1.5">{label}</label>}
-      <button type="button" onClick={() => setOpen(!open)}
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
         className="w-full flex items-center justify-between px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:border-transparent text-sm bg-white"
         style={{ '--tw-ring-color': brandColor }}
-        onFocus={e => e.target.style.setProperty('--tw-ring-color', brandColor)}>
+        onFocus={(e) => e.target.style.setProperty('--tw-ring-color', brandColor)}
+      >
         <span className={selected ? 'text-gray-900' : 'text-gray-400'}>
           {selected ? selected.label : placeholder || 'Select...'}
         </span>
@@ -102,10 +91,13 @@ const CustomDropdown = ({ options, value, onChange, placeholder, label, brandCol
       {open && (
         <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
           {options.map(o => (
-            <button key={o.value} type="button"
+            <button
+              key={o.value}
+              type="button"
               onClick={() => { onChange(o.value); setOpen(false); }}
               className={`w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-gray-50 transition text-left ${o.value === value ? 'bg-gray-50' : ''}`}
-              style={o.value === value ? { backgroundColor: `${brandColor}10`, color: brandColor } : {}}>
+              style={o.value === value ? { backgroundColor: `${brandColor}10`, color: brandColor } : {}}
+            >
               {o.icon && <span className="text-gray-400">{o.icon}</span>}
               <span>{o.label}</span>
               {o.value === value && <FaCheck className="ml-auto text-xs" style={{ color: brandColor }} />}
@@ -117,7 +109,7 @@ const CustomDropdown = ({ options, value, onChange, placeholder, label, brandCol
   );
 };
 
-// ─── Badges & Options (unchanged) ─────────────────────────────────────
+// ─── Badges ────────────────────────────────────────────────────────────
 const priorityOptions = [
   { value: 'low', label: 'Low', icon: <FaFlag className="text-blue-400" /> },
   { value: 'medium', label: 'Medium', icon: <FaFlag className="text-yellow-400" /> },
@@ -141,6 +133,7 @@ const TaskStatusBadge = ({ status }) => {
   const s = map[status] || map.pending;
   return <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full ${s.color}`}>{s.label}</span>;
 };
+
 const TaskPriorityBadge = ({ priority }) => {
   const map = {
     low: { label: 'Low', color: 'bg-blue-100 text-blue-700' },
@@ -152,48 +145,152 @@ const TaskPriorityBadge = ({ priority }) => {
   return <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full ${p.color}`}>{p.label}</span>;
 };
 
-// ─── Task Item (original) ─────────────────────────────────────────────
-const TaskItem = ({ task, brandColor, onEdit, onDelete, onUpdateProgress, onApproveCompletion, onFeedback, canManage, currentUserId }) => {
-  const [menu, setMenu] = useState(false);
+// ─── Task List Item (WhatsApp chat style) ────────────────────────────
+const TaskListItem = ({ task, isActive, onClick, brandColor }) => {
   const progress = task.progress || 0;
-  const isAssignee = task.assignee?._id === currentUserId;
-
+  const lastActivity =
+    task.status === 'completed'
+      ? 'Completed'
+      : task.status === 'review'
+      ? 'In review'
+      : task.status === 'in-progress'
+      ? `${progress}% done`
+      : 'Pending';
   return (
-    <div className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 rounded-xl transition border border-gray-100">
-      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${task.status === 'completed' ? 'bg-green-500 border-green-500 text-white' : task.status === 'review' ? 'bg-purple-500 border-purple-500 text-white' : 'border-gray-300'}`}>
-        {task.status === 'completed' && <FaCheck className="text-[8px]" />}
-        {task.status === 'review' && <FaCheckCircle className="text-[8px]" />}
+    <button
+      onClick={onClick}
+      className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition text-left border-b border-gray-100 ${
+        isActive ? 'bg-gray-100' : ''
+      }`}
+    >
+      <div
+        className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 text-white font-semibold text-lg"
+        style={{ backgroundColor: brandColor }}
+      >
+        {task.title.charAt(0).toUpperCase()}
       </div>
-      <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onFeedback && onFeedback(task)}>
-        <div className="flex items-center flex-wrap gap-1.5">
-          <p className={`text-sm font-medium ${task.status === 'completed' ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{task.title}</p>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between">
+          <h4 className="text-sm font-medium text-gray-900 truncate">{task.title}</h4>
+          <span className="text-[10px] text-gray-400 whitespace-nowrap ml-2">
+            {formatDate(task.dueDate) !== 'N/A' ? formatDate(task.dueDate) : ''}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 mt-0.5">
           <TaskPriorityBadge priority={task.priority} />
           <TaskStatusBadge status={task.status} />
-          {progress > 0 && progress < 100 && <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">{progress}%</span>}
         </div>
-        <div className="flex items-center flex-wrap gap-3 text-xs text-gray-400 mt-0.5">
-          {task.assignee && <span className="flex items-center gap-1"><FaUserCheck className="text-[10px]" /> {task.assignee.name || 'Unknown'}</span>}
-          {task.dueDate && <span className="flex items-center gap-1"><FaCalendarAlt className="text-[10px]" /> {formatDate(task.dueDate)}</span>}
+        <p className="text-xs text-gray-400 mt-0.5 truncate">
+          {task.assignee ? `${task.assignee.name} · ` : ''}{lastActivity}
+        </p>
+      </div>
+    </button>
+  );
+};
+
+// ─── Search Modal ──────────────────────────────────────────────────────
+const SearchModal = ({ isOpen, onClose, items, type, brandColor, onSelect }) => {
+  const [query, setQuery] = useState('');
+
+  if (!isOpen) return null;
+
+  const filtered = items.filter(item => {
+    if (type === 'tasks') {
+      return item.title?.toLowerCase().includes(query.toLowerCase());
+    } else {
+      const user = item.user || item;
+      return (
+        (user.name || '').toLowerCase().includes(query.toLowerCase()) ||
+        (user.email || '').toLowerCase().includes(query.toLowerCase())
+      );
+    }
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 bg-white flex flex-col">
+      <div className="flex items-center gap-3 px-4 h-14 border-b border-gray-100">
+        <button onClick={onClose} className="p-1">
+          <FaArrowLeft className="text-gray-600" />
+        </button>
+        <div className="flex-1 bg-gray-100 rounded-full px-4 py-2 flex items-center gap-2">
+          <FaSearch className="text-gray-400 text-xs" />
+          <input
+            type="text"
+            placeholder={type === 'tasks' ? 'Search tasks...' : 'Search members...'}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="bg-transparent w-full outline-none text-sm"
+            autoFocus
+          />
+          {query && (
+            <button onClick={() => setQuery('')}>
+              <FaTimes className="text-gray-400 text-xs" />
+            </button>
+          )}
         </div>
-        {progress > 0 && progress < 100 && (
-          <div className="mt-1.5 w-full max-w-[200px] h-1 bg-gray-100 rounded-full overflow-hidden">
-            <div className="h-full rounded-full transition-all duration-500" style={{ width: `${progress}%`, backgroundColor: brandColor }} />
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        {!query && (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400">
+            <FaSearch className="text-4xl mb-2 opacity-30" />
+            <p className="text-sm">Search {type === 'tasks' ? 'tasks' : 'members'}</p>
           </div>
         )}
-      </div>
-      <div className="relative">
-        <button onClick={e => { e.stopPropagation(); setMenu(!menu); }} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"><FaEllipsisV className="text-xs" /></button>
-        {menu && (
-          <div className="absolute right-0 top-full mt-1 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[160px] z-10 py-1">
-            <button onClick={e => { e.stopPropagation(); setMenu(false); onEdit && onEdit(task); }} className="flex items-center gap-2 px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-50 w-full"><FaEdit className="text-xs" /> Edit</button>
-            {isAssignee && task.status !== 'completed' && (
-              <button onClick={e => { e.stopPropagation(); setMenu(false); onUpdateProgress && onUpdateProgress(task); }} className="flex items-center gap-2 px-4 py-1.5 text-sm text-blue-600 hover:bg-blue-50 w-full"><FaChartLine className="text-xs" /> Update Progress</button>
-            )}
-            {canManage && task.status !== 'completed' && (
-              <button onClick={e => { e.stopPropagation(); setMenu(false); onApproveCompletion && onApproveCompletion(task); }} className="flex items-center gap-2 px-4 py-1.5 text-sm text-green-600 hover:bg-green-50 w-full"><FaCheckCircle className="text-xs" /> Approve Completion</button>
-            )}
-            <button onClick={e => { e.stopPropagation(); setMenu(false); onFeedback && onFeedback(task); }} className="flex items-center gap-2 px-4 py-1.5 text-sm text-blue-600 hover:bg-blue-50 w-full"><FaHistory className="text-xs" /> Feedback</button>
-            {canManage && <button onClick={e => { e.stopPropagation(); setMenu(false); onDelete && onDelete(task._id); }} className="flex items-center gap-2 px-4 py-1.5 text-sm text-red-600 hover:bg-red-50 w-full"><FaTrashAlt className="text-xs" /> Delete</button>}
+        {query && filtered.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400">
+            <p className="text-sm">No results for "{query}"</p>
+          </div>
+        )}
+        {query && filtered.length > 0 && (
+          <div className="divide-y divide-gray-100">
+            {filtered.map(item => (
+              <div
+                key={item._id || (item.user?._id)}
+                onClick={() => {
+                  onSelect(type === 'tasks' ? item._id : (item.user || item)._id);
+                  onClose();
+                }}
+                className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition cursor-pointer"
+              >
+                {type === 'tasks' ? (
+                  <>
+                    <div
+                      className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold"
+                      style={{ backgroundColor: brandColor }}
+                    >
+                      {item.title.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{item.title}</p>
+                      <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                        <TaskStatusBadge status={item.status} />
+                        <TaskPriorityBadge priority={item.priority} />
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="relative flex-shrink-0">
+                      {(item.user?.profile && <img src={item.user.profile} className="w-10 h-10 rounded-full object-cover" />) || (
+                        <div
+                          className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
+                          style={{ backgroundColor: brandColor }}
+                        >
+                          {(item.user?.name || '?').charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      {item.status === 'active' && (
+                        <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{item.user?.name || 'Unknown'}</p>
+                      <p className="text-xs text-gray-400 truncate">{item.user?.email}</p>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -201,7 +298,145 @@ const TaskItem = ({ task, brandColor, onEdit, onDelete, onUpdateProgress, onAppr
   );
 };
 
-// ─── Create Task Modal (unchanged) ────────────────────────────────────
+// ─── Task Detail View (Chat style) ────────────────────────────────────
+const TaskDetailView = ({
+  task,
+  brandColor,
+  feedbackData,
+  isLoading,
+  userInfo,
+  onBack,
+  onEdit,
+  onDelete,
+  onUpdateProgress,
+  onApproveCompletion,
+  canManage,
+}) => {
+  const feedbackList = feedbackData?.feedback || [];
+  const isAssignee = task.assignee?._id === userInfo?._id;
+  const [showMenu, setShowMenu] = useState(false);
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="flex items-center gap-3 px-4 py-3 bg-teal-600 text-white flex-shrink-0 sticky top-0 z-10">
+        <button onClick={onBack} className="p-1 md:hidden"><FaArrowLeft /></button>
+        <div className="w-8 h-8 rounded-full flex items-center justify-center bg-white/20 font-bold text-lg">
+          {task.title.charAt(0).toUpperCase()}
+        </div>
+        <div className="flex-1 min-w-0">
+          <h2 className="text-sm font-semibold truncate">{task.title}</h2>
+          <div className="flex items-center gap-1.5 text-xs text-white/80">
+            <TaskStatusBadge status={task.status} />
+            <TaskPriorityBadge priority={task.priority} />
+            {task.assignee && <span className="truncate">{task.assignee.name}</span>}
+          </div>
+        </div>
+        <button onClick={() => setShowMenu(!showMenu)} className="p-1.5">
+          <FaEllipsisV className="text-sm" />
+        </button>
+        {showMenu && (
+          <div className="absolute right-4 top-12 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[140px] z-20 py-1 text-gray-700">
+            {canManage && (
+              <button
+                onClick={() => { setShowMenu(false); onApproveCompletion(task); }}
+                className="flex items-center gap-2 px-4 py-1.5 text-sm text-green-600 hover:bg-green-50 w-full"
+              >
+                <FaCheckCircle className="text-xs" /> Approve
+              </button>
+            )}
+            <button
+              onClick={() => { setShowMenu(false); onEdit(task); }}
+              className="flex items-center gap-2 px-4 py-1.5 text-sm text-blue-600 hover:bg-blue-50 w-full"
+            >
+              <FaEdit className="text-xs" /> Edit
+            </button>
+            {canManage && (
+              <button
+                onClick={() => { setShowMenu(false); onDelete(task._id); }}
+                className="flex items-center gap-2 px-4 py-1.5 text-sm text-red-600 hover:bg-red-50 w-full"
+              >
+                <FaTrashAlt className="text-xs" /> Delete
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Chat area */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 bg-[#efeae2]">
+        {isLoading ? (
+          <div className="flex justify-center py-8">
+            <div className="w-6 h-6 border-4 border-t-transparent rounded-full animate-spin" style={{ borderTopColor: brandColor }} />
+          </div>
+        ) : feedbackList.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400">
+            <FaCommentDots className="text-4xl mb-2 opacity-30" />
+            <p className="text-sm">No feedback yet</p>
+          </div>
+        ) : (
+          feedbackList.map((item, idx) => {
+            const isOwn = item.user?._id === userInfo?._id;
+            return (
+              <div key={idx} className={`flex gap-2 mb-4 ${isOwn ? 'flex-row-reverse' : ''}`}>
+                <div
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                  style={{ backgroundColor: isOwn ? brandColor : '#CBD5E0' }}
+                >
+                  {item.user?.profile ? (
+                    <img src={item.user.profile} className="w-full h-full rounded-full object-cover" />
+                  ) : (
+                    item.user?.name?.charAt(0).toUpperCase() || '?'
+                  )}
+                </div>
+                <div className={`max-w-[85%] md:max-w-[75%] ${isOwn ? 'items-end' : 'items-start'}`}>
+                  <div
+                    className={`px-4 py-2.5 rounded-2xl shadow-sm break-words overflow-hidden ${
+                      isOwn ? 'text-white rounded-br-md' : 'bg-white border border-gray-200 rounded-bl-md'
+                    }`}
+                    style={isOwn ? { backgroundColor: brandColor } : {}}
+                  >
+                    {!isOwn && <p className="text-xs font-medium text-gray-700 mb-1">{item.user?.name || 'Unknown'}</p>}
+                    <div className="flex items-center gap-1 text-xs font-medium">
+                      <FaPercent className="text-[10px]" />
+                      <span>Progress: {item.progress}%</span>
+                    </div>
+                    {item.notes && <p className="text-sm mt-1 whitespace-pre-wrap break-words">{item.notes}</p>}
+                    {item.links?.length > 0 && (
+                      <div className="mt-2 flex flex-col gap-1">
+                        {item.links.map((l, i) => (
+                          <a key={i} href={l} target="_blank" className="text-xs underline break-all" style={{ color: isOwn ? 'white' : brandColor }}>
+                            {l}
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                    <span className="text-[10px] mt-1.5 block opacity-70 text-right">{formatDateTime(item.createdAt)}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Bottom action bar – only for assignee and not completed */}
+      {isAssignee && task.status !== 'completed' && (
+        <div className="border-t bg-white px-3 py-2 flex-shrink-0 sticky bottom-0">
+          <button
+            onClick={() => onUpdateProgress(task)}
+            className="w-full py-2 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-1.5"
+            style={{ backgroundColor: brandColor }}
+          >
+            <FaChartLine className="text-sm" /> Update Progress
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Create Task Modal ────────────────────────────────────────────────
 const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMembers, onSuccess }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -223,8 +458,8 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
     })
   ];
 
-  const handleFile = (e) => { setAttachments([...attachments, ...Array.from(e.target.files)]); e.target.value = ''; };
-  const removeFile = (i) => setAttachments(attachments.filter((_, idx) => idx !== i));
+  const handleFile = (e) => { setAttachments(prev => [...prev, ...Array.from(e.target.files)]); e.target.value = ''; };
+  const removeFile = (i) => setAttachments(prev => prev.filter((_, idx) => idx !== i));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -253,7 +488,7 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between mb-4"><h2 className="text-xl font-bold"><FaTasks className="inline mr-1" /> New Task</h2><button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><FaTimes /></button></div>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -281,7 +516,7 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
   );
 };
 
-// ─── Edit Task Modal (unchanged) ──────────────────────────────────────
+// ─── Edit Task Modal ──────────────────────────────────────────────────
 const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, onSuccess }) => {
   const [title, setTitle] = useState(task?.title || '');
   const [description, setDescription] = useState(task?.description || '');
@@ -305,9 +540,9 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, o
     })
   ];
 
-  const handleFile = (e) => { setAttachments([...attachments, ...Array.from(e.target.files)]); e.target.value = ''; };
-  const removeNew = (i) => setAttachments(attachments.filter((_, idx) => idx !== i));
-  const removeExisting = (i) => setExistingAttachments(existingAttachments.filter((_, idx) => idx !== i));
+  const handleFile = (e) => { setAttachments(prev => [...prev, ...Array.from(e.target.files)]); e.target.value = ''; };
+  const removeNew = (i) => setAttachments(prev => prev.filter((_, idx) => idx !== i));
+  const removeExisting = (i) => setExistingAttachments(prev => prev.filter((_, idx) => idx !== i));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -335,7 +570,7 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, o
   if (!isOpen || !task) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between mb-4"><h2 className="text-xl font-bold"><FaEdit className="inline mr-1" /> Edit Task</h2><button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><FaTimes /></button></div>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -367,7 +602,7 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, o
   );
 };
 
-// ─── Progress Update Modal (unchanged) ────────────────────────────────
+// ─── Progress Update Modal ────────────────────────────────────────────
 const ProgressUpdateModal = ({ isOpen, onClose, task, brandColor, onSuccess }) => {
   const [progress, setProgress] = useState(task?.progress || 0);
   const [notes, setNotes] = useState('');
@@ -377,7 +612,7 @@ const ProgressUpdateModal = ({ isOpen, onClose, task, brandColor, onSuccess }) =
 
   const submit = async (e) => {
     e.preventDefault();
-    if (progress < 0 || progress > 100) { toast.error('0-100 only'); return; }
+    if (progress < 0 || progress > 100) { toast.error('Progress must be 0-100'); return; }
     setLoading(true);
     try {
       await updateTaskProgress({ taskId: task._id, progress, notes, links: links.split('\n').filter(Boolean) }).unwrap();
@@ -391,7 +626,7 @@ const ProgressUpdateModal = ({ isOpen, onClose, task, brandColor, onSuccess }) =
   if (!isOpen || !task) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
         <div className="flex justify-between mb-4"><h2 className="text-xl font-bold"><FaChartLine className="inline mr-1" /> Progress</h2><button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><FaTimes /></button></div>
         <form onSubmit={submit} className="space-y-4">
@@ -405,7 +640,7 @@ const ProgressUpdateModal = ({ isOpen, onClose, task, brandColor, onSuccess }) =
   );
 };
 
-// ─── Add Member Modal (unchanged) ─────────────────────────────────────
+// ─── Add Member Modal ──────────────────────────────────────────────────
 const AddMemberModal = ({ isOpen, onClose, workspace, project, brandColor, onSuccess }) => {
   const [memberId, setMemberId] = useState('');
   const [loading, setLoading] = useState(false);
@@ -434,7 +669,7 @@ const AddMemberModal = ({ isOpen, onClose, workspace, project, brandColor, onSuc
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
         <div className="flex justify-between mb-4"><h2 className="text-xl font-bold"><FaUserPlus className="inline mr-1" /> Add Member</h2><button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><FaTimes /></button></div>
         <form onSubmit={handleSubmit}>
@@ -447,14 +682,13 @@ const AddMemberModal = ({ isOpen, onClose, workspace, project, brandColor, onSuc
   );
 };
 
-// ─── Feedback Modal (unchanged) ────────────────────────────────────────
+// ─── Feedback Modal (chat-like, can be reused as detail) ────────────────
 const FeedbackModal = ({ isOpen, onClose, task, brandColor }) => {
   const { data: feedbackData, isLoading } = useGetTaskFeedbackQuery({ taskId: task?._id }, { skip: !isOpen || !task });
   if (!isOpen) return null;
   const list = feedbackData?.feedback || [];
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 max-h-[90vh] flex flex-col">
         <div className="flex justify-between mb-4"><h2 className="text-xl font-bold"><FaHistory className="inline mr-1" /> Feedback</h2><button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><FaTimes /></button></div>
         <div className="text-sm text-gray-500 mb-3">{task?.title}</div>
@@ -494,223 +728,6 @@ const FeedbackModal = ({ isOpen, onClose, task, brandColor }) => {
   );
 };
 
-// ─── New WhatsApp‑like Task List Item ──────────────────────────────────
-const TaskListItem = ({ task, isActive, onClick, brandColor }) => {
-  const progress = task.progress || 0;
-  const lastActivity = task.status === 'completed' ? 'Completed' : task.status === 'review' ? 'In review' : task.status === 'in-progress' ? `${progress}% done` : 'Pending';
-  return (
-    <button
-      onClick={onClick}
-      className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition text-left border-b border-gray-100 ${
-        isActive ? 'bg-gray-100' : ''
-      }`}
-    >
-      <div
-        className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 text-white font-semibold text-lg"
-        style={{ backgroundColor: brandColor }}
-      >
-        {task.title.charAt(0).toUpperCase()}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between">
-          <h4 className="text-sm font-medium text-gray-900 truncate">{task.title}</h4>
-          <span className="text-[10px] text-gray-400 whitespace-nowrap ml-2">{formatDate(task.dueDate) !== 'N/A' ? formatDate(task.dueDate) : ''}</span>
-        </div>
-        <div className="flex items-center gap-2 mt-0.5">
-          <TaskPriorityBadge priority={task.priority} />
-          <TaskStatusBadge status={task.status} />
-        </div>
-        <p className="text-xs text-gray-400 mt-0.5 truncate">
-          {task.assignee ? `${task.assignee.name} · ` : ''}{lastActivity}
-        </p>
-      </div>
-    </button>
-  );
-};
-
-// ─── Chat Bubble Component (always shows progress) ────────────────────
-const ChatBubble = ({ message, isOwn, brandColor }) => {
-  const user = message.user || {};
-  const avatarChar = user.name ? user.name.charAt(0).toUpperCase() : '?';
-  return (
-    <div className={`flex gap-2 mb-4 ${isOwn ? 'flex-row-reverse' : ''}`}>
-      <div
-        className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-        style={{ backgroundColor: isOwn ? brandColor : '#CBD5E0' }}
-      >
-        {user.profile ? (
-          <img src={user.profile} className="w-full h-full rounded-full object-cover" />
-        ) : (
-          avatarChar
-        )}
-      </div>
-      <div className={`max-w-[85%] md:max-w-[75%] ${isOwn ? 'items-end' : 'items-start'}`}>
-        <div
-          className={`px-4 py-2.5 rounded-2xl shadow-sm break-words overflow-hidden ${
-            isOwn ? 'text-white rounded-br-md' : 'bg-white border border-gray-200 rounded-bl-md'
-          }`}
-          style={isOwn ? { backgroundColor: brandColor } : {}}
-        >
-          {!isOwn && (
-            <p className="text-xs font-medium text-gray-700 mb-1">
-              {user.name || 'Unknown'}
-            </p>
-          )}
-          <div className="flex items-center gap-1 text-xs font-medium">
-            <FaPercent className="text-[10px]" />
-            <span>Progress: {message.progress}%</span>
-          </div>
-          {message.notes && (
-            <p className="text-sm mt-1 whitespace-pre-wrap break-words">
-              {message.notes}
-            </p>
-          )}
-          {message.links?.length > 0 && (
-            <div className="mt-2 flex flex-col gap-1">
-              {message.links.map((l, i) => (
-                <a
-                  key={i}
-                  href={l}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs underline break-all"
-                  style={{ color: isOwn ? 'white' : brandColor }}
-                >
-                  {l}
-                </a>
-              ))}
-            </div>
-          )}
-          <span className="text-[10px] mt-1.5 block opacity-70 text-right">
-            {formatDateTime(message.createdAt)}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ─── Task Detail View (assignee‑only progress button) ─────────────────
-const TaskDetailView = ({
-  task,
-  brandColor,
-  feedbackData,
-  isLoading,
-  userInfo,
-  onBack,
-  onEdit,
-  onDelete,
-  onUpdateProgress,
-  onApproveCompletion,
-  canManage,
-}) => {
-  const feedbackList = feedbackData?.feedback || [];
-  const [showMenu, setShowMenu] = useState(false);
-  const isAssignee = task.assignee?._id === userInfo?._id;
-
-  return (
-    <div className="flex flex-col h-full overflow-x-hidden">
-      {/* Compact header */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b bg-white sticky top-0 z-10">
-        <button onClick={onBack} className="p-1.5 hover:bg-gray-100 rounded-lg md:hidden">
-          <FaArrowLeft className="text-gray-500 text-sm" />
-        </button>
-        <div
-          className="w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-base flex-shrink-0"
-          style={{ backgroundColor: brandColor }}
-        >
-          {task.title.charAt(0).toUpperCase()}
-        </div>
-        <div className="flex-1 min-w-0">
-          <h2 className="text-sm font-bold text-gray-900 truncate">{task.title}</h2>
-          <div className="flex items-center gap-1.5 text-xs text-gray-500 mt-0.5">
-            <TaskStatusBadge status={task.status} />
-            <TaskPriorityBadge priority={task.priority} />
-            {task.assignee && (
-              <span className="flex items-center gap-1 truncate">
-                <FaUserCheck className="text-[10px]" /> {task.assignee.name}
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="relative flex-shrink-0">
-          <button
-            onClick={() => setShowMenu(!showMenu)}
-            className="p-1.5 text-gray-600 hover:bg-gray-100 rounded-lg"
-          >
-            <FaEllipsisV className="text-sm" />
-          </button>
-          {showMenu && (
-            <div className="absolute right-0 top-full mt-1 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[140px] z-20 py-1">
-              {canManage && (
-                <button
-                  onClick={() => { setShowMenu(false); onApproveCompletion(task); }}
-                  className="flex items-center gap-2 px-4 py-2 text-sm text-green-600 hover:bg-green-50 w-full"
-                >
-                  <FaCheckCircle className="text-xs" /> Approve
-                </button>
-              )}
-              <button
-                onClick={() => { setShowMenu(false); onEdit(task); }}
-                className="flex items-center gap-2 px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 w-full"
-              >
-                <FaEdit className="text-xs" /> Edit
-              </button>
-              {canManage && (
-                <button
-                  onClick={() => { setShowMenu(false); onDelete(task._id); }}
-                  className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 w-full"
-                >
-                  <FaTrashAlt className="text-xs" /> Delete
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Chat area */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 md:py-6 bg-[#efeae2] md:bg-gray-50">
-        {isLoading ? (
-          <div className="flex justify-center py-8">
-            <div
-              className="w-6 h-6 border-4 border-t-transparent rounded-full animate-spin"
-              style={{ borderTopColor: brandColor }}
-            />
-          </div>
-        ) : feedbackList.length === 0 ? (
-          <div className="text-center py-12 text-gray-400">
-            <FaCommentDots className="text-3xl mx-auto mb-3" />
-            <p className="text-sm">No feedback yet</p>
-          </div>
-        ) : (
-          feedbackList.map((item, idx) => (
-            <ChatBubble
-              key={idx}
-              message={item}
-              isOwn={item.user?._id === userInfo?._id}
-              brandColor={brandColor}
-            />
-          ))
-        )}
-      </div>
-
-      {/* Bottom action bar – only for the assignee */}
-      {isAssignee && (
-        <div className="border-t bg-white px-3 py-1.5 flex-shrink-0">
-          <button
-            onClick={() => onUpdateProgress(task)}
-            className="w-full py-1.5 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-1.5"
-            style={{ backgroundColor: brandColor }}
-          >
-            <FaChartLine className="text-sm" /> Update Progress
-          </button>
-        </div>
-      )}
-    </div>
-  );
-};
-
 // ─── Main Component ──────────────────────────────────────────────────
 const MyWorkspaceProjectId = () => {
   const { workspaceId, projectId } = useParams();
@@ -720,6 +737,7 @@ const MyWorkspaceProjectId = () => {
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [listView, setListView] = useState('tasks');
   const [mobileShowDetail, setMobileShowDetail] = useState(false);
+  const [searchModalOpen, setSearchModalOpen] = useState(false);
 
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [showEditTask, setShowEditTask] = useState(false);
@@ -732,8 +750,7 @@ const MyWorkspaceProjectId = () => {
 
   const { data: wData, isLoading: wLoad, error: wErr } = useGetWorkspaceQuery(workspaceId);
   const { data: pData, isLoading: pLoad, error: pErr, refetch: refetchProject } = useGetProjectByIdQuery(projectId);
-  const { data: tData, isLoading: tLoad, error: tErr, refetch: refetchTasks } = useGetProjectTasksQuery({ projectId });
-
+  const { data: tData, isLoading: tLoad, refetch: refetchTasks } = useGetProjectTasksQuery({ projectId });
   const { data: feedbackData, isLoading: feedbackLoading } = useGetTaskFeedbackQuery(
     { taskId: selectedTaskId },
     { skip: !selectedTaskId }
@@ -762,23 +779,26 @@ const MyWorkspaceProjectId = () => {
     });
   }, [activeTeam, project?.projectManagers]);
 
-  const brandColor = workspace?.color || '#4F46E5';
+  const brandColor = workspace?.color || '#0d9488';
   const isOwner = workspace?.owner?._id === userInfo?._id || workspace?.owner === userInfo?._id;
   const isManager = project?.projectManagers?.some(pm => pm._id === userInfo?._id || pm === userInfo?._id);
   const canManage = isOwner || isManager;
 
   const activeTask = useMemo(() => tasks.find(t => t._id === selectedTaskId) || null, [tasks, selectedTaskId]);
-
-  const progress = project?.progress || 0;
   const projectManagers = project?.projectManagers || [];
+  const progress = project?.progress || 0;
 
   if (wErr || pErr) { navigate(`/my-workspace/${workspaceId}/projects`); return null; }
-  if (wLoad || pLoad || tLoad) return <div className="min-h-screen flex items-center justify-center"><div className="w-10 h-10 border-4 border-t-transparent rounded-full animate-spin" style={{ borderTopColor: brandColor }} /></div>;
+  if (wLoad || pLoad || tLoad) return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin" style={{ borderTopColor: brandColor }} />
+    </div>
+  );
   if (!workspace || !project) return null;
 
   const handleDeleteTask = async (id) => {
     if (!confirm('Delete task?')) return;
-    try { await deleteTask(id).unwrap(); toast.success('Deleted'); refetchTasks(); refetchProject(); if (selectedTaskId === id) setSelectedTaskId(null); } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+    try { await deleteTask(id).unwrap(); toast.success('Deleted'); refetchTasks(); refetchProject(); if (selectedTaskId === id) { setSelectedTaskId(null); setMobileShowDetail(false); } } catch (e) { toast.error(e?.data?.message || 'Failed'); }
   };
   const handleUpdateProgress = (task) => { setSelectedTask(task); setShowProgress(true); };
   const handleApproveCompletion = async (task) => {
@@ -792,7 +812,7 @@ const MyWorkspaceProjectId = () => {
     try { await removeTeamMember({ projectId, memberId: id }).unwrap(); toast.success('Removed'); refetchProject(); } catch (e) { toast.error(e?.data?.message || 'Failed'); }
   };
   const handleAddManager = async (id) => {
-    try { await manageProjectManagers({ projectId, action: 'add', managerId: id }).unwrap(); toast.success('Manager added'); refetchProject(); setShowAddManager(false); } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+    try { await manageProjectManagers({ projectId, action: 'add', managerId: id }).unwrap(); toast.success('Manager added'); refetchProject(); } catch (e) { toast.error(e?.data?.message || 'Failed'); }
   };
   const handleRemoveManager = async (id) => {
     if (!confirm('Remove manager?')) return;
@@ -802,6 +822,17 @@ const MyWorkspaceProjectId = () => {
   const handleTaskClick = (taskId) => { setSelectedTaskId(taskId); setMobileShowDetail(true); };
   const handleBackToList = () => { setSelectedTaskId(null); setMobileShowDetail(false); };
 
+  const openSearchModal = () => setSearchModalOpen(true);
+  const closeSearchModal = () => setSearchModalOpen(false);
+
+  const searchItems = listView === 'tasks' ? tasks : activeTeam;
+  const onSearchSelect = (id) => {
+    if (listView === 'tasks') {
+      handleTaskClick(id);
+    }
+    // For team members, we could highlight or navigate? we'll just close.
+  };
+
   const availableForManager = workspace.members?.filter(m => m.status === 'active' && !projectManagers.some(pm => pm._id === (m.user?._id || m._id))) || [];
   const managerOptions = availableForManager.map(m => {
     const u = m.user || m;
@@ -809,115 +840,173 @@ const MyWorkspaceProjectId = () => {
   });
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col md:flex-row">
-      <div className="hidden md:block md:w-64 md:min-h-screen">
+    <div className="h-dvh bg-gray-50 flex flex-col lg:flex-row overflow-hidden">
+      {/* Desktop Sidebar */}
+      <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
         <MyWorkspaceSidebar workspace={workspace} chats={[]} />
       </div>
 
-      <div className="flex-1 flex flex-col md:flex-row h-screen overflow-hidden bg-white">
-        {/* Left Panel – Task/Team list */}
-        <div className={`${mobileShowDetail ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-96 border-r border-gray-200 h-full`}>
-          <div className="px-4 py-3 border-b bg-white">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-3">
-                <button onClick={() => navigate(`/my-workspace/${workspaceId}/projects`)} className="p-2 hover:bg-gray-100 rounded-lg"><FaArrowLeft className="text-gray-500" /></button>
-                <div className="flex items-center gap-2">
-                  {project.coverImage ? <img src={project.coverImage} className="w-10 h-10 rounded-full object-cover" /> : (
-                    <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: `${brandColor}15` }}><FaFolder className="text-xl" style={{ color: brandColor }} /></div>
-                  )}
-                  <div><h1 className="text-lg font-bold text-gray-900">{project.name}</h1><p className="text-xs text-gray-500">{activeTeam.length} members · {progress}% done</p></div>
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        {/* Fixed Header */}
+        <header className="sticky top-0 z-10 bg-teal-600 text-white flex-shrink-0 shadow-sm">
+          <div className="flex items-center justify-between px-4 h-14">
+            <div className="flex items-center gap-3 min-w-0">
+              <button onClick={() => navigate(`/my-workspace/${workspaceId}/projects`)} className="p-1 lg:hidden">
+                <FaArrowLeft />
+              </button>
+              <div className="flex items-center gap-2">
+                {project.coverImage ? <img src={project.coverImage} className="w-8 h-8 rounded-full object-cover" /> : (
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center bg-white/20 font-bold">
+                    <FaFolder className="text-sm" />
+                  </div>
+                )}
+                <div>
+                  <h1 className="text-base font-semibold truncate">{project.name}</h1>
+                  <p className="text-xs text-white/80">{activeTeam.length} members · {progress}% done</p>
                 </div>
               </div>
-              {canManage && <button onClick={() => setShowCreateTask(true)} className="p-2 text-white rounded-full" style={{ backgroundColor: brandColor }}><FaPlus /></button>}
             </div>
-            <div className="flex bg-gray-100 rounded-lg p-1">
-              <button onClick={() => setListView('tasks')} className={`flex-1 py-1.5 text-sm font-medium rounded-md transition ${listView === 'tasks' ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}>Tasks ({tasks.length})</button>
-              <button onClick={() => setListView('team')} className={`flex-1 py-1.5 text-sm font-medium rounded-md transition ${listView === 'team' ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}>Team ({activeTeam.length})</button>
+            <div className="flex items-center gap-2">
+              <button onClick={openSearchModal} className="p-1"><FaSearch /></button>
+              {canManage && (
+                <button onClick={() => listView === 'tasks' ? setShowCreateTask(true) : setShowAddMember(true)} className="p-1">
+                  <FaPlus />
+                </button>
+              )}
             </div>
-            <div className="mt-2 relative">
-              <FaSearch className="absolute left-3 top-2.5 text-gray-400 text-xs" />
-              <input type="text" placeholder={listView === 'tasks' ? 'Search tasks...' : 'Search members...'} className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:border-transparent" style={{ '--tw-ring-color': brandColor }} />
+          </div>
+          {/* Tabs */}
+          <div className="flex gap-6 px-4 border-t border-white/20">
+            <button
+              onClick={() => { setListView('tasks'); setMobileShowDetail(false); setSelectedTaskId(null); }}
+              className={`pb-2 text-sm font-medium transition ${listView === 'tasks' ? 'border-b-2 border-white text-white' : 'text-white/70 hover:text-white'}`}
+            >
+              Tasks ({tasks.length})
+            </button>
+            <button
+              onClick={() => { setListView('team'); setMobileShowDetail(false); setSelectedTaskId(null); }}
+              className={`pb-2 text-sm font-medium transition ${listView === 'team' ? 'border-b-2 border-white text-white' : 'text-white/70 hover:text-white'}`}
+            >
+              Team ({activeTeam.length})
+            </button>
+          </div>
+        </header>
+
+        {/* Content Area */}
+        <div className="flex-1 flex overflow-hidden">
+          {/* Left Panel – List (hidden on mobile when detail shown) */}
+          <div className={`${mobileShowDetail ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-96 border-r border-gray-200 bg-white h-full`}>
+            <div className="flex-1 overflow-y-auto">
+              {listView === 'tasks' ? (
+                tasks.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+                    <FaTasks className="text-4xl mb-2 opacity-30" />
+                    <p className="text-sm">No tasks yet</p>
+                  </div>
+                ) : (
+                  tasks.map(task => (
+                    <TaskListItem
+                      key={task._id}
+                      task={task}
+                      isActive={selectedTaskId === task._id}
+                      onClick={() => handleTaskClick(task._id)}
+                      brandColor={brandColor}
+                    />
+                  ))
+                )
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {/* Managers */}
+                  <div className="px-4 py-2">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-xs font-semibold text-gray-500 uppercase"><FaCrown className="inline mr-1" /> Managers</span>
+                      {isOwner && <button onClick={() => setShowAddManager(true)} className="text-xs text-teal-600 font-medium">Add</button>}
+                    </div>
+                    {projectManagers.map(m => (
+                      <div key={m._id} className="flex items-center gap-3 py-2">
+                        <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold" style={{ backgroundColor: brandColor }}>
+                          {m.profile ? <img src={m.profile} className="w-full h-full rounded-full object-cover" /> : m.name?.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{m.name}</p>
+                          <p className="text-xs text-gray-400 truncate">{m.email}</p>
+                        </div>
+                        {isOwner && projectManagers.length > 1 && <button onClick={() => handleRemoveManager(m._id)} className="p-1 text-red-400"><FaUserMinus className="text-sm" /></button>}
+                      </div>
+                    ))}
+                  </div>
+                  {/* Team Members */}
+                  <div className="px-4 py-2">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-xs font-semibold text-gray-500 uppercase"><FaUsers className="inline mr-1" /> Team ({activeTeam.length})</span>
+                      {canManage && <button onClick={() => setShowAddMember(true)} className="text-xs text-teal-600 font-medium">Add</button>}
+                    </div>
+                    {activeTeam.map(m => {
+                      const user = m.user || m;
+                      const memberId = user._id;
+                      return (
+                        <div key={memberId} className="flex items-center gap-3 py-2">
+                          <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold" style={{ backgroundColor: brandColor }}>
+                            {user.profile ? <img src={user.profile} className="w-full h-full rounded-full object-cover" /> : user.name?.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{user.name || 'Unknown'}</p>
+                            <p className="text-xs text-gray-400 truncate">{user.email}</p>
+                          </div>
+                          {canManage && <button onClick={() => handleRemoveMember(memberId)} className="p-1 text-red-400"><FaUserMinus className="text-sm" /></button>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto">
-            {listView === 'tasks' ? (
-              tasks.length === 0 ? (
-                <div className="text-center py-12 text-gray-400"><FaTasks className="text-3xl mx-auto mb-3" /><p className="text-sm">No tasks yet</p></div>
-              ) : (
-                tasks.map(task => <TaskListItem key={task._id} task={task} isActive={selectedTaskId === task._id} onClick={() => handleTaskClick(task._id)} brandColor={brandColor} />)
-              )
+          {/* Right Panel – Detail (hidden on mobile when list shown) */}
+          <div className={`${mobileShowDetail ? 'flex' : 'hidden md:flex'} flex-col flex-1 h-full bg-gray-50`}>
+            {activeTask ? (
+              <TaskDetailView
+                task={activeTask}
+                brandColor={brandColor}
+                feedbackData={feedbackData}
+                isLoading={feedbackLoading}
+                userInfo={userInfo}
+                onBack={handleBackToList}
+                onEdit={handleEditTask}
+                onDelete={handleDeleteTask}
+                onUpdateProgress={handleUpdateProgress}
+                onApproveCompletion={handleApproveCompletion}
+                canManage={canManage}
+              />
             ) : (
-              <div className="py-2">
-                <div className="px-4 py-2">
-                  <div className="flex justify-between items-center"><span className="text-xs font-semibold text-gray-500 uppercase"><FaCrown className="inline mr-1" /> Managers</span>{isOwner && <button onClick={() => setShowAddManager(true)} className="text-xs text-white px-2 py-0.5 rounded" style={{ backgroundColor: brandColor }}>Add</button>}</div>
-                  {projectManagers.map(m => (
-                    <div key={m._id} className="flex items-center gap-3 py-2">
-                      <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold" style={{ backgroundColor: brandColor }}>{m.profile ? <img src={m.profile} className="w-full h-full rounded-full object-cover" /> : m.name?.charAt(0).toUpperCase()}</div>
-                      <div className="flex-1 min-w-0"><p className="text-sm font-medium truncate">{m.name}</p><p className="text-xs text-gray-400 truncate">{m.email}</p></div>
-                      {isOwner && projectManagers.length > 1 && <button onClick={() => handleRemoveManager(m._id)} className="p-1 text-red-400"><FaUserMinus className="text-sm" /></button>}
-                    </div>
-                  ))}
-                </div>
-                <div className="px-4 py-2 border-t">
-                  <div className="flex justify-between items-center"><span className="text-xs font-semibold text-gray-500 uppercase"><FaUsers className="inline mr-1" /> Active Team ({activeTeam.length})</span>{canManage && <button onClick={() => setShowAddMember(true)} className="text-xs text-white px-2 py-0.5 rounded" style={{ backgroundColor: brandColor }}>Add</button>}</div>
-                  {activeTeam.map(m => {
-                    const user = m.user || m;
-                    const memberId = user._id;
-                    return (
-                      <div key={memberId} className="flex items-center gap-3 py-2">
-                        <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold" style={{ backgroundColor: brandColor }}>{user.profile ? <img src={user.profile} className="w-full h-full rounded-full object-cover" /> : user.name?.charAt(0).toUpperCase()}</div>
-                        <div className="flex-1 min-w-0"><p className="text-sm font-medium truncate">{user.name || 'Unknown'}</p><p className="text-xs text-gray-400 truncate">{user.email}</p></div>
-                        {canManage && <button onClick={() => handleRemoveMember(memberId)} className="p-1 text-red-400"><FaUserMinus className="text-sm" /></button>}
-                      </div>
-                    );
-                  })}
+              <div className="flex-1 flex items-center justify-center text-gray-400">
+                <div className="text-center">
+                  <FaCommentDots className="text-5xl mx-auto mb-4 opacity-30" style={{ color: brandColor }} />
+                  <p className="text-lg font-medium">Select a task to view details</p>
+                  <p className="text-sm mt-1">Feedback and updates will appear here</p>
                 </div>
               </div>
             )}
           </div>
         </div>
-
-        {/* Right Panel – Task Detail */}
-        <div className={`${mobileShowDetail ? 'flex' : 'hidden md:flex'} flex-col flex-1 h-full bg-gray-50`}>
-          {activeTask ? (
-            <TaskDetailView
-              task={activeTask}
-              brandColor={brandColor}
-              feedbackData={feedbackData}
-              isLoading={feedbackLoading}
-              userInfo={userInfo}
-              onBack={handleBackToList}
-              onEdit={handleEditTask}
-              onDelete={handleDeleteTask}
-              onUpdateProgress={handleUpdateProgress}
-              onApproveCompletion={handleApproveCompletion}
-              canManage={canManage}
-            />
-          ) : (
-            <div className="flex-1 flex items-center justify-center text-gray-400">
-              <div className="text-center">
-                <FaCommentDots className="text-5xl mx-auto mb-4" style={{ color: brandColor, opacity: 0.3 }} />
-                <p className="text-lg font-medium">Select a task to view details</p>
-                <p className="text-sm mt-1">Feedback and updates will appear here like a chat</p>
-              </div>
-            </div>
-          )}
-        </div>
       </div>
 
+      {/* Bottom Navigation (only when list is visible on mobile) */}
       {!mobileShowDetail && <MyWorkspaceBottombar workspace={workspace} />}
 
       {/* Modals */}
+      <SearchModal isOpen={searchModalOpen} onClose={closeSearchModal} items={searchItems} type={listView} brandColor={brandColor} onSelect={onSearchSelect} />
       <CreateTaskModal isOpen={showCreateTask} onClose={() => setShowCreateTask(false)} projectId={projectId} brandColor={brandColor} assignableMembers={assignableMembers} onSuccess={() => { refetchTasks(); refetchProject(); }} />
       <EditTaskModal isOpen={showEditTask} onClose={() => { setShowEditTask(false); setSelectedTask(null); }} task={selectedTask} brandColor={brandColor} assignableMembers={assignableMembers} onSuccess={() => { refetchTasks(); refetchProject(); }} />
       <ProgressUpdateModal isOpen={showProgress} onClose={() => { setShowProgress(false); setSelectedTask(null); }} task={selectedTask} brandColor={brandColor} onSuccess={() => { refetchTasks(); refetchProject(); }} />
       <AddMemberModal isOpen={showAddMember} onClose={() => setShowAddMember(false)} workspace={workspace} project={project} brandColor={brandColor} onSuccess={refetchProject} />
       {showAddManager && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6">
             <div className="flex justify-between mb-4"><h2 className="text-xl font-bold">Add Manager</h2><button onClick={() => setShowAddManager(false)}><FaTimes /></button></div>
-            <CustomDropdown label="Select Member" options={managerOptions} value="" onChange={(v) => v && handleAddManager(v)} brandColor={brandColor} />
+            <CustomDropdown label="Select Member" options={managerOptions} value="" onChange={(v) => { if (v) handleAddManager(v); setShowAddManager(false); }} brandColor={brandColor} />
             <div className="flex gap-3 mt-4"><button onClick={() => setShowAddManager(false)} className="flex-1 py-2 border rounded-lg">Cancel</button></div>
           </div>
         </div>
