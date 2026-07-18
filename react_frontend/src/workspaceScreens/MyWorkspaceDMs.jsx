@@ -51,6 +51,99 @@ const formatTime = (date) => {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
+// ─── Search DM Modal ────────────────────────────────────────────────────
+const SearchDMModal = ({ isOpen, onClose, dms, brandColor, workspaceId, userInfo }) => {
+  const [query, setQuery] = useState('');
+
+  if (!isOpen) return null;
+
+  const filtered = dms.filter((dm) => {
+    const name = dm.participant?.name?.toLowerCase() || '';
+    const msg = dm.lastMessage?.toLowerCase() || '';
+    const q = query.toLowerCase();
+    return name.includes(q) || msg.includes(q);
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 bg-white flex flex-col">
+      {/* Modal Header */}
+      <div className="flex items-center gap-3 px-4 h-14 border-b border-gray-100">
+        <button onClick={onClose} className="p-1">
+          <FaArrowLeft className="text-gray-600" />
+        </button>
+        <div className="flex-1 bg-gray-100 rounded-full px-4 py-2 flex items-center gap-2">
+          <FaSearch className="text-gray-400 text-xs" />
+          <input
+            type="text"
+            placeholder="Search messages..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="bg-transparent w-full outline-none text-sm"
+            autoFocus
+          />
+          {query && (
+            <button onClick={() => setQuery('')}>
+              <FaTimes className="text-gray-400 text-xs" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Results */}
+      <div className="flex-1 overflow-y-auto">
+        {!query && (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400">
+            <FaSearch className="text-4xl mb-2 opacity-30" />
+            <p className="text-sm">Search conversations</p>
+          </div>
+        )}
+
+        {query && filtered.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400">
+            <p className="text-sm">No results for "{query}"</p>
+          </div>
+        )}
+
+        {query && filtered.length > 0 && (
+          <div className="divide-y divide-gray-100">
+            {filtered.map((dm) => (
+              <Link
+                key={dm.chatId}
+                to={`/my-workspace/${workspaceId}/chat/${dm.chatId}`}
+                onClick={onClose}
+                className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition"
+              >
+                <div className="relative">
+                  {dm.participant?.profile ? (
+                    <img src={dm.participant.profile} alt={dm.participant.name} className="w-10 h-10 rounded-full" />
+                  ) : (
+                    <div
+                      className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm"
+                      style={{ backgroundColor: brandColor }}
+                    >
+                      {getInitials(dm.participant?.name)}
+                    </div>
+                  )}
+                  {dm.isOnline && (
+                    <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium text-gray-900 truncate">{dm.participant?.name || 'Unknown'}</p>
+                    <span className="text-xs text-gray-400">{formatTime(dm.timestamp)}</span>
+                  </div>
+                  <p className="text-xs text-gray-500 truncate">{dm.lastMessage}</p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ─── New Chat Modal ──────────────────────────────────────────────────────
 const NewChatModal = ({ isOpen, onClose, members, brandColor, currentUserId, onStartDM }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -152,27 +245,23 @@ const NewChatModal = ({ isOpen, onClose, members, brandColor, currentUserId, onS
 };
 
 // ─── Main Component ──────────────────────────────────────────────────────
-
 const MyWorkspaceDMs = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
   const [showNewChatModal, setShowNewChatModal] = useState(false);
 
-  // ── Fetch data ──
   const { data: workspaceData, isLoading: workspaceLoading, error: workspaceError } = useGetWorkspaceQuery(workspaceId);
   const { data: membersData, isLoading: membersLoading } = useGetMembersQuery(workspaceId);
   const { data: chatsData, isLoading: chatsLoading, refetch: refetchChats } = useGetUserChatsQuery(workspaceId);
   const [createDirectChat, { isLoading: creatingChat }] = useCreateDirectChatMutation();
 
-  // ── Derive DMs ──
   const dms = useMemo(() => {
     if (!chatsData?.chats) return [];
     return chatsData.chats
       .filter((chat) => chat.type === 'direct')
       .map((chat) => {
-        // Find the other participant
         const other = chat.participants.find(
           (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id
         );
@@ -189,38 +278,25 @@ const MyWorkspaceDMs = () => {
       .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
   }, [chatsData, userInfo]);
 
-  // ── Filter DMs by search ──
-  const filteredDMs = dms.filter((dm) => {
-    const name = dm.participant?.name?.toLowerCase() || '';
-    const msg = dm.lastMessage?.toLowerCase() || '';
-    const query = searchQuery.toLowerCase();
-    return name.includes(query) || msg.includes(query);
-  });
-
-  // ── Handlers ──
   const handleStartDM = async (targetUserId) => {
     if (targetUserId === userInfo?._id) {
       toast.info("You can't start a DM with yourself");
       return;
     }
-
     try {
       const existingChat = chatsData?.chats?.find(
         (chat) =>
           chat.type === 'direct' &&
           chat.participants.some((p) => p.user?._id === targetUserId || p.user === targetUserId)
       );
-
       if (existingChat) {
         navigate(`/my-workspace/${workspaceId}/chat/${existingChat._id}`);
         return;
       }
-
       const result = await createDirectChat({
         workspaceId,
         targetUserId,
       }).unwrap();
-
       toast.success('Direct chat created!');
       navigate(`/my-workspace/${workspaceId}/chat/${result.chat._id}`);
     } catch (err) {
@@ -228,10 +304,9 @@ const MyWorkspaceDMs = () => {
     }
   };
 
-  // ── Loading state ──
   if (workspaceLoading || membersLoading || chatsLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#f0f2f5]">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <div
             className="w-10 h-10 border-4 border-t-transparent rounded-full animate-spin mx-auto"
@@ -250,10 +325,20 @@ const MyWorkspaceDMs = () => {
 
   const workspace = workspaceData?.workspace;
   const members = membersData?.members || [];
-  const brandColor = workspace?.color || '#4F46E5';
+  const brandColor = workspace?.color || '#0d9488';
 
   return (
-    <div className="min-h-screen bg-[#f0f2f5] flex flex-col lg:flex-row">
+    <div className="h-dvh bg-gray-50 flex flex-col lg:flex-row">
+      {/* ── Search Modal ── */}
+      <SearchDMModal
+        isOpen={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        dms={dms}
+        brandColor={brandColor}
+        workspaceId={workspaceId}
+        userInfo={userInfo}
+      />
+
       {/* ── New Chat Modal ── */}
       <NewChatModal
         isOpen={showNewChatModal}
@@ -264,57 +349,43 @@ const MyWorkspaceDMs = () => {
         onStartDM={handleStartDM}
       />
 
-      {/* ── Left Sidebar ── */}
-      <div className="hidden lg:block lg:w-64 lg:h-screen lg:flex-shrink-0 lg:sticky lg:top-0">
+      {/* ── Left Sidebar (desktop) ── */}
+      <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
         <MyWorkspaceSidebar workspace={workspace} chats={chatsData?.chats || []} />
       </div>
 
       {/* ── Main Content ── */}
-      <div className="flex-1 flex flex-col bg-white lg:bg-[#f0f2f5] h-screen overflow-hidden">
-        {/* ── Header ── */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200/80 bg-white flex-shrink-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <button
-              onClick={() => navigate(`/my-workspace/${workspaceId}`)}
-              className="lg:hidden p-1.5 hover:bg-gray-100 rounded-lg transition"
-            >
-              <FaArrowLeft className="text-gray-500 text-sm" />
-            </button>
-            <h1 className="text-lg font-semibold text-gray-900">Messages</h1>
-            <span className="text-xs text-gray-400 ml-1">{dms.length}</span>
+      <div className="flex-1 flex flex-col bg-white lg:bg-gray-50 h-full overflow-hidden">
+        {/* ── WhatsApp-style Header (fixed) ── */}
+        <header className="sticky top-0 z-10 bg-teal-600 text-white flex-shrink-0 shadow-sm">
+          <div className="flex items-center justify-between px-4 h-14">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => navigate(`/my-workspace/${workspaceId}`)}
+                className="lg:hidden p-1"
+              >
+                <FaArrowLeft />
+              </button>
+              <h1 className="text-lg font-semibold">Messages</h1>
+              <span className="text-xs text-white/70 ml-1">{dms.length}</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <button onClick={() => setSearchOpen(true)} className="p-1">
+                <FaSearch className="text-white" />
+              </button>
+              <button onClick={() => setShowNewChatModal(true)} className="p-1">
+                <FaPlus className="text-white" />
+              </button>
+            </div>
           </div>
-          <button
-            onClick={() => setShowNewChatModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-white rounded-lg transition hover:opacity-90"
-            style={{ backgroundColor: brandColor }}
-          >
-            <FaPlus className="text-xs" /> New
-          </button>
-        </div>
+        </header>
 
-        {/* ── Search ── */}
-        <div className="px-4 py-2 bg-white border-b border-gray-200/80 flex-shrink-0">
-          <div className="relative">
-            <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs" />
-            <input
-              type="text"
-              placeholder="Search conversations..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:border-transparent text-sm bg-gray-50"
-              style={{ '--tw-ring-color': brandColor }}
-              onFocus={(e) => e.target.style.setProperty('--tw-ring-color', brandColor)}
-            />
-          </div>
-        </div>
-
-        {/* ── DM List ── */}
-        <div className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
-          {filteredDMs.length === 0 ? (
-            <div className="text-center py-12 text-gray-400">
-              <FaComment className="text-3xl mx-auto mb-3 text-gray-300" />
-              <p className="text-sm font-medium text-gray-600">No conversations yet</p>
-              <p className="text-xs mt-1">Start a new message with a team member</p>
+        {/* ── DM List (scrollable) ── */}
+        <div className="flex-1 overflow-y-auto bg-white divide-y divide-gray-100">
+          {dms.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+              <FaComment className="text-4xl mb-2 opacity-30" />
+              <p className="text-sm">No conversations yet</p>
               <button
                 onClick={() => setShowNewChatModal(true)}
                 className="mt-3 px-4 py-1.5 text-white rounded-lg text-sm font-medium transition hover:opacity-90"
@@ -324,49 +395,42 @@ const MyWorkspaceDMs = () => {
               </button>
             </div>
           ) : (
-            filteredDMs.map((dm) => {
-              const participant = dm.participant;
-              const name = participant?.name || 'Unknown';
-              const avatar = participant?.profile;
-              const isOnline = dm.isOnline;
-              const lastMsg = dm.lastMessage || 'No messages yet';
-              const time = dm.timestamp ? formatTime(dm.timestamp) : '';
-              const unread = dm.unread;
-
+            dms.map((dm) => {
+              const name = dm.participant?.name || 'Unknown';
+              const avatar = dm.participant?.profile;
               return (
                 <Link
                   key={dm.chatId}
                   to={`/my-workspace/${workspaceId}/chat/${dm.chatId}`}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white transition-all duration-200 group border border-transparent hover:border-gray-200/80 hover:shadow-sm"
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors active:bg-gray-100"
                 >
                   <div className="relative flex-shrink-0">
                     {avatar ? (
-                      <img src={avatar} alt={name} className="w-11 h-11 rounded-full object-cover" />
+                      <img src={avatar} alt={name} className="w-12 h-12 rounded-2xl object-cover" />
                     ) : (
                       <div
-                        className="w-11 h-11 rounded-full flex items-center justify-center text-white text-sm font-bold"
+                        className="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-bold text-lg"
                         style={{ backgroundColor: brandColor }}
                       >
                         {getInitials(name)}
                       </div>
                     )}
-                    {isOnline && (
+                    {dm.isOnline && (
                       <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white" />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-medium text-gray-900 truncate">{name}</p>
-                      {time && <span className="text-[10px] text-gray-400 flex-shrink-0">{time}</span>}
+                      <p className="font-semibold text-gray-800 truncate">{name}</p>
+                      <span className="text-xs text-gray-400 flex-shrink-0">{formatTime(dm.timestamp)}</span>
                     </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-xs text-gray-500 truncate">{lastMsg}</p>
-                      {unread > 0 && (
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <p className="text-sm text-gray-500 truncate flex-1">{dm.lastMessage}</p>
+                      {dm.unread > 0 && (
                         <span
-                          className="text-white text-[10px] rounded-full px-1.5 py-0.5 min-w-[18px] text-center font-medium flex-shrink-0"
-                          style={{ backgroundColor: brandColor }}
+                          className="bg-teal-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center flex-shrink-0"
                         >
-                          {unread}
+                          {dm.unread}
                         </span>
                       )}
                     </div>
@@ -378,7 +442,7 @@ const MyWorkspaceDMs = () => {
         </div>
       </div>
 
-      {/* ── Bottom Navigation ── */}
+      {/* ── Bottom Navigation (mobile) ── */}
       <MyWorkspaceBottombar workspace={workspace} />
     </div>
   );
