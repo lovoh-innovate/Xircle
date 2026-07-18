@@ -11,24 +11,24 @@ import {
 import MyWorkspaceSidebar from '../workspaceComponents/MyWorkspaceSidebar';
 import MyWorkspaceBottombar from '../workspaceComponents/MyWorkspaceBottombar';
 import {
-  FiArrowLeft,
-  FiSave,
-  FiX,
-  FiImage,
-  FiTrash2,
-  FiCopy,
-  FiCheck,
-  FiLoader,
-  FiAlertTriangle,
-  FiHome,
-  FiUsers,
-  FiCalendar,
-  FiSettings,
-  FiDroplet,
-  FiInfo,
-  FiRefreshCw,
-} from 'react-icons/fi';
-import { FaRocket } from 'react-icons/fa';
+  FaArrowLeft,
+  FaSave,
+  FaTimes,
+  FaImage,
+  FaTrashAlt,
+  FaCopy,
+  FaCheck,
+  FaSpinner,
+  FaExclamationTriangle,
+  FaUsers,
+  FaCalendarAlt,
+  FaCog,
+  FaPalette,
+  FaInfoCircle,
+  FaRedo,
+  FaRocket,
+  FaChevronRight,
+} from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
 // ─── Helper: get initials ──────────────────────────────────────────────
@@ -52,7 +52,7 @@ const ImagePreviewModal = ({ imageUrl, onClose }) => {
           onClick={(e) => { e.stopPropagation(); onClose(); }}
           className="absolute top-4 right-4 text-white bg-black/50 hover:bg-black/70 rounded-full p-2 transition"
         >
-          <FiX className="text-xl" />
+          <FaTimes className="text-xl" />
         </button>
       </div>
     </div>
@@ -60,18 +60,16 @@ const ImagePreviewModal = ({ imageUrl, onClose }) => {
 };
 
 // ─── Main Component ──────────────────────────────────────────────────────
-
 const MyWorkspaceSettings = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
   const fileInputRef = useRef(null);
 
-  // ── State ──
   const [name, setName] = useState('');
   const [industry, setIndustry] = useState('');
   const [description, setDescription] = useState('');
-  const [color, setColor] = useState('#4F46E5');
+  const [color, setColor] = useState('#0d9488');
   const [logoFile, setLogoFile] = useState(null);
   const [logoPreview, setLogoPreview] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -81,25 +79,22 @@ const MyWorkspaceSettings = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [previewImage, setPreviewImage] = useState(null);
 
-  // ── Queries ──
   const { data: workspaceData, isLoading, error, refetch } = useGetWorkspaceQuery(workspaceId);
   const [updateWorkspace] = useUpdateWorkspaceMutation();
   const [deleteWorkspace] = useDeleteWorkspaceMutation();
   const [regenerateInviteCode] = useRegenerateInviteCodeMutation();
 
-  // ── Populate form when data loads ──
   useEffect(() => {
     if (workspaceData?.workspace) {
       const w = workspaceData.workspace;
       setName(w.name || '');
       setIndustry(w.industry || '');
       setDescription(w.description || '');
-      setColor(w.color || '#4F46E5');
+      setColor(w.color || '#0d9488');
       if (w.logo) setLogoPreview(w.logo);
     }
   }, [workspaceData]);
 
-  // ── Redirect if not owner ──
   const workspace = workspaceData?.workspace;
   const isOwner = workspace?.owner?._id === userInfo?._id || workspace?.owner === userInfo?._id;
 
@@ -113,7 +108,7 @@ const MyWorkspaceSettings = () => {
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-t-transparent rounded-full animate-spin mx-auto"
-               style={{ borderColor: workspaceData?.workspace?.color || '#4F46E5', borderTopColor: 'transparent' }} />
+               style={{ borderColor: '#0d9488', borderTopColor: 'transparent' }} />
           <p className="mt-4 text-gray-500">Loading settings...</p>
         </div>
       </div>
@@ -122,20 +117,16 @@ const MyWorkspaceSettings = () => {
 
   if (!workspace) return null;
 
-  const brandColor = workspace.color || '#4F46E5';
+  const brandColor = workspace.color || '#0d9488';
   const memberCount = workspace.members?.length || 0;
-  const channelCount = workspaceData?.chats?.length || 0;
   const createdDate = new Date(workspace.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
-  // ─── Handle logo change ──────────────────────────────────────────────
   const handleLogoChange = (e) => {
     const file = e.target.files[0];
     if (file) {
       setLogoFile(file);
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setLogoPreview(reader.result);
-      };
+      reader.onloadend = () => setLogoPreview(reader.result);
       reader.readAsDataURL(file);
     }
   };
@@ -145,22 +136,17 @@ const MyWorkspaceSettings = () => {
     setLogoPreview('');
   };
 
-  // ─── Save settings ──────────────────────────────────────────────────
   const handleSave = async (e) => {
     e.preventDefault();
     setIsSaving(true);
-
     try {
       const formData = new FormData();
       formData.append('name', name.trim());
       formData.append('industry', industry.trim());
       formData.append('description', description.trim());
       formData.append('color', color);
-      if (logoFile) {
-        formData.append('logo', logoFile);
-      } else if (logoPreview === '' && workspace.logo) {
-        formData.append('logo', '');
-      }
+      if (logoFile) formData.append('logo', logoFile);
+      else if (logoPreview === '' && workspace.logo) formData.append('logo', '');
 
       await updateWorkspace({ id: workspaceId, data: formData }).unwrap();
       toast.success('Workspace settings updated!');
@@ -172,7 +158,6 @@ const MyWorkspaceSettings = () => {
     }
   };
 
-  // ─── Regenerate invite code ──────────────────────────────────────────
   const handleRegenerateInvite = async () => {
     if (!window.confirm('Regenerating the invite code will invalidate the previous code. Continue?')) return;
     setIsRegenerating(true);
@@ -188,7 +173,6 @@ const MyWorkspaceSettings = () => {
     }
   };
 
-  // ─── Copy invite code ──────────────────────────────────────────────
   const copyInviteCode = () => {
     if (workspace.inviteCode) {
       navigator.clipboard.writeText(workspace.inviteCode);
@@ -198,7 +182,6 @@ const MyWorkspaceSettings = () => {
     }
   };
 
-  // ─── Delete workspace ──────────────────────────────────────────────
   const handleDeleteWorkspace = async () => {
     setIsDeleting(true);
     try {
@@ -212,305 +195,216 @@ const MyWorkspaceSettings = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* ── Desktop Sidebar (fixed) ── */}
-      <div className="hidden md:block md:w-64 md:min-h-screen md:flex-shrink-0 fixed top-0 left-0">
+    <div className="h-dvh bg-gray-50 flex flex-col lg:flex-row overflow-hidden">
+      {/* Desktop Sidebar */}
+      <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
         <MyWorkspaceSidebar workspace={workspace} chats={[]} />
       </div>
 
-      {/* ── Main Content ── */}
-      <div className="flex-1 md:ml-64 overflow-y-auto pb-24 md:pb-0">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 lg:py-10">
-          
-          {/* ── Header with subtle gradient ── */}
-          <div className="relative mb-8 overflow-hidden rounded-2xl p-6 bg-gradient-to-r from-white to-gray-50 border border-gray-200/60 shadow-sm">
-            <div className="relative flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={() => navigate(`/my-workspace/${workspaceId}`)}
-                  className="p-2.5 bg-gray-100 hover:bg-gray-200 rounded-xl transition text-gray-600 hover:text-gray-800"
-                >
-                  <FiArrowLeft className="text-lg" />
-                </button>
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        {/* Fixed Header */}
+        <header className="sticky top-0 z-10 bg-teal-600 text-white flex-shrink-0 shadow-sm">
+          <div className="flex items-center justify-between px-4 h-14">
+            <div className="flex items-center gap-3 min-w-0">
+              <button onClick={() => navigate(`/my-workspace/${workspaceId}`)} className="p-1 lg:hidden">
+                <FaArrowLeft />
+              </button>
+              <h1 className="text-lg font-semibold">Settings</h1>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="hidden sm:inline text-xs text-white/80">{memberCount} members</span>
+              <FaUsers className="hidden sm:block text-sm text-white/80" />
+            </div>
+          </div>
+        </header>
+
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="max-w-3xl mx-auto space-y-6">
+            {/* Workspace Info Card */}
+            <div className="bg-white rounded-2xl border border-gray-200/60 p-5">
+              <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-2 mb-4">
+                <FaInfoCircle className="text-teal-500" /> General Information
+              </h2>
+              <form onSubmit={handleSave} className="space-y-4">
                 <div>
-                  <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-                    <FiSettings className="text-2xl" style={{ color: brandColor }} />
-                    Settings
-                  </h1>
-                  <p className="text-gray-500 text-sm">Manage your workspace preferences</p>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Workspace Name *</label>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+                    required
+                  />
                 </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="px-4 py-1.5 bg-gray-100 rounded-full text-xs text-gray-600 border border-gray-200/60">
-                  <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-2"></span>
-                  {memberCount} members
-                </span>
-                <span className="px-4 py-1.5 bg-gray-100 rounded-full text-xs text-gray-600 border border-gray-200/60">
-                  <FiCalendar className="inline mr-2" /> {createdDate}
-                </span>
-              </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Industry</label>
+                  <input
+                    type="text"
+                    value={industry}
+                    onChange={(e) => setIndustry(e.target.value)}
+                    placeholder="Technology"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Description</label>
+                  <textarea
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="What's this workspace about?"
+                    rows="2"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm resize-none"
+                  />
+                </div>
+                <div className="pt-2">
+                  <button
+                    type="submit"
+                    disabled={isSaving}
+                    className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition disabled:opacity-50 text-sm font-medium"
+                  >
+                    {isSaving ? <FaSpinner className="animate-spin" /> : <FaSave className="text-sm" />}
+                    {isSaving ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+              </form>
             </div>
 
-            {/* Brand accent glow */}
-            <div
-              className="absolute -bottom-16 -right-16 w-48 h-48 rounded-full blur-3xl opacity-10"
-              style={{ backgroundColor: brandColor }}
-            ></div>
-          </div>
-
-          {/* ── Stats Row ── */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            {[
-              { label: 'Members', value: memberCount, icon: FiUsers },
-              { label: 'Channels', value: channelCount || 0, icon: FiHome },
-              { label: 'Invite Code', value: workspace.inviteCode, icon: FaRocket, isCode: true },
-              { label: 'Created', value: createdDate, icon: FiCalendar },
-            ].map((stat, idx) => (
-              <div
-                key={idx}
-                className="bg-white border border-gray-200/60 rounded-xl p-4 hover:shadow-md transition group"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-gray-50 flex items-center justify-center group-hover:bg-gray-100 transition">
-                    <stat.icon className="text-lg" style={{ color: brandColor }} />
+            {/* Branding Card */}
+            <div className="bg-white rounded-2xl border border-gray-200/60 p-5">
+              <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-2 mb-4">
+                <FaPalette className="text-teal-500" /> Branding
+              </h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Brand Color</label>
+                  <div className="flex items-center gap-3">
+                    <div className="relative w-14 h-14 rounded-xl border-2 border-gray-200 overflow-hidden">
+                      <input
+                        type="color"
+                        value={color}
+                        onChange={(e) => setColor(e.target.value)}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                      <div className="w-full h-full" style={{ backgroundColor: color }} />
+                    </div>
+                    <span className="text-sm font-mono text-gray-500">{color}</span>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-gray-400 uppercase tracking-wider">{stat.label}</p>
-                    {stat.isCode ? (
-                      <p className="text-sm font-mono font-bold text-gray-900 truncate">{stat.value}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Workspace Logo</label>
+                  <div className="flex items-center gap-3">
+                    {logoPreview ? (
+                      <div className="relative">
+                        <img
+                          src={logoPreview}
+                          alt="Logo"
+                          className="w-16 h-16 rounded-xl object-cover border-2 border-gray-200 cursor-pointer"
+                          onClick={() => setPreviewImage(logoPreview)}
+                        />
+                        <button
+                          type="button"
+                          onClick={removeLogo}
+                          className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 hover:bg-red-600"
+                        >
+                          <FaTrashAlt className="w-3 h-3" />
+                        </button>
+                      </div>
                     ) : (
-                      <p className="text-lg font-bold text-gray-900">{stat.value}</p>
+                      <label className="flex items-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-gray-400 bg-gray-50">
+                        <FaImage className="text-gray-400" />
+                        <span className="text-sm text-gray-500">Upload Logo</span>
+                        <input
+                          type="file"
+                          ref={fileInputRef}
+                          onChange={handleLogoChange}
+                          className="hidden"
+                          accept="image/*"
+                        />
+                      </label>
                     )}
                   </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* ── Settings Form ── */}
-          <form onSubmit={handleSave} className="space-y-6">
-            
-            {/* ── Two columns: General & Branding ── */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* General Information */}
-              <div className="bg-white border border-gray-200/60 rounded-xl p-6 hover:shadow-sm transition">
-                <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-2 mb-4">
-                  <FiInfo className="text-lg" style={{ color: brandColor }} />
-                  General Information
-                </h2>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Workspace Name *</label>
-                    <input
-                      type="text"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      placeholder="Acme Corp"
-                      className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:border-transparent text-gray-900 placeholder-gray-400 text-sm transition"
-                      style={{ '--tw-ring-color': brandColor }}
-                      onFocus={(e) => e.target.style.setProperty('--tw-ring-color', brandColor)}
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Industry</label>
-                    <input
-                      type="text"
-                      value={industry}
-                      onChange={(e) => setIndustry(e.target.value)}
-                      placeholder="Technology"
-                      className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:border-transparent text-gray-900 placeholder-gray-400 text-sm transition"
-                      style={{ '--tw-ring-color': brandColor }}
-                      onFocus={(e) => e.target.style.setProperty('--tw-ring-color', brandColor)}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Description</label>
-                    <textarea
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      placeholder="What's this workspace about?"
-                      rows="2"
-                      className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:border-transparent text-gray-900 placeholder-gray-400 text-sm transition resize-none"
-                      style={{ '--tw-ring-color': brandColor }}
-                      onFocus={(e) => e.target.style.setProperty('--tw-ring-color', brandColor)}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Branding */}
-              <div className="bg-white border border-gray-200/60 rounded-xl p-6 hover:shadow-sm transition">
-                <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-2 mb-4">
-                  <FiDroplet className="text-lg" style={{ color: brandColor }} />
-                  Branding
-                </h2>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Brand Color</label>
-                    <div className="flex items-center gap-4">
-                      <div
-                        className="w-14 h-14 rounded-xl border-2 border-gray-200 overflow-hidden transition hover:scale-105"
-                        style={{ backgroundColor: color }}
-                      >
-                        <input
-                          type="color"
-                          value={color}
-                          onChange={(e) => setColor(e.target.value)}
-                          className="w-full h-full cursor-pointer opacity-0"
-                        />
-                      </div>
-                      <span className="text-sm font-mono text-gray-500">{color}</span>
-                      <div
-                        className="w-8 h-8 rounded-full"
-                        style={{ backgroundColor: color, boxShadow: `0 0 16px ${color}44` }}
-                      ></div>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Workspace Logo</label>
-                    <div className="flex items-center gap-4">
-                      {logoPreview ? (
-                        <div className="relative group/logo">
-                          <img
-                            src={logoPreview}
-                            alt="Logo"
-                            className="w-16 h-16 rounded-xl object-cover border-2 border-gray-200 cursor-pointer hover:border-gray-300 transition"
-                            onClick={() => setPreviewImage(logoPreview)}
-                          />
-                          <button
-                            type="button"
-                            onClick={removeLogo}
-                            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 transition"
-                          >
-                            <FiTrash2 className="w-3 h-3" />
-                          </button>
-                        </div>
-                      ) : (
-                        <label className="flex items-center gap-3 px-5 py-3 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-gray-400 transition bg-gray-50">
-                          <FiImage className="text-gray-400" />
-                          <span className="text-sm text-gray-500">Upload Logo</span>
-                          <input
-                            type="file"
-                            ref={fileInputRef}
-                            onChange={handleLogoChange}
-                            className="hidden"
-                            accept="image/*"
-                          />
-                        </label>
-                      )}
-                      <p className="text-xs text-gray-400">PNG, JPG, WebP (max 5MB)</p>
-                    </div>
-                  </div>
+                  <p className="text-xs text-gray-400 mt-1">PNG, JPG, WebP (max 5MB)</p>
                 </div>
               </div>
             </div>
 
-            {/* ── Invite Code ── */}
-            <div className="bg-white border border-gray-200/60 rounded-xl p-6 hover:shadow-sm transition">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-gray-50 flex items-center justify-center">
-                    <FaRocket className="text-2xl" style={{ color: brandColor }} />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold text-gray-800">Invite Code</h3>
-                    <p className="text-xs text-gray-500">Share this code with new members</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl">
+            {/* Invite Code Card */}
+            <div className="bg-white rounded-2xl border border-gray-200/60 p-5">
+              <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-2 mb-4">
+                <FaRocket className="text-teal-500" /> Invite Code
+              </h2>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3 w-full sm:w-auto">
+                  <div className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5">
                     <span className="text-lg font-mono font-bold text-gray-900 tracking-wider">{workspace.inviteCode}</span>
                   </div>
                   <button
                     type="button"
                     onClick={copyInviteCode}
-                    className="p-2.5 bg-gray-50 hover:bg-gray-100 rounded-xl transition border border-gray-200 group/copy"
+                    className="p-2.5 bg-gray-50 hover:bg-gray-100 rounded-xl transition border border-gray-200"
                   >
-                    {copied ? <FiCheck className="text-green-500" /> : <FiCopy className="text-gray-500 group-hover/copy:text-gray-700" />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleRegenerateInvite}
-                    disabled={isRegenerating}
-                    className="flex items-center gap-2 px-4 py-2.5 text-white rounded-xl transition hover:opacity-90 disabled:opacity-50 text-sm font-medium"
-                    style={{ backgroundColor: brandColor }}
-                  >
-                    {isRegenerating ? <FiLoader className="animate-spin" /> : <FiRefreshCw className="text-sm" />}
-                    {isRegenerating ? 'Generating...' : 'Regenerate'}
+                    {copied ? <FaCheck className="text-green-500" /> : <FaCopy className="text-gray-500" />}
                   </button>
                 </div>
+                <button
+                  type="button"
+                  onClick={handleRegenerateInvite}
+                  disabled={isRegenerating}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition disabled:opacity-50 text-sm font-medium"
+                >
+                  {isRegenerating ? <FaSpinner className="animate-spin" /> : <FaRedo className="text-sm" />}
+                  {isRegenerating ? 'Generating...' : 'Regenerate'}
+                </button>
               </div>
             </div>
 
-            {/* ── Danger Zone ── */}
-            <div className="bg-red-50 border border-red-200 rounded-xl p-6 hover:bg-red-100/50 transition">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-red-100 flex items-center justify-center">
-                    <FiAlertTriangle className="text-2xl text-red-500" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold text-red-700">Danger Zone</h3>
-                    <p className="text-xs text-red-600/70">Deleting this workspace is irreversible</p>
-                  </div>
-                </div>
-                {!showDeleteConfirm ? (
+            {/* Danger Zone */}
+            <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
+              <h2 className="text-sm font-semibold text-red-700 flex items-center gap-2 mb-4">
+                <FaExclamationTriangle className="text-red-500" /> Danger Zone
+              </h2>
+              <p className="text-xs text-red-600/70 mb-3">Deleting this workspace is irreversible.</p>
+              {!showDeleteConfirm ? (
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-medium transition"
+                >
+                  Delete Workspace
+                </button>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-red-700 font-medium">Are you sure?</span>
                   <button
                     type="button"
-                    onClick={() => setShowDeleteConfirm(true)}
-                    className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-medium transition"
+                    onClick={handleDeleteWorkspace}
+                    disabled={isDeleting}
+                    className="px-4 py-2 bg-red-700 text-white rounded-xl text-sm font-medium hover:bg-red-800 transition disabled:opacity-50"
                   >
-                    Delete Workspace
+                    {isDeleting ? <FaSpinner className="animate-spin" /> : 'Yes, Delete'}
                   </button>
-                ) : (
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-red-700 font-medium">Are you sure?</span>
-                    <button
-                      type="button"
-                      onClick={handleDeleteWorkspace}
-                      disabled={isDeleting}
-                      className="px-4 py-2 bg-red-700 text-white rounded-xl text-sm font-medium hover:bg-red-800 transition disabled:opacity-50"
-                    >
-                      {isDeleting ? <FiLoader className="animate-spin" /> : 'Yes, Delete'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowDeleteConfirm(false)}
-                      className="px-4 py-2 bg-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-300 transition"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                )}
-              </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-300 transition"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
             </div>
-
-            {/* ── Save Button ── */}
-            <div className="flex justify-end pt-4">
-              <button
-                type="submit"
-                disabled={isSaving}
-                className="flex items-center gap-3 px-8 py-3.5 text-white rounded-xl transition hover:opacity-90 disabled:opacity-50 text-sm font-medium shadow-md"
-                style={{ backgroundColor: brandColor, boxShadow: `0 4px 12px ${brandColor}44` }}
-              >
-                {isSaving ? <FiLoader className="animate-spin" /> : <FiSave className="text-lg" />}
-                {isSaving ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
-          </form>
+          </div>
         </div>
       </div>
 
-      {/* ── Bottom Navigation (mobile & tablet) ── */}
+      {/* Bottom Navigation (mobile) */}
       <MyWorkspaceBottombar workspace={workspace} />
 
-      {/* ── Image Preview Modal ── */}
+      {/* Image Preview Modal */}
       {previewImage && (
-        <ImagePreviewModal
-          imageUrl={previewImage}
-          onClose={() => setPreviewImage(null)}
-        />
+        <ImagePreviewModal imageUrl={previewImage} onClose={() => setPreviewImage(null)} />
       )}
     </div>
   );

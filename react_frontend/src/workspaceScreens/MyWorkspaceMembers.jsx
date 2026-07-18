@@ -1,6 +1,6 @@
 // src/workspaceScreens/MyWorkspaceMembers.jsx
 import React, { useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
 import {
@@ -17,7 +17,6 @@ import {
   FaUsers,
   FaUserPlus,
   FaUserCheck,
-  FaUserTimes,
   FaUserCog,
   FaTrashAlt,
   FaCheck,
@@ -25,15 +24,10 @@ import {
   FaEdit,
   FaSearch,
   FaArrowLeft,
-  FaUserCircle,
   FaSpinner,
   FaCrown,
-  FaUser,
-  FaEnvelope,
-  FaBriefcase,
-  FaBuilding,
-  FaChevronRight,
   FaEllipsisV,
+  FaCircle,
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
@@ -46,6 +40,96 @@ const getInitials = (name) => {
     .map((w) => w[0])
     .join('')
     .toUpperCase();
+};
+
+// ─── Search Members Modal (full-screen overlay) ────────────────────────
+const SearchMembersModal = ({ isOpen, onClose, members, brandColor, workspaceId, userInfo }) => {
+  const [query, setQuery] = useState('');
+
+  if (!isOpen) return null;
+
+  const filtered = members.filter((member) => {
+    const user = member.user || member;
+    const name = user?.name?.toLowerCase() || '';
+    const email = user?.email?.toLowerCase() || '';
+    const q = query.toLowerCase();
+    return name.includes(q) || email.includes(q);
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 bg-white flex flex-col">
+      {/* Modal Header */}
+      <div className="flex items-center gap-3 px-4 h-14 border-b border-gray-100">
+        <button onClick={onClose} className="p-1">
+          <FaArrowLeft className="text-gray-600" />
+        </button>
+        <div className="flex-1 bg-gray-100 rounded-full px-4 py-2 flex items-center gap-2">
+          <FaSearch className="text-gray-400 text-xs" />
+          <input
+            type="text"
+            placeholder="Search members..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="bg-transparent w-full outline-none text-sm"
+            autoFocus
+          />
+          {query && (
+            <button onClick={() => setQuery('')}>
+              <FaTimes className="text-gray-400 text-xs" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Results */}
+      <div className="flex-1 overflow-y-auto">
+        {!query && (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400">
+            <FaSearch className="text-4xl mb-2 opacity-30" />
+            <p className="text-sm">Search members by name or email</p>
+          </div>
+        )}
+
+        {query && filtered.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400">
+            <p className="text-sm">No members found for "{query}"</p>
+          </div>
+        )}
+
+        {query && filtered.length > 0 && (
+          <div className="divide-y divide-gray-100">
+            {filtered.map((member) => {
+              const user = member.user || member;
+              const isOnline = member.status === 'active';
+              return (
+                <div key={user._id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition">
+                  <div className="relative flex-shrink-0">
+                    {user?.profile ? (
+                      <img src={user.profile} alt={user.name} className="w-12 h-12 rounded-2xl object-cover" />
+                    ) : (
+                      <div
+                        className="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-bold text-lg"
+                        style={{ backgroundColor: brandColor }}
+                      >
+                        {getInitials(user.name)}
+                      </div>
+                    )}
+                    {isOnline && (
+                      <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-gray-800 truncate">{user?.name || 'Unknown'}</p>
+                    <p className="text-xs text-gray-500">{user?.email || 'No email'}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 };
 
 // ─── Update Member Modal ──────────────────────────────────────────────
@@ -78,7 +162,7 @@ const UpdateMemberModal = ({ isOpen, onClose, member, brandColor, onSuccess }) =
   if (!isOpen || !member) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
@@ -166,7 +250,7 @@ const ApproveMemberModal = ({ isOpen, onClose, memberId, workspaceId, brandColor
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
@@ -222,145 +306,25 @@ const ApproveMemberModal = ({ isOpen, onClose, memberId, workspaceId, brandColor
   );
 };
 
-// ─── Member Card ──────────────────────────────────────────────────────
-const MemberCard = ({ member, workspaceId, isOwner, brandColor, onUpdate, onRemove }) => {
-  const user = member.user || member;
-  const [showMenu, setShowMenu] = useState(false);
-
-  const handleRemove = () => {
-    if (window.confirm(`Remove ${user?.name || 'this member'} from the workspace?`)) {
-      onRemove && onRemove(user._id);
-    }
-  };
-
-  return (
-    <div className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 rounded-xl transition border border-gray-100">
-      {/* Avatar */}
-      {user?.profile ? (
-        <img src={user.profile} alt={user.name} className="w-10 h-10 rounded-full object-cover" />
-      ) : (
-        <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold" style={{ backgroundColor: brandColor }}>
-          {getInitials(user?.name)}
-        </div>
-      )}
-      {/* Info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <p className="text-sm font-medium text-gray-900 truncate">{user?.name || 'Unknown'}</p>
-          {user?._id === workspaceId?.owner && (
-            <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Owner</span>
-          )}
-          {member.role && member.role !== 'Staff' && (
-            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{member.role}</span>
-          )}
-        </div>
-        <div className="flex items-center flex-wrap gap-2 text-xs text-gray-400">
-          <span className="flex items-center gap-1">
-            <FaEnvelope className="text-[10px]" /> {user?.email || 'No email'}
-          </span>
-          {member.department && (
-            <span className="flex items-center gap-1">
-              <FaBuilding className="text-[10px]" /> {member.department}
-            </span>
-          )}
-          {member.status === 'active' && (
-            <span className="flex items-center gap-1 text-green-500">
-              <FaUserCheck className="text-[10px]" /> Active
-            </span>
-          )}
-        </div>
-      </div>
-      {/* Actions */}
-      {isOwner && user?._id !== workspaceId?.owner && (
-        <div className="relative">
-          <button
-            onClick={() => setShowMenu(!showMenu)}
-            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition"
-          >
-            <FaEllipsisV className="text-xs" />
-          </button>
-          {showMenu && (
-            <div className="absolute right-0 top-full mt-1 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[160px] z-10 py-1">
-              <button
-                onClick={() => { setShowMenu(false); onUpdate && onUpdate(member); }}
-                className="flex items-center gap-2 px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition w-full"
-              >
-                <FaEdit className="text-xs" /> Edit Role/Dept
-              </button>
-              <button
-                onClick={() => { setShowMenu(false); handleRemove(); }}
-                className="flex items-center gap-2 px-4 py-1.5 text-sm text-red-600 hover:bg-red-50 transition w-full"
-              >
-                <FaTrashAlt className="text-xs" /> Remove
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ─── Pending Request Card ────────────────────────────────────────────
-const PendingRequestCard = ({ request, onApproveClick }) => {
-  const user = request.user || request;
-
-  return (
-    <div className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 rounded-xl transition border border-gray-100">
-      {user?.profile ? (
-        <img src={user.profile} alt={user.name} className="w-10 h-10 rounded-full object-cover" />
-      ) : (
-        <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold" style={{ backgroundColor: '#4F46E5' }}>
-          {getInitials(user?.name)}
-        </div>
-      )}
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-900 truncate">{user?.name || 'Unknown'}</p>
-        <p className="text-xs text-gray-400 truncate">{user?.email || 'No email'}</p>
-      </div>
-      <div className="flex items-center gap-2">
-        <button
-          onClick={() => onApproveClick && onApproveClick(user._id)}
-          className="flex items-center gap-1 px-3 py-1 text-xs font-medium text-white rounded-lg hover:opacity-90 transition"
-          style={{ backgroundColor: '#4F46E5' }}
-        >
-          <FaCheck className="text-xs" /> Approve
-        </button>
-        <button
-          onClick={() => onRejectClick && onRejectClick(user._id)}
-          className="flex items-center gap-1 px-3 py-1 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition"
-        >
-          <FaTimes className="text-xs" /> Reject
-        </button>
-      </div>
-    </div>
-  );
-};
-
 // ─── Main Component ──────────────────────────────────────────────────────
-
 const MyWorkspaceMembers = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
   const [activeTab, setActiveTab] = useState('active');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [approveMemberId, setApproveMemberId] = useState(null);
 
-  // ── Fetch data ──
   const { data: workspaceData, isLoading: workspaceLoading, error: workspaceError } = useGetWorkspaceQuery(workspaceId);
   const { data: membersData, isLoading: membersLoading, refetch: refetchMembers } = useGetMembersQuery(workspaceId);
   const { data: pendingData, isLoading: pendingLoading, refetch: refetchPending } = useGetPendingRequestsQuery(workspaceId);
 
-  // ── Mutations ──
   const [rejectMember] = useRejectMemberMutation();
-  const [updateMember] = useUpdateMemberMutation();
   const [removeMember] = useRemoveMemberMutation();
 
-  // ── Handlers ──
   const handleReject = async (memberId) => {
     if (!window.confirm('Reject this join request?')) return;
     try {
@@ -369,16 +333,6 @@ const MyWorkspaceMembers = () => {
       refetchPending();
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to reject');
-    }
-  };
-
-  const handleUpdateMember = async (memberId, role, department) => {
-    try {
-      await updateMember({ workspaceId, memberId, role, department }).unwrap();
-      toast.success('Member updated');
-      refetchMembers();
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to update');
     }
   };
 
@@ -402,26 +356,9 @@ const MyWorkspaceMembers = () => {
     refetchPending();
   };
 
-  // ── Derive data ──
-  const workspace = workspaceData?.workspace;
-  const members = membersData?.members || [];
-  const pendingRequests = pendingData?.pending || [];
-
-  const isOwner = workspace?.owner?._id === userInfo?._id || workspace?.owner === userInfo?._id;
-
-  // ── Filter members ──
-  const filteredMembers = members.filter((member) => {
-    const user = member.user || member;
-    const name = user?.name?.toLowerCase() || '';
-    const email = user?.email?.toLowerCase() || '';
-    const query = searchQuery.toLowerCase();
-    return name.includes(query) || email.includes(query);
-  });
-
-  // ── Loading state ──
   if (workspaceLoading || membersLoading || pendingLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <div className="w-10 h-10 border-4 border-t-transparent rounded-full animate-spin mx-auto"
                style={{ borderColor: workspaceData?.workspace?.color || '#4F46E5', borderTopColor: 'transparent' }} />
@@ -436,147 +373,216 @@ const MyWorkspaceMembers = () => {
     return null;
   }
 
-  if (!workspace) return null;
+  const workspace = workspaceData?.workspace;
+  const members = membersData?.members || [];
+  const pendingRequests = pendingData?.pending || [];
+  const isOwner = workspace?.owner?._id === userInfo?._id || workspace?.owner === userInfo?._id;
+  const brandColor = workspace?.color || '#0d9488';
 
-  const brandColor = workspace.color || '#4F46E5';
+  // ── Member List Component (reused for both active & pending) ──
+  const renderMemberList = (list, type = 'active') => {
+    if (list.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+          <FaUsers className="text-4xl mb-2 opacity-30" />
+          <p className="text-sm">{type === 'active' ? 'No members found' : 'No pending requests'}</p>
+        </div>
+      );
+    }
 
-  return (
-    <div className="h-screen bg-gray-100 flex flex-col md:flex-row overflow-hidden">
-      {/* ── Left Sidebar ── */}
-      <div className="hidden md:block md:w-64 md:h-screen md:flex-shrink-0 md:sticky md:top-0">
-        <MyWorkspaceSidebar workspace={workspace} chats={[]} />
-      </div>
+    return list.map((item) => {
+      const user = item.user || item;
+      const member = item;
+      const isPending = type === 'pending';
 
-      {/* ── Main Content ── */}
-      <div className="flex-1 bg-white md:min-h-screen overflow-y-auto">
-        <div className="max-w-5xl mx-auto px-4 md:px-8 py-4 md:py-6">
-          
-          {/* ── Header ── */}
-          <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-200">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => navigate(`/my-workspace/${workspaceId}`)}
-                className="md:hidden p-2 hover:bg-gray-100 rounded-lg transition"
-              >
-                <FaArrowLeft className="text-gray-500" />
-              </button>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                  <FaUsers className="text-sm" style={{ color: brandColor }} /> Members
-                </h1>
-                <p className="text-sm text-gray-500">
-                  {members.length} active members
-                </p>
-              </div>
-            </div>
-            {isOwner && pendingRequests.length > 0 && (
-              <button
-                onClick={() => setActiveTab('pending')}
-                className="flex items-center gap-2 px-4 py-2 text-white rounded-lg text-sm font-medium transition hover:opacity-90"
+      return (
+        <div key={user._id || item._id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors">
+          {/* Avatar */}
+          <div className="relative flex-shrink-0">
+            {user?.profile ? (
+              <img src={user.profile} alt={user.name} className="w-12 h-12 rounded-2xl object-cover" />
+            ) : (
+              <div
+                className="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-bold text-lg"
                 style={{ backgroundColor: brandColor }}
               >
-                <FaUserPlus className="text-xs" /> {pendingRequests.length} Pending
-              </button>
+                {getInitials(user?.name)}
+              </div>
+            )}
+            {!isPending && member.status === 'active' && (
+              <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white" />
             )}
           </div>
 
-          {/* ── Tabs ── */}
-          <div className="flex gap-6 border-b border-gray-200 mb-6">
+          {/* Info */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <p className="font-semibold text-gray-800 truncate">{user?.name || 'Unknown'}</p>
+              {isPending && (
+                <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">Pending</span>
+              )}
+              {!isPending && user._id === workspace?.owner?._id && (
+                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Owner</span>
+              )}
+              {!isPending && member.role && member.role !== 'Staff' && (
+                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{member.role}</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 text-sm text-gray-500 mt-0.5">
+              <span>{user?.email || 'No email'}</span>
+              {member.department && <span>· {member.department}</span>}
+            </div>
+          </div>
+
+          {/* Actions */}
+          {isPending && isOwner && (
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={() => handleApproveClick(user._id)}
+                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white rounded-full hover:opacity-90 transition"
+                style={{ backgroundColor: brandColor }}
+              >
+                <FaCheck className="text-xs" /> Approve
+              </button>
+              <button
+                onClick={() => handleReject(user._id)}
+                className="p-1.5 text-gray-400 hover:text-red-500 rounded-full transition"
+              >
+                <FaTimes className="text-xs" />
+              </button>
+            </div>
+          )}
+
+          {!isPending && isOwner && user._id !== workspace?.owner?._id && (
+            <div className="relative">
+              <button
+                onClick={(e) => {
+                  // Toggle menu
+                  const menu = e.currentTarget.nextSibling;
+                  menu.classList.toggle('hidden');
+                }}
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition"
+              >
+                <FaEllipsisV className="text-xs" />
+              </button>
+              <div className="hidden absolute right-0 top-10 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[160px] z-10 py-1">
+                <button
+                  onClick={() => {
+                    setSelectedMember({ ...member, workspaceId });
+                    setShowUpdateModal(true);
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition w-full"
+                >
+                  <FaEdit className="text-xs" /> Edit Role/Dept
+                </button>
+                <button
+                  onClick={() => {
+                    if (window.confirm(`Remove ${user?.name || 'this member'}?`)) {
+                      handleRemoveMember(user._id);
+                    }
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition w-full"
+                >
+                  <FaTrashAlt className="text-xs" /> Remove
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    });
+  };
+
+  return (
+    <div className="h-dvh bg-gray-50 flex flex-col lg:flex-row overflow-hidden">
+      {/* ── Search Members Modal ── */}
+      <SearchMembersModal
+        isOpen={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        members={members}
+        brandColor={brandColor}
+        workspaceId={workspaceId}
+        userInfo={userInfo}
+      />
+
+      {/* Desktop Sidebar */}
+      <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
+        <MyWorkspaceSidebar workspace={workspace} chats={[]} />
+      </div>
+
+      {/* Main content area */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        {/* Header (fixed on mobile) */}
+        <header className="sticky top-0 z-10 bg-teal-600 text-white flex-shrink-0 shadow-sm">
+          <div className="flex items-center justify-between px-4 h-14">
+            <div className="flex items-center gap-2 min-w-0">
+              <button onClick={() => navigate(`/my-workspace/${workspaceId}`)} className="p-1 lg:hidden">
+                <FaArrowLeft />
+              </button>
+              <h1 className="text-lg font-semibold">Members</h1>
+              <span className="text-xs text-white/70 ml-1">{members.length}</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <button onClick={() => setSearchOpen(true)} className="p-1">
+                <FaSearch className="text-white" />
+              </button>
+              {isOwner && pendingRequests.length > 0 && (
+                <button
+                  onClick={() => setActiveTab('pending')}
+                  className="text-xs bg-white/20 px-2 py-1 rounded-full flex items-center gap-1"
+                >
+                  <FaUserPlus className="text-xs" /> {pendingRequests.length}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Tabs */}
+          <div className="flex gap-6 px-4 border-t border-white/20">
             <button
               onClick={() => setActiveTab('active')}
               className={`pb-2 text-sm font-medium transition ${
                 activeTab === 'active'
-                  ? 'border-b-2 text-gray-900'
-                  : 'text-gray-400 hover:text-gray-600'
+                  ? 'border-b-2 border-white text-white'
+                  : 'text-white/70 hover:text-white'
               }`}
-              style={activeTab === 'active' ? { borderColor: brandColor } : {}}
             >
-              Active Members ({members.length})
+              Active ({members.length})
             </button>
             {isOwner && (
               <button
                 onClick={() => setActiveTab('pending')}
                 className={`pb-2 text-sm font-medium transition ${
                   activeTab === 'pending'
-                    ? 'border-b-2 text-gray-900'
-                    : 'text-gray-400 hover:text-gray-600'
+                    ? 'border-b-2 border-white text-white'
+                    : 'text-white/70 hover:text-white'
                 }`}
-                style={activeTab === 'pending' ? { borderColor: brandColor } : {}}
               >
                 Pending ({pendingRequests.length})
               </button>
             )}
           </div>
+        </header>
 
-          {/* ── Search ── */}
-          <div className="relative mb-6">
-            <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
-            <input
-              type="text"
-              placeholder="Search members by name or email..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:border-transparent text-sm"
-              style={{ '--tw-ring-color': brandColor }}
-              onFocus={(e) => e.target.style.setProperty('--tw-ring-color', brandColor)}
-            />
-          </div>
-
-          {/* ── Active Members Tab ── */}
+        {/* Member List */}
+        <div className="flex-1 overflow-y-auto bg-white">
           {activeTab === 'active' && (
-            <div className="space-y-1">
-              {filteredMembers.length === 0 ? (
-                <div className="text-center py-12 text-gray-400">
-                  <FaUsers className="text-3xl mx-auto mb-3 text-gray-300" />
-                  <p className="text-sm">No members found</p>
-                  {searchQuery && <p className="text-xs mt-1">Try a different search term</p>}
-                </div>
-              ) : (
-                filteredMembers.map((member) => (
-                  <MemberCard
-                    key={member.user?._id || member._id}
-                    member={member}
-                    workspaceId={{ _id: workspaceId, owner: workspace.owner }}
-                    isOwner={isOwner}
-                    brandColor={brandColor}
-                    onUpdate={(m) => {
-                      setSelectedMember({ ...m, workspaceId });
-                      setShowUpdateModal(true);
-                    }}
-                    onRemove={handleRemoveMember}
-                  />
-                ))
-              )}
+            <div className="divide-y divide-gray-100">
+              {renderMemberList(members, 'active')}
             </div>
           )}
-
-          {/* ── Pending Requests Tab ── */}
           {activeTab === 'pending' && isOwner && (
-            <div className="space-y-1">
-              {pendingRequests.length === 0 ? (
-                <div className="text-center py-12 text-gray-400">
-                  <FaUserPlus className="text-3xl mx-auto mb-3 text-gray-300" />
-                  <p className="text-sm">No pending requests</p>
-                </div>
-              ) : (
-                pendingRequests.map((request) => (
-                  <PendingRequestCard
-                    key={request.user?._id || request._id}
-                    request={request}
-                    onApproveClick={handleApproveClick}
-                    onRejectClick={handleReject}
-                  />
-                ))
-              )}
+            <div className="divide-y divide-gray-100">
+              {renderMemberList(pendingRequests, 'pending')}
             </div>
           )}
         </div>
       </div>
 
-      {/* ── Bottom Navigation ── */}
+      {/* Bottom Navigation (mobile) */}
       <MyWorkspaceBottombar workspace={workspace} />
 
-      {/* ── Update Modal ── */}
+      {/* Update Member Modal */}
       <UpdateMemberModal
         isOpen={showUpdateModal}
         onClose={() => {
@@ -592,7 +598,7 @@ const MyWorkspaceMembers = () => {
         }}
       />
 
-      {/* ── Approve Modal ── */}
+      {/* Approve Member Modal */}
       <ApproveMemberModal
         isOpen={showApproveModal}
         onClose={() => {
