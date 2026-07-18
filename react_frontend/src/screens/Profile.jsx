@@ -9,6 +9,7 @@ import { useLogoutMutation } from '../slices/userApiSlice';
 import { logout } from '../slices/authSlice';
 import { toast } from 'react-toastify';
 import {
+  FaArrowLeft,
   FaUserCircle,
   FaEdit,
   FaUsers,
@@ -18,6 +19,7 @@ import {
   FaIndustry,
   FaChevronRight,
   FaSignOutAlt,
+  FaBuilding,
 } from 'react-icons/fa';
 
 const Profile = () => {
@@ -27,7 +29,6 @@ const Profile = () => {
 
   const [activeTab, setActiveTab] = useState('about');
 
-  // Fetch workspaces
   const { data, isLoading: workspacesLoading } = useGetMyWorkspacesQuery(undefined, {
     pollingInterval: 30000,
   });
@@ -37,7 +38,6 @@ const Profile = () => {
   const myWorkspaces = data?.myBusinesses || [];
   const joinedWorkspaces = data?.joinedBusinesses || [];
 
-  // ── Logout handler ──
   const handleLogout = async () => {
     try {
       await logoutUser().unwrap();
@@ -49,7 +49,6 @@ const Profile = () => {
     }
   };
 
-  // ── Helper to get initials ──
   const getInitials = (name) => {
     if (!name) return '?';
     return name
@@ -60,232 +59,203 @@ const Profile = () => {
       .toUpperCase();
   };
 
-  // ── Cover photo (use a gradient if no cover) ──
-  const coverGradient = 'linear-gradient(135deg, #1a1a2e, #16213e, #0f3460)';
-
-  // ── Render Workspace List ──
   const renderWorkspaceList = (workspaces, title, emptyMessage) => (
-    <div>
+    <div className="mt-4">
       <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-2">
         {title} ({workspaces.length})
       </h3>
       {workspaces.length === 0 ? (
-        <p className="text-gray-400 text-sm">{emptyMessage}</p>
+        <p className="text-gray-400 text-sm italic">{emptyMessage}</p>
       ) : (
-        <ul className="divide-y divide-gray-100">
+        <div className="divide-y divide-gray-100">
           {workspaces.map((ws) => (
-            <li key={ws._id} className="py-3 flex items-center justify-between">
-              <div>
-                <p className="font-medium text-gray-800">{ws.name}</p>
-                <p className="text-sm text-gray-500 flex items-center gap-1">
-                  <FaIndustry className="text-xs" /> {ws.industry || 'General'} · {ws.members?.length || 0} members
-                </p>
+            <Link
+              key={ws._id}
+              to={ws.owner === userInfo?._id || ws.owner?._id === userInfo?._id
+                ? `/my-workspace/${ws._id}`
+                : `/workspace/${ws._id}`}
+              className="flex items-center justify-between py-3 px-1 hover:bg-gray-50 transition"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                {ws.logo ? (
+                  <img src={ws.logo} alt={ws.name} className="w-8 h-8 rounded-full object-cover" />
+                ) : (
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs"
+                    style={{ backgroundColor: ws.color || '#0d9488' }}
+                  >
+                    {ws.initials || getInitials(ws.name)}
+                  </div>
+                )}
+                <div>
+                  <p className="font-medium text-gray-800 text-sm">{ws.name}</p>
+                  <p className="text-xs text-gray-500">
+                    {ws.industry || 'General'} · {ws.members?.length || 0} members
+                  </p>
+                </div>
               </div>
-              <Link
-                to={`/workspace/${ws._id}`}
-                className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-              >
-                View <FaChevronRight className="inline text-xs" />
-              </Link>
-            </li>
+              <FaChevronRight className="text-gray-300 text-xs flex-shrink-0 ml-2" />
+            </Link>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );
 
-  // ── Loading state ──
   if (!userInfo) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
-        <div className="text-center">
-          <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="mt-3 text-gray-500">Loading profile...</p>
-        </div>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
+  const brandColor = '#0d9488'; // consistent teal
+
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* ── Cover & Profile Header ── */}
-      <div className="relative">
-        {/* Cover Photo – gradient fallback */}
-        <div
-          className="h-48 md:h-64 w-full bg-cover bg-center"
-          style={{ backgroundImage: coverGradient }}
-        >
-          <div className="h-full w-full bg-gradient-to-t from-black/50 to-transparent" />
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      {/* Fixed Header */}
+      <header className="sticky top-0 z-10 bg-teal-600 text-white shadow-sm">
+        <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button onClick={() => navigate(-1)} className="p-1">
+              <FaArrowLeft />
+            </button>
+            <h1 className="text-lg font-semibold">Profile</h1>
+          </div>
+          <button
+            onClick={() => navigate('/profile/edit')}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-full text-sm font-medium transition"
+          >
+            <FaEdit className="text-xs" />
+            Edit
+          </button>
         </div>
 
-        {/* Profile Picture & Name – positioned below cover */}
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 relative">
-          <div className="flex flex-col sm:flex-row items-start sm:items-end -mt-12 sm:-mt-16 gap-4">
-            {/* Avatar */}
-            <div className="relative">
+        {/* Tabs */}
+        <div className="flex gap-6 px-4 border-t border-white/20">
+          <button
+            onClick={() => setActiveTab('about')}
+            className={`pb-2 text-sm font-medium transition ${
+              activeTab === 'about' ? 'border-b-2 border-white text-white' : 'text-white/70 hover:text-white'
+            }`}
+          >
+            About
+          </button>
+          <button
+            onClick={() => setActiveTab('workspaces')}
+            className={`pb-2 text-sm font-medium transition ${
+              activeTab === 'workspaces' ? 'border-b-2 border-white text-white' : 'text-white/70 hover:text-white'
+            }`}
+          >
+            Workspaces
+          </button>
+          <button
+            onClick={() => setActiveTab('activity')}
+            className={`pb-2 text-sm font-medium transition ${
+              activeTab === 'activity' ? 'border-b-2 border-white text-white' : 'text-white/70 hover:text-white'
+            }`}
+          >
+            Activity
+          </button>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6 pb-24 md:pb-6">
+        {/* Profile Card */}
+        <div className="bg-white rounded-2xl border border-gray-200/60 p-5 mb-6">
+          <div className="flex items-center gap-4">
+            <div className="flex-shrink-0">
               {userInfo.profile ? (
                 <img
                   src={userInfo.profile}
                   alt={userInfo.name}
-                  className="w-24 h-24 sm:w-32 sm:h-32 rounded-full border-4 border-white shadow-lg object-cover"
+                  className="w-16 h-16 rounded-full object-cover border-2 border-gray-100"
                 />
               ) : (
                 <div
-                  className="w-24 h-24 sm:w-32 sm:h-32 rounded-full border-4 border-white shadow-lg flex items-center justify-center text-white text-2xl font-bold"
-                  style={{ backgroundColor: '#1877f2' }}
+                  className="w-16 h-16 rounded-full flex items-center justify-center text-white text-xl font-bold"
+                  style={{ backgroundColor: brandColor }}
                 >
                   {getInitials(userInfo.name)}
                 </div>
               )}
             </div>
-
-            {/* Name & Edit button */}
-            <div className="flex-1 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-2">
-              <div>
-                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">{userInfo.name}</h1>
-                <p className="text-sm text-gray-500">@{userInfo.username}</p>
-              </div>
-              <button
-                onClick={() => navigate('/profile/edit')}
-                className="flex items-center gap-2 px-4 py-1.5 bg-gray-200 hover:bg-gray-300 rounded-full text-sm font-medium text-gray-700 transition"
-              >
-                <FaEdit className="text-sm" /> Edit Profile
-              </button>
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">{userInfo.name}</h2>
+              <p className="text-sm text-gray-500">@{userInfo.username || 'user'}</p>
+              {userInfo.bio && <p className="text-sm text-gray-600 mt-1">{userInfo.bio}</p>}
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* ── Navigation Tabs ── */}
-      <div className="border-b border-gray-200 bg-white shadow-sm mt-2">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex overflow-x-auto space-x-6 -mb-px">
+          <div className="mt-4 pt-4 border-t border-gray-100 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="flex items-center gap-3 text-sm text-gray-600">
+              <FaEnvelope className="text-gray-400 flex-shrink-0" />
+              <span className="truncate">{userInfo.email}</span>
+            </div>
+            {userInfo.phone && (
+              <div className="flex items-center gap-3 text-sm text-gray-600">
+                <FaPhone className="text-gray-400 flex-shrink-0" />
+                <span>{userInfo.phone}</span>
+              </div>
+            )}
+            <div className="flex items-center gap-3 text-sm text-gray-600">
+              <FaCalendarAlt className="text-gray-400 flex-shrink-0" />
+              <span>Joined {new Date(userInfo.createdAt).toLocaleDateString()}</span>
+            </div>
+            <div className="flex items-center gap-3 text-sm text-gray-600">
+              <FaBuilding className="text-gray-400 flex-shrink-0" />
+              <span>{myWorkspaces.length + joinedWorkspaces.length} workspaces</span>
+            </div>
+          </div>
+
+          {/* Logout button – inline, subtle */}
+          <div className="mt-4 pt-4 border-t border-gray-100 flex justify-end">
             <button
-              onClick={() => setActiveTab('about')}
-              className={`py-3 px-1 text-sm font-medium border-b-2 transition whitespace-nowrap ${
-                activeTab === 'about'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
+              onClick={handleLogout}
+              disabled={logoutLoading}
+              className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition text-sm font-medium"
             >
-              About
-            </button>
-            <button
-              onClick={() => setActiveTab('workspaces')}
-              className={`py-3 px-1 text-sm font-medium border-b-2 transition whitespace-nowrap ${
-                activeTab === 'workspaces'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              Workspaces
-            </button>
-            <button
-              onClick={() => setActiveTab('activity')}
-              className={`py-3 px-1 text-sm font-medium border-b-2 transition whitespace-nowrap ${
-                activeTab === 'activity'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              Activity
+              <FaSignOutAlt />
+              {logoutLoading ? 'Logging out...' : 'Logout'}
             </button>
           </div>
         </div>
-      </div>
 
-      {/* ── Content Area ── */}
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* Tab Content */}
         {activeTab === 'about' && (
-          <div className="bg-white rounded-lg shadow p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-800">About</h2>
-              {/* Logout button inside About tab */}
-              <button
-                onClick={handleLogout}
-                disabled={logoutLoading}
-                className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition text-sm font-medium"
-              >
-                <FaSignOutAlt />
-                {logoutLoading ? 'Logging out...' : 'Logout'}
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="flex items-center gap-3 text-gray-700">
-                <FaUserCircle className="text-gray-400" />
-                <span>Name: <strong>{userInfo.name}</strong></span>
-              </div>
-              <div className="flex items-center gap-3 text-gray-700">
-                <FaEnvelope className="text-gray-400" />
-                <span>Email: <strong>{userInfo.email}</strong></span>
-              </div>
-              {userInfo.phone && (
-                <div className="flex items-center gap-3 text-gray-700">
-                  <FaPhone className="text-gray-400" />
-                  <span>Phone: <strong>{userInfo.phone}</strong></span>
-                </div>
-              )}
-              <div className="flex items-center gap-3 text-gray-700">
-                <FaCalendarAlt className="text-gray-400" />
-                <span>Joined: <strong>{new Date(userInfo.createdAt).toLocaleDateString()}</strong></span>
-              </div>
-              {userInfo.role && (
-                <div className="flex items-center gap-3 text-gray-700">
-                  <FaUsers className="text-gray-400" />
-                  <span>Role: <strong className="capitalize">{userInfo.role}</strong></span>
-                </div>
-              )}
-              <div className="flex items-center gap-3 text-gray-700">
-                <FaIndustry className="text-gray-400" />
-                <span>Workspaces: <strong>{myWorkspaces.length + joinedWorkspaces.length}</strong></span>
-              </div>
-            </div>
-
-            <div className="mt-4 pt-4 border-t border-gray-200">
-              <h3 className="font-medium text-gray-700">Bio</h3>
-              <p className="text-gray-500 mt-1">{userInfo.bio || 'No bio yet.'}</p>
-            </div>
+          <div className="bg-white rounded-2xl border border-gray-200/60 p-5">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">About Me</h3>
+            <p className="text-gray-600">{userInfo.bio || 'No bio yet.'}</p>
           </div>
         )}
 
         {activeTab === 'workspaces' && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">Your Workspaces</h2>
-
+          <div className="bg-white rounded-2xl border border-gray-200/60 p-5">
             {workspacesLoading ? (
-              <div className="text-center py-8 text-gray-400">Loading workspaces...</div>
+              <div className="flex justify-center py-8">
+                <div className="w-6 h-6 border-4 border-t-transparent rounded-full animate-spin" style={{ borderTopColor: brandColor }} />
+              </div>
             ) : (
               <>
-                <div className="mb-6">
-                  {renderWorkspaceList(
-                    myWorkspaces,
-                    'Owned',
-                    'You don’t own any workspaces yet.'
-                  )}
-                </div>
-                <div>
-                  {renderWorkspaceList(
-                    joinedWorkspaces,
-                    'Joined',
-                    'You haven’t joined any workspaces yet.'
-                  )}
-                </div>
+                {renderWorkspaceList(myWorkspaces, 'Owned Workspaces', 'You do not own any workspaces yet.')}
+                {renderWorkspaceList(joinedWorkspaces, 'Joined Workspaces', 'You have not joined any workspaces yet.')}
               </>
             )}
           </div>
         )}
 
         {activeTab === 'activity' && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">Recent Activity</h2>
-            <div className="text-center py-8 text-gray-400">
-              <FaCalendarAlt className="mx-auto text-3xl mb-2" />
+          <div className="bg-white rounded-2xl border border-gray-200/60 p-5">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Recent Activity</h3>
+            <div className="flex flex-col items-center justify-center py-8 text-gray-400">
+              <FaCalendarAlt className="text-4xl mb-2 opacity-30" />
               <p>No recent activity yet.</p>
             </div>
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 };
