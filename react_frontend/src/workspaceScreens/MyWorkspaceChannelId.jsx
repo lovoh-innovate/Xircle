@@ -14,6 +14,7 @@ import {
   FaPaperclip,
   FaImage,
   FaCheck,
+  FaRegClock,
   FaPhone,
   FaVideo,
   FaInfoCircle,
@@ -43,8 +44,72 @@ const formatTime = (seconds) => {
 // How far (px) the user has to drag the mic button up before it locks.
 const LOCK_THRESHOLD = 80;
 
-// ─── Image Preview Modal ──────────────────────────────────────────────
-const ImagePreviewModal = ({ imageUrl, onClose, fileName }) => {
+// WhatsApp's read-receipt blue. Swap this if your brand wants a different seen color.
+const SEEN_TICK_COLOR = '#34B7F1';
+
+// ─── Message status ticks (WhatsApp-style) ─────────────────────────────
+// clock  = still sending / optimistic
+// 1 tick = sent to server
+// 2 gray = delivered to recipient(s)
+// 2 blue = read — DMs only. Channels never show delivered/read state since
+//          there's no single "seen by everyone" signal, so they cap at 1 tick.
+const MessageTicks = ({ message, isOwn, isDM }) => {
+  if (!isOwn) return null;
+
+  const isPending =
+    message.pending || (typeof message._id === 'string' && message._id.startsWith('temp-'));
+  if (isPending) {
+    return <FaRegClock className="text-[10px] text-gray-400" />;
+  }
+
+  if (!isDM) {
+    return <FaCheck className="text-[10px] text-gray-400" />;
+  }
+
+  const isRead = message.status === 'read' || (message.readBy && message.readBy.length > 0);
+  const isDelivered =
+    isRead || message.status === 'delivered' || (message.deliveredTo && message.deliveredTo.length > 0);
+
+  if (isRead) {
+    return (
+      <span className="inline-flex items-center -space-x-[5px]">
+        <FaCheck className="text-[10px]" style={{ color: SEEN_TICK_COLOR }} />
+        <FaCheck className="text-[10px]" style={{ color: SEEN_TICK_COLOR }} />
+      </span>
+    );
+  }
+  if (isDelivered) {
+    return (
+      <span className="inline-flex items-center -space-x-[5px] text-gray-400">
+        <FaCheck className="text-[10px]" />
+        <FaCheck className="text-[10px]" />
+      </span>
+    );
+  }
+  return <FaCheck className="text-[10px] text-gray-400" />;
+};
+
+// ─── Static waveform bars for voice notes ──────────────────────────────
+const WAVEFORM_BARS = [6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6, 10];
+
+const AudioWaveform = ({ isOwn, isPlaying, brandColor }) => (
+  <div className="flex items-center gap-[2px] h-6 flex-1">
+    {WAVEFORM_BARS.map((h, i) => (
+      <span
+        key={i}
+        className="w-[2.5px] rounded-full transition-opacity"
+        style={{
+          height: `${h * 2}px`,
+          backgroundColor: isOwn ? 'rgba(255,255,255,0.85)' : brandColor,
+          opacity: isPlaying ? 1 : 0.55,
+        }}
+      />
+    ))}
+  </div>
+);
+
+// ─── WhatsApp‑style fullscreen image viewer ────────────────────────────
+const ImagePreviewModal = ({ imageUrl, onClose, fileName, senderName, time }) => {
   const handleDownload = () => {
     const link = document.createElement('a');
     link.href = imageUrl;
@@ -55,28 +120,36 @@ const ImagePreviewModal = ({ imageUrl, onClose, fileName }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4" onClick={onClose}>
-      <div className="relative max-w-4xl w-full max-h-[90vh]">
-        <img src={imageUrl} alt="Preview" className="w-full h-auto max-h-[90vh] object-contain rounded-lg" />
-        <button
-          onClick={(e) => { e.stopPropagation(); onClose(); }}
-          className="absolute top-4 right-4 text-white bg-black/50 hover:bg-black/70 rounded-full p-2 transition"
-        >
-          <FaTimes className="text-xl" />
+    <div className="fixed inset-0 z-50 bg-black flex flex-col" onClick={onClose}>
+      <div
+        className="flex items-center justify-between px-4 py-3 bg-black/70 text-white flex-shrink-0"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <button onClick={onClose} className="p-1 flex-shrink-0">
+            <FaArrowLeft />
+          </button>
+          <div className="min-w-0">
+            <p className="text-sm font-medium truncate">{senderName || 'Photo'}</p>
+            {time && <p className="text-[11px] text-white/60">{time}</p>}
+          </div>
+        </div>
+        <button onClick={handleDownload} className="p-2 flex-shrink-0">
+          <FaDownload />
         </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); handleDownload(); }}
-          className="absolute bottom-4 right-4 text-white bg-black/50 hover:bg-black/70 rounded-full p-3 transition"
-        >
-          <FaDownload className="text-xl" />
-        </button>
+      </div>
+      <div
+        className="flex-1 flex items-center justify-center overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <img src={imageUrl} alt="Preview" className="max-w-full max-h-full object-contain" />
       </div>
     </div>
   );
 };
 
 // ─── Media Message Component ──────────────────────────────────────────
-const MediaMessage = ({ message, isOwn, senderName, senderProfile, brandColor, onImageClick, onDelete }) => {
+const MediaMessage = ({ message, isOwn, isDM, senderName, senderProfile, brandColor, onImageClick, onDelete }) => {
   const time = new Date(message.createdAt).toLocaleTimeString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
@@ -103,18 +176,22 @@ const MediaMessage = ({ message, isOwn, senderName, senderProfile, brandColor, o
     switch (message.messageType) {
       case 'image':
         return (
-          <div className="relative group cursor-pointer" onClick={() => onImageClick && onImageClick(message.mediaUrl)}>
+          <div
+            className="relative group cursor-pointer"
+            onClick={() =>
+              onImageClick &&
+              onImageClick({
+                url: message.mediaUrl,
+                senderName: isOwn ? 'You' : senderName,
+                time,
+              })
+            }
+          >
             <img
               src={message.mediaUrl}
               alt={message.mediaName || 'Image'}
               className="max-w-full rounded-lg max-h-80 object-cover"
             />
-            <button
-              onClick={(e) => { e.stopPropagation(); handleDownload(e); }}
-              className="absolute bottom-2 right-2 bg-black/50 text-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition"
-            >
-              <FaDownload className="text-sm" />
-            </button>
           </div>
         );
 
@@ -122,18 +199,12 @@ const MediaMessage = ({ message, isOwn, senderName, senderProfile, brandColor, o
         return (
           <div className="relative group">
             <video src={message.mediaUrl} controls className="max-w-full rounded-lg max-h-80" />
-            <button
-              onClick={handleDownload}
-              className="absolute bottom-2 right-2 bg-black/50 text-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition"
-            >
-              <FaDownload className="text-sm" />
-            </button>
           </div>
         );
 
       case 'audio':
         return (
-          <div className="flex items-center gap-3 bg-gray-800/10 rounded-lg p-3 min-w-[200px]">
+          <div className="flex items-center gap-2.5 min-w-[220px] py-0.5">
             <button
               onClick={() => {
                 if (audioRef.current) {
@@ -141,19 +212,27 @@ const MediaMessage = ({ message, isOwn, senderName, senderProfile, brandColor, o
                   setIsPlaying(!isPlaying);
                 }
               }}
-              className="w-8 h-8 rounded-full flex items-center justify-center text-white"
-              style={{ backgroundColor: brandColor }}
+              className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+              style={{ backgroundColor: isOwn ? 'rgba(255,255,255,0.2)' : brandColor }}
             >
-              {isPlaying ? <FaPause className="text-sm" /> : <FaPlay className="text-sm" />}
+              {isPlaying ? (
+                <FaPause className="text-xs text-white" />
+              ) : (
+                <FaPlay className="text-xs text-white ml-0.5" />
+              )}
             </button>
-            <div className="flex-1">
-              <audio ref={audioRef} src={message.mediaUrl} onEnded={() => setIsPlaying(false)} onPause={() => setIsPlaying(false)} onPlay={() => setIsPlaying(true)} className="hidden" />
-              <div className="text-sm font-medium text-gray-900">{message.mediaName || 'Voice note'}</div>
-              <div className="text-xs text-gray-500">{message.mediaDuration ? formatTime(message.mediaDuration) : '0:00'}</div>
-            </div>
-            <button onClick={(e) => { e.stopPropagation(); handleDownload(e); }} className="text-gray-400 hover:text-gray-600 transition">
-              <FaDownload className="text-sm" />
-            </button>
+            <AudioWaveform isOwn={isOwn} isPlaying={isPlaying} brandColor={brandColor} />
+            <span className={`text-[10px] flex-shrink-0 ${isOwn ? 'text-white/70' : 'text-gray-400'}`}>
+              {message.mediaDuration ? formatTime(message.mediaDuration) : '0:00'}
+            </span>
+            <audio
+              ref={audioRef}
+              src={message.mediaUrl}
+              onEnded={() => setIsPlaying(false)}
+              onPause={() => setIsPlaying(false)}
+              onPlay={() => setIsPlaying(true)}
+              className="hidden"
+            />
           </div>
         );
 
@@ -202,9 +281,7 @@ const MediaMessage = ({ message, isOwn, senderName, senderProfile, brandColor, o
         </div>
         <div className={`flex items-center gap-1 text-[10px] text-gray-400 ${isOwn ? 'flex-row-reverse' : ''}`}>
           <span>{time}</span>
-          {isOwn && (
-            <span className="text-gray-400"><FaCheck className="text-[8px]" /></span>
-          )}
+          <MessageTicks message={message} isOwn={isOwn} isDM={isDM} />
           <div className="relative ml-2">
             <button onClick={() => setShowMenu(!showMenu)} className="text-gray-300 hover:text-gray-500 transition p-0.5">
               <FaEllipsisV className="text-xs" />
@@ -503,7 +580,14 @@ const MyWorkspaceChannelId = () => {
 
   return (
     <div className="h-screen bg-gray-50 flex flex-col lg:flex-row">
-      {previewImage && <ImagePreviewModal imageUrl={previewImage} onClose={() => setPreviewImage(null)} />}
+      {previewImage && (
+        <ImagePreviewModal
+          imageUrl={previewImage.url}
+          senderName={previewImage.senderName}
+          time={previewImage.time}
+          onClose={() => setPreviewImage(null)}
+        />
+      )}
 
       {/* Sidebar (desktop only) */}
       <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
@@ -512,13 +596,13 @@ const MyWorkspaceChannelId = () => {
 
       {/* Channel list (desktop only) */}
       <div className="hidden lg:flex lg:w-72 lg:flex-col bg-white border-r border-gray-200 h-full overflow-hidden">
-        <div className="p-4 border-b border-gray-200">
+        <div className="p-4 border-b border-gray-200 flex-shrink-0">
           <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
             <FaHashtag className="text-sm" style={{ color: brandColor }} />
             Channels
           </h2>
         </div>
-        <div className="px-3 py-2 border-b border-gray-200">
+        <div className="px-3 py-2 border-b border-gray-200 flex-shrink-0">
           <div className="relative">
             <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs" />
             <input
@@ -579,8 +663,8 @@ const MyWorkspaceChannelId = () => {
 
       {/* Chat area */}
       <div className="flex-1 flex flex-col bg-white h-full overflow-hidden">
-        {/* Header */}
-        <header className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-teal-600 text-white flex-shrink-0">
+        {/* Header — sticky so it never scrolls with messages */}
+        <header className="sticky top-0 z-20 flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-teal-600 text-white flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <button onClick={() => navigate(`/my-workspace/${workspaceId}/channels`)} className="p-1 lg:hidden">
               <FaArrowLeft />
@@ -611,7 +695,7 @@ const MyWorkspaceChannelId = () => {
           </div>
         </header>
 
-        {/* Messages */}
+        {/* Messages — only this area scrolls */}
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-400">
@@ -627,10 +711,11 @@ const MyWorkspaceChannelId = () => {
                   key={msg._id}
                   message={msg}
                   isOwn={isOwn}
+                  isDM={isDM}
                   senderName={sender?.name || 'Unknown'}
                   senderProfile={sender?.profile}
                   brandColor={brandColor}
-                  onImageClick={(url) => setPreviewImage(url)}
+                  onImageClick={(payload) => setPreviewImage(payload)}
                   onDelete={handleDeleteMessage}
                 />
               );
@@ -639,9 +724,8 @@ const MyWorkspaceChannelId = () => {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input area */}
-        <div className="border-t border-gray-200 px-3 py-2 bg-white flex-shrink-0">
-          {/* ... (recording preview and controls unchanged, but moved inside) */}
+        {/* Input area — sticky so it never scrolls with messages */}
+        <div className="sticky bottom-0 z-20 border-t border-gray-200 px-3 py-2 bg-white flex-shrink-0">
           {showRecordedPreview && recordingBlob && (
             <div className="flex items-center justify-between px-3 py-2 mb-2 bg-green-50 rounded-lg border border-green-200">
               <div className="flex items-center gap-2">
@@ -658,7 +742,7 @@ const MyWorkspaceChannelId = () => {
           )}
 
           {isRecording && !isLocked && (
-            <div className="flex items-center justify-between px-3 py-2 mb-2 bg-red-50 rounded-lg border border-red-200">
+            <div className="relative flex items-center justify-between px-3 py-2 mb-2 bg-red-50 rounded-lg border border-red-200">
               <span className="text-xs text-red-600 flex items-center gap-2">
                 <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" /> Recording... {formatTime(recordingTime)}
               </span>
