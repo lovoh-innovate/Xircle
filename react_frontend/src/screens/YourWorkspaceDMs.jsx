@@ -10,8 +10,8 @@ import {
   FaArrowLeft,
   FaSearch,
   FaComment,
-  FaUser,
-  FaCheckCircle,
+  FaTimes,
+  FaCircle,
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
@@ -26,198 +26,247 @@ const getInitials = (name) => {
     .toUpperCase();
 };
 
-// ─── Member Item ──────────────────────────────────────────────────────
-const MemberItem = ({ member, brandColor, onClick }) => {
-  const user = member.user || member;
-  const isOnline = member.status === 'active';
-  const name = user?.name || 'Unknown';
+// ─── Search Members Modal ──────────────────────────────────────────────
+const SearchMembersModal = ({ isOpen, onClose, members, brandColor, currentUserId, onStartDM }) => {
+  const [query, setQuery] = useState('');
+  if (!isOpen) return null;
+
+  const filtered = members
+    .filter(m => {
+      const user = m.user || m;
+      return user._id !== currentUserId;
+    })
+    .filter(m => {
+      const user = m.user || m;
+      const name = (user.name || '').toLowerCase();
+      const email = (user.email || '').toLowerCase();
+      const q = query.toLowerCase();
+      return name.includes(q) || email.includes(q);
+    });
 
   return (
-    <button
-      onClick={() => onClick && onClick(user._id)}
-      className="flex items-center gap-3 w-full px-4 py-3 hover:bg-gray-50 rounded-xl transition border-b border-gray-100 last:border-0"
-    >
-      <div className="relative flex-shrink-0">
-        {user?.profile ? (
-          <img src={user.profile} alt={name} className="w-10 h-10 rounded-full object-cover" />
-        ) : (
-          <div
-            className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold"
-            style={{ backgroundColor: brandColor }}
-          >
-            {getInitials(name)}
+    <div className="fixed inset-0 z-50 bg-white flex flex-col">
+      <div className="flex items-center gap-3 px-4 h-14 border-b border-gray-100">
+        <button onClick={onClose} className="p-1">
+          <FaArrowLeft className="text-gray-600" />
+        </button>
+        <div className="flex-1 bg-gray-100 rounded-full px-4 py-2 flex items-center gap-2">
+          <FaSearch className="text-gray-400 text-xs" />
+          <input
+            type="text"
+            placeholder="Search members..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="bg-transparent w-full outline-none text-sm"
+            autoFocus
+          />
+          {query && (
+            <button onClick={() => setQuery('')}>
+              <FaTimes className="text-gray-400 text-xs" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {!query && (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400">
+            <FaSearch className="text-4xl mb-2 opacity-30" />
+            <p className="text-sm">Search members by name or email</p>
           </div>
         )}
-        {isOnline && (
-          <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white" />
+        {query && filtered.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400">
+            <p className="text-sm">No members found for "{query}"</p>
+          </div>
+        )}
+        {query && filtered.length > 0 && (
+          <div className="divide-y divide-gray-100">
+            {filtered.map(member => {
+              const user = member.user || member;
+              const isOnline = member.status === 'active';
+              return (
+                <button
+                  key={user._id}
+                  onClick={() => {
+                    onStartDM(user._id);
+                    onClose();
+                  }}
+                  className="flex items-center gap-3 w-full px-4 py-3 hover:bg-gray-50 transition text-left"
+                >
+                  <div className="relative flex-shrink-0">
+                    {user.profile ? (
+                      <img src={user.profile} alt={user.name} className="w-12 h-12 rounded-2xl object-cover" />
+                    ) : (
+                      <div
+                        className="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-bold text-lg"
+                        style={{ backgroundColor: brandColor }}
+                      >
+                        {getInitials(user.name)}
+                      </div>
+                    )}
+                    {isOnline && (
+                      <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-gray-800 truncate">{user.name}</p>
+                    <p className="text-sm text-gray-500 truncate">{isOnline ? 'Online' : 'Offline'}</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         )}
       </div>
-      <div className="flex-1 text-left min-w-0">
-        <p className="text-sm font-medium text-gray-900 truncate">{name}</p>
-        <p className="text-xs text-gray-400 truncate">
-          {isOnline ? 'Online' : 'Offline'}
-          {user?.email && ` · ${user.email}`}
-        </p>
-      </div>
-      <FaComment className="text-gray-400 hover:text-gray-600 transition text-sm" />
-    </button>
+    </div>
   );
 };
-
-// ─── Main Component ──────────────────────────────────────────────────────
 
 const YourWorkspaceDMs = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
 
-  // ── Fetch workspace data ──
   const { data: workspaceData, isLoading: workspaceLoading, error: workspaceError } = useGetWorkspaceQuery(workspaceId);
   const { data: chatsData, isLoading: chatsLoading } = useGetUserChatsQuery(workspaceId);
   const [createDirectChat, { isLoading: creatingChat }] = useCreateDirectChatMutation();
-
-  // ── Derive members from workspace ──
-  const workspace = workspaceData?.workspace;
-  const members = workspace?.members || [];
-  const currentUserId = userInfo?._id;
-
-  // ── Filter out current user and apply search ──
-  const filteredMembers = members
-    .filter((member) => {
-      const user = member.user || member;
-      return user._id !== currentUserId;
-    })
-    .filter((member) => {
-      const user = member.user || member;
-      const name = user?.name?.toLowerCase() || '';
-      const email = user?.email?.toLowerCase() || '';
-      const query = searchQuery.toLowerCase();
-      return name.includes(query) || email.includes(query);
-    });
-
-  // ── Start DM handler ──
-  const handleStartDM = async (targetUserId) => {
-    if (targetUserId === currentUserId) {
-      toast.info("You can't start a DM with yourself");
-      return;
-    }
-
-    try {
-      // Check if a DM already exists
-      const existingChat = chatsData?.chats?.find(
-        (chat) =>
-          chat.type === 'direct' &&
-          chat.participants.some((p) => p.user?._id === targetUserId || p.user === targetUserId)
-      );
-
-      if (existingChat) {
-        navigate(`/workspace/${workspaceId}/chat/${existingChat._id}`);
-        return;
-      }
-
-      // Create new DM
-      const result = await createDirectChat({
-        workspaceId,
-        targetUserId,
-      }).unwrap();
-
-      toast.success('Direct chat created!');
-      navigate(`/workspace/${workspaceId}/chat/${result.chat._id}`);
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to start DM');
-    }
-  };
-
-  // ── Loading state ──
-  if (workspaceLoading || chatsLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
-        <div className="text-center">
-          <div className="w-10 h-10 border-4 border-t-transparent rounded-full animate-spin mx-auto"
-               style={{ borderColor: workspaceData?.workspace?.color || '#4F46E5', borderTopColor: 'transparent' }} />
-          <p className="mt-4 text-gray-500">Loading members...</p>
-        </div>
-      </div>
-    );
-  }
 
   if (workspaceError) {
     navigate(`/workspace/${workspaceId}`);
     return null;
   }
 
+  if (workspaceLoading || chatsLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="w-10 h-10 border-4 border-t-transparent rounded-full animate-spin mx-auto"
+               style={{ borderColor: workspaceData?.workspace?.color || '#0d9488', borderTopColor: 'transparent' }} />
+          <p className="mt-4 text-gray-500">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const workspace = workspaceData?.workspace;
+  const members = workspace?.members || [];
+  const currentUserId = userInfo?._id;
+  const brandColor = workspace?.color || '#0d9488';
+
+  const filteredMembers = members.filter(m => {
+    const user = m.user || m;
+    return user._id !== currentUserId;
+  });
+
+  const handleStartDM = async (targetUserId) => {
+    if (targetUserId === currentUserId) {
+      toast.info("You can't message yourself");
+      return;
+    }
+    try {
+      const existingChat = chatsData?.chats?.find(
+        (chat) =>
+          chat.type === 'direct' &&
+          chat.participants.some((p) => p.user?._id === targetUserId || p.user === targetUserId)
+      );
+      if (existingChat) {
+        navigate(`/workspace/${workspaceId}/chat/${existingChat._id}`);
+        return;
+      }
+      const result = await createDirectChat({ workspaceId, targetUserId }).unwrap();
+      toast.success('Chat started!');
+      navigate(`/workspace/${workspaceId}/chat/${result.chat._id}`);
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to start chat');
+    }
+  };
+
   if (!workspace) return null;
 
-  const brandColor = workspace.color || '#4F46E5';
-
   return (
-    <div className="h-screen bg-gray-100 flex flex-col md:flex-row overflow-hidden">
-      {/* ── Left Sidebar ── */}
-      <div className="hidden md:block md:w-64 md:h-screen md:flex-shrink-0 md:sticky md:top-0">
+    <div className="h-dvh bg-gray-50 flex flex-col lg:flex-row overflow-hidden">
+      {/* Desktop Sidebar */}
+      <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
         <YourWorkspaceSidebar workspace={workspace} chats={chatsData?.chats || []} />
       </div>
 
-      {/* ── Main Content ── */}
-      <div className="flex-1 bg-white md:min-h-screen overflow-y-auto">
-        <div className="max-w-4xl mx-auto px-4 md:px-8 py-4 md:py-6">
-          
-          {/* ── Header ── */}
-          <div className="flex items-center gap-3 mb-6 pb-4 border-b border-gray-200">
-            <button
-              onClick={() => navigate(`/workspace/${workspaceId}`)}
-              className="md:hidden p-2 hover:bg-gray-100 rounded-lg transition"
-            >
-              <FaArrowLeft className="text-gray-500" />
-            </button>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                <FaComment className="text-sm" style={{ color: brandColor }} /> Direct Messages
-              </h1>
-              <p className="text-sm text-gray-500">
-                {filteredMembers.length} members available to message
-              </p>
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        {/* Fixed Header */}
+        <header className="sticky top-0 z-10 bg-teal-600 text-white flex-shrink-0 shadow-sm">
+          <div className="flex items-center justify-between px-4 h-14">
+            <div className="flex items-center gap-2">
+              <button onClick={() => navigate(`/workspace/${workspaceId}`)} className="p-1 lg:hidden">
+                <FaArrowLeft />
+              </button>
+              <h1 className="text-lg font-semibold">Messages</h1>
+              <span className="text-xs text-white/70 ml-1">{filteredMembers.length}</span>
             </div>
+            <button onClick={() => setSearchOpen(true)} className="p-1">
+              <FaSearch className="text-white" />
+            </button>
           </div>
+        </header>
 
-          {/* ── Search ── */}
-          <div className="relative mb-6">
-            <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
-            <input
-              type="text"
-              placeholder="Search members..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:border-transparent text-sm"
-              style={{ '--tw-ring-color': brandColor }}
-              onFocus={(e) => e.target.style.setProperty('--tw-ring-color', brandColor)}
-            />
-          </div>
-
-          {/* ── Members List ── */}
-          <div className="space-y-1">
-            {filteredMembers.length === 0 ? (
-              <div className="text-center py-12 text-gray-400">
-                <FaUser className="text-3xl mx-auto mb-3 text-gray-300" />
-                <p className="text-sm">No members found</p>
-                {searchQuery && <p className="text-xs mt-1">Try a different search term</p>}
-              </div>
-            ) : (
-              filteredMembers.map((member) => (
-                <MemberItem
-                  key={member.user?._id || member._id}
-                  member={member}
-                  brandColor={brandColor}
-                  onClick={handleStartDM}
-                />
-              ))
-            )}
-          </div>
+        {/* Member List */}
+        <div className="flex-1 overflow-y-auto bg-white">
+          {filteredMembers.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+              <FaComment className="text-4xl mb-2 opacity-30" />
+              <p className="text-sm">No members available to message</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-100">
+              {filteredMembers.map(member => {
+                const user = member.user || member;
+                const isOnline = member.status === 'active';
+                return (
+                  <button
+                    key={user._id}
+                    onClick={() => handleStartDM(user._id)}
+                    className="flex items-center gap-3 w-full px-4 py-3 hover:bg-gray-50 transition text-left"
+                  >
+                    <div className="relative flex-shrink-0">
+                      {user.profile ? (
+                        <img src={user.profile} alt={user.name} className="w-12 h-12 rounded-2xl object-cover" />
+                      ) : (
+                        <div
+                          className="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-bold text-lg"
+                          style={{ backgroundColor: brandColor }}
+                        >
+                          {getInitials(user.name)}
+                        </div>
+                      )}
+                      {isOnline && (
+                        <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-gray-800 truncate">{user.name}</p>
+                      <p className="text-sm text-gray-500 truncate">{isOnline ? 'Online' : 'Offline'}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* ── Bottom Navigation ── */}
+      {/* Bottom Navigation (mobile) */}
       <YourWorkspaceBottombar workspace={workspace} />
+
+      {/* Search Members Modal */}
+      <SearchMembersModal
+        isOpen={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        members={members}
+        brandColor={brandColor}
+        currentUserId={currentUserId}
+        onStartDM={handleStartDM}
+      />
     </div>
   );
 };

@@ -1,5 +1,5 @@
 // src/workspaceScreens/YourWorkspaceId.jsx
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
@@ -9,40 +9,54 @@ import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
 import {
   FaUsers,
   FaComment,
-  FaFolder,
+  FaCheck,
   FaUserPlus,
+  FaCog,
   FaHashtag,
-  FaBell,
-  FaCheckCircle,
-  FaChevronRight,
-  FaSearch,
-  FaArrowRight,
   FaCircle,
   FaEnvelope,
+  FaFolder,
+  FaEye,
+  FaEyeSlash,
+  FaThLarge,
+  FaArrowLeft,
 } from 'react-icons/fa';
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts';
+
+const chartData = [
+  { day: 'Mon', messages: 12 },
+  { day: 'Tue', messages: 19 },
+  { day: 'Wed', messages: 8 },
+  { day: 'Thu', messages: 27 },
+  { day: 'Fri', messages: 34 },
+  { day: 'Sat', messages: 22 },
+  { day: 'Sun', messages: 15 },
+];
 
 const YourWorkspaceId = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
+  const [hideStats, setHideStats] = useState(false);
 
   const { data, isLoading, error } = useGetWorkspaceQuery(workspaceId);
   const { data: chatsData } = useGetUserChatsQuery(workspaceId);
 
   useEffect(() => {
-    if (error) {
-      navigate('/my-workspaces');
-    }
+    if (error) navigate('/my-workspaces');
   }, [error, navigate]);
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#f0f2f5]">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
-          <div
-            className="w-10 h-10 border-4 border-t-transparent rounded-full animate-spin mx-auto"
-            style={{ borderColor: data?.workspace?.color || '#4F46E5', borderTopColor: 'transparent' }}
-          />
+          <div className="w-10 h-10 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto" />
           <p className="mt-4 text-gray-500">Loading workspace...</p>
         </div>
       </div>
@@ -51,306 +65,430 @@ const YourWorkspaceId = () => {
 
   const workspace = data?.workspace;
   const chats = chatsData?.chats || [];
+  if (!workspace) return null;
 
-  if (!workspace) {
-    return null;
-  }
+  const activeMembers = workspace.members?.filter((m) => m.status === 'active') || [];
+  const onlineCount = activeMembers.filter((m) => m.status === 'active').length || 0;
+  const channelCount = chats.filter((c) => c.type === 'group').length || 0;
+  const dmCount = chats.filter((c) => c.type === 'direct').length || 0;
+  const brandColor = workspace.color || '#0d9488';
+  const totalMessages = chartData.reduce((sum, d) => sum + d.messages, 0);
 
-  const activeMembers = workspace.members?.filter(m => m.status === 'active') || [];
-  const onlineCount = activeMembers.filter(m => m.status === 'active').length || 0;
-  const channelCount = chats.filter(c => c.type === 'group').length || 0;
-  const dmCount = chats.filter(c => c.type === 'direct').length || 0;
-  const brandColor = workspace.color || '#4F46E5';
+  // ── Hero card (without settings gear for non-owner) ──
+  const HeroCard = () => (
+    <div className="relative overflow-hidden bg-gray-900 text-white rounded-3xl p-5 sm:p-6 shadow-lg shadow-gray-900/20">
+      <div
+        className="pointer-events-none absolute -top-16 -right-16 w-48 h-48 rounded-full blur-3xl opacity-25"
+        style={{ backgroundColor: brandColor }}
+      />
 
-  // Get user's role
-  const userMembership = workspace.members?.find(
-    (m) => m.user?._id === userInfo?._id || m.user === userInfo?._id
+      <div className="relative flex items-center justify-between mb-5">
+        <div className="flex items-center gap-3 min-w-0">
+          {workspace.logo ? (
+            <img
+              src={workspace.logo}
+              alt={workspace.name}
+              className="w-11 h-11 rounded-full object-cover border-2 border-white/15 flex-shrink-0"
+            />
+          ) : (
+            <div
+              className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold border-2 border-white/15 flex-shrink-0"
+              style={{ backgroundColor: brandColor }}
+            >
+              {workspace.initials || workspace.name.charAt(0).toUpperCase()}
+            </div>
+          )}
+          <div className="min-w-0">
+            <p className="text-[11px] text-white/50 leading-none mb-1">Workspace</p>
+            <h1 className="text-base sm:text-lg font-bold leading-tight truncate">
+              {workspace.name}
+            </h1>
+          </div>
+        </div>
+        {/* No settings gear for non-owner, so nothing on the right */}
+      </div>
+
+      <div className="relative flex items-end justify-between mb-4">
+        <div>
+          <button
+            onClick={() => setHideStats((v) => !v)}
+            className="flex items-center gap-2 text-white/60 text-xs mb-1.5"
+          >
+            <FaUsers className="text-[10px]" />
+            Active members
+            {hideStats ? <FaEyeSlash className="text-[11px]" /> : <FaEye className="text-[11px]" />}
+          </button>
+          <p className="text-3xl sm:text-4xl font-bold tracking-tight">
+            {hideStats ? '••••' : activeMembers.length}
+          </p>
+        </div>
+        {/* No invite button – non-owner cannot invite */}
+      </div>
+
+      <div className="relative flex items-center justify-between bg-white/10 rounded-2xl px-4 py-2.5">
+        <span className="text-xs text-white/70 flex items-center gap-2">
+          <FaCircle className="text-[6px] text-green-400" />
+          {onlineCount} online now
+        </span>
+        <span className="text-xs font-mono tracking-wider text-white/80">
+          {hideStats ? '••••••••' : workspace.inviteCode || '—'}
+        </span>
+      </div>
+    </div>
   );
-  const userRole = userMembership?.role || 'Member';
+
+  // ── Quick action tile ──
+  const QuickActionTile = ({ icon: Icon, label, to }) => (
+    <Link
+      to={to}
+      className="flex flex-col items-center justify-center gap-2 lg:flex-row lg:justify-start lg:gap-3 bg-white rounded-2xl border border-gray-200/60 py-3.5 lg:py-3 lg:px-4 hover:border-gray-300 hover:shadow-sm transition"
+    >
+      <div
+        className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+        style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
+      >
+        <Icon className="text-sm" />
+      </div>
+      <span className="text-xs lg:text-sm font-medium text-gray-700">{label}</span>
+    </Link>
+  );
+
+  // ── Stat tile ──
+  const StatTile = ({ icon: Icon, label, value, badge, badgeColor }) => (
+    <div className="relative bg-white rounded-2xl border border-gray-200/60 px-3 py-4 flex flex-col items-center text-center gap-2">
+      {badge && (
+        <span className={`absolute -top-1.5 right-2 text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white ${badgeColor}`}>
+          {badge}
+        </span>
+      )}
+      <div
+        className="w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center"
+        style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
+      >
+        <Icon className="text-base" />
+      </div>
+      <div>
+        <p className="text-base sm:text-lg font-bold text-gray-900 leading-none">{value}</p>
+        <p className="text-[10px] sm:text-xs text-gray-500 mt-1">{label}</p>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-[#f0f2f5] flex flex-col">
-      {/* ── Desktop Sidebar ── */}
-      <div className="hidden md:block md:w-64 md:min-h-screen md:flex-shrink-0 fixed top-0 left-0">
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      {/* Desktop Sidebar */}
+      <div className="hidden md:block md:w-64 md:min-h-screen md:flex-shrink-0 fixed top-0 left-0 z-20">
         <YourWorkspaceSidebar workspace={workspace} chats={chats} />
       </div>
 
-      {/* ── Main Content ── */}
+      {/* Main content */}
       <div className="flex-1 md:ml-64">
-        {/* ─── Sticky Top Bar ─── */}
-        <div className="sticky top-0 z-10 bg-[#f0f2f5] px-4 sm:px-6 lg:px-8 py-4 border-b border-gray-200/50">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3 flex-1 min-w-0">
-              {workspace.logo ? (
-                <img
-                  src={workspace.logo}
-                  alt={workspace.name}
-                  className="w-11 h-11 rounded-full object-cover border border-gray-200"
-                />
-              ) : (
-                <div
-                  className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-base border border-gray-200"
-                  style={{ backgroundColor: brandColor }}
-                >
-                  {workspace.initials || workspace.name.charAt(0).toUpperCase()}
-                </div>
-              )}
-              <div className="min-w-0">
-                <h1 className="text-lg font-semibold text-gray-900 leading-tight truncate">{workspace.name}</h1>
-                <p className="text-xs text-gray-400 flex items-center gap-1">
-                  <FaUsers className="text-[10px]" />
-                  {activeMembers.length} members · {onlineCount} online
-                </p>
-              </div>
+        {/* Mobile-only greeting bar – fixed at top */}
+        <div className="md:hidden fixed top-0 left-0 right-0 z-10 bg-gray-50 px-4 pt-4 pb-2 border-b border-gray-200/60">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-gray-400">Welcome back</p>
+              <h2 className="text-base font-bold text-gray-900">
+                Hi, {userInfo?.name?.split(' ')[0] || 'there'}
+              </h2>
             </div>
+            <Link
+              to="/my-workspaces"
+              className="w-9 h-9 rounded-full bg-white border border-gray-200 flex items-center justify-center text-gray-500 hover:text-gray-700 transition"
+              aria-label="All workspaces"
+            >
+              <FaThLarge className="text-sm" />
+            </Link>
+          </div>
+        </div>
 
-            {/* Search - hidden on small screens */}
-            <div className="hidden sm:flex items-center bg-white border border-gray-200/80 rounded-full px-4 py-1.5 flex-1 max-w-xs">
-              <FaSearch className="text-gray-400 text-xs mr-2" />
-              <input
-                type="text"
-                placeholder="Search workspace..."
-                className="bg-transparent border-none outline-none text-sm text-gray-700 w-full placeholder-gray-400"
+        <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 md:pb-6 mt-16 md:mt-0">
+          {/* Hero + quick actions */}
+          <div className="lg:grid lg:grid-cols-3 lg:gap-6 mb-4 sm:mb-6">
+            <div className="lg:col-span-2">
+              <HeroCard />
+            </div>
+            <div className="mt-4 lg:mt-0 grid grid-cols-3 lg:grid-cols-1 gap-2 sm:gap-3">
+              <QuickActionTile
+                icon={FaFolder}
+                label="Projects"
+                to={`/workspace/${workspaceId}/projects`}
+              />
+              <QuickActionTile
+                icon={FaUsers}
+                label="Members"
+                to={`/workspace/${workspaceId}/members`}
+              />
+              <QuickActionTile
+                icon={FaHashtag}
+                label="Channels"
+                to={`/workspace/${workspaceId}/channels`}
               />
             </div>
-
-            <button className="w-10 h-10 rounded-full bg-black flex items-center justify-center text-white hover:bg-gray-800 transition">
-              <FaBell className="text-sm" />
-            </button>
-          </div>
-        </div>
-
-        {/* ─── Scrollable Content ─── */}
-        <div className="px-4 sm:px-6 lg:px-8 py-6 pb-24 md:pb-0">
-          {/* ─── Stats Row ─── */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-            {[
-              { label: 'Members', value: activeMembers.length, icon: FaUsers },
-              { label: 'Channels', value: channelCount, icon: FaHashtag },
-              { label: 'Direct Messages', value: dmCount, icon: FaEnvelope },
-              { label: 'Online', value: onlineCount, icon: FaCircle },
-            ].map((stat, idx) => (
-              <div
-                key={idx}
-                className="bg-white rounded-2xl px-4 py-3 flex items-center gap-3 border border-gray-200/60"
-              >
-                <div
-                  className="w-10 h-10 rounded-full flex items-center justify-center"
-                  style={{ backgroundColor: `${brandColor}10` }}
-                >
-                  <stat.icon className="text-sm" style={{ color: brandColor }} />
-                </div>
-                <div>
-                  <p className="text-xl font-bold text-gray-900">{stat.value}</p>
-                  <p className="text-xs text-gray-500">{stat.label}</p>
-                </div>
-              </div>
-            ))}
           </div>
 
-          {/* ─── Quick Navigation Cards ─── */}
-          <div className="grid grid-cols-3 gap-3 mb-6">
-            <Link
-              to={`/workspace/${workspaceId}/channels`}
-              className="flex flex-col items-center gap-2 p-4 bg-white rounded-2xl border border-gray-200/60 hover:border-gray-300 hover:shadow-md transition group"
-            >
-              <div
-                className="w-12 h-12 rounded-full flex items-center justify-center transition"
-                style={{ backgroundColor: `${brandColor}10` }}
-              >
-                <FaComment className="text-lg" style={{ color: brandColor }} />
-              </div>
-              <span className="text-sm font-medium text-gray-700">Chats</span>
-            </Link>
-            <Link
-              to={`/workspace/${workspaceId}/members`}
-              className="flex flex-col items-center gap-2 p-4 bg-white rounded-2xl border border-gray-200/60 hover:border-gray-300 hover:shadow-md transition group"
-            >
-              <div
-                className="w-12 h-12 rounded-full flex items-center justify-center transition"
-                style={{ backgroundColor: `${brandColor}10` }}
-              >
-                <FaUsers className="text-lg" style={{ color: brandColor }} />
-              </div>
-              <span className="text-sm font-medium text-gray-700">Members</span>
-            </Link>
-            <Link
-              to={`/workspace/${workspaceId}/projects`}
-              className="flex flex-col items-center gap-2 p-4 bg-white rounded-2xl border border-gray-200/60 hover:border-gray-300 hover:shadow-md transition group"
-            >
-              <div
-                className="w-12 h-12 rounded-full flex items-center justify-center transition"
-                style={{ backgroundColor: `${brandColor}10` }}
-              >
-                <FaFolder className="text-lg" style={{ color: brandColor }} />
-              </div>
-              <span className="text-sm font-medium text-gray-700">Projects</span>
-            </Link>
+          {/* Stat tiles */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
+            <StatTile icon={FaHashtag} label="Channels" value={channelCount} />
+            <StatTile icon={FaEnvelope} label="DMs" value={dmCount} />
+            <StatTile icon={FaUsers} label="Members" value={activeMembers.length} />
+            <StatTile
+              icon={FaCircle}
+              label="Online"
+              value={onlineCount}
+              badge={onlineCount > 0 ? 'LIVE' : null}
+              badgeColor="bg-green-500"
+            />
           </div>
 
-          {/* ─── Recent Chats ─── */}
-          <div className="bg-white rounded-2xl border border-gray-200/60 overflow-hidden mb-6">
-            <div className="px-5 py-3.5 flex items-center justify-between border-b border-gray-100">
-              <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                <FaComment className="text-sm" style={{ color: brandColor }} />
-                Recent Chats
-              </h3>
+          {/* Chart card */}
+          <div
+            className="relative overflow-hidden rounded-3xl p-5 sm:p-6 mb-4 sm:mb-6 text-white"
+            style={{ background: `linear-gradient(135deg, ${brandColor} 0%, #111827 100%)` }}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <div>
+                <p className="text-xs text-white/70">This week</p>
+                <h2 className="text-lg sm:text-xl font-bold">{totalMessages} messages</h2>
+              </div>
               <Link
                 to={`/workspace/${workspaceId}/channels`}
-                className="text-xs font-medium hover:underline"
-                style={{ color: brandColor }}
+                className="bg-white/15 hover:bg-white/25 transition text-xs font-semibold px-3.5 py-2 rounded-full"
               >
-                View all <FaArrowRight className="inline text-[10px] ml-1" />
+                View report
               </Link>
             </div>
-            <div className="divide-y divide-gray-100">
-              {chats.slice(0, 3).map((chat) => {
-                const isGroup = chat.type === 'group';
-                const otherParticipant = isGroup ? null : chat.participants.find(
-                  (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id
-                );
-                const participant = otherParticipant?.user || otherParticipant;
-                const name = isGroup ? chat.name : participant?.name || 'Unknown';
-                const unread = chat.unreadCount || 0;
-                const lastMessage = chat.lastMessage?.content || 'No messages yet';
-                const time = chat.updatedAt ? new Date(chat.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+            <div className="h-32 sm:h-40 w-full -ml-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData}>
+                  <defs>
+                    <linearGradient id="colorMessages" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#ffffff" stopOpacity={0.5} />
+                      <stop offset="95%" stopColor="#ffffff" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis
+                    dataKey="day"
+                    tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.6)' }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      borderRadius: '8px',
+                      border: 'none',
+                      fontSize: '12px',
+                    }}
+                    formatter={(value) => [`${value} messages`, '']}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="messages"
+                    stroke="#ffffff"
+                    strokeWidth={2}
+                    fill="url(#colorMessages)"
+                    dot={{ r: 2, fill: '#ffffff' }}
+                    activeDot={{ r: 4 }}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
 
-                return (
+          {/* Two‑column content */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left – recent conversations */}
+            <div className="lg:col-span-2 space-y-6">
+              <div className="bg-white rounded-2xl border border-gray-200/60 overflow-hidden">
+                <div className="px-4 sm:px-5 py-3 sm:py-3.5 flex items-center justify-between border-b border-gray-100">
+                  <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                    <FaComment className="text-sm" style={{ color: brandColor }} />
+                    Recent Conversations
+                  </h2>
                   <Link
-                    key={chat._id}
-                    to={`/workspace/${workspaceId}/chat/${chat._id}`}
-                    className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition group"
+                    to={`/workspace/${workspaceId}/channels`}
+                    className="text-xs font-medium hover:underline"
+                    style={{ color: brandColor }}
                   >
-                    {isGroup ? (
-                      <div
-                        className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 border border-gray-200"
-                        style={{ backgroundColor: `${brandColor}10` }}
-                      >
-                        <FaHashtag className="text-sm" style={{ color: brandColor }} />
-                      </div>
-                    ) : (
-                      participant?.profile ? (
-                        <img
-                          src={participant.profile}
-                          alt={participant.name}
-                          className="w-10 h-10 rounded-full object-cover border border-gray-200"
-                        />
-                      ) : (
-                        <div
-                          className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm border border-gray-200"
-                          style={{ backgroundColor: brandColor }}
+                    View all
+                  </Link>
+                </div>
+                <div className="divide-y divide-gray-100">
+                  {chats.length === 0 ? (
+                    <div className="px-4 py-8 text-center text-xs sm:text-sm text-gray-400">
+                      No activity yet — start a conversation!
+                    </div>
+                  ) : (
+                    chats.slice(0, 5).map((chat) => {
+                      const isGroup = chat.type === 'group';
+                      const otherParticipant = isGroup
+                        ? null
+                        : chat.participants.find(
+                            (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id
+                          );
+                      const participant = otherParticipant?.user || otherParticipant;
+                      const name = isGroup ? chat.name : participant?.name || 'Unknown';
+                      const lastMessage = chat.lastMessage?.content || 'No messages yet';
+                      const time = chat.updatedAt
+                        ? new Date(chat.updatedAt).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
+                        : '';
+                      return (
+                        <Link
+                          key={chat._id}
+                          to={`/workspace/${workspaceId}/chat/${chat._id}`}
+                          className="flex items-center gap-3 px-4 sm:px-5 py-3 hover:bg-gray-50 transition"
                         >
-                          {participant?.name?.charAt(0).toUpperCase() || '?'}
-                        </div>
-                      )
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium text-gray-900 truncate">{name}</p>
-                        {unread > 0 && (
-                          <span
-                            className="text-white text-xs rounded-full px-2 py-0.5 min-w-[20px] text-center"
+                          {isGroup ? (
+                            <div
+                              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center border border-gray-200"
+                              style={{ backgroundColor: `${brandColor}10` }}
+                            >
+                              <FaHashtag className="text-xs sm:text-sm" style={{ color: brandColor }} />
+                            </div>
+                          ) : participant?.profile ? (
+                            <img
+                              src={participant.profile}
+                              alt={name}
+                              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full object-cover border border-gray-200"
+                            />
+                          ) : (
+                            <div
+                              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-white font-bold text-xs sm:text-sm border border-gray-200"
+                              style={{ backgroundColor: brandColor }}
+                            >
+                              {name.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-xs sm:text-sm font-medium text-gray-900 truncate">
+                                {name}
+                              </p>
+                              <span className="text-[10px] sm:text-xs text-gray-400 flex-shrink-0">
+                                {time}
+                              </span>
+                            </div>
+                            <p className="text-[11px] sm:text-xs text-gray-500 truncate mt-0.5">
+                              {lastMessage}
+                            </p>
+                          </div>
+                        </Link>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Right column – members + about */}
+            <div className="space-y-6">
+              <div className="bg-white rounded-2xl border border-gray-200/60 overflow-hidden">
+                <div className="px-4 sm:px-5 py-3 sm:py-3.5 flex items-center justify-between border-b border-gray-100">
+                  <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                    <FaUsers className="text-sm" style={{ color: brandColor }} />
+                    Members
+                  </h2>
+                  <Link
+                    to={`/workspace/${workspaceId}/members`}
+                    className="text-xs font-medium hover:underline"
+                    style={{ color: brandColor }}
+                  >
+                    See all
+                  </Link>
+                </div>
+                <div className="divide-y divide-gray-100">
+                  {activeMembers.slice(0, 6).map((member) => {
+                    const memberUser = member.user || member;
+                    const isOwner =
+                      memberUser._id === workspace.owner?._id ||
+                      memberUser._id === workspace.owner;
+                    return (
+                      <div
+                        key={memberUser._id}
+                        className="flex items-center gap-3 px-4 sm:px-5 py-2 sm:py-2.5 hover:bg-gray-50 transition"
+                      >
+                        {memberUser?.profile ? (
+                          <img
+                            src={memberUser.profile}
+                            alt={memberUser.name}
+                            className="w-7 h-7 sm:w-8 sm:h-8 rounded-full object-cover border border-gray-200"
+                          />
+                        ) : (
+                          <div
+                            className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-white text-[10px] sm:text-xs font-bold"
                             style={{ backgroundColor: brandColor }}
                           >
-                            {unread}
-                          </span>
+                            {memberUser?.name?.charAt(0).toUpperCase() || '?'}
+                          </div>
                         )}
-                        <span className="ml-auto text-xs text-gray-400 flex-shrink-0">{time}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs sm:text-sm text-gray-700 truncate flex items-center gap-1">
+                            {memberUser?.name || 'Unknown'}
+                            {isOwner && <span className="text-[10px]" title="Owner">👑</span>}
+                          </p>
+                        </div>
+                        {member.status === 'active' && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
+                        )}
                       </div>
-                      <p className="text-xs text-gray-500 truncate">{lastMessage}</p>
-                    </div>
-                    <FaChevronRight className="text-gray-300 text-xs flex-shrink-0 group-hover:text-gray-500 transition" />
-                  </Link>
-                );
-              })}
-              {chats.length === 0 && (
-                <div className="px-5 py-10 text-center text-gray-400 text-sm">
-                  No chats yet. Start a conversation with a member!
+                    );
+                  })}
+                  {activeMembers.length > 6 && (
+                    <Link
+                      to={`/workspace/${workspaceId}/members`}
+                      className="block text-xs font-medium px-4 sm:px-5 py-2.5 hover:bg-gray-50 transition border-t border-gray-100"
+                      style={{ color: brandColor }}
+                    >
+                      +{activeMembers.length - 6} more
+                    </Link>
+                  )}
+                </div>
+              </div>
+
+              {(workspace.description || workspace.industry || workspace.location || workspace.website) && (
+                <div className="bg-white rounded-2xl border border-gray-200/60 p-4 sm:p-5">
+                  <h2 className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                    About
+                  </h2>
+                  {workspace.description && (
+                    <p className="text-xs sm:text-sm text-gray-700 mb-4">{workspace.description}</p>
+                  )}
+                  <div className="space-y-1.5 text-[11px] sm:text-sm text-gray-600">
+                    {workspace.industry && (
+                      <div className="flex items-center gap-2">
+                        <span>🏢</span>
+                        <span>{workspace.industry}</span>
+                      </div>
+                    )}
+                    {workspace.location && (
+                      <div className="flex items-center gap-2">
+                        <span>📍</span>
+                        <span>{workspace.location}</span>
+                      </div>
+                    )}
+                    {workspace.website && (
+                      <a
+                        href={workspace.website}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 hover:underline"
+                        style={{ color: brandColor }}
+                      >
+                        <span>🌐</span>
+                        <span>{workspace.website}</span>
+                      </a>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
           </div>
-
-          {/* ─── Members Preview ─── */}
-          <div className="bg-white rounded-2xl border border-gray-200/60 overflow-hidden">
-            <div className="px-5 py-3.5 flex items-center justify-between border-b border-gray-100">
-              <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                <FaUsers className="text-sm" style={{ color: brandColor }} />
-                Members
-              </h3>
-              <Link
-                to={`/workspace/${workspaceId}/members`}
-                className="text-xs font-medium hover:underline"
-                style={{ color: brandColor }}
-              >
-                See All
-              </Link>
-            </div>
-            <div className="p-4">
-              <div className="flex flex-wrap gap-2">
-                {activeMembers.slice(0, 6).map((member) => {
-                  const memberUser = member.user || member;
-                  const isWorkspaceOwner = memberUser._id === workspace.owner?._id || memberUser._id === workspace.owner;
-                  return (
-                    <div
-                      key={memberUser._id}
-                      className="flex items-center gap-2 bg-gray-100 rounded-lg px-3 py-2"
-                    >
-                      {memberUser?.profile ? (
-                        <img
-                          src={memberUser.profile}
-                          alt={memberUser.name}
-                          className="w-6 h-6 rounded-full object-cover"
-                        />
-                      ) : (
-                        <div
-                          className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold"
-                          style={{ backgroundColor: brandColor }}
-                        >
-                          {memberUser?.name?.charAt(0).toUpperCase() || '?'}
-                        </div>
-                      )}
-                      <span className="text-sm text-gray-700 truncate max-w-[80px]">
-                        {memberUser?.name || 'Unknown'}
-                        {isWorkspaceOwner && <span className="text-xs text-amber-500 ml-1" title="Owner">👑</span>}
-                      </span>
-                      {member.status === 'active' && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
-                      )}
-                    </div>
-                  );
-                })}
-                {activeMembers.length > 6 && (
-                  <div className="flex items-center bg-gray-100 rounded-lg px-3 py-2">
-                    <span className="text-sm text-gray-500">
-                      +{activeMembers.length - 6} more
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* ── Workspace Description ── */}
-          {workspace.description && (
-            <div className="mt-6 bg-white rounded-2xl border border-gray-200/60 p-5">
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">About</h3>
-              <p className="text-sm text-gray-700">{workspace.description}</p>
-              <div className="mt-3 flex flex-wrap gap-4 text-xs text-gray-500">
-                {workspace.industry && <span>🏢 {workspace.industry}</span>}
-                {workspace.location && <span>📍 {workspace.location}</span>}
-                {workspace.website && (
-                  <a href={workspace.website} target="_blank" rel="noopener noreferrer" className="hover:underline" style={{ color: brandColor }}>
-                    🌐 {workspace.website}
-                  </a>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
+        </main>
       </div>
 
-      {/* ── Bottom Navigation ── */}
       <YourWorkspaceBottombar workspace={workspace} />
     </div>
   );

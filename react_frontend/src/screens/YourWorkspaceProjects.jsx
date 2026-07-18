@@ -20,10 +20,90 @@ import {
   FaEllipsisV,
   FaEdit,
   FaTrashAlt,
+  FaTimes,
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
-// ─── Project Card (with manager actions) ────────────────────────────
+// ─── Search Projects Modal ────────────────────────────────────────────
+const SearchProjectsModal = ({ isOpen, onClose, projects, brandColor, workspaceId }) => {
+  const [query, setQuery] = useState('');
+  const navigate = useNavigate();
+  if (!isOpen) return null;
+
+  const filtered = projects.filter(
+    p =>
+      p.name?.toLowerCase().includes(query.toLowerCase()) ||
+      p.description?.toLowerCase().includes(query.toLowerCase())
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 bg-white flex flex-col">
+      <div className="flex items-center gap-3 px-4 h-14 border-b border-gray-100">
+        <button onClick={onClose} className="p-1">
+          <FaArrowLeft className="text-gray-600" />
+        </button>
+        <div className="flex-1 bg-gray-100 rounded-full px-4 py-2 flex items-center gap-2">
+          <FaSearch className="text-gray-400 text-xs" />
+          <input
+            type="text"
+            placeholder="Search projects..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="bg-transparent w-full outline-none text-sm"
+            autoFocus
+          />
+          {query && (
+            <button onClick={() => setQuery('')}>
+              <FaTimes className="text-gray-400 text-xs" />
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        {!query && (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400">
+            <FaSearch className="text-4xl mb-2 opacity-30" />
+            <p className="text-sm">Search projects by name or description</p>
+          </div>
+        )}
+        {query && filtered.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400">
+            <p className="text-sm">No results for "{query}"</p>
+          </div>
+        )}
+        {query && filtered.length > 0 && (
+          <div className="divide-y divide-gray-100">
+            {filtered.map((project) => (
+              <div
+                key={project._id}
+                onClick={() => {
+                  onClose();
+                  navigate(`/workspace/${workspaceId}/project/${project._id}`);
+                }}
+                className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition cursor-pointer"
+              >
+                <div
+                  className="w-10 h-10 rounded-lg flex items-center justify-center"
+                  style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
+                >
+                  <FaFolder className="text-sm" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium">{project.name}</p>
+                  <p className="text-xs text-gray-500">
+                    {project.description || 'No description'}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ─── Project Card (clickable, with manager actions) ──────────────────
 const ProjectCard = ({
   project,
   brandColor,
@@ -34,7 +114,6 @@ const ProjectCard = ({
   onEdit,
 }) => {
   const [showMenu, setShowMenu] = useState(false);
-
   const statusColors = {
     planning: 'bg-blue-50 text-blue-600',
     'in-progress': 'bg-yellow-50 text-yellow-600',
@@ -47,10 +126,7 @@ const ProjectCard = ({
     completed: 'Completed',
     archived: 'Archived',
   };
-
   const progress = project.progress || 0;
-  const hasLinks = project.links && project.links.length > 0;
-  const hasDocs = project.documents && project.documents.length > 0;
   const canManage = isOwner || isManager;
 
   const handleDelete = () => {
@@ -59,14 +135,17 @@ const ProjectCard = ({
     }
   };
 
+  // Prevent dropdown actions from triggering navigation
+  const stopProp = (e) => e.stopPropagation();
+
   return (
-    <div className="bg-white rounded-xl border border-gray-200 hover:border-gray-300 hover:shadow-sm transition p-5 group relative">
-      {/* Management dropdown (top right) */}
+    <div className="relative bg-white rounded-2xl border border-gray-200/60 p-4 transition hover:border-gray-300 group">
+      {/* Menu button – absolutely positioned and stops propagation */}
       {canManage && (
-        <div className="absolute top-3 right-3">
+        <div className="absolute top-3 right-3 z-10">
           <button
             onClick={(e) => {
-              e.preventDefault();
+              stopProp(e);
               setShowMenu(!showMenu);
             }}
             className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition"
@@ -74,10 +153,10 @@ const ProjectCard = ({
             <FaEllipsisV className="text-xs" />
           </button>
           {showMenu && (
-            <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-lg border border-gray-200 min-w-[120px] z-10 py-1">
+            <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-lg border border-gray-200 min-w-[120px] z-20 py-1">
               <button
                 onClick={(e) => {
-                  e.preventDefault();
+                  stopProp(e);
                   setShowMenu(false);
                   onEdit && onEdit(project._id);
                 }}
@@ -88,7 +167,7 @@ const ProjectCard = ({
               {isOwner && (
                 <button
                   onClick={(e) => {
-                    e.preventDefault();
+                    stopProp(e);
                     setShowMenu(false);
                     handleDelete();
                   }}
@@ -102,11 +181,16 @@ const ProjectCard = ({
         </div>
       )}
 
+      {/* Clickable link wrapping the whole card */}
       <Link
         to={`/workspace/${workspaceId}/project/${project._id}`}
         className="block"
+        onClick={(e) => {
+          // If the menu is open, prevent navigation (optional)
+          if (showMenu) e.preventDefault();
+        }}
       >
-        <div className="flex items-start justify-between mb-2">
+        <div className="flex items-start justify-between mb-2 pr-8">
           <div className="flex items-center gap-3 min-w-0">
             {project.coverImage ? (
               <img
@@ -123,9 +207,12 @@ const ProjectCard = ({
               </div>
             )}
             <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-gray-900 truncate">{project.name}</h3>
+              <h3 className="text-sm font-semibold text-gray-900 truncate">
+                {project.name}
+              </h3>
               <p className="text-xs text-gray-500 truncate">
-                {project.teamMembers?.length || 0} members · {project.taskStats?.totalTasks || 0} tasks
+                {project.teamMembers?.length || 0} members ·{' '}
+                {project.taskStats?.totalTasks || 0} tasks
               </p>
             </div>
           </div>
@@ -139,13 +226,17 @@ const ProjectCard = ({
         </div>
 
         {project.description && (
-          <p className="text-xs text-gray-500 line-clamp-2 mb-2">{project.description}</p>
+          <p className="text-xs text-gray-500 line-clamp-2 mb-2">
+            {project.description}
+          </p>
         )}
 
         <div className="flex items-center gap-3 text-xs text-gray-400">
           <span className="flex items-center gap-1">
             <FaCalendarAlt className="text-[10px]" />
-            {project.startDate ? new Date(project.startDate).toLocaleDateString() : 'N/A'}
+            {project.startDate
+              ? new Date(project.startDate).toLocaleDateString()
+              : 'N/A'}
           </span>
           <span className="flex items-center gap-1">
             <FaChartLine className="text-[10px]" />
@@ -155,12 +246,12 @@ const ProjectCard = ({
             <FaUserCheck className="text-[10px]" />
             {project.projectManagers?.length || 0}
           </span>
-          {hasLinks && (
+          {project.links?.length > 0 && (
             <span className="flex items-center gap-1 text-blue-500">
               <FaLink className="text-[10px]" />
             </span>
           )}
-          {hasDocs && (
+          {project.documents?.length > 0 && (
             <span className="flex items-center gap-1 text-orange-500">
               <FaFileAlt className="text-[10px]" />
             </span>
@@ -183,29 +274,26 @@ const YourWorkspaceProjects = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
-
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [searchOpen, setSearchOpen] = useState(false);
 
   const {
     data: workspaceData,
     isLoading: workspaceLoading,
     error: workspaceError,
   } = useGetWorkspaceQuery(workspaceId);
-
   const {
     data: projectsData,
     isLoading: projectsLoading,
     error: projectsError,
     refetch: refetchProjects,
   } = useGetWorkspaceProjectsQuery({ workspaceId });
-
   const [deleteProject] = useDeleteProjectMutation();
 
   const workspace = workspaceData?.workspace;
   const projects = projectsData?.projects || [];
-  const brandColor = workspace?.color || '#4F46E5';
-  const isOwner = workspace?.owner?._id === userInfo?._id || workspace?.owner === userInfo?._id;
+  const brandColor = workspace?.color || '#0d9488';
+  const isOwner =
+    workspace?.owner?._id === userInfo?._id || workspace?.owner === userInfo?._id;
 
   if (workspaceError || projectsError) {
     navigate(`/workspace/${workspaceId}`);
@@ -228,25 +316,16 @@ const YourWorkspaceProjects = () => {
 
   if (!workspace) return null;
 
-  const filteredProjects = projects.filter((p) => {
-    const matchesSearch =
-      p.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.description?.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = filterStatus === 'all' || p.status === filterStatus;
-    return matchesSearch && matchesStatus;
-  });
-
   const totalProjects = projects.length;
-  const completedProjects = projects.filter((p) => p.status === 'completed').length;
-  const inProgressProjects = projects.filter((p) => p.status === 'in-progress').length;
-  const planningProjects = projects.filter((p) => p.status === 'planning').length;
-
-  const statusFilters = [
-    { value: 'all', label: 'All' },
-    { value: 'planning', label: 'Planning' },
-    { value: 'in-progress', label: 'In Progress' },
-    { value: 'completed', label: 'Completed' },
-  ];
+  const completedProjects = projects.filter(
+    (p) => p.status === 'completed'
+  ).length;
+  const inProgressProjects = projects.filter(
+    (p) => p.status === 'in-progress'
+  ).length;
+  const planningProjects = projects.filter(
+    (p) => p.status === 'planning'
+  ).length;
 
   const handleDeleteProject = async (projectId) => {
     try {
@@ -263,93 +342,70 @@ const YourWorkspaceProjects = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
-      <div className="hidden md:block md:w-64 md:min-h-screen md:flex-shrink-0 sticky top-0">
+    <div className="h-dvh bg-gray-50 flex flex-col lg:flex-row overflow-hidden">
+      {/* Desktop Sidebar */}
+      <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
         <YourWorkspaceSidebar workspace={workspace} chats={[]} />
       </div>
 
-      <div className="flex-1 bg-white md:min-h-screen overflow-y-auto pb-24 md:pb-0">
-        <div className="max-w-6xl mx-auto px-4 md:px-8 py-4 md:py-6">
-          <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-200">
-            <div className="flex items-center gap-3">
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        {/* Fixed Header */}
+        <header className="sticky top-0 z-10 bg-teal-600 text-white flex-shrink-0 shadow-sm">
+          <div className="flex items-center justify-between px-4 h-14">
+            <div className="flex items-center gap-2">
               <button
                 onClick={() => navigate(`/workspace/${workspaceId}`)}
-                className="md:hidden p-2 hover:bg-gray-100 rounded-lg transition"
+                className="p-1 lg:hidden"
               >
-                <FaArrowLeft className="text-gray-500" />
+                <FaArrowLeft />
               </button>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900">Projects</h1>
-                <p className="text-sm text-gray-500">
-                  {totalProjects} projects · {inProgressProjects} in progress
-                </p>
-              </div>
+              <h1 className="text-lg font-semibold">Projects</h1>
+              <span className="text-xs text-white/70 ml-1">{totalProjects}</span>
             </div>
+            <button onClick={() => setSearchOpen(true)} className="p-1">
+              <FaSearch />
+            </button>
           </div>
+        </header>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-            <div className="bg-gray-50 rounded-xl px-4 py-3 border border-gray-100">
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-6">
+          {/* Stats Row */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            <div className="bg-white rounded-xl px-4 py-3 border border-gray-200/60">
               <p className="text-lg font-bold text-gray-900">{totalProjects}</p>
               <p className="text-xs text-gray-500">Total</p>
             </div>
-            <div className="bg-gray-50 rounded-xl px-4 py-3 border border-gray-100">
+            <div className="bg-white rounded-xl px-4 py-3 border border-gray-200/60">
               <p className="text-lg font-bold text-gray-900">{planningProjects}</p>
               <p className="text-xs text-gray-500">Planning</p>
             </div>
-            <div className="bg-gray-50 rounded-xl px-4 py-3 border border-gray-100">
-              <p className="text-lg font-bold text-gray-900">{inProgressProjects}</p>
+            <div className="bg-white rounded-xl px-4 py-3 border border-gray-200/60">
+              <p className="text-lg font-bold text-gray-900">
+                {inProgressProjects}
+              </p>
               <p className="text-xs text-gray-500">In Progress</p>
             </div>
-            <div className="bg-gray-50 rounded-xl px-4 py-3 border border-gray-100">
-              <p className="text-lg font-bold text-gray-900">{completedProjects}</p>
+            <div className="bg-white rounded-xl px-4 py-3 border border-gray-200/60">
+              <p className="text-lg font-bold text-gray-900">
+                {completedProjects}
+              </p>
               <p className="text-xs text-gray-500">Completed</p>
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2 mb-4">
-            {statusFilters.map((filter) => (
-              <button
-                key={filter.value}
-                onClick={() => setFilterStatus(filter.value)}
-                className={`px-4 py-1.5 rounded-full text-sm font-medium transition ${
-                  filterStatus === filter.value
-                    ? 'text-white'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-                style={filterStatus === filter.value ? { backgroundColor: brandColor } : {}}
-              >
-                {filter.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="relative mb-6">
-            <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
-            <input
-              type="text"
-              placeholder="Search projects..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:border-transparent text-sm"
-              style={{ '--tw-ring-color': brandColor }}
-              onFocus={(e) => e.target.style.setProperty('--tw-ring-color', brandColor)}
-            />
-          </div>
-
-          {filteredProjects.length === 0 ? (
+          {/* Projects Grid */}
+          {projects.length === 0 ? (
             <div className="text-center py-12">
               <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-4">
                 <FaFolder className="text-2xl text-gray-300" />
               </div>
-              <h3 className="text-lg font-semibold text-gray-900">No projects found</h3>
-              <p className="text-sm text-gray-400 mt-1">
-                {searchQuery ? 'Try a different search term' : 'No projects available in this workspace'}
-              </p>
+              <h3 className="text-lg font-semibold text-gray-900">No projects yet</h3>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredProjects.map((project) => {
-                // Determine if the current user is a project manager for this project
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {projects.map((project) => {
                 const isManager = project.projectManagers?.some(
                   (pm) => pm._id === userInfo?._id
                 );
@@ -371,7 +427,17 @@ const YourWorkspaceProjects = () => {
         </div>
       </div>
 
+      {/* Bottom Navigation (mobile) */}
       <YourWorkspaceBottombar workspace={workspace} />
+
+      {/* Search Modal */}
+      <SearchProjectsModal
+        isOpen={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        projects={projects}
+        brandColor={brandColor}
+        workspaceId={workspaceId}
+      />
     </div>
   );
 };
