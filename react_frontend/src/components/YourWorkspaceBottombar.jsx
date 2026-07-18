@@ -12,6 +12,7 @@ import {
   FiMenu,
   FiX,
   FiFolder,
+  FiHash,
   FiBell,
   FiUser,
   FiLogOut,
@@ -44,15 +45,17 @@ const YourWorkspaceBottombar = ({ workspace }) => {
     }
   };
 
+  // Bottom navigation – "Chats" now leads to DMs
   const navItems = [
     { id: 'home', label: 'Home', icon: FiHome, path: `/workspace/${workspaceId}` },
-    { id: 'channels', label: 'Chats', icon: FiMessageCircle, path: `/workspace/${workspaceId}/channels` },
+    { id: 'dms', label: 'Messages', icon: FiMessageCircle, path: `/workspace/${workspaceId}/dms` },
     { id: 'members', label: 'Members', icon: FiUsers, path: `/workspace/${workspaceId}/members` },
   ];
 
-  // Menu items – no Settings
+  // Slide‑out menu – Channels added
   const menuItems = [
     { id: 'projects', label: 'Projects', icon: FiFolder, path: `/workspace/${workspaceId}/projects` },
+    { id: 'channels', label: 'Channels', icon: FiHash, path: `/workspace/${workspaceId}/channels` },
     { id: 'notifications', label: 'Notifications', icon: FiBell, path: `/workspace/${workspaceId}/notifications` },
     { id: 'profile', label: 'Profile', icon: FiUser, path: '/profile' },
     { id: 'logout', label: 'Logout', icon: FiLogOut, action: handleLogout },
