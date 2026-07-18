@@ -29,18 +29,37 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 // ✅ CORS FIRST (must be before routes)
-app.use(
-  cors({
-    origin: true,
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
-  }),
-);
+// Middleware
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://xircle.lovohcreate.com'
+];
+
+// ✅ CORS
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    console.warn(`❌ CORS blocked origin: ${origin}`);
+    return callback(new Error("Not allowed by CORS"));
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+}));
+
 
 // ✅ Health test endpoint
 app.get("/api/health", (req, res) => {
   res.json({ ok: true, message: "Backend is reachable" });
+});
+
+app.get("/", (req, res) => {
+  res.send("Xircle API is running 🚀");
 });
 
 // ✅ Routes
