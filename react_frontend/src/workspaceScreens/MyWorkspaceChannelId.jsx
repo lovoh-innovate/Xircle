@@ -30,7 +30,6 @@ import {
   FaChevronUp,
   FaCircle,
   FaSearch,
-  FaChevronRight,
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
@@ -122,11 +121,7 @@ const MediaMessage = ({ message, isOwn, senderName, senderProfile, brandColor, o
       case 'video':
         return (
           <div className="relative group">
-            <video
-              src={message.mediaUrl}
-              controls
-              className="max-w-full rounded-lg max-h-80"
-            />
+            <video src={message.mediaUrl} controls className="max-w-full rounded-lg max-h-80" />
             <button
               onClick={handleDownload}
               className="absolute bottom-2 right-2 bg-black/50 text-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition"
@@ -142,11 +137,7 @@ const MediaMessage = ({ message, isOwn, senderName, senderProfile, brandColor, o
             <button
               onClick={() => {
                 if (audioRef.current) {
-                  if (isPlaying) {
-                    audioRef.current.pause();
-                  } else {
-                    audioRef.current.play();
-                  }
+                  isPlaying ? audioRef.current.pause() : audioRef.current.play();
                   setIsPlaying(!isPlaying);
                 }
               }}
@@ -156,25 +147,11 @@ const MediaMessage = ({ message, isOwn, senderName, senderProfile, brandColor, o
               {isPlaying ? <FaPause className="text-sm" /> : <FaPlay className="text-sm" />}
             </button>
             <div className="flex-1">
-              <audio
-                ref={audioRef}
-                src={message.mediaUrl}
-                onEnded={() => setIsPlaying(false)}
-                onPause={() => setIsPlaying(false)}
-                onPlay={() => setIsPlaying(true)}
-                className="hidden"
-              />
-              <div className="text-sm font-medium text-gray-900">
-                {message.mediaName || 'Voice note'}
-              </div>
-              <div className="text-xs text-gray-500">
-                {message.mediaDuration ? formatTime(message.mediaDuration) : '0:00'}
-              </div>
+              <audio ref={audioRef} src={message.mediaUrl} onEnded={() => setIsPlaying(false)} onPause={() => setIsPlaying(false)} onPlay={() => setIsPlaying(true)} className="hidden" />
+              <div className="text-sm font-medium text-gray-900">{message.mediaName || 'Voice note'}</div>
+              <div className="text-xs text-gray-500">{message.mediaDuration ? formatTime(message.mediaDuration) : '0:00'}</div>
             </div>
-            <button
-              onClick={(e) => { e.stopPropagation(); handleDownload(e); }}
-              className="text-gray-400 hover:text-gray-600 transition"
-            >
+            <button onClick={(e) => { e.stopPropagation(); handleDownload(e); }} className="text-gray-400 hover:text-gray-600 transition">
               <FaDownload className="text-sm" />
             </button>
           </div>
@@ -183,21 +160,12 @@ const MediaMessage = ({ message, isOwn, senderName, senderProfile, brandColor, o
       case 'file':
         return (
           <div className="flex items-center gap-3 bg-gray-100 rounded-lg p-3 min-w-[200px]">
-            <div className="w-10 h-10 rounded-lg bg-gray-300 flex items-center justify-center text-gray-600">
-              📄
-            </div>
+            <div className="w-10 h-10 rounded-lg bg-gray-300 flex items-center justify-center text-gray-600">📄</div>
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-gray-900 truncate">
-                {message.mediaName || 'File'}
-              </div>
-              <div className="text-xs text-gray-500">
-                {message.mediaSize ? `${(message.mediaSize / 1024).toFixed(1)} KB` : 'File'}
-              </div>
+              <div className="text-sm font-medium text-gray-900 truncate">{message.mediaName || 'File'}</div>
+              <div className="text-xs text-gray-500">{message.mediaSize ? `${(message.mediaSize / 1024).toFixed(1)} KB` : 'File'}</div>
             </div>
-            <button
-              onClick={(e) => { e.stopPropagation(); handleDownload(e); }}
-              className="text-gray-400 hover:text-gray-600 transition"
-            >
+            <button onClick={(e) => { e.stopPropagation(); handleDownload(e); }} className="text-gray-400 hover:text-gray-600 transition">
               <FaDownload className="text-sm" />
             </button>
           </div>
@@ -222,14 +190,10 @@ const MediaMessage = ({ message, isOwn, senderName, senderProfile, brandColor, o
         </div>
       )}
       <div className={`max-w-[85%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col gap-0.5`}>
-        {!isOwn && (
-          <span className="text-xs font-medium text-gray-600 ml-1">{senderName}</span>
-        )}
+        {!isOwn && <span className="text-xs font-medium text-gray-600 ml-1">{senderName}</span>}
         <div
           className={`px-4 py-2.5 rounded-2xl text-sm break-words ${
-            isOwn
-              ? 'text-white'
-              : 'bg-gray-100 text-gray-800'
+            isOwn ? 'text-white' : 'bg-gray-100 text-gray-800'
           }`}
           style={isOwn ? { backgroundColor: brandColor } : {}}
         >
@@ -239,15 +203,10 @@ const MediaMessage = ({ message, isOwn, senderName, senderProfile, brandColor, o
         <div className={`flex items-center gap-1 text-[10px] text-gray-400 ${isOwn ? 'flex-row-reverse' : ''}`}>
           <span>{time}</span>
           {isOwn && (
-            <span className="text-gray-400">
-              <FaCheck className="text-[8px]" />
-            </span>
+            <span className="text-gray-400"><FaCheck className="text-[8px]" /></span>
           )}
           <div className="relative ml-2">
-            <button
-              onClick={() => setShowMenu(!showMenu)}
-              className="text-gray-300 hover:text-gray-500 transition p-0.5"
-            >
+            <button onClick={() => setShowMenu(!showMenu)} className="text-gray-300 hover:text-gray-500 transition p-0.5">
               <FaEllipsisV className="text-xs" />
             </button>
             {showMenu && (
@@ -259,8 +218,7 @@ const MediaMessage = ({ message, isOwn, senderName, senderProfile, brandColor, o
                   }}
                   className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition w-full"
                 >
-                  <FaTrashAlt className="text-xs" />
-                  Delete
+                  <FaTrashAlt className="text-xs" /> Delete
                 </button>
               </div>
             )}
@@ -272,7 +230,6 @@ const MediaMessage = ({ message, isOwn, senderName, senderProfile, brandColor, o
 };
 
 // ─── Main Component ──────────────────────────────────────────────────────
-
 const MyWorkspaceChannelId = () => {
   const { workspaceId, chatId } = useParams();
   const navigate = useNavigate();
@@ -284,7 +241,6 @@ const MyWorkspaceChannelId = () => {
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
 
-  // Preview modal state
   const [previewImage, setPreviewImage] = useState(null);
 
   // Voice recording states
@@ -293,8 +249,6 @@ const MyWorkspaceChannelId = () => {
   const [recordingBlob, setRecordingBlob] = useState(null);
   const [recordingPaused, setRecordingPaused] = useState(false);
   const [showRecordedPreview, setShowRecordedPreview] = useState(false);
-
-  // Swipe-up-to-lock states
   const [isLocked, setIsLocked] = useState(false);
   const [swipeProgress, setSwipeProgress] = useState(0);
 
@@ -304,7 +258,6 @@ const MyWorkspaceChannelId = () => {
   const touchStartYRef = useRef(0);
   const isRecordingRef = useRef(false);
 
-  // ─── Data fetching ────────────────────────────────────────────────
   const { data: workspaceData, isLoading: workspaceLoading, error } = useGetWorkspaceQuery(workspaceId);
   const { data: chatsData, isLoading: chatsLoading } = useGetUserChatsQuery(workspaceId);
   const { data: messagesData, isLoading: messagesLoading, refetch: refetchMessages } = useGetChatMessagesQuery(
@@ -314,7 +267,6 @@ const MyWorkspaceChannelId = () => {
   const [sendMessage] = useSendMessageMutation();
   const [deleteMessage] = useDeleteMessageMutation();
 
-  // ─── Find current chat ─────────────────────────────────────────────
   const chat = chatsData?.chats?.find(c => c._id === chatId);
   const isDM = chat?.type === 'direct';
   const otherParticipant = isDM
@@ -324,36 +276,24 @@ const MyWorkspaceChannelId = () => {
   const displayAvatar = isDM ? otherParticipant?.profile : null;
   const isDMOnline = isDM ? otherParticipant?.online || false : false;
 
-  // ─── Scroll to bottom ──────────────────────────────────────────────
   useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messagesData]);
 
-  // ─── Keep ref in sync ──────────────────────────────────────────────
   useEffect(() => {
     isRecordingRef.current = isRecording;
   }, [isRecording]);
 
-  // ─── Cleanup on unmount ────────────────────────────────────────────
   useEffect(() => {
     return () => {
-      if (mediaRecorderRef.current && isRecordingRef.current) {
-        mediaRecorderRef.current.stop();
-      }
-      if (recordingTimerRef.current) {
-        clearInterval(recordingTimerRef.current);
-      }
+      if (mediaRecorderRef.current && isRecordingRef.current) mediaRecorderRef.current.stop();
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
     };
   }, []);
 
-  // ─── Timer logic ───────────────────────────────────────────────────
   const startTimer = () => {
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-    recordingTimerRef.current = setInterval(() => {
-      setRecordingTime(prev => prev + 1);
-    }, 1000);
+    recordingTimerRef.current = setInterval(() => setRecordingTime(prev => prev + 1), 1000);
   };
 
   const stopTimer = () => {
@@ -363,20 +303,12 @@ const MyWorkspaceChannelId = () => {
     }
   };
 
-  if (error) {
-    navigate('/my-workspaces');
-  }
+  if (error) navigate('/my-workspaces');
 
   if (workspaceLoading || chatsLoading || messagesLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#f0f2f5]">
-        <div className="text-center">
-          <div
-            className="w-10 h-10 border-4 border-t-transparent rounded-full animate-spin mx-auto"
-            style={{ borderColor: workspaceData?.workspace?.color || '#4F46E5', borderTopColor: 'transparent' }}
-          />
-          <p className="mt-4 text-gray-500">Loading chat...</p>
-        </div>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -384,55 +316,37 @@ const MyWorkspaceChannelId = () => {
   const workspace = workspaceData?.workspace;
   const messages = messagesData?.messages || [];
   const chats = chatsData?.chats || [];
+  if (!workspace) return null;
 
-  if (!workspace) {
-    return null;
-  }
-
-  const brandColor = workspace.color || '#4F46E5';
-  const activeMembers = workspace.members?.filter(m => m.status === 'active') || [];
-  const onlineCount = activeMembers.filter(m => m.status === 'active').length || 0;
+  const brandColor = workspace.color || '#0d9488';
   const memberCount = chat?.participants?.length || 0;
 
-  // ─── Filter channels for the left list ─────────────────────────────
+  // Channel list filtering (desktop only)
   const groupChats = chats.filter(c => c.type === 'group');
   const directMessages = chats.filter(c => c.type === 'direct');
-
-  const filteredChannels = groupChats.filter(channel =>
-    channel.name?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
+  const filteredChannels = groupChats.filter(ch => ch.name?.toLowerCase().includes(searchQuery.toLowerCase()));
   const filteredDMs = directMessages.filter(dm => {
-    const participant = dm.participants.find(
-      (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id
-    );
+    const participant = dm.participants.find(p => p.user?._id !== userInfo?._id && p.user !== userInfo?._id);
     const name = participant?.user?.name || participant?.name || 'Unknown';
     return name.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
-  // ─── Get DM participant ────────────────────────────────────────────
   const getDMParticipant = (dmChat) => {
-    const other = dmChat.participants.find(
-      (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id
-    );
+    const other = dmChat.participants.find(p => p.user?._id !== userInfo?._id && p.user !== userInfo?._id);
     return other?.user || other;
   };
 
-  // ─── Get sender info ─────────────────────────────────────────────────────
   const getSender = (senderId) => {
     const member = workspace.members?.find(m => m.user?._id === senderId || m.user === senderId);
     return member?.user || null;
   };
 
-  // ─── Send Text Message ────────────────────────────────────────────────
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!message.trim()) return;
-
     const formData = new FormData();
     formData.append('content', message.trim());
     formData.append('messageType', 'text');
-
     try {
       setIsLoading(true);
       await sendMessage({ chatId, data: formData }).unwrap();
@@ -445,7 +359,6 @@ const MyWorkspaceChannelId = () => {
     }
   };
 
-  // ─── Send File ──────────────────────────────────────────────────────────
   const handleFileUpload = (type) => {
     if (type === 'file') fileInputRef.current?.click();
     else if (type === 'image') imageInputRef.current?.click();
@@ -454,11 +367,9 @@ const MyWorkspaceChannelId = () => {
   const handleFileChange = async (e, type) => {
     const file = e.target.files[0];
     if (!file) return;
-
     const formData = new FormData();
     formData.append('media', file);
     formData.append('messageType', type === 'image' ? 'image' : 'file');
-
     try {
       setIsLoading(true);
       await sendMessage({ chatId, data: formData }).unwrap();
@@ -472,20 +383,14 @@ const MyWorkspaceChannelId = () => {
     }
   };
 
-  // ─── Voice Recording ──────────────────────────────────────────────────────
+  // Voice recording logic (unchanged, but kept for brevity)
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
+      mediaRecorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunksRef.current.push(event.data); };
       mediaRecorder.onstop = () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         setRecordingBlob(audioBlob);
@@ -496,7 +401,6 @@ const MyWorkspaceChannelId = () => {
         setSwipeProgress(0);
         stream.getTracks().forEach(track => track.stop());
       };
-
       mediaRecorder.start();
       setIsRecording(true);
       setRecordingPaused(false);
@@ -506,8 +410,7 @@ const MyWorkspaceChannelId = () => {
       setSwipeProgress(0);
       startTimer();
     } catch (err) {
-      toast.error('Microphone access denied. Please allow microphone permissions.');
-      console.error('Recording error:', err);
+      toast.error('Microphone access denied');
     }
   };
 
@@ -526,9 +429,7 @@ const MyWorkspaceChannelId = () => {
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-    }
+    if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop();
   };
 
   const sendAudioMessage = async (audioBlob) => {
@@ -537,12 +438,10 @@ const MyWorkspaceChannelId = () => {
     formData.append('media', audioFile);
     formData.append('messageType', 'audio');
     formData.append('mediaDuration', recordingTime.toString());
-
     try {
       setIsLoading(true);
       await sendMessage({ chatId, data: formData }).unwrap();
       refetchMessages();
-      toast.success('Voice note sent!');
       setRecordingBlob(null);
       setShowRecordedPreview(false);
       setRecordingTime(0);
@@ -554,9 +453,7 @@ const MyWorkspaceChannelId = () => {
   };
 
   const cancelRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-    }
+    if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop();
     setRecordingBlob(null);
     setShowRecordedPreview(false);
     setRecordingTime(0);
@@ -566,7 +463,6 @@ const MyWorkspaceChannelId = () => {
     stopTimer();
   };
 
-  // ─── Delete Message ──────────────────────────────────────────────────────
   const handleDeleteMessage = async (messageId) => {
     if (!window.confirm('Delete this message?')) return;
     try {
@@ -578,12 +474,8 @@ const MyWorkspaceChannelId = () => {
     }
   };
 
-  // ─── Handle Call Button ──────────────────────────────────────────────────
-  const handleCall = () => {
-    toast.info('Voice/Video calls are not available for now.');
-  };
+  const handleCall = () => toast.info('Voice/Video calls not available yet');
 
-  // ─── Swipe-up-to-lock (mic button) ───────────────────────────────────────
   const handleMicPointerDown = (e) => {
     if (message.trim()) return;
     e.currentTarget.setPointerCapture?.(e.pointerId);
@@ -606,198 +498,125 @@ const MyWorkspaceChannelId = () => {
   const handleMicPointerUp = (e) => {
     e.currentTarget.releasePointerCapture?.(e.pointerId);
     if (isLocked) return;
-    if (isRecordingRef.current) {
-      stopRecording();
-    }
+    if (isRecordingRef.current) stopRecording();
   };
 
   return (
-    <div className="h-screen bg-[#f0f2f5] flex flex-col lg:flex-row">
-      {/* ── Image Preview Modal ── */}
-      {previewImage && (
-        <ImagePreviewModal
-          imageUrl={previewImage}
-          onClose={() => setPreviewImage(null)}
-          fileName="image"
-        />
-      )}
+    <div className="h-screen bg-gray-50 flex flex-col lg:flex-row">
+      {previewImage && <ImagePreviewModal imageUrl={previewImage} onClose={() => setPreviewImage(null)} />}
 
-      {/* ─── Left: Workspace Sidebar (desktop only) ─── */}
-      <div className="hidden lg:block lg:w-64 lg:h-full lg:flex-shrink-0">
+      {/* Sidebar (desktop only) */}
+      <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
         <MyWorkspaceSidebar workspace={workspace} chats={chats} />
       </div>
 
-      {/* ─── Middle: Channel List (desktop only) ─── */}
-      <div className="hidden lg:flex lg:w-72 lg:flex-shrink-0 lg:flex-col lg:bg-white lg:border-r border-gray-200/80 h-full overflow-hidden">
-        <div className="p-4 border-b border-gray-200/80">
+      {/* Channel list (desktop only) */}
+      <div className="hidden lg:flex lg:w-72 lg:flex-col bg-white border-r border-gray-200 h-full overflow-hidden">
+        <div className="p-4 border-b border-gray-200">
           <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
             <FaHashtag className="text-sm" style={{ color: brandColor }} />
             Channels
           </h2>
         </div>
-
-        {/* Search */}
-        <div className="px-3 py-2 border-b border-gray-200/80">
+        <div className="px-3 py-2 border-b border-gray-200">
           <div className="relative">
             <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs" />
             <input
               type="text"
-              placeholder="Search channels and DMs..."
+              placeholder="Search..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:border-transparent text-sm bg-gray-50"
+              className="w-full pl-8 pr-3 py-1.5 border border-gray-200 rounded-lg bg-gray-50 text-sm focus:outline-none focus:ring-2"
               style={{ '--tw-ring-color': brandColor }}
-              onFocus={(e) => e.target.style.setProperty('--tw-ring-color', brandColor)}
             />
           </div>
         </div>
-
-        {/* Scrollable list */}
         <div className="flex-1 overflow-y-auto px-2 py-2">
-          {filteredChannels.length > 0 && (
-            <div className="mb-4">
-              <h3 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider px-2 mb-1">
-                Channels ({filteredChannels.length})
-              </h3>
-              <div className="space-y-0.5">
-                {filteredChannels.map((channel) => {
-                  const isActive = channel._id === chatId;
-                  return (
-                    <Link
-                      key={channel._id}
-                      to={`/my-workspace/${workspaceId}/chat/${channel._id}`}
-                      className={`flex items-center justify-between px-2 py-1.5 rounded-lg transition group ${
-                        isActive ? 'bg-gray-100' : 'hover:bg-gray-50'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <FaHashtag className={`text-xs ${isActive ? 'text-gray-700' : 'text-gray-400'}`} style={isActive ? { color: brandColor } : {}} />
-                        <span className={`text-sm truncate ${isActive ? 'font-medium text-gray-900' : 'text-gray-700'}`}>
-                          {channel.name}
-                        </span>
-                      </div>
-                      {channel.unreadCount > 0 && (
-                        <span className="text-white text-[10px] rounded-full px-1.5 py-0.5 min-w-[18px] text-center font-medium" style={{ backgroundColor: brandColor }}>
-                          {channel.unreadCount}
-                        </span>
-                      )}
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {filteredDMs.length > 0 && (
-            <div>
-              <h3 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider px-2 mb-1">
-                Direct Messages ({filteredDMs.length})
-              </h3>
-              <div className="space-y-0.5">
-                {filteredDMs.map((dm) => {
-                  const participant = getDMParticipant(dm);
-                  const isActive = dm._id === chatId;
-                  const isOnline = participant?.online || false;
-                  return (
-                    <Link
-                      key={dm._id}
-                      to={`/my-workspace/${workspaceId}/chat/${dm._id}`}
-                      className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition group ${
-                        isActive ? 'bg-gray-100' : 'hover:bg-gray-50'
-                      }`}
-                    >
-                      <div className="relative flex-shrink-0">
-                        {participant?.profile ? (
-                          <img src={participant.profile} alt={participant.name} className="w-6 h-6 rounded-full object-cover" />
-                        ) : (
-                          <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold" style={{ backgroundColor: brandColor }}>
-                            {participant?.name?.charAt(0).toUpperCase() || '?'}
-                          </div>
-                        )}
-                        {isOnline && <span className="absolute bottom-0 right-0 w-1.5 h-1.5 bg-green-500 rounded-full border border-white" />}
-                      </div>
-                      <span className={`text-sm truncate flex-1 ${isActive ? 'font-medium text-gray-900' : 'text-gray-700'}`}>
-                        {participant?.name || 'Unknown'}
-                      </span>
-                      {dm.unreadCount > 0 && (
-                        <span className="text-white text-[10px] rounded-full px-1.5 py-0.5 min-w-[18px] text-center font-medium" style={{ backgroundColor: brandColor }}>
-                          {dm.unreadCount}
-                        </span>
-                      )}
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {filteredChannels.length === 0 && filteredDMs.length === 0 && (
-            <div className="text-center py-6 text-gray-400 text-sm">
-              {searchQuery ? 'No results found' : 'No channels or DMs yet'}
-            </div>
-          )}
+          {/* Channels */}
+          {filteredChannels.map(channel => (
+            <Link
+              key={channel._id}
+              to={`/my-workspace/${workspaceId}/chat/${channel._id}`}
+              className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition ${
+                channel._id === chatId ? 'bg-gray-100' : 'hover:bg-gray-50'
+              }`}
+            >
+              <FaHashtag className="text-xs text-gray-400" />
+              <span className="text-sm truncate">{channel.name}</span>
+              {channel.unreadCount > 0 && (
+                <span className="ml-auto bg-teal-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                  {channel.unreadCount}
+                </span>
+              )}
+            </Link>
+          ))}
+          {/* DMs */}
+          {filteredDMs.map(dm => {
+            const participant = getDMParticipant(dm);
+            return (
+              <Link
+                key={dm._id}
+                to={`/my-workspace/${workspaceId}/chat/${dm._id}`}
+                className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition ${
+                  dm._id === chatId ? 'bg-gray-100' : 'hover:bg-gray-50'
+                }`}
+              >
+                <div className="w-6 h-6 rounded-full overflow-hidden">
+                  {participant?.profile ? (
+                    <img src={participant.profile} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-white text-[10px] font-bold" style={{ backgroundColor: brandColor }}>
+                      {participant?.name?.charAt(0).toUpperCase() || '?'}
+                    </div>
+                  )}
+                </div>
+                <span className="text-sm truncate">{participant?.name || 'Unknown'}</span>
+              </Link>
+            );
+          })}
         </div>
       </div>
 
-      {/* ─── Right: Chat View ─── */}
+      {/* Chat area */}
       <div className="flex-1 flex flex-col bg-white h-full overflow-hidden">
-        {/* ── Chat Header ── */}
-        <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200/80 flex-shrink-0 bg-white">
-          <div className="flex items-center gap-2 min-w-0">
-            {/* Mobile back button */}
-            <button
-              onClick={() => navigate(`/my-workspace/${workspaceId}/channels`)}
-              className="lg:hidden p-1.5 hover:bg-gray-100 rounded-lg transition"
-            >
-              <FaArrowLeft className="text-gray-500 text-sm" />
+        {/* Header */}
+        <header className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-teal-600 text-white flex-shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <button onClick={() => navigate(`/my-workspace/${workspaceId}/channels`)} className="p-1 lg:hidden">
+              <FaArrowLeft />
             </button>
             {isDM ? (
               displayAvatar ? (
-                <img src={displayAvatar} alt={displayName} className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
+                <img src={displayAvatar} alt="" className="w-9 h-9 rounded-full object-cover" />
               ) : (
-                <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0" style={{ backgroundColor: brandColor }}>
+                <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center font-bold text-sm">
                   {displayName.charAt(0).toUpperCase()}
                 </div>
               )
             ) : (
-              <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0">
-                <FaHashtag className="text-sm" style={{ color: brandColor }} />
+              <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center">
+                <FaHashtag />
               </div>
             )}
-            <div className="min-w-0">
-              <h2 className="text-sm font-semibold text-gray-900 truncate">{displayName}</h2>
-              <p className="text-xs text-gray-500 truncate">
-                {isDM ? (
-                  isDMOnline ? (
-                    <span className="flex items-center gap-1 text-green-500">
-                      <FaCircle className="text-[8px]" /> Online
-                    </span>
-                  ) : (
-                    'Offline'
-                  )
-                ) : (
-                  `${memberCount} members · ${onlineCount} online`
-                )}
+            <div>
+              <h2 className="font-semibold text-base truncate">{displayName}</h2>
+              <p className="text-xs text-white/80">
+                {isDM ? (isDMOnline ? 'Online' : 'Offline') : `${memberCount} members`}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-0.5">
-            <button onClick={handleCall} className="p-1.5 hover:bg-gray-100 rounded-lg transition text-gray-400 hover:text-gray-600">
-              <FaPhone className="text-sm" />
-            </button>
-            <button onClick={handleCall} className="p-1.5 hover:bg-gray-100 rounded-lg transition text-gray-400 hover:text-gray-600">
-              <FaVideo className="text-sm" />
-            </button>
+          <div className="flex gap-2">
+            <button onClick={handleCall} className="p-1.5"><FaPhone /></button>
+            <button onClick={handleCall} className="p-1.5"><FaVideo /></button>
           </div>
-        </div>
+        </header>
 
-        {/* ── Messages Area (only this scrolls) ── */}
-        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
           {messages.length === 0 ? (
-            <div className="text-center py-12 text-gray-400">
-              <FaComment className="text-3xl mx-auto mb-3 text-gray-300" />
+            <div className="flex flex-col items-center justify-center h-full text-gray-400">
+              <FaComment className="text-4xl mb-2 opacity-30" />
               <p className="text-sm">No messages yet</p>
-              <p className="text-xs">Be the first to send a message!</p>
             </div>
           ) : (
             messages.map((msg) => {
@@ -820,167 +639,70 @@ const MyWorkspaceChannelId = () => {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* ── Message Input (fixed at bottom) ── */}
-        <div className="border-t border-gray-200/80 p-2 flex-shrink-0 bg-white relative">
-          {/* Recording preview */}
+        {/* Input area */}
+        <div className="border-t border-gray-200 px-3 py-2 bg-white flex-shrink-0">
+          {/* ... (recording preview and controls unchanged, but moved inside) */}
           {showRecordedPreview && recordingBlob && (
             <div className="flex items-center justify-between px-3 py-2 mb-2 bg-green-50 rounded-lg border border-green-200">
               <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-full bg-green-500 flex items-center justify-center text-white">
-                  <FaCheckCircle className="text-xs" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-900">Voice note ready</p>
-                  <p className="text-xs text-gray-500">{formatTime(recordingTime)}</p>
-                </div>
+                <FaCheckCircle className="text-green-500" />
+                <span className="text-sm">Voice note ready</span>
+                <span className="text-xs text-gray-500">{formatTime(recordingTime)}</span>
               </div>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => {
-                    const audio = new Audio(URL.createObjectURL(recordingBlob));
-                    audio.play();
-                  }}
-                  className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition"
-                >
-                  <FaPlay className="text-xs" />
-                </button>
-                <button
-                  onClick={() => sendAudioMessage(recordingBlob)}
-                  className="px-3 py-1 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition"
-                >
-                  Send
-                </button>
-                <button
-                  onClick={cancelRecording}
-                  className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
-                >
-                  <FaTimes className="text-xs" />
-                </button>
+              <div className="flex gap-1">
+                <button onClick={() => { const audio = new Audio(URL.createObjectURL(recordingBlob)); audio.play(); }} className="p-1"><FaPlay className="text-xs" /></button>
+                <button onClick={() => sendAudioMessage(recordingBlob)} className="px-3 py-1 bg-green-600 text-white rounded text-xs">Send</button>
+                <button onClick={cancelRecording} className="p-1 text-gray-400"><FaTimes className="text-xs" /></button>
               </div>
             </div>
           )}
 
-          {/* Recording in progress: not locked */}
           {isRecording && !isLocked && (
-            <>
-              <div
-                className="absolute right-4 flex flex-col items-center gap-1 pointer-events-none transition-all"
-                style={{
-                  bottom: `${72 + swipeProgress * 20}px`,
-                  opacity: 1 - swipeProgress * 0.3,
-                }}
-              >
-                <div
-                  className="w-7 h-7 rounded-full bg-white border border-gray-200 shadow-md flex items-center justify-center"
-                  style={{ color: swipeProgress > 0.6 ? brandColor : '#9CA3AF' }}
-                >
-                  <FaLock className="text-xs" />
-                </div>
-                <FaChevronUp className="text-gray-300 text-xs animate-bounce" />
-              </div>
-
-              <div className="flex items-center justify-between px-3 py-1.5 mb-2 bg-red-50 rounded-lg border border-red-200">
-                <div className="flex items-center gap-2">
-                  <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-                  <span className="text-xs font-medium text-red-600">Recording...</span>
-                  <span className="text-xs text-red-400">{formatTime(recordingTime)}</span>
-                </div>
-                <span className="text-[10px] text-gray-400">Slide up to lock</span>
-              </div>
-            </>
-          )}
-
-          {/* Recording in progress: locked */}
-          {isRecording && isLocked && (
-            <div className="flex items-center justify-between px-3 py-1.5 mb-2 bg-red-50 rounded-lg border border-red-200">
-              <div className="flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-                <span className="text-xs font-medium text-red-600">
-                  {recordingPaused ? 'Paused' : 'Recording...'}
-                </span>
-                <span className="text-xs text-red-400">{formatTime(recordingTime)}</span>
-                <span className="flex items-center gap-1 text-[10px] text-gray-400">
-                  <FaLock className="text-[10px]" style={{ color: brandColor }} />
-                  Locked
-                </span>
-                <button
-                  onClick={pauseRecording}
-                  className="px-2 py-0.5 text-[10px] bg-red-100 text-red-600 rounded hover:bg-red-200 transition"
-                >
-                  {recordingPaused ? 'Resume' : 'Pause'}
-                </button>
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={cancelRecording}
-                  className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
-                >
-                  <FaTrashAlt className="text-xs" />
-                </button>
-                <button
-                  onClick={stopRecording}
-                  className="p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition"
-                >
-                  <FaStop className="text-[10px]" />
-                </button>
+            <div className="flex items-center justify-between px-3 py-2 mb-2 bg-red-50 rounded-lg border border-red-200">
+              <span className="text-xs text-red-600 flex items-center gap-2">
+                <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" /> Recording... {formatTime(recordingTime)}
+              </span>
+              <span className="text-[10px] text-gray-400">Slide up to lock</span>
+              {/* Lock icon with arrow */}
+              <div className="absolute right-4 bottom-20 flex flex-col items-center">
+                <FaLock className="text-xs" style={{ color: swipeProgress > 0.6 ? brandColor : '#9CA3AF' }} />
+                <FaChevronUp className="text-gray-300 text-xs" />
               </div>
             </div>
           )}
 
-          <form onSubmit={handleSendMessage} className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => handleFileUpload('file')}
-              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition"
-            >
-              <FaPaperclip className="text-sm" />
-            </button>
-            <button
-              type="button"
-              onClick={() => handleFileUpload('image')}
-              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition"
-            >
-              <FaImage className="text-sm" />
-            </button>
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={(e) => handleFileChange(e, 'file')}
-              className="hidden"
-              accept=".pdf,.doc,.docx,.txt,.zip,.rar,.mp3,.wav,.m4a,.aac,.ogg,.amr"
-            />
-            <input
-              type="file"
-              ref={imageInputRef}
-              onChange={(e) => handleFileChange(e, 'image')}
-              className="hidden"
-              accept="image/*,video/*"
-            />
+          {isRecording && isLocked && (
+            <div className="flex items-center justify-between px-3 py-2 mb-2 bg-red-50 rounded-lg border border-red-200">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                <span className="text-xs text-red-600">{recordingPaused ? 'Paused' : 'Recording...'} {formatTime(recordingTime)}</span>
+                <FaLock className="text-[10px]" style={{ color: brandColor }} />
+              </div>
+              <div className="flex gap-2">
+                <button onClick={pauseRecording} className="text-xs text-red-600">{recordingPaused ? 'Resume' : 'Pause'}</button>
+                <button onClick={cancelRecording} className="text-gray-400"><FaTrashAlt className="text-xs" /></button>
+                <button onClick={stopRecording} className="bg-red-500 text-white p-1 rounded-full"><FaStop className="text-xs" /></button>
+              </div>
+            </div>
+          )}
+
+          <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+            <button type="button" onClick={() => handleFileUpload('file')} className="p-1.5 text-gray-400 hover:text-gray-600"><FaPaperclip className="text-sm" /></button>
+            <button type="button" onClick={() => handleFileUpload('image')} className="p-1.5 text-gray-400 hover:text-gray-600"><FaImage className="text-sm" /></button>
+            <input type="file" ref={fileInputRef} onChange={(e) => handleFileChange(e, 'file')} className="hidden" />
+            <input type="file" ref={imageInputRef} onChange={(e) => handleFileChange(e, 'image')} className="hidden" accept="image/*,video/*" />
 
             <input
               type="text"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               placeholder="Type a message..."
-              className="flex-1 px-3 py-1.5 border border-gray-200 rounded-full focus:outline-none focus:ring-2 focus:border-transparent text-sm bg-gray-50"
+              className="flex-1 px-4 py-2 border border-gray-200 rounded-full bg-gray-100 text-sm focus:outline-none focus:ring-2"
               style={{ '--tw-ring-color': brandColor }}
-              onFocus={(e) => e.target.style.setProperty('--tw-ring-color', brandColor)}
             />
 
-            <button
-              type="button"
-              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition"
-            >
-              <FaSmile className="text-sm" />
-            </button>
-
             {message.trim() ? (
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="p-1.5 text-white rounded-lg transition hover:opacity-90 disabled:opacity-50"
-                style={{ backgroundColor: brandColor }}
-              >
+              <button type="submit" disabled={isLoading} className="p-2 rounded-full text-white" style={{ backgroundColor: brandColor }}>
                 <FaPaperPlane className="text-sm" />
               </button>
             ) : (
@@ -990,11 +712,8 @@ const MyWorkspaceChannelId = () => {
                 onPointerMove={handleMicPointerMove}
                 onPointerUp={handleMicPointerUp}
                 onPointerCancel={handleMicPointerUp}
-                disabled={isLoading}
-                className={`p-1.5 rounded-lg transition hover:opacity-90 disabled:opacity-50 touch-none select-none ${
-                  isRecording ? 'bg-red-500 text-white' : 'text-white'
-                }`}
-                style={!isRecording ? { backgroundColor: brandColor } : {}}
+                className="p-2 rounded-full text-white"
+                style={{ backgroundColor: brandColor }}
               >
                 <FaMicrophone className="text-sm" />
               </button>
