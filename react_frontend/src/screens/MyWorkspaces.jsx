@@ -1,6 +1,6 @@
 // pages/MyWorkspaces.jsx
-import React, { useState, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useState, useRef, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import {
   useGetMyWorkspacesQuery,
@@ -13,7 +13,6 @@ import {
   FaUserCircle,
   FaUsers,
   FaIndustry,
-  FaChevronRight,
   FaUserCheck,
   FaSignInAlt,
   FaTimes,
@@ -21,9 +20,47 @@ import {
   FaTrashAlt,
   FaClock,
 } from 'react-icons/fa';
+import JoinedWorkspaces from '../components/JoinedWorkspaces';
 
-// ─── Create Workspace Modal ──────────────────────────────────────────────
-const CreateWorkspaceModal = ({ isOpen, onClose, onSuccess }) => {
+// ─── Bottom Sheet (mobile) / Modal (desktop) ────────────────────────────
+const BottomSheet = ({ isOpen, onClose, children }) => {
+  const [visible, setVisible] = useState(false);
+  const [animating, setAnimating] = useState(false);
+
+  React.useEffect(() => {
+    if (isOpen) {
+      setVisible(true);
+      requestAnimationFrame(() => setAnimating(true));
+    } else {
+      if (visible) {
+        setAnimating(false);
+        const timer = setTimeout(() => setVisible(false), 300);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [isOpen, visible]);
+
+  if (!visible) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        className={`w-full md:max-w-md md:rounded-xl rounded-t-2xl bg-white shadow-xl max-h-[90vh] overflow-y-auto transform transition-transform duration-300 ease-out ${
+          animating ? 'translate-y-0' : 'translate-y-full'
+        } md:translate-y-0 md:scale-100`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    </div>
+  );
+};
+
+// ─── Create Workspace Form ──────────────────────────────────────────────
+const CreateWorkspaceContent = ({ onClose, onSuccess }) => {
   const [name, setName] = useState('');
   const [industry, setIndustry] = useState('');
   const [description, setDescription] = useState('');
@@ -38,9 +75,7 @@ const CreateWorkspaceModal = ({ isOpen, onClose, onSuccess }) => {
     if (file) {
       setLogoFile(file);
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setLogoPreview(reader.result);
-      };
+      reader.onloadend = () => setLogoPreview(reader.result);
       reader.readAsDataURL(file);
     }
   };
@@ -58,19 +93,16 @@ const CreateWorkspaceModal = ({ isOpen, onClose, onSuccess }) => {
     }
     try {
       setIsLoading(true);
-      
       const formData = new FormData();
       formData.append('name', name.trim());
       formData.append('industry', industry.trim());
       formData.append('description', description.trim());
       formData.append('color', color);
-      if (logoFile) {
-        formData.append('logo', logoFile);
-      }
+      if (logoFile) formData.append('logo', logoFile);
 
       await createWorkspace(formData).unwrap();
       toast.success('Workspace created!');
-      
+
       setName('');
       setIndustry('');
       setDescription('');
@@ -86,121 +118,111 @@ const CreateWorkspaceModal = ({ isOpen, onClose, onSuccess }) => {
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-gray-800">Create Workspace</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <FaTimes />
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-bold text-gray-800">Create Workspace</h2>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <FaTimes />
+        </button>
+      </div>
+      <form onSubmit={handleSubmit}>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+            placeholder="Acme Corp"
+            required
+          />
+        </div>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Industry *</label>
+          <input
+            type="text"
+            value={industry}
+            onChange={(e) => setIndustry(e.target.value)}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+            placeholder="Technology"
+            required
+          />
+        </div>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Brand Color</label>
+          <div className="flex items-center gap-3">
+            <input
+              type="color"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+              className="w-12 h-12 rounded-lg border border-gray-300 cursor-pointer p-1"
+            />
+            <span className="text-sm text-gray-500">{color}</span>
+          </div>
+        </div>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Logo</label>
+          <div className="flex items-center gap-4">
+            {logoPreview ? (
+              <div className="relative">
+                <img
+                  src={logoPreview}
+                  alt="Logo preview"
+                  className="w-16 h-16 rounded-lg object-cover border border-gray-200"
+                />
+                <button
+                  type="button"
+                  onClick={removeLogo}
+                  className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 hover:bg-red-600"
+                >
+                  <FaTrashAlt className="w-3 h-3" />
+                </button>
+              </div>
+            ) : (
+              <label className="flex items-center gap-2 px-4 py-2 border border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition">
+                <FaImage className="text-gray-400" />
+                <span className="text-sm text-gray-500">Upload Logo</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleLogoChange}
+                  className="hidden"
+                />
+              </label>
+            )}
+          </div>
+          <p className="text-xs text-gray-400 mt-1">PNG, JPG, or SVG (max 5MB)</p>
+        </div>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+            rows="3"
+            placeholder="What's this about?"
+          />
+        </div>
+        <div className="flex gap-3">
+          <button type="button" onClick={onClose} className="flex-1 py-2 border rounded-lg hover:bg-gray-50">
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="flex-1 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-70"
+          >
+            {isLoading ? 'Creating...' : 'Create'}
           </button>
         </div>
-        
-        <form onSubmit={handleSubmit}>
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-              placeholder="Acme Corp"
-              required
-            />
-          </div>
-          
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Industry *</label>
-            <input
-              type="text"
-              value={industry}
-              onChange={(e) => setIndustry(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-              placeholder="Technology"
-              required
-            />
-          </div>
-          
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Brand Color</label>
-            <div className="flex items-center gap-3">
-              <input
-                type="color"
-                value={color}
-                onChange={(e) => setColor(e.target.value)}
-                className="w-12 h-12 rounded-lg border border-gray-300 cursor-pointer p-1"
-              />
-              <span className="text-sm text-gray-500">{color}</span>
-            </div>
-          </div>
-          
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Logo</label>
-            <div className="flex items-center gap-4">
-              {logoPreview ? (
-                <div className="relative">
-                  <img
-                    src={logoPreview}
-                    alt="Logo preview"
-                    className="w-16 h-16 rounded-lg object-cover border border-gray-200"
-                  />
-                  <button
-                    type="button"
-                    onClick={removeLogo}
-                    className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 hover:bg-red-600"
-                  >
-                    <FaTrashAlt className="w-3 h-3" />
-                  </button>
-                </div>
-              ) : (
-                <label className="flex items-center gap-2 px-4 py-2 border border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition">
-                  <FaImage className="text-gray-400" />
-                  <span className="text-sm text-gray-500">Upload Logo</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleLogoChange}
-                    className="hidden"
-                  />
-                </label>
-              )}
-            </div>
-            <p className="text-xs text-gray-400 mt-1">PNG, JPG, or SVG (max 5MB)</p>
-          </div>
-          
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-              rows="3"
-              placeholder="What's this about?"
-            />
-          </div>
-          
-          <div className="flex gap-3">
-            <button type="button" onClick={onClose} className="flex-1 py-2 border rounded-lg hover:bg-gray-50">
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="flex-1 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-70"
-            >
-              {isLoading ? 'Creating...' : 'Create'}
-            </button>
-          </div>
-        </form>
-      </div>
+      </form>
     </div>
   );
 };
 
-// ─── Join Workspace Modal ────────────────────────────────────────────────
-const JoinWorkspaceModal = ({ isOpen, onClose, onSuccess }) => {
+// ─── Join Workspace Form ─────────────────────────────────────────────────
+const JoinWorkspaceContent = ({ onClose, onSuccess }) => {
   const [inviteCode, setInviteCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [requestToJoin] = useRequestToJoinMutation();
@@ -225,53 +247,80 @@ const JoinWorkspaceModal = ({ isOpen, onClose, onSuccess }) => {
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-            <FaSignInAlt className="text-teal-500" /> Join Workspace
-          </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <FaTimes />
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+          <FaSignInAlt className="text-teal-500" /> Join Workspace
+        </h2>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <FaTimes />
+        </button>
+      </div>
+      <form onSubmit={handleSubmit}>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Invite Code *</label>
+          <input
+            type="text"
+            value={inviteCode}
+            onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 uppercase"
+            placeholder="e.g. ABCD1234"
+            required
+          />
+          <p className="text-xs text-gray-400 mt-1">Ask the workspace owner for the invite code.</p>
+        </div>
+        <div className="flex gap-3">
+          <button type="button" onClick={onClose} className="flex-1 py-2 border rounded-lg hover:bg-gray-50">
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="flex-1 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-70"
+          >
+            {isLoading ? 'Requesting...' : 'Request Join'}
           </button>
         </div>
-        <form onSubmit={handleSubmit}>
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Invite Code *
-            </label>
-            <input
-              type="text"
-              value={inviteCode}
-              onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 uppercase"
-              placeholder="e.g. ABCD1234"
-              required
-            />
-            <p className="text-xs text-gray-400 mt-1">Ask the workspace owner for the invite code.</p>
-          </div>
-          <div className="flex gap-3">
-            <button type="button" onClick={onClose} className="flex-1 py-2 border rounded-lg hover:bg-gray-50">
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="flex-1 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-70"
-            >
-              {isLoading ? 'Requesting...' : 'Request Join'}
-            </button>
-          </div>
-        </form>
-      </div>
+      </form>
     </div>
   );
 };
 
-// ─── Workspace List Item ──────────────────────────────────────────────────
+// ─── FAB Options Sheet ──────────────────────────────────────────────────
+const FabOptionsSheet = ({ isOpen, onClose, onCreateWorkspace, onJoinWorkspace }) => (
+  <BottomSheet isOpen={isOpen} onClose={onClose}>
+    <div className="p-6">
+      <h3 className="text-lg font-semibold text-gray-800 mb-4">What would you like to do?</h3>
+      <button
+        onClick={() => {
+          onClose();
+          onCreateWorkspace();
+        }}
+        className="flex items-center gap-3 w-full px-4 py-3 rounded-lg hover:bg-gray-50 transition"
+      >
+        <div className="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-teal-600">
+          <FaPlus />
+        </div>
+        <span className="font-medium text-gray-700">Create Workspace</span>
+      </button>
+      <button
+        onClick={() => {
+          onClose();
+          onJoinWorkspace();
+        }}
+        className="flex items-center gap-3 w-full px-4 py-3 rounded-lg hover:bg-gray-50 transition"
+      >
+        <div className="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-teal-600">
+          <FaSignInAlt />
+        </div>
+        <span className="font-medium text-gray-700">Join Workspace</span>
+      </button>
+    </div>
+  </BottomSheet>
+);
+
+// ─── Workspace Item (arrow removed, full‑width) ─────────────────────────
 const WorkspaceItem = ({ workspace, isOwner, userInfo }) => {
   const memberCount = workspace.members?.length || 0;
   const initials =
@@ -283,79 +332,73 @@ const WorkspaceItem = ({ workspace, isOwner, userInfo }) => {
       .join('')
       .toUpperCase();
 
-  // ── Find the current user's membership in this workspace ──
   const currentUserMembership = workspace.members?.find(
     (m) => m.user?._id === userInfo?._id || m.user === userInfo?._id
   );
   const membershipStatus = currentUserMembership?.status || 'active';
-
-  // ── Determine if the user is pending ──
   const isPending = membershipStatus === 'pending';
-
-  // ── Determine route ──
   const routePath = isOwner
     ? `/my-workspace/${workspace._id}`
     : `/workspace/${workspace._id}`;
-
-  // ── If pending, don't make it clickable ──
   const isClickable = !isPending;
 
+  const CardWrapper = isClickable ? Link : 'div';
+  const cardProps = isClickable ? { to: routePath } : {};
+
   return (
-    <div
-      className={`flex items-center gap-3 px-4 py-3 border-b border-gray-100 last:border-0 ${
-        isClickable ? 'hover:bg-gray-50 cursor-pointer' : 'opacity-60 cursor-default'
-      } transition-colors`}
+    <CardWrapper
+      {...cardProps}
+      className={`flex items-center gap-3.5 px-4 py-3.5 hover:bg-gray-50 transition-colors ${
+        isClickable ? 'cursor-pointer active:bg-gray-100' : 'opacity-60'
+      }`}
     >
-      {/* Avatar with logo or initials */}
       {workspace.logo ? (
         <img
           src={workspace.logo}
           alt={workspace.name}
-          className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+          className="w-12 h-12 rounded-2xl object-cover flex-shrink-0"
         />
       ) : (
         <div
-          className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
+          className="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-bold text-lg flex-shrink-0"
           style={{ backgroundColor: workspace.color || '#0d9488' }}
         >
           {initials}
         </div>
       )}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-gray-800 truncate">{workspace.name}</span>
+
+      <div className="flex-1 min-w-0 flex flex-col gap-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-semibold text-gray-800 truncate leading-tight">
+            {workspace.name}
+          </span>
           {isOwner && (
-            <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Owner</span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 whitespace-nowrap">
+              Owner
+            </span>
           )}
           {isPending && (
-            <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full flex items-center gap-1">
-              <FaClock className="text-[10px]" /> Pending
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700 whitespace-nowrap">
+              <FaClock className="text-[10px]" />
+              Pending
             </span>
           )}
         </div>
-        <div className="flex items-center gap-3 text-sm text-gray-500">
-          <span className="flex items-center gap-1">
-            <FaUsers className="text-teal-500 text-xs" />
-            {memberCount} {memberCount === 1 ? 'member' : 'members'}
+
+        <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-sm text-gray-500">
+          <span className="inline-flex items-center gap-1.5">
+            <FaUsers className="text-teal-500 text-xs shrink-0" />
+            <span>{memberCount} {memberCount === 1 ? 'member' : 'members'}</span>
           </span>
           {workspace.industry && (
-            <span className="flex items-center gap-1">
-              <FaIndustry className="text-teal-500 text-xs" />
-              {workspace.industry}
+            <span className="inline-flex items-center gap-1.5 min-w-0">
+              <FaIndustry className="text-teal-500 text-xs shrink-0" />
+              <span className="truncate">{workspace.industry}</span>
             </span>
           )}
         </div>
       </div>
-      {isClickable ? (
-        <Link to={routePath} className="text-gray-300 hover:text-gray-500 transition">
-          <FaChevronRight className="text-sm" />
-        </Link>
-      ) : (
-        <span className="text-gray-300">
-          <FaClock className="text-sm" />
-        </span>
-      )}
-    </div>
+    </CardWrapper>
   );
 };
 
@@ -365,11 +408,12 @@ const MyWorkspaces = () => {
   const { data, isLoading, refetch } = useGetMyWorkspacesQuery(undefined, {
     pollingInterval: 30000,
   });
+
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
+  const [showFabOptions, setShowFabOptions] = useState(false);
 
   const myWorkspaces = data?.myBusinesses || [];
-  const joinedWorkspaces = data?.joinedBusinesses || [];
 
   const handleCreateSuccess = () => refetch();
   const handleJoinSuccess = () => refetch();
@@ -378,35 +422,36 @@ const MyWorkspaces = () => {
   const containerRef = useRef(null);
   const [activeIndex, setActiveIndex] = useState(0);
 
-  const scrollTo = (index) => {
+  const scrollTo = useCallback((index) => {
     if (containerRef.current) {
       containerRef.current.scrollTo({
-        left: index * containerRef.current.offsetWidth,
+        left: index * containerRef.current.clientWidth,
         behavior: 'smooth',
       });
       setActiveIndex(index);
     }
-  };
+  }, []);
 
-  const handleScroll = () => {
+  const handleScroll = useCallback(() => {
     if (containerRef.current) {
       const newIndex = Math.round(
-        containerRef.current.scrollLeft / containerRef.current.offsetWidth
+        containerRef.current.scrollLeft / containerRef.current.clientWidth
       );
       if (newIndex !== activeIndex) setActiveIndex(newIndex);
     }
-  };
+  }, [activeIndex]);
 
-  const renderList = (workspaces, isOwner) => {
-    if (workspaces.length === 0) {
+  const renderOwnedList = () => {
+    if (myWorkspaces.length === 0) {
       return (
-        <div className="text-center py-12 text-gray-500">
-          <p className="text-sm">No workspaces here.</p>
+        <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+          <FaUsers className="text-4xl mb-2 opacity-30" />
+          <p className="text-sm">No workspaces here yet.</p>
         </div>
       );
     }
-    return workspaces.map((ws) => (
-      <WorkspaceItem key={ws._id} workspace={ws} isOwner={isOwner} userInfo={userInfo} />
+    return myWorkspaces.map((ws) => (
+      <WorkspaceItem key={ws._id} workspace={ws} isOwner={true} userInfo={userInfo} />
     ));
   };
 
@@ -422,131 +467,157 @@ const MyWorkspaces = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* ── Header ── */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img src="/xircle-logo.png" alt="Xircle" className="h-8 w-auto" />
-            <span className="text-lg font-semibold text-gray-700 hidden sm:inline">Workspaces</span>
-          </div>
-          <div className="flex items-center gap-2 sm:gap-4">
-            {/* Join button */}
-            <button
-              onClick={() => setShowJoinModal(true)}
-              className="flex items-center gap-1 px-3 py-2 bg-teal-50 text-teal-700 rounded-lg hover:bg-teal-100 transition text-sm font-medium"
-            >
-              <FaSignInAlt className="text-sm" />
-              <span className="hidden sm:inline">Join</span>
-            </button>
+    <>
+      <style>{`
+        .scrollbar-hide {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+        .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+        }
+      `}</style>
 
-            {/* New Workspace button */}
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="flex items-center gap-1 px-3 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition text-sm font-medium"
-            >
-              <FaPlus className="text-sm" />
-              <span className="hidden sm:inline">New</span>
-            </button>
-
-            {/* Profile */}
-            <Link to="/profile" className="flex items-center gap-2 text-gray-600 hover:text-teal-600">
-              {userInfo?.profile ? (
-                <img
-                  src={userInfo.profile}
-                  alt={userInfo.name}
-                  className="w-8 h-8 rounded-full object-cover ring-2 ring-teal-500/20"
-                />
-              ) : (
-                <FaUserCircle className="w-8 h-8" />
-              )}
-              <span className="hidden md:inline text-sm font-medium text-gray-700">
-                {userInfo?.name?.split(' ')[0] || 'Profile'}
+      <div className="min-h-screen bg-gray-50 flex flex-col">
+        {/* ── WhatsApp‑style Header ── */}
+        <header className="bg-teal-600 text-white sticky top-0 z-10 shadow-md">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <img src="/xircle-logo.png" alt="Xircle" className="h-8 w-auto" />
+              <span className="text-lg font-semibold tracking-wide hidden sm:inline">
+                Workspaces
               </span>
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      {/* ── Main Content ── */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* Desktop: two columns */}
-        <div className="hidden md:grid md:grid-cols-2 gap-6 h-full">
-          {/* Owned Workspaces */}
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-              <h2 className="font-semibold text-gray-700 flex items-center gap-2">
-                <FaUserCheck className="text-teal-500" /> Owned
-              </h2>
-              <span className="text-sm text-gray-400">{myWorkspaces.length}</span>
             </div>
-            <div className="divide-y divide-gray-100">{renderList(myWorkspaces, true)}</div>
-          </div>
-
-          {/* Joined Workspaces */}
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-              <h2 className="font-semibold text-gray-700 flex items-center gap-2">
-                <FaUsers className="text-teal-500" /> Joined
-              </h2>
-              <span className="text-sm text-gray-400">{joinedWorkspaces.length}</span>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowJoinModal(true)}
+                className="flex items-center gap-1 px-3 py-2 rounded-lg hover:bg-teal-500/30 transition"
+                aria-label="Join workspace"
+              >
+                <FaSignInAlt className="text-lg" />
+                <span className="hidden sm:inline text-sm font-medium">Join</span>
+              </button>
+              <Link to="/profile" className="flex items-center gap-2">
+                {userInfo?.profile ? (
+                  <img
+                    src={userInfo.profile}
+                    alt={userInfo.name}
+                    className="w-8 h-8 rounded-full object-cover ring-2 ring-white/30"
+                  />
+                ) : (
+                  <FaUserCircle className="w-8 h-8 text-white/80" />
+                )}
+              </Link>
             </div>
-            <div className="divide-y divide-gray-100">{renderList(joinedWorkspaces, false)}</div>
           </div>
-        </div>
+        </header>
 
-        {/* Mobile: swipeable tabs */}
-        <div className="md:hidden">
-          <div className="flex rounded-lg overflow-hidden border border-gray-200 mb-4 bg-white">
-            <button
-              onClick={() => scrollTo(0)}
-              className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
-                activeIndex === 0
-                  ? 'bg-teal-600 text-white'
-                  : 'bg-white text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              <FaUserCheck className="inline mr-1.5" /> Owned ({myWorkspaces.length})
-            </button>
-            <button
-              onClick={() => scrollTo(1)}
-              className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
-                activeIndex === 1
-                  ? 'bg-teal-600 text-white'
-                  : 'bg-white text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              <FaUsers className="inline mr-1.5" /> Joined ({joinedWorkspaces.length})
-            </button>
+        {/* ── Main Content ── */}
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 md:pb-6">
+          {/* Desktop: two columns */}
+          <div className="hidden md:grid md:grid-cols-2 gap-6">
+            {/* Owned */}
+            <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+              <div className="px-5 py-4 bg-gray-50/80 border-b border-gray-100 flex items-center justify-between">
+                <h2 className="font-semibold text-gray-700 flex items-center gap-2">
+                  <FaUserCheck className="text-teal-500" /> Owned
+                </h2>
+                <span className="text-sm text-gray-400">{myWorkspaces.length}</span>
+              </div>
+              <div className="divide-y divide-gray-100">
+                {renderOwnedList()}
+              </div>
+            </div>
+            {/* Joined (imported component) */}
+            <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+              <div className="px-5 py-4 bg-gray-50/80 border-b border-gray-100 flex items-center justify-between">
+                <h2 className="font-semibold text-gray-700 flex items-center gap-2">
+                  <FaUsers className="text-teal-500" /> Joined
+                </h2>
+                <span className="text-sm text-gray-400">
+                  {/* Optionally show count: */}
+                  {data?.joinedBusinesses?.length || 0}
+                </span>
+              </div>
+              <div className="divide-y divide-gray-100">
+                <JoinedWorkspaces />
+              </div>
+            </div>
           </div>
 
-          <div
-            ref={containerRef}
-            onScroll={handleScroll}
-            className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide rounded-lg"
+          {/* Mobile: swipeable container with two panels */}
+          <div className="md:hidden -mx-4">
+            <div
+              ref={containerRef}
+              onScroll={handleScroll}
+              className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide"
+            >
+              {/* Panel 1: Owned */}
+              <div className="w-full flex-shrink-0 snap-start bg-white divide-y divide-gray-100 px-4">
+                {renderOwnedList()}
+              </div>
+              {/* Panel 2: Joined */}
+              <div className="w-full flex-shrink-0 snap-start bg-white divide-y divide-gray-100 px-4">
+                <JoinedWorkspaces />
+              </div>
+            </div>
+          </div>
+        </main>
+
+        {/* ── Bottom Navigation (mobile) ── */}
+        <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 h-16 flex items-stretch z-20">
+          <button
+            onClick={() => scrollTo(0)}
+            className={`flex-1 flex flex-col items-center justify-center transition-colors ${
+              activeIndex === 0 ? 'text-teal-600' : 'text-gray-400'
+            }`}
           >
-            <div className="w-full flex-shrink-0 snap-start bg-white rounded-lg border border-gray-200 overflow-hidden">
-              <div className="divide-y divide-gray-100">{renderList(myWorkspaces, true)}</div>
-            </div>
-            <div className="w-full flex-shrink-0 snap-start bg-white rounded-lg border border-gray-200 overflow-hidden ml-4">
-              <div className="divide-y divide-gray-100">{renderList(joinedWorkspaces, false)}</div>
-            </div>
-          </div>
-        </div>
-      </main>
+            <FaUserCheck className="text-xl" />
+            <span className="text-xs mt-0.5 font-medium">Owned</span>
+          </button>
+          <button
+            onClick={() => scrollTo(1)}
+            className={`flex-1 flex flex-col items-center justify-center transition-colors ${
+              activeIndex === 1 ? 'text-teal-600' : 'text-gray-400'
+            }`}
+          >
+            <FaUsers className="text-xl" />
+            <span className="text-xs mt-0.5 font-medium">Joined</span>
+          </button>
+        </nav>
 
-      {/* ── Modals ── */}
-      <CreateWorkspaceModal
-        isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
-        onSuccess={handleCreateSuccess}
-      />
-      <JoinWorkspaceModal
-        isOpen={showJoinModal}
-        onClose={() => setShowJoinModal(false)}
-        onSuccess={handleJoinSuccess}
-      />
-    </div>
+        {/* ── Floating Action Button ── */}
+        <button
+          onClick={() => setShowFabOptions(true)}
+          className="fixed right-5 bottom-20 md:bottom-6 z-20 w-14 h-14 bg-teal-600 text-white rounded-full shadow-xl flex items-center justify-center hover:bg-teal-700 active:scale-95 transition-transform"
+          aria-label="Add workspace"
+        >
+          <FaPlus className="text-2xl" />
+        </button>
+
+        {/* ── Modals / Bottom Sheets ── */}
+        <FabOptionsSheet
+          isOpen={showFabOptions}
+          onClose={() => setShowFabOptions(false)}
+          onCreateWorkspace={() => setShowCreateModal(true)}
+          onJoinWorkspace={() => setShowJoinModal(true)}
+        />
+
+        <BottomSheet isOpen={showCreateModal} onClose={() => setShowCreateModal(false)}>
+          <CreateWorkspaceContent
+            onClose={() => setShowCreateModal(false)}
+            onSuccess={handleCreateSuccess}
+          />
+        </BottomSheet>
+
+        <BottomSheet isOpen={showJoinModal} onClose={() => setShowJoinModal(false)}>
+          <JoinWorkspaceContent
+            onClose={() => setShowJoinModal(false)}
+            onSuccess={handleJoinSuccess}
+          />
+        </BottomSheet>
+      </div>
+    </>
   );
 };
 
