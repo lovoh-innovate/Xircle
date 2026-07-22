@@ -7,6 +7,9 @@ import { Chat } from '../models/messagingModel.js';
 import mongoose from 'mongoose';
 import { v2 as cloudinary } from 'cloudinary';
 
+// ── Notification service ──────────────────────────────────────────
+import { createAndSendNotification } from './notificationController.js';
+
 // ─────────────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────────────
@@ -45,6 +48,31 @@ const parseArrayField = (value) => {
   }
   return [];
 };
+
+// ─────────────────────────────────────────────────────────────────────
+// NOTIFICATION HELPER
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Sends in‑app, push, and email notifications to one or more users.
+ * All calls are fire‑and‑forget (errors are logged, never thrown).
+ */
+async function notifyUsers(userIds, { title, body, data = {}, emailEventType = null, emailHtml = null }) {
+  if (!userIds) return;
+  const recipients = Array.isArray(userIds) ? userIds : [userIds];
+  for (const recipient of recipients) {
+    createAndSendNotification({
+      recipient,
+      title,
+      body,
+      data,
+      sendPush: true,
+      emailEventType,
+      emailSubject: title,
+      emailHtml: emailHtml || `<p>${body}</p>`,
+    }).catch(err => console.error(`Notification to ${recipient} failed:`, err.message));
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // CREATE PROJECT  (Workspace owner only)
@@ -175,6 +203,26 @@ const createProject = async (req, res) => {
       await project.save();
     } catch (chatError) {
       console.warn('⚠️ Failed to create project chat:', chatError.message);
+    }
+
+    // ── Notify all newly added members ────────────────────────
+    const allNewMembers = [
+      ...validPMs,
+      ...validTeamMembers.map(tm => tm.user)
+    ];
+    if (allNewMembers.length > 0) {
+      const projectName = project.name;
+      notifyUsers(allNewMembers, {
+        title: `Added to project "${projectName}"`,
+        body: `You have been added to the project "${projectName}".`,
+        data: { projectId: project._id.toString(), workspaceId },
+        emailEventType: 'teamInvite',
+        emailHtml: `
+          <h3>You've been added to a new project</h3>
+          <p>You are now a member of <strong>${projectName}</strong>.</p>
+          <p><a href="${process.env.CLIENT_URL}/projects/${project._id}">Open Project</a></p>
+        `,
+      });
     }
 
     const populated = await Project.findById(project._id)
@@ -382,10 +430,10 @@ const getProjectById = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
 // ─────────────────────────────────────────────────────────────────────
 // UPDATE PROJECT  (Owner / PM)
 // PUT /api/projects/:projectId
-// NOTE: status cannot be set to 'completed' here — use /confirm-completion
 // ─────────────────────────────────────────────────────────────────────
 
 const updateProject = async (req, res) => {
@@ -426,6 +474,8 @@ const updateProject = async (req, res) => {
       });
     }
 
+    const oldStatus = project.status;
+
     // Files
     if (req.files?.documents) {
       for (const file of req.files.documents) {
@@ -455,6 +505,22 @@ const updateProject = async (req, res) => {
 
     await project.save();
 
+    // ── Notify if status changed (excluding completed) ─────────
+    if (status && status !== oldStatus && status !== 'completed') {
+      const recipients = [
+        ...project.projectManagers.map(pm => pm.toString()),
+        ...project.teamMembers
+          .filter(tm => tm.status === 'active')
+          .map(tm => tm.user.toString()),
+      ];
+      notifyUsers(recipients, {
+        title: `Project "${project.name}" updated`,
+        body: `Status changed to "${status}".`,
+        data: { projectId: project._id.toString() },
+        emailEventType: 'projectUpdate',
+      });
+    }
+
     const updated = await Project.findById(projectId)
       .populate('projectManagers', 'name email profile')
       .populate('teamMembers.user', 'name email profile')
@@ -474,9 +540,6 @@ const updateProject = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────
 // CONFIRM PROJECT COMPLETION  (Workspace OWNER only)
 // PATCH /api/projects/:projectId/confirm-completion
-//
-// The final step of the workflow: allowed only when every non-deleted
-// task in the project is 'completed' or 'cancelled'.
 // ─────────────────────────────────────────────────────────────────────
 
 const confirmProjectCompletion = async (req, res) => {
@@ -524,6 +587,25 @@ const confirmProjectCompletion = async (req, res) => {
     project.completedAt = new Date();
     project.completedBy = userId;
     await project.save();
+
+    // ── Notify all active members and PMs ─────────────────────
+    const recipients = [
+      ...project.projectManagers.map(pm => pm.toString()),
+      ...project.teamMembers
+        .filter(tm => tm.status === 'active')
+        .map(tm => tm.user.toString()),
+    ];
+    notifyUsers(recipients, {
+      title: `Project "${project.name}" completed`,
+      body: 'All tasks have been finished. Great work!',
+      data: { projectId: project._id.toString() },
+      emailEventType: 'projectUpdate',
+      emailHtml: `
+        <h2>Project Completed 🎉</h2>
+        <p><strong>${project.name}</strong> has been marked as completed.</p>
+        <p>Congratulations to the whole team!</p>
+      `,
+    });
 
     const updated = await Project.findById(projectId)
       .populate('projectManagers', 'name email profile')
@@ -590,7 +672,7 @@ const manageProjectManagers = async (req, res) => {
         });
       }
       project.projectManagers.push(managerId);
-      // A PM shouldn't also sit in teamMembers
+      // Remove from teamMembers if present
       project.teamMembers = project.teamMembers.filter(
         (tm) => tm.user.toString() !== managerId
       );
@@ -606,6 +688,16 @@ const manageProjectManagers = async (req, res) => {
     }
 
     await project.save();
+
+    // ── Notify the manager if added ───────────────────────────
+    if (action === 'add') {
+      notifyUsers(managerId, {
+        title: `New role in "${project.name}"`,
+        body: 'You have been promoted to Project Manager.',
+        data: { projectId: project._id.toString() },
+        emailEventType: 'teamInvite',
+      });
+    }
 
     const updated = await Project.findById(projectId)
       .populate('projectManagers', 'name email profile')
@@ -675,6 +767,14 @@ const addTeamMember = async (req, res) => {
 
     await project.save();
 
+    // ── Notify the added member ───────────────────────────────
+    notifyUsers(memberId, {
+      title: `Added to project "${project.name}"`,
+      body: `You are now a team member (${role}) in this project.`,
+      data: { projectId: project._id.toString() },
+      emailEventType: 'teamInvite',
+    });
+
     const updated = await Project.findById(projectId).populate(
       'teamMembers.user',
       'name email profile'
@@ -697,7 +797,6 @@ const removeTeamMember = async (req, res) => {
     const userId = req.user.id;
     const { projectId, memberId } = req.params;
 
-    // Validate memberId
     if (!memberId || !mongoose.Types.ObjectId.isValid(memberId)) {
       return res.status(400).json({
         success: false,
@@ -721,7 +820,7 @@ const removeTeamMember = async (req, res) => {
     // Block removal while the member still has open tasks
     const openTasks = await Task.countDocuments({
       project: projectId,
-      assignee: memberId,            // now guaranteed to be a valid ObjectId
+      assignee: memberId,
       isDeleted: false,
       status: { $nin: ['completed', 'cancelled'] },
     });
@@ -747,6 +846,14 @@ const removeTeamMember = async (req, res) => {
     member.status = 'removed';
     member.leftAt = new Date();
     await project.save();
+
+    // ── Notify the removed member ─────────────────────────────
+    notifyUsers(memberId, {
+      title: `Removed from project "${project.name}"`,
+      body: 'You have been removed from the project.',
+      data: { projectId: project._id.toString() },
+      emailEventType: 'projectUpdate',
+    });
 
     res.status(200).json({ success: true, message: 'Team member removed' });
   } catch (error) {
@@ -948,6 +1055,14 @@ const deleteProject = async (req, res) => {
       });
     }
 
+    // Gather recipients before deletion
+    const recipients = [
+      ...project.projectManagers.map(pm => pm.toString()),
+      ...project.teamMembers
+        .filter(tm => tm.status === 'active')
+        .map(tm => tm.user.toString()),
+    ];
+
     // Clean up tasks + their feedback
     const Feedback = (await import('../models/feedbackModel.js')).default;
     const tasks = await Task.find({ project: projectId });
@@ -960,7 +1075,16 @@ const deleteProject = async (req, res) => {
       if (doc.publicId) cloudinary.uploader.destroy(doc.publicId).catch(() => {});
     }
 
+    const projectName = project.name;
     await Project.findByIdAndDelete(projectId);
+
+    // ── Notify everyone that the project was deleted ─────────
+    notifyUsers(recipients, {
+      title: `Project "${projectName}" deleted`,
+      body: 'The project has been permanently removed.',
+      data: { workspaceId: workspace._id.toString() },
+      emailEventType: 'projectUpdate',
+    });
 
     res.status(200).json({ success: true, message: 'Project deleted' });
   } catch (error) {

@@ -34,12 +34,13 @@ import {
   FaTrashAlt,
   FaLock,
   FaChevronUp,
-  FaCircle,
+  FaChevronDown,
   FaSearch,
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
+import { useSocket } from '../components/SocketContext.jsx';
 
-// ─── Helper: Format time ──────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────
 const formatTime = (seconds) => {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
@@ -49,33 +50,23 @@ const formatTime = (seconds) => {
 const LOCK_THRESHOLD = 80;
 const SEEN_TICK_COLOR = '#34B7F1';
 
-// ─── Message status ticks (WhatsApp-style) ────────────────────────────
+// ─── Message status ticks (WhatsApp‑style) ─────────────────────────
 const MessageTicks = ({ message, isOwn, isDM }) => {
   if (!isOwn) return null;
 
-  const isPending =
-    message.pending || (typeof message._id === 'string' && message._id.startsWith('temp-'));
-  if (isPending) {
+  if (message._pending) {
     return <FaRegClock className="text-[10px] text-gray-400" />;
   }
 
-  if (!isDM) {
+  if (message._failed) {
+    return <FaTimes className="text-[10px] text-red-500" />;
+  }
+
+  if (!message._delivered && !message._read) {
     return <FaCheck className="text-[10px] text-gray-400" />;
   }
 
-  const isRead = message.status === 'read' || (message.readBy && message.readBy.length > 0);
-  const isDelivered =
-    isRead || message.status === 'delivered' || (message.deliveredTo && message.deliveredTo.length > 0);
-
-  if (isRead) {
-    return (
-      <span className="inline-flex items-center -space-x-[5px]">
-        <FaCheck className="text-[10px]" style={{ color: SEEN_TICK_COLOR }} />
-        <FaCheck className="text-[10px]" style={{ color: SEEN_TICK_COLOR }} />
-      </span>
-    );
-  }
-  if (isDelivered) {
+  if (message._delivered && !message._read) {
     return (
       <span className="inline-flex items-center -space-x-[5px] text-gray-400">
         <FaCheck className="text-[10px]" />
@@ -83,10 +74,16 @@ const MessageTicks = ({ message, isOwn, isDM }) => {
       </span>
     );
   }
-  return <FaCheck className="text-[10px] text-gray-400" />;
+
+  return (
+    <span className="inline-flex items-center -space-x-[5px]">
+      <FaCheck className="text-[10px]" style={{ color: SEEN_TICK_COLOR }} />
+      <FaCheck className="text-[10px]" style={{ color: SEEN_TICK_COLOR }} />
+    </span>
+  );
 };
 
-// ─── Static waveform bars for voice notes ──────────────────────────────
+// ─── Audio waveform ──────────────────────────────────────────────────
 const WAVEFORM_BARS = [6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6, 10];
 
 const AudioWaveform = ({ isOwn, isPlaying, brandColor }) => (
@@ -105,12 +102,12 @@ const AudioWaveform = ({ isOwn, isPlaying, brandColor }) => (
   </div>
 );
 
-// ─── WhatsApp‑style fullscreen image viewer ────────────────────────────
-const ImagePreviewModal = ({ imageUrl, onClose, fileName, senderName, time }) => {
+// ─── Fullscreen image viewer ────────────────────────────────────────
+const ImagePreviewModal = ({ imageUrl, onClose, senderName, time }) => {
   const handleDownload = () => {
     const link = document.createElement('a');
     link.href = imageUrl;
-    link.download = fileName || 'image';
+    link.download = 'image';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -123,7 +120,7 @@ const ImagePreviewModal = ({ imageUrl, onClose, fileName, senderName, time }) =>
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 min-w-0">
-          <button onClick={onClose} className="p-1 flex-shrink-0">
+          <button onClick={onClose} className="p-1">
             <FaArrowLeft />
           </button>
           <div className="min-w-0">
@@ -131,21 +128,18 @@ const ImagePreviewModal = ({ imageUrl, onClose, fileName, senderName, time }) =>
             {time && <p className="text-[11px] text-white/60">{time}</p>}
           </div>
         </div>
-        <button onClick={handleDownload} className="p-2 flex-shrink-0">
+        <button onClick={handleDownload} className="p-2">
           <FaDownload />
         </button>
       </div>
-      <div
-        className="flex-1 flex items-center justify-center overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="flex-1 flex items-center justify-center overflow-hidden">
         <img src={imageUrl} alt="Preview" className="max-w-full max-h-full object-contain" />
       </div>
     </div>
   );
 };
 
-// ─── Media Message Component ──────────────────────────────────────────
+// ─── Media Message Component ─────────────────────────────────────────
 const MediaMessage = ({
   message,
   isOwn,
@@ -181,16 +175,13 @@ const MediaMessage = ({
 
     switch (message.messageType) {
       case 'image':
-        // Image handled separately – no bubble
         return null;
-
       case 'video':
         return (
           <div className="relative group">
             <video src={message.mediaUrl} controls className="max-w-full rounded-lg max-h-80" />
           </div>
         );
-
       case 'audio':
         return (
           <div className="flex items-center gap-2.5 min-w-[220px] py-0.5">
@@ -204,11 +195,7 @@ const MediaMessage = ({
               className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
               style={{ backgroundColor: isOwn ? 'rgba(255,255,255,0.2)' : brandColor }}
             >
-              {isPlaying ? (
-                <FaPause className="text-xs text-white" />
-              ) : (
-                <FaPlay className="text-xs text-white ml-0.5" />
-              )}
+              {isPlaying ? <FaPause className="text-xs text-white" /> : <FaPlay className="text-xs text-white ml-0.5" />}
             </button>
             <AudioWaveform isOwn={isOwn} isPlaying={isPlaying} brandColor={brandColor} />
             <span className={`text-[10px] flex-shrink-0 ${isOwn ? 'text-white/70' : 'text-gray-400'}`}>
@@ -224,37 +211,25 @@ const MediaMessage = ({
             />
           </div>
         );
-
       case 'file':
         return (
           <div className="flex items-center gap-3 bg-gray-100 rounded-lg p-3 min-w-[200px]">
             <div className="w-10 h-10 rounded-lg bg-gray-300 flex items-center justify-center text-gray-600">📄</div>
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-gray-900 truncate">
-                {message.mediaName || 'File'}
-              </div>
-              <div className="text-xs text-gray-500">
-                {message.mediaSize ? `${(message.mediaSize / 1024).toFixed(1)} KB` : 'File'}
-              </div>
+              <div className="text-sm font-medium text-gray-900 truncate">{message.mediaName || 'File'}</div>
+              <div className="text-xs text-gray-500">{message.mediaSize ? `${(message.mediaSize / 1024).toFixed(1)} KB` : 'File'}</div>
             </div>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleDownload(e);
-              }}
-              className="text-gray-400 hover:text-gray-600 transition"
-            >
+            <button onClick={(e) => { e.stopPropagation(); handleDownload(e); }} className="text-gray-400 hover:text-gray-600 transition">
               <FaDownload className="text-sm" />
             </button>
           </div>
         );
-
       default:
         return null;
     }
   };
 
-  // ── Image messages – no colored bubble, just the image with overlay ──
+  // Image messages without bubble
   if (message.messageType === 'image') {
     return (
       <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
@@ -263,47 +238,32 @@ const MediaMessage = ({
             {senderProfile ? (
               <img src={senderProfile} alt={senderName} className="w-full h-full object-cover" />
             ) : (
-              <div
-                className="w-full h-full flex items-center justify-center text-white text-xs font-bold"
-                style={{ backgroundColor: brandColor }}
-              >
+              <div className="w-full h-full flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: brandColor }}>
                 {senderName?.charAt(0).toUpperCase() || '?'}
               </div>
             )}
           </div>
         )}
         <div className={`max-w-[85%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col`}>
-          {!isOwn && (
-            <span className="text-xs font-medium text-gray-600 ml-1 mb-0.5">{senderName}</span>
-          )}
+          {!isOwn && <span className="text-xs font-medium text-gray-600 ml-1 mb-0.5">{senderName}</span>}
           <div
             className="relative rounded-2xl overflow-hidden cursor-pointer group"
             onClick={() =>
-              onImageClick &&
-              onImageClick({
+              onImageClick && onImageClick({
                 url: message.mediaUrl,
                 senderName: isOwn ? 'You' : senderName,
                 time,
               })
             }
           >
-            <img
-              src={message.mediaUrl}
-              alt={message.mediaName || 'Image'}
-              className="max-w-full max-h-80 object-cover w-full"
-            />
-            {/* Time and read receipts overlay */}
+            <img src={message.mediaUrl} alt={message.mediaName || 'Image'} className="max-w-full max-h-80 object-cover w-full" />
             <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 text-[10px] text-white bg-black/50 px-2 py-0.5 rounded-full">
               <span>{time}</span>
               <MessageTicks message={message} isOwn={isOwn} isDM={isDM} />
             </div>
-            {/* Delete / more options trigger */}
             <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition">
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowMenu(!showMenu);
-                }}
+                onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
                 className="text-white bg-black/40 p-1 rounded-full hover:bg-black/60"
               >
                 <FaEllipsisV className="text-xs" />
@@ -311,11 +271,7 @@ const MediaMessage = ({
               {showMenu && (
                 <div className="absolute right-0 top-8 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[120px] z-10">
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowMenu(false);
-                      onDelete && onDelete(message._id);
-                    }}
+                    onClick={(e) => { e.stopPropagation(); setShowMenu(false); onDelete && onDelete(message._id); }}
                     className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition w-full"
                   >
                     <FaTrashAlt className="text-xs" /> Delete
@@ -329,7 +285,7 @@ const MediaMessage = ({
     );
   }
 
-  // ── All other message types – use the colored bubble ──
+  // Regular messages with bubble
   return (
     <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
       {!isOwn && (
@@ -337,49 +293,32 @@ const MediaMessage = ({
           {senderProfile ? (
             <img src={senderProfile} alt={senderName} className="w-full h-full object-cover" />
           ) : (
-            <div
-              className="w-full h-full flex items-center justify-center text-white text-xs font-bold"
-              style={{ backgroundColor: brandColor }}
-            >
+            <div className="w-full h-full flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: brandColor }}>
               {senderName?.charAt(0).toUpperCase() || '?'}
             </div>
           )}
         </div>
       )}
       <div className={`max-w-[85%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col gap-0.5`}>
-        {!isOwn && (
-          <span className="text-xs font-medium text-gray-600 ml-1">{senderName}</span>
-        )}
+        {!isOwn && <span className="text-xs font-medium text-gray-600 ml-1">{senderName}</span>}
         <div
-          className={`px-4 py-2.5 rounded-2xl text-sm break-words ${
-            isOwn ? 'text-white' : 'bg-gray-100 text-gray-800'
-          }`}
+          className={`px-4 py-2.5 rounded-2xl text-sm break-words ${isOwn ? 'text-white' : 'bg-gray-100 text-gray-800'}`}
           style={isOwn ? { backgroundColor: brandColor } : {}}
         >
           {message.content && <p className="mb-2">{message.content}</p>}
           {renderMediaContent()}
         </div>
-        <div
-          className={`flex items-center gap-1 text-[10px] text-gray-400 ${
-            isOwn ? 'flex-row-reverse' : ''
-          }`}
-        >
+        <div className={`flex items-center gap-1 text-[10px] text-gray-400 ${isOwn ? 'flex-row-reverse' : ''}`}>
           <span>{time}</span>
           <MessageTicks message={message} isOwn={isOwn} isDM={isDM} />
           <div className="relative ml-2">
-            <button
-              onClick={() => setShowMenu(!showMenu)}
-              className="text-gray-300 hover:text-gray-500 transition p-0.5"
-            >
+            <button onClick={() => setShowMenu(!showMenu)} className="text-gray-300 hover:text-gray-500 transition p-0.5">
               <FaEllipsisV className="text-xs" />
             </button>
             {showMenu && (
               <div className="absolute right-0 bottom-6 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[120px] z-10">
                 <button
-                  onClick={() => {
-                    setShowMenu(false);
-                    onDelete && onDelete(message._id);
-                  }}
+                  onClick={() => { setShowMenu(false); onDelete && onDelete(message._id); }}
                   className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition w-full"
                 >
                   <FaTrashAlt className="text-xs" /> Delete
@@ -393,18 +332,17 @@ const MediaMessage = ({
   );
 };
 
-// ─── Main Component ──────────────────────────────────────────────────────
+// ─── Main Component ──────────────────────────────────────────────────
 const MyWorkspaceChannelId = () => {
   const { workspaceId, chatId } = useParams();
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
   const [message, setMessage] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
-
   const [previewImage, setPreviewImage] = useState(null);
 
   // Voice recording states
@@ -422,35 +360,122 @@ const MyWorkspaceChannelId = () => {
   const touchStartYRef = useRef(0);
   const isRecordingRef = useRef(false);
 
+  // ── Socket & local messages ─────────────────────────────────────────
+  const { socket, isConnected } = useSocket();
+  const [localMessages, setLocalMessages] = useState([]);
+
+  // API hooks – note refetch for polling
   const { data: workspaceData, isLoading: workspaceLoading, error } = useGetWorkspaceQuery(workspaceId);
   const { data: chatsData, isLoading: chatsLoading } = useGetUserChatsQuery(workspaceId);
   const {
     data: messagesData,
     isLoading: messagesLoading,
-    refetch: refetchMessages,
+    refetch,
   } = useGetChatMessagesQuery({ chatId, page: 1, limit: 50 }, { skip: !chatId });
-  const [sendMessage] = useSendMessageMutation();
-  const [deleteMessage] = useDeleteMessageMutation();
+  const [sendMessageApi] = useSendMessageMutation();
+  const [deleteMessageApi] = useDeleteMessageMutation();
 
   const chat = chatsData?.chats?.find((c) => c._id === chatId);
   const isDM = chat?.type === 'direct';
   const otherParticipant = isDM
-    ? chat?.participants?.find(
-        (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id
-      )?.user || null
+    ? chat?.participants?.find((p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id)?.user || null
     : null;
   const displayName = isDM ? otherParticipant?.name || 'Unknown' : chat?.name || 'Unnamed Channel';
   const displayAvatar = isDM ? otherParticipant?.profile : null;
   const isDMOnline = isDM ? otherParticipant?.online || false : false;
 
+  // ── Silent polling every 3 seconds ──────────────────────────────────
   useEffect(() => {
+    const interval = setInterval(() => {
+      refetch();
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [refetch, chatId]);
+
+  // ── Scroll state & new‑message button ──────────────────────────────
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [showScrollDown, setShowScrollDown] = useState(false);
+
+  const handleMessagesScroll = () => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const threshold = 50;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    setIsAtBottom(atBottom);
+    if (atBottom) setShowScrollDown(false);
+  };
+
+  const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    setShowScrollDown(false);
+  };
+
+  useEffect(() => {
+    if (isAtBottom) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    } else {
+      setShowScrollDown(true);
+    }
+  }, [localMessages.length]);
+
+  // ── Join chat room + socket events (unchanged) ──────────────────────
+  useEffect(() => {
+    if (!socket || !isConnected || !chatId) return;
+
+    socket.emit('join-chat', chatId);
+
+    const handleNewMessage = (incoming) => {
+      setLocalMessages((prev) => {
+        // Replace optimistic temp if it's our own
+        if ((incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id) && incoming.content) {
+          const tempIdx = prev.findIndex(
+            (m) => m._temp && m.content === incoming.content
+          );
+          if (tempIdx > -1) {
+            const updated = [...prev];
+            updated[tempIdx] = { ...incoming, _temp: false, _pending: false, _failed: false, _sent: true };
+            return updated;
+          }
+        }
+        // Prevent duplicates
+        if (!prev.some((m) => m._id === incoming._id)) {
+          return [...prev, { ...incoming, _sent: true }];
+        }
+        return prev;
+      });
+    };
+
+    const handleMessageDeleted = ({ messageId }) => {
+      setLocalMessages((prev) => prev.filter((m) => m._id !== messageId));
+    };
+
+    socket.on('new-message', handleNewMessage);
+    socket.on('message-deleted', handleMessageDeleted);
+
+    return () => {
+      socket.emit('leave-chat', chatId);
+      socket.off('new-message', handleNewMessage);
+      socket.off('message-deleted', handleMessageDeleted);
+    };
+  }, [socket, isConnected, chatId, userInfo?._id]);
+
+  // ── Merge polled messages without overwriting optimistics ──────────
+  useEffect(() => {
+    if (messagesData?.messages) {
+      setLocalMessages((prev) => {
+        const existingIds = new Set(prev.map((m) => m._id));
+        const newMessages = messagesData.messages.filter(
+          (m) => !existingIds.has(m._id)
+        );
+        return [...prev, ...newMessages.map((m) => ({ ...m, _sent: true }))];
+      });
+    }
   }, [messagesData]);
 
+  // Voice recording cleanup
   useEffect(() => {
     isRecordingRef.current = isRecording;
   }, [isRecording]);
-
   useEffect(() => {
     return () => {
       if (mediaRecorderRef.current && isRecordingRef.current) mediaRecorderRef.current.stop();
@@ -469,8 +494,8 @@ const MyWorkspaceChannelId = () => {
     }
   };
 
+  // ── Error / Loading ──────────────────────────────────────────────
   if (error) navigate('/my-workspaces');
-
   if (workspaceLoading || chatsLoading || messagesLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -480,14 +505,13 @@ const MyWorkspaceChannelId = () => {
   }
 
   const workspace = workspaceData?.workspace;
-  const messages = messagesData?.messages || [];
   const chats = chatsData?.chats || [];
   if (!workspace) return null;
 
   const brandColor = workspace.color || '#0d9488';
   const memberCount = chat?.participants?.length || 0;
 
-  // Channel list filtering (desktop only)
+  // ── Channel / DM lists ──────────────────────────────────────────
   const groupChats = chats.filter((c) => c.type === 'group');
   const directMessages = chats.filter((c) => c.type === 'direct');
   const filteredChannels = groupChats.filter((ch) =>
@@ -513,24 +537,55 @@ const MyWorkspaceChannelId = () => {
     return member?.user || null;
   };
 
-  const handleSendMessage = async (e) => {
+  // ── Send text message via socket (optimistic) ────────────────────
+  const handleSendMessage = (e) => {
     e.preventDefault();
-    if (!message.trim()) return;
-    const formData = new FormData();
-    formData.append('content', message.trim());
-    formData.append('messageType', 'text');
-    try {
-      setIsLoading(true);
-      await sendMessage({ chatId, data: formData }).unwrap();
-      setMessage('');
-      refetchMessages();
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to send message');
-    } finally {
-      setIsLoading(false);
-    }
+    const trimmed = message.trim();
+    if (!trimmed || !socket) return;
+
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const optimisticMsg = {
+      _id: tempId,
+      _temp: true,
+      _pending: true,
+      _sent: false,
+      _failed: false,
+      _read: false,
+      content: trimmed,
+      sender: userInfo,
+      createdAt: new Date().toISOString(),
+      messageType: 'text',
+      chat: chatId,
+    };
+
+    setLocalMessages((prev) => [...prev, optimisticMsg]);
+    setMessage('');
+
+    socket.emit('send-message', {
+      chatId,
+      content: trimmed,
+      messageType: 'text',
+      mentions: [],
+      replyToId: null,
+      mediaUrl: null,
+      mediaName: null,
+      mediaSize: null,
+      mediaDuration: null,
+    }, (response) => {
+      if (response?.error) {
+        setLocalMessages((prev) =>
+          prev.map((m) => (m._id === tempId ? { ...m, _pending: false, _failed: true } : m))
+        );
+        toast.error(response.error);
+      } else {
+        setLocalMessages((prev) =>
+          prev.map((m) => (m._id === tempId ? { ...m, _pending: false, _sent: true } : m))
+        );
+      }
+    });
   };
 
+  // ── File / image / voice via REST (server will broadcast) ──────
   const handleFileUpload = (type) => {
     if (type === 'file') fileInputRef.current?.click();
     else if (type === 'image') imageInputRef.current?.click();
@@ -543,19 +598,55 @@ const MyWorkspaceChannelId = () => {
     formData.append('media', file);
     formData.append('messageType', type === 'image' ? 'image' : 'file');
     try {
-      setIsLoading(true);
-      await sendMessage({ chatId, data: formData }).unwrap();
-      refetchMessages();
+      await sendMessageApi({ chatId, data: formData }).unwrap();
       toast.success(`${type === 'image' ? 'Image' : 'File'} sent!`);
     } catch (err) {
       toast.error(err?.data?.message || `Failed to send ${type}`);
     } finally {
-      setIsLoading(false);
       e.target.value = '';
     }
   };
 
-  // Voice recording logic
+  const sendAudioMessage = async (audioBlob) => {
+    const formData = new FormData();
+    const audioFile = new File([audioBlob], 'voice-note.webm', { type: 'audio/webm' });
+    formData.append('media', audioFile);
+    formData.append('messageType', 'audio');
+    formData.append('mediaDuration', recordingTime.toString());
+    try {
+      await sendMessageApi({ chatId, data: formData }).unwrap();
+      setRecordingBlob(null);
+      setShowRecordedPreview(false);
+      setRecordingTime(0);
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to send voice note');
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop();
+    setRecordingBlob(null);
+    setShowRecordedPreview(false);
+    setRecordingTime(0);
+    setIsRecording(false);
+    setIsLocked(false);
+    setSwipeProgress(0);
+    stopTimer();
+  };
+
+  // ── Delete message ─────────────────────────────────────────────
+  const handleDeleteMessage = async (messageId) => {
+    if (!window.confirm('Delete this message?')) return;
+    try {
+      await deleteMessageApi(messageId).unwrap();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to delete message');
+    }
+  };
+
+  const handleCall = () => toast.info('Voice/Video calls not available yet');
+
+  // Mic pointer events (unchanged)
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -606,50 +697,6 @@ const MyWorkspaceChannelId = () => {
     if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop();
   };
 
-  const sendAudioMessage = async (audioBlob) => {
-    const formData = new FormData();
-    const audioFile = new File([audioBlob], 'voice-note.webm', { type: 'audio/webm' });
-    formData.append('media', audioFile);
-    formData.append('messageType', 'audio');
-    formData.append('mediaDuration', recordingTime.toString());
-    try {
-      setIsLoading(true);
-      await sendMessage({ chatId, data: formData }).unwrap();
-      refetchMessages();
-      setRecordingBlob(null);
-      setShowRecordedPreview(false);
-      setRecordingTime(0);
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to send voice note');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const cancelRecording = () => {
-    if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop();
-    setRecordingBlob(null);
-    setShowRecordedPreview(false);
-    setRecordingTime(0);
-    setIsRecording(false);
-    setIsLocked(false);
-    setSwipeProgress(0);
-    stopTimer();
-  };
-
-  const handleDeleteMessage = async (messageId) => {
-    if (!window.confirm('Delete this message?')) return;
-    try {
-      await deleteMessage(messageId).unwrap();
-      refetchMessages();
-      toast.success('Message deleted');
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to delete message');
-    }
-  };
-
-  const handleCall = () => toast.info('Voice/Video calls not available yet');
-
   const handleMicPointerDown = (e) => {
     if (message.trim()) return;
     e.currentTarget.setPointerCapture?.(e.pointerId);
@@ -686,12 +733,12 @@ const MyWorkspaceChannelId = () => {
         />
       )}
 
-      {/* Sidebar (desktop only) */}
+      {/* Desktop sidebar */}
       <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
         <MyWorkspaceSidebar workspace={workspace} chats={chats} />
       </div>
 
-      {/* Channel list (desktop only) */}
+      {/* Channel list (desktop) */}
       <div className="hidden lg:flex lg:w-72 lg:flex-col bg-white border-r border-gray-200 h-full overflow-hidden">
         <div className="p-4 border-b border-gray-200 flex-shrink-0">
           <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
@@ -761,7 +808,7 @@ const MyWorkspaceChannelId = () => {
 
       {/* Chat area */}
       <div className="flex-1 flex flex-col bg-white h-full overflow-hidden">
-        {/* Header – sticky top */}
+        {/* Header */}
         <header className="sticky top-0 z-20 flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-teal-600 text-white flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <button
@@ -791,45 +838,58 @@ const MyWorkspaceChannelId = () => {
             </div>
           </div>
           <div className="flex gap-2">
-            <button onClick={handleCall} className="p-1.5">
-              <FaPhone />
-            </button>
-            <button onClick={handleCall} className="p-1.5">
-              <FaVideo />
-            </button>
+            <button onClick={handleCall} className="p-1.5"><FaPhone /></button>
+            <button onClick={handleCall} className="p-1.5"><FaVideo /></button>
           </div>
         </header>
 
-        {/* Messages – only this area scrolls */}
-        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
-          {messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-gray-400">
-              <FaComment className="text-4xl mb-2 opacity-30" />
-              <p className="text-sm">No messages yet</p>
-            </div>
-          ) : (
-            messages.map((msg) => {
-              const sender = getSender(msg.sender?._id || msg.sender);
-              const isOwn = msg.sender?._id === userInfo?._id || msg.sender === userInfo?._id;
-              return (
-                <MediaMessage
-                  key={msg._id}
-                  message={msg}
-                  isOwn={isOwn}
-                  isDM={isDM}
-                  senderName={sender?.name || 'Unknown'}
-                  senderProfile={sender?.profile}
-                  brandColor={brandColor}
-                  onImageClick={(payload) => setPreviewImage(payload)}
-                  onDelete={handleDeleteMessage}
-                />
-              );
-            })
+        {/* Messages area with scroll listener and new‑message button */}
+        <div className="relative flex-1 overflow-hidden">
+          <div
+            ref={messagesContainerRef}
+            onScroll={handleMessagesScroll}
+            className="h-full overflow-y-auto px-4 py-3 space-y-4"
+          >
+            {localMessages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                <FaComment className="text-4xl mb-2 opacity-30" />
+                <p className="text-sm">No messages yet</p>
+              </div>
+            ) : (
+              localMessages.map((msg) => {
+                const sender = getSender(msg.sender?._id || msg.sender);
+                const isOwn = (msg.sender?._id === userInfo?._id || msg.sender === userInfo?._id);
+                return (
+                  <MediaMessage
+                    key={msg._id}
+                    message={msg}
+                    isOwn={isOwn}
+                    isDM={isDM}
+                    senderName={sender?.name || 'Unknown'}
+                    senderProfile={sender?.profile}
+                    brandColor={brandColor}
+                    onImageClick={(payload) => setPreviewImage(payload)}
+                    onDelete={handleDeleteMessage}
+                  />
+                );
+              })
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Floating "new messages" button */}
+          {showScrollDown && (
+            <button
+              onClick={scrollToBottom}
+              className="absolute bottom-4 right-4 z-30 w-10 h-10 rounded-full bg-white shadow-lg border border-gray-200 flex items-center justify-center text-gray-600 hover:bg-gray-50 transition-all"
+              style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}
+            >
+              <FaChevronDown className="text-sm" />
+            </button>
           )}
-          <div ref={messagesEndRef} />
         </div>
 
-        {/* Input area – sticky bottom */}
+        {/* Input area */}
         <div className="sticky bottom-0 z-20 border-t border-gray-200 px-3 py-2 bg-white flex-shrink-0">
           {showRecordedPreview && recordingBlob && (
             <div className="flex items-center justify-between px-3 py-2 mb-2 bg-green-50 rounded-lg border border-green-200">
@@ -839,24 +899,9 @@ const MyWorkspaceChannelId = () => {
                 <span className="text-xs text-gray-500">{formatTime(recordingTime)}</span>
               </div>
               <div className="flex gap-1">
-                <button
-                  onClick={() => {
-                    const audio = new Audio(URL.createObjectURL(recordingBlob));
-                    audio.play();
-                  }}
-                  className="p-1"
-                >
-                  <FaPlay className="text-xs" />
-                </button>
-                <button
-                  onClick={() => sendAudioMessage(recordingBlob)}
-                  className="px-3 py-1 bg-green-600 text-white rounded text-xs"
-                >
-                  Send
-                </button>
-                <button onClick={cancelRecording} className="p-1 text-gray-400">
-                  <FaTimes className="text-xs" />
-                </button>
+                <button onClick={() => { const audio = new Audio(URL.createObjectURL(recordingBlob)); audio.play(); }} className="p-1"><FaPlay className="text-xs" /></button>
+                <button onClick={() => sendAudioMessage(recordingBlob)} className="px-3 py-1 bg-green-600 text-white rounded text-xs">Send</button>
+                <button onClick={cancelRecording} className="p-1 text-gray-400"><FaTimes className="text-xs" /></button>
               </div>
             </div>
           )}
@@ -864,15 +909,11 @@ const MyWorkspaceChannelId = () => {
           {isRecording && !isLocked && (
             <div className="relative flex items-center justify-between px-3 py-2 mb-2 bg-red-50 rounded-lg border border-red-200">
               <span className="text-xs text-red-600 flex items-center gap-2">
-                <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" /> Recording...{' '}
-                {formatTime(recordingTime)}
+                <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" /> Recording... {formatTime(recordingTime)}
               </span>
               <span className="text-[10px] text-gray-400">Slide up to lock</span>
               <div className="absolute right-4 bottom-20 flex flex-col items-center">
-                <FaLock
-                  className="text-xs"
-                  style={{ color: swipeProgress > 0.6 ? brandColor : '#9CA3AF' }}
-                />
+                <FaLock className="text-xs" style={{ color: swipeProgress > 0.6 ? brandColor : '#9CA3AF' }} />
                 <FaChevronUp className="text-gray-300 text-xs" />
               </div>
             </div>
@@ -882,53 +923,26 @@ const MyWorkspaceChannelId = () => {
             <div className="flex items-center justify-between px-3 py-2 mb-2 bg-red-50 rounded-lg border border-red-200">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                <span className="text-xs text-red-600">
-                  {recordingPaused ? 'Paused' : 'Recording...'} {formatTime(recordingTime)}
-                </span>
+                <span className="text-xs text-red-600">{recordingPaused ? 'Paused' : 'Recording...'} {formatTime(recordingTime)}</span>
                 <FaLock className="text-[10px]" style={{ color: brandColor }} />
               </div>
               <div className="flex gap-2">
-                <button onClick={pauseRecording} className="text-xs text-red-600">
-                  {recordingPaused ? 'Resume' : 'Pause'}
-                </button>
-                <button onClick={cancelRecording} className="text-gray-400">
-                  <FaTrashAlt className="text-xs" />
-                </button>
-                <button onClick={stopRecording} className="bg-red-500 text-white p-1 rounded-full">
-                  <FaStop className="text-xs" />
-                </button>
+                <button onClick={pauseRecording} className="text-xs text-red-600">{recordingPaused ? 'Resume' : 'Pause'}</button>
+                <button onClick={cancelRecording} className="text-gray-400"><FaTrashAlt className="text-xs" /></button>
+                <button onClick={stopRecording} className="bg-red-500 text-white p-1 rounded-full"><FaStop className="text-xs" /></button>
               </div>
             </div>
           )}
 
           <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => handleFileUpload('file')}
-              className="p-1.5 text-gray-400 hover:text-gray-600"
-            >
+            <button type="button" onClick={() => handleFileUpload('file')} className="p-1.5 text-gray-400 hover:text-gray-600">
               <FaPaperclip className="text-sm" />
             </button>
-            <button
-              type="button"
-              onClick={() => handleFileUpload('image')}
-              className="p-1.5 text-gray-400 hover:text-gray-600"
-            >
+            <button type="button" onClick={() => handleFileUpload('image')} className="p-1.5 text-gray-400 hover:text-gray-600">
               <FaImage className="text-sm" />
             </button>
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={(e) => handleFileChange(e, 'file')}
-              className="hidden"
-            />
-            <input
-              type="file"
-              ref={imageInputRef}
-              onChange={(e) => handleFileChange(e, 'image')}
-              className="hidden"
-              accept="image/*,video/*"
-            />
+            <input type="file" ref={fileInputRef} onChange={(e) => handleFileChange(e, 'file')} className="hidden" />
+            <input type="file" ref={imageInputRef} onChange={(e) => handleFileChange(e, 'image')} className="hidden" accept="image/*,video/*" />
 
             <input
               type="text"
@@ -942,8 +956,8 @@ const MyWorkspaceChannelId = () => {
             {message.trim() ? (
               <button
                 type="submit"
-                disabled={isLoading}
-                className="p-2 rounded-full text-white"
+                disabled={!isConnected}
+                className="p-2 rounded-full text-white disabled:opacity-50"
                 style={{ backgroundColor: brandColor }}
               >
                 <FaPaperPlane className="text-sm" />

@@ -19,6 +19,7 @@
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "express-async-handler": "^1.2.0",
+    "firebase-admin": "^14.2.0",
     "google-auth-library": "^10.6.2",
     "http": "^0.0.1-security",
     "jsonwebtoken": "^9.0.3",
@@ -26,6 +27,7 @@
     "multer": "^2.1.1",
     "multer-storage-cloudinary": "^4.0.0",
     "resend": "^6.17.2",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "web-push": "^3.6.7"
   }
 }

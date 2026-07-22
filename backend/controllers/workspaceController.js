@@ -1,6 +1,8 @@
+// controllers/workspaceController.js
 import Workspace from '../models/workspaceModel.js';
 import User from '../models/userModel.js';
 import asyncHandler from 'express-async-handler';
+import { createAndSendNotification } from './notificationController.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
@@ -8,6 +10,31 @@ import asyncHandler from 'express-async-handler';
 
 const generateInviteCode = () =>
   Math.random().toString(36).substring(2, 8).toUpperCase();
+
+/**
+ * Fire‑and‑forget notification to one or many users.
+ */
+async function notifyUsers(
+  userIds,
+  { title, body, data = {}, emailEventType = null, emailHtml = null }
+) {
+  if (!userIds) return;
+  const recipients = Array.isArray(userIds) ? userIds : [userIds];
+  for (const recipient of recipients) {
+    createAndSendNotification({
+      recipient,
+      title,
+      body,
+      data,
+      sendPush: true,
+      emailEventType,
+      emailSubject: title,
+      emailHtml: emailHtml || `<p>${body}</p>`,
+    }).catch(err =>
+      console.error(`Notification to ${recipient} failed:`, err.message)
+    );
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CREATE WORKSPACE
@@ -40,7 +67,6 @@ const createWorkspace = asyncHandler(async (req, res) => {
     throw new Error('Industry is required.');
   }
 
-  // 👇 Get logo URL from uploaded file (if any)
   const logoUrl = req.file?.path || '';
 
   const workspace = await Workspace.create({
@@ -73,6 +99,8 @@ const createWorkspace = asyncHandler(async (req, res) => {
   });
 
   await workspace.populate('owner', 'name email profile');
+
+  // No notification needed – only owner present at creation.
 
   res.status(201).json({
     success: true,
@@ -156,14 +184,13 @@ const updateWorkspace = asyncHandler(async (req, res) => {
     phone,
   } = req.body;
 
-  // 👇 If a file was uploaded via multer, Cloudinary returns the URL in req.file.path
   const logoUrl = req.file?.path;
 
   if (name) workspace.name = name.trim();
   if (industry) workspace.industry = industry.trim();
   if (description !== undefined) workspace.description = description.trim();
   if (color) workspace.color = color;
-  if (logoUrl) workspace.logo = logoUrl;   // 👈 update logo from uploaded file
+  if (logoUrl) workspace.logo = logoUrl;
   if (size) workspace.size = size;
   if (website !== undefined) workspace.website = website.trim();
   if (location !== undefined) workspace.location = location.trim();
@@ -171,6 +198,8 @@ const updateWorkspace = asyncHandler(async (req, res) => {
 
   await workspace.save();
   await workspace.populate('owner', 'name email profile');
+
+  // Optionally notify active members about major changes? Omitted for now.
 
   res.status(200).json({
     success: true,
@@ -196,11 +225,30 @@ const deleteWorkspace = asyncHandler(async (req, res) => {
     throw new Error('Only the owner can delete this workspace.');
   }
 
+  // Gather active member IDs (excluding owner) before deletion
+  const activeMemberIds = workspace.members
+    .filter(m => m.status === 'active' && m.user.toString() !== userId)
+    .map(m => m.user.toString());
+
+  const workspaceName = workspace.name;
+  const workspaceId = workspace._id.toString();
+
   await workspace.deleteOne();
 
   await User.findByIdAndUpdate(userId, {
     $pull: { ownedWorkspaces: workspace._id },
   });
+
+  // Notify all active members that the workspace was deleted
+  if (activeMemberIds.length > 0) {
+    notifyUsers(activeMemberIds, {
+      title: `Workspace "${workspaceName}" deleted`,
+      body: `The workspace "${workspaceName}" has been permanently removed by the owner.`,
+      data: {},
+      emailEventType: 'projectUpdate', // reuse generic update type
+      emailHtml: `<p>The workspace <strong>${workspaceName}</strong> has been deleted by its owner.</p>`,
+    });
+  }
 
   res.status(200).json({
     success: true,
@@ -234,6 +282,15 @@ const leaveWorkspace = asyncHandler(async (req, res) => {
 
   await User.findByIdAndUpdate(userId, {
     $pull: { joinedWorkspaces: workspace._id },
+  });
+
+  // Notify owner that a member has left
+  const leavingUser = await User.findById(userId).select('name');
+  notifyUsers(workspace.owner.toString(), {
+    title: `${leavingUser?.name || 'A member'} left "${workspace.name}"`,
+    body: `${leavingUser?.name || 'Someone'} has left your workspace.`,
+    data: { workspaceId: workspace._id.toString(), leftUserId: userId },
+    emailEventType: 'teamInvite',
   });
 
   res.status(200).json({
@@ -272,6 +329,14 @@ const removeMember = asyncHandler(async (req, res) => {
 
   await User.findByIdAndUpdate(memberId, {
     $pull: { joinedWorkspaces: workspace._id },
+  });
+
+  // Notify the removed member
+  notifyUsers(memberId, {
+    title: `Removed from "${workspace.name}"`,
+    body: `You have been removed from the workspace "${workspace.name}" by the owner.`,
+    data: { workspaceId: workspace._id.toString() },
+    emailEventType: 'teamInvite',
   });
 
   res.status(200).json({

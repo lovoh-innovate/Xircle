@@ -4,6 +4,9 @@ import Workspace from "../models/workspaceModel.js";
 import User from "../models/userModel.js";
 import { uploadToCloudinary } from "../utils/cloudinary.js";
 
+// ── Notification service ──────────────────────────────────────────
+import { createAndSendNotification } from './notificationController.js';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -27,6 +30,29 @@ const isChatAdmin = async (chatId, userId) => {
   );
   return participant?.role === "admin";
 };
+
+// ── Notification helper ────────────────────────────────────────────
+/**
+ * Fire-and-forget notification to one or many users.
+ * @param {string|string[]} userIds - Single user ID or array
+ * @param {Object} options
+ */
+async function notifyUsers(userIds, { title, body, data = {}, emailEventType = null, emailHtml = null }) {
+  if (!userIds) return;
+  const recipients = Array.isArray(userIds) ? userIds : [userIds];
+  for (const recipient of recipients) {
+    createAndSendNotification({
+      recipient,
+      title,
+      body,
+      data,
+      sendPush: true,
+      emailEventType,
+      emailSubject: title,
+      emailHtml: emailHtml || `<p>${body}</p>`,
+    }).catch(err => console.error(`Notification to ${recipient} failed:`, err.message));
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UPDATE ONLINE STATUS (NEW)
@@ -94,8 +120,8 @@ const createGroupChat = async (req, res) => {
         user: m.user,
         role: m.user.toString() === userId ? "admin" : "member",
         joinedAt: new Date(),
-        online: false, // ← ADD THIS
-        lastSeen: new Date(), // ← ADD THIS
+        online: false,
+        lastSeen: new Date(),
       }));
 
     const chat = await Chat.create({
@@ -111,6 +137,22 @@ const createGroupChat = async (req, res) => {
     const populatedChat = await Chat.findById(chat._id)
       .populate("participants.user", "name email profile")
       .populate("createdBy", "name email profile");
+
+    // ── Notify all participants (except the creator) about the new group chat ──
+    const memberIds = activeMembers
+      .filter(m => m.user.toString() !== userId)
+      .map(m => m.user.toString());
+    notifyUsers(memberIds, {
+      title: `New group chat "${chat.name}"`,
+      body: `You were added to the group "${chat.name}" by the workspace owner.`,
+      data: { chatId: chat._id.toString(), workspaceId },
+      emailEventType: 'teamInvite', // or a custom 'newGroupChat' if you add it
+      emailHtml: `
+        <h3>You've been added to a group chat</h3>
+        <p>Group: <strong>${chat.name}</strong></p>
+        <p><a href="${process.env.CLIENT_URL}/workspace/${workspaceId}/chat/${chat._id}">Open Chat</a></p>
+      `,
+    });
 
     res.status(201).json({
       success: true,
@@ -189,13 +231,13 @@ const createDirectChat = async (req, res) => {
       workspace: workspaceId,
       type: "direct",
       participants: [
-        { user: userId, role: "member", online: false, lastSeen: new Date() }, // ← ADDED
+        { user: userId, role: "member", online: false, lastSeen: new Date() },
         {
           user: targetUserId,
           role: "member",
           online: false,
           lastSeen: new Date(),
-        }, // ← ADDED
+        },
       ],
       createdBy: userId,
       lastMessageAt: new Date(),
@@ -205,6 +247,14 @@ const createDirectChat = async (req, res) => {
       "participants.user",
       "name email profile",
     );
+
+    // ── Notify the target user about the new direct chat ──
+    notifyUsers(targetUserId, {
+      title: `New message from ${req.user.name || 'a colleague'}`,
+      body: `${req.user.name || 'Someone'} started a direct chat with you.`,
+      data: { chatId: chat._id.toString(), workspaceId },
+      emailEventType: 'newMessage',
+    });
 
     res.status(201).json({
       success: true,
@@ -332,8 +382,6 @@ const getChatMessages = async (req, res) => {
 // POST /api/messages/:chatId
 // ─────────────────────────────────────────────────────────────────────────────
 
-// In your messagingController.js, update the sendMessage function:
-
 const sendMessage = async (req, res) => {
   console.log("=== DEBUG ===");
   console.log("req.file:", req.file);
@@ -455,6 +503,17 @@ const sendMessage = async (req, res) => {
     const io = req.app.get("io");
     if (io) {
       io.to(`chat:${chatId}`).emit("new-message", populatedMessage);
+    }
+
+    // ── Notify mentioned users (fire‑and‑forget) ─────────────────
+    if (filteredMentions.length > 0) {
+      const senderName = req.user.name || 'Someone';
+      notifyUsers(filteredMentions, {
+        title: `${senderName} mentioned you in chat`,
+        body: `${senderName}: ${content?.substring(0, 100) || 'sent a message'}`,
+        data: { chatId: chat._id.toString(), messageId: message._id.toString() },
+        emailEventType: 'newMessage', // you could create a dedicated 'mention' type
+      });
     }
 
     console.log("✅ Message sent successfully:", message._id);
@@ -662,6 +721,7 @@ const addParticipant = async (req, res) => {
 
     const workspace = await Workspace.findById(chat.workspace);
     const existingUserIds = chat.participants.map((p) => p.user.toString());
+    const addedUsers = [];
 
     for (const newUserId of userIds) {
       if (!existingUserIds.includes(newUserId)) {
@@ -673,14 +733,25 @@ const addParticipant = async (req, res) => {
             user: newUserId,
             role: "member",
             joinedAt: new Date(),
-            online: false, // ← ADDED
-            lastSeen: new Date(), // ← ADDED
+            online: false,
+            lastSeen: new Date(),
           });
+          addedUsers.push(newUserId);
         }
       }
     }
 
     await chat.save();
+
+    // ── Notify newly added participants ─────────────────────────
+    if (addedUsers.length > 0) {
+      notifyUsers(addedUsers, {
+        title: `Added to group "${chat.name}"`,
+        body: `You have been added to the group chat "${chat.name}".`,
+        data: { chatId: chat._id.toString(), workspaceId: chat.workspace.toString() },
+        emailEventType: 'teamInvite',
+      });
+    }
 
     const populatedChat = await Chat.findById(chatId).populate(
       "participants.user",
@@ -729,6 +800,14 @@ const removeParticipant = async (req, res) => {
       (p) => p.user.toString() !== targetUserId,
     );
     await chat.save();
+
+    // ── Notify the removed participant ──────────────────────────
+    notifyUsers(targetUserId, {
+      title: `Removed from group "${chat.name}"`,
+      body: `You have been removed from the group chat "${chat.name}".`,
+      data: { workspaceId: chat.workspace.toString() },
+      emailEventType: 'projectUpdate', // you could define 'groupUpdate'
+    });
 
     res.status(200).json({
       success: true,
@@ -798,5 +877,5 @@ export {
   addParticipant,
   removeParticipant,
   markChatAsRead,
-  updateOnlineStatus, // ← ADD THIS TO EXPORTS
+  updateOnlineStatus,
 };

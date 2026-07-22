@@ -10,13 +10,11 @@ import {
   useDeleteMessageMutation,
 } from '../slices/messagingApiSlice';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
-import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
 import {
   FaHashtag,
   FaArrowLeft,
   FaComment,
   FaPaperPlane,
-  FaSmile,
   FaPaperclip,
   FaImage,
   FaCheck,
@@ -34,9 +32,10 @@ import {
   FaTrashAlt,
   FaLock,
   FaChevronUp,
-  FaCircle,
+  FaChevronDown,
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
+import { useSocket } from '../components/SocketContext.jsx';
 
 // ─── Helper: Format time ──────────────────────────────────────────────
 const formatTime = (seconds) => {
@@ -48,33 +47,23 @@ const formatTime = (seconds) => {
 const LOCK_THRESHOLD = 80;
 const SEEN_TICK_COLOR = '#34B7F1';
 
-// ─── Message status ticks (WhatsApp-style) ────────────────────────────
+// ─── Message status ticks (optimistic) ─────────────────────────────────
 const MessageTicks = ({ message, isOwn, isDM }) => {
   if (!isOwn) return null;
 
-  const isPending =
-    message.pending || (typeof message._id === 'string' && message._id.startsWith('temp-'));
-  if (isPending) {
+  if (message._pending) {
     return <FaRegClock className="text-[10px] text-gray-400" />;
   }
 
-  if (!isDM) {
+  if (message._failed) {
+    return <FaTimes className="text-[10px] text-red-500" />;
+  }
+
+  if (!message._delivered && !message._read) {
     return <FaCheck className="text-[10px] text-gray-400" />;
   }
 
-  const isRead = message.status === 'read' || (message.readBy && message.readBy.length > 0);
-  const isDelivered =
-    isRead || message.status === 'delivered' || (message.deliveredTo && message.deliveredTo.length > 0);
-
-  if (isRead) {
-    return (
-      <span className="inline-flex items-center -space-x-[5px]">
-        <FaCheck className="text-[10px]" style={{ color: SEEN_TICK_COLOR }} />
-        <FaCheck className="text-[10px]" style={{ color: SEEN_TICK_COLOR }} />
-      </span>
-    );
-  }
-  if (isDelivered) {
+  if (message._delivered && !message._read) {
     return (
       <span className="inline-flex items-center -space-x-[5px] text-gray-400">
         <FaCheck className="text-[10px]" />
@@ -82,10 +71,16 @@ const MessageTicks = ({ message, isOwn, isDM }) => {
       </span>
     );
   }
-  return <FaCheck className="text-[10px] text-gray-400" />;
+
+  return (
+    <span className="inline-flex items-center -space-x-[5px]">
+      <FaCheck className="text-[10px]" style={{ color: SEEN_TICK_COLOR }} />
+      <FaCheck className="text-[10px]" style={{ color: SEEN_TICK_COLOR }} />
+    </span>
+  );
 };
 
-// ─── Static waveform bars for voice notes ──────────────────────────────
+// ─── Audio waveform ────────────────────────────────────────────────────
 const WAVEFORM_BARS = [6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6, 10];
 
 const AudioWaveform = ({ isOwn, isPlaying, brandColor }) => (
@@ -104,7 +99,7 @@ const AudioWaveform = ({ isOwn, isPlaying, brandColor }) => (
   </div>
 );
 
-// ─── WhatsApp‑style fullscreen image viewer ────────────────────────────
+// ─── Fullscreen image viewer ──────────────────────────────────────────
 const ImagePreviewModal = ({ imageUrl, onClose, senderName, time }) => {
   const handleDownload = () => {
     const link = document.createElement('a');
@@ -177,7 +172,7 @@ const MediaMessage = ({
 
     switch (message.messageType) {
       case 'image':
-        return null; // rendered outside bubble
+        return null;
 
       case 'video':
         return (
@@ -263,22 +258,14 @@ const MediaMessage = ({
               })
             }
           >
-            <img
-              src={message.mediaUrl}
-              alt={message.mediaName || 'Image'}
-              className="max-w-full max-h-80 object-cover w-full"
-            />
+            <img src={message.mediaUrl} alt={message.mediaName || 'Image'} className="max-w-full max-h-80 object-cover w-full" />
             <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 text-[10px] text-white bg-black/50 px-2 py-0.5 rounded-full">
               <span>{time}</span>
               <MessageTicks message={message} isOwn={isOwn} isDM={isDM} />
             </div>
-            {/* Delete menu – only for own messages */}
             <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition">
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowMenu(!showMenu);
-                }}
+                onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
                 className="text-white bg-black/40 p-1 rounded-full hover:bg-black/60"
               >
                 <FaEllipsisV className="text-xs" />
@@ -286,11 +273,7 @@ const MediaMessage = ({
               {showMenu && (
                 <div className="absolute right-0 top-8 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[120px] z-10">
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowMenu(false);
-                      onDelete && onDelete(message._id);
-                    }}
+                    onClick={(e) => { e.stopPropagation(); setShowMenu(false); onDelete && onDelete(message._id); }}
                     className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition w-full"
                   >
                     <FaTrashAlt className="text-xs" /> Delete
@@ -304,7 +287,7 @@ const MediaMessage = ({
     );
   }
 
-  // ── Text and other messages ──
+  // ── Regular messages with bubble ──
   return (
     <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
       {!isOwn && (
@@ -321,9 +304,7 @@ const MediaMessage = ({
       <div className={`max-w-[85%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col gap-0.5`}>
         {!isOwn && <span className="text-xs font-medium text-gray-600 ml-1">{senderName}</span>}
         <div
-          className={`px-4 py-2.5 rounded-2xl text-sm break-words ${
-            isOwn ? 'text-white' : 'bg-gray-100 text-gray-800'
-          }`}
+          className={`px-4 py-2.5 rounded-2xl text-sm break-words ${isOwn ? 'text-white' : 'bg-gray-100 text-gray-800'}`}
           style={isOwn ? { backgroundColor: brandColor } : {}}
         >
           {message.content && <p className="mb-2">{message.content}</p>}
@@ -339,10 +320,7 @@ const MediaMessage = ({
             {showMenu && (
               <div className="absolute right-0 bottom-6 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[120px] z-10">
                 <button
-                  onClick={() => {
-                    setShowMenu(false);
-                    onDelete && onDelete(message._id);
-                  }}
+                  onClick={() => { setShowMenu(false); onDelete && onDelete(message._id); }}
                   className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition w-full"
                 >
                   <FaTrashAlt className="text-xs" /> Delete
@@ -362,13 +340,13 @@ const YourWorkspaceChannelId = () => {
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
   const [message, setMessage] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
-
   const [previewImage, setPreviewImage] = useState(null);
 
+  // Voice recording states
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [recordingBlob, setRecordingBlob] = useState(null);
@@ -383,14 +361,20 @@ const YourWorkspaceChannelId = () => {
   const touchStartYRef = useRef(0);
   const isRecordingRef = useRef(false);
 
+  // ── Socket & local messages ─────────────────────────────────────────
+  const { socket, isConnected } = useSocket();
+  const [localMessages, setLocalMessages] = useState([]);
+
+  // API hooks
   const { data: workspaceData, isLoading: workspaceLoading, error } = useGetWorkspaceQuery(workspaceId);
   const { data: chatsData, isLoading: chatsLoading } = useGetUserChatsQuery(workspaceId);
-  const { data: messagesData, isLoading: messagesLoading, refetch: refetchMessages } = useGetChatMessagesQuery(
-    { chatId, page: 1, limit: 50 },
-    { skip: !chatId }
-  );
-  const [sendMessage] = useSendMessageMutation();
-  const [deleteMessage] = useDeleteMessageMutation();
+  const {
+    data: messagesData,
+    isLoading: messagesLoading,
+    refetch,
+  } = useGetChatMessagesQuery({ chatId, page: 1, limit: 50 }, { skip: !chatId });
+  const [sendMessageApi] = useSendMessageMutation();
+  const [deleteMessageApi] = useDeleteMessageMutation();
 
   const chat = chatsData?.chats?.find(c => c._id === chatId);
   const isDM = chat?.type === 'direct';
@@ -402,10 +386,96 @@ const YourWorkspaceChannelId = () => {
   const isDMOnline = isDM ? otherParticipant?.online || false : false;
   const backPath = isDM ? `/workspace/${workspaceId}/dms` : `/workspace/${workspaceId}/channels`;
 
+  // ── Silent polling every 3 seconds ──────────────────────────────────
   useEffect(() => {
+    const interval = setInterval(() => {
+      refetch();
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [refetch, chatId]);
+
+  // ── Scroll state & new‑message button ──────────────────────────────
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [showScrollDown, setShowScrollDown] = useState(false);
+
+  const handleMessagesScroll = () => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const threshold = 50;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    setIsAtBottom(atBottom);
+    if (atBottom) setShowScrollDown(false);
+  };
+
+  const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    setShowScrollDown(false);
+  };
+
+  useEffect(() => {
+    if (isAtBottom) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    } else {
+      setShowScrollDown(true);
+    }
+  }, [localMessages.length]);
+
+  // ── Join chat room & listen for socket events ──────────────────────
+  useEffect(() => {
+    if (!socket || !isConnected || !chatId) return;
+
+    socket.emit('join-chat', chatId);
+
+    const handleNewMessage = (incoming) => {
+      setLocalMessages((prev) => {
+        if (
+          (incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id) &&
+          incoming.content
+        ) {
+          const tempIdx = prev.findIndex(
+            (m) => m._temp && m.content === incoming.content
+          );
+          if (tempIdx > -1) {
+            const updated = [...prev];
+            updated[tempIdx] = { ...incoming, _temp: false, _pending: false, _failed: false, _sent: true };
+            return updated;
+          }
+        }
+        if (!prev.some((m) => m._id === incoming._id)) {
+          return [...prev, { ...incoming, _sent: true }];
+        }
+        return prev;
+      });
+    };
+
+    const handleMessageDeleted = ({ messageId }) => {
+      setLocalMessages((prev) => prev.filter((m) => m._id !== messageId));
+    };
+
+    socket.on('new-message', handleNewMessage);
+    socket.on('message-deleted', handleMessageDeleted);
+
+    return () => {
+      socket.emit('leave-chat', chatId);
+      socket.off('new-message', handleNewMessage);
+      socket.off('message-deleted', handleMessageDeleted);
+    };
+  }, [socket, isConnected, chatId, userInfo?._id]);
+
+  // ── Merge polled messages without overwriting optimistics ──────────
+  useEffect(() => {
+    if (messagesData?.messages) {
+      setLocalMessages((prev) => {
+        const existingIds = new Set(prev.map((m) => m._id));
+        const newMessages = messagesData.messages.filter(
+          (m) => !existingIds.has(m._id)
+        );
+        return [...prev, ...newMessages.map((m) => ({ ...m, _sent: true }))];
+      });
+    }
   }, [messagesData]);
 
+  // Voice recording cleanup
   useEffect(() => {
     isRecordingRef.current = isRecording;
   }, [isRecording]);
@@ -429,6 +499,7 @@ const YourWorkspaceChannelId = () => {
     }
   };
 
+  // ── Error / loading states ─────────────────────────────────────────
   if (error) {
     navigate(`/workspace/${workspaceId}`);
     return null;
@@ -447,30 +518,60 @@ const YourWorkspaceChannelId = () => {
   }
 
   const workspace = workspaceData?.workspace;
-  const messages = messagesData?.messages || [];
   if (!workspace || !chat) return null;
 
   const brandColor = workspace.color || '#0d9488';
   const memberCount = chat.participants?.length || 0;
 
-  const handleSendMessage = async (e) => {
+  // ── Send text message via socket (optimistic) ────────────────────
+  const handleSendMessage = (e) => {
     e.preventDefault();
-    if (!message.trim()) return;
-    const formData = new FormData();
-    formData.append('content', message.trim());
-    formData.append('messageType', 'text');
-    try {
-      setIsLoading(true);
-      await sendMessage({ chatId, data: formData }).unwrap();
-      setMessage('');
-      refetchMessages();
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to send message');
-    } finally {
-      setIsLoading(false);
-    }
+    const trimmed = message.trim();
+    if (!trimmed || !socket) return;
+
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const optimisticMsg = {
+      _id: tempId,
+      _temp: true,
+      _pending: true,
+      _sent: false,
+      _failed: false,
+      _read: false,
+      content: trimmed,
+      sender: userInfo,
+      createdAt: new Date().toISOString(),
+      messageType: 'text',
+      chat: chatId,
+    };
+
+    setLocalMessages((prev) => [...prev, optimisticMsg]);
+    setMessage('');
+
+    socket.emit('send-message', {
+      chatId,
+      content: trimmed,
+      messageType: 'text',
+      mentions: [],
+      replyToId: null,
+      mediaUrl: null,
+      mediaName: null,
+      mediaSize: null,
+      mediaDuration: null,
+    }, (response) => {
+      if (response?.error) {
+        setLocalMessages((prev) =>
+          prev.map((m) => (m._id === tempId ? { ...m, _pending: false, _failed: true } : m))
+        );
+        toast.error(response.error);
+      } else {
+        setLocalMessages((prev) =>
+          prev.map((m) => (m._id === tempId ? { ...m, _pending: false, _sent: true } : m))
+        );
+      }
+    });
   };
 
+  // ── File / image / voice via REST (backend will broadcast) ──────
   const handleFileUpload = (type) => {
     if (type === 'file') fileInputRef.current?.click();
     else if (type === 'image') imageInputRef.current?.click();
@@ -483,18 +584,60 @@ const YourWorkspaceChannelId = () => {
     formData.append('media', file);
     formData.append('messageType', type === 'image' ? 'image' : 'file');
     try {
-      setIsLoading(true);
-      await sendMessage({ chatId, data: formData }).unwrap();
-      refetchMessages();
+      await sendMessageApi({ chatId, data: formData }).unwrap();
       toast.success(`${type === 'image' ? 'Image' : 'File'} sent!`);
     } catch (err) {
       toast.error(err?.data?.message || `Failed to send ${type}`);
     } finally {
-      setIsLoading(false);
       e.target.value = '';
     }
   };
 
+  const sendAudioMessage = async (audioBlob) => {
+    const formData = new FormData();
+    const audioFile = new File([audioBlob], 'voice-note.webm', { type: 'audio/webm' });
+    formData.append('media', audioFile);
+    formData.append('messageType', 'audio');
+    formData.append('mediaDuration', recordingTime.toString());
+    try {
+      await sendMessageApi({ chatId, data: formData }).unwrap();
+      setRecordingBlob(null);
+      setShowRecordedPreview(false);
+      setRecordingTime(0);
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to send voice note');
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop();
+    setRecordingBlob(null);
+    setShowRecordedPreview(false);
+    setRecordingTime(0);
+    setIsRecording(false);
+    setIsLocked(false);
+    setSwipeProgress(0);
+    stopTimer();
+  };
+
+  // ── Delete message ─────────────────────────────────────────────
+  const handleDeleteMessage = async (messageId) => {
+    if (!window.confirm('Delete this message?')) return;
+    try {
+      await deleteMessageApi(messageId).unwrap();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to delete message');
+    }
+  };
+
+  const getSender = (senderId) => {
+    const member = workspace.members?.find(m => m.user?._id === senderId || m.user === senderId);
+    return member?.user || null;
+  };
+
+  const handleCall = () => toast.info('Voice/Video calls not available yet');
+
+  // Mic pointer events
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -542,55 +685,6 @@ const YourWorkspaceChannelId = () => {
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop();
   };
-
-  const sendAudioMessage = async (audioBlob) => {
-    const formData = new FormData();
-    const audioFile = new File([audioBlob], 'voice-note.webm', { type: 'audio/webm' });
-    formData.append('media', audioFile);
-    formData.append('messageType', 'audio');
-    formData.append('mediaDuration', recordingTime.toString());
-    try {
-      setIsLoading(true);
-      await sendMessage({ chatId, data: formData }).unwrap();
-      refetchMessages();
-      setRecordingBlob(null);
-      setShowRecordedPreview(false);
-      setRecordingTime(0);
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to send voice note');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const cancelRecording = () => {
-    if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop();
-    setRecordingBlob(null);
-    setShowRecordedPreview(false);
-    setRecordingTime(0);
-    setIsRecording(false);
-    setIsLocked(false);
-    setSwipeProgress(0);
-    stopTimer();
-  };
-
-  const handleDeleteMessage = async (messageId) => {
-    if (!window.confirm('Delete this message?')) return;
-    try {
-      await deleteMessage(messageId).unwrap();
-      refetchMessages();
-      toast.success('Message deleted');
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to delete message');
-    }
-  };
-
-  const getSender = (senderId) => {
-    const member = workspace.members?.find(m => m.user?._id === senderId || m.user === senderId);
-    return member?.user || null;
-  };
-
-  const handleCall = () => toast.info('Voice/Video calls not available yet');
 
   const handleMicPointerDown = (e) => {
     if (message.trim()) return;
@@ -667,36 +761,53 @@ const YourWorkspaceChannelId = () => {
           </div>
         </header>
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
-          {messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-gray-400">
-              <FaComment className="text-4xl mb-2 opacity-30" />
-              <p className="text-sm">No messages yet</p>
-            </div>
-          ) : (
-            messages.map((msg) => {
-              const sender = getSender(msg.sender?._id || msg.sender);
-              const isOwn = msg.sender?._id === userInfo?._id || msg.sender === userInfo?._id;
-              return (
-                <MediaMessage
-                  key={msg._id}
-                  message={msg}
-                  isOwn={isOwn}
-                  isDM={isDM}
-                  senderName={sender?.name || 'Unknown'}
-                  senderProfile={sender?.profile}
-                  brandColor={brandColor}
-                  onImageClick={(payload) => setPreviewImage(payload)}
-                  onDelete={handleDeleteMessage}
-                />
-              );
-            })
+        {/* Messages area with scroll listener and new‑message button */}
+        <div className="relative flex-1 overflow-hidden">
+          <div
+            ref={messagesContainerRef}
+            onScroll={handleMessagesScroll}
+            className="h-full overflow-y-auto px-4 py-3 space-y-4"
+          >
+            {localMessages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                <FaComment className="text-4xl mb-2 opacity-30" />
+                <p className="text-sm">No messages yet</p>
+              </div>
+            ) : (
+              localMessages.map((msg) => {
+                const sender = getSender(msg.sender?._id || msg.sender);
+                const isOwn = (msg.sender?._id === userInfo?._id || msg.sender === userInfo?._id);
+                return (
+                  <MediaMessage
+                    key={msg._id}
+                    message={msg}
+                    isOwn={isOwn}
+                    isDM={isDM}
+                    senderName={sender?.name || 'Unknown'}
+                    senderProfile={sender?.profile}
+                    brandColor={brandColor}
+                    onImageClick={(payload) => setPreviewImage(payload)}
+                    onDelete={handleDeleteMessage}
+                  />
+                );
+              })
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Floating "new messages" button */}
+          {showScrollDown && (
+            <button
+              onClick={scrollToBottom}
+              className="absolute bottom-4 right-4 z-30 w-10 h-10 rounded-full bg-white shadow-lg border border-gray-200 flex items-center justify-center text-gray-600 hover:bg-gray-50 transition-all"
+              style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}
+            >
+              <FaChevronDown className="text-sm" />
+            </button>
           )}
-          <div ref={messagesEndRef} />
         </div>
 
-        {/* Input area – sticky bottom */}
+        {/* Input area */}
         <div className="sticky bottom-0 z-20 border-t border-gray-200 px-3 py-2 bg-white flex-shrink-0">
           {showRecordedPreview && recordingBlob && (
             <div className="flex items-center justify-between px-3 py-2 mb-2 bg-green-50 rounded-lg border border-green-200">
@@ -757,7 +868,12 @@ const YourWorkspaceChannelId = () => {
             />
 
             {message.trim() ? (
-              <button type="submit" disabled={isLoading} className="p-2 rounded-full text-white" style={{ backgroundColor: brandColor }}>
+              <button
+                type="submit"
+                disabled={!isConnected}
+                className="p-2 rounded-full text-white disabled:opacity-50"
+                style={{ backgroundColor: brandColor }}
+              >
                 <FaPaperPlane className="text-sm" />
               </button>
             ) : (
@@ -776,8 +892,6 @@ const YourWorkspaceChannelId = () => {
           </form>
         </div>
       </div>
-
-      {/* Desktop right sidebar removed for non-owner simplicity */}
     </div>
   );
 };

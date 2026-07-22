@@ -1,0 +1,640 @@
+import User from '../models/userModel.js';
+import Notification from '../models/notificationModel.js';
+import webpush from 'web-push';
+// Modern firebase-admin (v9+) ships modular ESM subpath exports designed for
+// exactly this situation — no default-import interop issues, no CJS needed.
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import { getMessaging } from 'firebase-admin/messaging';
+import { Resend } from 'resend';
+
+// ── Web Push (VAPID) configuration ──────────────────────────────────────────
+webpush.setVapidDetails(
+  process.env.VAPID_SUBJECT,      // 'mailto:your@email.com' or your app URL
+  process.env.VAPID_PUBLIC_KEY,
+  process.env.VAPID_PRIVATE_KEY
+);
+
+// ── Firebase Admin initialisation ───────────────────────────────────────────
+let firebaseInitialised = false;
+
+if (process.env.FIREBASE_PRIVATE_KEY) {
+  try {
+    const privateKey = process.env.FIREBASE_PRIVATE_KEY
+      .replace(/\\n/g, '\n')
+      .replace(/^["']|["']$/g, '')
+      .trim();
+
+    if (!getApps().length) {
+      initializeApp({
+        credential: cert({
+          projectId: process.env.FIREBASE_PROJECT_ID,
+          privateKey,
+          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        }),
+      });
+    }
+    firebaseInitialised = true;
+    console.log('✅ Firebase Admin SDK initialised');
+  } catch (error) {
+    console.error('❌ Firebase initialisation failed:', error.message);
+  }
+} else {
+  console.warn('⚠️  FIREBASE_PRIVATE_KEY not set — mobile push notifications disabled');
+}
+
+// ── Resend email client ─────────────────────────────────────────────────────
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Sends a push notification to a user on all of their active devices.
+ * Handles web (VAPID) and mobile (FCM) automatically.
+ */
+export const sendPushNotification = async (userId, title, body, data = {}) => {
+  try {
+    const user = await User.findById(userId).select(
+      'pushTokens notificationPreferences'
+    );
+    if (!user) return false;
+
+    // Global push enabled?
+    if (!user.notificationPreferences?.push?.enabled) return false;
+
+    const tokens = user.pushTokens?.filter(t => t.isActive) || [];
+    if (tokens.length === 0) return false;
+
+    let sentCount = 0;
+
+    for (const tokenRecord of tokens) {
+      try {
+        if (
+          tokenRecord.deviceType === 'web' &&
+          tokenRecord.subscription
+        ) {
+          // ── Web push ──────────────────────────────────────────
+          await webpush.sendNotification(
+            tokenRecord.subscription,
+            JSON.stringify({
+              title,
+              body,
+              icon: '/icon.png',          // adjust to your app icon
+              badge: '/badge.png',
+              data,
+              vibrate: [200, 100, 200],
+              requireInteraction: true,
+            })
+          );
+          sentCount++;
+        } else if (
+          ['ios', 'android'].includes(tokenRecord.deviceType) &&
+          tokenRecord.token
+        ) {
+          // ── Firebase (mobile) ─────────────────────────────────
+          if (firebaseInitialised) {
+            const message = {
+              notification: { title, body },
+              data: Object.fromEntries(
+                Object.entries(data).map(([k, v]) => [k, String(v)])
+              ),
+              token: tokenRecord.token,
+            };
+            await getMessaging().send(message);
+            sentCount++;
+          }
+        }
+      } catch (error) {
+        console.error(
+          `Push failed for ${tokenRecord.deviceType}:`,
+          error.message
+        );
+        // Mark invalid tokens as inactive
+        if (error.statusCode === 410 || error.statusCode === 404) {
+          tokenRecord.isActive = false;
+          await user.save();
+        }
+      }
+    }
+
+    return sentCount > 0;
+  } catch (error) {
+    console.error('sendPushNotification error:', error);
+    return false;
+  }
+};
+
+/**
+ * Sends an email via Resend – does NOT check preferences here,
+ * that is done by the caller.
+ */
+export const sendEmailNotification = async (to, subject, html) => {
+  try {
+    await resend.emails.send({
+      from: process.env.EMAIL_FROM || 'noreply@yourdomain.com',
+      to,
+      subject,
+      html,
+    });
+    return true;
+  } catch (error) {
+    console.error('sendEmailNotification error:', error);
+    return false;
+  }
+};
+
+/**
+ * Master function: creates an in‑app notification,
+ * then sends push and/or email depending on user preferences.
+ */
+export const createAndSendNotification = async ({
+  recipient,
+  title,
+  body,
+  data = {},
+  sendPush = true,
+  emailEventType = null,   // key inside notificationPreferences.email
+  emailSubject = null,
+  emailHtml = null,
+}) => {
+  try {
+    // 1. Store in‑app notification
+    const notification = await Notification.create({
+      recipient,
+      title,
+      body,
+      data,
+    });
+
+    // 2. Send push (fire and forget)
+    if (sendPush) {
+      sendPushNotification(recipient, title, body, {
+        ...data,
+        notificationId: notification._id.toString(),
+      }).catch(err => console.error('Push delivery failed:', err.message));
+    }
+
+    // 3. Send email if event type provided and user has it enabled
+    if (emailEventType && emailSubject && emailHtml) {
+      const user = await User.findById(recipient).select(
+        'email notificationPreferences'
+      );
+      if (user) {
+        const emailPrefs = user.notificationPreferences?.email || {};
+        if (emailPrefs[emailEventType] === true) {
+          sendEmailNotification(user.email, emailSubject, emailHtml).catch(err =>
+            console.error('Email delivery failed:', err.message)
+          );
+        }
+      }
+    }
+
+    return notification;
+  } catch (error) {
+    console.error('❌ createAndSendNotification error:', error);
+    throw error;
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PREFERENCE ENDPOINTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const getNotificationPreferences = async (req, res) => {
+  try {
+    const user = await User.findById(req.userId).select(
+      'notificationPreferences email'
+    );
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'User not found' });
+    }
+
+    const preferences = user.notificationPreferences || {
+      email: {
+        newMessage: true,
+        taskAssignment: true,
+        taskUpdate: true,
+        projectUpdate: true,
+        teamInvite: true,
+        dailyReport: false,
+      },
+      push: {
+        enabled: false,
+        newMessage: true,
+        taskAssignment: true,
+        taskUpdate: true,
+        projectUpdate: false,
+        teamInvite: true,
+        dailyReport: false,
+      },
+    };
+
+    res.status(200).json({ success: true, data: preferences });
+  } catch (error) {
+    console.error('Get notification preferences error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching preferences',
+      error: error.message,
+    });
+  }
+};
+
+export const updateEmailNotifications = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const allowedFields = [
+      'newMessage',
+      'taskAssignment',
+      'taskUpdate',
+      'projectUpdate',
+      'teamInvite',
+      'dailyReport',
+    ];
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'User not found' });
+    }
+
+    // Ensure nested structure exists
+    if (!user.notificationPreferences) user.notificationPreferences = {};
+    if (!user.notificationPreferences.email)
+      user.notificationPreferences.email = {};
+
+    // Update only provided boolean fields
+    allowedFields.forEach(field => {
+      if (typeof req.body[field] === 'boolean') {
+        user.notificationPreferences.email[field] = req.body[field];
+      }
+    });
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Email preferences updated',
+      data: user.notificationPreferences.email,
+    });
+  } catch (error) {
+    console.error('Update email notifications error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating email preferences',
+      error: error.message,
+    });
+  }
+};
+
+export const updatePushNotifications = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const allowedFields = [
+      'enabled',
+      'newMessage',
+      'taskAssignment',
+      'taskUpdate',
+      'projectUpdate',
+      'teamInvite',
+      'dailyReport',
+    ];
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'User not found' });
+    }
+
+    if (!user.notificationPreferences) user.notificationPreferences = {};
+    if (!user.notificationPreferences.push)
+      user.notificationPreferences.push = {};
+
+    allowedFields.forEach(field => {
+      if (typeof req.body[field] === 'boolean') {
+        user.notificationPreferences.push[field] = req.body[field];
+      }
+    });
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Push preferences updated',
+      data: user.notificationPreferences.push,
+    });
+  } catch (error) {
+    console.error('Update push notifications error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating push preferences',
+      error: error.message,
+    });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DEVICE TOKEN REGISTRATION (web + mobile)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const registerPushSubscription = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { subscription, deviceType } = req.body; // web push: subscription object
+
+    if (!subscription || !subscription.endpoint) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid push subscription with endpoint is required',
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (!user.pushTokens) user.pushTokens = [];
+
+    const tokenData = {
+      token: subscription.endpoint,
+      deviceType: deviceType || 'web',
+      subscription,
+      isActive: true,
+      lastUsed: new Date(),
+    };
+
+    const existingIndex = user.pushTokens.findIndex(
+      t => t.token === subscription.endpoint
+    );
+
+    if (existingIndex >= 0) {
+      user.pushTokens[existingIndex] = {
+        ...user.pushTokens[existingIndex],
+        ...tokenData,
+      };
+    } else {
+      user.pushTokens.push({ ...tokenData, createdAt: new Date() });
+    }
+
+    // Auto‑enable push
+    if (!user.notificationPreferences) user.notificationPreferences = {};
+    if (!user.notificationPreferences.push)
+      user.notificationPreferences.push = {};
+    user.notificationPreferences.push.enabled = true;
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Web push subscription registered',
+    });
+  } catch (error) {
+    console.error('Register push subscription error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error registering web push',
+      error: error.message,
+    });
+  }
+};
+
+export const registerMobileToken = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { fcmToken, deviceType, platform, action } = req.body;
+
+    if (!fcmToken) {
+      return res.status(400).json({
+        success: false,
+        message: 'FCM token is required',
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Unsubscribe
+    if (action === 'unsubscribe') {
+      const tokenIndex = user.pushTokens?.findIndex(t => t.token === fcmToken);
+      if (tokenIndex !== -1) {
+        user.pushTokens[tokenIndex].isActive = false;
+        await user.save();
+      }
+      return res
+        .status(200)
+        .json({ success: true, message: 'Mobile token unregistered' });
+    }
+
+    if (!user.pushTokens) user.pushTokens = [];
+
+    const tokenData = {
+      token: fcmToken,
+      deviceType: deviceType || 'android',
+      platform: platform || 'capacitor',
+      isActive: true,
+      lastUsed: new Date(),
+    };
+
+    const existingIndex = user.pushTokens.findIndex(t => t.token === fcmToken);
+    if (existingIndex >= 0) {
+      user.pushTokens[existingIndex] = {
+        ...user.pushTokens[existingIndex],
+        ...tokenData,
+      };
+    } else {
+      user.pushTokens.push({ ...tokenData, createdAt: new Date() });
+    }
+
+    // Auto‑enable push if not already on
+    if (!user.notificationPreferences) user.notificationPreferences = {};
+    if (!user.notificationPreferences.push)
+      user.notificationPreferences.push = {};
+    if (!user.notificationPreferences.push.enabled) {
+      user.notificationPreferences.push.enabled = true;
+    }
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Mobile token registered',
+      data: { deviceType, platform, isActive: true },
+    });
+  } catch (error) {
+    console.error('Register mobile token error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error registering mobile token',
+      error: error.message,
+    });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEST ENDPOINTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const sendTestPush = async (req, res) => {
+  try {
+    const success = await sendPushNotification(
+      req.userId,
+      'Test Notification',
+      'This is a test push notification!',
+      { type: 'test', timestamp: Date.now().toString() }
+    );
+
+    if (success) {
+      res.status(200).json({ success: true, message: 'Test push sent' });
+    } else {
+      res.status(400).json({
+        success: false,
+        message: 'No active push subscriptions found',
+      });
+    }
+  } catch (error) {
+    console.error('Send test push error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error sending test push',
+      error: error.message,
+    });
+  }
+};
+
+export const sendTestEmail = async (req, res) => {
+  try {
+    const user = await User.findById(req.userId).select('email name');
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'User not found' });
+    }
+
+    const subject = 'Test Email from Your App';
+    const html = `
+      <h2>Test Notification</h2>
+      <p>Hello ${user.name},</p>
+      <p>This is a test email to confirm your email notifications are working.</p>
+      <hr />
+      <p style="color:#666;">Your App Name</p>
+    `;
+
+    const sent = await sendEmailNotification(user.email, subject, html);
+    if (sent) {
+      res.status(200).json({ success: true, message: 'Test email sent' });
+    } else {
+      res
+        .status(500)
+        .json({ success: false, message: 'Failed to send test email' });
+    }
+  } catch (error) {
+    console.error('Send test email error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error sending test email',
+      error: error.message,
+    });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VAPID PUBLIC KEY (for web push setup)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const getVapidPublicKey = async (req, res) => {
+  try {
+    res.status(200).json({
+      success: true,
+      data: { publicKey: process.env.VAPID_PUBLIC_KEY },
+    });
+  } catch (error) {
+    console.error('Get VAPID key error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error getting VAPID public key',
+      error: error.message,
+    });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// IN‑APP NOTIFICATION HISTORY
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const getUserNotifications = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { page = 1, limit = 20, unreadOnly } = req.query;
+
+    const query = { recipient: userId };
+    if (unreadOnly === 'true') query.read = false;
+
+    const notifications = await Notification.find(query)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit))
+      .lean();
+
+    const total = await Notification.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      notifications,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const markNotificationRead = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { id } = req.params;
+
+    const notification = await Notification.findOneAndUpdate(
+      { _id: id, recipient: userId },
+      { read: true },
+      { new: true }
+    );
+
+    if (!notification) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'Notification not found' });
+    }
+
+    res.status(200).json({ success: true, notification });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const markAllNotificationsRead = async (req, res) => {
+  try {
+    const userId = req.userId;
+    await Notification.updateMany(
+      { recipient: userId, read: false },
+      { read: true }
+    );
+
+    res
+      .status(200)
+      .json({ success: true, message: 'All notifications marked as read' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
