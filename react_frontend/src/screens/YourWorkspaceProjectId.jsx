@@ -1,4 +1,4 @@
-// src/workspaceScreens/YourWorkspaceProjectId.jsx
+// src/workspaceScreens/MyWorkspaceProjectId.jsx
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
@@ -17,20 +17,20 @@ import {
   useUpdateTaskProgressMutation,
   useApproveTaskCompletionMutation,
   useGetTaskFeedbackQuery,
-  useReviewTaskProgressMutation,   // ← required for inline review actions
+  useReviewTaskProgressMutation,
 } from '../slices/taskApiSlice';
-import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
-import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
+import MyWorkspaceSidebar from '../workspaceComponents/MyWorkspaceSidebar';
+import MyWorkspaceBottombar from '../workspaceComponents/MyWorkspaceBottombar';
 import {
   FaArrowLeft, FaFolder, FaUsers, FaTasks, FaCheckCircle, FaClock,
   FaCalendarAlt, FaChartLine, FaUserCheck, FaPlus, FaTimes, FaEllipsisV,
   FaEdit, FaTrashAlt, FaUserPlus, FaUserMinus, FaCrown, FaCheck,
-  FaSpinner, FaUser, FaFlag, FaFire, FaAngleDown, FaLink,
-  FaPercent, FaHistory, FaCommentDots, FaSearch,
+  FaSpinner, FaUser, FaFlag, FaFire, FaAngleDown, FaLink, FaPercent,
+  FaHistory, FaCommentDots, FaPaperclip, FaSearch, FaCheckDouble,
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
-// ──────────────────────── Helpers ────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────
 const formatDate = (date) => {
   if (!date) return 'N/A';
   return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -40,7 +40,7 @@ const formatDateTime = (date) => {
   return new Date(date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
 
-// ───────────────────── Custom Dropdown ─────────────────────
+// ─── Custom Dropdown (modern minimal) ─────────────────────────────────
 const CustomDropdown = ({ options, value, onChange, placeholder, label, brandColor }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -52,13 +52,11 @@ const CustomDropdown = ({ options, value, onChange, placeholder, label, brandCol
   const selected = options.find(o => o.value === value);
   return (
     <div className="relative" ref={ref}>
-      {label && <label className="block text-sm font-medium text-gray-700 mb-1.5">{label}</label>}
+      {label && <label className="block text-xs font-medium text-gray-500 mb-1">{label}</label>}
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:border-transparent text-sm bg-white"
-        style={{ '--tw-ring-color': brandColor }}
-        onFocus={(e) => e.target.style.setProperty('--tw-ring-color', brandColor)}
+        className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-black text-sm bg-white"
       >
         <span className={selected ? 'text-gray-900' : 'text-gray-400'}>
           {selected ? selected.label : placeholder || 'Select...'}
@@ -66,14 +64,13 @@ const CustomDropdown = ({ options, value, onChange, placeholder, label, brandCol
         <FaAngleDown className={`text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg overflow-hidden max-h-60 overflow-y-auto">
           {options.map(o => (
             <button
               key={o.value}
               type="button"
               onClick={() => { onChange(o.value); setOpen(false); }}
-              className={`w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-gray-50 transition text-left ${o.value === value ? 'bg-gray-50' : ''}`}
-              style={o.value === value ? { backgroundColor: `${brandColor}10`, color: brandColor } : {}}
+              className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 transition text-left ${o.value === value ? 'bg-gray-50' : ''}`}
             >
               {o.icon && <span className="text-gray-400">{o.icon}</span>}
               <span>{o.label}</span>
@@ -86,7 +83,7 @@ const CustomDropdown = ({ options, value, onChange, placeholder, label, brandCol
   );
 };
 
-// ───────────────────── Badges ─────────────────────
+// ─── Badges ────────────────────────────────────────────────────────────
 const priorityOptions = [
   { value: 'low', label: 'Low', icon: <FaFlag className="text-blue-400" /> },
   { value: 'medium', label: 'Medium', icon: <FaFlag className="text-yellow-400" /> },
@@ -122,7 +119,7 @@ const TaskPriorityBadge = ({ priority }) => {
   return <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full ${p.color}`}>{p.label}</span>;
 };
 
-// ─────────────────── Task List Item ───────────────────
+// ─── Task List Item (clean, flat) ─────────────────────────────────────
 const TaskListItem = ({ task, isActive, onClick, brandColor }) => {
   const progress = task.progress || 0;
   const lastActivity =
@@ -132,9 +129,7 @@ const TaskListItem = ({ task, isActive, onClick, brandColor }) => {
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition text-left border-b border-gray-100 ${
-        isActive ? 'bg-gray-100' : ''
-      }`}
+      className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition text-left ${isActive ? 'bg-gray-100' : ''}`}
     >
       <div
         className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 text-white font-semibold text-lg"
@@ -161,283 +156,23 @@ const TaskListItem = ({ task, isActive, onClick, brandColor }) => {
   );
 };
 
-// ────────────────── Chat Bubble (with review actions) ──────────────────
-const ChatBubble = ({ message, isOwn, brandColor, canManage, onReview }) => {
-  const user = message.user || {};
-  const avatarChar = user.name ? user.name.charAt(0).toUpperCase() : '?';
-  const isPendingReview = message.type === 'progress_update' && message.approved === null;
-  const showReviewActions = canManage && isPendingReview;
-
-  return (
-    <div className={`flex gap-2 mb-4 ${isOwn ? 'flex-row-reverse' : ''}`}>
-      <div
-        className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-        style={{ backgroundColor: isOwn ? brandColor : '#CBD5E0' }}
-      >
-        {user.profile ? <img src={user.profile} className="w-full h-full rounded-full object-cover" /> : avatarChar}
-      </div>
-      <div className={`max-w-[85%] md:max-w-[75%] ${isOwn ? 'items-end' : 'items-start'}`}>
-        <div
-          className={`px-4 py-2.5 rounded-2xl shadow-sm break-words overflow-hidden ${
-            isOwn ? 'text-white rounded-br-md' : 'bg-white border border-gray-200 rounded-bl-md'
-          }`}
-          style={isOwn ? { backgroundColor: brandColor } : {}}
-        >
-          {!isOwn && <p className="text-xs font-medium text-gray-700 mb-1">{user.name || 'Unknown'}</p>}
-          <div className="flex items-center gap-1 text-xs font-medium">
-            <FaPercent className="text-[10px]" />
-            <span>Progress: {message.progress}%</span>
-          </div>
-          {message.notes && <p className="text-sm mt-1 whitespace-pre-wrap break-words">{message.notes}</p>}
-          {message.links?.length > 0 && (
-            <div className="mt-2 flex flex-col gap-1">
-              {message.links.map((l, i) => (
-                <a key={i} href={l} target="_blank" className="text-xs underline break-all" style={{ color: isOwn ? 'white' : brandColor }}>{l}</a>
-              ))}
-            </div>
-          )}
-          {message.attachments?.length > 0 && (
-            <div className="mt-2 flex flex-col gap-1">
-              {message.attachments.map((att, i) => (
-                <a key={i} href={att.url} target="_blank" className="text-xs underline break-all" style={{ color: isOwn ? 'white' : brandColor }}>{att.name || att.url}</a>
-              ))}
-            </div>
-          )}
-          <span className="text-[10px] mt-1.5 block opacity-70 text-right">{formatDateTime(message.createdAt)}</span>
-        </div>
-
-        {/* Inline review buttons */}
-        {showReviewActions && (
-          <div className="mt-2 flex gap-2 justify-end">
-            <button
-              onClick={() => onReview(message._id, true)}
-              className="px-3 py-1 bg-green-500 hover:bg-green-600 text-white text-xs rounded-lg transition"
-            >
-              Confirm
-            </button>
-            <button
-              onClick={() => onReview(message._id, false)}
-              className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded-lg transition"
-            >
-              Not Satisfied
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// ────────────────── Task Detail View ──────────────────
-const TaskDetailView = ({
-  task,
-  brandColor,
-  feedbackData,
-  isLoading,
-  userInfo,
-  onBack,
-  onEdit,
-  onDelete,
-  onUpdateProgress,
-  onApproveCompletion,
-  canManage,
-}) => {
-  const feedbackList = feedbackData?.feedback || [];
-  const isAssignee = task.assignee?._id === userInfo?._id;
-  const [showMenu, setShowMenu] = useState(false);
-
-  // Review flow states
-  const [reviewItemId, setReviewItemId] = useState(null);
-  const [reviewAction, setReviewAction] = useState(null); // true = confirm, false = not satisfied
-  const [reviewMessage, setReviewMessage] = useState('');
-  const [reviewSubmitting, setReviewSubmitting] = useState(false);
-  const [reviewTaskProgress] = useReviewTaskProgressMutation();
-
-  const handleStartReview = (itemId, approved) => {
-    setReviewItemId(itemId);
-    setReviewAction(approved);
-    setReviewMessage('');
-  };
-
-  const handleSubmitReview = async () => {
-    setReviewSubmitting(true);
-    try {
-      await reviewTaskProgress({
-        taskId: task._id,
-        approved: reviewAction,
-        feedback: reviewMessage.trim(),
-      }).unwrap();
-      toast.success(reviewAction ? 'Progress confirmed' : 'Progress rejected');
-      setReviewItemId(null);
-      setReviewAction(null);
-      setReviewMessage('');
-      // RTK Query tag invalidation will refetch feedback automatically
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to review');
-    } finally {
-      setReviewSubmitting(false);
-    }
-  };
-
-  const cancelReview = () => {
-    setReviewItemId(null);
-    setReviewAction(null);
-    setReviewMessage('');
-  };
-
-  return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 bg-teal-600 text-white flex-shrink-0 sticky top-0 z-10">
-        <button onClick={onBack} className="p-1 md:hidden"><FaArrowLeft /></button>
-        <div className="w-8 h-8 rounded-full flex items-center justify-center bg-white/20 font-bold text-lg">
-          {task.title.charAt(0).toUpperCase()}
-        </div>
-        <div className="flex-1 min-w-0">
-          <h2 className="text-sm font-semibold truncate">{task.title}</h2>
-          <div className="flex items-center gap-1.5 text-xs text-white/80">
-            <TaskStatusBadge status={task.status} />
-            <TaskPriorityBadge priority={task.priority} />
-            {task.assignee && <span className="truncate">{task.assignee.name}</span>}
-          </div>
-        </div>
-        {canManage && (
-          <button onClick={() => setShowMenu(!showMenu)} className="p-1.5">
-            <FaEllipsisV className="text-sm" />
-          </button>
-        )}
-        {showMenu && (
-          <div className="absolute right-4 top-12 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[140px] z-20 py-1 text-gray-700">
-            {canManage && (
-              <button
-                onClick={() => { setShowMenu(false); onApproveCompletion(task); }}
-                className="flex items-center gap-2 px-4 py-1.5 text-sm text-green-600 hover:bg-green-50 w-full"
-              >
-                <FaCheckCircle className="text-xs" /> Approve
-              </button>
-            )}
-            <button
-              onClick={() => { setShowMenu(false); onEdit(task); }}
-              className="flex items-center gap-2 px-4 py-1.5 text-sm text-blue-600 hover:bg-blue-50 w-full"
-            >
-              <FaEdit className="text-xs" /> Edit
-            </button>
-            {canManage && (
-              <button
-                onClick={() => { setShowMenu(false); onDelete(task._id); }}
-                className="flex items-center gap-2 px-4 py-1.5 text-sm text-red-600 hover:bg-red-50 w-full"
-              >
-                <FaTrashAlt className="text-xs" /> Delete
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Chat area */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 bg-[#efeae2]">
-        {isLoading ? (
-          <div className="flex justify-center py-8">
-            <div className="w-6 h-6 border-4 border-t-transparent rounded-full animate-spin" style={{ borderTopColor: brandColor }} />
-          </div>
-        ) : feedbackList.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400">
-            <FaCommentDots className="text-4xl mb-2 opacity-30" />
-            <p className="text-sm">No feedback yet</p>
-          </div>
-        ) : (
-          feedbackList.map((item, idx) => {
-            const isOwn = item.user?._id === userInfo?._id;
-            const isReviewingThis = reviewItemId === item._id;
-
-            return (
-              <div key={idx}>
-                <ChatBubble
-                  message={item}
-                  isOwn={isOwn}
-                  brandColor={brandColor}
-                  canManage={canManage}
-                  onReview={(itemId, approved) => handleStartReview(itemId, approved)}
-                />
-                {isReviewingThis && (
-                  <div className="mt-1 ml-10 mr-2 bg-white p-3 rounded-xl border shadow-sm">
-                    <textarea
-                      value={reviewMessage}
-                      onChange={(e) => setReviewMessage(e.target.value)}
-                      placeholder="Add optional message..."
-                      rows={2}
-                      className="w-full px-2 py-1 border rounded text-xs resize-none mb-2"
-                    />
-                    <div className="flex gap-2 justify-end">
-                      <button
-                        onClick={handleSubmitReview}
-                        disabled={reviewSubmitting}
-                        className={`px-3 py-1 text-white text-xs rounded-lg transition ${
-                          reviewAction ? 'bg-green-500 hover:bg-green-600' : 'bg-red-500 hover:bg-red-600'
-                        }`}
-                      >
-                        {reviewSubmitting ? '...' : reviewAction ? 'Confirm' : 'Not Satisfied'}
-                      </button>
-                      <button
-                        onClick={cancelReview}
-                        className="px-3 py-1 bg-gray-300 hover:bg-gray-400 text-gray-700 text-xs rounded-lg transition"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
-      </div>
-
-      {/* Bottom action – only for assignee and not completed */}
-      {isAssignee && task.status !== 'completed' && (
-        <div className="border-t bg-white px-3 py-2 flex-shrink-0 sticky bottom-0">
-          <button
-            onClick={() => onUpdateProgress(task)}
-            className="w-full py-2 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-1.5"
-            style={{ backgroundColor: brandColor }}
-          >
-            <FaChartLine className="text-sm" /> Update Progress
-          </button>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ────────────────── Search Modal ──────────────────
-const SearchModal = ({ isOpen, onClose, items, type, brandColor, workspaceId, projectId, onSelect }) => {
+// ─── Search Modal (modern full-screen) ────────────────────────────────
+const SearchModal = ({ isOpen, onClose, items, type, brandColor, onSelect }) => {
   const [query, setQuery] = useState('');
   if (!isOpen) return null;
-
   const filtered = items.filter(item => {
-    if (type === 'tasks') {
-      return item.title?.toLowerCase().includes(query.toLowerCase());
-    } else {
-      const user = item.user || item;
-      return (user.name || '').toLowerCase().includes(query.toLowerCase()) ||
-             (user.email || '').toLowerCase().includes(query.toLowerCase());
-    }
+    if (type === 'tasks') return item.title?.toLowerCase().includes(query.toLowerCase());
+    const user = item.user || item;
+    return (user.name || '').toLowerCase().includes(query.toLowerCase()) ||
+           (user.email || '').toLowerCase().includes(query.toLowerCase());
   });
-
   return (
     <div className="fixed inset-0 z-50 bg-white flex flex-col">
       <div className="flex items-center gap-3 px-4 h-14 border-b border-gray-100">
         <button onClick={onClose} className="p-1"><FaArrowLeft className="text-gray-600" /></button>
         <div className="flex-1 bg-gray-100 rounded-full px-4 py-2 flex items-center gap-2">
           <FaSearch className="text-gray-400 text-xs" />
-          <input
-            type="text"
-            placeholder={type === 'tasks' ? 'Search tasks...' : 'Search members...'}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="bg-transparent w-full outline-none text-sm"
-            autoFocus
-          />
+          <input type="text" placeholder={type === 'tasks' ? 'Search tasks...' : 'Search members...'} value={query} onChange={(e) => setQuery(e.target.value)} className="bg-transparent w-full outline-none text-sm" autoFocus />
           {query && <button onClick={() => setQuery('')}><FaTimes className="text-gray-400 text-xs" /></button>}
         </div>
       </div>
@@ -456,20 +191,10 @@ const SearchModal = ({ isOpen, onClose, items, type, brandColor, workspaceId, pr
         {query && filtered.length > 0 && (
           <div className="divide-y divide-gray-100">
             {filtered.map(item => (
-              <div
-                key={item._id || (item.user?._id)}
-                onClick={() => {
-                  onSelect(type === 'tasks' ? item._id : (item.user || item)._id);
-                  onClose();
-                }}
-                className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition cursor-pointer"
-              >
+              <div key={item._id || (item.user?._id)} onClick={() => { onSelect(type === 'tasks' ? item._id : (item.user || item)._id); onClose(); }} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition cursor-pointer">
                 {type === 'tasks' ? (
                   <>
-                    <div
-                      className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold"
-                      style={{ backgroundColor: brandColor }}
-                    >
+                    <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold" style={{ backgroundColor: brandColor }}>
                       {item.title.charAt(0).toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -484,16 +209,11 @@ const SearchModal = ({ isOpen, onClose, items, type, brandColor, workspaceId, pr
                   <>
                     <div className="relative flex-shrink-0">
                       {(item.user?.profile && <img src={item.user.profile} className="w-10 h-10 rounded-full object-cover" />) || (
-                        <div
-                          className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
-                          style={{ backgroundColor: brandColor }}
-                        >
+                        <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold" style={{ backgroundColor: brandColor }}>
                           {(item.user?.name || '?').charAt(0).toUpperCase()}
                         </div>
                       )}
-                      {item.status === 'active' && (
-                        <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white" />
-                      )}
+                      {item.status === 'active' && <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white" />}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-900 truncate">{item.user?.name || 'Unknown'}</p>
@@ -510,7 +230,227 @@ const SearchModal = ({ isOpen, onClose, items, type, brandColor, workspaceId, pr
   );
 };
 
-// ────────────────── Create Task Modal ──────────────────
+// ─── Task Detail View (modern, flat WhatsApp style) ──────────────────
+const TaskDetailView = ({
+  task,
+  brandColor,
+  feedbackData,
+  isLoading,
+  userInfo,
+  onBack,
+  onEdit,
+  onDelete,
+  onUpdateProgress,
+  onApproveCompletion,
+  canManage,
+}) => {
+  const feedbackList = feedbackData?.feedback || [];
+  // Oldest first, newest last
+  const displayedFeedback = useMemo(() => [...feedbackList].reverse(), [feedbackList]);
+  const isAssignee = task.assignee?._id === userInfo?._id;
+  const [showMenu, setShowMenu] = useState(false);
+  const bottomRef = useRef(null);
+
+  // Auto-scroll to latest message when new feedback arrives
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [feedbackList]);
+
+  // Review state – manages which feedback item is currently being reviewed
+  const [reviewingItemId, setReviewingItemId] = useState(null);
+  const [reviewMessage, setReviewMessage] = useState('');
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewTaskProgress] = useReviewTaskProgressMutation();
+
+  const handleSubmitReview = async (approved) => {
+    setReviewSubmitting(true);
+    try {
+      await reviewTaskProgress({
+        taskId: task._id,
+        approved,
+        feedback: reviewMessage.trim(),
+      }).unwrap();
+      toast.success(approved ? 'Progress confirmed' : 'Progress rejected');
+      setReviewingItemId(null);
+      setReviewMessage('');
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to review');
+    } finally {
+      setReviewSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="flex items-center gap-3 px-4 py-3 bg-teal-600 text-white flex-shrink-0 sticky top-0 z-10">
+        <button onClick={onBack} className="p-1 md:hidden"><FaArrowLeft /></button>
+        <div className="w-8 h-8 rounded-full flex items-center justify-center bg-white/20 font-bold text-lg">
+          {task.title.charAt(0).toUpperCase()}
+        </div>
+        <div className="flex-1 min-w-0">
+          <h2 className="text-sm font-semibold truncate">{task.title}</h2>
+          <div className="flex items-center gap-1.5 text-xs text-white/80">
+            <TaskStatusBadge status={task.status} />
+            <TaskPriorityBadge priority={task.priority} />
+            {task.assignee && <span className="truncate">{task.assignee.name}</span>}
+          </div>
+        </div>
+        <button onClick={() => setShowMenu(!showMenu)} className="p-1.5">
+          <FaEllipsisV className="text-sm" />
+        </button>
+        {showMenu && (
+          <div className="absolute right-4 top-12 bg-white rounded-lg border border-gray-200 min-w-[140px] z-20 py-1 text-gray-700">
+            {canManage && (
+              <button onClick={() => { setShowMenu(false); onApproveCompletion(task); }} className="flex items-center gap-2 px-4 py-1.5 text-sm text-green-600 hover:bg-green-50 w-full">
+                <FaCheckCircle className="text-xs" /> Approve
+              </button>
+            )}
+            <button onClick={() => { setShowMenu(false); onEdit(task); }} className="flex items-center gap-2 px-4 py-1.5 text-sm text-blue-600 hover:bg-blue-50 w-full">
+              <FaEdit className="text-xs" /> Edit
+            </button>
+            {canManage && (
+              <button onClick={() => { setShowMenu(false); onDelete(task._id); }} className="flex items-center gap-2 px-4 py-1.5 text-sm text-red-600 hover:bg-red-50 w-full">
+                <FaTrashAlt className="text-xs" /> Delete
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Chat area */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 bg-[#efeae2]">
+        {isLoading ? (
+          <div className="flex justify-center py-8">
+            <div className="w-6 h-6 border-4 border-t-transparent rounded-full animate-spin" style={{ borderTopColor: brandColor }} />
+          </div>
+        ) : displayedFeedback.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400">
+            <FaCommentDots className="text-4xl mb-2 opacity-30" />
+            <p className="text-sm">No feedback yet</p>
+          </div>
+        ) : (
+          displayedFeedback.map((item, idx) => {
+            const isOwn = item.user?._id === userInfo?._id;
+            // Show review icon only if the feedback is a pending progress_update
+            const isPendingReview = item.type === 'progress_update' && item.approved === null;
+            const showReviewTrigger = canManage && isPendingReview;
+            const isReviewing = reviewingItemId === item._id;
+
+            return (
+              <div key={idx} className={`flex gap-2 mb-4 ${isOwn ? 'flex-row-reverse' : ''}`}>
+                <div
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                  style={{ backgroundColor: isOwn ? brandColor : '#CBD5E0' }}
+                >
+                  {item.user?.profile ? (
+                    <img src={item.user.profile} className="w-full h-full rounded-full object-cover" />
+                  ) : (
+                    item.user?.name?.charAt(0).toUpperCase() || '?'
+                  )}
+                </div>
+                <div className={`max-w-[85%] md:max-w-[75%] ${isOwn ? 'items-end' : 'items-start'}`}>
+                  {/* Flat bubble – no shadow, small radius */}
+                  <div
+                    className={`px-4 py-2.5 rounded-xl break-words overflow-hidden ${
+                      isOwn ? 'text-white rounded-br-sm' : 'bg-white border border-gray-200 rounded-bl-sm'
+                    }`}
+                    style={isOwn ? { backgroundColor: brandColor } : {}}
+                  >
+                    {!isOwn && <p className="text-xs font-medium text-gray-700 mb-1">{item.user?.name || 'Unknown'}</p>}
+                    <div className="flex items-center gap-1 text-xs font-medium">
+                      <FaPercent className="text-[10px]" />
+                      <span>Progress: {item.progress}%</span>
+                    </div>
+                    {item.notes && <p className="text-sm mt-1 whitespace-pre-wrap break-words">{item.notes}</p>}
+                    {item.links?.length > 0 && (
+                      <div className="mt-2 flex flex-col gap-1">
+                        {item.links.map((l, i) => (
+                          <a key={i} href={l} target="_blank" className="text-xs underline break-all" style={{ color: isOwn ? 'white' : brandColor }}>{l}</a>
+                        ))}
+                      </div>
+                    )}
+                    {item.attachments?.length > 0 && (
+                      <div className="mt-2 flex flex-col gap-1">
+                        {item.attachments.map((att, i) => (
+                          <a key={i} href={att.url} target="_blank" className="text-xs underline break-all" style={{ color: isOwn ? 'white' : brandColor }}>{att.name || att.url}</a>
+                        ))}
+                      </div>
+                    )}
+                    <span className="text-[10px] mt-1.5 block opacity-70 text-right">{formatDateTime(item.createdAt)}</span>
+                  </div>
+
+                  {/* Review trigger (small icon) for pending progress updates */}
+                  {showReviewTrigger && !isReviewing && (
+                    <button
+                      onClick={() => setReviewingItemId(item._id)}
+                      className="mt-1 p-1.5 bg-white border border-gray-200 rounded-full hover:bg-gray-50 transition"
+                      title="Review this progress update"
+                    >
+                      <FaCheckDouble className="text-xs text-gray-500" />
+                    </button>
+                  )}
+
+                  {/* Inline review form */}
+                  {isReviewing && (
+                    <div className="mt-2 bg-white border border-gray-200 rounded-xl p-3 space-y-2">
+                      <p className="text-xs text-gray-500">Review this progress update. A message is optional.</p>
+                      <textarea
+                        value={reviewMessage}
+                        onChange={(e) => setReviewMessage(e.target.value)}
+                        placeholder="Add optional message..."
+                        rows={2}
+                        className="w-full px-2 py-1 border border-gray-200 rounded text-xs resize-none"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleSubmitReview(true)}
+                          disabled={reviewSubmitting}
+                          className="flex-1 px-3 py-1 bg-green-500 hover:bg-green-600 text-white text-xs rounded-lg transition"
+                        >
+                          {reviewSubmitting ? 'Confirming...' : 'Confirm'}
+                        </button>
+                        <button
+                          onClick={() => handleSubmitReview(false)}
+                          disabled={reviewSubmitting}
+                          className="flex-1 px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded-lg transition"
+                        >
+                          {reviewSubmitting ? 'Rejecting...' : 'Not Satisfied'}
+                        </button>
+                        <button
+                          onClick={() => { setReviewingItemId(null); setReviewMessage(''); }}
+                          className="px-3 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs rounded-lg transition"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Bottom action bar – only for assignee and not completed */}
+      {isAssignee && task.status !== 'completed' && (
+        <div className="border-t bg-white px-3 py-2 flex-shrink-0 sticky bottom-0">
+          <button
+            onClick={() => onUpdateProgress(task)}
+            className="w-full py-2 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-1.5"
+            style={{ backgroundColor: brandColor }}
+          >
+            <FaChartLine className="text-sm" /> Update Progress
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Create Task Modal (modern, black outline) ────────────────────────
 const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMembers, onSuccess }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -520,6 +460,7 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
   const [dueDate, setDueDate] = useState('');
   const [estimatedHours, setEstimatedHours] = useState('');
   const [linksText, setLinksText] = useState('');
+  const [attachments, setAttachments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [createTask] = useCreateTaskMutation();
 
@@ -530,6 +471,9 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
       return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" alt="" /> : <FaUser className="text-gray-400" /> };
     })
   ];
+
+  const handleFile = (e) => { setAttachments(prev => [...prev, ...Array.from(e.target.files)]); e.target.value = ''; };
+  const removeFile = (i) => setAttachments(prev => prev.filter((_, idx) => idx !== i));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -545,8 +489,8 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
       fd.append('priority', priority);
       fd.append('estimatedHours', estimatedHours || '');
       if (dueDate) fd.append('dueDate', dueDate);
-      const links = linksText.split('\n').map(l => l.trim()).filter(Boolean);
-      links.forEach(l => fd.append('links', l));
+      linksText.split('\n').map(l => l.trim()).filter(Boolean).forEach(l => fd.append('links', l));
+      attachments.forEach(f => fd.append('attachments', f));
       await createTask(fd).unwrap();
       toast.success('Task created');
       onSuccess();
@@ -559,30 +503,40 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between mb-4"><h2 className="text-xl font-bold"><FaTasks className="inline mr-1" /> New Task</h2><button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><FaTimes /></button></div>
+      <div className="bg-white border border-gray-300 rounded-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between mb-4">
+          <h2 className="text-lg font-bold"><FaTasks className="inline mr-1" /> New Task</h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><FaTimes /></button>
+        </div>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div><label className="block text-sm font-medium mb-1.5">Title *</label><input type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full px-4 py-2 border rounded-lg text-sm" required /></div>
-          <div><label className="block text-sm font-medium mb-1.5">Description</label><textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} className="w-full px-4 py-2 border rounded-lg text-sm" /></div>
-          <div><label className="block text-sm font-medium mb-1.5">Detailed Description</label><textarea value={detailedDescription} onChange={e => setDetailedDescription(e.target.value)} rows={3} className="w-full px-4 py-2 border rounded-lg text-sm" /></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Title *</label><input type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" required /></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Description</label><textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" /></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Detailed Description</label><textarea value={detailedDescription} onChange={e => setDetailedDescription(e.target.value)} rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" /></div>
           <CustomDropdown label="Assignee" options={assigneeOpts} value={assigneeId} onChange={setAssigneeId} placeholder="Select assignee" brandColor={brandColor} />
           <div className="grid grid-cols-2 gap-3">
             <CustomDropdown label="Priority" options={priorityOptions} value={priority} onChange={setPriority} brandColor={brandColor} />
-            <div><label className="block text-sm font-medium mb-1.5">Due Date</label><input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="w-full px-4 py-2 border rounded-lg text-sm" /></div>
+            <div><label className="block text-xs font-medium text-gray-500 mb-1">Due Date</label><input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" /></div>
           </div>
-          <div><label className="block text-sm font-medium mb-1.5">Est. Hours</label><input type="number" step="0.5" value={estimatedHours} onChange={e => setEstimatedHours(e.target.value)} className="w-full px-4 py-2 border rounded-lg text-sm" /></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Est. Hours</label><input type="number" step="0.5" value={estimatedHours} onChange={e => setEstimatedHours(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" /></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1"><FaLink className="inline mr-1" /> Links (one per line)</label><textarea value={linksText} onChange={e => setLinksText(e.target.value)} rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" /></div>
           <div>
-            <label className="block text-sm font-medium mb-1.5"><FaLink className="inline mr-1" /> Links (one per line)</label>
-            <textarea value={linksText} onChange={e => setLinksText(e.target.value)} rows={3} className="w-full px-4 py-2 border rounded-lg text-sm" placeholder="Paste URLs to documents, images, etc." />
+            <label className="block text-xs font-medium text-gray-500 mb-1"><FaPaperclip className="inline mr-1" /> Attachments</label>
+            <input type="file" multiple onChange={handleFile} className="w-full text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-gray-50" />
+            {attachments.length > 0 && (
+              <div className="mt-2 space-y-1">{attachments.map((f, i) => <div key={i} className="flex justify-between bg-gray-50 rounded-lg px-3 py-1.5"><span className="text-sm truncate">{f.name}</span><button type="button" onClick={() => removeFile(i)} className="text-red-400"><FaTrashAlt className="text-xs" /></button></div>)}</div>
+            )}
           </div>
-          <div className="flex gap-3 pt-2"><button type="button" onClick={onClose} className="flex-1 py-2 border rounded-lg">Cancel</button><button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-lg" style={{ backgroundColor: brandColor }}>{loading ? 'Creating...' : 'Create Task'}</button></div>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 rounded-lg text-sm">Cancel</button>
+            <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-lg text-sm font-medium" style={{ backgroundColor: brandColor }}>{loading ? 'Creating...' : 'Create Task'}</button>
+          </div>
         </form>
       </div>
     </div>
   );
 };
 
-// ────────────────── Edit Task Modal ──────────────────
+// ─── Edit Task Modal (modern, black outline) ──────────────────────────
 const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, onSuccess }) => {
   const [title, setTitle] = useState(task?.title || '');
   const [description, setDescription] = useState(task?.description || '');
@@ -593,6 +547,8 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, o
   const [status, setStatus] = useState(task?.status || 'pending');
   const [estimatedHours, setEstimatedHours] = useState(task?.estimatedHours || '');
   const [linksText, setLinksText] = useState(task?.links?.join('\n') || '');
+  const [attachments, setAttachments] = useState([]);
+  const [existingAttachments, setExistingAttachments] = useState(task?.attachments || []);
   const [loading, setLoading] = useState(false);
   const [updateTask] = useUpdateTaskMutation();
 
@@ -603,6 +559,10 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, o
       return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" alt="" /> : <FaUser className="text-gray-400" /> };
     })
   ];
+
+  const handleFile = (e) => { setAttachments(prev => [...prev, ...Array.from(e.target.files)]); e.target.value = ''; };
+  const removeNew = (i) => setAttachments(prev => prev.filter((_, idx) => idx !== i));
+  const removeExisting = (i) => setExistingAttachments(prev => prev.filter((_, idx) => idx !== i));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -617,8 +577,8 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, o
       fd.append('status', status);
       fd.append('estimatedHours', estimatedHours || '');
       if (dueDate) fd.append('dueDate', dueDate);
-      const links = linksText.split('\n').map(l => l.trim()).filter(Boolean);
-      links.forEach(l => fd.append('links', l));
+      linksText.split('\n').map(l => l.trim()).filter(Boolean).forEach(l => fd.append('links', l));
+      attachments.forEach(f => fd.append('attachments', f));
       await updateTask({ taskId: task._id, data: fd }).unwrap();
       toast.success('Task updated');
       onSuccess();
@@ -631,60 +591,54 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, o
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between mb-4"><h2 className="text-xl font-bold"><FaEdit className="inline mr-1" /> Edit Task</h2><button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><FaTimes /></button></div>
+      <div className="bg-white border border-gray-300 rounded-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between mb-4"><h2 className="text-lg font-bold"><FaEdit className="inline mr-1" /> Edit Task</h2><button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><FaTimes /></button></div>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div><label className="block text-sm font-medium mb-1.5">Title *</label><input type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full px-4 py-2 border rounded-lg text-sm" required /></div>
-          <div><label className="block text-sm font-medium mb-1.5">Description</label><textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} className="w-full px-4 py-2 border rounded-lg text-sm" /></div>
-          <div><label className="block text-sm font-medium mb-1.5">Detailed Description</label><textarea value={detailedDescription} onChange={e => setDetailedDescription(e.target.value)} rows={3} className="w-full px-4 py-2 border rounded-lg text-sm" /></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Title *</label><input type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" required /></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Description</label><textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" /></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Detailed Description</label><textarea value={detailedDescription} onChange={e => setDetailedDescription(e.target.value)} rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" /></div>
           <CustomDropdown label="Status" options={statusOptions} value={status} onChange={setStatus} brandColor={brandColor} />
           <CustomDropdown label="Assignee" options={assigneeOpts} value={assigneeId} onChange={setAssigneeId} brandColor={brandColor} />
           <div className="grid grid-cols-2 gap-3">
             <CustomDropdown label="Priority" options={priorityOptions} value={priority} onChange={setPriority} brandColor={brandColor} />
-            <div><label className="block text-sm font-medium mb-1.5">Due Date</label><input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="w-full px-4 py-2 border rounded-lg text-sm" /></div>
+            <div><label className="block text-xs font-medium text-gray-500 mb-1">Due Date</label><input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" /></div>
           </div>
-          <div><label className="block text-sm font-medium mb-1.5">Est. Hours</label><input type="number" step="0.5" value={estimatedHours} onChange={e => setEstimatedHours(e.target.value)} className="w-full px-4 py-2 border rounded-lg text-sm" /></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Est. Hours</label><input type="number" step="0.5" value={estimatedHours} onChange={e => setEstimatedHours(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" /></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1"><FaLink className="inline mr-1" /> Links</label><textarea value={linksText} onChange={e => setLinksText(e.target.value)} rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" /></div>
           <div>
-            <label className="block text-sm font-medium mb-1.5"><FaLink className="inline mr-1" /> Links (one per line)</label>
-            <textarea value={linksText} onChange={e => setLinksText(e.target.value)} rows={3} className="w-full px-4 py-2 border rounded-lg text-sm" placeholder="Paste URLs to documents, images, etc." />
+            <label className="block text-xs font-medium text-gray-500 mb-1"><FaPaperclip className="inline mr-1" /> Attachments</label>
+            {existingAttachments.length > 0 && (
+              <div className="mb-2 space-y-1"><p className="text-xs text-gray-400">Existing:</p>{existingAttachments.map((f, i) => <div key={i} className="flex justify-between bg-gray-50 rounded-lg px-3 py-1.5"><span className="text-sm truncate">{f.name}</span><button type="button" onClick={() => removeExisting(i)} className="text-red-400"><FaTrashAlt className="text-xs" /></button></div>)}</div>
+            )}
+            <input type="file" multiple onChange={handleFile} className="w-full text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-gray-50" />
+            {attachments.length > 0 && (
+              <div className="mt-2 space-y-1"><p className="text-xs text-gray-400">New:</p>{attachments.map((f, i) => <div key={i} className="flex justify-between bg-gray-50 rounded-lg px-3 py-1.5"><span className="text-sm truncate">{f.name}</span><button type="button" onClick={() => removeNew(i)} className="text-red-400"><FaTrashAlt className="text-xs" /></button></div>)}</div>
+            )}
           </div>
-          <div className="flex gap-3 pt-2"><button type="button" onClick={onClose} className="flex-1 py-2 border rounded-lg">Cancel</button><button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-lg" style={{ backgroundColor: brandColor }}>{loading ? 'Updating...' : 'Update Task'}</button></div>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 rounded-lg text-sm">Cancel</button>
+            <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-lg text-sm font-medium" style={{ backgroundColor: brandColor }}>{loading ? 'Updating...' : 'Update Task'}</button>
+          </div>
         </form>
       </div>
     </div>
   );
 };
 
-// ────────────────── Progress Update Modal (with file uploads) ──────────────────
+// ─── Progress Update Modal (modern) ──────────────────────────────────
 const ProgressUpdateModal = ({ isOpen, onClose, task, brandColor, onSuccess }) => {
   const [progress, setProgress] = useState(task?.progress || 0);
   const [notes, setNotes] = useState('');
   const [links, setLinks] = useState('');
-  const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [updateTaskProgress] = useUpdateTaskProgressMutation();
-  const fileInputRef = useRef(null);
-
-  const handleFileChange = (e) => { setFiles([...e.target.files]); };
-  const removeFile = (index) => { setFiles(files.filter((_, i) => i !== index)); };
 
   const submit = async (e) => {
     e.preventDefault();
     if (progress < 0 || progress > 100) { toast.error('Progress must be 0-100'); return; }
     setLoading(true);
     try {
-      const linksArr = links.split('\n').map(l => l.trim()).filter(Boolean);
-      if (files.length > 0) {
-        const formData = new FormData();
-        formData.append('taskId', task._id);
-        formData.append('progress', progress);
-        formData.append('notes', notes);
-        formData.append('links', JSON.stringify(linksArr));
-        files.forEach(file => formData.append('attachments', file));
-        await updateTaskProgress(formData).unwrap();
-      } else {
-        await updateTaskProgress({ taskId: task._id, progress, notes, links: linksArr }).unwrap();
-      }
+      await updateTaskProgress({ taskId: task._id, progress, notes, links: links.split('\n').filter(Boolean) }).unwrap();
       toast.success('Progress updated');
       onSuccess();
       onClose();
@@ -696,42 +650,15 @@ const ProgressUpdateModal = ({ isOpen, onClose, task, brandColor, onSuccess }) =
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between mb-4">
-          <h2 className="text-xl font-bold"><FaChartLine className="inline mr-1" /> Progress</h2>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><FaTimes /></button>
-        </div>
+      <div className="bg-white border border-gray-300 rounded-2xl max-w-md w-full p-6">
+        <div className="flex justify-between mb-4"><h2 className="text-lg font-bold"><FaChartLine className="inline mr-1" /> Progress</h2><button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><FaTimes /></button></div>
         <form onSubmit={submit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1.5">Progress: {progress}%</label>
-            <input
-              type="range" min="0" max="100" value={progress}
-              onChange={e => setProgress(parseInt(e.target.value))}
-              className="w-full" style={{ accentColor: brandColor }}
-            />
-          </div>
-          <div><label className="block text-sm font-medium mb-1.5">Notes</label><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} className="w-full px-4 py-2 border rounded-lg text-sm" /></div>
-          <div><label className="block text-sm font-medium mb-1.5"><FaLink className="inline mr-1" /> Links (one per line)</label><textarea value={links} onChange={e => setLinks(e.target.value)} rows={2} className="w-full px-4 py-2 border rounded-lg text-sm" /></div>
-          <div>
-            <label className="block text-sm font-medium mb-1.5">Attachments (images/documents)</label>
-            <input type="file" multiple onChange={handleFileChange} className="hidden" ref={fileInputRef} accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt" />
-            <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full py-2 border border-dashed rounded-lg text-sm text-gray-500 hover:bg-gray-50">
-              <FaPlus className="inline mr-1" /> Add files
-            </button>
-            {files.length > 0 && (
-              <ul className="mt-2 space-y-1">
-                {files.map((file, i) => (
-                  <li key={i} className="flex items-center justify-between text-xs bg-gray-100 px-2 py-1 rounded">
-                    <span className="truncate">{file.name}</span>
-                    <button type="button" onClick={() => removeFile(i)} className="text-red-400 ml-2"><FaTimes /></button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Progress: {progress}%</label><input type="range" min="0" max="100" value={progress} onChange={e => setProgress(parseInt(e.target.value))} className="w-full" style={{ accentColor: brandColor }} /></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Notes</label><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" /></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1"><FaLink className="inline mr-1" /> Links</label><textarea value={links} onChange={e => setLinks(e.target.value)} rows={2} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" /></div>
           <div className="flex gap-3">
-            <button type="button" onClick={onClose} className="flex-1 py-2 border rounded-lg">Cancel</button>
-            <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-lg" style={{ backgroundColor: brandColor }}>{loading ? 'Updating...' : 'Update Progress'}</button>
+            <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 rounded-lg text-sm">Cancel</button>
+            <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-lg text-sm font-medium" style={{ backgroundColor: brandColor }}>{loading ? 'Updating...' : 'Update Progress'}</button>
           </div>
         </form>
       </div>
@@ -739,7 +666,7 @@ const ProgressUpdateModal = ({ isOpen, onClose, task, brandColor, onSuccess }) =
   );
 };
 
-// ────────────────── Add Member Modal ──────────────────
+// ─── Add Member Modal (modern, minimal) ───────────────────────────────
 const AddMemberModal = ({ isOpen, onClose, workspace, project, brandColor, onSuccess }) => {
   const [memberId, setMemberId] = useState('');
   const [loading, setLoading] = useState(false);
@@ -769,20 +696,69 @@ const AddMemberModal = ({ isOpen, onClose, workspace, project, brandColor, onSuc
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
-        <div className="flex justify-between mb-4"><h2 className="text-xl font-bold"><FaUserPlus className="inline mr-1" /> Add Member</h2><button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><FaTimes /></button></div>
+      <div className="bg-white border border-gray-300 rounded-2xl max-w-md w-full p-6">
+        <div className="flex justify-between mb-4"><h2 className="text-lg font-bold"><FaUserPlus className="inline mr-1" /> Add Member</h2><button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><FaTimes /></button></div>
         <form onSubmit={handleSubmit}>
           <CustomDropdown label="Select Member" options={options} value={memberId} onChange={setMemberId} placeholder="Select..." brandColor={brandColor} />
           {available.length === 0 && <p className="text-xs text-gray-400 mt-1">All workspace members already in project</p>}
-          <div className="flex gap-3 mt-4"><button type="button" onClick={onClose} className="flex-1 py-2 border rounded-lg">Cancel</button><button type="submit" disabled={loading || available.length === 0} className="flex-1 py-2 text-white rounded-lg" style={{ backgroundColor: brandColor }}>{loading ? 'Adding...' : 'Add Member'}</button></div>
+          <div className="flex gap-3 mt-4">
+            <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 rounded-lg text-sm">Cancel</button>
+            <button type="submit" disabled={loading || available.length === 0} className="flex-1 py-2 text-white rounded-lg text-sm font-medium" style={{ backgroundColor: brandColor }}>{loading ? 'Adding...' : 'Add Member'}</button>
+          </div>
         </form>
       </div>
     </div>
   );
 };
 
-// ───────────────────── Main Component ─────────────────────
-const YourWorkspaceProjectId = () => {
+// ─── Feedback Modal (modern, chat-like) ──────────────────────────────
+const FeedbackModal = ({ isOpen, onClose, task, brandColor }) => {
+  const { data: feedbackData, isLoading } = useGetTaskFeedbackQuery({ taskId: task?._id }, { skip: !isOpen || !task });
+  if (!isOpen) return null;
+  const list = feedbackData?.feedback || [];
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="bg-white border border-gray-300 rounded-2xl max-w-2xl w-full p-6 max-h-[90vh] flex flex-col">
+        <div className="flex justify-between mb-4"><h2 className="text-lg font-bold"><FaHistory className="inline mr-1" /> Feedback</h2><button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><FaTimes /></button></div>
+        <div className="text-sm text-gray-500 mb-3">{task?.title}</div>
+        <div className="flex-1 overflow-y-auto pr-2">
+          {isLoading ? <div className="flex justify-center py-8"><div className="w-6 h-6 border-4 border-t-transparent rounded-full animate-spin" style={{ borderTopColor: brandColor }} /></div> :
+            list.length === 0 ? <div className="text-center py-8 text-gray-400"><FaCommentDots className="text-3xl mx-auto mb-3" /><p>No feedback yet</p></div> :
+            <div className="space-y-4">{list.map((item, idx) => (
+              <div key={idx} className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                <div className="flex justify-between items-start mb-2">
+                  <div className="flex items-center gap-2">
+                    {item.user?.profile ? <img src={item.user.profile} className="w-6 h-6 rounded-full" /> : <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: brandColor }}>{item.user?.name?.charAt(0) || '?'}</div>}
+                    <span className="text-sm font-medium">{item.user?.name || 'Unknown'}</span>
+                    <span className="text-xs text-gray-400">{formatDateTime(item.createdAt)}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${item.type === 'progress_update' ? 'bg-blue-100 text-blue-700' : item.type === 'daily_report' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>
+                      {item.type === 'progress_update' ? 'Progress' : item.type === 'daily_report' ? 'Daily Report' : 'Review'}
+                    </span>
+                    {item.approved !== undefined && <span className={`text-[10px] px-2 py-0.5 rounded-full ${item.approved ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{item.approved ? 'Approved' : 'Rejected'}</span>}
+                    {item.isLate && <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full">Late</span>}
+                  </div>
+                </div>
+                <div className="space-y-1 text-sm">
+                  <div><FaPercent className="text-xs text-gray-400 inline mr-1" /><span className="font-medium">Progress:</span> {item.progress}%</div>
+                  {item.notes && <div className="flex gap-2"><FaCommentDots className="text-xs text-gray-400 mt-0.5" /><span>{item.notes}</span></div>}
+                  {item.links?.length > 0 && <div className="flex gap-2"><FaLink className="text-xs text-gray-400 mt-0.5" /><div className="flex flex-wrap gap-1">{item.links.map((l, i) => <a key={i} href={l} target="_blank" className="text-blue-600 text-xs hover:underline">{l}</a>)}</div></div>}
+                  {item.blocks?.length > 0 && <div className="flex gap-2"><FaFire className="text-xs text-amber-400 mt-0.5" /><div className="flex flex-wrap gap-1">{item.blocks.map((b, i) => <span key={i} className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">{b}</span>)}</div></div>}
+                  {item.feedback && <div className="italic text-gray-600">“{item.feedback}”</div>}
+                  {item.reviewedBy && <div className="text-xs text-gray-400"><FaUserCheck className="inline mr-1" />Reviewed by {item.reviewedBy.name}</div>}
+                </div>
+              </div>
+            ))}</div>
+          }
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Main Component ──────────────────────────────────────────────────
+const MyWorkspaceProjectId = () => {
   const { workspaceId, projectId } = useParams();
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
@@ -798,10 +774,12 @@ const YourWorkspaceProjectId = () => {
   const [selectedTask, setSelectedTask] = useState(null);
   const [showAddMember, setShowAddMember] = useState(false);
   const [showAddManager, setShowAddManager] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [feedbackTask, setFeedbackTask] = useState(null);
 
   const { data: wData, isLoading: wLoad, error: wErr } = useGetWorkspaceQuery(workspaceId);
   const { data: pData, isLoading: pLoad, error: pErr, refetch: refetchProject } = useGetProjectByIdQuery(projectId);
-  const { data: tData, isLoading: tLoad, error: tErr, refetch: refetchTasks } = useGetProjectTasksQuery({ projectId });
+  const { data: tData, isLoading: tLoad, refetch: refetchTasks } = useGetProjectTasksQuery({ projectId });
   const { data: feedbackData, isLoading: feedbackLoading } = useGetTaskFeedbackQuery(
     { taskId: selectedTaskId },
     { skip: !selectedTaskId }
@@ -832,23 +810,17 @@ const YourWorkspaceProjectId = () => {
 
   const brandColor = workspace?.color || '#0d9488';
   const isOwner = workspace?.owner?._id === userInfo?._id || workspace?.owner === userInfo?._id;
-
-  // ✅ CORRECTED: works for both object form (populated) and plain string IDs
   const isManager = project?.projectManagers?.some(pm => {
     const id = (pm._id || pm)?.toString();
     return id === userInfo?._id;
   });
-
   const canManage = isOwner || isManager;
 
   const activeTask = useMemo(() => tasks.find(t => t._id === selectedTaskId) || null, [tasks, selectedTaskId]);
   const projectManagers = project?.projectManagers || [];
-  const projectProgress = project?.progress || 0;
+  const progress = project?.progress || 0;
 
-  useEffect(() => {
-    if (wErr || pErr || tErr) navigate(`/workspace/${workspaceId}/projects`);
-  }, [wErr, pErr, tErr, navigate, workspaceId]);
-
+  if (wErr || pErr) { navigate(`/my-workspace/${workspaceId}/projects`); return null; }
   if (wLoad || pLoad || tLoad) return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin" style={{ borderTopColor: brandColor }} />
@@ -872,7 +844,7 @@ const YourWorkspaceProjectId = () => {
     try { await removeTeamMember({ projectId, memberId: id }).unwrap(); toast.success('Removed'); refetchProject(); } catch (e) { toast.error(e?.data?.message || 'Failed'); }
   };
   const handleAddManager = async (id) => {
-    try { await manageProjectManagers({ projectId, action: 'add', managerId: id }).unwrap(); toast.success('Manager added'); refetchProject(); setShowAddManager(false); } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+    try { await manageProjectManagers({ projectId, action: 'add', managerId: id }).unwrap(); toast.success('Manager added'); refetchProject(); } catch (e) { toast.error(e?.data?.message || 'Failed'); }
   };
   const handleRemoveManager = async (id) => {
     if (!confirm('Remove manager?')) return;
@@ -900,7 +872,7 @@ const YourWorkspaceProjectId = () => {
     <div className="h-dvh bg-gray-50 flex flex-col lg:flex-row overflow-hidden">
       {/* Desktop Sidebar */}
       <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
-        <YourWorkspaceSidebar workspace={workspace} chats={[]} />
+        <MyWorkspaceSidebar workspace={workspace} chats={[]} />
       </div>
 
       {/* Main Content */}
@@ -909,14 +881,14 @@ const YourWorkspaceProjectId = () => {
         <header className="sticky top-0 z-10 bg-teal-600 text-white flex-shrink-0 shadow-sm">
           <div className="flex items-center justify-between px-4 h-14">
             <div className="flex items-center gap-3 min-w-0">
-              <button onClick={() => navigate(`/workspace/${workspaceId}/projects`)} className="p-1 lg:hidden"><FaArrowLeft /></button>
+              <button onClick={() => navigate(`/my-workspace/${workspaceId}/projects`)} className="p-1 lg:hidden"><FaArrowLeft /></button>
               <div className="flex items-center gap-2">
                 {project.coverImage ? <img src={project.coverImage} className="w-8 h-8 rounded-full object-cover" /> : (
                   <div className="w-8 h-8 rounded-full flex items-center justify-center bg-white/20 font-bold"><FaFolder className="text-sm" /></div>
                 )}
                 <div>
                   <h1 className="text-base font-semibold truncate">{project.name}</h1>
-                  <p className="text-xs text-white/80">{activeTeam.length} members · {projectProgress}% done</p>
+                  <p className="text-xs text-white/80">{activeTeam.length} members · {progress}% done</p>
                 </div>
               </div>
             </div>
@@ -1039,25 +1011,26 @@ const YourWorkspaceProjectId = () => {
       </div>
 
       {/* Bottom Navigation (mobile) */}
-      {!mobileShowDetail && <YourWorkspaceBottombar workspace={workspace} />}
+      {!mobileShowDetail && <MyWorkspaceBottombar workspace={workspace} />}
 
       {/* Modals */}
-      <SearchModal isOpen={searchModalOpen} onClose={closeSearchModal} items={searchItems} type={listView} brandColor={brandColor} workspaceId={workspaceId} projectId={projectId} onSelect={onSearchSelect} />
+      <SearchModal isOpen={searchModalOpen} onClose={closeSearchModal} items={searchItems} type={listView} brandColor={brandColor} onSelect={onSearchSelect} />
       <CreateTaskModal isOpen={showCreateTask} onClose={() => setShowCreateTask(false)} projectId={projectId} brandColor={brandColor} assignableMembers={assignableMembers} onSuccess={() => { refetchTasks(); refetchProject(); }} />
       <EditTaskModal isOpen={showEditTask} onClose={() => { setShowEditTask(false); setSelectedTask(null); }} task={selectedTask} brandColor={brandColor} assignableMembers={assignableMembers} onSuccess={() => { refetchTasks(); refetchProject(); }} />
       <ProgressUpdateModal isOpen={showProgress} onClose={() => { setShowProgress(false); setSelectedTask(null); }} task={selectedTask} brandColor={brandColor} onSuccess={() => { refetchTasks(); refetchProject(); }} />
       <AddMemberModal isOpen={showAddMember} onClose={() => setShowAddMember(false)} workspace={workspace} project={project} brandColor={brandColor} onSuccess={refetchProject} />
       {showAddManager && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6">
-            <div className="flex justify-between mb-4"><h2 className="text-xl font-bold">Add Manager</h2><button onClick={() => setShowAddManager(false)}><FaTimes /></button></div>
+          <div className="bg-white border border-gray-300 rounded-2xl max-w-md w-full p-6">
+            <div className="flex justify-between mb-4"><h2 className="text-lg font-bold">Add Manager</h2><button onClick={() => setShowAddManager(false)}><FaTimes /></button></div>
             <CustomDropdown label="Select Member" options={managerOptions} value="" onChange={(v) => { if (v) handleAddManager(v); setShowAddManager(false); }} brandColor={brandColor} />
-            <div className="flex gap-3 mt-4"><button onClick={() => setShowAddManager(false)} className="flex-1 py-2 border rounded-lg">Cancel</button></div>
+            <div className="flex gap-3 mt-4"><button onClick={() => setShowAddManager(false)} className="flex-1 py-2 border border-gray-300 rounded-lg text-sm">Cancel</button></div>
           </div>
         </div>
       )}
+      <FeedbackModal isOpen={showFeedback} onClose={() => { setShowFeedback(false); setFeedbackTask(null); }} task={feedbackTask} brandColor={brandColor} />
     </div>
   );
 };
 
-export default YourWorkspaceProjectId;
+export default MyWorkspaceProjectId;
