@@ -41,14 +41,24 @@ router.put(
 );
 router.delete('/:taskId', protect, deleteTask);
 
-// ── Assignee: submit progress (awaiting review) ──
-router.patch('/:taskId/progress', protect, updateTaskProgress);
+// ── Assignee: submit progress (with optional attachments) ──
+router.patch(
+  '/:taskId/progress',
+  protect,
+  upload.fields([{ name: 'attachments', maxCount: 10 }]), // <-- ADDED
+  updateTaskProgress
+);
 
 // ── Owner/PM: approve or reject submitted progress ──
 router.patch('/:taskId/review', protect, reviewTaskProgress);
 
 // ── Assignee: daily check-in (one per day, upserts) ──
-router.post('/:taskId/daily-report', protect, submitDailyReport);
+router.post(
+  '/:taskId/daily-report',
+  protect,
+  upload.fields([{ name: 'attachments', maxCount: 10 }]), // optional, for consistency
+  submitDailyReport
+);
 
 // ── Management actions ──
 router.patch('/:taskId/reassign', protect, reassignTask);

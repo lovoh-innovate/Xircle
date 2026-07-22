@@ -10,7 +10,7 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       query: (data) => ({
         url: TASKS_URL,
         method: 'POST',
-        body: data,
+        body: data, // FormData or plain object
       }),
       invalidatesTags: ['Task', 'Project'],
     }),
@@ -38,7 +38,7 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       query: ({ taskId, data }) => ({
         url: `${TASKS_URL}/${taskId}`,
         method: 'PUT',
-        body: data,
+        body: data, // FormData or plain object
       }),
       invalidatesTags: (result, error, { taskId }) => [
         { type: 'Task', id: taskId },
@@ -52,21 +52,34 @@ export const taskApiSlice = apiSlice.injectEndpoints({
     }),
 
     // ─── Progress workflow ───
-    // Assignee submits → goes to submittedProgress, task enters 'review' at 100
+    // Accepts both FormData (with files) and plain object (no files)
     updateTaskProgress: builder.mutation({
-      query: ({ taskId, progress, notes, links, attachments }) => ({
-        url: `${TASKS_URL}/${taskId}/progress`,
-        method: 'PATCH',
-        body: { progress, notes, links, attachments },
-      }),
-      invalidatesTags: (result, error, { taskId }) => [
-        { type: 'Task', id: taskId },
-        { type: 'Task', id: `${taskId}-feedback` },
-        'Project',
-      ],
+      query: (payload) => {
+        if (payload instanceof FormData) {
+          return {
+            url: `${TASKS_URL}/${payload.get('taskId')}/progress`,
+            method: 'PATCH',
+            body: payload,
+          };
+        }
+        // Plain object
+        return {
+          url: `${TASKS_URL}/${payload.taskId}/progress`,
+          method: 'PATCH',
+          body: payload,
+        };
+      },
+      invalidatesTags: (result, error, payload) => {
+        const taskId = payload instanceof FormData ? payload.get('taskId') : payload.taskId;
+        return [
+          { type: 'Task', id: taskId },
+          { type: 'Task', id: `${taskId}-feedback` },
+          'Project',
+        ];
+      },
     }),
 
-    // Owner/PM approves or rejects
+    // Owner/PM approves or rejects (plain JSON)
     reviewTaskProgress: builder.mutation({
       query: ({ taskId, approved, feedback, approvedProgress }) => ({
         url: `${TASKS_URL}/${taskId}/review`,
@@ -80,17 +93,29 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // Daily check-in (one per day, upserts server-side)
+    // Daily check-in (accepts FormData with files or plain object)
     submitDailyReport: builder.mutation({
-      query: ({ taskId, notes, links, blocks, progress }) => ({
-        url: `${TASKS_URL}/${taskId}/daily-report`,
-        method: 'POST',
-        body: { notes, links, blocks, progress },
-      }),
-      invalidatesTags: (result, error, { taskId }) => [
-        { type: 'Task', id: taskId },
-        { type: 'Task', id: `${taskId}-feedback` },
-      ],
+      query: (payload) => {
+        if (payload instanceof FormData) {
+          return {
+            url: `${TASKS_URL}/${payload.get('taskId')}/daily-report`,
+            method: 'POST',
+            body: payload,
+          };
+        }
+        return {
+          url: `${TASKS_URL}/${payload.taskId}/daily-report`,
+          method: 'POST',
+          body: payload,
+        };
+      },
+      invalidatesTags: (result, error, payload) => {
+        const taskId = payload instanceof FormData ? payload.get('taskId') : payload.taskId;
+        return [
+          { type: 'Task', id: taskId },
+          { type: 'Task', id: `${taskId}-feedback` },
+        ];
+      },
     }),
 
     // ─── Management ───

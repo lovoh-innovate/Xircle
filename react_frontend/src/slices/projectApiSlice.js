@@ -7,24 +7,22 @@ export const projectApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     // ─── Project CRUD ──────────────────────────────────────────────
 
-    createProject: builder.mutation({
-      query: ({ workspaceId, data }) => {
-        const isFormData = data instanceof FormData;
-        let url = PROJECTS_URL;
-        if (workspaceId) {
-          url += `?workspaceId=${workspaceId}`;
-        }
-        return {
-          url,
-          method: "POST",
-          body: data,
-          headers: isFormData
-            ? undefined
-            : { "Content-Type": "application/json" },
-        };
-      },
-      invalidatesTags: ["Project"],
-    }),
+  createProject: builder.mutation({
+  query: ({ workspaceId, data }) => {
+    const isFormData = data instanceof FormData;
+    let url = PROJECTS_URL;
+    if (workspaceId) {
+      url += `?workspaceId=${workspaceId}`;
+    }
+    return {
+      url,
+      method: "POST",
+      body: data,
+      headers: isFormData ? undefined : { "Content-Type": "application/json" },
+    };
+  },
+  invalidatesTags: ["Project"],
+}),
 
     getWorkspaceProjects: builder.query({
       query: ({ workspaceId, status, priority, projectType, assigneeId }) => ({

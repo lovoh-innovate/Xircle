@@ -17,42 +17,20 @@ import {
   useUpdateTaskProgressMutation,
   useApproveTaskCompletionMutation,
   useGetTaskFeedbackQuery,
+  useReviewTaskProgressMutation,   // ← required for inline review actions
 } from '../slices/taskApiSlice';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
 import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
 import {
-  FaArrowLeft,
-  FaFolder,
-  FaUsers,
-  FaTasks,
-  FaCheckCircle,
-  FaClock,
-  FaCalendarAlt,
-  FaChartLine,
-  FaUserCheck,
-  FaPlus,
-  FaTimes,
-  FaEllipsisV,
-  FaEdit,
-  FaTrashAlt,
-  FaUserPlus,
-  FaUserMinus,
-  FaCrown,
-  FaCheck,
-  FaSpinner,
-  FaUser,
-  FaFlag,
-  FaFire,
-  FaAngleDown,
-  FaLink,
-  FaPercent,
-  FaHistory,
-  FaCommentDots,
-  FaSearch,
+  FaArrowLeft, FaFolder, FaUsers, FaTasks, FaCheckCircle, FaClock,
+  FaCalendarAlt, FaChartLine, FaUserCheck, FaPlus, FaTimes, FaEllipsisV,
+  FaEdit, FaTrashAlt, FaUserPlus, FaUserMinus, FaCrown, FaCheck,
+  FaSpinner, FaUser, FaFlag, FaFire, FaAngleDown, FaLink,
+  FaPercent, FaHistory, FaCommentDots, FaSearch,
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
-// ─── Helpers ──────────────────────────────────────────────────────────
+// ──────────────────────── Helpers ────────────────────────
 const formatDate = (date) => {
   if (!date) return 'N/A';
   return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -62,7 +40,7 @@ const formatDateTime = (date) => {
   return new Date(date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
 
-// ─── Custom Dropdown ──────────────────────────────────────────────────
+// ───────────────────── Custom Dropdown ─────────────────────
 const CustomDropdown = ({ options, value, onChange, placeholder, label, brandColor }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -108,7 +86,7 @@ const CustomDropdown = ({ options, value, onChange, placeholder, label, brandCol
   );
 };
 
-// ─── Badges ────────────────────────────────────────────────────────────
+// ───────────────────── Badges ─────────────────────
 const priorityOptions = [
   { value: 'low', label: 'Low', icon: <FaFlag className="text-blue-400" /> },
   { value: 'medium', label: 'Medium', icon: <FaFlag className="text-yellow-400" /> },
@@ -144,7 +122,7 @@ const TaskPriorityBadge = ({ priority }) => {
   return <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full ${p.color}`}>{p.label}</span>;
 };
 
-// ─── Task List Item ────────────────────────────────────────────────────
+// ─────────────────── Task List Item ───────────────────
 const TaskListItem = ({ task, isActive, onClick, brandColor }) => {
   const progress = task.progress || 0;
   const lastActivity =
@@ -183,10 +161,13 @@ const TaskListItem = ({ task, isActive, onClick, brandColor }) => {
   );
 };
 
-// ─── Chat Bubble ────────────────────────────────────────────────────────
-const ChatBubble = ({ message, isOwn, brandColor }) => {
+// ────────────────── Chat Bubble (with review actions) ──────────────────
+const ChatBubble = ({ message, isOwn, brandColor, canManage, onReview }) => {
   const user = message.user || {};
   const avatarChar = user.name ? user.name.charAt(0).toUpperCase() : '?';
+  const isPendingReview = message.type === 'progress_update' && message.approved === null;
+  const showReviewActions = canManage && isPendingReview;
+
   return (
     <div className={`flex gap-2 mb-4 ${isOwn ? 'flex-row-reverse' : ''}`}>
       <div
@@ -211,27 +192,43 @@ const ChatBubble = ({ message, isOwn, brandColor }) => {
           {message.links?.length > 0 && (
             <div className="mt-2 flex flex-col gap-1">
               {message.links.map((l, i) => (
-                <a
-                  key={i}
-                  href={l}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs underline break-all"
-                  style={{ color: isOwn ? 'white' : brandColor }}
-                >
-                  {l}
-                </a>
+                <a key={i} href={l} target="_blank" className="text-xs underline break-all" style={{ color: isOwn ? 'white' : brandColor }}>{l}</a>
+              ))}
+            </div>
+          )}
+          {message.attachments?.length > 0 && (
+            <div className="mt-2 flex flex-col gap-1">
+              {message.attachments.map((att, i) => (
+                <a key={i} href={att.url} target="_blank" className="text-xs underline break-all" style={{ color: isOwn ? 'white' : brandColor }}>{att.name || att.url}</a>
               ))}
             </div>
           )}
           <span className="text-[10px] mt-1.5 block opacity-70 text-right">{formatDateTime(message.createdAt)}</span>
         </div>
+
+        {/* Inline review buttons */}
+        {showReviewActions && (
+          <div className="mt-2 flex gap-2 justify-end">
+            <button
+              onClick={() => onReview(message._id, true)}
+              className="px-3 py-1 bg-green-500 hover:bg-green-600 text-white text-xs rounded-lg transition"
+            >
+              Confirm
+            </button>
+            <button
+              onClick={() => onReview(message._id, false)}
+              className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded-lg transition"
+            >
+              Not Satisfied
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
 };
 
-// ─── Task Detail View ────────────────────────────────────────────────────
+// ────────────────── Task Detail View ──────────────────
 const TaskDetailView = ({
   task,
   brandColor,
@@ -248,6 +245,45 @@ const TaskDetailView = ({
   const feedbackList = feedbackData?.feedback || [];
   const isAssignee = task.assignee?._id === userInfo?._id;
   const [showMenu, setShowMenu] = useState(false);
+
+  // Review flow states
+  const [reviewItemId, setReviewItemId] = useState(null);
+  const [reviewAction, setReviewAction] = useState(null); // true = confirm, false = not satisfied
+  const [reviewMessage, setReviewMessage] = useState('');
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewTaskProgress] = useReviewTaskProgressMutation();
+
+  const handleStartReview = (itemId, approved) => {
+    setReviewItemId(itemId);
+    setReviewAction(approved);
+    setReviewMessage('');
+  };
+
+  const handleSubmitReview = async () => {
+    setReviewSubmitting(true);
+    try {
+      await reviewTaskProgress({
+        taskId: task._id,
+        approved: reviewAction,
+        feedback: reviewMessage.trim(),
+      }).unwrap();
+      toast.success(reviewAction ? 'Progress confirmed' : 'Progress rejected');
+      setReviewItemId(null);
+      setReviewAction(null);
+      setReviewMessage('');
+      // RTK Query tag invalidation will refetch feedback automatically
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to review');
+    } finally {
+      setReviewSubmitting(false);
+    }
+  };
+
+  const cancelReview = () => {
+    setReviewItemId(null);
+    setReviewAction(null);
+    setReviewMessage('');
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -310,14 +346,50 @@ const TaskDetailView = ({
             <p className="text-sm">No feedback yet</p>
           </div>
         ) : (
-          feedbackList.map((item, idx) => (
-            <ChatBubble
-              key={idx}
-              message={item}
-              isOwn={item.user?._id === userInfo?._id}
-              brandColor={brandColor}
-            />
-          ))
+          feedbackList.map((item, idx) => {
+            const isOwn = item.user?._id === userInfo?._id;
+            const isReviewingThis = reviewItemId === item._id;
+
+            return (
+              <div key={idx}>
+                <ChatBubble
+                  message={item}
+                  isOwn={isOwn}
+                  brandColor={brandColor}
+                  canManage={canManage}
+                  onReview={(itemId, approved) => handleStartReview(itemId, approved)}
+                />
+                {isReviewingThis && (
+                  <div className="mt-1 ml-10 mr-2 bg-white p-3 rounded-xl border shadow-sm">
+                    <textarea
+                      value={reviewMessage}
+                      onChange={(e) => setReviewMessage(e.target.value)}
+                      placeholder="Add optional message..."
+                      rows={2}
+                      className="w-full px-2 py-1 border rounded text-xs resize-none mb-2"
+                    />
+                    <div className="flex gap-2 justify-end">
+                      <button
+                        onClick={handleSubmitReview}
+                        disabled={reviewSubmitting}
+                        className={`px-3 py-1 text-white text-xs rounded-lg transition ${
+                          reviewAction ? 'bg-green-500 hover:bg-green-600' : 'bg-red-500 hover:bg-red-600'
+                        }`}
+                      >
+                        {reviewSubmitting ? '...' : reviewAction ? 'Confirm' : 'Not Satisfied'}
+                      </button>
+                      <button
+                        onClick={cancelReview}
+                        className="px-3 py-1 bg-gray-300 hover:bg-gray-400 text-gray-700 text-xs rounded-lg transition"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })
         )}
       </div>
 
@@ -337,7 +409,7 @@ const TaskDetailView = ({
   );
 };
 
-// ─── Search Modal ──────────────────────────────────────────────────────
+// ────────────────── Search Modal ──────────────────
 const SearchModal = ({ isOpen, onClose, items, type, brandColor, workspaceId, projectId, onSelect }) => {
   const [query, setQuery] = useState('');
   if (!isOpen) return null;
@@ -438,7 +510,7 @@ const SearchModal = ({ isOpen, onClose, items, type, brandColor, workspaceId, pr
   );
 };
 
-// ─── Modals (simplified: no file attachments, links only) ────────────────
+// ────────────────── Create Task Modal ──────────────────
 const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMembers, onSuccess }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -510,6 +582,7 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
   );
 };
 
+// ────────────────── Edit Task Modal ──────────────────
 const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, onSuccess }) => {
   const [title, setTitle] = useState(task?.title || '');
   const [description, setDescription] = useState(task?.description || '');
@@ -582,19 +655,36 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, o
   );
 };
 
+// ────────────────── Progress Update Modal (with file uploads) ──────────────────
 const ProgressUpdateModal = ({ isOpen, onClose, task, brandColor, onSuccess }) => {
   const [progress, setProgress] = useState(task?.progress || 0);
   const [notes, setNotes] = useState('');
   const [links, setLinks] = useState('');
+  const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [updateTaskProgress] = useUpdateTaskProgressMutation();
+  const fileInputRef = useRef(null);
+
+  const handleFileChange = (e) => { setFiles([...e.target.files]); };
+  const removeFile = (index) => { setFiles(files.filter((_, i) => i !== index)); };
 
   const submit = async (e) => {
     e.preventDefault();
     if (progress < 0 || progress > 100) { toast.error('Progress must be 0-100'); return; }
     setLoading(true);
     try {
-      await updateTaskProgress({ taskId: task._id, progress, notes, links: links.split('\n').filter(Boolean) }).unwrap();
+      const linksArr = links.split('\n').map(l => l.trim()).filter(Boolean);
+      if (files.length > 0) {
+        const formData = new FormData();
+        formData.append('taskId', task._id);
+        formData.append('progress', progress);
+        formData.append('notes', notes);
+        formData.append('links', JSON.stringify(linksArr));
+        files.forEach(file => formData.append('attachments', file));
+        await updateTaskProgress(formData).unwrap();
+      } else {
+        await updateTaskProgress({ taskId: task._id, progress, notes, links: linksArr }).unwrap();
+      }
       toast.success('Progress updated');
       onSuccess();
       onClose();
@@ -606,19 +696,50 @@ const ProgressUpdateModal = ({ isOpen, onClose, task, brandColor, onSuccess }) =
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
-        <div className="flex justify-between mb-4"><h2 className="text-xl font-bold"><FaChartLine className="inline mr-1" /> Progress</h2><button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><FaTimes /></button></div>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between mb-4">
+          <h2 className="text-xl font-bold"><FaChartLine className="inline mr-1" /> Progress</h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><FaTimes /></button>
+        </div>
         <form onSubmit={submit} className="space-y-4">
-          <div><label className="block text-sm font-medium mb-1.5">Progress: {progress}%</label><input type="range" min="0" max="100" value={progress} onChange={e => setProgress(parseInt(e.target.value))} className="w-full" style={{ accentColor: brandColor }} /></div>
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Progress: {progress}%</label>
+            <input
+              type="range" min="0" max="100" value={progress}
+              onChange={e => setProgress(parseInt(e.target.value))}
+              className="w-full" style={{ accentColor: brandColor }}
+            />
+          </div>
           <div><label className="block text-sm font-medium mb-1.5">Notes</label><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} className="w-full px-4 py-2 border rounded-lg text-sm" /></div>
-          <div><label className="block text-sm font-medium mb-1.5"><FaLink className="inline mr-1" /> Links</label><textarea value={links} onChange={e => setLinks(e.target.value)} rows={2} className="w-full px-4 py-2 border rounded-lg text-sm" /></div>
-          <div className="flex gap-3"><button type="button" onClick={onClose} className="flex-1 py-2 border rounded-lg">Cancel</button><button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-lg" style={{ backgroundColor: brandColor }}>{loading ? 'Updating...' : 'Update Progress'}</button></div>
+          <div><label className="block text-sm font-medium mb-1.5"><FaLink className="inline mr-1" /> Links (one per line)</label><textarea value={links} onChange={e => setLinks(e.target.value)} rows={2} className="w-full px-4 py-2 border rounded-lg text-sm" /></div>
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Attachments (images/documents)</label>
+            <input type="file" multiple onChange={handleFileChange} className="hidden" ref={fileInputRef} accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt" />
+            <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full py-2 border border-dashed rounded-lg text-sm text-gray-500 hover:bg-gray-50">
+              <FaPlus className="inline mr-1" /> Add files
+            </button>
+            {files.length > 0 && (
+              <ul className="mt-2 space-y-1">
+                {files.map((file, i) => (
+                  <li key={i} className="flex items-center justify-between text-xs bg-gray-100 px-2 py-1 rounded">
+                    <span className="truncate">{file.name}</span>
+                    <button type="button" onClick={() => removeFile(i)} className="text-red-400 ml-2"><FaTimes /></button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="flex gap-3">
+            <button type="button" onClick={onClose} className="flex-1 py-2 border rounded-lg">Cancel</button>
+            <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-lg" style={{ backgroundColor: brandColor }}>{loading ? 'Updating...' : 'Update Progress'}</button>
+          </div>
         </form>
       </div>
     </div>
   );
 };
 
+// ────────────────── Add Member Modal ──────────────────
 const AddMemberModal = ({ isOpen, onClose, workspace, project, brandColor, onSuccess }) => {
   const [memberId, setMemberId] = useState('');
   const [loading, setLoading] = useState(false);
@@ -660,7 +781,7 @@ const AddMemberModal = ({ isOpen, onClose, workspace, project, brandColor, onSuc
   );
 };
 
-// ─── Main Component ───────────────────────────────────────────────────────
+// ───────────────────── Main Component ─────────────────────
 const YourWorkspaceProjectId = () => {
   const { workspaceId, projectId } = useParams();
   const navigate = useNavigate();
@@ -711,12 +832,18 @@ const YourWorkspaceProjectId = () => {
 
   const brandColor = workspace?.color || '#0d9488';
   const isOwner = workspace?.owner?._id === userInfo?._id || workspace?.owner === userInfo?._id;
-  const isManager = project?.projectManagers?.some(pm => pm._id === userInfo?._id || pm === userInfo?._id);
+
+  // ✅ CORRECTED: works for both object form (populated) and plain string IDs
+  const isManager = project?.projectManagers?.some(pm => {
+    const id = (pm._id || pm)?.toString();
+    return id === userInfo?._id;
+  });
+
   const canManage = isOwner || isManager;
 
   const activeTask = useMemo(() => tasks.find(t => t._id === selectedTaskId) || null, [tasks, selectedTaskId]);
   const projectManagers = project?.projectManagers || [];
-  const progress = project?.progress || 0;
+  const projectProgress = project?.progress || 0;
 
   useEffect(() => {
     if (wErr || pErr || tErr) navigate(`/workspace/${workspaceId}/projects`);
@@ -731,49 +858,25 @@ const YourWorkspaceProjectId = () => {
 
   const handleDeleteTask = async (id) => {
     if (!confirm('Delete task?')) return;
-    try {
-      await deleteTask(id).unwrap();
-      toast.success('Deleted');
-      refetchTasks();
-      refetchProject();
-      if (selectedTaskId === id) { setSelectedTaskId(null); setMobileShowDetail(false); }
-    } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+    try { await deleteTask(id).unwrap(); toast.success('Deleted'); refetchTasks(); refetchProject(); if (selectedTaskId === id) { setSelectedTaskId(null); setMobileShowDetail(false); } } catch (e) { toast.error(e?.data?.message || 'Failed'); }
   };
   const handleUpdateProgress = (task) => { setSelectedTask(task); setShowProgress(true); };
   const handleApproveCompletion = async (task) => {
     if (!confirm(`Mark "${task.title}" as completed?`)) return;
-    try {
-      await approveTaskCompletion({ taskId: task._id }).unwrap();
-      toast.success('Completed');
-      refetchTasks();
-      refetchProject();
-    } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+    try { await approveTaskCompletion({ taskId: task._id }).unwrap(); toast.success('Completed'); refetchTasks(); refetchProject(); } catch (e) { toast.error(e?.data?.message || 'Failed'); }
   };
   const handleEditTask = (task) => { setSelectedTask(task); setShowEditTask(true); };
   const handleRemoveMember = async (id) => {
     if (!id) { toast.error('Invalid member ID'); return; }
     if (!confirm('Remove member?')) return;
-    try {
-      await removeTeamMember({ projectId, memberId: id }).unwrap();
-      toast.success('Removed');
-      refetchProject();
-    } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+    try { await removeTeamMember({ projectId, memberId: id }).unwrap(); toast.success('Removed'); refetchProject(); } catch (e) { toast.error(e?.data?.message || 'Failed'); }
   };
   const handleAddManager = async (id) => {
-    try {
-      await manageProjectManagers({ projectId, action: 'add', managerId: id }).unwrap();
-      toast.success('Manager added');
-      refetchProject();
-      setShowAddManager(false);
-    } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+    try { await manageProjectManagers({ projectId, action: 'add', managerId: id }).unwrap(); toast.success('Manager added'); refetchProject(); setShowAddManager(false); } catch (e) { toast.error(e?.data?.message || 'Failed'); }
   };
   const handleRemoveManager = async (id) => {
     if (!confirm('Remove manager?')) return;
-    try {
-      await manageProjectManagers({ projectId, action: 'remove', managerId: id }).unwrap();
-      toast.success('Manager removed');
-      refetchProject();
-    } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+    try { await manageProjectManagers({ projectId, action: 'remove', managerId: id }).unwrap(); toast.success('Manager removed'); refetchProject(); } catch (e) { toast.error(e?.data?.message || 'Failed'); }
   };
 
   const handleTaskClick = (taskId) => { setSelectedTaskId(taskId); setMobileShowDetail(true); };
@@ -784,10 +887,7 @@ const YourWorkspaceProjectId = () => {
 
   const searchItems = listView === 'tasks' ? tasks : activeTeam;
   const onSearchSelect = (id) => {
-    if (listView === 'tasks') {
-      handleTaskClick(id);
-    }
-    // for team members, we don't navigate
+    if (listView === 'tasks') handleTaskClick(id);
   };
 
   const availableForManager = workspace.members?.filter(m => m.status === 'active' && !projectManagers.some(pm => pm._id === (m.user?._id || m._id))) || [];
@@ -809,27 +909,21 @@ const YourWorkspaceProjectId = () => {
         <header className="sticky top-0 z-10 bg-teal-600 text-white flex-shrink-0 shadow-sm">
           <div className="flex items-center justify-between px-4 h-14">
             <div className="flex items-center gap-3 min-w-0">
-              <button onClick={() => navigate(`/workspace/${workspaceId}/projects`)} className="p-1 lg:hidden">
-                <FaArrowLeft />
-              </button>
+              <button onClick={() => navigate(`/workspace/${workspaceId}/projects`)} className="p-1 lg:hidden"><FaArrowLeft /></button>
               <div className="flex items-center gap-2">
                 {project.coverImage ? <img src={project.coverImage} className="w-8 h-8 rounded-full object-cover" /> : (
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center bg-white/20 font-bold">
-                    <FaFolder className="text-sm" />
-                  </div>
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center bg-white/20 font-bold"><FaFolder className="text-sm" /></div>
                 )}
                 <div>
                   <h1 className="text-base font-semibold truncate">{project.name}</h1>
-                  <p className="text-xs text-white/80">{activeTeam.length} members · {progress}% done</p>
+                  <p className="text-xs text-white/80">{activeTeam.length} members · {projectProgress}% done</p>
                 </div>
               </div>
             </div>
             <div className="flex items-center gap-2">
               <button onClick={openSearchModal} className="p-1"><FaSearch /></button>
               {canManage && (
-                <button onClick={() => listView === 'tasks' ? setShowCreateTask(true) : setShowAddMember(true)} className="p-1">
-                  <FaPlus />
-                </button>
+                <button onClick={() => listView === 'tasks' ? setShowCreateTask(true) : setShowAddMember(true)} className="p-1"><FaPlus /></button>
               )}
             </div>
           </div>
@@ -863,13 +957,7 @@ const YourWorkspaceProjectId = () => {
                   </div>
                 ) : (
                   tasks.map(task => (
-                    <TaskListItem
-                      key={task._id}
-                      task={task}
-                      isActive={selectedTaskId === task._id}
-                      onClick={() => handleTaskClick(task._id)}
-                      brandColor={brandColor}
-                    />
+                    <TaskListItem key={task._id} task={task} isActive={selectedTaskId === task._id} onClick={() => handleTaskClick(task._id)} brandColor={brandColor} />
                   ))
                 )
               ) : (
@@ -878,9 +966,7 @@ const YourWorkspaceProjectId = () => {
                   <div className="px-4 py-2">
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-xs font-semibold text-gray-500 uppercase"><FaCrown className="inline mr-1" /> Managers</span>
-                      {isOwner && (
-                        <button onClick={() => setShowAddManager(true)} className="text-xs text-teal-600 font-medium">Add</button>
-                      )}
+                      {isOwner && <button onClick={() => setShowAddManager(true)} className="text-xs text-teal-600 font-medium">Add</button>}
                     </div>
                     {projectManagers.map(m => (
                       <div key={m._id} className="flex items-center gap-3 py-2">
@@ -891,9 +977,7 @@ const YourWorkspaceProjectId = () => {
                           <p className="text-sm font-medium truncate">{m.name}</p>
                           <p className="text-xs text-gray-400 truncate">{m.email}</p>
                         </div>
-                        {isOwner && projectManagers.length > 1 && (
-                          <button onClick={() => handleRemoveManager(m._id)} className="p-1 text-red-400"><FaUserMinus className="text-sm" /></button>
-                        )}
+                        {isOwner && projectManagers.length > 1 && <button onClick={() => handleRemoveManager(m._id)} className="p-1 text-red-400"><FaUserMinus className="text-sm" /></button>}
                       </div>
                     ))}
                   </div>
@@ -901,9 +985,7 @@ const YourWorkspaceProjectId = () => {
                   <div className="px-4 py-2">
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-xs font-semibold text-gray-500 uppercase"><FaUsers className="inline mr-1" /> Team ({activeTeam.length})</span>
-                      {canManage && (
-                        <button onClick={() => setShowAddMember(true)} className="text-xs text-teal-600 font-medium">Add</button>
-                      )}
+                      {canManage && <button onClick={() => setShowAddMember(true)} className="text-xs text-teal-600 font-medium">Add</button>}
                     </div>
                     {activeTeam.map(m => {
                       const user = m.user || m;
@@ -917,9 +999,7 @@ const YourWorkspaceProjectId = () => {
                             <p className="text-sm font-medium truncate">{user.name || 'Unknown'}</p>
                             <p className="text-xs text-gray-400 truncate">{user.email}</p>
                           </div>
-                          {canManage && (
-                            <button onClick={() => handleRemoveMember(memberId)} className="p-1 text-red-400"><FaUserMinus className="text-sm" /></button>
-                          )}
+                          {canManage && <button onClick={() => handleRemoveMember(memberId)} className="p-1 text-red-400"><FaUserMinus className="text-sm" /></button>}
                         </div>
                       );
                     })}
@@ -962,16 +1042,7 @@ const YourWorkspaceProjectId = () => {
       {!mobileShowDetail && <YourWorkspaceBottombar workspace={workspace} />}
 
       {/* Modals */}
-      <SearchModal
-        isOpen={searchModalOpen}
-        onClose={closeSearchModal}
-        items={searchItems}
-        type={listView}
-        brandColor={brandColor}
-        workspaceId={workspaceId}
-        projectId={projectId}
-        onSelect={onSearchSelect}
-      />
+      <SearchModal isOpen={searchModalOpen} onClose={closeSearchModal} items={searchItems} type={listView} brandColor={brandColor} workspaceId={workspaceId} projectId={projectId} onSelect={onSearchSelect} />
       <CreateTaskModal isOpen={showCreateTask} onClose={() => setShowCreateTask(false)} projectId={projectId} brandColor={brandColor} assignableMembers={assignableMembers} onSuccess={() => { refetchTasks(); refetchProject(); }} />
       <EditTaskModal isOpen={showEditTask} onClose={() => { setShowEditTask(false); setSelectedTask(null); }} task={selectedTask} brandColor={brandColor} assignableMembers={assignableMembers} onSuccess={() => { refetchTasks(); refetchProject(); }} />
       <ProgressUpdateModal isOpen={showProgress} onClose={() => { setShowProgress(false); setSelectedTask(null); }} task={selectedTask} brandColor={brandColor} onSuccess={() => { refetchTasks(); refetchProject(); }} />

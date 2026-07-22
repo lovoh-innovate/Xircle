@@ -47,7 +47,7 @@ const ProjectCard = ({ project, brandColor, onDelete, onEdit }) => {
   const handleDelete = () => {
     if (
       window.confirm(
-        `Delete project "${project.name}"? This action cannot be undone.`,
+        `Delete project "${project.name}"? This action cannot be undone.`
       )
     ) {
       onDelete && onDelete(project._id);
@@ -71,7 +71,9 @@ const ProjectCard = ({ project, brandColor, onDelete, onEdit }) => {
                   {project.name}
                 </h3>
                 <span
-                  className={`text-[10px] font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${statusColors[project.status] || statusColors.planning}`}
+                  className={`text-[10px] font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${
+                    statusColors[project.status] || statusColors.planning
+                  }`}
                 >
                   {statusLabels[project.status] || "Planning"}
                 </span>
@@ -221,12 +223,93 @@ const SearchProjectsModal = ({ isOpen, onClose, projects, brandColor, workspaceI
 };
 
 /* ──────────────────────────────────────────────────
-   Create Project Modal (unchanged, but can be kept)
+   Create Project Modal (FIXED API CALL)
    ────────────────────────────────────────────────── */
 const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
-  // ... (same as before – no changes needed)
-  // For brevity I'm including only the skeleton; your existing version works
-  return null; // replace with your original CreateProjectModal component code
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [createProject] = useCreateProjectMutation();
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      toast.error("Project name is required");
+      return;
+    }
+    setLoading(true);
+    try {
+      const fd = new FormData();
+      fd.append("workspaceId", workspace._id);
+      fd.append("name", name.trim());
+      fd.append("description", description.trim());
+
+      // FIX: pass workspaceId and data as separate keys as expected by the mutation
+      await createProject({ workspaceId: workspace._id, data: fd }).unwrap();
+      toast.success("Project created!");
+      onCreated && onCreated();
+      onClose();
+    } catch (err) {
+      toast.error(err?.data?.message || "Failed to create project");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-bold">
+            <FaPlus className="inline mr-2" /> New Project
+          </h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg">
+            <FaTimes />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Project Name *</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Description</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
+            />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2 border border-gray-300 rounded-lg text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex-1 py-2 text-white rounded-lg text-sm font-medium"
+              style={{ backgroundColor: workspace?.color || "#0d9488" }}
+            >
+              {loading ? "Creating..." : "Create Project"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
 };
 
 /* ──────────────────────────────────────────────────
@@ -396,7 +479,7 @@ const MyWorkspaceProjects = () => {
         workspaceId={workspaceId}
       />
 
-      {/* Create Project Modal (keep your original) */}
+      {/* Create Project Modal */}
       {isOwner && (
         <CreateProjectModal
           workspace={workspace}

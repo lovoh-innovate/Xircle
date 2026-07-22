@@ -46,14 +46,25 @@ const parseArrayField = (value) => {
       const parsed = JSON.parse(value);
       return Array.isArray(parsed) ? parsed : [parsed];
     } catch {
-      return [value];
+      return [value]; // fallback: single string
     }
   }
   return [];
 };
 
-// Make sure a user is an active member of the project team.
-// If they're an active workspace member but not on the project yet, add them.
+// Normalize multer file objects into our attachment schema
+const normalizeAttachments = (files) => {
+  if (!files || !Array.isArray(files)) return [];
+  return files.map((file) => ({
+    name: file.originalname,
+    url: file.path,
+    publicId: file.filename || file.public_id,
+    size: file.size,
+    type: file.mimetype,
+  }));
+};
+
+// Ensure a user is an active member of the project team
 const ensureProjectMember = async (project, workspace, assigneeId) => {
   const alreadyActive = project.teamMembers.some(
     (tm) => tm.user.toString() === assigneeId && tm.status === 'active'
@@ -67,7 +78,6 @@ const ensureProjectMember = async (project, workspace, assigneeId) => {
     throw new Error('Assignee must be an active member of the workspace.');
   }
 
-  // Revive a removed membership or add fresh
   const existing = project.teamMembers.find(
     (tm) => tm.user.toString() === assigneeId
   );
@@ -86,8 +96,6 @@ const ensureProjectMember = async (project, workspace, assigneeId) => {
 };
 
 // ── Recalculate project progress from CONFIRMED task progress ──
-// Also flips `readyForCompletion` when every task is done, waiting
-// for the workspace owner to confirm project completion.
 const updateProjectProgress = async (projectId) => {
   const project = await Project.findById(projectId);
   if (!project) return;
@@ -108,7 +116,6 @@ const updateProjectProgress = async (projectId) => {
     if (project.status !== 'completed') {
       project.readyForCompletion = allDone;
       if (allDone) {
-        // stays 'in-progress' until owner confirms, but flagged
         project.status = 'in-progress';
       } else if (project.progress > 0 && project.status === 'planning') {
         project.status = 'in-progress';
@@ -123,7 +130,6 @@ const updateProjectProgress = async (projectId) => {
 // CREATE TASK  (Owner / PM only)
 // POST /api/tasks
 // ─────────────────────────────────────────────────────────────────────
-
 const createTask = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -164,48 +170,21 @@ const createTask = async (req, res) => {
       });
     }
 
-    // Assignee must be an active workspace member; auto-add to project team
     await ensureProjectMember(project, workspace, assigneeId);
 
-    // ─── Attachments ────────────────────────────────────────────────
-    let attachments = [];
-
-    // 1. Real file uploads (multer)
-    if (req.files?.attachments) {
-      for (const file of req.files.attachments) {
-        attachments.push({
-          name: file.originalname,
-          url: file.path,
-          publicId: file.filename || file.public_id,
-          size: file.size,
-          type: file.mimetype,
-        });
-      }
+    // ─── Attachments from files (multer) ─────────────────────────
+    let attachments = normalizeAttachments(req.files?.attachments);
+    if (!Array.isArray(attachments)) {
+      console.warn('❌ attachments is not an array! Raw value:', req.body.attachments);
+      attachments = [];
     }
 
-    // 2. Fallback: if client sent attachments as a JSON string (e.g. from a
-    //    text input or an older version of the frontend)
-    if (req.body.attachments && typeof req.body.attachments === 'string') {
-      try {
-        const parsed = JSON.parse(req.body.attachments);
-        if (Array.isArray(parsed)) {
-          // Expect objects with { name, url, publicId, size, type }
-          attachments = parsed;
-        }
-      } catch (e) {
-        // ignore invalid JSON – leave attachments as is
-      }
-    }
-    // Remove the field so Mongoose doesn't try to cast it again
-    delete req.body.attachments;
-
-    // ─── Normalize stages ───────────────────────────────────────────
+    // ─── Normalize stages ────────────────────────────────────────
     const normalizedStages = stages.map((s, i) => ({
       name: typeof s === 'string' ? s : s.name,
       order: typeof s === 'string' ? i + 1 : s.order ?? i + 1,
     }));
 
-    // ─── Create the task ────────────────────────────────────────────
     const task = await Task.create({
       project: projectId,
       workspace: project.workspace,
@@ -240,10 +219,8 @@ const createTask = async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────
 // GET PROJECT TASKS
-// Owner/PM → all tasks. Regular member → ONLY their own tasks.
 // GET /api/tasks/project/:projectId
 // ─────────────────────────────────────────────────────────────────────
-
 const getProjectTasks = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -270,10 +247,8 @@ const getProjectTasks = async (req, res) => {
     if (taskType) query.taskType = taskType;
 
     if (isOwner || isPM) {
-      // managers can optionally filter by assignee
       if (assigneeId) query.assignee = assigneeId;
     } else {
-      // staff see ONLY tasks assigned to them — no exceptions
       query.assignee = userId;
     }
 
@@ -290,10 +265,9 @@ const getProjectTasks = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// GET MY TASKS  (everything assigned to the logged-in user)
+// GET MY TASKS
 // GET /api/tasks/my-tasks
 // ─────────────────────────────────────────────────────────────────────
-
 const getMyTasks = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -321,7 +295,6 @@ const getMyTasks = async (req, res) => {
 // GET SINGLE TASK
 // GET /api/tasks/:taskId
 // ─────────────────────────────────────────────────────────────────────
-
 const getTaskById = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -353,10 +326,9 @@ const getTaskById = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// UPDATE TASK  (Owner / PM only — assignees cannot redefine a task)
+// UPDATE TASK  (Owner / PM only)
 // PUT /api/tasks/:taskId
 // ─────────────────────────────────────────────────────────────────────
-
 const updateTask = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -398,7 +370,6 @@ const updateTask = async (req, res) => {
     if (estimatedHours !== undefined) task.estimatedHours = estimatedHours;
     if (actualHours !== undefined) task.actualHours = actualHours;
 
-    // Status changes here are limited — completion must go through review/approve
     if (status !== undefined && !['completed'].includes(status)) {
       task.status = status;
     }
@@ -408,17 +379,14 @@ const updateTask = async (req, res) => {
       task.dependencies = parseArrayField(req.body.dependencies);
     }
 
-    // New attachments are appended
+    // Append new attachments from files (multer)
     if (req.files?.attachments) {
-      for (const file of req.files.attachments) {
-        task.attachments.push({
-          name: file.originalname,
-          url: file.path,
-          publicId: file.filename || file.public_id,
-          size: file.size,
-          type: file.mimetype,
-        });
+      let newAttachments = normalizeAttachments(req.files.attachments);
+      if (!Array.isArray(newAttachments)) {
+        console.warn('❌ attachments is not an array! Raw value:', req.body.attachments);
+        newAttachments = [];
       }
+      task.attachments.push(...newAttachments);
     }
 
     await task.save();
@@ -436,10 +404,9 @@ const updateTask = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// DELETE TASK  (Owner / PM only) — also removes its Feedback entries
+// DELETE TASK  (Owner / PM only)
 // DELETE /api/tasks/:taskId
 // ─────────────────────────────────────────────────────────────────────
-
 const deleteTask = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -462,12 +429,10 @@ const deleteTask = async (req, res) => {
 
     const projectId = task.project;
 
-    // Soft-delete the task + wipe its feedback history
     task.isDeleted = true;
     await task.save();
     await Feedback.deleteMany({ task: taskId });
 
-    // Best-effort cleanup of Cloudinary files
     for (const att of task.attachments || []) {
       if (att.publicId) {
         cloudinary.uploader.destroy(att.publicId).catch(() => {});
@@ -486,19 +451,35 @@ const deleteTask = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────
 // SUBMIT PROGRESS  (Assignee only)
 // PATCH /api/tasks/:taskId/progress
-//
-// Creates a 'progress_update' Feedback entry and stores it as
-// submittedProgress. Task.progress (the confirmed number) does NOT
-// move until a PM/owner approves via /review.
 // ─────────────────────────────────────────────────────────────────────
-
 const updateTaskProgress = async (req, res) => {
   try {
     const userId = req.user.id;
     const { taskId } = req.params;
     const { progress, notes = '' } = req.body;
     const links = parseArrayField(req.body.links);
-    const attachments = parseArrayField(req.body.attachments);
+
+    // ------------------------------------------------------------
+// SAFETY NET – never let attachments be anything other than an array
+// ------------------------------------------------------------
+let attachments = [];
+if (req.files?.attachments) {
+  attachments = normalizeAttachments(req.files.attachments);
+}
+if (!Array.isArray(attachments)) {
+  console.warn('❌ attachments is not an array! Raw value:', req.body.attachments);
+  attachments = []; // discard invalid payload
+}
+
+// 👇 ADD THIS
+console.log('typeof attachments:', typeof attachments);
+console.log('Array.isArray(attachments):', Array.isArray(attachments));
+console.log('attachments value:', attachments);
+console.log('req.files:', req.files);
+console.log('req.body.attachments:', req.body.attachments);
+console.log('Feedback schema attachments type:', Feedback.schema.path('attachments').instance);
+// ------------------------------------------------------------
+    // ------------------------------------------------------------
 
     if (progress === undefined || progress === null || progress < 0 || progress > 100) {
       return res.status(400).json({
@@ -512,7 +493,6 @@ const updateTaskProgress = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Task not found.' });
     }
 
-    // Only the assignee reports progress on their own task
     if (task.assignee?.toString() !== userId) {
       return res.status(403).json({
         success: false,
@@ -527,6 +507,7 @@ const updateTaskProgress = async (req, res) => {
       });
     }
 
+    // Create Feedback entry
     const feedback = await Feedback.create({
       task: taskId,
       user: userId,
@@ -534,10 +515,10 @@ const updateTaskProgress = async (req, res) => {
       progress,
       notes,
       links,
-      attachments,
+      attachments,       // now always a clean array
     });
 
-    // Awaiting confirmation — confirmed progress stays put
+    // Update task status
     task.submittedProgress = progress;
     task.status = progress >= 100 ? 'review' : 'in-progress';
     await task.save();
@@ -557,13 +538,7 @@ const updateTaskProgress = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────
 // REVIEW PROGRESS  (Owner / PM only)
 // PATCH /api/tasks/:taskId/review
-// body: { approved: boolean, feedback?: string, approvedProgress?: number }
-//
-// approve → confirmed progress moves to approvedProgress ?? submittedProgress
-//           (100 ⇒ task completed)
-// reject  → submittedProgress rolls back to last confirmed progress
 // ─────────────────────────────────────────────────────────────────────
-
 const reviewTaskProgress = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -632,7 +607,6 @@ const reviewTaskProgress = async (req, res) => {
         reviewedAt: new Date(),
       });
     } else {
-      // Reject: submission is thrown out, confirmed progress stays
       task.submittedProgress = task.progress;
       task.approved = false;
       if (task.status === 'review') {
@@ -673,13 +647,7 @@ const reviewTaskProgress = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────
 // DAILY CHECK-IN  (Assignee only)
 // POST /api/tasks/:taskId/daily-report
-// body: { notes, links?, blocks?, progress? }
-//
-// One report per task per user per day — submitting again the same
-// day UPDATES the existing report. If `progress` is included it is
-// treated like a progress submission (awaiting review).
 // ─────────────────────────────────────────────────────────────────────
-
 const submitDailyReport = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -687,7 +655,13 @@ const submitDailyReport = async (req, res) => {
     const { notes = '', progress } = req.body;
     const links = parseArrayField(req.body.links);
     const blocks = parseArrayField(req.body.blocks);
-    const attachments = parseArrayField(req.body.attachments);
+
+    // Safety net for attachments
+    let attachments = normalizeAttachments(req.files?.attachments);
+    if (!Array.isArray(attachments)) {
+      console.warn('❌ attachments is not an array! Raw value:', req.body.attachments);
+      attachments = [];
+    }
 
     if (!notes.trim() && blocks.length === 0) {
       return res.status(400).json({
@@ -710,14 +684,12 @@ const submitDailyReport = async (req, res) => {
 
     const project = await Project.findById(task.project);
 
-    // Late check: project.dailyReportTime "HH:mm"
     const now = new Date();
     const [h, m] = (project.dailyReportTime || '17:00').split(':').map(Number);
     const cutoff = new Date(now);
     cutoff.setHours(h || 17, m || 0, 0, 0);
     const isLate = now > cutoff;
 
-    // One report per day: find today's existing report
     const startOfDay = new Date(now);
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(now);
@@ -735,7 +707,7 @@ const submitDailyReport = async (req, res) => {
       report.links = links;
       report.blocks = blocks;
       report.attachments = attachments;
-      report.isLate = report.isLate || isLate; // once late, stays late
+      report.isLate = report.isLate || isLate;
       if (progress !== undefined && progress !== null) report.progress = progress;
       await report.save();
     } else {
@@ -752,7 +724,6 @@ const submitDailyReport = async (req, res) => {
       });
     }
 
-    // Optional: check-in can also carry a progress submission
     if (progress !== undefined && progress !== null && task.status !== 'completed') {
       task.submittedProgress = progress;
       task.status = progress >= 100 ? 'review' : 'in-progress';
@@ -775,7 +746,6 @@ const submitDailyReport = async (req, res) => {
 // REASSIGN TASK  (Owner / PM only)
 // PATCH /api/tasks/:taskId/reassign
 // ─────────────────────────────────────────────────────────────────────
-
 const reassignTask = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -810,8 +780,6 @@ const reassignTask = async (req, res) => {
       reason,
     });
     task.assignee = assigneeId;
-
-    // Fresh assignee starts from confirmed state; pending submissions are void
     task.submittedProgress = task.progress;
     if (task.status === 'review') {
       task.status = task.progress > 0 ? 'in-progress' : 'pending';
@@ -831,10 +799,9 @@ const reassignTask = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// UPDATE TASK STAGE  (Assignee / Owner / PM)
+// UPDATE TASK STAGE
 // PATCH /api/tasks/:taskId/stage
 // ─────────────────────────────────────────────────────────────────────
-
 const updateTaskStage = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -865,7 +832,6 @@ const updateTaskStage = async (req, res) => {
     if (notes) stage.notes = notes;
     if (actualHours !== undefined) task.actualHours = actualHours;
 
-    // Move pointer to next incomplete stage
     const next = task.stages
       .filter((s) => !s.completed)
       .sort((a, b) => a.order - b.order)[0];
@@ -883,9 +849,7 @@ const updateTaskStage = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────
 // APPROVE TASK COMPLETION  (Owner / PM)
 // PATCH /api/tasks/:taskId/approve
-// Kept for frontend compatibility — equivalent to a review approval at 100%.
 // ─────────────────────────────────────────────────────────────────────
-
 const approveTaskCompletion = async (req, res) => {
   req.body.approved = true;
   req.body.approvedProgress = 100;
@@ -901,10 +865,9 @@ const approveTaskCompletion = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// ADD COMMENT  (anyone who can view the task)
+// ADD COMMENT
 // POST /api/tasks/:taskId/comments
 // ─────────────────────────────────────────────────────────────────────
-
 const addComment = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -949,10 +912,9 @@ const addComment = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// GET TASK FEEDBACK  (full history: progress updates, reports, reviews)
+// GET TASK FEEDBACK
 // GET /api/tasks/:taskId/feedback?type=progress_update|daily_report|review
 // ─────────────────────────────────────────────────────────────────────
-
 const getTaskFeedback = async (req, res) => {
   try {
     const userId = req.user.id;

@@ -1,6 +1,17 @@
 // models/feedbackModel.js
 import mongoose from 'mongoose';
 
+const attachmentSchema = new mongoose.Schema(
+  {
+    name: { type: String, trim: true },
+    url: { type: String, trim: true },
+    publicId: { type: String, trim: true },
+    size: { type: Number },
+    type: { type: String, trim: true }, // wrapped explicitly to avoid Mongoose's reserved "type" key ambiguity
+  },
+  { _id: false }
+);
+
 const feedbackSchema = new mongoose.Schema(
   {
     task: {
@@ -32,15 +43,7 @@ const feedbackSchema = new mongoose.Schema(
     notes: { type: String, default: '' },
     links: { type: [String], default: [] },
     attachments: {
-      type: [
-        {
-          name: String,
-          url: String,
-          publicId: String,
-          size: Number,
-          type: String,
-        },
-      ],
+      type: [attachmentSchema],
       default: [],
     },
     // ── daily_report only ──

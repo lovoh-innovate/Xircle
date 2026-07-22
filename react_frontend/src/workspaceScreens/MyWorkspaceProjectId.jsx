@@ -17,6 +17,7 @@ import {
   useUpdateTaskProgressMutation,
   useApproveTaskCompletionMutation,
   useGetTaskFeedbackQuery,
+  useReviewTaskProgressMutation,   // <-- added
 } from '../slices/taskApiSlice';
 import MyWorkspaceSidebar from '../workspaceComponents/MyWorkspaceSidebar';
 import MyWorkspaceBottombar from '../workspaceComponents/MyWorkspaceBottombar';
@@ -315,6 +316,28 @@ const TaskDetailView = ({
   const feedbackList = feedbackData?.feedback || [];
   const isAssignee = task.assignee?._id === userInfo?._id;
   const [showMenu, setShowMenu] = useState(false);
+  const [reviewMessageId, setReviewMessageId] = useState(null);
+  const [reviewFeedback, setReviewFeedback] = useState('');
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewTaskProgress] = useReviewTaskProgressMutation();
+
+  const handleReview = async (approved, feedback) => {
+    setReviewSubmitting(true);
+    try {
+      await reviewTaskProgress({
+        taskId: task._id,
+        approved,
+        feedback: feedback || '',
+      }).unwrap();
+      toast.success(approved ? 'Progress approved' : 'Progress rejected');
+      setReviewMessageId(null);
+      setReviewFeedback('');
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to review');
+    } finally {
+      setReviewSubmitting(false);
+    }
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -377,6 +400,10 @@ const TaskDetailView = ({
         ) : (
           feedbackList.map((item, idx) => {
             const isOwn = item.user?._id === userInfo?._id;
+            const isPendingReview = item.type === 'progress_update' && item.approved === null;
+            const showReviewActions = canManage && isPendingReview;
+            const isReviewing = reviewMessageId === item._id;
+
             return (
               <div key={idx} className={`flex gap-2 mb-4 ${isOwn ? 'flex-row-reverse' : ''}`}>
                 <div
@@ -405,14 +432,79 @@ const TaskDetailView = ({
                     {item.links?.length > 0 && (
                       <div className="mt-2 flex flex-col gap-1">
                         {item.links.map((l, i) => (
-                          <a key={i} href={l} target="_blank" className="text-xs underline break-all" style={{ color: isOwn ? 'white' : brandColor }}>
-                            {l}
-                          </a>
+                          <a key={i} href={l} target="_blank" className="text-xs underline break-all" style={{ color: isOwn ? 'white' : brandColor }}>{l}</a>
+                        ))}
+                      </div>
+                    )}
+                    {item.attachments?.length > 0 && (
+                      <div className="mt-2 flex flex-col gap-1">
+                        {item.attachments.map((att, i) => (
+                          <a key={i} href={att.url} target="_blank" className="text-xs underline break-all" style={{ color: isOwn ? 'white' : brandColor }}>{att.name || att.url}</a>
                         ))}
                       </div>
                     )}
                     <span className="text-[10px] mt-1.5 block opacity-70 text-right">{formatDateTime(item.createdAt)}</span>
                   </div>
+
+                  {/* Review Actions */}
+                  {showReviewActions && (
+                    <div className="mt-2 space-y-2">
+                      {!isReviewing ? (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              setReviewMessageId(item._id);
+                              setReviewFeedback('');
+                            }}
+                            className="px-3 py-1 bg-green-500 hover:bg-green-600 text-white text-xs rounded-lg transition"
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            onClick={() => {
+                              setReviewMessageId(item._id);
+                              setReviewFeedback('');
+                            }}
+                            className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded-lg transition"
+                          >
+                            Not Satisfied
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="bg-white p-2 rounded-xl border shadow-sm">
+                          <textarea
+                            value={reviewFeedback}
+                            onChange={(e) => setReviewFeedback(e.target.value)}
+                            placeholder="Add optional message..."
+                            rows={2}
+                            className="w-full px-2 py-1 border rounded text-xs resize-none"
+                          />
+                          <div className="flex gap-2 mt-1">
+                            <button
+                              onClick={() => handleReview(true, reviewFeedback)}
+                              disabled={reviewSubmitting}
+                              className="flex-1 px-2 py-1 bg-green-500 hover:bg-green-600 text-white text-xs rounded-lg transition"
+                            >
+                              {reviewSubmitting ? '...' : 'Confirm'}
+                            </button>
+                            <button
+                              onClick={() => handleReview(false, reviewFeedback)}
+                              disabled={reviewSubmitting}
+                              className="flex-1 px-2 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded-lg transition"
+                            >
+                              {reviewSubmitting ? '...' : 'Not Satisfied'}
+                            </button>
+                            <button
+                              onClick={() => setReviewMessageId(null)}
+                              className="px-2 py-1 bg-gray-300 hover:bg-gray-400 text-gray-700 text-xs rounded-lg transition"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -830,7 +922,6 @@ const MyWorkspaceProjectId = () => {
     if (listView === 'tasks') {
       handleTaskClick(id);
     }
-    // For team members, we could highlight or navigate? we'll just close.
   };
 
   const availableForManager = workspace.members?.filter(m => m.status === 'active' && !projectManagers.some(pm => pm._id === (m.user?._id || m._id))) || [];
