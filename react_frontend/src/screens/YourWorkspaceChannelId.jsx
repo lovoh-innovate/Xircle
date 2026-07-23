@@ -334,6 +334,94 @@ const MediaMessage = ({
   );
 };
 
+// ─── Bottom Sheet for Chat Details ─────────────────────────────────────
+const ChatDetailsSheet = ({ isOpen, onClose, chat, workspace, isDM, otherParticipant, isDMOnline }) => {
+  if (!isOpen) return null;
+
+  const participants = chat?.participants || [];
+  const displayName = isDM ? otherParticipant?.name || 'Unknown' : chat?.name || 'Unnamed Channel';
+  const displayAvatar = isDM ? otherParticipant?.profile : null;
+  const memberCount = participants.length;
+
+  return (
+    <>
+      {/* Overlay */}
+      <div
+        className="fixed inset-0 z-40 bg-black/50 transition-opacity duration-300"
+        onClick={onClose}
+      />
+      {/* Sheet */}
+      <div
+        className={`fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl max-h-[70vh] overflow-y-auto transform transition-transform duration-300 ${
+          isOpen ? 'translate-y-0' : 'translate-y-full'
+        }`}
+        style={{ boxShadow: '0 -4px 20px rgba(0,0,0,0.15)' }}
+      >
+        <div className="p-5">
+          {/* Header */}
+          <div className="flex items-center gap-4 mb-5">
+            {isDM ? (
+              displayAvatar ? (
+                <img src={displayAvatar} alt="" className="w-14 h-14 rounded-full object-cover" />
+              ) : (
+                <div className="w-14 h-14 rounded-full bg-teal-500 flex items-center justify-center text-white font-bold text-xl">
+                  {displayName.charAt(0).toUpperCase()}
+                </div>
+              )
+            ) : (
+              <div className="w-14 h-14 rounded-full bg-teal-500 flex items-center justify-center text-white">
+                <FaHashtag size={24} />
+              </div>
+            )}
+            <div>
+              <h3 className="font-bold text-lg text-gray-900">{displayName}</h3>
+              <p className="text-sm text-gray-500">
+                {isDM
+                  ? isDMOnline ? 'Online' : 'Offline'
+                  : `${memberCount} member${memberCount !== 1 ? 's' : ''}`
+                }
+              </p>
+            </div>
+          </div>
+
+          {/* Members Section */}
+          <div>
+            <h4 className="text-sm font-semibold text-gray-700 mb-3">
+              {isDM ? 'Participant' : `Members (${memberCount})`}
+            </h4>
+            <ul className="space-y-2">
+              {participants.map((p) => {
+                const user = p.user || {};
+                const profile = user.profile || null;
+                const name = user.name || 'Unknown Member';
+                return (
+                  <li key={user._id || p._id} className="flex items-center gap-3">
+                    {profile ? (
+                      <img src={profile} alt="" className="w-9 h-9 rounded-full object-cover" />
+                    ) : (
+                      <div className="w-9 h-9 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 text-sm font-medium">
+                        {name.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <div>
+                      <span className="text-sm font-medium text-gray-900">{name}</span>
+                      {isDM && otherParticipant?._id === user._id && (
+                        <span className="text-xs text-gray-500 ml-2">
+                          {isDMOnline ? '🟢 online' : '⚫ offline'}
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
 // ─── Main Component ──────────────────────────────────────────────────────
 const YourWorkspaceChannelId = () => {
   const { workspaceId, chatId } = useParams();
@@ -345,6 +433,7 @@ const YourWorkspaceChannelId = () => {
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
   const [previewImage, setPreviewImage] = useState(null);
+  const [showDetailsSheet, setShowDetailsSheet] = useState(false);
 
   // Voice recording states
   const [isRecording, setIsRecording] = useState(false);
@@ -729,33 +818,42 @@ const YourWorkspaceChannelId = () => {
 
       {/* Chat area */}
       <div className="flex-1 flex flex-col bg-white h-full overflow-hidden">
-        {/* Header */}
-        <header className="sticky top-0 z-20 flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-teal-600 text-white flex-shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
-            <button onClick={() => navigate(backPath)} className="p-1 lg:hidden">
+        {/* Header – no sticky needed, part of flex flow */}
+        <header
+          className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-teal-600 text-white flex-shrink-0 cursor-pointer"
+          onClick={() => setShowDetailsSheet(true)}
+        >
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(backPath);
+              }}
+              className="p-1 lg:hidden flex-shrink-0"
+            >
               <FaArrowLeft />
             </button>
             {isDM ? (
               displayAvatar ? (
-                <img src={displayAvatar} alt="" className="w-9 h-9 rounded-full object-cover" />
+                <img src={displayAvatar} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
               ) : (
-                <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center font-bold text-sm">
+                <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center font-bold text-sm flex-shrink-0">
                   {displayName.charAt(0).toUpperCase()}
                 </div>
               )
             ) : (
-              <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center">
+              <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
                 <FaHashtag />
               </div>
             )}
-            <div>
+            <div className="min-w-0 flex-1">
               <h2 className="font-semibold text-base truncate">{displayName}</h2>
-              <p className="text-xs text-white/80">
+              <p className="text-xs text-white/80 truncate">
                 {isDM ? (isDMOnline ? 'Online' : 'Offline') : `${memberCount} members`}
               </p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
             <button onClick={handleCall} className="p-1.5"><FaPhone /></button>
             <button onClick={handleCall} className="p-1.5"><FaVideo /></button>
           </div>
@@ -807,8 +905,8 @@ const YourWorkspaceChannelId = () => {
           )}
         </div>
 
-        {/* Input area */}
-        <div className="sticky bottom-0 z-20 border-t border-gray-200 px-3 py-2 bg-white flex-shrink-0">
+        {/* Input area – no sticky, just flex-shrink-0 */}
+        <div className="border-t border-gray-200 px-3 py-2 bg-white flex-shrink-0">
           {showRecordedPreview && recordingBlob && (
             <div className="flex items-center justify-between px-3 py-2 mb-2 bg-green-50 rounded-lg border border-green-200">
               <div className="flex items-center gap-2">
@@ -892,6 +990,17 @@ const YourWorkspaceChannelId = () => {
           </form>
         </div>
       </div>
+
+      {/* Chat/Group Details Bottom Sheet */}
+      <ChatDetailsSheet
+        isOpen={showDetailsSheet}
+        onClose={() => setShowDetailsSheet(false)}
+        chat={chat}
+        workspace={workspace}
+        isDM={isDM}
+        otherParticipant={otherParticipant}
+        isDMOnline={isDMOnline}
+      />
     </div>
   );
 };
