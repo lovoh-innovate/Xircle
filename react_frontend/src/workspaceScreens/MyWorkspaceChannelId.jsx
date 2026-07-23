@@ -10,6 +10,7 @@ import {
   useDeleteMessageMutation,
 } from "../slices/messagingApiSlice";
 import MyWorkspaceSidebar from "../workspaceComponents/MyWorkspaceSidebar";
+import { useInitiateCallMutation } from "../slices/callApiSlice"; // ← new import
 import {
   FaHashtag,
   FaArrowLeft,
@@ -600,6 +601,7 @@ const MyWorkspaceChannelId = () => {
   );
   const [sendMessageApi] = useSendMessageMutation();
   const [deleteMessageApi] = useDeleteMessageMutation();
+  const [initiateCall, { isLoading: isCallInitiating }] = useInitiateCallMutation(); // ← call mutation
 
   const chat = chatsData?.chats?.find((c) => c._id === chatId);
   const isDM = chat?.type === "direct";
@@ -908,7 +910,50 @@ const MyWorkspaceChannelId = () => {
     }
   };
 
-  const handleCall = () => toast.info("Voice/Video calls not available yet");
+  // ── Call initiation ────────────────────────────────────────────
+  const handleCall = async (type) => {
+    if (!workspace || !chat) return;
+
+    let participantIds = [];
+    if (isDM) {
+      const otherId = otherParticipant?._id;
+      if (otherId) participantIds = [otherId];
+    } else {
+      participantIds = chat.participants
+        .filter((p) => {
+          const uid = p.user?._id || p.user;
+          return uid !== userInfo._id && uid !== userInfo?._id;
+        })
+        .map((p) => p.user?._id || p.user);
+    }
+
+    if (participantIds.length === 0) {
+      toast.info("No one else to call in this chat.");
+      return;
+    }
+
+    try {
+      const response = await initiateCall({
+        workspaceId,
+        type,
+        participantIds,
+      }).unwrap();
+
+      // Navigate to call screen as initiator
+      navigate(`/call/${response.call.roomId}`, {
+        state: {
+          callData: {
+            ...response.call,
+            status: "ringing", // initial status
+            isInitiator: true,
+            workspaceColor: brandColor,
+          },
+        },
+      });
+    } catch (err) {
+      toast.error(err?.data?.message || "Failed to initiate call");
+    }
+  };
 
   // Mic pointer events
   const startRecording = async () => {
@@ -1135,10 +1180,20 @@ const MyWorkspaceChannelId = () => {
             className="flex gap-2 flex-shrink-0"
             onClick={(e) => e.stopPropagation()}
           >
-            <button onClick={handleCall} className="p-1.5">
+            <button
+              onClick={() => handleCall('voice')}
+              disabled={isCallInitiating}
+              className="p-1.5"
+              aria-label="Start voice call"
+            >
               <FaPhone />
             </button>
-            <button onClick={handleCall} className="p-1.5">
+            <button
+              onClick={() => handleCall('video')}
+              disabled={isCallInitiating}
+              className="p-1.5"
+              aria-label="Start video call"
+            >
               <FaVideo />
             </button>
           </div>

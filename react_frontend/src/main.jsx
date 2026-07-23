@@ -3,14 +3,16 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Provider, useSelector } from 'react-redux';
 import { GoogleOAuthProvider } from '@react-oauth/google';
-import { createBrowserRouter, RouterProvider } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider, Outlet } from 'react-router-dom';
 
 import './index.css';
-import App from './App.jsx';
 import store from './store';
 
 // Socket provider
 import { SocketProvider } from './components/SocketContext.jsx';
+
+// Global call overlay
+import IncomingCallModal from './components/IncomingCallModal.jsx';
 
 // Auth routes
 import Login from './screens/Login.jsx';
@@ -41,13 +43,26 @@ import YourWorkspaceDMs from './screens/YourWorkspaceDMs.jsx';
 import YourWorkspaceProjects from './screens/YourWorkspaceProjects.jsx';
 import YourWorkspaceProjectId from './screens/YourWorkspaceProjectId.jsx';
 
-// ── Router definition ────────────────────────────────────────────
+// Call screen (new)
+import CallScreen from './components/CallScreen.jsx';
+
+// ── Root layout: renders the current page + the call modal ─────
+const RootLayout = () => {
+  return (
+    <>
+      <Outlet />
+      <IncomingCallModal />
+    </>
+  );
+};
+
+// ── Router definition ──────────────────────────────────────────
 const router = createBrowserRouter([
   {
     path: '/',
-    element: <App />,
+    element: <RootLayout />,        // <-- replaced <App /> with the new layout
     children: [
-      { index: true, element: <a href="/login">Login</a> },
+      { index: true, element: <Login /> },           // default route
       { path: 'login', element: <Login /> },
       { path: 'signup', element: <Signup /> },
       { path: 'forgot-password', element: <ForgotPassword /> },
@@ -75,6 +90,9 @@ const router = createBrowserRouter([
       { path: 'workspace/:workspaceId/project/:projectId', element: <YourWorkspaceProjectId /> },
 
       { path: 'profile', element: <Profile /> },
+
+      // ── Call screen ──
+      { path: 'call/:roomId', element: <CallScreen /> },
     ],
   },
 ]);
@@ -82,7 +100,7 @@ const router = createBrowserRouter([
 // ── Root component to read token from Redux and supply SocketProvider ──
 const AppRoot = () => {
   const userInfo = useSelector((state) => state.auth?.userInfo);
-  const token = userInfo?.token;               // ✅ token from nested object
+  const token = userInfo?.token;
   return (
     <SocketProvider token={token}>
       <RouterProvider router={router} />

@@ -1,4 +1,4 @@
-// src/workspaceScreens/YourWorkspaceChannelId.jsx
+// src/screens/YourWorkspaceChannelId.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
@@ -10,6 +10,7 @@ import {
   useDeleteMessageMutation,
 } from '../slices/messagingApiSlice';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
+import { useInitiateCallMutation } from '../slices/callApiSlice'; // ← new import
 import {
   FaHashtag,
   FaArrowLeft,
@@ -464,6 +465,7 @@ const YourWorkspaceChannelId = () => {
   } = useGetChatMessagesQuery({ chatId, page: 1, limit: 50 }, { skip: !chatId });
   const [sendMessageApi] = useSendMessageMutation();
   const [deleteMessageApi] = useDeleteMessageMutation();
+  const [initiateCall, { isLoading: isCallInitiating }] = useInitiateCallMutation(); // ← call mutation
 
   const chat = chatsData?.chats?.find(c => c._id === chatId);
   const isDM = chat?.type === 'direct';
@@ -612,6 +614,50 @@ const YourWorkspaceChannelId = () => {
   const brandColor = workspace.color || '#0d9488';
   const memberCount = chat.participants?.length || 0;
 
+  // ── Call initiation handler ────────────────────────────────────────
+  const handleCall = async (type) => {
+    if (!workspace || !chat) return;
+
+    let participantIds = [];
+    if (isDM) {
+      const otherId = otherParticipant?._id;
+      if (otherId) participantIds = [otherId];
+    } else {
+      participantIds = chat.participants
+        .filter((p) => {
+          const uid = p.user?._id || p.user;
+          return uid !== userInfo._id && uid !== userInfo?._id;
+        })
+        .map((p) => p.user?._id || p.user);
+    }
+
+    if (participantIds.length === 0) {
+      toast.info('No one else to call in this chat.');
+      return;
+    }
+
+    try {
+      const response = await initiateCall({
+        workspaceId,
+        type,
+        participantIds,
+      }).unwrap();
+
+      navigate(`/call/${response.call.roomId}`, {
+        state: {
+          callData: {
+            ...response.call,
+            status: 'ringing',
+            isInitiator: true,
+            workspaceColor: brandColor,
+          },
+        },
+      });
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to initiate call');
+    }
+  };
+
   // ── Send text message via socket (optimistic) ────────────────────
   const handleSendMessage = (e) => {
     e.preventDefault();
@@ -723,8 +769,6 @@ const YourWorkspaceChannelId = () => {
     const member = workspace.members?.find(m => m.user?._id === senderId || m.user === senderId);
     return member?.user || null;
   };
-
-  const handleCall = () => toast.info('Voice/Video calls not available yet');
 
   // Mic pointer events
   const startRecording = async () => {
@@ -859,8 +903,22 @@ const YourWorkspaceChannelId = () => {
             </div>
           </div>
           <div className="flex gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-            <button onClick={handleCall} className="p-1.5"><FaPhone /></button>
-            <button onClick={handleCall} className="p-1.5"><FaVideo /></button>
+            <button
+              onClick={() => handleCall('voice')}
+              disabled={isCallInitiating}
+              className="p-1.5"
+              aria-label="Start voice call"
+            >
+              <FaPhone />
+            </button>
+            <button
+              onClick={() => handleCall('video')}
+              disabled={isCallInitiating}
+              className="p-1.5"
+              aria-label="Start video call"
+            >
+              <FaVideo />
+            </button>
           </div>
         </header>
 

@@ -7,6 +7,7 @@ const SocketContext = createContext(null);
 export const SocketProvider = ({ children, token }) => {
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [incomingCall, setIncomingCall] = useState(null); // new
 
   console.log('🔍 SocketProvider rendered, token:', token ? 'present' : 'MISSING');
 
@@ -34,14 +35,22 @@ export const SocketProvider = ({ children, token }) => {
       setIsConnected(false);
     };
 
+    // 🔔 Listen for incoming calls globally
+    const onIncomingCall = (callData) => {
+      console.log('📞 Incoming call received:', callData);
+      setIncomingCall(callData);
+    };
+
     newSocket.on('connect', onConnect);
     newSocket.on('disconnect', onDisconnect);
+    newSocket.on('incoming-call', onIncomingCall); // new
 
     if (newSocket.connected) setIsConnected(true);
 
     return () => {
       newSocket.off('connect', onConnect);
       newSocket.off('disconnect', onDisconnect);
+      newSocket.off('incoming-call', onIncomingCall); // new
     };
   }, [token]);
 
@@ -52,8 +61,11 @@ export const SocketProvider = ({ children, token }) => {
     };
   }, []);
 
+  // Function to clear incoming call after it's handled
+  const clearIncomingCall = () => setIncomingCall(null);
+
   return (
-    <SocketContext.Provider value={{ socket, isConnected }}>
+    <SocketContext.Provider value={{ socket, isConnected, incomingCall, clearIncomingCall }}>
       {children}
     </SocketContext.Provider>
   );

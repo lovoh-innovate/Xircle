@@ -12,6 +12,7 @@ import teamRoutes from "./routes/teamRoutes.js";
 import taskRoutes from "./routes/taskRoutes.js";
 import messagingRoutes from "./routes/messagingRoutes.js";
 import projectRoutes from "./routes/projectRoutes.js";
+import callRoutes from "./routes/callRoutes.js";
 
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 import { initSocket } from "./controllers/socket.js";
@@ -69,6 +70,7 @@ app.use("/api/team", teamRoutes);
 app.use("/api/tasks", taskRoutes);
 app.use("/api/messages", messagingRoutes);
 app.use("/api/projects", projectRoutes);
+app.use("/api/calls", callRoutes);
 
 // ✅ Error middleware order (notFound first)
 app.use(notFound);
