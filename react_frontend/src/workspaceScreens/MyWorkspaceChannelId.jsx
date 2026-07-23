@@ -1,15 +1,15 @@
 // src/workspaceScreens/MyWorkspaceChannelId.jsx
-import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import { useSelector } from 'react-redux';
-import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
+import React, { useState, useEffect, useRef } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
+import { useSelector } from "react-redux";
+import { useGetWorkspaceQuery } from "../slices/workspaceApiSlice";
 import {
   useGetUserChatsQuery,
   useGetChatMessagesQuery,
   useSendMessageMutation,
   useDeleteMessageMutation,
-} from '../slices/messagingApiSlice';
-import MyWorkspaceSidebar from '../workspaceComponents/MyWorkspaceSidebar';
+} from "../slices/messagingApiSlice";
+import MyWorkspaceSidebar from "../workspaceComponents/MyWorkspaceSidebar";
 import {
   FaHashtag,
   FaArrowLeft,
@@ -36,19 +36,19 @@ import {
   FaChevronUp,
   FaChevronDown,
   FaSearch,
-} from 'react-icons/fa';
-import { toast } from 'react-toastify';
-import { useSocket } from '../components/SocketContext.jsx';
+} from "react-icons/fa";
+import { toast } from "react-toastify";
+import { useSocket } from "../components/SocketContext.jsx";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 const formatTime = (seconds) => {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
 };
 
 const LOCK_THRESHOLD = 80;
-const SEEN_TICK_COLOR = '#34B7F1';
+const SEEN_TICK_COLOR = "#34B7F1";
 
 // ─── Message status ticks ────────────────────────────────────────
 const MessageTicks = ({ message, isOwn, isDM }) => {
@@ -84,7 +84,10 @@ const MessageTicks = ({ message, isOwn, isDM }) => {
 };
 
 // ─── Audio waveform ──────────────────────────────────────────────────
-const WAVEFORM_BARS = [6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6, 10];
+const WAVEFORM_BARS = [
+  6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6,
+  10,
+];
 
 const AudioWaveform = ({ isOwn, isPlaying, brandColor }) => (
   <div className="flex items-center gap-[2px] h-6 flex-1">
@@ -94,7 +97,7 @@ const AudioWaveform = ({ isOwn, isPlaying, brandColor }) => (
         className="w-[2.5px] rounded-full transition-opacity"
         style={{
           height: `${h * 2}px`,
-          backgroundColor: isOwn ? 'rgba(255,255,255,0.85)' : brandColor,
+          backgroundColor: isOwn ? "rgba(255,255,255,0.85)" : brandColor,
           opacity: isPlaying ? 1 : 0.55,
         }}
       />
@@ -105,16 +108,19 @@ const AudioWaveform = ({ isOwn, isPlaying, brandColor }) => (
 // ─── Fullscreen image viewer ────────────────────────────────────────
 const ImagePreviewModal = ({ imageUrl, onClose, senderName, time }) => {
   const handleDownload = () => {
-    const link = document.createElement('a');
+    const link = document.createElement("a");
     link.href = imageUrl;
-    link.download = 'image';
+    link.download = "image";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 bg-black flex flex-col"
+      onClick={onClose}
+    >
       <div
         className="flex items-center justify-between px-4 py-3 bg-black/70 text-white flex-shrink-0"
         onClick={(e) => e.stopPropagation()}
@@ -124,7 +130,9 @@ const ImagePreviewModal = ({ imageUrl, onClose, senderName, time }) => {
             <FaArrowLeft />
           </button>
           <div className="min-w-0">
-            <p className="text-sm font-medium truncate">{senderName || 'Photo'}</p>
+            <p className="text-sm font-medium truncate">
+              {senderName || "Photo"}
+            </p>
             {time && <p className="text-[11px] text-white/60">{time}</p>}
           </div>
         </div>
@@ -133,7 +141,11 @@ const ImagePreviewModal = ({ imageUrl, onClose, senderName, time }) => {
         </button>
       </div>
       <div className="flex-1 flex items-center justify-center overflow-hidden">
-        <img src={imageUrl} alt="Preview" className="max-w-full max-h-full object-contain" />
+        <img
+          src={imageUrl}
+          alt="Preview"
+          className="max-w-full max-h-full object-contain"
+        />
       </div>
     </div>
   );
@@ -150,9 +162,9 @@ const MediaMessage = ({
   onImageClick,
   onDelete,
 }) => {
-  const time = new Date(message.createdAt).toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
+  const time = new Date(message.createdAt).toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
   });
   const [isPlaying, setIsPlaying] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -161,9 +173,9 @@ const MediaMessage = ({
   const handleDownload = (e) => {
     e.stopPropagation();
     if (message.mediaUrl) {
-      const link = document.createElement('a');
+      const link = document.createElement("a");
       link.href = message.mediaUrl;
-      link.download = message.mediaName || 'file';
+      link.download = message.mediaName || "file";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -174,32 +186,52 @@ const MediaMessage = ({
     if (!message.mediaUrl) return null;
 
     switch (message.messageType) {
-      case 'image':
+      case "image":
         return null;
-      case 'video':
+      case "video":
         return (
           <div className="relative group">
-            <video src={message.mediaUrl} controls className="max-w-full rounded-lg max-h-80" />
+            <video
+              src={message.mediaUrl}
+              controls
+              className="max-w-full rounded-lg max-h-80"
+            />
           </div>
         );
-      case 'audio':
+      case "audio":
         return (
           <div className="flex items-center gap-2.5 min-w-[220px] py-0.5">
             <button
               onClick={() => {
                 if (audioRef.current) {
-                  isPlaying ? audioRef.current.pause() : audioRef.current.play();
+                  isPlaying
+                    ? audioRef.current.pause()
+                    : audioRef.current.play();
                   setIsPlaying(!isPlaying);
                 }
               }}
               className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
-              style={{ backgroundColor: isOwn ? 'rgba(255,255,255,0.2)' : brandColor }}
+              style={{
+                backgroundColor: isOwn ? "rgba(255,255,255,0.2)" : brandColor,
+              }}
             >
-              {isPlaying ? <FaPause className="text-xs text-white" /> : <FaPlay className="text-xs text-white ml-0.5" />}
+              {isPlaying ? (
+                <FaPause className="text-xs text-white" />
+              ) : (
+                <FaPlay className="text-xs text-white ml-0.5" />
+              )}
             </button>
-            <AudioWaveform isOwn={isOwn} isPlaying={isPlaying} brandColor={brandColor} />
-            <span className={`text-[10px] flex-shrink-0 ${isOwn ? 'text-white/70' : 'text-gray-400'}`}>
-              {message.mediaDuration ? formatTime(message.mediaDuration) : '0:00'}
+            <AudioWaveform
+              isOwn={isOwn}
+              isPlaying={isPlaying}
+              brandColor={brandColor}
+            />
+            <span
+              className={`text-[10px] flex-shrink-0 ${isOwn ? "text-white/70" : "text-gray-400"}`}
+            >
+              {message.mediaDuration
+                ? formatTime(message.mediaDuration)
+                : "0:00"}
             </span>
             <audio
               ref={audioRef}
@@ -211,15 +243,29 @@ const MediaMessage = ({
             />
           </div>
         );
-      case 'file':
+      case "file":
         return (
           <div className="flex items-center gap-3 bg-gray-100 rounded-lg p-3 min-w-[200px]">
-            <div className="w-10 h-10 rounded-lg bg-gray-300 flex items-center justify-center text-gray-600">📄</div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-gray-900 truncate">{message.mediaName || 'File'}</div>
-              <div className="text-xs text-gray-500">{message.mediaSize ? `${(message.mediaSize / 1024).toFixed(1)} KB` : 'File'}</div>
+            <div className="w-10 h-10 rounded-lg bg-gray-300 flex items-center justify-center text-gray-600">
+              📄
             </div>
-            <button onClick={(e) => { e.stopPropagation(); handleDownload(e); }} className="text-gray-400 hover:text-gray-600 transition">
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-gray-900 truncate">
+                {message.mediaName || "File"}
+              </div>
+              <div className="text-xs text-gray-500">
+                {message.mediaSize
+                  ? `${(message.mediaSize / 1024).toFixed(1)} KB`
+                  : "File"}
+              </div>
+            </div>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDownload(e);
+              }}
+              className="text-gray-400 hover:text-gray-600 transition"
+            >
               <FaDownload className="text-sm" />
             </button>
           </div>
@@ -230,33 +276,53 @@ const MediaMessage = ({
   };
 
   // Image messages without bubble
-  if (message.messageType === 'image') {
+  if (message.messageType === "image") {
     return (
-      <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
+      <div
+        className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
+      >
         {!isOwn && (
           <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
             {senderProfile ? (
-              <img src={senderProfile} alt={senderName} className="w-full h-full object-cover" />
+              <img
+                src={senderProfile}
+                alt={senderName}
+                className="w-full h-full object-cover"
+              />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: brandColor }}>
-                {senderName?.charAt(0).toUpperCase() || '?'}
+              <div
+                className="w-full h-full flex items-center justify-center text-white text-xs font-bold"
+                style={{ backgroundColor: brandColor }}
+              >
+                {senderName?.charAt(0).toUpperCase() || "?"}
               </div>
             )}
           </div>
         )}
-        <div className={`max-w-[85%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col`}>
-          {!isOwn && <span className="text-xs font-medium text-gray-600 ml-1 mb-0.5">{senderName}</span>}
+        <div
+          className={`max-w-[85%] ${isOwn ? "items-end" : "items-start"} flex flex-col`}
+        >
+          {!isOwn && (
+            <span className="text-xs font-medium text-gray-600 ml-1 mb-0.5">
+              {senderName}
+            </span>
+          )}
           <div
             className="relative rounded-2xl overflow-hidden cursor-pointer group"
             onClick={() =>
-              onImageClick && onImageClick({
+              onImageClick &&
+              onImageClick({
                 url: message.mediaUrl,
-                senderName: isOwn ? 'You' : senderName,
+                senderName: isOwn ? "You" : senderName,
                 time,
               })
             }
           >
-            <img src={message.mediaUrl} alt={message.mediaName || 'Image'} className="max-w-full max-h-80 object-cover w-full" />
+            <img
+              src={message.mediaUrl}
+              alt={message.mediaName || "Image"}
+              className="max-w-full max-h-80 object-cover w-full"
+            />
             <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 text-[10px] text-white bg-black/50 px-2 py-0.5 rounded-full">
               <span>{time}</span>
               <MessageTicks message={message} isOwn={isOwn} isDM={isDM} />
@@ -265,7 +331,10 @@ const MediaMessage = ({
             {isOwn && (
               <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition">
                 <button
-                  onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowMenu(!showMenu);
+                  }}
                   className="text-white bg-black/40 p-1 rounded-full hover:bg-black/60"
                 >
                   <FaEllipsisV className="text-xs" />
@@ -273,7 +342,11 @@ const MediaMessage = ({
                 {showMenu && (
                   <div className="absolute right-0 top-8 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[120px] z-10">
                     <button
-                      onClick={(e) => { e.stopPropagation(); setShowMenu(false); onDelete && onDelete(message._id); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowMenu(false);
+                        onDelete && onDelete(message._id);
+                      }}
                       className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition w-full"
                     >
                       <FaTrashAlt className="text-xs" /> Delete
@@ -290,40 +363,63 @@ const MediaMessage = ({
 
   // Regular messages with bubble
   return (
-    <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
+    <div
+      className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
+    >
       {!isOwn && (
         <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
           {senderProfile ? (
-            <img src={senderProfile} alt={senderName} className="w-full h-full object-cover" />
+            <img
+              src={senderProfile}
+              alt={senderName}
+              className="w-full h-full object-cover"
+            />
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: brandColor }}>
-              {senderName?.charAt(0).toUpperCase() || '?'}
+            <div
+              className="w-full h-full flex items-center justify-center text-white text-xs font-bold"
+              style={{ backgroundColor: brandColor }}
+            >
+              {senderName?.charAt(0).toUpperCase() || "?"}
             </div>
           )}
         </div>
       )}
-      <div className={`max-w-[85%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col gap-0.5`}>
-        {!isOwn && <span className="text-xs font-medium text-gray-600 ml-1">{senderName}</span>}
+      <div
+        className={`max-w-[85%] ${isOwn ? "items-end" : "items-start"} flex flex-col gap-0.5`}
+      >
+        {!isOwn && (
+          <span className="text-xs font-medium text-gray-600 ml-1">
+            {senderName}
+          </span>
+        )}
         <div
-          className={`px-4 py-2.5 rounded-2xl text-sm break-words ${isOwn ? 'text-white' : 'bg-gray-100 text-gray-800'}`}
+          className={`px-4 py-2.5 rounded-2xl text-sm break-words ${isOwn ? "text-white" : "bg-gray-100 text-gray-800"}`}
           style={isOwn ? { backgroundColor: brandColor } : {}}
         >
           {message.content && <p className="mb-2">{message.content}</p>}
           {renderMediaContent()}
         </div>
-        <div className={`flex items-center gap-1 text-[10px] text-gray-400 ${isOwn ? 'flex-row-reverse' : ''}`}>
+        <div
+          className={`flex items-center gap-1 text-[10px] text-gray-400 ${isOwn ? "flex-row-reverse" : ""}`}
+        >
           <span>{time}</span>
           <MessageTicks message={message} isOwn={isOwn} isDM={isDM} />
           {/* Only show delete for own messages */}
           {isOwn && (
             <div className="relative ml-2">
-              <button onClick={() => setShowMenu(!showMenu)} className="text-gray-300 hover:text-gray-500 transition p-0.5">
+              <button
+                onClick={() => setShowMenu(!showMenu)}
+                className="text-gray-300 hover:text-gray-500 transition p-0.5"
+              >
                 <FaEllipsisV className="text-xs" />
               </button>
               {showMenu && (
                 <div className="absolute right-0 bottom-6 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[120px] z-10">
                   <button
-                    onClick={() => { setShowMenu(false); onDelete && onDelete(message._id); }}
+                    onClick={() => {
+                      setShowMenu(false);
+                      onDelete && onDelete(message._id);
+                    }}
                     className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition w-full"
                   >
                     <FaTrashAlt className="text-xs" /> Delete
@@ -339,14 +435,24 @@ const MediaMessage = ({
 };
 
 // ─── Bottom Sheet for Chat Details ─────────────────────────────────────
-const ChatDetailsSheet = ({ isOpen, onClose, chat, workspace, isDM, otherParticipant, isDMOnline }) => {
+const ChatDetailsSheet = ({
+  isOpen,
+  onClose,
+  chat,
+  workspace,
+  isDM,
+  otherParticipant,
+  isDMOnline,
+}) => {
   if (!isOpen) return null;
 
   const participants = chat?.participants || [];
-  const displayName = isDM ? otherParticipant?.name || 'Unknown' : chat?.name || 'Unnamed Channel';
+  const displayName = isDM
+    ? otherParticipant?.name || "Unknown"
+    : chat?.name || "Unnamed Channel";
   const displayAvatar = isDM ? otherParticipant?.profile : null;
   const memberCount = participants.length;
-  const brandColor = workspace?.color || '#0d9488';
+  const brandColor = workspace?.color || "#0d9488";
 
   return (
     <>
@@ -356,22 +462,32 @@ const ChatDetailsSheet = ({ isOpen, onClose, chat, workspace, isDM, otherPartici
       />
       <div
         className={`fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl max-h-[70vh] overflow-y-auto transform transition-transform duration-300 ${
-          isOpen ? 'translate-y-0' : 'translate-y-full'
+          isOpen ? "translate-y-0" : "translate-y-full"
         }`}
-        style={{ boxShadow: '0 -4px 20px rgba(0,0,0,0.15)' }}
+        style={{ boxShadow: "0 -4px 20px rgba(0,0,0,0.15)" }}
       >
         <div className="p-5">
           <div className="flex items-center gap-4 mb-5">
             {isDM ? (
               displayAvatar ? (
-                <img src={displayAvatar} alt="" className="w-14 h-14 rounded-full object-cover" />
+                <img
+                  src={displayAvatar}
+                  alt=""
+                  className="w-14 h-14 rounded-full object-cover"
+                />
               ) : (
-                <div className="w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-xl" style={{ backgroundColor: brandColor }}>
+                <div
+                  className="w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-xl"
+                  style={{ backgroundColor: brandColor }}
+                >
                   {displayName.charAt(0).toUpperCase()}
                 </div>
               )
             ) : (
-              <div className="w-14 h-14 rounded-full flex items-center justify-center text-white" style={{ backgroundColor: brandColor }}>
+              <div
+                className="w-14 h-14 rounded-full flex items-center justify-center text-white"
+                style={{ backgroundColor: brandColor }}
+              >
                 <FaHashtag size={24} />
               </div>
             )}
@@ -379,36 +495,46 @@ const ChatDetailsSheet = ({ isOpen, onClose, chat, workspace, isDM, otherPartici
               <h3 className="font-bold text-lg text-gray-900">{displayName}</h3>
               <p className="text-sm text-gray-500">
                 {isDM
-                  ? isDMOnline ? 'Online' : 'Offline'
-                  : `${memberCount} member${memberCount !== 1 ? 's' : ''}`
-                }
+                  ? isDMOnline
+                    ? "Online"
+                    : "Offline"
+                  : `${memberCount} member${memberCount !== 1 ? "s" : ""}`}
               </p>
             </div>
           </div>
 
           <div>
             <h4 className="text-sm font-semibold text-gray-700 mb-3">
-              {isDM ? 'Participant' : `Members (${memberCount})`}
+              {isDM ? "Participant" : `Members (${memberCount})`}
             </h4>
             <ul className="space-y-2">
               {participants.map((p) => {
                 const user = p.user || {};
                 const profile = user.profile || null;
-                const name = user.name || 'Unknown Member';
+                const name = user.name || "Unknown Member";
                 return (
-                  <li key={user._id || p._id} className="flex items-center gap-3">
+                  <li
+                    key={user._id || p._id}
+                    className="flex items-center gap-3"
+                  >
                     {profile ? (
-                      <img src={profile} alt="" className="w-9 h-9 rounded-full object-cover" />
+                      <img
+                        src={profile}
+                        alt=""
+                        className="w-9 h-9 rounded-full object-cover"
+                      />
                     ) : (
                       <div className="w-9 h-9 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 text-sm font-medium">
                         {name.charAt(0).toUpperCase()}
                       </div>
                     )}
                     <div>
-                      <span className="text-sm font-medium text-gray-900">{name}</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {name}
+                      </span>
                       {isDM && otherParticipant?._id === user._id && (
                         <span className="text-xs text-gray-500 ml-2">
-                          {isDMOnline ? '🟢 online' : '⚫ offline'}
+                          {isDMOnline ? "🟢 online" : "⚫ offline"}
                         </span>
                       )}
                     </div>
@@ -428,8 +554,8 @@ const MyWorkspaceChannelId = () => {
   const { workspaceId, chatId } = useParams();
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
-  const [message, setMessage] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [message, setMessage] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -457,22 +583,34 @@ const MyWorkspaceChannelId = () => {
   const [localMessages, setLocalMessages] = useState([]);
 
   // API hooks
-  const { data: workspaceData, isLoading: workspaceLoading, error } = useGetWorkspaceQuery(workspaceId);
-  const { data: chatsData, isLoading: chatsLoading } = useGetUserChatsQuery(workspaceId);
+  const {
+    data: workspaceData,
+    isLoading: workspaceLoading,
+    error,
+  } = useGetWorkspaceQuery(workspaceId);
+  const { data: chatsData, isLoading: chatsLoading } =
+    useGetUserChatsQuery(workspaceId);
   const {
     data: messagesData,
     isLoading: messagesLoading,
     refetch,
-  } = useGetChatMessagesQuery({ chatId, page: 1, limit: 50 }, { skip: !chatId });
+  } = useGetChatMessagesQuery(
+    { chatId, page: 1, limit: 50 },
+    { skip: !chatId },
+  );
   const [sendMessageApi] = useSendMessageMutation();
   const [deleteMessageApi] = useDeleteMessageMutation();
 
   const chat = chatsData?.chats?.find((c) => c._id === chatId);
-  const isDM = chat?.type === 'direct';
+  const isDM = chat?.type === "direct";
   const otherParticipant = isDM
-    ? chat?.participants?.find((p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id)?.user || null
+    ? chat?.participants?.find(
+        (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id,
+      )?.user || null
     : null;
-  const displayName = isDM ? otherParticipant?.name || 'Unknown' : chat?.name || 'Unnamed Channel';
+  const displayName = isDM
+    ? otherParticipant?.name || "Unknown"
+    : chat?.name || "Unnamed Channel";
   const displayAvatar = isDM ? otherParticipant?.profile : null;
   const isDMOnline = isDM ? otherParticipant?.online || false : false;
 
@@ -492,19 +630,20 @@ const MyWorkspaceChannelId = () => {
     const el = messagesContainerRef.current;
     if (!el) return;
     const threshold = 50;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    const atBottom =
+      el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
     setIsAtBottom(atBottom);
     if (atBottom) setShowScrollDown(false);
   };
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     setShowScrollDown(false);
   };
 
   useEffect(() => {
     if (isAtBottom) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     } else {
       setShowScrollDown(true);
     }
@@ -514,17 +653,27 @@ const MyWorkspaceChannelId = () => {
   useEffect(() => {
     if (!socket || !isConnected || !chatId) return;
 
-    socket.emit('join-chat', chatId);
+    socket.emit("join-chat", chatId);
 
     const handleNewMessage = (incoming) => {
       setLocalMessages((prev) => {
-        if ((incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id) && incoming.content) {
+        if (
+          (incoming.sender?._id === userInfo?._id ||
+            incoming.sender === userInfo?._id) &&
+          incoming.content
+        ) {
           const tempIdx = prev.findIndex(
-            (m) => m._temp && m.content === incoming.content
+            (m) => m._temp && m.content === incoming.content,
           );
           if (tempIdx > -1) {
             const updated = [...prev];
-            updated[tempIdx] = { ...incoming, _temp: false, _pending: false, _failed: false, _sent: true };
+            updated[tempIdx] = {
+              ...incoming,
+              _temp: false,
+              _pending: false,
+              _failed: false,
+              _sent: true,
+            };
             return updated;
           }
         }
@@ -539,13 +688,13 @@ const MyWorkspaceChannelId = () => {
       setLocalMessages((prev) => prev.filter((m) => m._id !== messageId));
     };
 
-    socket.on('new-message', handleNewMessage);
-    socket.on('message-deleted', handleMessageDeleted);
+    socket.on("new-message", handleNewMessage);
+    socket.on("message-deleted", handleMessageDeleted);
 
     return () => {
-      socket.emit('leave-chat', chatId);
-      socket.off('new-message', handleNewMessage);
-      socket.off('message-deleted', handleMessageDeleted);
+      socket.emit("leave-chat", chatId);
+      socket.off("new-message", handleNewMessage);
+      socket.off("message-deleted", handleMessageDeleted);
     };
   }, [socket, isConnected, chatId, userInfo?._id]);
 
@@ -555,7 +704,7 @@ const MyWorkspaceChannelId = () => {
       setLocalMessages((prev) => {
         const existingIds = new Set(prev.map((m) => m._id));
         const newMessages = messagesData.messages.filter(
-          (m) => !existingIds.has(m._id)
+          (m) => !existingIds.has(m._id),
         );
         return [...prev, ...newMessages.map((m) => ({ ...m, _sent: true }))];
       });
@@ -568,14 +717,18 @@ const MyWorkspaceChannelId = () => {
   }, [isRecording]);
   useEffect(() => {
     return () => {
-      if (mediaRecorderRef.current && isRecordingRef.current) mediaRecorderRef.current.stop();
+      if (mediaRecorderRef.current && isRecordingRef.current)
+        mediaRecorderRef.current.stop();
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
     };
   }, []);
 
   const startTimer = () => {
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-    recordingTimerRef.current = setInterval(() => setRecordingTime((prev) => prev + 1), 1000);
+    recordingTimerRef.current = setInterval(
+      () => setRecordingTime((prev) => prev + 1),
+      1000,
+    );
   };
   const stopTimer = () => {
     if (recordingTimerRef.current) {
@@ -585,7 +738,7 @@ const MyWorkspaceChannelId = () => {
   };
 
   // ── Error / Loading ──────────────────────────────────────────────
-  if (error) navigate('/my-workspaces');
+  if (error) navigate("/my-workspaces");
   if (workspaceLoading || chatsLoading || messagesLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -598,32 +751,34 @@ const MyWorkspaceChannelId = () => {
   const chats = chatsData?.chats || [];
   if (!workspace) return null;
 
-  const brandColor = workspace.color || '#0d9488';
+  const brandColor = workspace.color || "#0d9488";
   const memberCount = chat?.participants?.length || 0;
 
   // ── Channel / DM lists ──────────────────────────────────────────
-  const groupChats = chats.filter((c) => c.type === 'group');
-  const directMessages = chats.filter((c) => c.type === 'direct');
+  const groupChats = chats.filter((c) => c.type === "group");
+  const directMessages = chats.filter((c) => c.type === "direct");
   const filteredChannels = groupChats.filter((ch) =>
-    ch.name?.toLowerCase().includes(searchQuery.toLowerCase())
+    ch.name?.toLowerCase().includes(searchQuery.toLowerCase()),
   );
   const filteredDMs = directMessages.filter((dm) => {
     const participant = dm.participants.find(
-      (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id
+      (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id,
     );
-    const name = participant?.user?.name || participant?.name || 'Unknown';
+    const name = participant?.user?.name || participant?.name || "Unknown";
     return name.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
   const getDMParticipant = (dmChat) => {
     const other = dmChat.participants.find(
-      (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id
+      (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id,
     );
     return other?.user || other;
   };
 
   const getSender = (senderId) => {
-    const member = workspace.members?.find((m) => m.user?._id === senderId || m.user === senderId);
+    const member = workspace.members?.find(
+      (m) => m.user?._id === senderId || m.user === senderId,
+    );
     return member?.user || null;
   };
 
@@ -644,77 +799,88 @@ const MyWorkspaceChannelId = () => {
       content: trimmed,
       sender: userInfo,
       createdAt: new Date().toISOString(),
-      messageType: 'text',
+      messageType: "text",
       chat: chatId,
     };
 
     setLocalMessages((prev) => [...prev, optimisticMsg]);
-    setMessage('');
+    setMessage("");
 
-    socket.emit('send-message', {
-      chatId,
-      content: trimmed,
-      messageType: 'text',
-      mentions: [],
-      replyToId: null,
-      mediaUrl: null,
-      mediaName: null,
-      mediaSize: null,
-      mediaDuration: null,
-    }, (response) => {
-      if (response?.error) {
-        setLocalMessages((prev) =>
-          prev.map((m) => (m._id === tempId ? { ...m, _pending: false, _failed: true } : m))
-        );
-        toast.error(response.error);
-      } else {
-        setLocalMessages((prev) =>
-          prev.map((m) => (m._id === tempId ? { ...m, _pending: false, _sent: true } : m))
-        );
-      }
-    });
+    socket.emit(
+      "send-message",
+      {
+        chatId,
+        content: trimmed,
+        messageType: "text",
+        mentions: [],
+        replyToId: null,
+        mediaUrl: null,
+        mediaName: null,
+        mediaSize: null,
+        mediaDuration: null,
+      },
+      (response) => {
+        if (response?.error) {
+          setLocalMessages((prev) =>
+            prev.map((m) =>
+              m._id === tempId ? { ...m, _pending: false, _failed: true } : m,
+            ),
+          );
+          toast.error(response.error);
+        } else {
+          setLocalMessages((prev) =>
+            prev.map((m) =>
+              m._id === tempId ? { ...m, _pending: false, _sent: true } : m,
+            ),
+          );
+        }
+      },
+    );
   };
 
   // ── File / image / voice via REST ───────────────────────────────
   const handleFileUpload = (type) => {
-    if (type === 'file') fileInputRef.current?.click();
-    else if (type === 'image') imageInputRef.current?.click();
+    if (type === "file") fileInputRef.current?.click();
+    else if (type === "image") imageInputRef.current?.click();
   };
 
   const handleFileChange = async (e, type) => {
     const file = e.target.files[0];
     if (!file) return;
     const formData = new FormData();
-    formData.append('media', file);
-    formData.append('messageType', type === 'image' ? 'image' : 'file');
+    formData.append("media", file);
+    formData.append("messageType", type === "image" ? "image" : "file");
     try {
       await sendMessageApi({ chatId, data: formData }).unwrap();
-      toast.success(`${type === 'image' ? 'Image' : 'File'} sent!`);
+      toast.success(`${type === "image" ? "Image" : "File"} sent!`);
     } catch (err) {
       toast.error(err?.data?.message || `Failed to send ${type}`);
     } finally {
-      e.target.value = '';
+      e.target.value = "";
     }
   };
 
   const sendAudioMessage = async (audioBlob) => {
     const formData = new FormData();
-    const audioFile = new File([audioBlob], 'voice-note.webm', { type: 'audio/webm' });
-    formData.append('media', audioFile);
-    formData.append('messageType', 'audio');
-    formData.append('mediaDuration', recordingTime.toString());
+    const audioFile = new File([audioBlob], "voice-note.webm", {
+      type: "audio/webm",
+    });
+    formData.append("media", audioFile);
+    formData.append("messageType", "audio");
+    formData.append("mediaDuration", recordingTime.toString());
     try {
       await sendMessageApi({ chatId, data: formData }).unwrap();
       setRecordingBlob(null);
       setShowRecordedPreview(false);
       setRecordingTime(0);
     } catch (err) {
-      toast.error(err?.data?.message || 'Failed to send voice note');
+      toast.error(err?.data?.message || "Failed to send voice note");
     }
   };
 
   const cancelRecording = () => {
-    if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop();
+    if (mediaRecorderRef.current && isRecording)
+      mediaRecorderRef.current.stop();
     setRecordingBlob(null);
     setShowRecordedPreview(false);
     setRecordingTime(0);
@@ -726,15 +892,15 @@ const MyWorkspaceChannelId = () => {
 
   // ── Delete message ─────────────────────────────────────────────
   const handleDeleteMessage = async (messageId) => {
-    if (!window.confirm('Delete this message?')) return;
+    if (!window.confirm("Delete this message?")) return;
     try {
       await deleteMessageApi(messageId).unwrap();
     } catch (err) {
-      toast.error(err?.data?.message || 'Failed to delete message');
+      toast.error(err?.data?.message || "Failed to delete message");
     }
   };
 
-  const handleCall = () => toast.info('Voice/Video calls not available yet');
+  const handleCall = () => toast.info("Voice/Video calls not available yet");
 
   // Mic pointer events
   const startRecording = async () => {
@@ -747,7 +913,9 @@ const MyWorkspaceChannelId = () => {
         if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: "audio/webm",
+        });
         setRecordingBlob(audioBlob);
         setShowRecordedPreview(true);
         stopTimer();
@@ -765,7 +933,7 @@ const MyWorkspaceChannelId = () => {
       setSwipeProgress(0);
       startTimer();
     } catch (err) {
-      toast.error('Microphone access denied');
+      toast.error("Microphone access denied");
     }
   };
 
@@ -784,7 +952,8 @@ const MyWorkspaceChannelId = () => {
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop();
+    if (mediaRecorderRef.current && isRecording)
+      mediaRecorderRef.current.stop();
   };
 
   const handleMicPointerDown = (e) => {
@@ -845,7 +1014,7 @@ const MyWorkspaceChannelId = () => {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-8 pr-3 py-1.5 border border-gray-200 rounded-lg bg-gray-50 text-sm focus:outline-none focus:ring-2"
-              style={{ '--tw-ring-color': brandColor }}
+              style={{ "--tw-ring-color": brandColor }}
             />
           </div>
         </div>
@@ -855,7 +1024,7 @@ const MyWorkspaceChannelId = () => {
               key={channel._id}
               to={`/my-workspace/${workspaceId}/chat/${channel._id}`}
               className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition ${
-                channel._id === chatId ? 'bg-gray-100' : 'hover:bg-gray-50'
+                channel._id === chatId ? "bg-gray-100" : "hover:bg-gray-50"
               }`}
             >
               <FaHashtag className="text-xs text-gray-400" />
@@ -874,22 +1043,28 @@ const MyWorkspaceChannelId = () => {
                 key={dm._id}
                 to={`/my-workspace/${workspaceId}/chat/${dm._id}`}
                 className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition ${
-                  dm._id === chatId ? 'bg-gray-100' : 'hover:bg-gray-50'
+                  dm._id === chatId ? "bg-gray-100" : "hover:bg-gray-50"
                 }`}
               >
                 <div className="w-6 h-6 rounded-full overflow-hidden">
                   {participant?.profile ? (
-                    <img src={participant.profile} alt="" className="w-full h-full object-cover" />
+                    <img
+                      src={participant.profile}
+                      alt=""
+                      className="w-full h-full object-cover"
+                    />
                   ) : (
                     <div
                       className="w-full h-full flex items-center justify-center text-white text-[10px] font-bold"
                       style={{ backgroundColor: brandColor }}
                     >
-                      {participant?.name?.charAt(0).toUpperCase() || '?'}
+                      {participant?.name?.charAt(0).toUpperCase() || "?"}
                     </div>
                   )}
                 </div>
-                <span className="text-sm truncate">{participant?.name || 'Unknown'}</span>
+                <span className="text-sm truncate">
+                  {participant?.name || "Unknown"}
+                </span>
               </Link>
             );
           })}
@@ -898,11 +1073,16 @@ const MyWorkspaceChannelId = () => {
 
       {/* Chat area */}
       <div className="flex-1 flex flex-col bg-white h-full overflow-hidden">
-        {/* Header – sticky so it always stays on top even when keyboard appears */}
+        {/* Header – fixed on mobile (keyboard-safe), sticky on desktop */}
         <header
-  className="fixed lg:sticky top-0 left-0 right-0 lg:left-auto lg:right-auto z-20 flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-teal-600 text-white flex-shrink-0 cursor-pointer"
-  onClick={() => setShowDetailsSheet(true)}
->
+          className="fixed lg:sticky top-0 left-0 right-0 lg:left-auto lg:right-auto z-20 flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-teal-600 text-white flex-shrink-0 cursor-pointer"
+          style={{
+            paddingTop: 'calc(0.75rem + var(--safe-top))',
+            paddingLeft: 'calc(1rem + var(--safe-left))',
+            paddingRight: 'calc(1rem + var(--safe-right))',
+          }}
+          onClick={() => setShowDetailsSheet(true)}
+        >
           <div className="flex items-center gap-3 min-w-0 flex-1">
             <button
               onClick={(e) => {
@@ -915,7 +1095,11 @@ const MyWorkspaceChannelId = () => {
             </button>
             {isDM ? (
               displayAvatar ? (
-                <img src={displayAvatar} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
+                <img
+                  src={displayAvatar}
+                  alt=""
+                  className="w-9 h-9 rounded-full object-cover flex-shrink-0"
+                />
               ) : (
                 <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center font-bold text-sm flex-shrink-0">
                   {displayName.charAt(0).toUpperCase()}
@@ -927,15 +1111,28 @@ const MyWorkspaceChannelId = () => {
               </div>
             )}
             <div className="min-w-0 flex-1">
-              <h2 className="font-semibold text-base truncate">{displayName}</h2>
+              <h2 className="font-semibold text-base truncate">
+                {displayName}
+              </h2>
               <p className="text-xs text-white/80 truncate">
-                {isDM ? (isDMOnline ? 'Online' : 'Offline') : `${memberCount} members`}
+                {isDM
+                  ? isDMOnline
+                    ? "Online"
+                    : "Offline"
+                  : `${memberCount} members`}
               </p>
             </div>
           </div>
-          <div className="flex gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-            <button onClick={handleCall} className="p-1.5"><FaPhone /></button>
-            <button onClick={handleCall} className="p-1.5"><FaVideo /></button>
+          <div
+            className="flex gap-2 flex-shrink-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button onClick={handleCall} className="p-1.5">
+              <FaPhone />
+            </button>
+            <button onClick={handleCall} className="p-1.5">
+              <FaVideo />
+            </button>
           </div>
         </header>
 
@@ -944,7 +1141,7 @@ const MyWorkspaceChannelId = () => {
           <div
             ref={messagesContainerRef}
             onScroll={handleMessagesScroll}
-            className="h-full overflow-y-auto px-4 py-3 space-y-4"
+            className="h-full overflow-y-auto px-4 py-3 space-y-4 pt-20 lg:pt-3 pb-24 lg:pb-3"
           >
             {localMessages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-gray-400">
@@ -954,14 +1151,16 @@ const MyWorkspaceChannelId = () => {
             ) : (
               localMessages.map((msg) => {
                 const sender = getSender(msg.sender?._id || msg.sender);
-                const isOwn = (msg.sender?._id === userInfo?._id || msg.sender === userInfo?._id);
+                const isOwn =
+                  msg.sender?._id === userInfo?._id ||
+                  msg.sender === userInfo?._id;
                 return (
                   <MediaMessage
                     key={msg._id}
                     message={msg}
                     isOwn={isOwn}
                     isDM={isDM}
-                    senderName={sender?.name || 'Unknown'}
+                    senderName={sender?.name || "Unknown"}
                     senderProfile={sender?.profile}
                     brandColor={brandColor}
                     onImageClick={(payload) => setPreviewImage(payload)}
@@ -977,26 +1176,52 @@ const MyWorkspaceChannelId = () => {
             <button
               onClick={scrollToBottom}
               className="absolute bottom-4 right-4 z-30 w-10 h-10 rounded-full bg-white shadow-lg border border-gray-200 flex items-center justify-center text-gray-600 hover:bg-gray-50 transition-all"
-              style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}
+              style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}
             >
               <FaChevronDown className="text-sm" />
             </button>
           )}
         </div>
 
-        {/* Input area – sticky so it stays at bottom even when keyboard appears */}
-        <div className="sticky bottom-0 z-20 border-t border-gray-200 px-3 py-2 bg-white flex-shrink-0">
+        {/* Input area – fixed on mobile (keyboard-safe), sticky on desktop.
+            Safe-area padding keeps the send button clear of screen curves / home indicator. */}
+        <div
+          className="fixed lg:sticky bottom-0 left-0 right-0 lg:left-auto lg:right-auto z-20 border-t border-gray-200 bg-white flex-shrink-0"
+          style={{
+            paddingTop: '0.5rem',
+            paddingLeft: 'calc(0.75rem + var(--safe-left))',
+            paddingRight: 'calc(0.75rem + var(--safe-right))',
+            paddingBottom: 'calc(0.5rem + var(--safe-bottom))',
+          }}
+        >
           {showRecordedPreview && recordingBlob && (
             <div className="flex items-center justify-between px-3 py-2 mb-2 bg-green-50 rounded-lg border border-green-200">
               <div className="flex items-center gap-2">
                 <FaCheckCircle className="text-green-500" />
                 <span className="text-sm">Voice note ready</span>
-                <span className="text-xs text-gray-500">{formatTime(recordingTime)}</span>
+                <span className="text-xs text-gray-500">
+                  {formatTime(recordingTime)}
+                </span>
               </div>
               <div className="flex gap-1">
-                <button onClick={() => { const audio = new Audio(URL.createObjectURL(recordingBlob)); audio.play(); }} className="p-1"><FaPlay className="text-xs" /></button>
-                <button onClick={() => sendAudioMessage(recordingBlob)} className="px-3 py-1 bg-green-600 text-white rounded text-xs">Send</button>
-                <button onClick={cancelRecording} className="p-1 text-gray-400"><FaTimes className="text-xs" /></button>
+                <button
+                  onClick={() => {
+                    const audio = new Audio(URL.createObjectURL(recordingBlob));
+                    audio.play();
+                  }}
+                  className="p-1"
+                >
+                  <FaPlay className="text-xs" />
+                </button>
+                <button
+                  onClick={() => sendAudioMessage(recordingBlob)}
+                  className="px-3 py-1 bg-green-600 text-white rounded text-xs"
+                >
+                  Send
+                </button>
+                <button onClick={cancelRecording} className="p-1 text-gray-400">
+                  <FaTimes className="text-xs" />
+                </button>
               </div>
             </div>
           )}
@@ -1004,11 +1229,19 @@ const MyWorkspaceChannelId = () => {
           {isRecording && !isLocked && (
             <div className="relative flex items-center justify-between px-3 py-2 mb-2 bg-red-50 rounded-lg border border-red-200">
               <span className="text-xs text-red-600 flex items-center gap-2">
-                <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" /> Recording... {formatTime(recordingTime)}
+                <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />{" "}
+                Recording... {formatTime(recordingTime)}
               </span>
-              <span className="text-[10px] text-gray-400">Slide up to lock</span>
+              <span className="text-[10px] text-gray-400">
+                Slide up to lock
+              </span>
               <div className="absolute right-4 bottom-20 flex flex-col items-center">
-                <FaLock className="text-xs" style={{ color: swipeProgress > 0.6 ? brandColor : '#9CA3AF' }} />
+                <FaLock
+                  className="text-xs"
+                  style={{
+                    color: swipeProgress > 0.6 ? brandColor : "#9CA3AF",
+                  }}
+                />
                 <FaChevronUp className="text-gray-300 text-xs" />
               </div>
             </div>
@@ -1018,41 +1251,78 @@ const MyWorkspaceChannelId = () => {
             <div className="flex items-center justify-between px-3 py-2 mb-2 bg-red-50 rounded-lg border border-red-200">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                <span className="text-xs text-red-600">{recordingPaused ? 'Paused' : 'Recording...'} {formatTime(recordingTime)}</span>
+                <span className="text-xs text-red-600">
+                  {recordingPaused ? "Paused" : "Recording..."}{" "}
+                  {formatTime(recordingTime)}
+                </span>
                 <FaLock className="text-[10px]" style={{ color: brandColor }} />
               </div>
               <div className="flex gap-2">
-                <button onClick={pauseRecording} className="text-xs text-red-600">{recordingPaused ? 'Resume' : 'Pause'}</button>
-                <button onClick={cancelRecording} className="text-gray-400"><FaTrashAlt className="text-xs" /></button>
-                <button onClick={stopRecording} className="bg-red-500 text-white p-1 rounded-full"><FaStop className="text-xs" /></button>
+                <button
+                  onClick={pauseRecording}
+                  className="text-xs text-red-600"
+                >
+                  {recordingPaused ? "Resume" : "Pause"}
+                </button>
+                <button onClick={cancelRecording} className="text-gray-400">
+                  <FaTrashAlt className="text-xs" />
+                </button>
+                <button
+                  onClick={stopRecording}
+                  className="bg-red-500 text-white p-1 rounded-full"
+                >
+                  <FaStop className="text-xs" />
+                </button>
               </div>
             </div>
           )}
 
-          <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-            <button type="button" onClick={() => handleFileUpload('file')} className="p-1.5 text-gray-400 hover:text-gray-600">
+          <form
+            onSubmit={handleSendMessage}
+            className="flex items-center gap-2"
+          >
+            <button
+              type="button"
+              onClick={() => handleFileUpload("file")}
+              className="p-1.5 text-gray-400 hover:text-gray-600 flex-shrink-0"
+            >
               <FaPaperclip className="text-sm" />
             </button>
-            <button type="button" onClick={() => handleFileUpload('image')} className="p-1.5 text-gray-400 hover:text-gray-600">
+            <button
+              type="button"
+              onClick={() => handleFileUpload("image")}
+              className="p-1.5 text-gray-400 hover:text-gray-600 flex-shrink-0"
+            >
               <FaImage className="text-sm" />
             </button>
-            <input type="file" ref={fileInputRef} onChange={(e) => handleFileChange(e, 'file')} className="hidden" />
-            <input type="file" ref={imageInputRef} onChange={(e) => handleFileChange(e, 'image')} className="hidden" accept="image/*,video/*" />
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={(e) => handleFileChange(e, "file")}
+              className="hidden"
+            />
+            <input
+              type="file"
+              ref={imageInputRef}
+              onChange={(e) => handleFileChange(e, "image")}
+              className="hidden"
+              accept="image/*,video/*"
+            />
 
             <input
               type="text"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               placeholder="Type a message..."
-              className="flex-1 px-4 py-2 border border-gray-200 rounded-full bg-gray-100 text-sm focus:outline-none focus:ring-2"
-              style={{ '--tw-ring-color': brandColor }}
+              className="flex-1 min-w-0 px-4 py-2 border border-gray-200 rounded-full bg-gray-100 text-sm focus:outline-none focus:ring-2"
+              style={{ "--tw-ring-color": brandColor }}
             />
 
             {message.trim() ? (
               <button
                 type="submit"
                 disabled={!isConnected}
-                className="p-2 rounded-full text-white disabled:opacity-50"
+                className="p-2 rounded-full text-white disabled:opacity-50 flex-shrink-0"
                 style={{ backgroundColor: brandColor }}
               >
                 <FaPaperPlane className="text-sm" />
@@ -1064,7 +1334,7 @@ const MyWorkspaceChannelId = () => {
                 onPointerMove={handleMicPointerMove}
                 onPointerUp={handleMicPointerUp}
                 onPointerCancel={handleMicPointerUp}
-                className="p-2 rounded-full text-white"
+                className="p-2 rounded-full text-white flex-shrink-0"
                 style={{ backgroundColor: brandColor }}
               >
                 <FaMicrophone className="text-sm" />
