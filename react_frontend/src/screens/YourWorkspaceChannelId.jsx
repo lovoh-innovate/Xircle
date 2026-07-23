@@ -818,9 +818,14 @@ const YourWorkspaceChannelId = () => {
 
       {/* Chat area */}
       <div className="flex-1 flex flex-col bg-white h-full overflow-hidden">
-        {/* Header – no sticky needed, part of flex flow */}
+        {/* Header – fixed on mobile (keyboard-safe), sticky on desktop */}
         <header
-          className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-teal-600 text-white flex-shrink-0 cursor-pointer"
+          className="fixed lg:sticky top-0 left-0 right-0 lg:left-auto lg:right-auto z-20 flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-teal-600 text-white flex-shrink-0 cursor-pointer"
+          style={{
+            paddingTop: 'calc(0.75rem + var(--safe-top))',
+            paddingLeft: 'calc(1rem + var(--safe-left))',
+            paddingRight: 'calc(1rem + var(--safe-right))',
+          }}
           onClick={() => setShowDetailsSheet(true)}
         >
           <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -864,7 +869,7 @@ const YourWorkspaceChannelId = () => {
           <div
             ref={messagesContainerRef}
             onScroll={handleMessagesScroll}
-            className="h-full overflow-y-auto px-4 py-3 space-y-4"
+            className="h-full overflow-y-auto px-4 py-3 space-y-4 pt-20 lg:pt-3 pb-24 lg:pb-3"
           >
             {localMessages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-gray-400">
@@ -905,8 +910,17 @@ const YourWorkspaceChannelId = () => {
           )}
         </div>
 
-        {/* Input area – no sticky, just flex-shrink-0 */}
-        <div className="border-t border-gray-200 px-3 py-2 bg-white flex-shrink-0">
+        {/* Input area – fixed on mobile (keyboard-safe), sticky on desktop.
+            Safe-area padding keeps the send button clear of screen curves / home indicator. */}
+        <div
+          className="fixed lg:sticky bottom-0 left-0 right-0 lg:left-auto lg:right-auto z-20 border-t border-gray-200 bg-white flex-shrink-0"
+          style={{
+            paddingTop: '0.5rem',
+            paddingLeft: 'calc(0.75rem + var(--safe-left))',
+            paddingRight: 'calc(0.75rem + var(--safe-right))',
+            paddingBottom: 'calc(0.5rem + var(--safe-bottom))',
+          }}
+        >
           {showRecordedPreview && recordingBlob && (
             <div className="flex items-center justify-between px-3 py-2 mb-2 bg-green-50 rounded-lg border border-green-200">
               <div className="flex items-center gap-2">
@@ -951,8 +965,8 @@ const YourWorkspaceChannelId = () => {
           )}
 
           <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-            <button type="button" onClick={() => handleFileUpload('file')} className="p-1.5 text-gray-400 hover:text-gray-600"><FaPaperclip className="text-sm" /></button>
-            <button type="button" onClick={() => handleFileUpload('image')} className="p-1.5 text-gray-400 hover:text-gray-600"><FaImage className="text-sm" /></button>
+            <button type="button" onClick={() => handleFileUpload('file')} className="p-1.5 text-gray-400 hover:text-gray-600 flex-shrink-0"><FaPaperclip className="text-sm" /></button>
+            <button type="button" onClick={() => handleFileUpload('image')} className="p-1.5 text-gray-400 hover:text-gray-600 flex-shrink-0"><FaImage className="text-sm" /></button>
             <input type="file" ref={fileInputRef} onChange={(e) => handleFileChange(e, 'file')} className="hidden" />
             <input type="file" ref={imageInputRef} onChange={(e) => handleFileChange(e, 'image')} className="hidden" accept="image/*,video/*" />
 
@@ -961,7 +975,7 @@ const YourWorkspaceChannelId = () => {
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               placeholder="Type a message..."
-              className="flex-1 px-4 py-2 border border-gray-200 rounded-full bg-gray-100 text-sm focus:outline-none focus:ring-2"
+              className="flex-1 min-w-0 px-4 py-2 border border-gray-200 rounded-full bg-gray-100 text-sm focus:outline-none focus:ring-2"
               style={{ '--tw-ring-color': brandColor }}
             />
 
@@ -969,7 +983,7 @@ const YourWorkspaceChannelId = () => {
               <button
                 type="submit"
                 disabled={!isConnected}
-                className="p-2 rounded-full text-white disabled:opacity-50"
+                className="p-2 rounded-full text-white disabled:opacity-50 flex-shrink-0"
                 style={{ backgroundColor: brandColor }}
               >
                 <FaPaperPlane className="text-sm" />
@@ -981,7 +995,7 @@ const YourWorkspaceChannelId = () => {
                 onPointerMove={handleMicPointerMove}
                 onPointerUp={handleMicPointerUp}
                 onPointerCancel={handleMicPointerUp}
-                className="p-2 rounded-full text-white"
+                className="p-2 rounded-full text-white flex-shrink-0"
                 style={{ backgroundColor: brandColor }}
               >
                 <FaMicrophone className="text-sm" />
