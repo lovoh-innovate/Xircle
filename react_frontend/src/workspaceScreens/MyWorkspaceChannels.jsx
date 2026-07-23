@@ -70,7 +70,6 @@ const SearchModal = ({ isOpen, onClose, channels, dms, brandColor, workspaceId, 
 
   return (
     <div className="fixed inset-0 z-50 bg-white flex flex-col">
-      {/* Modal Header */}
       <div className="flex items-center gap-3 px-4 h-14 border-b border-gray-100">
         <button onClick={onClose} className="p-1">
           <FaArrowLeft className="text-gray-600" />
@@ -93,7 +92,6 @@ const SearchModal = ({ isOpen, onClose, channels, dms, brandColor, workspaceId, 
         </div>
       </div>
 
-      {/* Search Results */}
       <div className="flex-1 overflow-y-auto">
         {!query && (
           <div className="flex flex-col items-center justify-center h-full text-gray-400">
@@ -453,9 +451,9 @@ const MyWorkspaceChannels = () => {
         <MyWorkspaceSidebar workspace={workspace} chats={chats} />
       </div>
 
-      {/* Main content */}
-      <div className="flex-1 lg:ml-64 flex flex-col h-screen">
-        {/* ── Fixed Header (WhatsApp style) ── */}
+      {/* Main content with left and right margins for sidebars */}
+      <div className="flex-1 lg:ml-64 lg:mr-64 flex flex-col h-screen">
+        {/* ── Fixed Header ── */}
         <header className="sticky top-0 z-10 bg-teal-600 text-white shadow-sm flex-shrink-0">
           <div className="flex items-center justify-between px-4 h-14">
             <div className="flex items-center gap-2">
@@ -485,9 +483,18 @@ const MyWorkspaceChannels = () => {
                 Channels · {groupChats.length}
               </div>
               {groupChats.map((ch) => {
-                const lastMsgTime = formatTime(ch.updatedAt);
+                const lastMsg = ch.lastMessage;
+                const lastMsgSender = lastMsg?.sender;
+                const isOwnLastMsg = lastMsgSender?._id === userInfo?._id || lastMsgSender === userInfo?._id;
+                const lastMsgText = lastMsg?.content || '';
+                const lastMsgSenderName = isOwnLastMsg ? 'You' : (lastMsgSender?.name || '');
+                const lastMsgPreview = lastMsgText
+                  ? (lastMsgSenderName ? `${lastMsgSenderName}: ${lastMsgText}` : lastMsgText)
+                  : 'No messages yet';
+                const lastMsgTime = formatTime(lastMsg?.createdAt || ch.updatedAt);
+
                 return (
-                  <div key={ch._id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition group">
+                  <div key={ch._id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition">
                     <Link
                       to={`/my-workspace/${workspaceId}/chat/${ch._id}`}
                       className="flex items-center gap-3 flex-1 min-w-0"
@@ -501,18 +508,20 @@ const MyWorkspaceChannels = () => {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between">
                           <span className="font-semibold text-gray-800 truncate">#{ch.name}</span>
-                          <span className="text-xs text-gray-400 flex-shrink-0">{lastMsgTime}</span>
+                          <span className="text-xs text-gray-400 flex-shrink-0 ml-2">{lastMsgTime}</span>
                         </div>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-xs text-gray-500">{ch.participants?.length} members</span>
+                        <div className="flex items-center justify-between mt-0.5">
+                          <p className="text-xs text-gray-500 truncate flex-1">{lastMsgPreview}</p>
                           {ch.unreadCount > 0 && (
-                            <span className="bg-teal-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                            <span className="bg-teal-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center ml-2">
                               {ch.unreadCount}
                             </span>
                           )}
                         </div>
                       </div>
                     </Link>
+
+                    {/* Plus icon on the right */}
                     {canAddParticipants(ch) && (
                       <button
                         onClick={(e) => {
@@ -520,7 +529,7 @@ const MyWorkspaceChannels = () => {
                           setSelectedChatId(ch._id);
                           setShowAddParticipantModal(true);
                         }}
-                        className="p-1.5 text-gray-400 hover:text-teal-600 opacity-0 group-hover:opacity-100 transition"
+                        className="p-1.5 text-gray-400 hover:text-teal-600 flex-shrink-0 rounded-lg hover:bg-teal-50 transition"
                       >
                         <FaUserPlus className="text-sm" />
                       </button>
@@ -539,8 +548,9 @@ const MyWorkspaceChannels = () => {
               </div>
               {directMessages.map((dm) => {
                 const participant = getDMParticipant(dm);
-                const lastMsgTime = formatTime(dm.updatedAt);
-                const lastMsg = dm.lastMessage?.content || 'No messages yet';
+                const lastMsg = dm.lastMessage;
+                const lastMsgTime = formatTime(lastMsg?.createdAt || dm.updatedAt);
+                const lastMsgText = lastMsg?.content || 'No messages yet';
                 return (
                   <Link
                     key={dm._id}
@@ -563,7 +573,7 @@ const MyWorkspaceChannels = () => {
                         <span className="text-xs text-gray-400 flex-shrink-0">{lastMsgTime}</span>
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
-                        <p className="text-xs text-gray-500 truncate flex-1">{lastMsg}</p>
+                        <p className="text-xs text-gray-500 truncate flex-1">{lastMsgText}</p>
                         {dm.unreadCount > 0 && (
                           <span className="bg-teal-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
                             {dm.unreadCount}
@@ -585,36 +595,36 @@ const MyWorkspaceChannels = () => {
           )}
         </div>
 
-        {/* Right Sidebar (desktop only) – simplified */}
-        <div className="hidden lg:block fixed right-0 top-0 bottom-0 w-64 bg-white border-l border-gray-200 p-4 overflow-y-auto">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-full bg-teal-500 flex items-center justify-center text-white font-bold">
-              {workspace.initials || workspace.name.charAt(0)}
-            </div>
-            <div>
-              <p className="text-sm font-semibold">{workspace.name}</p>
-              <p className="text-xs text-gray-500">{workspace.members?.length} members</p>
-            </div>
-          </div>
-          <button
-            onClick={() => {
-              navigator.clipboard.writeText(workspace.inviteCode);
-              toast.success('Invite code copied!');
-            }}
-            className="w-full py-2 bg-teal-500 text-white rounded-lg text-sm mb-4"
-          >
-            Invite People
-          </button>
-          <div className="text-xs text-gray-500 space-y-2">
-            <p className="font-semibold text-gray-700">About</p>
-            {workspace.description && <p>{workspace.description}</p>}
-            {workspace.industry && <p>🏢 {workspace.industry}</p>}
-            {workspace.website && <p>🌐 {workspace.website}</p>}
-          </div>
-        </div>
-
         {/* Bottom Navigation (mobile) */}
         <MyWorkspaceBottombar workspace={workspace} />
+      </div>
+
+      {/* Right Sidebar (desktop only) – now with z-index to ensure it stays above */}
+      <div className="hidden lg:block fixed right-0 top-0 bottom-0 w-64 bg-white border-l border-gray-200 p-4 overflow-y-auto z-20">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full bg-teal-500 flex items-center justify-center text-white font-bold">
+            {workspace.initials || workspace.name.charAt(0)}
+          </div>
+          <div>
+            <p className="text-sm font-semibold">{workspace.name}</p>
+            <p className="text-xs text-gray-500">{workspace.members?.length} members</p>
+          </div>
+        </div>
+        <button
+          onClick={() => {
+            navigator.clipboard.writeText(workspace.inviteCode);
+            toast.success('Invite code copied!');
+          }}
+          className="w-full py-2 bg-teal-500 text-white rounded-lg text-sm mb-4"
+        >
+          Invite People
+        </button>
+        <div className="text-xs text-gray-500 space-y-2">
+          <p className="font-semibold text-gray-700">About</p>
+          {workspace.description && <p>{workspace.description}</p>}
+          {workspace.industry && <p>🏢 {workspace.industry}</p>}
+          {workspace.website && <p>🌐 {workspace.website}</p>}
+        </div>
       </div>
 
       {/* Modals */}
