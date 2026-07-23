@@ -614,6 +614,14 @@ const MyWorkspaceChannelId = () => {
   const displayAvatar = isDM ? otherParticipant?.profile : null;
   const isDMOnline = isDM ? otherParticipant?.online || false : false;
 
+  // ── Lock body scroll while this chat is mounted ─────────────────────
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, []);
+
   // ── Silent polling every 3 seconds ──────────────────────────────────
   useEffect(() => {
     const interval = setInterval(() => {
@@ -1183,8 +1191,7 @@ const MyWorkspaceChannelId = () => {
           )}
         </div>
 
-        {/* Input area – fixed on mobile (keyboard-safe), sticky on desktop.
-            Safe-area padding keeps the send button clear of screen curves / home indicator. */}
+        {/* Input area – fixed on mobile, sticky on desktop */}
         <div
           className="fixed lg:sticky bottom-0 left-0 right-0 lg:left-auto lg:right-auto z-20 border-t border-gray-200 bg-white flex-shrink-0"
           style={{
