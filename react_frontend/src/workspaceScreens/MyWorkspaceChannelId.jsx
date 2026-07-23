@@ -900,9 +900,9 @@ const MyWorkspaceChannelId = () => {
       <div className="flex-1 flex flex-col bg-white h-full overflow-hidden">
         {/* Header – sticky so it always stays on top even when keyboard appears */}
         <header
-          className="sticky top-0 z-20 flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-teal-600 text-white flex-shrink-0 cursor-pointer"
-          onClick={() => setShowDetailsSheet(true)}
-        >
+  className="fixed lg:sticky top-0 left-0 right-0 lg:left-auto lg:right-auto z-20 flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-teal-600 text-white flex-shrink-0 cursor-pointer"
+  onClick={() => setShowDetailsSheet(true)}
+>
           <div className="flex items-center gap-3 min-w-0 flex-1">
             <button
               onClick={(e) => {
