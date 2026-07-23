@@ -139,7 +139,7 @@ const ImagePreviewModal = ({ imageUrl, onClose, senderName, time }) => {
   );
 };
 
-// ─── Media Message Component ─────────────────────────────────────────
+// ─── Media Message Component (only sender can delete) ───────────────
 const MediaMessage = ({
   message,
   isOwn,
@@ -261,24 +261,27 @@ const MediaMessage = ({
               <span>{time}</span>
               <MessageTicks message={message} isOwn={isOwn} isDM={isDM} />
             </div>
-            <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition">
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
-                className="text-white bg-black/40 p-1 rounded-full hover:bg-black/60"
-              >
-                <FaEllipsisV className="text-xs" />
-              </button>
-              {showMenu && (
-                <div className="absolute right-0 top-8 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[120px] z-10">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setShowMenu(false); onDelete && onDelete(message._id); }}
-                    className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition w-full"
-                  >
-                    <FaTrashAlt className="text-xs" /> Delete
-                  </button>
-                </div>
-              )}
-            </div>
+            {/* Only show delete for own images */}
+            {isOwn && (
+              <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition">
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
+                  className="text-white bg-black/40 p-1 rounded-full hover:bg-black/60"
+                >
+                  <FaEllipsisV className="text-xs" />
+                </button>
+                {showMenu && (
+                  <div className="absolute right-0 top-8 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[120px] z-10">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowMenu(false); onDelete && onDelete(message._id); }}
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition w-full"
+                    >
+                      <FaTrashAlt className="text-xs" /> Delete
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -311,21 +314,24 @@ const MediaMessage = ({
         <div className={`flex items-center gap-1 text-[10px] text-gray-400 ${isOwn ? 'flex-row-reverse' : ''}`}>
           <span>{time}</span>
           <MessageTicks message={message} isOwn={isOwn} isDM={isDM} />
-          <div className="relative ml-2">
-            <button onClick={() => setShowMenu(!showMenu)} className="text-gray-300 hover:text-gray-500 transition p-0.5">
-              <FaEllipsisV className="text-xs" />
-            </button>
-            {showMenu && (
-              <div className="absolute right-0 bottom-6 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[120px] z-10">
-                <button
-                  onClick={() => { setShowMenu(false); onDelete && onDelete(message._id); }}
-                  className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition w-full"
-                >
-                  <FaTrashAlt className="text-xs" /> Delete
-                </button>
-              </div>
-            )}
-          </div>
+          {/* Only show delete for own messages */}
+          {isOwn && (
+            <div className="relative ml-2">
+              <button onClick={() => setShowMenu(!showMenu)} className="text-gray-300 hover:text-gray-500 transition p-0.5">
+                <FaEllipsisV className="text-xs" />
+              </button>
+              {showMenu && (
+                <div className="absolute right-0 bottom-6 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[120px] z-10">
+                  <button
+                    onClick={() => { setShowMenu(false); onDelete && onDelete(message._id); }}
+                    className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition w-full"
+                  >
+                    <FaTrashAlt className="text-xs" /> Delete
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -344,12 +350,10 @@ const ChatDetailsSheet = ({ isOpen, onClose, chat, workspace, isDM, otherPartici
 
   return (
     <>
-      {/* Overlay */}
       <div
         className="fixed inset-0 z-40 bg-black/50 transition-opacity duration-300"
         onClick={onClose}
       />
-      {/* Sheet */}
       <div
         className={`fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl max-h-[70vh] overflow-y-auto transform transition-transform duration-300 ${
           isOpen ? 'translate-y-0' : 'translate-y-full'
@@ -357,7 +361,6 @@ const ChatDetailsSheet = ({ isOpen, onClose, chat, workspace, isDM, otherPartici
         style={{ boxShadow: '0 -4px 20px rgba(0,0,0,0.15)' }}
       >
         <div className="p-5">
-          {/* Header */}
           <div className="flex items-center gap-4 mb-5">
             {isDM ? (
               displayAvatar ? (
@@ -383,7 +386,6 @@ const ChatDetailsSheet = ({ isOpen, onClose, chat, workspace, isDM, otherPartici
             </div>
           </div>
 
-          {/* Members Section */}
           <div>
             <h4 className="text-sm font-semibold text-gray-700 mb-3">
               {isDM ? 'Participant' : `Members (${memberCount})`}
@@ -896,9 +898,9 @@ const MyWorkspaceChannelId = () => {
 
       {/* Chat area */}
       <div className="flex-1 flex flex-col bg-white h-full overflow-hidden">
-        {/* Header – no sticky, part of flex flow */}
+        {/* Header – sticky so it always stays on top even when keyboard appears */}
         <header
-          className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-teal-600 text-white flex-shrink-0 cursor-pointer"
+          className="sticky top-0 z-20 flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-teal-600 text-white flex-shrink-0 cursor-pointer"
           onClick={() => setShowDetailsSheet(true)}
         >
           <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -982,8 +984,8 @@ const MyWorkspaceChannelId = () => {
           )}
         </div>
 
-        {/* Input area – no sticky */}
-        <div className="border-t border-gray-200 px-3 py-2 bg-white flex-shrink-0">
+        {/* Input area – sticky so it stays at bottom even when keyboard appears */}
+        <div className="sticky bottom-0 z-20 border-t border-gray-200 px-3 py-2 bg-white flex-shrink-0">
           {showRecordedPreview && recordingBlob && (
             <div className="flex items-center justify-between px-3 py-2 mb-2 bg-green-50 rounded-lg border border-green-200">
               <div className="flex items-center gap-2">
