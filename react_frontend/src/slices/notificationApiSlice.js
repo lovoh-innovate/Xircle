@@ -42,6 +42,12 @@ export const notificationApiSlice = apiSlice.injectEndpoints({
         body: data, // { fcmToken, deviceType, platform, action? }
       }),
     }),
+    deleteDeviceToken: builder.mutation({
+      query: (token) => ({
+        url: `${NOTIFICATIONS_URL}/device/${token}`,
+        method: 'DELETE',
+      }),
+    }),
 
     // ─── Test endpoints ───────────────────────────────────────────
     sendTestPush: builder.mutation({
@@ -84,6 +90,20 @@ export const notificationApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: ['Notification'],
     }),
+    deleteNotification: builder.mutation({
+      query: (id) => ({
+        url: `${NOTIFICATIONS_URL}/${id}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['Notification'],
+    }),
+    clearAllNotifications: builder.mutation({
+      query: () => ({
+        url: `${NOTIFICATIONS_URL}/clear-all`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['Notification'],
+    }),
   }),
 });
 
@@ -93,10 +113,13 @@ export const {
   useUpdatePushNotificationsMutation,
   useRegisterWebPushMutation,
   useRegisterMobileTokenMutation,
+  useDeleteDeviceTokenMutation,
   useSendTestPushMutation,
   useSendTestEmailMutation,
   useGetVapidPublicKeyQuery,
   useGetUserNotificationsQuery,
   useMarkNotificationReadMutation,
   useMarkAllNotificationsReadMutation,
+  useDeleteNotificationMutation,
+  useClearAllNotificationsMutation,
 } = notificationApiSlice;

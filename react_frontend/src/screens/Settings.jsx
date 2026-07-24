@@ -6,22 +6,23 @@ import {
   useGetNotificationPreferencesQuery,
   useUpdateEmailNotificationsMutation,
   useUpdatePushNotificationsMutation,
-  useRegisterWebPushMutation,
   useSendTestPushMutation,
   useSendTestEmailMutation,
-  useGetVapidPublicKeyQuery,
 } from '../slices/notificationApiSlice';
+import { usePushNotifications } from '../hooks/usePushNotifications';
+import { useMobilePushNotifications } from '../hooks/useMobilePushNotifications';
 import {
   FaArrowLeft,
   FaBell,
   FaEnvelope,
   FaMobileAlt,
-  FaGlobe,
   FaKey,
   FaSpinner,
   FaCheckCircle,
   FaExclamationTriangle,
   FaTimesCircle,
+  FaSync,
+  FaInfoCircle,
 } from 'react-icons/fa';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -34,18 +35,27 @@ const Settings = () => {
 
   const [emailPrefs, setEmailPrefs] = useState({});
   const [pushPrefs, setPushPrefs] = useState({});
-  const [webPushSubscribed, setWebPushSubscribed] = useState(false);
-  const [subscriptionObj, setSubscriptionObj] = useState(null);
-  const [registeringPush, setRegisteringPush] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [swReady, setSwReady] = useState(false);
 
-  // API hooks
-  const { data: prefData, isLoading: prefsLoading, isError: prefsError } = useGetNotificationPreferencesQuery();
+  const { data: prefData, isLoading: prefsLoading, isError: prefsError } =
+    useGetNotificationPreferencesQuery();
   const [updateEmail] = useUpdateEmailNotificationsMutation();
   const [updatePush] = useUpdatePushNotificationsMutation();
-  const [registerWebPush] = useRegisterWebPushMutation();
   const [sendTestPush] = useSendTestPushMutation();
   const [sendTestEmail] = useSendTestEmailMutation();
-  const { data: vapidData, isLoading: vapidLoading } = useGetVapidPublicKeyQuery(undefined, { skip: isNative });
+
+  // Push hooks
+  const webPush = usePushNotifications();
+  const mobilePush = useMobilePushNotifications();
+  const push = isNative ? mobilePush : webPush;
+  const { isSubscribed, permission, subscribe, unsubscribe, isSupported, subscription } = push;
+
+  // Check service worker status (web only)
+  useEffect(() => {
+    if (isNative || !('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.ready.then(() => setSwReady(true)).catch(() => setSwReady(false));
+  }, [isNative]);
 
   // Populate preferences
   useEffect(() => {
@@ -55,20 +65,12 @@ const Settings = () => {
     }
   }, [prefData]);
 
-  // Check existing web push subscription
+  // Log subscription changes for debugging
   useEffect(() => {
-    if (isNative) return;
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
-    navigator.serviceWorker.ready.then((reg) => {
-      reg.pushManager.getSubscription().then((sub) => {
-        setSubscriptionObj(sub);
-        setWebPushSubscribed(!!sub);
-        if (sub && Notification.permission === 'granted') {
-          setPushPrefs((prev) => ({ ...prev, enabled: true }));
-        }
-      });
-    });
-  }, [isNative]);
+    if (!isNative && subscription) {
+      console.log('🔔 Current subscription endpoint:', subscription.endpoint);
+    }
+  }, [isNative, subscription]);
 
   // Email toggle
   const handleEmailToggle = async (key) => {
@@ -83,74 +85,7 @@ const Settings = () => {
     }
   };
 
-  // Master push toggle (subscribe/unsubscribe)
-  const handlePushMasterToggle = async (currentlyEnabled) => {
-    if (isNative) return; // managed by Capacitor
-
-    if (!currentlyEnabled) {
-      // Subscribe
-      if (Notification.permission === 'denied') {
-        toast.error('Notifications blocked. Enable them in browser settings and try again.');
-        return;
-      }
-
-      setRegisteringPush(true);
-      try {
-        let permission = Notification.permission;
-        if (permission === 'default') {
-          permission = await Notification.requestPermission();
-        }
-        if (permission !== 'granted') {
-          toast.error('Permission denied for push notifications');
-          return;
-        }
-        if (!vapidData?.data?.publicKey) {
-          toast.error('VAPID public key not available');
-          return;
-        }
-        const registration = await navigator.serviceWorker.ready;
-        const subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: vapidData.data.publicKey,
-        });
-        await registerWebPush({
-          subscription,
-          deviceType: 'web',
-        }).unwrap();
-        setSubscriptionObj(subscription);
-        setWebPushSubscribed(true);
-        setPushPrefs((prev) => ({ ...prev, enabled: true }));
-        toast.success('Web push notifications enabled');
-      } catch (err) {
-        toast.error(err?.data?.message || 'Failed to enable push');
-      } finally {
-        setRegisteringPush(false);
-      }
-    } else {
-      // Unsubscribe
-      setRegisteringPush(true);
-      try {
-        if (subscriptionObj) {
-          await subscriptionObj.unsubscribe();
-          await registerWebPush({
-            subscription: subscriptionObj,
-            deviceType: 'web',
-            action: 'unsubscribe',
-          }).unwrap();
-        }
-        setSubscriptionObj(null);
-        setWebPushSubscribed(false);
-        setPushPrefs((prev) => ({ ...prev, enabled: false }));
-        toast.success('Web push notifications disabled');
-      } catch (err) {
-        toast.error(err?.data?.message || 'Failed to disable push');
-      } finally {
-        setRegisteringPush(false);
-      }
-    }
-  };
-
-  // Sub-preference toggles
+  // Push sub-toggle
   const handlePushSubToggle = async (key) => {
     const newPrefs = { ...pushPrefs, [key]: !pushPrefs[key] };
     setPushPrefs(newPrefs);
@@ -163,17 +98,82 @@ const Settings = () => {
     }
   };
 
+  // Master push toggle
+  const handlePushMasterToggle = async (currentlyEnabled) => {
+    if (actionLoading) return;
+    setActionLoading(true);
+    try {
+      if (currentlyEnabled) {
+        const success = await unsubscribe();
+        if (success) {
+          const newPrefs = { ...pushPrefs, enabled: false };
+          setPushPrefs(newPrefs);
+          await updatePush(newPrefs).unwrap();
+          toast.success('Push notifications disabled');
+        } else {
+          toast.error('Failed to disable push');
+        }
+      } else {
+        const success = await subscribe();
+        if (success) {
+          const newPrefs = { ...pushPrefs, enabled: true };
+          setPushPrefs(newPrefs);
+          await updatePush(newPrefs).unwrap();
+          toast.success('Push notifications enabled');
+        } else {
+          if (permission === 'denied') {
+            toast.error('Notifications blocked. Enable them in browser settings.');
+          } else {
+            toast.error('Failed to enable push');
+          }
+        }
+      }
+    } catch (err) {
+      toast.error(err?.data?.message || 'An error occurred');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Re-register (force new subscription)
+  const handleReRegister = async () => {
+    if (actionLoading || isNative) return;
+    setActionLoading(true);
+    try {
+      // Unsubscribe first
+      await unsubscribe();
+      // Then subscribe again
+      const success = await subscribe();
+      if (success) {
+        const newPrefs = { ...pushPrefs, enabled: true };
+        setPushPrefs(newPrefs);
+        await updatePush(newPrefs).unwrap();
+        toast.success('Push subscription refreshed');
+      } else {
+        toast.error('Failed to re-register push');
+      }
+    } catch (err) {
+      toast.error(err?.data?.message || 'Re-registration failed');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   // Test push
   const handleTestPush = async () => {
+    if (!isSubscribed || permission !== 'granted') {
+      toast.warning('Push is not active');
+      return;
+    }
     try {
       await sendTestPush().unwrap();
       toast.success('Test push notification sent');
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to send test push');
+      console.error('Test push error:', err);
     }
   };
 
-  // Test email
   const handleTestEmail = async () => {
     try {
       await sendTestEmail().unwrap();
@@ -183,6 +183,24 @@ const Settings = () => {
     }
   };
 
+  // Toggle switch component
+  const ToggleSwitch = ({ enabled, onChange, disabled = false }) => (
+    <button
+      onClick={onChange}
+      disabled={disabled || actionLoading}
+      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+        enabled ? 'bg-teal-600' : 'bg-gray-300'
+      } ${disabled || actionLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+    >
+      <span
+        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+          enabled ? 'translate-x-6' : 'translate-x-1'
+        }`}
+      />
+    </button>
+  );
+
+  // Loading / error
   if (prefsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -200,30 +218,13 @@ const Settings = () => {
     );
   }
 
-  const pushEnabled = pushPrefs.enabled && (isNative || webPushSubscribed);
-  const pushAvailable = isNative || (webPushSubscribed && Notification.permission === 'granted');
-
-  const ToggleSwitch = ({ enabled, onChange, disabled = false }) => (
-    <button
-      onClick={onChange}
-      disabled={disabled}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-        enabled ? 'bg-teal-600' : 'bg-gray-300'
-      } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-    >
-      <span
-        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-          enabled ? 'translate-x-6' : 'translate-x-1'
-        }`}
-      />
-    </button>
-  );
+  const pushEnabled = pushPrefs.enabled && isSubscribed && permission === 'granted';
+  const pushAvailable = isSupported && isSubscribed && permission === 'granted';
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <ToastContainer position="bottom-center" autoClose={4000} hideProgressBar={false} />
 
-      {/* Header */}
       <header className="sticky top-0 z-10 bg-teal-600 text-white shadow-sm px-4 h-14 flex items-center gap-3">
         <button onClick={() => navigate(-1)} className="p-1">
           <FaArrowLeft />
@@ -232,7 +233,7 @@ const Settings = () => {
       </header>
 
       <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 max-w-3xl mx-auto w-full">
-        {/* Email Notifications */}
+        {/* Email section (unchanged) */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200/60 p-5 mb-6">
           <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
             <FaEnvelope className="text-teal-600" />
@@ -259,7 +260,7 @@ const Settings = () => {
           )}
         </div>
 
-        {/* Push Notifications */}
+        {/* Push section */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200/60 p-5 mb-6">
           <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
             <FaMobileAlt className="text-teal-600" />
@@ -274,32 +275,60 @@ const Settings = () => {
               </p>
             </div>
           ) : (
-            <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-100">
-              <div>
-                <p className="text-sm font-medium text-gray-700">Enable push notifications</p>
-                <p className="text-xs text-gray-500">
-                  {Notification.permission === 'denied'
-                    ? 'Notifications are blocked in browser settings.'
-                    : 'Receive push notifications in this browser'}
-                </p>
+            <>
+              <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-100">
+                <div>
+                  <p className="text-sm font-medium text-gray-700">Enable push notifications</p>
+                  <p className="text-xs text-gray-500">
+                    {permission === 'denied'
+                      ? 'Notifications are blocked in browser settings.'
+                      : 'Receive push notifications in this browser'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  {permission === 'denied' ? (
+                    <span className="text-xs text-red-500 flex items-center gap-1">
+                      <FaTimesCircle /> Blocked
+                    </span>
+                  ) : (
+                    <>
+                      {actionLoading && <FaSpinner className="animate-spin text-teal-600" />}
+                      <ToggleSwitch
+                        enabled={pushEnabled}
+                        onChange={() => handlePushMasterToggle(pushEnabled)}
+                        disabled={!isSupported || permission === 'denied'}
+                      />
+                    </>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-3">
-                {Notification.permission === 'denied' ? (
-                  <span className="text-xs text-red-500 flex items-center gap-1">
-                    <FaTimesCircle /> Blocked
-                  </span>
-                ) : (
-                  <>
-                    {registeringPush && <FaSpinner className="animate-spin text-teal-600" />}
-                    <ToggleSwitch
-                      enabled={pushEnabled}
-                      onChange={() => handlePushMasterToggle(pushEnabled)}
-                      disabled={registeringPush || Notification.permission === 'denied'}
-                    />
-                  </>
+
+              {/* Diagnostic info */}
+              <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-600 space-y-1 mb-4">
+                <div className="flex items-center gap-2">
+                  <FaInfoCircle className="text-teal-500" />
+                  <span>Service Worker: {swReady ? '✅ Ready' : '⏳ Loading...'}</span>
+                </div>
+                {subscription && (
+                  <div className="truncate">
+                    <span className="font-medium">Endpoint:</span>{' '}
+                    {subscription.endpoint.length > 60
+                      ? subscription.endpoint.slice(0, 60) + '…'
+                      : subscription.endpoint}
+                  </div>
+                )}
+                {!isNative && (
+                  <button
+                    onClick={handleReRegister}
+                    disabled={actionLoading || !isSupported || permission === 'denied'}
+                    className="mt-2 flex items-center gap-1 text-teal-600 hover:text-teal-700 transition disabled:opacity-50"
+                  >
+                    <FaSync className={actionLoading ? 'animate-spin' : ''} />
+                    Re‑register Push
+                  </button>
                 )}
               </div>
-            </div>
+            </>
           )}
 
           {pushEnabled && Object.keys(pushPrefs).length > 1 && (
@@ -328,7 +357,7 @@ const Settings = () => {
           )}
         </div>
 
-        {/* Test Notifications */}
+        {/* Test section */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200/60 p-5 mb-6">
           <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
             <FaBell className="text-teal-600" />
@@ -349,17 +378,22 @@ const Settings = () => {
               <FaEnvelope /> Send Test Email
             </button>
           </div>
+          {!isNative && !pushAvailable && isSupported && (
+            <p className="text-xs text-amber-600 mt-2">
+              Push is not active. Enable it above or re‑register if the endpoint is missing.
+            </p>
+          )}
         </div>
 
-        {/* VAPID key */}
-        {!isNative && vapidData?.data?.publicKey && (
+        {/* VAPID key (web) */}
+        {!isNative && (
           <details className="bg-white rounded-2xl shadow-sm border border-gray-200/60 p-5">
             <summary className="text-lg font-semibold text-gray-900 flex items-center gap-2 cursor-pointer">
               <FaKey className="text-teal-600" />
               VAPID Public Key
             </summary>
             <p className="text-xs text-gray-500 bg-gray-100 p-3 rounded-lg break-all font-mono mt-4">
-              {vapidData.data.publicKey}
+              {webPush.vapidPublicKey || 'Not loaded'}
             </p>
           </details>
         )}

@@ -1,3 +1,5 @@
+// controllers/messagingController.js
+
 import mongoose from "mongoose";
 import { Message, Chat, TypingIndicator } from "../models/messagingModel.js";
 import Workspace from "../models/workspaceModel.js";
@@ -31,9 +33,9 @@ const isChatAdmin = async (chatId, userId) => {
   return participant?.role === "admin";
 };
 
-// ── Notification helper ────────────────────────────────────────────
+// ── Notification helper (fire‑and‑forget) ────────────────────────
 /**
- * Fire-and-forget notification to one or many users.
+ * Send a push/email notification to one or many users.
  * @param {string|string[]} userIds - Single user ID or array
  * @param {Object} options
  */
@@ -55,7 +57,7 @@ async function notifyUsers(userIds, { title, body, data = {}, emailEventType = n
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UPDATE ONLINE STATUS (NEW)
+// UPDATE ONLINE STATUS
 // POST /api/messages/online-status
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -138,7 +140,7 @@ const createGroupChat = async (req, res) => {
       .populate("participants.user", "name email profile")
       .populate("createdBy", "name email profile");
 
-    // ── Notify all participants (except the creator) about the new group chat ──
+    // Notify all members (except creator)
     const memberIds = activeMembers
       .filter(m => m.user.toString() !== userId)
       .map(m => m.user.toString());
@@ -146,7 +148,7 @@ const createGroupChat = async (req, res) => {
       title: `New group chat "${chat.name}"`,
       body: `You were added to the group "${chat.name}" by the workspace owner.`,
       data: { chatId: chat._id.toString(), workspaceId },
-      emailEventType: 'teamInvite', // or a custom 'newGroupChat' if you add it
+      emailEventType: 'teamInvite',
       emailHtml: `
         <h3>You've been added to a group chat</h3>
         <p>Group: <strong>${chat.name}</strong></p>
@@ -248,7 +250,7 @@ const createDirectChat = async (req, res) => {
       "name email profile",
     );
 
-    // ── Notify the target user about the new direct chat ──
+    // Notify target user
     notifyUsers(targetUserId, {
       title: `New message from ${req.user.name || 'a colleague'}`,
       body: `${req.user.name || 'Someone'} started a direct chat with you.`,
@@ -267,7 +269,7 @@ const createDirectChat = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET USER CHATS (UPDATED to include online status)
+// GET USER CHATS
 // GET /api/messages/chats
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -298,7 +300,6 @@ const getUserChats = async (req, res) => {
           sender: { $ne: userId },
         });
 
-        // Format participants with online status
         const chatObj = chat.toObject();
         chatObj.participants = chatObj.participants.map((p) => ({
           ...p,
@@ -378,15 +379,11 @@ const getChatMessages = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SEND MESSAGE (UPDATED to handle file uploads)
+// SEND MESSAGE (UPDATED: notify all participants + mentions)
 // POST /api/messages/:chatId
 // ─────────────────────────────────────────────────────────────────────────────
 
 const sendMessage = async (req, res) => {
-  console.log("=== DEBUG ===");
-  console.log("req.file:", req.file);
-  console.log("req.body:", req.body);
-  console.log("=============");
   try {
     const userId = req.user.id;
     const { chatId } = req.params;
@@ -397,27 +394,10 @@ const sendMessage = async (req, res) => {
       replyToId,
     } = req.body;
 
-    console.log("📨 Send message request:", {
-      chatId,
-      userId,
-      hasFile: !!req.file,
-      body: req.body,
-      fileInfo: req.file
-        ? {
-            fieldname: req.file.fieldname,
-            originalname: req.file.originalname,
-            mimetype: req.file.mimetype,
-            size: req.file.size,
-            path: req.file.path,
-          }
-        : null,
-    });
-
+    // 1. Validate participant
     const isParticipant = await isChatParticipant(chatId, userId);
     if (!isParticipant) {
-      return res
-        .status(403)
-        .json({ message: "You are not a participant in this chat." });
+      return res.status(403).json({ message: "You are not a participant in this chat." });
     }
 
     const chat = await Chat.findById(chatId);
@@ -425,7 +405,7 @@ const sendMessage = async (req, res) => {
       return res.status(404).json({ message: "Chat not found." });
     }
 
-    // Handle uploaded file from multer
+    // 2. Handle file upload
     let mediaUrl = null;
     let mediaName = null;
     let mediaSize = null;
@@ -433,90 +413,115 @@ const sendMessage = async (req, res) => {
     let finalMessageType = messageType;
 
     if (req.file) {
-      console.log("✅ File received successfully");
       mediaUrl = req.file.path;
       mediaName = req.file.originalname;
       mediaSize = req.file.size;
-      mediaDuration = req.body.mediaDuration
-        ? parseInt(req.body.mediaDuration)
-        : null;
+      mediaDuration = req.body.mediaDuration ? parseInt(req.body.mediaDuration) : null;
 
-      // Determine message type from file mimetype
-      if (req.file.mimetype.startsWith("audio/")) {
-        finalMessageType = "audio";
-      } else if (req.file.mimetype.startsWith("image/")) {
-        finalMessageType = "image";
-      } else if (req.file.mimetype.startsWith("video/")) {
-        finalMessageType = "video";
-      } else {
-        finalMessageType = "file";
-      }
-    } else {
-      console.log("⚠️ No file in request");
+      if (req.file.mimetype.startsWith("audio/")) finalMessageType = "audio";
+      else if (req.file.mimetype.startsWith("image/")) finalMessageType = "image";
+      else if (req.file.mimetype.startsWith("video/")) finalMessageType = "video";
+      else finalMessageType = "file";
     }
 
+    // 3. Filter valid mentions (participants only)
     const validMentions = await Promise.all(
       mentions.map(async (mentionId) => {
-        const isValid = chat.participants.some(
-          (p) => p.user.toString() === mentionId,
-        );
+        const isValid = chat.participants.some((p) => p.user.toString() === mentionId);
         return isValid ? mentionId : null;
-      }),
+      })
     );
     const filteredMentions = validMentions.filter((m) => m !== null);
 
-    console.log("📝 Creating message with:", {
-      messageType: finalMessageType,
-      mediaUrl,
-      mediaName,
-      mediaSize,
-      mediaDuration,
-    });
-
+    // 4. Create message
     const message = await Message.create({
       workspace: chat.workspace,
       chat: chatId,
       sender: userId,
       content: content?.trim() || "",
       messageType: finalMessageType,
-      mediaUrl: mediaUrl,
-      mediaName: mediaName,
-      mediaSize: mediaSize,
-      mediaDuration: mediaDuration,
+      mediaUrl,
+      mediaName,
+      mediaSize,
+      mediaDuration,
       mentions: filteredMentions,
       replyTo: replyToId || null,
       readBy: [{ user: userId, readAt: new Date() }],
     });
 
+    // 5. Update chat last message
     chat.lastMessage = message._id;
     chat.lastMessageAt = new Date();
     await chat.save();
 
+    // 6. Populate message
     const populatedMessage = await Message.findById(message._id)
       .populate("sender", "name email profile")
       .populate("mentions", "name email profile")
       .populate("replyTo");
 
+    // 7. Clear typing indicator
     await TypingIndicator.deleteOne({ chat: chatId, user: userId });
 
-    // Emit socket event
+    // 8. Emit socket event
     const io = req.app.get("io");
     if (io) {
       io.to(`chat:${chatId}`).emit("new-message", populatedMessage);
     }
 
-    // ── Notify mentioned users (fire‑and‑forget) ─────────────────
+    // ─── 9. NOTIFY ALL PARTICIPANTS (except sender) ──────────────────────
+    const senderName = req.user.name || 'Someone';
+    const allParticipantIds = chat.participants
+      .map(p => p.user.toString())
+      .filter(id => id !== userId);
+
+    // Build a preview of the message content
+    let preview = content?.substring(0, 100) || '';
+    if (finalMessageType === 'image') preview = '📷 Image';
+    else if (finalMessageType === 'video') preview = '🎬 Video';
+    else if (finalMessageType === 'audio') preview = '🎵 Audio';
+    else if (finalMessageType === 'file') preview = `📎 ${mediaName || 'File'}`;
+    if (!preview) preview = 'Sent a message';
+
+    // Prepare email HTML (include chat link)
+    const chatLink = `${process.env.CLIENT_URL}/workspace/${chat.workspace}/chat/${chatId}`;
+    const emailHtml = `
+      <h3>New message from ${senderName}</h3>
+      <p><strong>Chat:</strong> ${chat.type === 'group' ? chat.name : 'Direct'}</p>
+      <p><em>${preview}</em></p>
+      <p><a href="${chatLink}">View in app</a></p>
+    `;
+
+    // Send to all participants (fire & forget)
+    if (allParticipantIds.length > 0) {
+      notifyUsers(allParticipantIds, {
+        title: `${senderName} sent a message`,
+        body: preview,
+        data: {
+          chatId: chat._id.toString(),
+          workspaceId: chat.workspace.toString(),
+          messageId: message._id.toString(),
+        },
+        emailEventType: 'newMessage',
+        emailHtml,
+      });
+    }
+
+    // ─── 10. NOTIFY MENTIONED USERS (if any, they also get a separate mention) ──
     if (filteredMentions.length > 0) {
-      const senderName = req.user.name || 'Someone';
       notifyUsers(filteredMentions, {
         title: `${senderName} mentioned you in chat`,
         body: `${senderName}: ${content?.substring(0, 100) || 'sent a message'}`,
         data: { chatId: chat._id.toString(), messageId: message._id.toString() },
-        emailEventType: 'newMessage', // you could create a dedicated 'mention' type
+        emailEventType: 'newMessage',
+        emailHtml: `
+          <h3>${senderName} mentioned you</h3>
+          <p><strong>Chat:</strong> ${chat.type === 'group' ? chat.name : 'Direct'}</p>
+          <p><em>${content || 'sent a message'}</em></p>
+          <p><a href="${chatLink}">View message</a></p>
+        `,
       });
     }
-
-    console.log("✅ Message sent successfully:", message._id);
 
     res.status(201).json({
       success: true,
@@ -524,7 +529,6 @@ const sendMessage = async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Send message error:", error);
-    console.error("Error stack:", error.stack);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -743,7 +747,7 @@ const addParticipant = async (req, res) => {
 
     await chat.save();
 
-    // ── Notify newly added participants ─────────────────────────
+    // Notify added participants
     if (addedUsers.length > 0) {
       notifyUsers(addedUsers, {
         title: `Added to group "${chat.name}"`,
@@ -801,12 +805,12 @@ const removeParticipant = async (req, res) => {
     );
     await chat.save();
 
-    // ── Notify the removed participant ──────────────────────────
+    // Notify removed participant
     notifyUsers(targetUserId, {
       title: `Removed from group "${chat.name}"`,
       body: `You have been removed from the group chat "${chat.name}".`,
       data: { workspaceId: chat.workspace.toString() },
-      emailEventType: 'projectUpdate', // you could define 'groupUpdate'
+      emailEventType: 'projectUpdate',
     });
 
     res.status(200).json({
@@ -862,6 +866,10 @@ const markChatAsRead = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EXPORTS
+// ─────────────────────────────────────────────────────────────────────────────
 
 export {
   createGroupChat,

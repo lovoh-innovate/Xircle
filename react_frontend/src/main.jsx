@@ -19,9 +19,6 @@ import { SocketProvider } from './components/SocketContext.jsx';
 // Global call overlay
 import IncomingCallModal from './components/IncomingCallModal.jsx';
 
-// Push notification initialiser
-import { initPushNotifications } from './services/pushNotifications.js';
-
 // Auth routes
 import Login from './screens/Login.jsx';
 import ForgotPassword from './screens/ForgotPassword.jsx';
@@ -64,6 +61,19 @@ const GlobalNavigator = () => {
       window.__navigate = null;
     };
   }, [navigate]);
+  return null;
+};
+
+// ── Service worker registration (required for web push) ──────────
+const ServiceWorkerRegister = () => {
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker
+        .register('/sw.js')
+        .then(() => console.log('✅ Service Worker registered'))
+        .catch((err) => console.error('❌ Service Worker registration failed:', err));
+    }
+  }, []);
   return null;
 };
 
@@ -120,20 +130,14 @@ const router = createBrowserRouter([
   },
 ]);
 
-// ── Root component – handles socket and push init ──────────────
+// ── Root component – handles socket and pushes service worker registration ──
 const AppRoot = () => {
   const userInfo = useSelector((state) => state.auth?.userInfo);
   const token = userInfo?.token;
 
-  // Initialise push notifications once the user has a token (native only)
-  useEffect(() => {
-    if (token) {
-      initPushNotifications();
-    }
-  }, [token]);
-
   return (
     <SocketProvider token={token}>
+      <ServiceWorkerRegister />
       <RouterProvider router={router} />
     </SocketProvider>
   );
