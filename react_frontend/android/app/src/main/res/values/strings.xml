@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Xircle</string>
+    <string name="title_activity_main">Xircle</string>
+    <string name="package_name">com.lovohcreate.xircle</string>
+    <string name="custom_url_scheme">com.lovohcreate.xircle</string>
+</resources>

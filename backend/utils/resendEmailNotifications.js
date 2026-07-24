@@ -16,7 +16,7 @@ export const sendEmail = async (to, subject, html) => {
 
   try {
     const { data, error } = await resend.emails.send({
-      from: process.env.FROM_EMAIL || 'noreply@yourdomain.com', // your verified domain in Resend
+      from: process.env.FROM_EMAIL || 'noreply@lovohcreate.com', // your verified domain in Resend
       to,
       subject,
       html,

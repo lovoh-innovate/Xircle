@@ -1,9 +1,14 @@
 // main.jsx
-import { StrictMode } from 'react';
+import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Provider, useSelector } from 'react-redux';
 import { GoogleOAuthProvider } from '@react-oauth/google';
-import { createBrowserRouter, RouterProvider, Outlet } from 'react-router-dom';
+import {
+  createBrowserRouter,
+  RouterProvider,
+  Outlet,
+  useNavigate,
+} from 'react-router-dom';
 
 import './index.css';
 import store from './store';
@@ -14,10 +19,14 @@ import { SocketProvider } from './components/SocketContext.jsx';
 // Global call overlay
 import IncomingCallModal from './components/IncomingCallModal.jsx';
 
+// Push notification initialiser
+import { initPushNotifications } from './services/pushNotifications.js';
+
 // Auth routes
 import Login from './screens/Login.jsx';
 import ForgotPassword from './screens/ForgotPassword.jsx';
 import Signup from './screens/Signup.jsx';
+import Settings from './screens/Settings.jsx';
 
 // Workspace routes (owner / member)
 import MyWorkspaces from './screens/MyWorkspaces.jsx';
@@ -43,13 +52,26 @@ import YourWorkspaceDMs from './screens/YourWorkspaceDMs.jsx';
 import YourWorkspaceProjects from './screens/YourWorkspaceProjects.jsx';
 import YourWorkspaceProjectId from './screens/YourWorkspaceProjectId.jsx';
 
-// Call screen (new)
+// Call screen
 import CallScreen from './components/CallScreen.jsx';
 
-// ── Root layout: renders the current page + the call modal ─────
+// ── Global navigator (exposes navigate for non-React code) ──────
+const GlobalNavigator = () => {
+  const navigate = useNavigate();
+  useEffect(() => {
+    window.__navigate = navigate;
+    return () => {
+      window.__navigate = null;
+    };
+  }, [navigate]);
+  return null;
+};
+
+// ── Root layout: renders the current page, call modal, and navigator ──
 const RootLayout = () => {
   return (
     <>
+      <GlobalNavigator />
       <Outlet />
       <IncomingCallModal />
     </>
@@ -60,12 +82,13 @@ const RootLayout = () => {
 const router = createBrowserRouter([
   {
     path: '/',
-    element: <RootLayout />,        // <-- replaced <App /> with the new layout
+    element: <RootLayout />,
     children: [
-      { index: true, element: <Login /> },           // default route
+      { index: true, element: <Login /> },
       { path: 'login', element: <Login /> },
       { path: 'signup', element: <Signup /> },
       { path: 'forgot-password', element: <ForgotPassword /> },
+      { path: 'settings', element: <Settings /> },
 
       { path: 'my-workspaces', element: <MyWorkspaces /> },
       { path: 'workspace/:workspaceId', element: <YourWorkspaceId /> },
@@ -91,16 +114,24 @@ const router = createBrowserRouter([
 
       { path: 'profile', element: <Profile /> },
 
-      // ── Call screen ──
+      // Call screen
       { path: 'call/:roomId', element: <CallScreen /> },
     ],
   },
 ]);
 
-// ── Root component to read token from Redux and supply SocketProvider ──
+// ── Root component – handles socket and push init ──────────────
 const AppRoot = () => {
   const userInfo = useSelector((state) => state.auth?.userInfo);
   const token = userInfo?.token;
+
+  // Initialise push notifications once the user has a token (native only)
+  useEffect(() => {
+    if (token) {
+      initPushNotifications();
+    }
+  }, [token]);
+
   return (
     <SocketProvider token={token}>
       <RouterProvider router={router} />

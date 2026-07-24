@@ -2,9 +2,7 @@
 import React, { useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { Link, useNavigate } from 'react-router-dom';
-import {
-  useGetMyWorkspacesQuery,
-} from '../slices/workspaceApiSlice';
+import { useGetMyWorkspacesQuery } from '../slices/workspaceApiSlice';
 import { useLogoutMutation } from '../slices/userApiSlice';
 import { logout } from '../slices/authSlice';
 import { toast } from 'react-toastify';
@@ -20,6 +18,7 @@ import {
   FaChevronRight,
   FaSignOutAlt,
   FaBuilding,
+  FaCog,
 } from 'react-icons/fa';
 
 const Profile = () => {
@@ -71,9 +70,11 @@ const Profile = () => {
           {workspaces.map((ws) => (
             <Link
               key={ws._id}
-              to={ws.owner === userInfo?._id || ws.owner?._id === userInfo?._id
-                ? `/my-workspace/${ws._id}`
-                : `/workspace/${ws._id}`}
+              to={
+                ws.owner === userInfo?._id || ws.owner?._id === userInfo?._id
+                  ? `/my-workspace/${ws._id}`
+                  : `/workspace/${ws._id}`
+              }
               className="flex items-center justify-between py-3 px-1 hover:bg-gray-50 transition"
             >
               <div className="flex items-center gap-3 min-w-0">
@@ -110,7 +111,7 @@ const Profile = () => {
     );
   }
 
-  const brandColor = '#0d9488'; // consistent teal
+  const brandColor = '#0d9488';
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -123,13 +124,23 @@ const Profile = () => {
             </button>
             <h1 className="text-lg font-semibold">Profile</h1>
           </div>
-          <button
-            onClick={() => navigate('/profile/edit')}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-full text-sm font-medium transition"
-          >
-            <FaEdit className="text-xs" />
-            Edit
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Settings button */}
+            <button
+              onClick={() => navigate('/settings')}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-full text-sm font-medium transition"
+            >
+              <FaCog className="text-xs" />
+              Settings
+            </button>
+            <button
+              onClick={() => navigate('/profile/edit')}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-full text-sm font-medium transition"
+            >
+              <FaEdit className="text-xs" />
+              Edit
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -210,8 +221,15 @@ const Profile = () => {
             </div>
           </div>
 
-          {/* Logout button – inline, subtle */}
-          <div className="mt-4 pt-4 border-t border-gray-100 flex justify-end">
+          {/* Action buttons */}
+          <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center">
+            <Link
+              to="/settings"
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition text-sm font-medium"
+            >
+              <FaCog className="text-xs" />
+              Notification Settings
+            </Link>
             <button
               onClick={handleLogout}
               disabled={logoutLoading}

@@ -1,15 +1,13 @@
 import User from '../models/userModel.js';
 import Notification from '../models/notificationModel.js';
 import webpush from 'web-push';
-// Modern firebase-admin (v9+) ships modular ESM subpath exports designed for
-// exactly this situation — no default-import interop issues, no CJS needed.
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
 import { Resend } from 'resend';
 
 // ── Web Push (VAPID) configuration ──────────────────────────────────────────
 webpush.setVapidDetails(
-  process.env.VAPID_SUBJECT,      // 'mailto:your@email.com' or your app URL
+  process.env.VAPID_SUBJECT,
   process.env.VAPID_PUBLIC_KEY,
   process.env.VAPID_PRIVATE_KEY
 );
@@ -74,13 +72,12 @@ export const sendPushNotification = async (userId, title, body, data = {}) => {
           tokenRecord.deviceType === 'web' &&
           tokenRecord.subscription
         ) {
-          // ── Web push ──────────────────────────────────────────
           await webpush.sendNotification(
             tokenRecord.subscription,
             JSON.stringify({
               title,
               body,
-              icon: '/icon.png',          // adjust to your app icon
+              icon: '/icon.png',
               badge: '/badge.png',
               data,
               vibrate: [200, 100, 200],
@@ -92,7 +89,6 @@ export const sendPushNotification = async (userId, title, body, data = {}) => {
           ['ios', 'android'].includes(tokenRecord.deviceType) &&
           tokenRecord.token
         ) {
-          // ── Firebase (mobile) ─────────────────────────────────
           if (firebaseInitialised) {
             const message = {
               notification: { title, body },
@@ -110,7 +106,6 @@ export const sendPushNotification = async (userId, title, body, data = {}) => {
           `Push failed for ${tokenRecord.deviceType}:`,
           error.message
         );
-        // Mark invalid tokens as inactive
         if (error.statusCode === 410 || error.statusCode === 404) {
           tokenRecord.isActive = false;
           await user.save();
@@ -154,12 +149,11 @@ export const createAndSendNotification = async ({
   body,
   data = {},
   sendPush = true,
-  emailEventType = null,   // key inside notificationPreferences.email
+  emailEventType = null,
   emailSubject = null,
   emailHtml = null,
 }) => {
   try {
-    // 1. Store in‑app notification
     const notification = await Notification.create({
       recipient,
       title,
@@ -167,7 +161,6 @@ export const createAndSendNotification = async ({
       data,
     });
 
-    // 2. Send push (fire and forget)
     if (sendPush) {
       sendPushNotification(recipient, title, body, {
         ...data,
@@ -175,7 +168,6 @@ export const createAndSendNotification = async ({
       }).catch(err => console.error('Push delivery failed:', err.message));
     }
 
-    // 3. Send email if event type provided and user has it enabled
     if (emailEventType && emailSubject && emailHtml) {
       const user = await User.findById(recipient).select(
         'email notificationPreferences'
@@ -203,7 +195,7 @@ export const createAndSendNotification = async ({
 
 export const getNotificationPreferences = async (req, res) => {
   try {
-    const user = await User.findById(req.userId).select(
+    const user = await User.findById(req.user._id).select(
       'notificationPreferences email'
     );
     if (!user) {
@@ -245,7 +237,7 @@ export const getNotificationPreferences = async (req, res) => {
 
 export const updateEmailNotifications = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user._id;
     const allowedFields = [
       'newMessage',
       'taskAssignment',
@@ -262,12 +254,10 @@ export const updateEmailNotifications = async (req, res) => {
         .json({ success: false, message: 'User not found' });
     }
 
-    // Ensure nested structure exists
     if (!user.notificationPreferences) user.notificationPreferences = {};
     if (!user.notificationPreferences.email)
       user.notificationPreferences.email = {};
 
-    // Update only provided boolean fields
     allowedFields.forEach(field => {
       if (typeof req.body[field] === 'boolean') {
         user.notificationPreferences.email[field] = req.body[field];
@@ -293,7 +283,7 @@ export const updateEmailNotifications = async (req, res) => {
 
 export const updatePushNotifications = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user._id;
     const allowedFields = [
       'enabled',
       'newMessage',
@@ -344,8 +334,8 @@ export const updatePushNotifications = async (req, res) => {
 
 export const registerPushSubscription = async (req, res) => {
   try {
-    const userId = req.userId;
-    const { subscription, deviceType } = req.body; // web push: subscription object
+    const userId = req.user._id;
+    const { subscription, deviceType } = req.body;
 
     if (!subscription || !subscription.endpoint) {
       return res.status(400).json({
@@ -382,7 +372,6 @@ export const registerPushSubscription = async (req, res) => {
       user.pushTokens.push({ ...tokenData, createdAt: new Date() });
     }
 
-    // Auto‑enable push
     if (!user.notificationPreferences) user.notificationPreferences = {};
     if (!user.notificationPreferences.push)
       user.notificationPreferences.push = {};
@@ -406,7 +395,7 @@ export const registerPushSubscription = async (req, res) => {
 
 export const registerMobileToken = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user._id;
     const { fcmToken, deviceType, platform, action } = req.body;
 
     if (!fcmToken) {
@@ -453,7 +442,6 @@ export const registerMobileToken = async (req, res) => {
       user.pushTokens.push({ ...tokenData, createdAt: new Date() });
     }
 
-    // Auto‑enable push if not already on
     if (!user.notificationPreferences) user.notificationPreferences = {};
     if (!user.notificationPreferences.push)
       user.notificationPreferences.push = {};
@@ -485,7 +473,7 @@ export const registerMobileToken = async (req, res) => {
 export const sendTestPush = async (req, res) => {
   try {
     const success = await sendPushNotification(
-      req.userId,
+      req.user._id,
       'Test Notification',
       'This is a test push notification!',
       { type: 'test', timestamp: Date.now().toString() }
@@ -511,7 +499,7 @@ export const sendTestPush = async (req, res) => {
 
 export const sendTestEmail = async (req, res) => {
   try {
-    const user = await User.findById(req.userId).select('email name');
+    const user = await User.findById(req.user._id).select('email name');
     if (!user) {
       return res
         .status(404)
@@ -571,7 +559,7 @@ export const getVapidPublicKey = async (req, res) => {
 
 export const getUserNotifications = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user._id;
     const { page = 1, limit = 20, unreadOnly } = req.query;
 
     const query = { recipient: userId };
@@ -602,7 +590,7 @@ export const getUserNotifications = async (req, res) => {
 
 export const markNotificationRead = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user._id;
     const { id } = req.params;
 
     const notification = await Notification.findOneAndUpdate(
@@ -625,7 +613,7 @@ export const markNotificationRead = async (req, res) => {
 
 export const markAllNotificationsRead = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user._id;
     await Notification.updateMany(
       { recipient: userId, read: false },
       { read: true }

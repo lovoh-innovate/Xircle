@@ -12,7 +12,10 @@ const store = configureStore({
     devTools: true,
 });
 
-// Handle RESET action to clear RTK Query cache
 export const resetStoreAction = () => ({ type: 'RESET' });
+
+// ✅ Export dispatch for use outside React (e.g., push service)
+export const dispatch = store.dispatch;
+export const getState = store.getState;
 
 export default store;
