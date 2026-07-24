@@ -61,21 +61,40 @@ const resend = new Resend(process.env.RESEND_API_KEY);
  * Returns the number of successful deliveries.
  */
 export const sendPushNotification = async (userId, title, body, data = {}) => {
+  console.log(`🔔 sendPushNotification called for userId: ${userId}`);
   try {
     const user = await User.findById(userId).select('pushTokens notificationPreferences');
-    if (!user) return 0;
+    if (!user) {
+      console.log(`❌ User ${userId} not found`);
+      return 0;
+    }
+    console.log(`👤 User found: ${user._id}`);
+    console.log(`📋 Push preferences:`, user.notificationPreferences?.push);
 
     // Global push enabled?
-    if (!user.notificationPreferences?.push?.enabled) return 0;
+    if (!user.notificationPreferences?.push?.enabled) {
+      console.log(`⚠️ Push is disabled for user ${userId}`);
+      return 0;
+    }
 
     const tokens = user.pushTokens?.filter(t => t.isActive) || [];
-    if (tokens.length === 0) return 0;
+    console.log(`📱 Found ${tokens.length} active tokens for user ${userId}`);
+    if (tokens.length === 0) {
+      console.log(`⚠️ No active tokens for user ${userId}`);
+      return 0;
+    }
+
+    // Log token details (mask endpoint for privacy)
+    tokens.forEach((t, i) => {
+      console.log(`  Token ${i+1}: type=${t.deviceType}, endpoint=${t.token?.substring(0, 30)}...`);
+    });
 
     let sentCount = 0;
 
     for (const tokenRecord of tokens) {
       try {
         if (tokenRecord.deviceType === 'web' && tokenRecord.subscription) {
+          console.log(`📤 Sending web push to endpoint: ${tokenRecord.token?.substring(0, 30)}...`);
           await webpush.sendNotification(
             tokenRecord.subscription,
             JSON.stringify({
@@ -89,8 +108,10 @@ export const sendPushNotification = async (userId, title, body, data = {}) => {
             })
           );
           sentCount++;
+          console.log(`✅ Web push sent successfully to ${tokenRecord.token?.substring(0, 20)}...`);
         } else if (['ios', 'android'].includes(tokenRecord.deviceType) && tokenRecord.token) {
           if (firebaseInitialised) {
+            console.log(`📤 Sending FCM push to token: ${tokenRecord.token?.substring(0, 20)}...`);
             const message = {
               notification: { title, body },
               data: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
@@ -98,25 +119,30 @@ export const sendPushNotification = async (userId, title, body, data = {}) => {
             };
             await getMessaging().send(message);
             sentCount++;
+            console.log(`✅ FCM push sent successfully`);
+          } else {
+            console.log(`⚠️ Firebase not initialised, skipping mobile token`);
           }
+        } else {
+          console.log(`⚠️ Unknown device type or missing subscription/token for token:`, tokenRecord);
         }
       } catch (error) {
-        console.error(`Push failed for ${tokenRecord.deviceType}:`, error.message);
-        // If token is invalid, deactivate it
+        console.error(`❌ Push failed for ${tokenRecord.deviceType}:`, error.message);
         if (error.statusCode === 410 || error.statusCode === 404 || error.message?.includes('expired')) {
+          console.log(`🔴 Deactivating expired token: ${tokenRecord.token?.substring(0, 20)}...`);
           tokenRecord.isActive = false;
           await user.save();
         }
       }
     }
 
+    console.log(`📊 Sent ${sentCount} of ${tokens.length} notifications for user ${userId}`);
     return sentCount;
   } catch (error) {
-    console.error('sendPushNotification error:', error);
+    console.error('❌ sendPushNotification error:', error);
     return 0;
   }
 };
-
 /**
  * Send an email via Resend.
  */

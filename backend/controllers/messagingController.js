@@ -5,13 +5,12 @@ import { Message, Chat, TypingIndicator } from "../models/messagingModel.js";
 import Workspace from "../models/workspaceModel.js";
 import User from "../models/userModel.js";
 import { uploadToCloudinary } from "../utils/cloudinary.js";
-
-// ── Notification service ──────────────────────────────────────────
 import { createAndSendNotification } from './notificationController.js';
+import { getIO } from './socket.js';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HELPERS
-// ─────────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────
+// Helpers
+// ──────────────────────────────────────────────────
 
 const isWorkspaceMember = async (workspaceId, userId) => {
   const workspace = await Workspace.findById(workspaceId);
@@ -33,35 +32,44 @@ const isChatAdmin = async (chatId, userId) => {
   return participant?.role === "admin";
 };
 
-// ── Notification helper (fire‑and‑forget) ────────────────────────
 /**
- * Send a push/email notification to one or many users.
- * @param {string|string[]} userIds - Single user ID or array
- * @param {Object} options
+ * Send push + in‑app notification to multiple users (same as call controller).
+ * Includes full error logging.
  */
-async function notifyUsers(userIds, { title, body, data = {}, emailEventType = null, emailHtml = null }) {
-  if (!userIds) return;
-  const recipients = Array.isArray(userIds) ? userIds : [userIds];
-  for (const recipient of recipients) {
-    createAndSendNotification({
-      recipient,
-      title,
-      body,
-      data,
-      sendPush: true,
-      emailEventType,
-      emailSubject: title,
-      emailHtml: emailHtml || `<p>${body}</p>`,
-    }).catch(err => console.error(`Notification to ${recipient} failed:`, err.message));
+const notifyUsers = async (userIds, title, body, data = {}) => {
+  console.log(`🔔 notifyUsers called with ${userIds?.length || 0} recipients`);
+  if (!userIds || userIds.length === 0) {
+    console.log(`⚠️ notifyUsers: no recipients, skipping`);
+    return;
   }
-}
+  const recipients = Array.isArray(userIds) ? userIds : [userIds];
+  for (const uid of recipients) {
+    console.log(`  ▶️ Sending notification to user ${uid}`);
+    try {
+      await createAndSendNotification({
+        recipient: uid,
+        title,
+        body,
+        data,
+        sendPush: true,
+        emailEventType: 'newMessage',
+        emailSubject: title,
+        emailHtml: `<p>${body}</p>`,
+      });
+      console.log(`  ✅ Notification sent to ${uid}`);
+    } catch (err) {
+      console.error(`  ❌ Notify ${uid} failed:`, err);
+    }
+  }
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UPDATE ONLINE STATUS
 // POST /api/messages/online-status
 // ─────────────────────────────────────────────────────────────────────────────
 
-const updateOnlineStatus = async (req, res) => {
+export const updateOnlineStatus = async (req, res) => {
+  console.log(`🔵 updateOnlineStatus called for user ${req.user.id}`);
   try {
     const userId = req.user.id;
     const { workspaceId, isOnline } = req.body;
@@ -83,8 +91,10 @@ const updateOnlineStatus = async (req, res) => {
       },
     );
 
+    console.log(`✅ Online status updated for user ${userId}`);
     res.status(200).json({ success: true });
   } catch (error) {
+    console.error(`❌ updateOnlineStatus error:`, error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -94,7 +104,8 @@ const updateOnlineStatus = async (req, res) => {
 // POST /api/messages/group
 // ─────────────────────────────────────────────────────────────────────────────
 
-const createGroupChat = async (req, res) => {
+export const createGroupChat = async (req, res) => {
+  console.log(`🔵 createGroupChat called by user ${req.user.id}`);
   try {
     const userId = req.user.id;
     const { workspaceId, name, avatar } = req.body;
@@ -144,17 +155,16 @@ const createGroupChat = async (req, res) => {
     const memberIds = activeMembers
       .filter(m => m.user.toString() !== userId)
       .map(m => m.user.toString());
-    notifyUsers(memberIds, {
-      title: `New group chat "${chat.name}"`,
-      body: `You were added to the group "${chat.name}" by the workspace owner.`,
-      data: { chatId: chat._id.toString(), workspaceId },
-      emailEventType: 'teamInvite',
-      emailHtml: `
-        <h3>You've been added to a group chat</h3>
-        <p>Group: <strong>${chat.name}</strong></p>
-        <p><a href="${process.env.CLIENT_URL}/workspace/${workspaceId}/chat/${chat._id}">Open Chat</a></p>
-      `,
-    });
+    if (memberIds.length > 0) {
+      console.log(`📢 Notifying ${memberIds.length} members about new group chat`);
+      notifyUsers(memberIds, {
+        title: `New group chat "${chat.name}"`,
+        body: `You were added to the group "${chat.name}" by the workspace owner.`,
+        data: { chatId: chat._id.toString(), workspaceId },
+      });
+    } else {
+      console.log(`⚠️ No other members to notify`);
+    }
 
     res.status(201).json({
       success: true,
@@ -162,6 +172,7 @@ const createGroupChat = async (req, res) => {
       chat: populatedChat,
     });
   } catch (error) {
+    console.error(`❌ createGroupChat error:`, error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -171,7 +182,8 @@ const createGroupChat = async (req, res) => {
 // POST /api/messages/direct
 // ─────────────────────────────────────────────────────────────────────────────
 
-const createDirectChat = async (req, res) => {
+export const createDirectChat = async (req, res) => {
+  console.log(`🔵 createDirectChat called by user ${req.user.id}`);
   try {
     const userId = req.user.id;
     const { workspaceId, targetUserId } = req.body;
@@ -251,11 +263,11 @@ const createDirectChat = async (req, res) => {
     );
 
     // Notify target user
-    notifyUsers(targetUserId, {
+    console.log(`📢 Notifying target user ${targetUserId} about new direct chat`);
+    notifyUsers([targetUserId], {
       title: `New message from ${req.user.name || 'a colleague'}`,
       body: `${req.user.name || 'Someone'} started a direct chat with you.`,
       data: { chatId: chat._id.toString(), workspaceId },
-      emailEventType: 'newMessage',
     });
 
     res.status(201).json({
@@ -264,6 +276,7 @@ const createDirectChat = async (req, res) => {
       chat: populatedChat,
     });
   } catch (error) {
+    console.error(`❌ createDirectChat error:`, error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -273,7 +286,8 @@ const createDirectChat = async (req, res) => {
 // GET /api/messages/chats
 // ─────────────────────────────────────────────────────────────────────────────
 
-const getUserChats = async (req, res) => {
+export const getUserChats = async (req, res) => {
+  console.log(`🔵 getUserChats called for user ${req.user.id}`);
   try {
     const userId = req.user.id;
     const { workspaceId } = req.query;
@@ -319,6 +333,7 @@ const getUserChats = async (req, res) => {
       chats: chatsWithUnread,
     });
   } catch (error) {
+    console.error(`❌ getUserChats error:`, error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -328,7 +343,8 @@ const getUserChats = async (req, res) => {
 // GET /api/messages/:chatId
 // ─────────────────────────────────────────────────────────────────────────────
 
-const getChatMessages = async (req, res) => {
+export const getChatMessages = async (req, res) => {
+  console.log(`🔵 getChatMessages called for user ${req.user.id}, chat ${req.params.chatId}`);
   try {
     const userId = req.user.id;
     const { chatId } = req.params;
@@ -374,16 +390,23 @@ const getChatMessages = async (req, res) => {
       count: messages.length,
     });
   } catch (error) {
+    console.error(`❌ getChatMessages error:`, error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SEND MESSAGE (UPDATED: notify all participants + mentions)
+// SEND MESSAGE (with full logging)
 // POST /api/messages/:chatId
 // ─────────────────────────────────────────────────────────────────────────────
 
-const sendMessage = async (req, res) => {
+export const sendMessage = async (req, res) => {
+  console.log("🔥🔥🔥 sendMessage called! 🔥🔥🔥");
+  console.log(`👤 User ID: ${req.user.id}`);
+  console.log(`📨 Chat ID: ${req.params.chatId}`);
+  console.log(`📦 Body:`, req.body);
+  console.log(`📎 File:`, req.file ? req.file.originalname : 'none');
+
   try {
     const userId = req.user.id;
     const { chatId } = req.params;
@@ -395,15 +418,20 @@ const sendMessage = async (req, res) => {
     } = req.body;
 
     // 1. Validate participant
+    console.log(`🔍 Checking if user ${userId} is participant in chat ${chatId}`);
     const isParticipant = await isChatParticipant(chatId, userId);
     if (!isParticipant) {
+      console.log(`❌ User ${userId} is not a participant`);
       return res.status(403).json({ message: "You are not a participant in this chat." });
     }
+    console.log(`✅ User is participant`);
 
     const chat = await Chat.findById(chatId);
     if (!chat) {
+      console.log(`❌ Chat ${chatId} not found`);
       return res.status(404).json({ message: "Chat not found." });
     }
+    console.log(`✅ Chat found: ${chat._id}, type: ${chat.type}, participants: ${chat.participants.length}`);
 
     // 2. Handle file upload
     let mediaUrl = null;
@@ -413,6 +441,7 @@ const sendMessage = async (req, res) => {
     let finalMessageType = messageType;
 
     if (req.file) {
+      console.log(`📎 File uploaded: ${req.file.originalname}, type: ${req.file.mimetype}`);
       mediaUrl = req.file.path;
       mediaName = req.file.originalname;
       mediaSize = req.file.size;
@@ -422,9 +451,12 @@ const sendMessage = async (req, res) => {
       else if (req.file.mimetype.startsWith("image/")) finalMessageType = "image";
       else if (req.file.mimetype.startsWith("video/")) finalMessageType = "video";
       else finalMessageType = "file";
+    } else {
+      console.log(`📝 No file, using messageType: ${messageType}`);
     }
 
     // 3. Filter valid mentions (participants only)
+    console.log(`🔍 Validating mentions: ${mentions}`);
     const validMentions = await Promise.all(
       mentions.map(async (mentionId) => {
         const isValid = chat.participants.some((p) => p.user.toString() === mentionId);
@@ -432,8 +464,10 @@ const sendMessage = async (req, res) => {
       })
     );
     const filteredMentions = validMentions.filter((m) => m !== null);
+    console.log(`✅ Valid mentions: ${filteredMentions}`);
 
     // 4. Create message
+    console.log(`📝 Creating message...`);
     const message = await Message.create({
       workspace: chat.workspace,
       chat: chatId,
@@ -448,25 +482,32 @@ const sendMessage = async (req, res) => {
       replyTo: replyToId || null,
       readBy: [{ user: userId, readAt: new Date() }],
     });
+    console.log(`✅ Message created with ID: ${message._id}`);
 
     // 5. Update chat last message
     chat.lastMessage = message._id;
     chat.lastMessageAt = new Date();
     await chat.save();
+    console.log(`✅ Chat updated with last message`);
 
     // 6. Populate message
     const populatedMessage = await Message.findById(message._id)
       .populate("sender", "name email profile")
       .populate("mentions", "name email profile")
       .populate("replyTo");
+    console.log(`✅ Message populated`);
 
     // 7. Clear typing indicator
     await TypingIndicator.deleteOne({ chat: chatId, user: userId });
+    console.log(`✅ Typing indicator cleared`);
 
     // 8. Emit socket event
-    const io = req.app.get("io");
+    const io = getIO();
     if (io) {
       io.to(`chat:${chatId}`).emit("new-message", populatedMessage);
+      console.log(`📡 Socket event emitted to chat:${chatId}`);
+    } else {
+      console.log(`⚠️ Socket.io not available`);
     }
 
     // ─── 9. NOTIFY ALL PARTICIPANTS (except sender) ──────────────────────
@@ -474,26 +515,19 @@ const sendMessage = async (req, res) => {
     const allParticipantIds = chat.participants
       .map(p => p.user.toString())
       .filter(id => id !== userId);
+    console.log(`👥 All participants (excluding sender):`, allParticipantIds);
 
-    // Build a preview of the message content
+    // Build preview
     let preview = content?.substring(0, 100) || '';
     if (finalMessageType === 'image') preview = '📷 Image';
     else if (finalMessageType === 'video') preview = '🎬 Video';
     else if (finalMessageType === 'audio') preview = '🎵 Audio';
     else if (finalMessageType === 'file') preview = `📎 ${mediaName || 'File'}`;
     if (!preview) preview = 'Sent a message';
+    console.log(`📄 Preview: "${preview}"`);
 
-    // Prepare email HTML (include chat link)
-    const chatLink = `${process.env.CLIENT_URL}/workspace/${chat.workspace}/chat/${chatId}`;
-    const emailHtml = `
-      <h3>New message from ${senderName}</h3>
-      <p><strong>Chat:</strong> ${chat.type === 'group' ? chat.name : 'Direct'}</p>
-      <p><em>${preview}</em></p>
-      <p><a href="${chatLink}">View in app</a></p>
-    `;
-
-    // Send to all participants (fire & forget)
     if (allParticipantIds.length > 0) {
+      console.log(`📤 Notifying ${allParticipantIds.length} participants for message ${message._id}`);
       notifyUsers(allParticipantIds, {
         title: `${senderName} sent a message`,
         body: preview,
@@ -502,27 +536,25 @@ const sendMessage = async (req, res) => {
           workspaceId: chat.workspace.toString(),
           messageId: message._id.toString(),
         },
-        emailEventType: 'newMessage',
-        emailHtml,
       });
+    } else {
+      console.log(`⚠️ No participants to notify (message from ${userId})`);
     }
 
-    // ─── 10. NOTIFY MENTIONED USERS (if any, they also get a separate mention) ──
+    // ─── 10. NOTIFY MENTIONED USERS (if any) ─────────────────────────────
     if (filteredMentions.length > 0) {
+      console.log(`📤 Notifying ${filteredMentions.length} mentioned users`);
       notifyUsers(filteredMentions, {
         title: `${senderName} mentioned you in chat`,
         body: `${senderName}: ${content?.substring(0, 100) || 'sent a message'}`,
-        data: { chatId: chat._id.toString(), messageId: message._id.toString() },
-        emailEventType: 'newMessage',
-        emailHtml: `
-          <h3>${senderName} mentioned you</h3>
-          <p><strong>Chat:</strong> ${chat.type === 'group' ? chat.name : 'Direct'}</p>
-          <p><em>${content || 'sent a message'}</em></p>
-          <p><a href="${chatLink}">View message</a></p>
-        `,
+        data: {
+          chatId: chat._id.toString(),
+          messageId: message._id.toString(),
+        },
       });
     }
 
+    console.log(`✅ sendMessage completed successfully`);
     res.status(201).json({
       success: true,
       message: populatedMessage,
@@ -542,7 +574,8 @@ const sendMessage = async (req, res) => {
 // DELETE /api/messages/:messageId
 // ─────────────────────────────────────────────────────────────────────────────
 
-const deleteMessage = async (req, res) => {
+export const deleteMessage = async (req, res) => {
+  console.log(`🔵 deleteMessage called for message ${req.params.messageId} by user ${req.user.id}`);
   try {
     const userId = req.user.id;
     const { messageId } = req.params;
@@ -578,6 +611,7 @@ const deleteMessage = async (req, res) => {
       message: "Message deleted successfully",
     });
   } catch (error) {
+    console.error(`❌ deleteMessage error:`, error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -587,7 +621,8 @@ const deleteMessage = async (req, res) => {
 // POST /api/messages/:chatId/typing
 // ─────────────────────────────────────────────────────────────────────────────
 
-const startTyping = async (req, res) => {
+export const startTyping = async (req, res) => {
+  console.log(`🔵 startTyping called for chat ${req.params.chatId} by user ${req.user.id}`);
   try {
     const userId = req.user.id;
     const { chatId } = req.params;
@@ -605,11 +640,13 @@ const startTyping = async (req, res) => {
 
     res.status(200).json({ success: true });
   } catch (error) {
+    console.error(`❌ startTyping error:`, error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-const stopTyping = async (req, res) => {
+export const stopTyping = async (req, res) => {
+  console.log(`🔵 stopTyping called for chat ${req.params.chatId} by user ${req.user.id}`);
   try {
     const userId = req.user.id;
     const { chatId } = req.params;
@@ -618,6 +655,7 @@ const stopTyping = async (req, res) => {
 
     res.status(200).json({ success: true });
   } catch (error) {
+    console.error(`❌ stopTyping error:`, error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -627,7 +665,8 @@ const stopTyping = async (req, res) => {
 // GET /api/messages/:chatId/typing
 // ─────────────────────────────────────────────────────────────────────────────
 
-const getTypingUsers = async (req, res) => {
+export const getTypingUsers = async (req, res) => {
+  console.log(`🔵 getTypingUsers called for chat ${req.params.chatId} by user ${req.user.id}`);
   try {
     const userId = req.user.id;
     const { chatId } = req.params;
@@ -647,6 +686,7 @@ const getTypingUsers = async (req, res) => {
       typing: typing.map((t) => t.user),
     });
   } catch (error) {
+    console.error(`❌ getTypingUsers error:`, error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -656,7 +696,8 @@ const getTypingUsers = async (req, res) => {
 // GET /api/messages/search/users
 // ─────────────────────────────────────────────────────────────────────────────
 
-const searchUsers = async (req, res) => {
+export const searchUsers = async (req, res) => {
+  console.log(`🔵 searchUsers called by user ${req.user.id}`);
   try {
     const userId = req.user.id;
     const { workspaceId, query } = req.query;
@@ -690,6 +731,7 @@ const searchUsers = async (req, res) => {
       users: members,
     });
   } catch (error) {
+    console.error(`❌ searchUsers error:`, error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -699,7 +741,8 @@ const searchUsers = async (req, res) => {
 // POST /api/messages/:chatId/participants
 // ─────────────────────────────────────────────────────────────────────────────
 
-const addParticipant = async (req, res) => {
+export const addParticipant = async (req, res) => {
+  console.log(`🔵 addParticipant called for chat ${req.params.chatId} by user ${req.user.id}`);
   try {
     const userId = req.user.id;
     const { chatId } = req.params;
@@ -747,13 +790,12 @@ const addParticipant = async (req, res) => {
 
     await chat.save();
 
-    // Notify added participants
     if (addedUsers.length > 0) {
+      console.log(`📢 Notifying ${addedUsers.length} added participants`);
       notifyUsers(addedUsers, {
         title: `Added to group "${chat.name}"`,
         body: `You have been added to the group chat "${chat.name}".`,
         data: { chatId: chat._id.toString(), workspaceId: chat.workspace.toString() },
-        emailEventType: 'teamInvite',
       });
     }
 
@@ -768,6 +810,7 @@ const addParticipant = async (req, res) => {
       chat: populatedChat,
     });
   } catch (error) {
+    console.error(`❌ addParticipant error:`, error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -777,7 +820,8 @@ const addParticipant = async (req, res) => {
 // DELETE /api/messages/:chatId/participants/:userId
 // ─────────────────────────────────────────────────────────────────────────────
 
-const removeParticipant = async (req, res) => {
+export const removeParticipant = async (req, res) => {
+  console.log(`🔵 removeParticipant called for chat ${req.params.chatId} by user ${req.user.id}`);
   try {
     const userId = req.user.id;
     const { chatId, userId: targetUserId } = req.params;
@@ -805,12 +849,11 @@ const removeParticipant = async (req, res) => {
     );
     await chat.save();
 
-    // Notify removed participant
-    notifyUsers(targetUserId, {
+    console.log(`📢 Notifying removed participant ${targetUserId}`);
+    notifyUsers([targetUserId], {
       title: `Removed from group "${chat.name}"`,
       body: `You have been removed from the group chat "${chat.name}".`,
       data: { workspaceId: chat.workspace.toString() },
-      emailEventType: 'projectUpdate',
     });
 
     res.status(200).json({
@@ -818,6 +861,7 @@ const removeParticipant = async (req, res) => {
       message: "Participant removed successfully",
     });
   } catch (error) {
+    console.error(`❌ removeParticipant error:`, error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -827,7 +871,8 @@ const removeParticipant = async (req, res) => {
 // POST /api/messages/:chatId/read
 // ─────────────────────────────────────────────────────────────────────────────
 
-const markChatAsRead = async (req, res) => {
+export const markChatAsRead = async (req, res) => {
+  console.log(`🔵 markChatAsRead called for chat ${req.params.chatId} by user ${req.user.id}`);
   try {
     const userId = req.user.id;
     const { chatId } = req.params;
@@ -863,27 +908,7 @@ const markChatAsRead = async (req, res) => {
       message: "Chat marked as read",
     });
   } catch (error) {
+    console.error(`❌ markChatAsRead error:`, error);
     res.status(500).json({ success: false, message: error.message });
   }
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// EXPORTS
-// ─────────────────────────────────────────────────────────────────────────────
-
-export {
-  createGroupChat,
-  createDirectChat,
-  getUserChats,
-  getChatMessages,
-  sendMessage,
-  deleteMessage,
-  startTyping,
-  stopTyping,
-  getTypingUsers,
-  searchUsers,
-  addParticipant,
-  removeParticipant,
-  markChatAsRead,
-  updateOnlineStatus,
 };

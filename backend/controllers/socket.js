@@ -2,8 +2,9 @@
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { Message, Chat, TypingIndicator } from '../models/messagingModel.js';
-import Call from '../models/call.js';                // new import
+import Call from '../models/call.js';
 import User from '../models/userModel.js';
+import { createAndSendNotification } from './notificationController.js'; // 👈 import
 
 let io;
 
@@ -29,13 +30,10 @@ export const initSocket = (server) => {
         return next(new Error('Authentication error: No token provided'));
       }
 
-      // Verify JWT token
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       console.log('Token decoded:', decoded);
 
-      // Handle both possible property names (userId or id)
       const userId = decoded.userId || decoded.id || decoded.sub;
-
       if (!userId) {
         console.log('No user ID found in token');
         return next(new Error('No user ID in token'));
@@ -44,7 +42,6 @@ export const initSocket = (server) => {
       console.log('Looking for user with ID:', userId);
 
       const user = await User.findById(userId).select('-password');
-
       if (!user) {
         console.log('User not found for ID:', userId);
         return next(new Error('User not found'));
@@ -66,9 +63,7 @@ export const initSocket = (server) => {
     // Join user to their personal room
     socket.join(`user:${socket.userId}`);
 
-    // ───────────────────────────────────────────────────────────────────
-    // ONLINE STATUS HANDLING
-    // ───────────────────────────────────────────────────────────────────
+    // ── Online status ──────────────────────────────────────────────
     const updateUserOnlineStatus = async (isOnline) => {
       try {
         await Chat.updateMany(
@@ -99,19 +94,15 @@ export const initSocket = (server) => {
       }
     };
 
-    // Set user as online on connection
     await updateUserOnlineStatus(true);
 
-    // Handle presence updates from client
     socket.on('presence', async (data) => {
       const { status } = data;
       const isOnline = status === 'online';
       await updateUserOnlineStatus(isOnline);
     });
 
-    // ───────────────────────────────────────────────────────────────────
-    // WORKSPACE & CHAT ROOMS
-    // ───────────────────────────────────────────────────────────────────
+    // ── Workspace & chat rooms ─────────────────────────────────────
     socket.on('join-workspace', (workspaceId) => {
       socket.join(`workspace:${workspaceId}`);
       console.log(`📢 User ${socket.user.name} joined workspace: ${workspaceId}`);
@@ -127,15 +118,15 @@ export const initSocket = (server) => {
       console.log(`👋 User ${socket.user.name} left chat: ${chatId}`);
     });
 
-    // ───────────────────────────────────────────────────────────────────
-    // SEND MESSAGE
-    // ───────────────────────────────────────────────────────────────────
+    // ── SEND MESSAGE (with notifications) ─────────────────────────
     socket.on('send-message', async (data, callback) => {
       try {
         const {
           chatId, content, messageType, mentions, replyToId,
           mediaUrl, mediaName, mediaSize, mediaDuration,
         } = data;
+
+        console.log(`📩 send-message from ${socket.user.name} in chat ${chatId}`);
 
         const chat = await Chat.findById(chatId);
         if (!chat) return callback({ error: 'Chat not found' });
@@ -169,18 +160,67 @@ export const initSocket = (server) => {
           .populate('mentions', 'name email profile')
           .populate('replyTo');
 
+        // Emit to chat room (real‑time)
         io.to(`chat:${chatId}`).emit('new-message', populatedMessage);
 
-        for (const participant of chat.participants) {
-          if (participant.user.toString() !== socket.userId) {
-            io.to(`user:${participant.user}`).emit('message-notification', {
-              chatId,
-              message: populatedMessage,
-              workspaceId: chat.workspace,
-            });
+        // ─── NOTIFICATIONS ─────────────────────────────────────────
+        const senderName = socket.user.name || 'Someone';
+
+        // Build preview
+        let preview = content?.substring(0, 100) || '';
+        if (messageType === 'image') preview = '📷 Image';
+        else if (messageType === 'video') preview = '🎬 Video';
+        else if (messageType === 'audio') preview = '🎵 Audio';
+        else if (messageType === 'file') preview = `📎 ${mediaName || 'File'}`;
+        if (!preview) preview = 'Sent a message';
+
+        const allParticipantIds = chat.participants
+          .map(p => p.user.toString())
+          .filter(id => id !== socket.userId);
+
+        // Send to all participants (except sender)
+        if (allParticipantIds.length > 0) {
+          console.log(`🔔 Notifying ${allParticipantIds.length} participants in chat ${chatId}`);
+          const chatLink = `${process.env.CLIENT_URL}/workspace/${chat.workspace}/chat/${chat._id}`;
+          for (const uid of allParticipantIds) {
+            createAndSendNotification({
+              recipient: uid,
+              title: `${senderName} sent a message`,
+              body: preview,
+              data: {
+                chatId: chat._id.toString(),
+                workspaceId: chat.workspace.toString(),
+                messageId: message._id.toString(),
+              },
+              sendPush: true,
+              emailEventType: 'newMessage',
+              emailSubject: `${senderName} sent a message`,
+              emailHtml: `<p>${preview}</p><p><a href="${chatLink}">View in app</a></p>`,
+            }).catch(err => console.error(`Notify ${uid} failed:`, err.message));
           }
         }
 
+        // Mentions (additional notification)
+        if (mentions && mentions.length > 0) {
+          console.log(`🔔 Notifying ${mentions.length} mentioned users`);
+          for (const uid of mentions) {
+            // Only send if they are a participant (should be already)
+            if (allParticipantIds.includes(uid)) {
+              createAndSendNotification({
+                recipient: uid,
+                title: `${senderName} mentioned you in chat`,
+                body: `${senderName}: ${content?.substring(0, 100) || 'sent a message'}`,
+                data: { chatId: chat._id.toString(), messageId: message._id.toString() },
+                sendPush: true,
+                emailEventType: 'newMessage',
+                emailSubject: `${senderName} mentioned you`,
+                emailHtml: `<p>${senderName} mentioned you: ${content || ''}</p>`,
+              }).catch(err => console.error(`Mention notify ${uid} failed:`, err.message));
+            }
+          }
+        }
+
+        // Clear typing
         await TypingIndicator.deleteOne({ chat: chatId, user: socket.userId });
         io.to(`chat:${chatId}`).emit('user-stopped-typing', {
           chatId,
@@ -194,9 +234,7 @@ export const initSocket = (server) => {
       }
     });
 
-    // ───────────────────────────────────────────────────────────────────
-    // TYPING INDICATOR
-    // ───────────────────────────────────────────────────────────────────
+    // ── Typing indicators ──────────────────────────────────────────
     socket.on('start-typing', async (data) => {
       try {
         const { chatId } = data;
@@ -240,9 +278,7 @@ export const initSocket = (server) => {
       }
     });
 
-    // ───────────────────────────────────────────────────────────────────
-    // MARK MESSAGES AS READ
-    // ───────────────────────────────────────────────────────────────────
+    // ── Mark as read ──────────────────────────────────────────────
     socket.on('mark-read', async (data) => {
       try {
         const { chatId, messageIds } = data;
@@ -284,9 +320,7 @@ export const initSocket = (server) => {
       }
     });
 
-    // ───────────────────────────────────────────────────────────────────
-    // DELETE MESSAGE
-    // ───────────────────────────────────────────────────────────────────
+    // ── Delete message ─────────────────────────────────────────────
     socket.on('delete-message', async (data, callback) => {
       try {
         const { messageId } = data;
@@ -324,11 +358,7 @@ export const initSocket = (server) => {
       }
     });
 
-    // ───────────────────────────────────────────────────────────────────
-    // 📞 CALL SIGNALING & ROOM MANAGEMENT
-    // ───────────────────────────────────────────────────────────────────
-
-    // Join a call room (WebRTC signalling group)
+    // ── 📞 Call signaling ───────────────────────────────────────────
     socket.on('join-call-room', async (roomId) => {
       const call = await Call.findOne({ roomId, status: { $in: ['ringing', 'ongoing'] } });
       if (!call) {
@@ -338,13 +368,11 @@ export const initSocket = (server) => {
       console.log(`📞 User ${socket.user.name} joined call room ${roomId}`);
     });
 
-    // Leave a call room
     socket.on('leave-call-room', (roomId) => {
       socket.leave(`room:${roomId}`);
       console.log(`📞 User ${socket.user.name} left call room ${roomId}`);
     });
 
-    // WebRTC offer
     socket.on('call-offer', (data) => {
       if (!data.toUserId || !data.roomId) return console.warn('Invalid call-offer');
       io.to(`user:${data.toUserId}`).emit('call-offer', {
@@ -354,7 +382,6 @@ export const initSocket = (server) => {
       });
     });
 
-    // WebRTC answer
     socket.on('call-answer', (data) => {
       if (!data.toUserId || !data.roomId) return console.warn('Invalid call-answer');
       io.to(`user:${data.toUserId}`).emit('call-answer', {
@@ -364,7 +391,6 @@ export const initSocket = (server) => {
       });
     });
 
-    // ICE candidate
     socket.on('ice-candidate', (data) => {
       if (!data.toUserId || !data.roomId) return console.warn('Invalid ice-candidate');
       io.to(`user:${data.toUserId}`).emit('ice-candidate', {
@@ -374,16 +400,13 @@ export const initSocket = (server) => {
       });
     });
 
-    // Notify room when a participant leaves the call
     socket.on('leave-call', (roomId) => {
       if (!roomId) return;
       socket.to(`room:${roomId}`).emit('participant-left', socket.userId);
       socket.leave(`room:${roomId}`);
     });
 
-    // ───────────────────────────────────────────────────────────────────
-    // DISCONNECT
-    // ───────────────────────────────────────────────────────────────────
+    // ── Disconnect ──────────────────────────────────────────────────
     socket.on('disconnect', async () => {
       console.log(`❌ User disconnected: ${socket.userId} - ${socket.user.name}`);
       await updateUserOnlineStatus(false);
