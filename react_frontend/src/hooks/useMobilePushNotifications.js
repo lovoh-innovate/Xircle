@@ -1,6 +1,7 @@
 // src/hooks/useMobilePushNotifications.js
 import { useState, useEffect, useCallback } from 'react';
 import { Capacitor } from '@capacitor/core';
+import { PushNotifications } from '@capacitor/push-notifications';
 import { useRegisterMobileTokenMutation } from '../slices/notificationApiSlice';
 
 export const useMobilePushNotifications = () => {
@@ -11,16 +12,16 @@ export const useMobilePushNotifications = () => {
 
   const [registerMobileToken] = useRegisterMobileTokenMutation();
 
-  // Check if running on Capacitor (mobile)
   useEffect(() => {
     const isMobile = Capacitor.isNativePlatform();
     setIsSupported(isMobile);
     if (isMobile) {
       checkExistingToken();
+      setupPushListeners();
     }
+    // Cleanup? The plugin listeners are persistent; we don't need to remove them.
   }, []);
 
-  // Check if we already have a token stored (from previous session)
   const checkExistingToken = useCallback(() => {
     const storedToken = localStorage.getItem('fcmToken');
     if (storedToken) {
@@ -30,14 +31,10 @@ export const useMobilePushNotifications = () => {
     }
   }, []);
 
-  // Request permission and register for push notifications
   const subscribe = useCallback(async () => {
     if (!isSupported) return false;
 
     try {
-      const { PushNotifications } = await import('@capacitor/push-notifications');
-
-      // Check current permission status
       let permStatus = await PushNotifications.checkPermissions();
       if (permStatus.receive === 'prompt') {
         permStatus = await PushNotifications.requestPermissions();
@@ -48,10 +45,8 @@ export const useMobilePushNotifications = () => {
       }
       setPermission('granted');
 
-      // Register with FCM
       await PushNotifications.register();
 
-      // Wait for the FCM token
       return new Promise((resolve) => {
         const onRegistration = async (token) => {
           console.log('📱 FCM Token received:', token.value);
@@ -61,7 +56,7 @@ export const useMobilePushNotifications = () => {
           try {
             await registerMobileToken({
               fcmToken: token.value,
-              deviceType: 'android', // can be made dynamic
+              deviceType: Capacitor.getPlatform() === 'ios' ? 'ios' : 'android',
               platform: 'capacitor',
             }).unwrap();
             setIsSubscribed(true);
@@ -90,14 +85,13 @@ export const useMobilePushNotifications = () => {
     }
   }, [isSupported, registerMobileToken]);
 
-  // Unsubscribe (remove token from backend)
   const unsubscribe = useCallback(async () => {
     if (!isSupported || !fcmToken) return false;
 
     try {
       await registerMobileToken({
         fcmToken,
-        deviceType: 'android',
+        deviceType: Capacitor.getPlatform() === 'ios' ? 'ios' : 'android',
         platform: 'capacitor',
         action: 'unsubscribe',
       }).unwrap();
@@ -111,6 +105,20 @@ export const useMobilePushNotifications = () => {
       return false;
     }
   }, [isSupported, fcmToken, registerMobileToken]);
+
+  const setupPushListeners = useCallback(() => {
+    PushNotifications.addListener('pushNotificationReceived', (notification) => {
+      console.log('📩 Push received in foreground:', notification);
+      // Optionally show an in-app toast
+      window.dispatchEvent(new CustomEvent('mobile-push-received', { detail: notification }));
+    });
+
+    PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
+      console.log('📩 Push tapped:', notification);
+      const data = notification.notification.data || {};
+      window.dispatchEvent(new CustomEvent('mobile-push-tapped', { detail: data }));
+    });
+  }, []);
 
   return {
     isSupported,
