@@ -9,6 +9,7 @@ import {
   Outlet,
   useNavigate,
 } from 'react-router-dom';
+import { Capacitor } from '@capacitor/core'; // <-- import Capacitor
 
 import './index.css';
 import store from './store';
@@ -52,6 +53,9 @@ import YourWorkspaceProjectId from './screens/YourWorkspaceProjectId.jsx';
 // Call screen
 import CallScreen from './components/CallScreen.jsx';
 
+// ── Mobile push hook ─────────────────────────────────────────────
+import { useMobilePushNotifications } from './hooks/useMobilePushNotifications.js';
+
 // ── Global navigator (exposes navigate for non-React code) ──────
 const GlobalNavigator = () => {
   const navigate = useNavigate();
@@ -64,10 +68,11 @@ const GlobalNavigator = () => {
   return null;
 };
 
-// ── Service worker registration (required for web push) ──────────
+// ── Service worker registration (web only) ──────────────────────
 const ServiceWorkerRegister = () => {
   useEffect(() => {
-    if ('serviceWorker' in navigator) {
+    // Only register SW on web (not on Capacitor)
+    if ('serviceWorker' in navigator && !Capacitor.isNativePlatform()) {
       navigator.serviceWorker
         .register('/sw.js')
         .then(() => console.log('✅ Service Worker registered'))
@@ -77,7 +82,26 @@ const ServiceWorkerRegister = () => {
   return null;
 };
 
-// ── Root layout: renders the current page, call modal, and navigator ──
+// ── Mobile Push Initializer (Capacitor) ──────────────────────────
+const PushNotificationInitializer = () => {
+  const { userInfo } = useSelector((state) => state.auth);
+  const { isSubscribed, permission, subscribe } = useMobilePushNotifications();
+
+  useEffect(() => {
+    // Only run on native platform and when user is logged in
+    if (Capacitor.isNativePlatform() && userInfo?.token) {
+      // If not subscribed and permission not denied, subscribe
+      if (!isSubscribed && permission !== 'denied') {
+        console.log('📱 Mobile push: auto‑subscribing…');
+        subscribe();
+      }
+    }
+  }, [userInfo, isSubscribed, permission, subscribe]);
+
+  return null;
+};
+
+// ── Root layout ──────────────────────────────────────────────────
 const RootLayout = () => {
   return (
     <>
@@ -130,7 +154,7 @@ const router = createBrowserRouter([
   },
 ]);
 
-// ── Root component – handles socket and pushes service worker registration ──
+// ── Root component ──────────────────────────────────────────────
 const AppRoot = () => {
   const userInfo = useSelector((state) => state.auth?.userInfo);
   const token = userInfo?.token;
@@ -138,6 +162,7 @@ const AppRoot = () => {
   return (
     <SocketProvider token={token}>
       <ServiceWorkerRegister />
+      <PushNotificationInitializer />
       <RouterProvider router={router} />
     </SocketProvider>
   );
