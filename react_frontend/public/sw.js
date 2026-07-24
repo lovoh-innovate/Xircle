@@ -9,9 +9,6 @@ const STATIC_ASSETS = [
   '/manifest.json',
   '/icon.png',
   '/badge.png',
-  // Add any other static files you want to cache (e.g., CSS, JS bundles)
-  // '/static/css/main.css',
-  // '/static/js/main.js',
 ];
 
 // ─── Install event – cache static assets ──────────────────────────────
@@ -22,7 +19,6 @@ self.addEventListener('install', (event) => {
       return cache.addAll(STATIC_ASSETS);
     })
   );
-  // Force the waiting service worker to become active
   self.skipWaiting();
 });
 
@@ -37,7 +33,6 @@ self.addEventListener('activate', (event) => {
       );
     })
   );
-  // Take control of all clients immediately
   self.clients.claim();
 });
 
@@ -45,25 +40,21 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      // Return cached response if available, else fetch from network
-      return (
-        cachedResponse ||
-        fetch(event.request).catch(() => {
-          // Optional: return a fallback offline page
-        })
-      );
+      return cachedResponse || fetch(event.request);
     })
   );
 });
 
 // ─── Push event – show notification ────────────────────────────────────
 self.addEventListener('push', (event) => {
+  console.log('📩 Push event received');
   let data = {};
   try {
     data = event.data.json();
+    console.log('📩 Push payload:', data);
   } catch (error) {
-    // If the payload is not JSON, treat it as plain text
     data = { title: 'New Notification', body: event.data.text() };
+    console.warn('Push payload not JSON, using plain text:', data);
   }
 
   const title = data.title || 'Notification';
@@ -71,44 +62,46 @@ self.addEventListener('push', (event) => {
     body: data.body || '',
     icon: data.icon || '/icon.png',
     badge: data.badge || '/badge.png',
-    data: data.data || {}, // forwarded to notificationclick
+    data: data.data || {}, // this is the notificationData from the server
     vibrate: data.vibrate || [200, 100, 200],
     requireInteraction: data.requireInteraction || false,
     actions: data.actions || [],
   };
 
+  console.log('🔔 Showing notification with options:', options);
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
-// ─── Notification click event ──────────────────────────────────────────
+// ─── Notification click event – navigate to the specific chat ────────
 self.addEventListener('notificationclick', (event) => {
+  console.log('🔔 Notification clicked:', event.notification);
+  const notificationData = event.notification.data || {};
+  console.log('🔔 Notification data:', notificationData);
+
+  const urlToOpen = notificationData.url || '/';
+  console.log('🔗 URL to open:', urlToOpen);
+
+  // Ensure the URL is absolute
+  const absoluteUrl = new URL(urlToOpen, self.location.origin).href;
+  console.log('🔗 Absolute URL:', absoluteUrl);
+
   event.notification.close();
 
-  const notificationData = event.notification.data || {};
-  const urlToOpen = notificationData.url || '/';
-
-  // Handle actions if present
-  if (event.action) {
-    // If the notification has custom actions, you can handle them here
-    // e.g., event.action === 'reply' -> open chat
-  }
-
   event.waitUntil(
-    clients
-      .matchAll({
-        type: 'window',
-        includeUncontrolled: true,
-      })
-      .then((clientList) => {
-        // If a window is already open, focus it; otherwise open a new one
-        for (const client of clientList) {
-          if (client.url === urlToOpen && 'focus' in client) {
-            return client.focus();
-          }
+    clients.matchAll({
+      type: 'window',
+      includeUncontrolled: true,
+    }).then((clientList) => {
+      // Try to find an existing client and navigate it to the new URL
+      for (const client of clientList) {
+        if (client.url.startsWith(self.location.origin) && 'focus' in client) {
+          console.log('🔄 Navigating existing client to:', absoluteUrl);
+          return client.navigate(absoluteUrl).then(() => client.focus());
         }
-        if (clients.openWindow) {
-          return clients.openWindow(urlToOpen);
-        }
-      })
+      }
+      // Otherwise open a new window
+      console.log('🆕 Opening new window for:', absoluteUrl);
+      return clients.openWindow(absoluteUrl);
+    })
   );
 });

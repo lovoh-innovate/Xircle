@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import { Message, Chat, TypingIndicator } from '../models/messagingModel.js';
 import Call from '../models/call.js';
 import User from '../models/userModel.js';
-import { createAndSendNotification } from './notificationController.js'; // 👈 import
+import { createAndSendNotification } from './notificationController.js';
 
 let io;
 
@@ -118,7 +118,7 @@ export const initSocket = (server) => {
       console.log(`👋 User ${socket.user.name} left chat: ${chatId}`);
     });
 
-    // ── SEND MESSAGE (with notifications) ─────────────────────────
+    // ── SEND MESSAGE (with push notifications) ─────────────────────
     socket.on('send-message', async (data, callback) => {
       try {
         const {
@@ -163,8 +163,10 @@ export const initSocket = (server) => {
         // Emit to chat room (real‑time)
         io.to(`chat:${chatId}`).emit('new-message', populatedMessage);
 
-        // ─── NOTIFICATIONS ─────────────────────────────────────────
+        // ─── NOTIFICATIONS (push & in‑app) ──────────────────────────
         const senderName = socket.user.name || 'Someone';
+        const chatType = chat.type;
+        const chatName = chat.type === 'group' ? chat.name : senderName;
 
         // Build preview
         let preview = content?.substring(0, 100) || '';
@@ -174,6 +176,30 @@ export const initSocket = (server) => {
         else if (messageType === 'file') preview = `📎 ${mediaName || 'File'}`;
         if (!preview) preview = 'Sent a message';
 
+        // Notification title & body
+        let notifTitle, notifBody;
+        if (chatType === 'group') {
+          notifTitle = `📢 ${chatName}`;
+          notifBody = `${senderName}: ${preview}`;
+        } else {
+          notifTitle = `💬 ${senderName}`;
+          notifBody = preview;
+        }
+
+        // Build the full chat URL
+        const chatLink = `${process.env.CLIENT_URL}/workspace/${chat.workspace}/chat/${chat._id}`;
+
+        // Data to be sent with the notification (used by the service worker)
+        const notificationData = {
+          chatId: chat._id.toString(),
+          workspaceId: chat.workspace.toString(),
+          messageId: message._id.toString(),
+          chatType: chatType,
+          chatName: chatName,
+          senderName: senderName,
+          url: chatLink,
+        };
+
         const allParticipantIds = chat.participants
           .map(p => p.user.toString())
           .filter(id => id !== socket.userId);
@@ -181,21 +207,16 @@ export const initSocket = (server) => {
         // Send to all participants (except sender)
         if (allParticipantIds.length > 0) {
           console.log(`🔔 Notifying ${allParticipantIds.length} participants in chat ${chatId}`);
-          const chatLink = `${process.env.CLIENT_URL}/workspace/${chat.workspace}/chat/${chat._id}`;
           for (const uid of allParticipantIds) {
             createAndSendNotification({
               recipient: uid,
-              title: `${senderName} sent a message`,
-              body: preview,
-              data: {
-                chatId: chat._id.toString(),
-                workspaceId: chat.workspace.toString(),
-                messageId: message._id.toString(),
-              },
+              title: notifTitle,
+              body: notifBody,
+              data: notificationData,
               sendPush: true,
               emailEventType: 'newMessage',
-              emailSubject: `${senderName} sent a message`,
-              emailHtml: `<p>${preview}</p><p><a href="${chatLink}">View in app</a></p>`,
+              emailSubject: notifTitle,
+              emailHtml: `<p>${notifBody}</p><p><a href="${chatLink}">View in app</a></p>`,
             }).catch(err => console.error(`Notify ${uid} failed:`, err.message));
           }
         }
@@ -204,17 +225,16 @@ export const initSocket = (server) => {
         if (mentions && mentions.length > 0) {
           console.log(`🔔 Notifying ${mentions.length} mentioned users`);
           for (const uid of mentions) {
-            // Only send if they are a participant (should be already)
             if (allParticipantIds.includes(uid)) {
               createAndSendNotification({
                 recipient: uid,
                 title: `${senderName} mentioned you in chat`,
                 body: `${senderName}: ${content?.substring(0, 100) || 'sent a message'}`,
-                data: { chatId: chat._id.toString(), messageId: message._id.toString() },
+                data: { ...notificationData, url: chatLink },
                 sendPush: true,
                 emailEventType: 'newMessage',
                 emailSubject: `${senderName} mentioned you`,
-                emailHtml: `<p>${senderName} mentioned you: ${content || ''}</p>`,
+                emailHtml: `<p>${senderName} mentioned you: ${content || ''}</p><p><a href="${chatLink}">View message</a></p>`,
               }).catch(err => console.error(`Mention notify ${uid} failed:`, err.message));
             }
           }
