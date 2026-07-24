@@ -9,3 +9,7 @@ node_modules/
 # Build outputs
 dist/
 build/
+
+# Firebase configuration files (private)
+android/app/xircle-f60ef-firebase-adminsdk-fbsvc-f6cae4a18f.json
+ios/App/App/GoogleService-Info.plist
