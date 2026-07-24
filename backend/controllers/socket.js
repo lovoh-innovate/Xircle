@@ -2,7 +2,7 @@
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { Message, Chat, TypingIndicator } from '../models/messagingModel.js';
-import Call from '../models/Call.js';                // new import
+import Call from '../models/call.js';                // new import
 import User from '../models/userModel.js';
 
 let io;

@@ -1,5 +1,5 @@
 // controllers/callController.js
-import Call from '../models/Call.js';
+import Call from '../models/call.js';
 import Workspace from '../models/workspaceModel.js';
 import User from '../models/userModel.js';
 import asyncHandler from 'express-async-handler';
