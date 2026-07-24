@@ -1,6 +1,6 @@
 // src/screens/Settings.jsx
-import React, { useEffect, useState } from 'react';
-import { useSelector } from 'react-redux';
+import React, { useState, useEffect } from 'react';
+import { useSelector, useDispatch } from 'react-redux';
 import { Capacitor } from '@capacitor/core';
 import {
   useGetNotificationPreferencesQuery,
@@ -16,7 +16,6 @@ import {
   FaBell,
   FaEnvelope,
   FaMobileAlt,
-  FaKey,
   FaSpinner,
   FaCheckCircle,
   FaExclamationTriangle,
@@ -28,36 +27,36 @@ import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { useNavigate } from 'react-router-dom';
 
-const Settings = () => {
+// ─── Custom hook – centralises all settings logic ──────────────────────
+
+const useNotificationSettings = () => {
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
   const isNative = Capacitor.isNativePlatform();
 
+  // Local state
   const [emailPrefs, setEmailPrefs] = useState({});
   const [pushPrefs, setPushPrefs] = useState({});
   const [actionLoading, setActionLoading] = useState(false);
   const [swReady, setSwReady] = useState(false);
+  const [success, setSuccess] = useState('');
+  const [error, setError] = useState('');
 
-  const { data: prefData, isLoading: prefsLoading, isError: prefsError } =
+  // API hooks
+  const { data: prefData, isLoading: prefsLoading, isError: prefsError, refetch } =
     useGetNotificationPreferencesQuery();
   const [updateEmail] = useUpdateEmailNotificationsMutation();
   const [updatePush] = useUpdatePushNotificationsMutation();
   const [sendTestPush] = useSendTestPushMutation();
   const [sendTestEmail] = useSendTestEmailMutation();
 
-  // Push hooks
+  // Push hooks – choose based on platform
   const webPush = usePushNotifications();
   const mobilePush = useMobilePushNotifications();
   const push = isNative ? mobilePush : webPush;
-  const { isSubscribed, permission, subscribe, unsubscribe, isSupported, subscription } = push;
+  const { isSubscribed, permission, subscribe, unsubscribe, isSupported, subscription, fcmToken } = push;
 
-  // Check service worker status (web only)
-  useEffect(() => {
-    if (isNative || !('serviceWorker' in navigator)) return;
-    navigator.serviceWorker.ready.then(() => setSwReady(true)).catch(() => setSwReady(false));
-  }, [isNative]);
-
-  // Populate preferences
+  // Load preferences from API
   useEffect(() => {
     if (prefData?.data) {
       setEmailPrefs(prefData.data.email || {});
@@ -65,40 +64,52 @@ const Settings = () => {
     }
   }, [prefData]);
 
-  // Log subscription changes for debugging
+  // Check service worker status (web only)
+  useEffect(() => {
+    if (isNative || !('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.ready.then(() => setSwReady(true)).catch(() => setSwReady(false));
+  }, [isNative]);
+
+  // Log subscription changes
   useEffect(() => {
     if (!isNative && subscription) {
-      console.log('🔔 Current subscription endpoint:', subscription.endpoint);
+      console.log('🔔 Web subscription endpoint:', subscription.endpoint);
     }
-  }, [isNative, subscription]);
+    if (isNative && fcmToken) {
+      console.log('📱 FCM Token:', fcmToken);
+    }
+  }, [isNative, subscription, fcmToken]);
 
-  // Email toggle
+  // ── Handlers ──────────────────────────────────────────────────────────
+
   const handleEmailToggle = async (key) => {
     const newPrefs = { ...emailPrefs, [key]: !emailPrefs[key] };
     setEmailPrefs(newPrefs);
     try {
       await updateEmail(newPrefs).unwrap();
-      toast.success('Email preference updated');
+      setSuccess('Email preference updated');
+      setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
-      toast.error(err?.data?.message || 'Failed to update email preferences');
+      setError(err?.data?.message || 'Failed to update email preferences');
+      setTimeout(() => setError(''), 4000);
       setEmailPrefs(emailPrefs);
     }
   };
 
-  // Push sub-toggle
   const handlePushSubToggle = async (key) => {
     const newPrefs = { ...pushPrefs, [key]: !pushPrefs[key] };
     setPushPrefs(newPrefs);
     try {
       await updatePush(newPrefs).unwrap();
-      toast.success('Push preference updated');
+      setSuccess('Push preference updated');
+      setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
-      toast.error(err?.data?.message || 'Failed to update push preferences');
+      setError(err?.data?.message || 'Failed to update push preferences');
+      setTimeout(() => setError(''), 4000);
       setPushPrefs(pushPrefs);
     }
   };
 
-  // Master push toggle
   const handlePushMasterToggle = async (currentlyEnabled) => {
     if (actionLoading) return;
     setActionLoading(true);
@@ -109,9 +120,11 @@ const Settings = () => {
           const newPrefs = { ...pushPrefs, enabled: false };
           setPushPrefs(newPrefs);
           await updatePush(newPrefs).unwrap();
-          toast.success('Push notifications disabled');
+          setSuccess('Push notifications disabled');
+          setTimeout(() => setSuccess(''), 3000);
         } else {
-          toast.error('Failed to disable push');
+          setError('Failed to disable push');
+          setTimeout(() => setError(''), 4000);
         }
       } else {
         const success = await subscribe();
@@ -119,47 +132,49 @@ const Settings = () => {
           const newPrefs = { ...pushPrefs, enabled: true };
           setPushPrefs(newPrefs);
           await updatePush(newPrefs).unwrap();
-          toast.success('Push notifications enabled');
+          setSuccess('Push notifications enabled');
+          setTimeout(() => setSuccess(''), 3000);
         } else {
           if (permission === 'denied') {
-            toast.error('Notifications blocked. Enable them in browser settings.');
+            setError('Notifications blocked. Enable them in browser settings.');
           } else {
-            toast.error('Failed to enable push');
+            setError('Failed to enable push');
           }
+          setTimeout(() => setError(''), 4000);
         }
       }
     } catch (err) {
-      toast.error(err?.data?.message || 'An error occurred');
+      setError(err?.data?.message || 'An error occurred');
+      setTimeout(() => setError(''), 4000);
     } finally {
       setActionLoading(false);
     }
   };
 
-  // Re-register (force new subscription)
   const handleReRegister = async () => {
     if (actionLoading || isNative) return;
     setActionLoading(true);
     try {
-      // Unsubscribe first
       await unsubscribe();
-      // Then subscribe again
       const success = await subscribe();
       if (success) {
         const newPrefs = { ...pushPrefs, enabled: true };
         setPushPrefs(newPrefs);
         await updatePush(newPrefs).unwrap();
-        toast.success('Push subscription refreshed');
+        setSuccess('Push subscription refreshed');
+        setTimeout(() => setSuccess(''), 3000);
       } else {
-        toast.error('Failed to re-register push');
+        setError('Failed to re-register push');
+        setTimeout(() => setError(''), 4000);
       }
     } catch (err) {
-      toast.error(err?.data?.message || 'Re-registration failed');
+      setError(err?.data?.message || 'Re-registration failed');
+      setTimeout(() => setError(''), 4000);
     } finally {
       setActionLoading(false);
     }
   };
 
-  // Test push
   const handleTestPush = async () => {
     if (!isSubscribed || permission !== 'granted') {
       toast.warning('Push is not active');
@@ -183,222 +198,583 @@ const Settings = () => {
     }
   };
 
-  // Toggle switch component
-  const ToggleSwitch = ({ enabled, onChange, disabled = false }) => (
-    <button
-      onClick={onChange}
-      disabled={disabled || actionLoading}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-        enabled ? 'bg-teal-600' : 'bg-gray-300'
-      } ${disabled || actionLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-    >
-      <span
-        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-          enabled ? 'translate-x-6' : 'translate-x-1'
-        }`}
-      />
-    </button>
-  );
-
-  // Loading / error
-  if (prefsLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
-
-  if (prefsError) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 text-gray-500">
-        <FaExclamationTriangle className="text-4xl mb-4" />
-        <p>Could not load preferences. Pull down to retry.</p>
-      </div>
-    );
-  }
-
   const pushEnabled = pushPrefs.enabled && isSubscribed && permission === 'granted';
   const pushAvailable = isSupported && isSubscribed && permission === 'granted';
 
+  return {
+    // State
+    emailPrefs,
+    pushPrefs,
+    actionLoading,
+    swReady,
+    success,
+    error,
+    isNative,
+    push,
+    isSubscribed,
+    permission,
+    isSupported,
+    subscription,
+    fcmToken,
+    pushEnabled,
+    pushAvailable,
+    isLoading: prefsLoading,
+    isError: prefsError,
+    refetch,
+
+    // Handlers
+    handleEmailToggle,
+    handlePushSubToggle,
+    handlePushMasterToggle,
+    handleReRegister,
+    handleTestPush,
+    handleTestEmail,
+  };
+};
+
+// ─── Toggle Switch Component ─────────────────────────────────────────
+
+const ToggleSwitch = ({ enabled, onChange, disabled = false, loading = false }) => (
+  <button
+    onClick={onChange}
+    disabled={disabled || loading}
+    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+      enabled ? 'bg-teal-600' : 'bg-gray-300'
+    } ${disabled || loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+  >
+    <span
+      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+        enabled ? 'translate-x-6' : 'translate-x-1'
+      }`}
+    />
+  </button>
+);
+
+// ─── Desktop View ──────────────────────────────────────────────────────
+
+const DesktopNotificationSettings = ({ state }) => {
+  const {
+    emailPrefs,
+    pushPrefs,
+    actionLoading,
+    swReady,
+    success,
+    error,
+    isNative,
+    push,
+    isSubscribed,
+    permission,
+    isSupported,
+    subscription,
+    fcmToken,
+    pushEnabled,
+    pushAvailable,
+    handleEmailToggle,
+    handlePushSubToggle,
+    handlePushMasterToggle,
+    handleReRegister,
+    handleTestPush,
+    handleTestEmail,
+  } = state;
+
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <ToastContainer position="bottom-center" autoClose={4000} hideProgressBar={false} />
+    <div className="hidden md:block min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
+      <div className="px-6 py-6 lg:px-8">
+        <div className="max-w-4xl mx-auto">
+          {/* Header */}
+          <div className="mb-6">
+            <div className="flex items-center space-x-2">
+              <div className="p-1.5 bg-purple-50 dark:bg-purple-900/30 rounded-lg">
+                <FaBell className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+              </div>
+              <div>
+                <h1 className="text-lg font-semibold text-gray-800 dark:text-white">Notification Settings</h1>
+                <p className="text-xs text-gray-400 dark:text-gray-500">Manage your notification preferences</p>
+              </div>
+            </div>
+          </div>
 
-      <header className="sticky top-0 z-10 bg-teal-600 text-white shadow-sm px-4 h-14 flex items-center gap-3">
-        <button onClick={() => navigate(-1)} className="p-1">
-          <FaArrowLeft />
-        </button>
-        <h1 className="text-lg font-semibold">Notification Settings</h1>
-      </header>
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg flex items-center space-x-2">
+              <FaExclamationTriangle className="w-4 h-4 text-red-500 dark:text-red-400" />
+              <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            </div>
+          )}
 
-      <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 max-w-3xl mx-auto w-full">
-        {/* Email section (unchanged) */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200/60 p-5 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
-            <FaEnvelope className="text-teal-600" />
-            Email Notifications
-          </h2>
-          {Object.keys(emailPrefs).length === 0 ? (
-            <p className="text-sm text-gray-500">No email preferences configured.</p>
-          ) : (
-            <div className="space-y-3">
-              {Object.entries(emailPrefs).map(([key, value]) => (
-                <div key={key} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-none">
+          {success && (
+            <div className="mb-4 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg flex items-center space-x-2">
+              <FaCheckCircle className="w-4 h-4 text-green-500 dark:text-green-400" />
+              <p className="text-sm text-green-600 dark:text-green-400">{success}</p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-6">
+            {/* Email Notifications */}
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden transition-colors duration-300">
+              <div className="px-5 py-3 bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-700">
+                <div className="flex items-center space-x-2">
+                  <FaEnvelope className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                  <h2 className="text-sm font-semibold text-gray-800 dark:text-white">Email Notifications</h2>
+                </div>
+              </div>
+              <div className="p-5 space-y-4">
+                {Object.keys(emailPrefs).length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">No email preferences configured.</p>
+                ) : (
+                  Object.entries(emailPrefs).map(([key, value]) => (
+                    <div key={key} className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-gray-700 dark:text-gray-300 capitalize">
+                          {key.replace(/([A-Z])/g, ' $1').trim()}
+                        </p>
+                        <p className="text-xs text-gray-400 dark:text-gray-500">
+                          Receive email when {key.replace(/([A-Z])/g, ' $1').toLowerCase()} occurs
+                        </p>
+                      </div>
+                      <ToggleSwitch
+                        enabled={value}
+                        onChange={() => handleEmailToggle(key)}
+                        disabled={actionLoading}
+                      />
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Push Notifications */}
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden transition-colors duration-300">
+              <div className="px-5 py-3 bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-700">
+                <div className="flex items-center space-x-2">
+                  {isNative ? (
+                    <FaMobileAlt className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                  ) : (
+                    <FaBell className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                  )}
+                  <h2 className="text-sm font-semibold text-gray-800 dark:text-white">
+                    {isNative ? 'Mobile Push Notifications' : 'Web Push Notifications'}
+                  </h2>
+                </div>
+              </div>
+              <div className="p-5 space-y-4">
+                {isNative ? (
+                  <div className="flex items-center gap-3">
+                    <FaCheckCircle className="text-green-500" />
+                    <p className="text-sm text-gray-700 dark:text-gray-300">
+                      Push notifications are automatically enabled on this device.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Enable push notifications</p>
+                        <p className="text-xs text-gray-400 dark:text-gray-500">
+                          {permission === 'denied'
+                            ? 'Notifications are blocked in browser settings.'
+                            : 'Receive push notifications in this browser'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {permission === 'denied' ? (
+                          <span className="text-xs text-red-500 flex items-center gap-1">
+                            <FaTimesCircle /> Blocked
+                          </span>
+                        ) : (
+                          <>
+                            {actionLoading && <FaSpinner className="animate-spin text-teal-600" />}
+                            <ToggleSwitch
+                              enabled={pushEnabled}
+                              onChange={() => handlePushMasterToggle(pushEnabled)}
+                              disabled={!isSupported || permission === 'denied' || actionLoading}
+                              loading={actionLoading}
+                            />
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Diagnostic info */}
+                    <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3 text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <FaInfoCircle className="text-teal-500" />
+                        <span>Service Worker: {swReady ? '✅ Ready' : '⏳ Loading...'}</span>
+                      </div>
+                      {subscription && (
+                        <div className="truncate">
+                          <span className="font-medium">Endpoint:</span>{' '}
+                          {subscription.endpoint.length > 60
+                            ? subscription.endpoint.slice(0, 60) + '…'
+                            : subscription.endpoint}
+                        </div>
+                      )}
+                      <button
+                        onClick={handleReRegister}
+                        disabled={actionLoading || !isSupported || permission === 'denied'}
+                        className="mt-2 flex items-center gap-1 text-teal-600 hover:text-teal-700 transition disabled:opacity-50"
+                      >
+                        <FaSync className={actionLoading ? 'animate-spin' : ''} />
+                        Re‑register Push
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {/* Push sub-preferences */}
+                {pushEnabled && Object.keys(pushPrefs).length > 1 && (
+                  <div className="space-y-3 pt-2 border-t border-gray-100 dark:border-gray-700">
+                    {Object.entries(pushPrefs).map(([key, value]) => {
+                      if (key === 'enabled') return null;
+                      return (
+                        <div key={key} className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 capitalize">
+                              {key.replace(/([A-Z])/g, ' $1').trim()}
+                            </p>
+                            <p className="text-xs text-gray-400 dark:text-gray-500">
+                              Push when {key.replace(/([A-Z])/g, ' $1').toLowerCase()} occurs
+                            </p>
+                          </div>
+                          <ToggleSwitch
+                            enabled={value}
+                            onChange={() => handlePushSubToggle(key)}
+                            disabled={!pushEnabled || actionLoading}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {isNative && fcmToken && (
+                  <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 break-all">
+                      <span className="font-medium">FCM Token:</span> {fcmToken}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Test Notifications */}
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden transition-colors duration-300">
+              <div className="px-5 py-3 bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-700">
+                <div className="flex items-center space-x-2">
+                  <FaBell className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                  <h2 className="text-sm font-semibold text-gray-800 dark:text-white">Test Notifications</h2>
+                </div>
+              </div>
+              <div className="p-5">
+                <div className="flex flex-wrap gap-4">
+                  <button
+                    onClick={handleTestPush}
+                    disabled={!pushAvailable}
+                    className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-full text-sm font-medium hover:bg-teal-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <FaMobileAlt /> Send Test Push
+                  </button>
+                  <button
+                    onClick={handleTestEmail}
+                    className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-full text-sm font-medium hover:bg-teal-700 transition"
+                  >
+                    <FaEnvelope /> Send Test Email
+                  </button>
+                </div>
+                {!isNative && !pushAvailable && isSupported && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-3">
+                    Push is not active. Enable it above or re‑register if the endpoint is missing.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Mobile View ────────────────────────────────────────────────────────
+
+const MobileNotificationSettings = ({ state }) => {
+  const {
+    emailPrefs,
+    pushPrefs,
+    actionLoading,
+    swReady,
+    success,
+    error,
+    isNative,
+    push,
+    isSubscribed,
+    permission,
+    isSupported,
+    subscription,
+    fcmToken,
+    pushEnabled,
+    pushAvailable,
+    handleEmailToggle,
+    handlePushSubToggle,
+    handlePushMasterToggle,
+    handleReRegister,
+    handleTestPush,
+    handleTestEmail,
+  } = state;
+
+  return (
+    <div className="md:hidden bg-gray-50 dark:bg-gray-900 min-h-screen pb-20 transition-colors duration-300">
+      <div className="bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700 px-4 py-3 sticky top-0 z-10">
+        <div className="flex items-center space-x-2">
+          <FaBell className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+          <h1 className="text-base font-semibold text-gray-800 dark:text-white">Notification Settings</h1>
+        </div>
+      </div>
+
+      <div className="px-4 py-4 space-y-4">
+        {error && (
+          <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg flex items-center space-x-2">
+            <FaExclamationTriangle className="w-4 h-4 text-red-500 dark:text-red-400" />
+            <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
+          </div>
+        )}
+
+        {success && (
+          <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg flex items-center space-x-2">
+            <FaCheckCircle className="w-4 h-4 text-green-500 dark:text-green-400" />
+            <p className="text-xs text-green-600 dark:text-green-400">{success}</p>
+          </div>
+        )}
+
+        {/* Email Notifications */}
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden transition-colors duration-300">
+          <div className="px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-700">
+            <div className="flex items-center space-x-2">
+              <FaEnvelope className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+              <h2 className="text-sm font-semibold text-gray-800 dark:text-white">Email Notifications</h2>
+            </div>
+          </div>
+          <div className="divide-y divide-gray-50 dark:divide-gray-700/50">
+            {Object.keys(emailPrefs).length === 0 ? (
+              <p className="p-4 text-sm text-gray-500 dark:text-gray-400">No email preferences configured.</p>
+            ) : (
+              Object.entries(emailPrefs).map(([key, value]) => (
+                <div key={key} className="p-4 flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-gray-700 capitalize">
+                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300 capitalize">
                       {key.replace(/([A-Z])/g, ' $1').trim()}
                     </p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-400 dark:text-gray-500">
                       Receive email when {key.replace(/([A-Z])/g, ' $1').toLowerCase()} occurs
                     </p>
                   </div>
-                  <ToggleSwitch enabled={value} onChange={() => handleEmailToggle(key)} />
+                  <ToggleSwitch
+                    enabled={value}
+                    onChange={() => handleEmailToggle(key)}
+                    disabled={actionLoading}
+                  />
                 </div>
-              ))}
-            </div>
-          )}
+              ))
+            )}
+          </div>
         </div>
 
-        {/* Push section */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200/60 p-5 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
-            <FaMobileAlt className="text-teal-600" />
-            Push Notifications
-          </h2>
-
-          {isNative ? (
-            <div className="flex items-center gap-3 mb-4">
-              <FaCheckCircle className="text-green-500" />
-              <p className="text-sm text-gray-700">
-                Push notifications are automatically enabled on this device.
-              </p>
+        {/* Push Notifications */}
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden transition-colors duration-300">
+          <div className="px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-700">
+            <div className="flex items-center space-x-2">
+              {isNative ? (
+                <FaMobileAlt className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+              ) : (
+                <FaBell className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+              )}
+              <h2 className="text-sm font-semibold text-gray-800 dark:text-white">
+                {isNative ? 'Mobile Push' : 'Web Push'}
+              </h2>
             </div>
-          ) : (
-            <>
-              <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-100">
-                <div>
-                  <p className="text-sm font-medium text-gray-700">Enable push notifications</p>
-                  <p className="text-xs text-gray-500">
-                    {permission === 'denied'
-                      ? 'Notifications are blocked in browser settings.'
-                      : 'Receive push notifications in this browser'}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  {permission === 'denied' ? (
-                    <span className="text-xs text-red-500 flex items-center gap-1">
-                      <FaTimesCircle /> Blocked
-                    </span>
-                  ) : (
-                    <>
-                      {actionLoading && <FaSpinner className="animate-spin text-teal-600" />}
-                      <ToggleSwitch
-                        enabled={pushEnabled}
-                        onChange={() => handlePushMasterToggle(pushEnabled)}
-                        disabled={!isSupported || permission === 'denied'}
-                      />
-                    </>
-                  )}
-                </div>
+          </div>
+          <div className="divide-y divide-gray-50 dark:divide-gray-700/50">
+            {isNative ? (
+              <div className="p-4 flex items-center gap-3">
+                <FaCheckCircle className="text-green-500" />
+                <p className="text-sm text-gray-700 dark:text-gray-300">
+                  Push notifications are automatically enabled on this device.
+                </p>
               </div>
-
-              {/* Diagnostic info */}
-              <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-600 space-y-1 mb-4">
-                <div className="flex items-center gap-2">
-                  <FaInfoCircle className="text-teal-500" />
-                  <span>Service Worker: {swReady ? '✅ Ready' : '⏳ Loading...'}</span>
-                </div>
-                {subscription && (
-                  <div className="truncate">
-                    <span className="font-medium">Endpoint:</span>{' '}
-                    {subscription.endpoint.length > 60
-                      ? subscription.endpoint.slice(0, 60) + '…'
-                      : subscription.endpoint}
+            ) : (
+              <>
+                <div className="p-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Enable push</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500">
+                      {permission === 'denied'
+                        ? 'Notifications are blocked in browser settings.'
+                        : 'Receive push notifications in this browser'}
+                    </p>
                   </div>
-                )}
-                {!isNative && (
+                  <div className="flex items-center gap-3">
+                    {permission === 'denied' ? (
+                      <span className="text-xs text-red-500 flex items-center gap-1">
+                        <FaTimesCircle /> Blocked
+                      </span>
+                    ) : (
+                      <>
+                        {actionLoading && <FaSpinner className="animate-spin text-teal-600" />}
+                        <ToggleSwitch
+                          enabled={pushEnabled}
+                          onChange={() => handlePushMasterToggle(pushEnabled)}
+                          disabled={!isSupported || permission === 'denied' || actionLoading}
+                          loading={actionLoading}
+                        />
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Diagnostic info */}
+                <div className="p-4 bg-gray-50 dark:bg-gray-900/50 space-y-1">
+                  <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+                    <FaInfoCircle className="text-teal-500" />
+                    <span>Service Worker: {swReady ? '✅ Ready' : '⏳ Loading...'}</span>
+                  </div>
+                  {subscription && (
+                    <div className="truncate text-xs text-gray-600 dark:text-gray-400">
+                      <span className="font-medium">Endpoint:</span>{' '}
+                      {subscription.endpoint.length > 60
+                        ? subscription.endpoint.slice(0, 60) + '…'
+                        : subscription.endpoint}
+                    </div>
+                  )}
                   <button
                     onClick={handleReRegister}
                     disabled={actionLoading || !isSupported || permission === 'denied'}
-                    className="mt-2 flex items-center gap-1 text-teal-600 hover:text-teal-700 transition disabled:opacity-50"
+                    className="mt-1 flex items-center gap-1 text-xs text-teal-600 hover:text-teal-700 transition disabled:opacity-50"
                   >
                     <FaSync className={actionLoading ? 'animate-spin' : ''} />
                     Re‑register Push
                   </button>
-                )}
-              </div>
-            </>
-          )}
+                </div>
+              </>
+            )}
 
-          {pushEnabled && Object.keys(pushPrefs).length > 1 && (
-            <div className="space-y-3">
-              {Object.entries(pushPrefs).map(([key, value]) => {
-                if (key === 'enabled') return null;
-                return (
-                  <div key={key} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-none">
-                    <div>
-                      <p className="text-sm font-medium text-gray-700 capitalize">
-                        {key.replace(/([A-Z])/g, ' $1').trim()}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        Push when {key.replace(/([A-Z])/g, ' $1').toLowerCase()} occurs
-                      </p>
+            {/* Push sub-preferences */}
+            {pushEnabled && Object.keys(pushPrefs).length > 1 && (
+              <div className="divide-y divide-gray-50 dark:divide-gray-700/50">
+                {Object.entries(pushPrefs).map(([key, value]) => {
+                  if (key === 'enabled') return null;
+                  return (
+                    <div key={key} className="p-4 flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-gray-700 dark:text-gray-300 capitalize">
+                          {key.replace(/([A-Z])/g, ' $1').trim()}
+                        </p>
+                        <p className="text-xs text-gray-400 dark:text-gray-500">
+                          Push when {key.replace(/([A-Z])/g, ' $1').toLowerCase()} occurs
+                        </p>
+                      </div>
+                      <ToggleSwitch
+                        enabled={value}
+                        onChange={() => handlePushSubToggle(key)}
+                        disabled={!pushEnabled || actionLoading}
+                      />
                     </div>
-                    <ToggleSwitch
-                      enabled={value}
-                      onChange={() => handlePushSubToggle(key)}
-                      disabled={!pushEnabled}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                  );
+                })}
+              </div>
+            )}
 
-        {/* Test section */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200/60 p-5 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
-            <FaBell className="text-teal-600" />
-            Test Notifications
-          </h2>
-          <div className="flex flex-wrap gap-4">
-            <button
-              onClick={handleTestPush}
-              disabled={!pushAvailable}
-              className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-full text-sm font-medium hover:bg-teal-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <FaMobileAlt /> Send Test Push
-            </button>
-            <button
-              onClick={handleTestEmail}
-              className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-full text-sm font-medium hover:bg-teal-700 transition"
-            >
-              <FaEnvelope /> Send Test Email
-            </button>
+            {isNative && fcmToken && (
+              <div className="p-4 bg-gray-50 dark:bg-gray-900/50">
+                <p className="text-xs text-gray-500 dark:text-gray-400 break-all">
+                  <span className="font-medium">FCM Token:</span> {fcmToken}
+                </p>
+              </div>
+            )}
           </div>
-          {!isNative && !pushAvailable && isSupported && (
-            <p className="text-xs text-amber-600 mt-2">
-              Push is not active. Enable it above or re‑register if the endpoint is missing.
-            </p>
-          )}
         </div>
 
-        {/* VAPID key (web) */}
-        {!isNative && (
-          <details className="bg-white rounded-2xl shadow-sm border border-gray-200/60 p-5">
-            <summary className="text-lg font-semibold text-gray-900 flex items-center gap-2 cursor-pointer">
-              <FaKey className="text-teal-600" />
-              VAPID Public Key
-            </summary>
-            <p className="text-xs text-gray-500 bg-gray-100 p-3 rounded-lg break-all font-mono mt-4">
-              {webPush.vapidPublicKey || 'Not loaded'}
-            </p>
-          </details>
-        )}
-      </main>
+        {/* Test Notifications */}
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden transition-colors duration-300">
+          <div className="px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-700">
+            <div className="flex items-center space-x-2">
+              <FaBell className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+              <h2 className="text-sm font-semibold text-gray-800 dark:text-white">Test Notifications</h2>
+            </div>
+          </div>
+          <div className="p-4">
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={handleTestPush}
+                disabled={!pushAvailable}
+                className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-full text-sm font-medium hover:bg-teal-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <FaMobileAlt /> Send Test Push
+              </button>
+              <button
+                onClick={handleTestEmail}
+                className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-full text-sm font-medium hover:bg-teal-700 transition"
+              >
+                <FaEnvelope /> Send Test Email
+              </button>
+            </div>
+            {!isNative && !pushAvailable && isSupported && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-3">
+                Push is not active. Enable it above or re‑register if the endpoint is missing.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
+  );
+};
+
+// ─── Main Component ──────────────────────────────────────────────────────
+
+const Settings = () => {
+  const state = useNotificationSettings();
+  const navigate = useNavigate();
+
+  if (state.isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
+        <div className="text-center">
+          <FaSpinner className="w-10 h-10 text-purple-600 dark:text-purple-400 animate-spin mx-auto mb-3" />
+          <p className="text-sm text-gray-400 dark:text-gray-500">Loading settings...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (state.isError) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
+        <div className="text-center">
+          <FaExclamationTriangle className="w-10 h-10 text-red-500 mx-auto mb-3" />
+          <p className="text-sm text-gray-600 dark:text-gray-400">Could not load preferences. Pull down to retry.</p>
+          <button
+            onClick={() => state.refetch()}
+            className="mt-3 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 transition"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {/* Header with back button */}
+      <header className="sticky top-0 z-10 bg-teal-600 text-white shadow-sm px-4 h-14 flex items-center gap-3 md:hidden">
+        <button onClick={() => navigate(-1)} className="p-1">
+          <FaArrowLeft />
+        </button>
+        <h1 className="text-lg font-semibold">Settings</h1>
+      </header>
+      <DesktopNotificationSettings state={state} />
+      <MobileNotificationSettings state={state} />
+      <ToastContainer position="bottom-center" autoClose={4000} hideProgressBar={false} />
+    </>
   );
 };
 

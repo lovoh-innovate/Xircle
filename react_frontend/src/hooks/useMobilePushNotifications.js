@@ -17,10 +17,29 @@ export const useMobilePushNotifications = () => {
     setIsSupported(isMobile);
     if (isMobile) {
       checkExistingToken();
+      createNotificationChannel(); // 👈 create high-importance channel
       setupPushListeners();
     }
-    // Cleanup? The plugin listeners are persistent; we don't need to remove them.
   }, []);
+
+  // ── Create a high‑importance channel (Android 8+) ──────────────
+  const createNotificationChannel = async () => {
+    try {
+      await PushNotifications.createChannel({
+        id: 'default',           // must match the channel ID used in server
+        name: 'Default Channel',
+        importance: 4,           // 4 = HIGH, enables pop‑up, sound, vibration
+        visibility: 1,           // 1 = PUBLIC (show on lock screen)
+        sound: 'default',
+        vibration: true,
+        lights: true,
+        description: 'High‑priority notifications that pop up on screen',
+      });
+      console.log('✅ Notification channel created with pop‑up enabled');
+    } catch (error) {
+      console.warn('Could not create notification channel:', error);
+    }
+  };
 
   const checkExistingToken = useCallback(() => {
     const storedToken = localStorage.getItem('fcmToken');
@@ -45,9 +64,18 @@ export const useMobilePushNotifications = () => {
       }
       setPermission('granted');
 
-      await PushNotifications.register();
+      // Ensure channel exists before registering
+      await createNotificationChannel();
 
       return new Promise((resolve) => {
+        let registrationListener;
+        let errorListener;
+
+        const cleanup = () => {
+          registrationListener?.remove();
+          errorListener?.remove();
+        };
+
         const onRegistration = async (token) => {
           console.log('📱 FCM Token received:', token.value);
           setFcmToken(token.value);
@@ -65,7 +93,7 @@ export const useMobilePushNotifications = () => {
             console.error('Failed to register FCM token on server:', error);
             resolve(false);
           } finally {
-            registrationListener.remove();
+            cleanup();
           }
         };
 
@@ -73,11 +101,21 @@ export const useMobilePushNotifications = () => {
           console.error('FCM registration error:', error);
           setIsSubscribed(false);
           resolve(false);
-          errorListener.remove();
+          cleanup();
         };
 
-        const registrationListener = PushNotifications.addListener('registration', onRegistration);
-        const errorListener = PushNotifications.addListener('registrationError', onError);
+        Promise.all([
+          PushNotifications.addListener('registration', onRegistration),
+          PushNotifications.addListener('registrationError', onError),
+        ]).then(([regListener, errListener]) => {
+          registrationListener = regListener;
+          errorListener = errListener;
+          PushNotifications.register().catch((error) => {
+            console.error('PushNotifications.register() threw:', error);
+            resolve(false);
+            cleanup();
+          });
+        });
       });
     } catch (error) {
       console.error('Failed to subscribe to mobile push:', error);
@@ -109,7 +147,6 @@ export const useMobilePushNotifications = () => {
   const setupPushListeners = useCallback(() => {
     PushNotifications.addListener('pushNotificationReceived', (notification) => {
       console.log('📩 Push received in foreground:', notification);
-      // Optionally show an in-app toast
       window.dispatchEvent(new CustomEvent('mobile-push-received', { detail: notification }));
     });
 

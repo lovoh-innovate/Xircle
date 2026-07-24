@@ -1,5 +1,4 @@
 // controllers/notificationController.js
-
 import User from '../models/userModel.js';
 import Notification from '../models/notificationModel.js';
 import webpush from 'web-push';
@@ -116,6 +115,24 @@ export const sendPushNotification = async (userId, title, body, data = {}) => {
               notification: { title, body },
               data: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
               token: tokenRecord.token,
+              // ── CRITICAL for heads‑up pop‑up ──────────────────────────
+              android: {
+                priority: 'high',
+                notification: {
+                  channelId: 'default',          // must match channel created in the app
+                  sound: 'default',
+                  priority: 'high',
+                  visibility: 'public',
+                },
+              },
+              apns: {
+                payload: {
+                  aps: {
+                    sound: 'default',
+                    contentAvailable: true,
+                  },
+                },
+              },
             };
             await getMessaging().send(message);
             sentCount++;
@@ -143,6 +160,7 @@ export const sendPushNotification = async (userId, title, body, data = {}) => {
     return 0;
   }
 };
+
 /**
  * Send an email via Resend.
  */
@@ -285,7 +303,6 @@ export const updateEmailNotifications = async (req, res) => {
     if (!user.notificationPreferences) user.notificationPreferences = {};
     if (!user.notificationPreferences.email) user.notificationPreferences.email = {};
 
-    // Only update allowed boolean fields
     allowedFields.forEach(field => {
       if (typeof req.body[field] === 'boolean') {
         user.notificationPreferences.email[field] = req.body[field];
@@ -391,7 +408,6 @@ export const registerPushSubscription = async (req, res) => {
       lastUsed: new Date(),
     };
 
-    // Upsert
     const existingIndex = user.pushTokens.findIndex(t => t.token === subscription.endpoint);
     if (existingIndex >= 0) {
       user.pushTokens[existingIndex] = { ...user.pushTokens[existingIndex], ...tokenData };
@@ -399,7 +415,6 @@ export const registerPushSubscription = async (req, res) => {
       user.pushTokens.push({ ...tokenData, createdAt: new Date() });
     }
 
-    // Auto-enable push if not already
     if (!user.notificationPreferences) user.notificationPreferences = {};
     if (!user.notificationPreferences.push) user.notificationPreferences.push = {};
     user.notificationPreferences.push.enabled = true;
@@ -452,7 +467,6 @@ export const registerMobileToken = async (req, res) => {
       return res.status(200).json({ success: true, message: 'Mobile token unregistered' });
     }
 
-    // Otherwise upsert
     if (!user.pushTokens) user.pushTokens = [];
 
     const tokenData = {
@@ -470,7 +484,6 @@ export const registerMobileToken = async (req, res) => {
       user.pushTokens.push({ ...tokenData, createdAt: new Date() });
     }
 
-    // Auto-enable push
     if (!user.notificationPreferences) user.notificationPreferences = {};
     if (!user.notificationPreferences.push) user.notificationPreferences.push = {};
     user.notificationPreferences.push.enabled = true;

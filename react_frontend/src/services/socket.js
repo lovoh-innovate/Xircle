@@ -1,13 +1,34 @@
 // src/services/socket.js
 import { io } from 'socket.io-client';
+import { Capacitor } from '@capacitor/core';
 
-// ── Determine the correct Socket.IO URL ─────────────────────────────
-// It MUST be the root of your server (no /api). Derive it from
-// VITE_API_URL, or use a dedicated VITE_SOCKET_URL variable.
-const SOCKET_URL =
-  import.meta.env.VITE_SOCKET_URL ||                             // preferred
-  new URL(import.meta.env.VITE_API_URL || 'http://localhost:8000/api').origin;
+/**
+ * Determine the correct Socket.IO server URL (hardcoded).
+ */
+const getSocketUrl = () => {
+  const isNative = Capacitor.isNativePlatform();
 
+  // 1. Capacitor (mobile app) – always production
+  if (isNative) {
+    console.log('📱 Capacitor detected – using production URL');
+    return 'https://xircle.onrender.com';
+  }
+
+  // 2. Web – check if we're on localhost
+  const hostname = window.location.hostname;
+  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+
+  if (isLocalhost) {
+    console.log('🌐 Localhost detected – using http://localhost:8000');
+    return 'http://localhost:8000';
+  }
+
+  // 3. Web – production (or staging)
+  console.log('🌐 Production web – using https://xircle.onrender.com');
+  return 'https://xircle.onrender.com';
+};
+
+const SOCKET_URL = getSocketUrl();
 console.log('🔌 Socket.IO will connect to:', SOCKET_URL);
 
 let socket = null;
@@ -15,20 +36,17 @@ let socket = null;
 export const connectSocket = (token) => {
   console.log('⚡ connectSocket() called, token provided:', !!token);
 
-  // Reuse existing socket if already connected
   if (socket?.connected) {
     console.log('♻️  Socket already connected, reusing');
     return socket;
   }
 
-  // ── Create a fresh connection ──────────────────────────────────────
   socket = io(SOCKET_URL, {
     auth: { token },
     withCredentials: true,
-    transports: ['websocket'],      // try pure WebSocket first
+    transports: ['websocket'],
   });
 
-  // ── Debug listeners ────────────────────────────────────────────────
   socket.on('connect', () => {
     console.log('✅ Socket connected! ID:', socket.id);
   });
@@ -62,8 +80,3 @@ export const disconnectSocket = () => {
 };
 
 export const getSocket = () => socket;
-
-// ── Optional manual test (paste in browser console) ────────────────
-// const test = io('http://localhost:8000', { transports: ['websocket'] });
-// test.on('connect', () => console.log('Manual test connected'));
-// test.on('connect_error', e => console.log('Manual test error:', e.message));

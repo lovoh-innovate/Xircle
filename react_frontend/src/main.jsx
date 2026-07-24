@@ -9,7 +9,10 @@ import {
   Outlet,
   useNavigate,
 } from 'react-router-dom';
-import { Capacitor } from '@capacitor/core'; // <-- import Capacitor
+import { Capacitor } from '@capacitor/core';
+import { PushNotifications } from '@capacitor/push-notifications'; // 👈 import
+import { toast, ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 import './index.css';
 import store from './store';
@@ -71,7 +74,6 @@ const GlobalNavigator = () => {
 // ── Service worker registration (web only) ──────────────────────
 const ServiceWorkerRegister = () => {
   useEffect(() => {
-    // Only register SW on web (not on Capacitor)
     if ('serviceWorker' in navigator && !Capacitor.isNativePlatform()) {
       navigator.serviceWorker
         .register('/sw.js')
@@ -87,10 +89,32 @@ const PushNotificationInitializer = () => {
   const { userInfo } = useSelector((state) => state.auth);
   const { isSubscribed, permission, subscribe } = useMobilePushNotifications();
 
+  // Create high‑importance channel on app start (Android)
   useEffect(() => {
-    // Only run on native platform and when user is logged in
+    if (Capacitor.isNativePlatform()) {
+      const createChannel = async () => {
+        try {
+          await PushNotifications.createChannel({
+            id: 'default',
+            name: 'Default Channel',
+            importance: 4,          // HIGH – enables heads‑up pop‑up
+            visibility: 1,          // PUBLIC – show on lock screen
+            sound: 'default',
+            vibration: true,
+            lights: true,
+            description: 'High‑priority notifications pop on screen',
+          });
+          console.log('✅ Notification channel created with pop‑up enabled');
+        } catch (err) {
+          console.warn('Could not create notification channel:', err);
+        }
+      };
+      createChannel();
+    }
+  }, []);
+
+  useEffect(() => {
     if (Capacitor.isNativePlatform() && userInfo?.token) {
-      // If not subscribed and permission not denied, subscribe
       if (!isSubscribed && permission !== 'denied') {
         console.log('📱 Mobile push: auto‑subscribing…');
         subscribe();
@@ -103,11 +127,49 @@ const PushNotificationInitializer = () => {
 
 // ── Root layout ──────────────────────────────────────────────────
 const RootLayout = () => {
+  const navigate = useNavigate();
+
+  // ── Foreground push toast & navigation ─────────────────────────
+  useEffect(() => {
+    const handlePushReceived = (event) => {
+      const notification = event.detail;
+      if (notification?.title && notification?.body) {
+        toast.info(`${notification.title}: ${notification.body}`, {
+          onClick: () => {
+            const data = notification.data || {};
+            if (data.chatId && data.workspaceId) {
+              navigate(`/workspace/${data.workspaceId}/chat/${data.chatId}`);
+            }
+          }
+        });
+      }
+    };
+
+    const handlePushTapped = (event) => {
+      const data = event.detail || {};
+      console.log('📱 Push tapped data:', data);
+      if (data.chatId && data.workspaceId) {
+        navigate(`/workspace/${data.workspaceId}/chat/${data.chatId}`);
+      } else {
+        navigate('/my-workspaces');
+      }
+    };
+
+    window.addEventListener('mobile-push-received', handlePushReceived);
+    window.addEventListener('mobile-push-tapped', handlePushTapped);
+
+    return () => {
+      window.removeEventListener('mobile-push-received', handlePushReceived);
+      window.removeEventListener('mobile-push-tapped', handlePushTapped);
+    };
+  }, [navigate]);
+
   return (
     <>
       <GlobalNavigator />
       <Outlet />
       <IncomingCallModal />
+      <ToastContainer position="bottom-center" autoClose={4000} hideProgressBar={false} />
     </>
   );
 };
