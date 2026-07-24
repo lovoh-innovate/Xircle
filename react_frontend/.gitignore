@@ -23,5 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 
-android/app/xircle-f60ef-firebase-adminsdk-fbsvc-f6cae4a18f.json
+.env
+
+android/app/*firebase-adminsdk*.json
 ios/App/App/GoogleService-Info.plist
