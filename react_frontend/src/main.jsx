@@ -1,4 +1,3 @@
-// main.jsx
 import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Provider, useSelector } from 'react-redux';
@@ -10,26 +9,20 @@ import {
   useNavigate,
 } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
-import { PushNotifications } from '@capacitor/push-notifications'; // 👈 import
+import { PushNotifications } from '@capacitor/push-notifications';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
 import './index.css';
 import store from './store';
 
-// Socket provider
 import { SocketProvider } from './components/SocketContext.jsx';
-
-// Global call overlay
 import IncomingCallModal from './components/IncomingCallModal.jsx';
 
-// Auth routes
 import Login from './screens/Login.jsx';
 import ForgotPassword from './screens/ForgotPassword.jsx';
 import Signup from './screens/Signup.jsx';
 import Settings from './screens/Settings.jsx';
-
-// Workspace routes (owner / member)
 import MyWorkspaces from './screens/MyWorkspaces.jsx';
 import Profile from './screens/Profile.jsx';
 import YourWorkspaceId from './screens/YourWorkspaceId.jsx';
@@ -46,32 +39,27 @@ import MyWorkspaceSettings from './workspaceScreens/MyWorkspaceSettings.jsx';
 import MyWorkspaceCreateProject from './workspaceScreens/MyWorkspaceCreateProject.jsx';
 import MyWorkspaceUpdateProject from './workspaceScreens/MyWorkspaceUpdateProject.jsx';
 
-// Joined workspace sub‑routes
 import YourWorkspaceChannels from './screens/YourWorkspaceChannels.jsx';
 import YourWorkspaceChannelId from './screens/YourWorkspaceChannelId.jsx';
 import YourWorkspaceDMs from './screens/YourWorkspaceDMs.jsx';
 import YourWorkspaceProjects from './screens/YourWorkspaceProjects.jsx';
 import YourWorkspaceProjectId from './screens/YourWorkspaceProjectId.jsx';
 
-// Call screen
 import CallScreen from './components/CallScreen.jsx';
 
-// ── Mobile push hook ─────────────────────────────────────────────
 import { useMobilePushNotifications } from './hooks/useMobilePushNotifications.js';
 
-// ── Global navigator (exposes navigate for non-React code) ──────
+// ── Global navigator ──────────────────────────────────────────────────
 const GlobalNavigator = () => {
   const navigate = useNavigate();
   useEffect(() => {
     window.__navigate = navigate;
-    return () => {
-      window.__navigate = null;
-    };
+    return () => { window.__navigate = null; };
   }, [navigate]);
   return null;
 };
 
-// ── Service worker registration (web only) ──────────────────────
+// ── Service worker registration ──────────────────────────────────────
 const ServiceWorkerRegister = () => {
   useEffect(() => {
     if ('serviceWorker' in navigator && !Capacitor.isNativePlatform()) {
@@ -84,12 +72,11 @@ const ServiceWorkerRegister = () => {
   return null;
 };
 
-// ── Mobile Push Initializer (Capacitor) ──────────────────────────
+// ── Mobile Push Initializer ───────────────────────────────────────────
 const PushNotificationInitializer = () => {
   const { userInfo } = useSelector((state) => state.auth);
-  const { isSubscribed, permission, subscribe } = useMobilePushNotifications();
+  const { permission, subscribe, unsubscribe } = useMobilePushNotifications();
 
-  // Create high‑importance channel on app start (Android)
   useEffect(() => {
     if (Capacitor.isNativePlatform()) {
       const createChannel = async () => {
@@ -97,8 +84,8 @@ const PushNotificationInitializer = () => {
           await PushNotifications.createChannel({
             id: 'default',
             name: 'Default Channel',
-            importance: 4,          // HIGH – enables heads‑up pop‑up
-            visibility: 1,          // PUBLIC – show on lock screen
+            importance: 4,
+            visibility: 1,
             sound: 'default',
             vibration: true,
             lights: true,
@@ -114,22 +101,23 @@ const PushNotificationInitializer = () => {
   }, []);
 
   useEffect(() => {
-    if (Capacitor.isNativePlatform() && userInfo?.token) {
-      if (!isSubscribed && permission !== 'denied') {
-        console.log('📱 Mobile push: auto‑subscribing…');
+    if (!Capacitor.isNativePlatform()) return;
+    if (userInfo?.token) {
+      if (permission !== 'denied') {
         subscribe();
       }
+    } else {
+      unsubscribe();
     }
-  }, [userInfo, isSubscribed, permission, subscribe]);
+  }, [userInfo, permission, subscribe, unsubscribe]);
 
   return null;
 };
 
-// ── Root layout ──────────────────────────────────────────────────
+// ── Root layout ──────────────────────────────────────────────────────
 const RootLayout = () => {
   const navigate = useNavigate();
 
-  // ── Foreground push toast & navigation ─────────────────────────
   useEffect(() => {
     const handlePushReceived = (event) => {
       const notification = event.detail;
@@ -148,6 +136,14 @@ const RootLayout = () => {
     const handlePushTapped = (event) => {
       const data = event.detail || {};
       console.log('📱 Push tapped data:', data);
+
+      // Handle call notifications
+      if (data.notificationType === 'call' && data.roomId) {
+        navigate(`/call/${data.roomId}?autoJoin=true`);
+        return;
+      }
+
+      // Handle chat navigation
       if (data.chatId && data.workspaceId) {
         navigate(`/workspace/${data.workspaceId}/chat/${data.chatId}`);
       } else {
@@ -174,7 +170,7 @@ const RootLayout = () => {
   );
 };
 
-// ── Router definition ──────────────────────────────────────────
+// ── Router ────────────────────────────────────────────────────────────
 const router = createBrowserRouter([
   {
     path: '/',
@@ -190,7 +186,6 @@ const router = createBrowserRouter([
       { path: 'workspace/:workspaceId', element: <YourWorkspaceId /> },
       { path: 'my-workspace/:workspaceId', element: <MyWorkspaceId /> },
 
-      // My workspace
       { path: 'my-workspace/:workspaceId/channels', element: <MyWorkspaceChannels /> },
       { path: 'my-workspace/:workspaceId/chat/:chatId', element: <MyWorkspaceChannelId /> },
       { path: 'my-workspace/:workspaceId/projects', element: <MyWorkspaceProjects /> },
@@ -201,7 +196,6 @@ const router = createBrowserRouter([
       { path: 'my-workspace/:workspaceId/projects/create', element: <MyWorkspaceCreateProject /> },
       { path: 'my-workspace/:workspaceId/projects/edit/:projectId', element: <MyWorkspaceUpdateProject /> },
 
-      // Joined workspace
       { path: 'workspace/:workspaceId/channels', element: <YourWorkspaceChannels /> },
       { path: 'workspace/:workspaceId/chat/:chatId', element: <YourWorkspaceChannelId /> },
       { path: 'workspace/:workspaceId/dms', element: <YourWorkspaceDMs /> },
@@ -210,13 +204,12 @@ const router = createBrowserRouter([
 
       { path: 'profile', element: <Profile /> },
 
-      // Call screen
       { path: 'call/:roomId', element: <CallScreen /> },
     ],
   },
 ]);
 
-// ── Root component ──────────────────────────────────────────────
+// ── AppRoot ───────────────────────────────────────────────────────────
 const AppRoot = () => {
   const userInfo = useSelector((state) => state.auth?.userInfo);
   const token = userInfo?.token;
@@ -230,7 +223,7 @@ const AppRoot = () => {
   );
 };
 
-// ── Final render ─────────────────────────────────────────────────
+// ── Render ────────────────────────────────────────────────────────────
 createRoot(document.getElementById('root')).render(
   <Provider store={store}>
     <StrictMode>

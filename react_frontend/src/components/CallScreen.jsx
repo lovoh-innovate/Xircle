@@ -1,6 +1,5 @@
-// src/components/CallScreen.jsx
 import React, { useEffect, useRef, useState } from 'react';
-import { useParams, useLocation, useNavigate } from 'react-router-dom';
+import { useParams, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useCallSocket } from '../hooks/useCallSocket';
 import {
@@ -16,8 +15,12 @@ const CallScreen = () => {
   const { roomId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
-  // Get current user info
+  // Auto‑join flag from push notification
+  const autoJoin = searchParams.get('autoJoin') === 'true';
+
+  // Current user info
   const { userInfo } = useSelector((state) => state.auth);
   const userId = userInfo?._id || userInfo?.id;
 
@@ -33,7 +36,6 @@ const CallScreen = () => {
 
   if (!callData) return null;
 
-  // Destructure with safe defaults
   const {
     callId,
     roomId: callRoomId,
@@ -41,10 +43,9 @@ const CallScreen = () => {
     participants = [],
     isInitiator = false,
     workspaceId,
-    workspaceColor, // optional, passed from IncomingCallModal
+    workspaceColor,
   } = callData;
 
-  // Use a default brand color if not provided
   const brandColor = workspaceColor || '#0d9488';
 
   const {
@@ -62,6 +63,7 @@ const CallScreen = () => {
 
   const localVideoRef = useRef(null);
   const remoteVideoRefs = useRef({});
+  const [isConnecting, setIsConnecting] = useState(false);
 
   // Set up local video stream
   useEffect(() => {
@@ -79,16 +81,30 @@ const CallScreen = () => {
     });
   }, [remoteStreams]);
 
-  // Determine whether to auto-accept or initiate based on role
+  // Handle call initiation / acceptance
   useEffect(() => {
     if (!callData) return;
 
+    const initCall = async () => {
+      setIsConnecting(true);
+      if (isInitiator) {
+        // Caller: start peer connections
+        await initiatePeerConnections();
+      } else {
+        // Receiver: accept call (either manually or via auto‑join)
+        await acceptCall();
+      }
+      setIsConnecting(false);
+    };
+
+    // If autoJoin is true, we automatically accept (from push notification)
+    // Otherwise, the user already clicked Accept in the modal, so we accept anyway.
+    // For the caller, we just initiate.
     if (isInitiator) {
-      // Caller: start peer connections after mounting
-      initiatePeerConnections();
+      initCall();
     } else {
-      // Receiver: accept call automatically (user already clicked Accept)
-      acceptCall();
+      // Auto‑join or manual accept – either way we accept the call
+      initCall();
     }
   }, []); // run once on mount
 
@@ -103,7 +119,7 @@ const CallScreen = () => {
             {type === 'video' ? 'Your video call has ended.' : 'Your voice call has ended.'}
           </p>
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => navigate('/my-workspaces')}
             className="px-6 py-3 rounded-full font-semibold text-white transition"
             style={{ backgroundColor: brandColor }}
           >
@@ -114,8 +130,8 @@ const CallScreen = () => {
     );
   }
 
-  // Determine if the call is still ringing (waiting for others to join)
   const isRinging = callStatus === 'ringing';
+  const isOngoing = callStatus === 'ongoing';
 
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col">
@@ -125,7 +141,9 @@ const CallScreen = () => {
           {type === 'video' ? 'Video Call' : 'Voice Call'}
         </h3>
         <span className="text-sm text-gray-400">
-          {isRinging ? 'Ringing...' : `${Object.keys(remoteStreams).length} participant(s)`}
+          {isRinging && 'Ringing...'}
+          {isOngoing && `${Object.keys(remoteStreams).length} participant(s)`}
+          {isConnecting && 'Connecting...'}
         </span>
       </div>
 
@@ -140,7 +158,7 @@ const CallScreen = () => {
           </div>
         )}
 
-        {!isRinging && (
+        {isOngoing && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 h-full">
             {/* Local video tile */}
             {type === 'video' && localStream && (
@@ -182,8 +200,8 @@ const CallScreen = () => {
               );
             })}
 
-            {/* If audio-only, just show participant avatars */}
-            {type === 'voice' && !isRinging && Object.keys(remoteStreams).length === 0 && (
+            {/* Audio‑only fallback */}
+            {type === 'voice' && Object.keys(remoteStreams).length === 0 && (
               <div className="col-span-full flex flex-col items-center justify-center text-gray-400">
                 <div className="text-6xl mb-4">🎙️</div>
                 <p>Voice call in progress</p>
@@ -193,7 +211,7 @@ const CallScreen = () => {
         )}
       </div>
 
-      {/* Call controls (always visible) */}
+      {/* Call controls */}
       <div className="p-4 bg-gray-800/50 border-t border-gray-700 flex items-center justify-center gap-4">
         <button
           onClick={toggleMute}
@@ -201,6 +219,7 @@ const CallScreen = () => {
             isMuted ? 'bg-red-600' : 'bg-gray-600 hover:bg-gray-500'
           }`}
           aria-label={isMuted ? 'Unmute' : 'Mute'}
+          disabled={isRinging}
         >
           {isMuted ? <FaMicrophoneSlash className="text-xl" /> : <FaMicrophone className="text-xl" />}
         </button>
@@ -212,6 +231,7 @@ const CallScreen = () => {
               isCameraOff ? 'bg-red-600' : 'bg-gray-600 hover:bg-gray-500'
             }`}
             aria-label={isCameraOff ? 'Turn Camera On' : 'Turn Camera Off'}
+            disabled={isRinging}
           >
             {isCameraOff ? <FaVideoSlash className="text-xl" /> : <FaVideo className="text-xl" />}
           </button>

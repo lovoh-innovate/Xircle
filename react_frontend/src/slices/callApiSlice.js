@@ -61,6 +61,16 @@ export const callApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['Call'],
     }),
 
+    // ✅ NEW: Invite / re‑ring additional participants to an ongoing call
+    inviteToCall: builder.mutation({
+      query: ({ callId, inviteUserIds }) => ({
+        url: `${CALLS_URL}/${callId}/invite`,
+        method: 'POST',
+        body: { inviteUserIds },
+      }),
+      invalidatesTags: ['Call'],
+    }),
+
     // Get upcoming scheduled calls
     getScheduledCalls: builder.query({
       query: (workspaceId) => ({
@@ -88,6 +98,7 @@ export const {
   useRejectCallMutation,
   useEndCallMutation,
   useCancelScheduledCallMutation,
+  useInviteToCallMutation,        // ← new export
   useGetScheduledCallsQuery,
   useGetCallHistoryQuery,
 } = callApiSlice;

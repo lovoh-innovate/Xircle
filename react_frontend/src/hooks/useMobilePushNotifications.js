@@ -1,4 +1,3 @@
-// src/hooks/useMobilePushNotifications.js
 import { useState, useEffect, useCallback } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
@@ -17,19 +16,18 @@ export const useMobilePushNotifications = () => {
     setIsSupported(isMobile);
     if (isMobile) {
       checkExistingToken();
-      createNotificationChannel(); // 👈 create high-importance channel
+      createNotificationChannel();
       setupPushListeners();
     }
   }, []);
 
-  // ── Create a high‑importance channel (Android 8+) ──────────────
   const createNotificationChannel = async () => {
     try {
       await PushNotifications.createChannel({
-        id: 'default',           // must match the channel ID used in server
+        id: 'default',
         name: 'Default Channel',
-        importance: 4,           // 4 = HIGH, enables pop‑up, sound, vibration
-        visibility: 1,           // 1 = PUBLIC (show on lock screen)
+        importance: 4,
+        visibility: 1,
         sound: 'default',
         vibration: true,
         lights: true,
@@ -51,7 +49,10 @@ export const useMobilePushNotifications = () => {
   }, []);
 
   const subscribe = useCallback(async () => {
-    if (!isSupported) return false;
+    if (!isSupported) {
+      console.warn('Push notifications not supported on this platform');
+      return false;
+    }
 
     try {
       let permStatus = await PushNotifications.checkPermissions();
@@ -64,7 +65,6 @@ export const useMobilePushNotifications = () => {
       }
       setPermission('granted');
 
-      // Ensure channel exists before registering
       await createNotificationChannel();
 
       return new Promise((resolve) => {
@@ -124,7 +124,10 @@ export const useMobilePushNotifications = () => {
   }, [isSupported, registerMobileToken]);
 
   const unsubscribe = useCallback(async () => {
-    if (!isSupported || !fcmToken) return false;
+    if (!isSupported || !fcmToken) {
+      console.warn('Cannot unsubscribe: no token or unsupported platform');
+      return false;
+    }
 
     try {
       await registerMobileToken({
@@ -137,6 +140,7 @@ export const useMobilePushNotifications = () => {
       localStorage.removeItem('fcmToken');
       setFcmToken(null);
       setIsSubscribed(false);
+      console.log('✅ Mobile push unsubscribed');
       return true;
     } catch (error) {
       console.error('Mobile push unsubscribe error:', error);
@@ -151,8 +155,10 @@ export const useMobilePushNotifications = () => {
     });
 
     PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
-      console.log('📩 Push tapped:', notification);
+      console.log('📩 Push action performed:', notification);
       const data = notification.notification.data || {};
+      // Include actionId if present
+      data.actionId = notification.actionId;
       window.dispatchEvent(new CustomEvent('mobile-push-tapped', { detail: data }));
     });
   }, []);

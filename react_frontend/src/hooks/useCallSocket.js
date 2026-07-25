@@ -5,6 +5,7 @@ import {
   useJoinCallMutation,
   useRejectCallMutation,
   useEndCallMutation,
+  useInviteToCallMutation,   // ← new
 } from '../slices/callApiSlice';
 
 const ICE_SERVERS = {
@@ -15,19 +16,22 @@ const ICE_SERVERS = {
 };
 
 export const useCallSocket = (callData) => {
-  // callData: { callId, roomId, type, participants: [{_id, name, email}] }
+  // callData: { callId, roomId, type, participants: [{_id, name, email}], status }
   const { socket, isConnected } = useSocket();
   const [localStream, setLocalStream] = useState(null);
   const [remoteStreams, setRemoteStreams] = useState({});
-  const [callStatus, setCallStatus] = useState(callData?.status || 'ringing'); // ringing/ongoing/ended
+  const [callStatus, setCallStatus] = useState(callData?.status || 'ringing');
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
 
-  const peerConnections = useRef({}); // userId -> RTCPeerConnection
+  const peerConnections = useRef({});        // userId -> RTCPeerConnection
+  const connectedUsers = useRef(new Set()); // track already connected
   const localStreamRef = useRef(null);
+
   const [joinCall] = useJoinCallMutation();
   const [rejectCall] = useRejectCallMutation();
   const [endCall] = useEndCallMutation();
+  const [inviteToCall] = useInviteToCallMutation(); // ← new
 
   // ── Get local media ──────────────────────────────────────────────
   const startLocalStream = useCallback(async (videoEnabled = true) => {
@@ -47,6 +51,10 @@ export const useCallSocket = (callData) => {
 
   // ── Create a peer connection for a specific user ────────────────
   const createPeerConnection = useCallback((remoteUserId) => {
+    // Avoid duplicate connections
+    if (connectedUsers.current.has(remoteUserId)) return null;
+    if (peerConnections.current[remoteUserId]) return peerConnections.current[remoteUserId];
+
     const pc = new RTCPeerConnection(ICE_SERVERS);
 
     // Add local tracks
@@ -75,23 +83,59 @@ export const useCallSocket = (callData) => {
       }
     };
 
-    // Store
     peerConnections.current[remoteUserId] = pc;
+    connectedUsers.current.add(remoteUserId);
     return pc;
   }, [socket, callData?.roomId]);
+
+  // ── Send WebRTC offer to a specific user ────────────────────────
+  const sendOfferToUser = useCallback(async (remoteUserId) => {
+    const pc = createPeerConnection(remoteUserId);
+    if (!pc) return;
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit('call-offer', {
+        toUserId: remoteUserId,
+        roomId: callData.roomId,
+        sdp: offer,
+      });
+    } catch (err) {
+      console.error('Failed to send offer to', remoteUserId, err);
+    }
+  }, [createPeerConnection, socket, callData?.roomId]);
+
+  // ── Initiate connections to all other participants ───────────────
+  const initiatePeerConnections = useCallback(async () => {
+    const stream = await startLocalStream(true);
+    if (!stream) return;
+
+    const otherParticipants = (callData.participants || [])
+      .filter(p => p._id !== socket?.userId);
+
+    for (const participant of otherParticipants) {
+      await sendOfferToUser(participant._id);
+    }
+  }, [callData, socket?.userId, startLocalStream, sendOfferToUser]);
+
+  // ── Add a remote user (call this when a new participant joins) ──
+  const addRemoteUser = useCallback(async (userId) => {
+    if (userId === socket?.userId) return;
+    if (connectedUsers.current.has(userId)) return;
+    await sendOfferToUser(userId);
+  }, [socket?.userId, sendOfferToUser]);
 
   // ── Join call room and set up signaling listeners ───────────────
   useEffect(() => {
     if (!socket || !callData?.roomId || !isConnected) return;
 
-    // Join the socket room for this call
     socket.emit('join-call-room', callData.roomId);
 
-    // Listen for WebRTC signaling
     const handleOffer = async ({ from, sdp }) => {
       let pc = peerConnections.current[from];
       if (!pc) {
         pc = createPeerConnection(from);
+        if (!pc) return; // already connected or failed
       }
       await pc.setRemoteDescription(new RTCSessionDescription(sdp));
       const answer = await pc.createAnswer();
@@ -129,6 +173,7 @@ export const useCallSocket = (callData) => {
       if (peerConnections.current[userId]) {
         peerConnections.current[userId].close();
         delete peerConnections.current[userId];
+        connectedUsers.current.delete(userId);
         setRemoteStreams(prev => {
           const newStreams = { ...prev };
           delete newStreams[userId];
@@ -137,11 +182,17 @@ export const useCallSocket = (callData) => {
       }
     };
 
+    // ── New participant joined the call (invitee or late joiner) ──
+    const handleParticipantJoined = (userId) => {
+      addRemoteUser(userId);
+    };
+
     socket.on('call-offer', handleOffer);
     socket.on('call-answer', handleAnswer);
     socket.on('ice-candidate', handleIceCandidate);
     socket.on('call-ended', handleCallEnded);
     socket.on('participant-left', handleParticipantLeft);
+    socket.on('participant-joined', handleParticipantJoined); // ← new
 
     return () => {
       socket.emit('leave-call-room', callData.roomId);
@@ -150,37 +201,22 @@ export const useCallSocket = (callData) => {
       socket.off('ice-candidate', handleIceCandidate);
       socket.off('call-ended', handleCallEnded);
       socket.off('participant-left', handleParticipantLeft);
+      socket.off('participant-joined', handleParticipantJoined);
     };
-  }, [socket, callData?.roomId, isConnected, createPeerConnection]);
-
-  // ── Initiate connections to other participants ───────────────────
-  const initiatePeerConnections = useCallback(async () => {
-    const stream = await startLocalStream(true);
-    if (!stream) return;
-
-    const otherParticipants = (callData.participants || []).filter(
-      p => p._id !== (socket?.userId)
-    );
-
-    for (const participant of otherParticipants) {
-      const pc = createPeerConnection(participant._id);
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      socket.emit('call-offer', {
-        toUserId: participant._id,
-        roomId: callData.roomId,
-        sdp: offer,
-      });
-    }
-  }, [callData, socket, startLocalStream, createPeerConnection]);
+  }, [socket, callData?.roomId, isConnected, createPeerConnection, addRemoteUser]);
 
   // ── Call controls ────────────────────────────────────────────────
   const acceptCall = useCallback(async () => {
     await startLocalStream(true);
-    await joinCall(callData.callId);
+    const result = await joinCall(callData.callId);
     setCallStatus('ongoing');
-    // The offer/answer exchange will happen via socket listeners
-  }, [callData, joinCall, startLocalStream]);
+
+    // If the call is already ongoing (late join), connect to all participants
+    if (callData.status === 'ongoing') {
+      await initiatePeerConnections();
+    }
+    // If it was ringing, the caller will send offers; we just listen.
+  }, [callData, joinCall, startLocalStream, initiatePeerConnections]);
 
   const rejectTheCall = useCallback(async () => {
     await rejectCall(callData.callId);
@@ -188,16 +224,14 @@ export const useCallSocket = (callData) => {
   }, [callData, rejectCall]);
 
   const hangUp = useCallback(async () => {
-    // Close all peer connections
     Object.values(peerConnections.current).forEach(pc => pc.close());
     peerConnections.current = {};
-    // Stop local stream
+    connectedUsers.current.clear();
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => track.stop());
       localStreamRef.current = null;
       setLocalStream(null);
     }
-    // Notify server
     await endCall(callData.callId);
     socket.emit('leave-call', callData.roomId);
     setCallStatus('ended');
@@ -223,6 +257,18 @@ export const useCallSocket = (callData) => {
     }
   }, []);
 
+  // ── Invite / re‑ring users ──────────────────────────────────────
+  const inviteUsers = useCallback(async (userIds) => {
+    if (!callData?.callId) throw new Error('No active call');
+    const result = await inviteToCall({
+      callId: callData.callId,
+      inviteUserIds: userIds,
+    }).unwrap();
+    // The server will emit 'participant-joined' for each invited user
+    // when they actually join; we don't connect to them until they join.
+    return result;
+  }, [callData?.callId, inviteToCall]);
+
   // ── Clean up on unmount ──────────────────────────────────────────
   useEffect(() => {
     return () => {
@@ -244,6 +290,8 @@ export const useCallSocket = (callData) => {
     hangUp,
     toggleMute,
     toggleCamera,
-    initiatePeerConnections, // used when starting a call from caller side
+    initiatePeerConnections,
+    inviteUsers,           // ← new: call this with an array of userIds
+    addRemoteUser,         // ← expose in case you need to manually add a user
   };
 };

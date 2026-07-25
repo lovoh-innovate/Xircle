@@ -10,6 +10,7 @@ import {
   cancelScheduledCall,
   getScheduledCalls,
   getCallHistory,
+  inviteToCall,           // ← new import
 } from '../controllers/callController.js';
 
 const router = express.Router();
@@ -40,5 +41,8 @@ router.get('/scheduled', getScheduledCalls);
 
 // Get call history for the current user
 router.get('/history', getCallHistory);
+
+// ✅ NEW: Invite / re‑ring additional participants to an ongoing call
+router.post('/:callId/invite', inviteToCall);
 
 export default router;

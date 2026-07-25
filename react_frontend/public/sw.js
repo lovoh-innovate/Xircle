@@ -45,63 +45,84 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// ─── Push event – show notification ────────────────────────────────────
+// ─── Push event – show notification with call actions ──────────────────
 self.addEventListener('push', (event) => {
-  console.log('📩 Push event received');
   let data = {};
   try {
     data = event.data.json();
-    console.log('📩 Push payload:', data);
   } catch (error) {
     data = { title: 'New Notification', body: event.data.text() };
-    console.warn('Push payload not JSON, using plain text:', data);
   }
 
   const title = data.title || 'Notification';
-  const options = {
+  let options = {
     body: data.body || '',
     icon: data.icon || '/icon.png',
     badge: data.badge || '/badge.png',
-    data: data.data || {}, // this is the notificationData from the server
+    data: data.data || {},
     vibrate: data.vibrate || [200, 100, 200],
     requireInteraction: data.requireInteraction || false,
     actions: data.actions || [],
   };
 
-  console.log('🔔 Showing notification with options:', options);
+  // If it's a call notification, add call-specific behaviour
+  if (data.notificationType === 'call') {
+    options.vibrate = [1000, 500, 1000, 500, 1000]; // ring pattern
+    options.actions = [
+      { action: 'answer', title: 'Answer' },
+      { action: 'decline', title: 'Decline' }
+    ];
+    options.requireInteraction = true;
+    options.tag = 'call'; // group calls together
+    options.silent = false; // ensure sound plays
+  }
+
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
-// ─── Notification click event – navigate to the specific chat ────────
+// ─── Notification click – handle actions and navigation ────────────────
 self.addEventListener('notificationclick', (event) => {
-  console.log('🔔 Notification clicked:', event.notification);
-  const notificationData = event.notification.data || {};
-  console.log('🔔 Notification data:', notificationData);
+  const notification = event.notification;
+  const action = event.action;
+  const data = notification.data || {};
 
-  const urlToOpen = notificationData.url || '/';
-  console.log('🔗 URL to open:', urlToOpen);
+  notification.close();
 
-  // Ensure the URL is absolute
-  const absoluteUrl = new URL(urlToOpen, self.location.origin).href;
-  console.log('🔗 Absolute URL:', absoluteUrl);
-
-  event.notification.close();
-
-  event.waitUntil(
-    clients.matchAll({
-      type: 'window',
-      includeUncontrolled: true,
-    }).then((clientList) => {
-      // Try to find an existing client and navigate it to the new URL
-      for (const client of clientList) {
-        if (client.url.startsWith(self.location.origin) && 'focus' in client) {
-          console.log('🔄 Navigating existing client to:', absoluteUrl);
-          return client.navigate(absoluteUrl).then(() => client.focus());
+  const openUrl = (url) => {
+    const absoluteUrl = new URL(url, self.location.origin).href;
+    event.waitUntil(
+      clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+        for (const client of clientList) {
+          if (client.url.startsWith(self.location.origin) && 'focus' in client) {
+            return client.navigate(absoluteUrl).then(() => client.focus());
+          }
         }
-      }
-      // Otherwise open a new window
-      console.log('🆕 Opening new window for:', absoluteUrl);
-      return clients.openWindow(absoluteUrl);
-    })
-  );
+        return clients.openWindow(absoluteUrl);
+      })
+    );
+  };
+
+  // Handle call actions
+  if (data.notificationType === 'call') {
+    if (action === 'answer') {
+      openUrl(`/call/${data.roomId}?autoJoin=true`);
+    } else if (action === 'decline') {
+      // Optionally hit API to reject, then go home
+      openUrl('/my-workspaces');
+    } else {
+      // Default tap (no action) – open call screen with auto-join
+      openUrl(`/call/${data.roomId}?autoJoin=true`);
+    }
+    return;
+  }
+
+  // Handle message quick reply action
+  if (action === 'reply' && data.chatId && data.workspaceId) {
+    openUrl(`/workspace/${data.workspaceId}/chat/${data.chatId}?focusInput=true`);
+    return;
+  }
+
+  // Default: navigate to the provided URL or home
+  const url = data.url || '/my-workspaces';
+  openUrl(url);
 });

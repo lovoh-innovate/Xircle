@@ -18,7 +18,6 @@ import {
   useUpdateSubTaskMutation,
   useMarkSubTaskDoneMutation,
   useConfirmSubTaskMutation,
-  useRejectSubTaskMutation, // 👈 new import
   useDeleteSubTaskMutation,
   useMarkTaskCompletedMutation,
   useConfirmTaskCompletionMutation,
@@ -74,7 +73,7 @@ const formatDateTime = (date) => {
   return new Date(date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
 
-// ─── Custom Dropdown ────────────────────────────────────────────────
+// ─── Custom Dropdown (improved positioning) ──────────────────────────
 const CustomDropdown = ({ options, value, onChange, placeholder, label, brandColor }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -90,7 +89,8 @@ const CustomDropdown = ({ options, value, onChange, placeholder, label, brandCol
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-black text-sm bg-white"
+        className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-1 transition text-sm bg-white"
+        style={{ focusRingColor: brandColor }}
       >
         <span className={selected ? 'text-gray-900' : 'text-gray-400'}>
           {selected ? selected.label : placeholder || 'Select...'}
@@ -98,7 +98,7 @@ const CustomDropdown = ({ options, value, onChange, placeholder, label, brandCol
         <FaAngleDown className={`text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg overflow-hidden max-h-60 overflow-y-auto">
+        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg overflow-hidden max-h-60 overflow-y-auto shadow-lg">
           {options.map(o => (
             <button
               key={o.value}
@@ -155,43 +155,81 @@ const TaskPriorityBadge = ({ priority }) => {
   return <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full ${p.color}`}>{p.label}</span>;
 };
 
-// ─── Task Card (list item, flat) ─────────────────────────────────────
-const TaskListItem = ({ task, isActive, onClick, brandColor }) => {
+// ─── Task Card (modern card with gradient accent) ──────────────────────
+const TaskCard = ({ task, isActive, onClick, brandColor }) => {
   const progress = task.progress || 0;
   const subTaskCount = task.subTasks?.length || 0;
   const confirmedCount = (task.subTasks || []).filter(st => st.status === 'confirmed').length || 0;
+
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition text-left border-b border-gray-100 ${isActive ? 'bg-gray-100' : ''}`}
+      className={`w-full text-left p-4 rounded-xl border transition-all duration-200 ${
+        isActive
+          ? 'border-teal-500 shadow-lg ring-2 ring-teal-200 bg-white'
+          : 'border-gray-200 hover:shadow-md hover:border-gray-300 bg-white'
+      }`}
     >
-      <div
-        className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 text-white font-semibold text-lg"
-        style={{ backgroundColor: brandColor }}
-      >
-        {task.title.charAt(0).toUpperCase()}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between">
-          <h4 className="text-sm font-medium text-gray-900 truncate">{task.title}</h4>
-          <span className="text-[10px] text-gray-400 whitespace-nowrap ml-2">
-            {task.dueDate ? formatDateTime(task.dueDate) : ''}
-          </span>
+      <div className="flex items-start gap-4">
+        <div
+          className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-xl flex-shrink-0 shadow-sm"
+          style={{ backgroundColor: brandColor }}
+        >
+          {task.title.charAt(0).toUpperCase()}
         </div>
-        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-          <TaskPriorityBadge priority={task.priority} />
-          <TaskStatusBadge status={task.status} />
-          {subTaskCount > 0 && (
-            <span className="text-[10px] text-gray-500">• {confirmedCount}/{subTaskCount} done</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-2">
+            <h4 className="text-sm font-semibold text-gray-900 truncate">{task.title}</h4>
+            <span className="text-[10px] text-gray-400 whitespace-nowrap">
+              {task.dueDate ? formatDateTime(task.dueDate) : ''}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+            <TaskPriorityBadge priority={task.priority} />
+            <TaskStatusBadge status={task.status} />
+            {subTaskCount > 0 && (
+              <span className="text-[10px] text-gray-500">• {confirmedCount}/{subTaskCount} done</span>
+            )}
+          </div>
+          <div className="mt-3 flex items-center gap-3">
+            <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{ width: `${progress}%`, backgroundColor: brandColor }}
+              />
+            </div>
+            <span className="text-xs font-medium text-gray-500">{progress}%</span>
+          </div>
+          {task.assignee && (
+            <p className="text-xs text-gray-400 mt-2 flex items-center gap-1">
+              <FaUser className="text-xs" /> {task.assignee.name}
+            </p>
           )}
         </div>
-        <p className="text-xs text-gray-400 mt-0.5 truncate">
-          {task.assignee ? `${task.assignee.name} · ` : ''}{progress}% complete
-        </p>
       </div>
     </button>
   );
 };
+
+// ─── Skeleton Card with shimmer ───────────────────────────────────────
+const TaskSkeleton = () => (
+  <div className="p-4 rounded-xl border border-gray-200 bg-white animate-pulse">
+    <div className="flex items-start gap-4">
+      <div className="w-12 h-12 rounded-full bg-gray-200 flex-shrink-0" />
+      <div className="flex-1">
+        <div className="h-4 bg-gray-200 rounded w-3/4 mb-2" />
+        <div className="flex gap-1.5">
+          <div className="h-5 w-14 bg-gray-200 rounded-full" />
+          <div className="h-5 w-16 bg-gray-200 rounded-full" />
+        </div>
+        <div className="mt-3 flex items-center gap-3">
+          <div className="flex-1 h-1.5 bg-gray-200 rounded-full" />
+          <div className="h-3 w-8 bg-gray-200 rounded" />
+        </div>
+      </div>
+    </div>
+  </div>
+);
 
 // ─── Search Modal ─────────────────────────────────────────────────────
 const SearchModal = ({ isOpen, onClose, items, type, brandColor, onSelect }) => {
@@ -267,11 +305,10 @@ const SearchModal = ({ isOpen, onClose, items, type, brandColor, onSelect }) => 
   );
 };
 
-// ─── Sub‑task Item (with expandable details and reject) ─────────────
+// ─── Sub‑task Item (with scrollable, wrapped details) ──────────────────
 const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh, brandColor }) => {
   const [markDone] = useMarkSubTaskDoneMutation();
   const [confirmSub] = useConfirmSubTaskMutation();
-  const [rejectSub] = useRejectSubTaskMutation(); // 👈 new
   const [deleteSub] = useDeleteSubTaskMutation();
   const [updating, setUpdating] = useState(false);
   const [showDoneForm, setShowDoneForm] = useState(false);
@@ -283,14 +320,9 @@ const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh,
   const [showConfirmForm, setShowConfirmForm] = useState(false);
   const [confirmFeedback, setConfirmFeedback] = useState('');
 
-  // Expandable details
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const hasDetails = subTask.notes ||
-    (subTask.links && subTask.links.length > 0) ||
-    (subTask.attachments && subTask.attachments.length > 0) ||
-    subTask.feedback ||
-    subTask.rejectedBy; // also show rejection info
+  const hasDetails = subTask.notes || (subTask.links && subTask.links.length > 0) || (subTask.attachments && subTask.attachments.length > 0) || subTask.feedback;
 
   const handleMarkDone = () => {
     if (subTask.status === 'done' || subTask.status === 'confirmed') return;
@@ -343,19 +375,6 @@ const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh,
     setConfirmFeedback('');
   };
 
-  // Reject handler
-  const handleReject = async () => {
-    const reason = window.prompt('Reason for rejection (optional):');
-    if (reason === null) return; // cancelled
-    setUpdating(true);
-    try {
-      await rejectSub({ taskId, subTaskIndex: index, reason }).unwrap();
-      toast.success('Sub‑task rejected');
-      onRefresh();
-    } catch (e) { toast.error(e?.data?.message || 'Failed'); }
-    finally { setUpdating(false); }
-  };
-
   const handleDelete = async () => {
     if (!window.confirm('Delete this sub‑task?')) return;
     setUpdating(true);
@@ -375,7 +394,7 @@ const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh,
   const st = statusMap[subTask.status] || statusMap.pending;
 
   return (
-    <div className="flex flex-col py-2 border-b border-gray-50 last:border-0">
+    <div className="flex flex-col py-2 border-b border-gray-100 last:border-0">
       <div className="flex items-center gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
@@ -392,21 +411,15 @@ const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh,
             </button>
           )}
           {canManage && subTask.status === 'done' && (
-            <>
-              <button onClick={handleConfirmClick} disabled={updating} className="p-1 text-green-500 hover:bg-green-50 rounded">
-                <FaCheckDouble className="text-xs" />
-              </button>
-              <button onClick={handleReject} disabled={updating} className="p-1 text-red-500 hover:bg-red-50 rounded">
-                <FaTimes className="text-xs" />
-              </button>
-            </>
+            <button onClick={handleConfirmClick} disabled={updating} className="p-1 text-green-500 hover:bg-green-50 rounded">
+              <FaCheckDouble className="text-xs" />
+            </button>
           )}
           {(isAssignee && subTask.status !== 'confirmed') || canManage ? (
             <button onClick={handleDelete} disabled={updating} className="p-1 text-red-400 hover:bg-red-50 rounded">
               <FaTrashAlt className="text-xs" />
             </button>
           ) : null}
-          {/* Expand/Collapse button – shown if there are details to display */}
           {hasDetails && (
             <button
               onClick={() => setIsExpanded(!isExpanded)}
@@ -419,9 +432,8 @@ const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh,
         </div>
       </div>
 
-      {/* Expandable details section */}
       {isExpanded && (
-        <div className="mt-1 ml-6 text-xs text-gray-600 space-y-1 bg-gray-50 p-2 rounded border border-gray-200">
+        <div className="mt-2 ml-6 text-xs text-gray-600 space-y-1 bg-gray-50 p-3 rounded-lg border border-gray-200 max-h-60 overflow-y-auto break-words">
           {subTask.notes && (
             <div><span className="font-medium">Notes:</span> {subTask.notes}</div>
           )}
@@ -429,7 +441,7 @@ const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh,
             <div>
               <span className="font-medium">Links:</span>{' '}
               {subTask.links.map((l, i) => (
-                <a key={i} href={l} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">{l}</a>
+                <a key={i} href={l} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline break-all">{l}</a>
               )).reduce((prev, curr) => [prev, ', ', curr])}
             </div>
           )}
@@ -437,18 +449,12 @@ const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh,
             <div>
               <span className="font-medium">Attachments:</span>{' '}
               {subTask.attachments.map((att, i) => (
-                <a key={i} href={att.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline ml-1">{att.name || 'file'}</a>
+                <a key={i} href={att.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline ml-1 break-all">{att.name || 'file'}</a>
               )).reduce((prev, curr) => [prev, ', ', curr])}
             </div>
           )}
           {subTask.feedback && (
             <div><span className="font-medium">Confirm feedback:</span> {subTask.feedback}</div>
-          )}
-          {subTask.rejectedBy && (
-            <div><span className="font-medium">Rejected by:</span> {subTask.rejectedBy.name || 'Unknown'} on {formatDateTime(subTask.rejectedAt)}</div>
-          )}
-          {subTask.rejectionReason && (
-            <div><span className="font-medium">Rejection reason:</span> {subTask.rejectionReason}</div>
           )}
           {subTask.completedAt && (
             <div><span className="font-medium">Submitted on:</span> {formatDateTime(subTask.completedAt)}</div>
@@ -459,7 +465,6 @@ const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh,
         </div>
       )}
 
-      {/* Inline Mark Done form */}
       {showDoneForm && (
         <div className="mt-2 ml-6 bg-white border border-gray-200 rounded-lg p-3">
           <textarea
@@ -497,7 +502,6 @@ const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh,
         </div>
       )}
 
-      {/* Inline Confirm form – shows submitted details before confirming */}
       {showConfirmForm && (
         <div className="mt-2 ml-6 bg-white border border-gray-200 rounded-lg p-3">
           <p className="text-xs font-medium text-gray-700 mb-1">Assignee submitted:</p>
@@ -510,7 +514,7 @@ const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh,
             <div className="text-xs text-gray-600 mb-1">
               <span className="font-medium">Links:</span>{' '}
               {subTask.links.map((l, i) => (
-                <a key={i} href={l} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">{l}</a>
+                <a key={i} href={l} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline break-all">{l}</a>
               )).reduce((prev, curr) => [prev, ', ', curr])}
             </div>
           )}
@@ -518,7 +522,7 @@ const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh,
             <div className="text-xs text-gray-600 mb-2">
               <span className="font-medium">Attachments:</span>{' '}
               {subTask.attachments.map((att, i) => (
-                <a key={i} href={att.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline ml-1">{att.name || 'file'}</a>
+                <a key={i} href={att.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline ml-1 break-all">{att.name || 'file'}</a>
               )).reduce((prev, curr) => [prev, ', ', curr])}
             </div>
           )}
@@ -601,7 +605,7 @@ const AssignTaskModal = ({ isOpen, onClose, task, assignableMembers, brandColor,
   );
 };
 
-// ─── Task Detail View ────────────────────────────────────────────────
+// ─── Task Detail View ────────────────────────────────────────────────────
 const TaskDetailView = ({
   task,
   brandColor,
@@ -673,7 +677,7 @@ const TaskDetailView = ({
           <FaEllipsisV className="text-sm" />
         </button>
         {showMenu && (
-          <div className="absolute right-4 top-12 bg-white rounded-lg border border-gray-200 min-w-[140px] z-20 py-1 text-gray-700">
+          <div className="absolute right-4 top-12 bg-white rounded-lg border border-gray-200 min-w-[140px] z-20 py-1 text-gray-700 shadow-lg">
             {canManage && (
               <button onClick={() => { setShowMenu(false); onSendReminder(task); }} className="flex items-center gap-2 px-4 py-1.5 text-sm text-orange-600 hover:bg-orange-50 w-full">
                 <FaBell className="text-xs" /> Send Reminder
@@ -687,7 +691,6 @@ const TaskDetailView = ({
                 <FaTrashAlt className="text-xs" /> Delete
               </button>
             )}
-            {/* Assign task button – only if unassigned */}
             {canManage && !task.assignee && (
               <button onClick={() => { setShowMenu(false); onAssignTask(task); }} className="flex items-center gap-2 px-4 py-1.5 text-sm text-teal-600 hover:bg-teal-50 w-full">
                 <FaUserPlus className="text-xs" /> Assign Task
@@ -918,7 +921,7 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
   );
 };
 
-// ─── Edit Task Modal (with sync from task prop) ──────────────────────
+// ─── Edit Task Modal ─────────────────────────────────────────────────
 const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, onSuccess }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -1168,7 +1171,7 @@ const MyWorkspaceProjectId = () => {
   const projectProgress = project?.progress || 0;
 
   if (wErr || pErr) { navigate(`/my-workspace/${workspaceId}/projects`); return null; }
-  if (wLoad || pLoad || tLoad) return (
+  if (wLoad || pLoad) return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin" style={{ borderTopColor: brandColor }} />
     </div>
@@ -1250,14 +1253,11 @@ const MyWorkspaceProjectId = () => {
 
   return (
     <div className="h-dvh bg-gray-50 flex flex-col lg:flex-row overflow-hidden">
-      {/* Desktop Sidebar */}
       <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
         <MyWorkspaceSidebar workspace={workspace} chats={[]} />
       </div>
 
-      {/* Main Content */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Fixed Header */}
         <header className="sticky top-0 z-10 bg-teal-600 text-white flex-shrink-0 shadow-sm">
           <div className="flex items-center justify-between px-4 h-14">
             <div className="flex items-center gap-3 min-w-0">
@@ -1279,7 +1279,6 @@ const MyWorkspaceProjectId = () => {
               )}
             </div>
           </div>
-          {/* Tabs */}
           <div className="flex gap-6 px-4 border-t border-white/20">
             <button
               onClick={() => { setListView('tasks'); setMobileShowDetail(false); setSelectedTaskId(null); }}
@@ -1296,25 +1295,26 @@ const MyWorkspaceProjectId = () => {
           </div>
         </header>
 
-        {/* Content Area */}
         <div className="flex-1 flex overflow-hidden">
-          {/* Left Panel – List */}
-          <div className={`${mobileShowDetail ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-96 border-r border-gray-200 bg-white h-full`}>
-            <div className="flex-1 overflow-y-auto">
-              {listView === 'tasks' ? (
+          <div className={`${mobileShowDetail ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-96 border-r border-gray-200 bg-gray-50 h-full`}>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {tLoad ? (
+                // Skeleton loading with 5 placeholders
+                Array.from({ length: 5 }).map((_, i) => <TaskSkeleton key={i} />)
+              ) : listView === 'tasks' ? (
                 tasks.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-                    <FaTasks className="text-4xl mb-2 opacity-30" />
-                    <p className="text-sm">No tasks yet</p>
+                    <FaTasks className="text-5xl mb-4 opacity-20" style={{ color: brandColor }} />
+                    <p className="text-sm font-medium">No tasks yet</p>
+                    <p className="text-xs text-gray-400 mt-1">Create your first task to get started</p>
                   </div>
                 ) : (
                   tasks.map(task => (
-                    <TaskListItem key={task._id} task={task} isActive={selectedTaskId === task._id} onClick={() => handleTaskClick(task._id)} brandColor={brandColor} />
+                    <TaskCard key={task._id} task={task} isActive={selectedTaskId === task._id} onClick={() => handleTaskClick(task._id)} brandColor={brandColor} />
                   ))
                 )
               ) : (
-                <div className="divide-y divide-gray-100">
-                  {/* Managers */}
+                <div className="divide-y divide-gray-100 bg-white rounded-xl shadow-sm">
                   <div className="px-4 py-2">
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-xs font-semibold text-gray-500 uppercase"><FaCrown className="inline mr-1" /> Managers</span>
@@ -1333,7 +1333,6 @@ const MyWorkspaceProjectId = () => {
                       </div>
                     ))}
                   </div>
-                  {/* Team Members */}
                   <div className="px-4 py-2">
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-xs font-semibold text-gray-500 uppercase"><FaUsers className="inline mr-1" /> Team ({activeTeam.length})</span>
@@ -1361,7 +1360,6 @@ const MyWorkspaceProjectId = () => {
             </div>
           </div>
 
-          {/* Right Panel – Detail */}
           <div className={`${mobileShowDetail ? 'flex' : 'hidden md:flex'} flex-col flex-1 h-full bg-gray-50`}>
             {activeTask ? (
               <TaskDetailView
@@ -1392,10 +1390,8 @@ const MyWorkspaceProjectId = () => {
         </div>
       </div>
 
-      {/* Bottom Navigation (mobile) */}
       {!mobileShowDetail && <MyWorkspaceBottombar workspace={workspace} />}
 
-      {/* Modals */}
       <SearchModal isOpen={searchModalOpen} onClose={closeSearchModal} items={searchItems} type={listView} brandColor={brandColor} onSelect={onSearchSelect} />
       <CreateTaskModal isOpen={showCreateTask} onClose={() => setShowCreateTask(false)} projectId={projectId} brandColor={brandColor} assignableMembers={assignableMembers} onSuccess={() => { refetchTasks(); refetchProject(); }} />
       <EditTaskModal
