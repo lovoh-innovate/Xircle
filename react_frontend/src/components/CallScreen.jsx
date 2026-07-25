@@ -30,7 +30,14 @@ const CallScreen = () => {
   const { userInfo } = useSelector((state) => state.auth);
   const userId = userInfo?._id || userInfo?.id;
 
-  const { incomingCall, clearIncomingCall } = useSocket();
+  // ── Get socket context ──────────────────────────────────────────────
+  const socketContext = useSocket();
+  // Guard against missing context
+  if (!socketContext) {
+    // This should never happen if SocketProvider wraps the app, but just in case
+    throw new Error('useSocket must be used within a SocketProvider');
+  }
+  const { incomingCall, clearIncomingCall } = socketContext;
 
   // ── Resolve callData from whichever source has it ──────────────────
   // 1. location.state – used when the caller initiates a call from within
@@ -42,6 +49,7 @@ const CallScreen = () => {
   const socketCallData =
     incomingCall && incomingCall.roomId === roomId ? incomingCall : null;
 
+  // Prefer stateCallData, then socketCallData
   const callData = stateCallData || socketCallData;
 
   const [waitedTooLong, setWaitedTooLong] = useState(false);
@@ -70,6 +78,7 @@ const CallScreen = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socketCallData?.roomId]);
 
+  // ── If no callData yet, show a loading spinner ────────────────────
   if (!callData) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white">
@@ -78,17 +87,17 @@ const CallScreen = () => {
     );
   }
 
+  // ── Destructure callData with defaults ────────────────────────────
   const {
     callId,
-    type,
+    type = 'voice',
     participants = [],
     isInitiator = false,
     workspaceId,
-    workspaceColor,
+    workspaceColor = '#0d9488',
   } = callData;
 
-  const brandColor = workspaceColor || '#0d9488';
-
+  // ── Use call socket hook – but only after callData is confirmed ───
   const {
     localStream,
     remoteStreams,
@@ -107,14 +116,14 @@ const CallScreen = () => {
   const [isConnecting, setIsConnecting] = useState(false);
   const hasInitialized = useRef(false);
 
-  // Set up local video stream
+  // ── Set up local video stream ──────────────────────────────────────
   useEffect(() => {
     if (localVideoRef.current && localStream) {
       localVideoRef.current.srcObject = localStream;
     }
   }, [localStream]);
 
-  // Set up remote video streams
+  // ── Set up remote video streams ────────────────────────────────────
   useEffect(() => {
     Object.entries(remoteStreams).forEach(([uid, stream]) => {
       if (remoteVideoRefs.current[uid]) {
@@ -123,29 +132,34 @@ const CallScreen = () => {
     });
   }, [remoteStreams]);
 
-  // Handle call initiation / acceptance — run once, whether autoJoin
-  // came from a push tap or the user is the one who started the call.
+  // ── Handle call initiation / acceptance — run once ────────────────
   useEffect(() => {
     if (!callData || hasInitialized.current) return;
     hasInitialized.current = true;
 
     const initCall = async () => {
       setIsConnecting(true);
-      if (isInitiator) {
-        // Caller: start peer connections
-        await initiatePeerConnections();
-      } else {
-        // Receiver: accept call (either via push auto‑join or manual accept)
-        await acceptCall();
+      try {
+        if (isInitiator) {
+          // Caller: start peer connections
+          await initiatePeerConnections();
+        } else {
+          // Receiver: accept call (either via push auto‑join or manual accept)
+          await acceptCall();
+        }
+      } catch (error) {
+        console.error('Call initialization error:', error);
+        // Optionally show a toast or redirect
+      } finally {
+        setIsConnecting(false);
       }
-      setIsConnecting(false);
     };
 
     initCall();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [callData]);
 
-  // If call ended, show ended screen
+  // ── If call ended, show ended screen ──────────────────────────────
   if (callStatus === 'ended') {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-900 text-white p-6">
@@ -158,7 +172,7 @@ const CallScreen = () => {
           <button
             onClick={() => navigate('/my-workspaces')}
             className="px-6 py-3 rounded-full font-semibold text-white transition"
-            style={{ backgroundColor: brandColor }}
+            style={{ backgroundColor: workspaceColor }}
           >
             Go Back
           </button>
@@ -170,6 +184,7 @@ const CallScreen = () => {
   const isRinging = callStatus === 'ringing';
   const isOngoing = callStatus === 'ongoing';
 
+  // ── Render the call UI ─────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col">
       {/* Header */}
@@ -189,7 +204,7 @@ const CallScreen = () => {
         {isRinging && (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
-              <FaSpinner className="animate-spin text-4xl mx-auto mb-4" style={{ color: brandColor }} />
+              <FaSpinner className="animate-spin text-4xl mx-auto mb-4" style={{ color: workspaceColor }} />
               <p className="text-lg">Waiting for others to join...</p>
             </div>
           </div>

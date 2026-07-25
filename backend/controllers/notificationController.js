@@ -8,6 +8,7 @@ import { Resend } from 'resend';
 
 // ─── ENVIRONMENT CHECKS & INITIALISATION ──────────────────────────────────
 
+// 1. Web Push (VAPID)
 if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY || !process.env.VAPID_SUBJECT) {
   console.warn('⚠️  VAPID environment variables missing – web push will not work');
 } else {
@@ -18,7 +19,9 @@ if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY || !process.
   );
 }
 
+// 2. Firebase Admin SDK (for mobile push)
 let firebaseInitialised = false;
+
 if (process.env.FIREBASE_PRIVATE_KEY) {
   try {
     const privateKey = process.env.FIREBASE_PRIVATE_KEY
@@ -44,6 +47,7 @@ if (process.env.FIREBASE_PRIVATE_KEY) {
   console.warn('⚠️  FIREBASE_PRIVATE_KEY not set – mobile push notifications disabled');
 }
 
+// 3. Resend (email)
 if (!process.env.RESEND_API_KEY) {
   console.warn('⚠️  RESEND_API_KEY not set – email notifications disabled');
 }
@@ -51,6 +55,10 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────
 
+/**
+ * Send a push notification to a user across all active devices.
+ * Returns the number of successful deliveries.
+ */
 export const sendPushNotification = async (userId, title, body, data = {}) => {
   console.log(`🔔 sendPushNotification called for userId: ${userId}`);
   try {
@@ -59,17 +67,23 @@ export const sendPushNotification = async (userId, title, body, data = {}) => {
       console.log(`❌ User ${userId} not found`);
       return 0;
     }
+    console.log(`👤 User found: ${user._id}`);
+    console.log(`📋 Push preferences:`, user.notificationPreferences?.push);
+
+    // Global push enabled?
     if (!user.notificationPreferences?.push?.enabled) {
       console.log(`⚠️ Push is disabled for user ${userId}`);
       return 0;
     }
 
     const tokens = user.pushTokens?.filter(t => t.isActive) || [];
+    console.log(`📱 Found ${tokens.length} active tokens for user ${userId}`);
     if (tokens.length === 0) {
       console.log(`⚠️ No active tokens for user ${userId}`);
       return 0;
     }
 
+    // Log token details (mask endpoint for privacy)
     tokens.forEach((t, i) => {
       console.log(`  Token ${i+1}: type=${t.deviceType}, endpoint=${t.token?.substring(0, 30)}...`);
     });
@@ -78,7 +92,6 @@ export const sendPushNotification = async (userId, title, body, data = {}) => {
 
     for (const tokenRecord of tokens) {
       try {
-        // ── Web push ──────────────────────────────────────────────────
         if (tokenRecord.deviceType === 'web' && tokenRecord.subscription) {
           console.log(`📤 Sending web push to endpoint: ${tokenRecord.token?.substring(0, 30)}...`);
           await webpush.sendNotification(
@@ -89,84 +102,44 @@ export const sendPushNotification = async (userId, title, body, data = {}) => {
               icon: '/icon.png',
               badge: '/badge.png',
               data,
-              vibrate: data.notificationType === 'call' ? [1000, 500, 1000, 500, 1000] : [200, 100, 200],
-              requireInteraction: data.notificationType === 'call' ? true : false,
-              actions: data.actions || [],
+              vibrate: [200, 100, 200],
+              requireInteraction: true,
             })
           );
           sentCount++;
           console.log(`✅ Web push sent successfully to ${tokenRecord.token?.substring(0, 20)}...`);
-        }
-
-        // ── Mobile push (FCM) ─────────────────────────────────────────
-        else if (['ios', 'android'].includes(tokenRecord.deviceType) && tokenRecord.token) {
-          if (!firebaseInitialised) {
-            console.log(`⚠️ Firebase not initialised, skipping mobile token`);
-            continue;
-          }
-
-          console.log(`📤 Sending FCM push to token: ${tokenRecord.token?.substring(0, 20)}...`);
-
-          // ── Base message: always data-only ──────────────────────────
-          const message = {
-            data: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
-            token: tokenRecord.token,
-          };
-
-          // ── Only attach a `notification` payload for NON‑calls ──────
-          // Calls must be data‑only so the OS does not auto‑display a tray notification.
-          // The native MyFirebaseMessagingService will handle the full‑screen UI.
-          if (data.notificationType !== 'call') {
-            message.notification = { title, body };
-          }
-
-          // ── Android platform overrides ─────────────────────────────
-          if (data.notificationType === 'call') {
-            // For calls: data‑only, no `notification` block at all.
-            // We only set priority and TTL – the native service handles the UI.
-            message.android = {
-              priority: 'high',
-              ttl: 86400,
-            };
-            // iOS VoIP‑style
-            message.apns = {
-              payload: {
-                aps: {
-                  sound: 'ringtone.caf',
-                  'content-available': 1,
-                  category: 'call',
-                  priority: 'high',
-                },
-              },
-              headers: {
-                'apns-push-type': 'voip',
-                'apns-expiration': '86400',
-              },
-            };
-          } else {
-            // Default for messages, etc.
-            message.android = {
-              priority: 'high',
-              notification: {
-                channelId: 'default',
-                sound: 'default',
+        } else if (['ios', 'android'].includes(tokenRecord.deviceType) && tokenRecord.token) {
+          if (firebaseInitialised) {
+            console.log(`📤 Sending FCM push to token: ${tokenRecord.token?.substring(0, 20)}...`);
+            const message = {
+              notification: { title, body },
+              data: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
+              token: tokenRecord.token,
+              // ── CRITICAL for heads‑up pop‑up ──────────────────────────
+              android: {
                 priority: 'high',
-                visibility: 'public',
-              },
-            };
-            message.apns = {
-              payload: {
-                aps: {
+                notification: {
+                  channelId: 'default',          // must match channel created in the app
                   sound: 'default',
-                  'content-available': 1,
+                  priority: 'high',
+                  visibility: 'public',
+                },
+              },
+              apns: {
+                payload: {
+                  aps: {
+                    sound: 'default',
+                    contentAvailable: true,
+                  },
                 },
               },
             };
+            await getMessaging().send(message);
+            sentCount++;
+            console.log(`✅ FCM push sent successfully`);
+          } else {
+            console.log(`⚠️ Firebase not initialised, skipping mobile token`);
           }
-
-          await getMessaging().send(message);
-          sentCount++;
-          console.log(`✅ FCM push sent successfully`);
         } else {
           console.log(`⚠️ Unknown device type or missing subscription/token for token:`, tokenRecord);
         }
@@ -188,6 +161,9 @@ export const sendPushNotification = async (userId, title, body, data = {}) => {
   }
 };
 
+/**
+ * Send an email via Resend.
+ */
 export const sendEmailNotification = async (to, subject, html) => {
   try {
     await resend.emails.send({
@@ -203,6 +179,10 @@ export const sendEmailNotification = async (to, subject, html) => {
   }
 };
 
+/**
+ * Create an in‑app notification and (optionally) trigger push/email.
+ * Returns the created Notification document.
+ */
 export const createAndSendNotification = async ({
   recipient,
   title,
@@ -221,6 +201,7 @@ export const createAndSendNotification = async ({
       data,
     });
 
+    // Push (fire & forget)
     if (sendPush) {
       sendPushNotification(recipient, title, body, {
         ...data,
@@ -228,6 +209,7 @@ export const createAndSendNotification = async ({
       }).catch(err => console.error('Push delivery failed:', err.message));
     }
 
+    // Email (check preferences first)
     if (emailEventType && emailSubject && emailHtml) {
       const user = await User.findById(recipient).select('email notificationPreferences');
       if (user) {
@@ -247,8 +229,12 @@ export const createAndSendNotification = async ({
   }
 };
 
-// ─── PREFERENCE ENDPOINTS ────────────────────────────────────────────────
+// ─── PREFERENCE ENDPOINTS ──────────────────────────────────────────────────
 
+/**
+ * GET /api/notifications/preferences
+ * Return the user's full notification preferences.
+ */
 export const getNotificationPreferences = async (req, res) => {
   try {
     const user = await User.findById(req.user._id).select('notificationPreferences email');
@@ -256,6 +242,7 @@ export const getNotificationPreferences = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
+    // Provide defaults if not set
     const defaults = {
       email: {
         newMessage: true,
@@ -277,6 +264,7 @@ export const getNotificationPreferences = async (req, res) => {
     };
 
     const preferences = user.notificationPreferences || {};
+    // Ensure both email and push exist with defaults
     preferences.email = { ...defaults.email, ...(preferences.email || {}) };
     preferences.push = { ...defaults.push, ...(preferences.push || {}) };
 
@@ -291,6 +279,10 @@ export const getNotificationPreferences = async (req, res) => {
   }
 };
 
+/**
+ * PUT /api/notifications/preferences/email
+ * Update email notification preferences.
+ */
 export const updateEmailNotifications = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -334,6 +326,10 @@ export const updateEmailNotifications = async (req, res) => {
   }
 };
 
+/**
+ * PUT /api/notifications/preferences/push
+ * Update push notification preferences.
+ */
 export const updatePushNotifications = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -378,8 +374,13 @@ export const updatePushNotifications = async (req, res) => {
   }
 };
 
-// ─── DEVICE TOKEN REGISTRATION ──────────────────────────────────────────
+// ─── DEVICE TOKEN REGISTRATION ─────────────────────────────────────────────
 
+/**
+ * POST /api/notifications/register-web
+ * Register or update a web push subscription.
+ * Body: { subscription, deviceType (optional) }
+ */
 export const registerPushSubscription = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -402,7 +403,7 @@ export const registerPushSubscription = async (req, res) => {
     const tokenData = {
       token: subscription.endpoint,
       deviceType,
-      subscription,
+      subscription, // store the full subscription object
       isActive: true,
       lastUsed: new Date(),
     };
@@ -434,6 +435,11 @@ export const registerPushSubscription = async (req, res) => {
   }
 };
 
+/**
+ * POST /api/notifications/register-mobile
+ * Register or unregister a mobile FCM token.
+ * Body: { fcmToken, deviceType, platform, action? }
+ */
 export const registerMobileToken = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -451,6 +457,7 @@ export const registerMobileToken = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
+    // Handle unsubscription
     if (action === 'unsubscribe') {
       const tokenIndex = user.pushTokens?.findIndex(t => t.token === fcmToken);
       if (tokenIndex !== -1 && tokenIndex >= 0) {
@@ -498,6 +505,10 @@ export const registerMobileToken = async (req, res) => {
   }
 };
 
+/**
+ * DELETE /api/notifications/device/:token
+ * Remove a specific device token (web or mobile) – marks inactive.
+ */
 export const deleteDeviceToken = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -531,8 +542,12 @@ export const deleteDeviceToken = async (req, res) => {
   }
 };
 
-// ─── TEST ENDPOINTS ─────────────────────────────────────────────────────
+// ─── TEST ENDPOINTS ─────────────────────────────────────────────────────────
 
+/**
+ * POST /api/notifications/test-push
+ * Send a test push notification to the authenticated user.
+ */
 export const sendTestPush = async (req, res) => {
   try {
     const count = await sendPushNotification(
@@ -560,6 +575,10 @@ export const sendTestPush = async (req, res) => {
   }
 };
 
+/**
+ * POST /api/notifications/test-email
+ * Send a test email to the authenticated user.
+ */
 export const sendTestEmail = async (req, res) => {
   try {
     const user = await User.findById(req.user._id).select('email name');
@@ -592,8 +611,12 @@ export const sendTestEmail = async (req, res) => {
   }
 };
 
-// ─── VAPID PUBLIC KEY ──────────────────────────────────────────────────
+// ─── VAPID PUBLIC KEY ──────────────────────────────────────────────────────
 
+/**
+ * GET /api/notifications/vapid-public-key
+ * Return the public VAPID key for web push subscription.
+ */
 export const getVapidPublicKey = async (req, res) => {
   try {
     if (!process.env.VAPID_PUBLIC_KEY) {
@@ -616,8 +639,13 @@ export const getVapidPublicKey = async (req, res) => {
   }
 };
 
-// ─── IN‑APP NOTIFICATION CRUD ─────────────────────────────────────────
+// ─── IN‑APP NOTIFICATION CRUD ──────────────────────────────────────────────
 
+/**
+ * GET /api/notifications
+ * Fetch paginated in‑app notifications for the user.
+ * Query: ?page=1&limit=20&unreadOnly=true
+ */
 export const getUserNotifications = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -650,6 +678,10 @@ export const getUserNotifications = async (req, res) => {
   }
 };
 
+/**
+ * PUT /api/notifications/:id/read
+ * Mark a single notification as read.
+ */
 export const markNotificationRead = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -672,6 +704,10 @@ export const markNotificationRead = async (req, res) => {
   }
 };
 
+/**
+ * PUT /api/notifications/read-all
+ * Mark all notifications as read for the user.
+ */
 export const markAllNotificationsRead = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -687,6 +723,10 @@ export const markAllNotificationsRead = async (req, res) => {
   }
 };
 
+/**
+ * DELETE /api/notifications/:id
+ * Delete a single notification.
+ */
 export const deleteNotification = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -704,6 +744,10 @@ export const deleteNotification = async (req, res) => {
   }
 };
 
+/**
+ * DELETE /api/notifications/clear-all
+ * Delete all notifications for the user.
+ */
 export const clearAllNotifications = async (req, res) => {
   try {
     const userId = req.user._id;
