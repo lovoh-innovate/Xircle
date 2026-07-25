@@ -4,8 +4,6 @@ import Project from '../models/projectModel.js';
 import Workspace from '../models/workspaceModel.js';
 import Feedback from '../models/feedbackModel.js';
 import { v2 as cloudinary } from 'cloudinary';
-
-// ── Notification service ──────────────────────────────────────────
 import { createAndSendNotification } from './notificationController.js';
 
 // ─────────────────────────────────────────────────────────────────────
@@ -40,7 +38,6 @@ const canViewTask = (workspace, project, userId, task) => {
   return false;
 };
 
-// Parse a field that may arrive as JSON string (FormData) or real array
 const parseArrayField = (value) => {
   if (!value) return [];
   if (Array.isArray(value)) return value;
@@ -49,13 +46,12 @@ const parseArrayField = (value) => {
       const parsed = JSON.parse(value);
       return Array.isArray(parsed) ? parsed : [parsed];
     } catch {
-      return [value]; // fallback: single string
+      return [value];
     }
   }
   return [];
 };
 
-// Normalize multer file objects into our attachment schema
 const normalizeAttachments = (files) => {
   if (!files || !Array.isArray(files)) return [];
   return files.map((file) => ({
@@ -67,7 +63,6 @@ const normalizeAttachments = (files) => {
   }));
 };
 
-// Ensure a user is an active member of the project team
 const ensureProjectMember = async (project, workspace, assigneeId) => {
   const alreadyActive = project.teamMembers.some(
     (tm) => tm.user.toString() === assigneeId && tm.status === 'active'
@@ -98,42 +93,52 @@ const ensureProjectMember = async (project, workspace, assigneeId) => {
   await project.save();
 };
 
-// ── Recalculate project progress from CONFIRMED task progress ──
+const updateTaskProgress = async (taskId) => {
+  const task = await Task.findById(taskId);
+  if (!task) return;
+
+  const total = task.subTasks.length;
+  if (total === 0) {
+    task.progress = 0;
+    task.status = 'pending';
+  } else {
+    const confirmed = task.subTasks.filter(st => st.status === 'confirmed').length;
+    task.progress = Math.round((confirmed / total) * 100);
+    if (confirmed === total) {
+      task.status = 'ready_for_completion';
+    } else if (confirmed > 0) {
+      task.status = 'in-progress';
+    } else {
+      task.status = 'pending';
+    }
+  }
+  await task.save();
+  await updateProjectProgress(task.project);
+};
+
 const updateProjectProgress = async (projectId) => {
   const project = await Project.findById(projectId);
   if (!project) return;
 
   const tasks = await Task.find({ project: projectId, isDeleted: false });
-
   if (tasks.length === 0) {
     project.progress = 0;
     project.readyForCompletion = false;
   } else {
     const total = tasks.reduce((sum, t) => sum + (t.progress || 0), 0);
     project.progress = Math.round(total / tasks.length);
-
-    const allDone = tasks.every((t) =>
-      ['completed', 'cancelled'].includes(t.status)
-    );
-
-    if (project.status !== 'completed') {
-      project.readyForCompletion = allDone;
-      if (allDone) {
-        project.status = 'in-progress';
-      } else if (project.progress > 0 && project.status === 'planning') {
-        project.status = 'in-progress';
-      }
+    const allDone = tasks.every((t) => t.status === 'confirmed_completed');
+    project.readyForCompletion = allDone;
+    if (allDone && project.status !== 'completed') {
+      project.status = 'in-progress';
+    } else if (project.progress > 0 && project.status === 'planning') {
+      project.status = 'in-progress';
     }
   }
-
   await project.save();
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// NOTIFICATION HELPER
-// ─────────────────────────────────────────────────────────────────────
-
-async function notifyUsers(userIds, { title, body, data = {}, emailEventType = null, emailHtml = null }) {
+const notifyUsers = async (userIds, { title, body, data = {}, emailEventType = null, emailHtml = null }) => {
   if (!userIds) return;
   const recipients = Array.isArray(userIds) ? userIds : [userIds];
   for (const recipient of recipients) {
@@ -148,10 +153,72 @@ async function notifyUsers(userIds, { title, body, data = {}, emailEventType = n
       emailHtml: emailHtml || `<p>${body}</p>`,
     }).catch(err => console.error(`Notification to ${recipient} failed:`, err.message));
   }
-}
+};
 
 // ─────────────────────────────────────────────────────────────────────
-// CREATE TASK  (Owner / PM only)
+// REMINDER ENGINE – pure logic (no Express req/res)
+// ─────────────────────────────────────────────────────────────────────
+const checkAndSendReminders = async () => {
+  const now = new Date();
+  const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000);
+
+  const tasks = await Task.find({
+    isDeleted: false,
+    dueDate: { $gte: now, $lte: oneHourLater },
+    reminderSent: { $ne: true },
+    status: { $nin: ['completed', 'confirmed_completed', 'cancelled'] },
+  }).populate('assignee', 'name email');
+
+  const allTasks = await Task.find({
+    isDeleted: false,
+    'subTasks.dueDate': { $gte: now, $lte: oneHourLater },
+    'subTasks.reminderSent': { $ne: true },
+  }).populate('assignee', 'name email');
+
+  let reminderCount = 0;
+
+  for (const task of tasks) {
+    if (task.assignee) {
+      await notifyUsers(task.assignee._id, {
+        title: `⏰ Reminder: Task "${task.title}" due soon`,
+        body: `The task "${task.title}" is due within 1 hour (due at ${new Date(task.dueDate).toLocaleString()}).`,
+        data: { taskId: task._id.toString(), projectId: task.project.toString() },
+        emailEventType: 'taskUpdate',
+      });
+      task.reminderSent = true;
+      await task.save();
+      reminderCount++;
+    }
+  }
+
+  for (const task of allTasks) {
+    const assignee = task.assignee;
+    if (!assignee) continue;
+
+    let updated = false;
+    for (const subTask of task.subTasks) {
+      if (subTask.dueDate && subTask.dueDate >= now && subTask.dueDate <= oneHourLater && !subTask.reminderSent) {
+        await notifyUsers(assignee._id, {
+          title: `⏰ Reminder: Sub‑task "${subTask.title}" due soon`,
+          body: `The sub‑task "${subTask.title}" of task "${task.title}" is due within 1 hour (due at ${new Date(subTask.dueDate).toLocaleString()}).`,
+          data: { taskId: task._id.toString(), projectId: task.project.toString() },
+          emailEventType: 'taskUpdate',
+        });
+        subTask.reminderSent = true;
+        updated = true;
+        reminderCount++;
+      }
+    }
+    if (updated) {
+      await task.save();
+    }
+  }
+
+  return reminderCount;
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// CREATE TASK
 // POST /api/tasks
 // ─────────────────────────────────────────────────────────────────────
 const createTask = async (req, res) => {
@@ -163,21 +230,23 @@ const createTask = async (req, res) => {
       description = '',
       detailedDescription = '',
       taskType = 'general',
-      assigneeId,
+      assigneeId = null,
       priority = 'medium',
+      startDate = null,
       dueDate = null,
       estimatedHours = null,
+      bufferTime = 0,
       dependencies,
+      allowAssigneeEditSubtasks = false,
     } = req.body;
 
     const links = parseArrayField(req.body.links);
-    const stages = parseArrayField(req.body.stages);
     const deps = parseArrayField(dependencies);
 
-    if (!projectId || !title?.trim() || !assigneeId) {
+    if (!projectId || !title?.trim()) {
       return res.status(400).json({
         success: false,
-        message: 'projectId, title and assigneeId are required.',
+        message: 'projectId and title are required.',
       });
     }
 
@@ -194,20 +263,14 @@ const createTask = async (req, res) => {
       });
     }
 
-    await ensureProjectMember(project, workspace, assigneeId);
-
-    // ─── Attachments from files (multer) ─────────────────────────
-    let attachments = normalizeAttachments(req.files?.attachments);
-    if (!Array.isArray(attachments)) {
-      console.warn('❌ attachments is not an array! Raw value:', req.body.attachments);
-      attachments = [];
+    let assignee = null;
+    if (assigneeId) {
+      await ensureProjectMember(project, workspace, assigneeId);
+      assignee = assigneeId;
     }
 
-    // ─── Normalize stages ────────────────────────────────────────
-    const normalizedStages = stages.map((s, i) => ({
-      name: typeof s === 'string' ? s : s.name,
-      order: typeof s === 'string' ? i + 1 : s.order ?? i + 1,
-    }));
+    let attachments = normalizeAttachments(req.files?.attachments);
+    if (!Array.isArray(attachments)) attachments = [];
 
     const task = await Task.create({
       project: projectId,
@@ -216,33 +279,32 @@ const createTask = async (req, res) => {
       description,
       detailedDescription,
       taskType,
-      assignee: assigneeId,
+      assignee,
       createdBy: userId,
       priority,
-      dueDate,
+      startDate: startDate || null,
+      dueDate: dueDate || null,
+      bufferTime: bufferTime || 0,
       estimatedHours,
       dependencies: deps,
       links,
       attachments,
-      stages: normalizedStages,
+      allowAssigneeEditSubtasks,
+      subTasks: [],
       status: 'pending',
       progress: 0,
-      submittedProgress: 0,
+      reminderSent: false,
     });
 
-    // ── Notify assignee ─────────────────────────────────────────
-    notifyUsers(assigneeId, {
-      title: `New task assigned: "${task.title}"`,
-      body: `You have been assigned a new task "${task.title}" in project "${project.name}".`,
-      data: { taskId: task._id.toString(), projectId: project._id.toString() },
-      emailEventType: 'taskAssignment',
-      emailHtml: `
-        <h3>New Task Assigned</h3>
-        <p>Task: <strong>${task.title}</strong></p>
-        <p>Project: ${project.name}</p>
-        <p><a href="${process.env.CLIENT_URL}/tasks/${task._id}">View Task</a></p>
-      `,
-    });
+    if (assignee) {
+      notifyUsers(assignee, {
+        title: `New task: "${task.title}"`,
+        body: `You have been assigned a new task "${task.title}" in project "${project.name}".`,
+        data: { taskId: task._id.toString(), projectId: project._id.toString() },
+        emailEventType: 'taskAssignment',
+        emailHtml: `<h3>New Task</h3><p>Task: <strong>${task.title}</strong></p><p><a href="${process.env.CLIENT_URL}/tasks/${task._id}">View Task</a></p>`,
+      });
+    }
 
     const populated = await Task.findById(task._id)
       .populate('assignee', 'name email profile')
@@ -251,6 +313,711 @@ const createTask = async (req, res) => {
     res.status(201).json({ success: true, message: 'Task created', task: populated });
   } catch (error) {
     console.error('❌ Create task error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// UPDATE TASK (Basic fields – only PM/Owner)
+// PUT /api/tasks/:taskId
+// ─────────────────────────────────────────────────────────────────────
+const updateTask = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId } = req.params;
+
+    const task = await Task.findOne({ _id: taskId, isDeleted: false });
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found.' });
+    }
+
+    const project = await Project.findById(task.project);
+    const workspace = await Workspace.findById(project.workspace);
+
+    if (!canManageTasks(workspace, project, userId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the workspace owner or project managers can edit tasks.',
+      });
+    }
+
+    const {
+      title,
+      description,
+      detailedDescription,
+      taskType,
+      priority,
+      assigneeId,
+      startDate,
+      dueDate,
+      estimatedHours,
+      bufferTime,
+      allowAssigneeEditSubtasks,
+    } = req.body;
+
+    if (title !== undefined) task.title = title.trim();
+    if (description !== undefined) task.description = description;
+    if (detailedDescription !== undefined) task.detailedDescription = detailedDescription;
+    if (taskType !== undefined) task.taskType = taskType;
+    if (priority !== undefined) task.priority = priority;
+    if (startDate !== undefined) task.startDate = startDate;
+    if (dueDate !== undefined) task.dueDate = dueDate;
+    if (bufferTime !== undefined) task.bufferTime = bufferTime;
+    if (estimatedHours !== undefined) task.estimatedHours = estimatedHours;
+    if (allowAssigneeEditSubtasks !== undefined) task.allowAssigneeEditSubtasks = allowAssigneeEditSubtasks;
+
+    if (assigneeId !== undefined) {
+      if (assigneeId && assigneeId !== task.assignee?.toString()) {
+        await ensureProjectMember(project, workspace, assigneeId);
+        task.assignee = assigneeId;
+        notifyUsers(assigneeId, {
+          title: `Task assigned to you: "${task.title}"`,
+          body: `You have been assigned the task "${task.title}".`,
+          data: { taskId: task._id.toString(), projectId: project._id.toString() },
+          emailEventType: 'taskAssignment',
+        });
+      } else if (!assigneeId) {
+        task.assignee = null;
+      }
+    }
+
+    if (req.body.links !== undefined) task.links = parseArrayField(req.body.links);
+    if (req.body.dependencies !== undefined) {
+      task.dependencies = parseArrayField(req.body.dependencies);
+    }
+
+    if (req.files?.attachments) {
+      let newAttachments = normalizeAttachments(req.files.attachments);
+      if (!Array.isArray(newAttachments)) newAttachments = [];
+      task.attachments.push(...newAttachments);
+    }
+
+    await task.save();
+    await updateTaskProgress(task._id);
+
+    const updated = await Task.findById(taskId)
+      .populate('assignee', 'name email profile')
+      .populate('createdBy', 'name email profile');
+
+    res.status(200).json({ success: true, message: 'Task updated', task: updated });
+  } catch (error) {
+    console.error('❌ Update task error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// ASSIGN TASK – separate endpoint for assigning (or unassigning) a task
+// PATCH /api/tasks/:taskId/assign
+// ─────────────────────────────────────────────────────────────────────
+const assignTask = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId } = req.params;
+    const { assigneeId } = req.body;
+
+    const task = await Task.findOne({ _id: taskId, isDeleted: false });
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found.' });
+    }
+
+    const project = await Project.findById(task.project);
+    const workspace = await Workspace.findById(project.workspace);
+
+    if (!canManageTasks(workspace, project, userId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the workspace owner or project managers can assign tasks.',
+      });
+    }
+
+    if (assigneeId !== undefined && assigneeId !== null && assigneeId !== '') {
+      await ensureProjectMember(project, workspace, assigneeId);
+
+      if (task.assignee?.toString() !== assigneeId) {
+        task.assignee = assigneeId;
+        await task.save();
+
+        notifyUsers(assigneeId, {
+          title: `Task assigned to you: "${task.title}"`,
+          body: `You have been assigned the task "${task.title}" in project "${project.name}".`,
+          data: { taskId: task._id.toString(), projectId: project._id.toString() },
+          emailEventType: 'taskAssignment',
+          emailHtml: `<p><a href="${process.env.CLIENT_URL}/tasks/${task._id}">View Task</a></p>`,
+        });
+
+        const updated = await Task.findById(taskId)
+          .populate('assignee', 'name email profile')
+          .populate('createdBy', 'name email profile');
+
+        return res.status(200).json({
+          success: true,
+          message: 'Task assigned successfully',
+          task: updated,
+        });
+      } else {
+        return res.status(200).json({
+          success: true,
+          message: 'Task already assigned to this user',
+          task: await Task.findById(taskId)
+            .populate('assignee', 'name email profile')
+            .populate('createdBy', 'name email profile'),
+        });
+      }
+    } else {
+      if (task.assignee !== null) {
+        task.assignee = null;
+        await task.save();
+        const updated = await Task.findById(taskId)
+          .populate('assignee', 'name email profile')
+          .populate('createdBy', 'name email profile');
+
+        return res.status(200).json({
+          success: true,
+          message: 'Task unassigned successfully',
+          task: updated,
+        });
+      } else {
+        return res.status(200).json({
+          success: true,
+          message: 'Task is already unassigned',
+          task: await Task.findById(taskId)
+            .populate('assignee', 'name email profile')
+            .populate('createdBy', 'name email profile'),
+        });
+      }
+    }
+  } catch (error) {
+    console.error('❌ Assign task error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// ADD SUB-TASK
+// POST /api/tasks/:taskId/subtasks
+// ─────────────────────────────────────────────────────────────────────
+const addSubTask = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId } = req.params;
+    const { title, description, startDate, dueDate, bufferTime = 0, links, attachments } = req.body;
+
+    if (!title?.trim()) {
+      return res.status(400).json({ success: false, message: 'Sub‑task title is required.' });
+    }
+
+    const task = await Task.findOne({ _id: taskId, isDeleted: false });
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found.' });
+    }
+
+    const project = await Project.findById(task.project);
+    const workspace = await Workspace.findById(project.workspace);
+
+    const isManager = canManageTasks(workspace, project, userId);
+    const isAssignee = task.assignee?.toString() === userId;
+
+    if (!isManager && !(isAssignee && task.allowAssigneeEditSubtasks)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not allowed to add sub‑tasks to this task.',
+      });
+    }
+
+    const subTask = {
+      title: title.trim(),
+      description: description || '',
+      startDate: startDate || null,
+      dueDate: dueDate || null,
+      bufferTime: bufferTime || 0,
+      links: parseArrayField(links),
+      attachments: parseArrayField(attachments),
+      status: 'pending',
+      reminderSent: false,
+    };
+
+    task.subTasks.push(subTask);
+    await task.save();
+    await updateTaskProgress(task._id);
+
+    if (isManager && task.assignee) {
+      notifyUsers(task.assignee.toString(), {
+        title: `New sub‑task added to "${task.title}"`,
+        body: `A new sub‑task "${title}" has been added to your task.`,
+        data: { taskId: task._id.toString(), projectId: project._id.toString() },
+        emailEventType: 'taskUpdate',
+      });
+    }
+
+    const updated = await Task.findById(taskId)
+      .populate('assignee', 'name email profile')
+      .populate('createdBy', 'name email profile');
+
+    res.status(201).json({ success: true, message: 'Sub‑task added', task: updated });
+  } catch (error) {
+    console.error('❌ Add sub‑task error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// UPDATE SUB-TASK
+// PUT /api/tasks/:taskId/subtasks/:subTaskIndex
+// ─────────────────────────────────────────────────────────────────────
+const updateSubTask = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId, subTaskIndex } = req.params;
+    const { title, description, startDate, dueDate, bufferTime, links, attachments } = req.body;
+
+    const task = await Task.findOne({ _id: taskId, isDeleted: false });
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found.' });
+    }
+
+    const index = parseInt(subTaskIndex);
+    if (isNaN(index) || index < 0 || index >= task.subTasks.length) {
+      return res.status(400).json({ success: false, message: 'Invalid sub‑task index.' });
+    }
+
+    const project = await Project.findById(task.project);
+    const workspace = await Workspace.findById(project.workspace);
+
+    const isManager = canManageTasks(workspace, project, userId);
+    const isAssignee = task.assignee?.toString() === userId;
+
+    if (!isManager && !(isAssignee && task.allowAssigneeEditSubtasks)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not allowed to edit this sub‑task.',
+      });
+    }
+
+    const subTask = task.subTasks[index];
+    if (subTask.status === 'confirmed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot edit a confirmed sub‑task.',
+      });
+    }
+
+    if (title !== undefined) subTask.title = title.trim();
+    if (description !== undefined) subTask.description = description;
+    if (startDate !== undefined) subTask.startDate = startDate;
+    if (dueDate !== undefined) subTask.dueDate = dueDate;
+    if (bufferTime !== undefined) subTask.bufferTime = bufferTime;
+    if (links !== undefined) subTask.links = parseArrayField(links);
+    if (attachments !== undefined) subTask.attachments = parseArrayField(attachments);
+
+    await task.save();
+    await updateTaskProgress(task._id);
+
+    const updated = await Task.findById(taskId)
+      .populate('assignee', 'name email profile')
+      .populate('createdBy', 'name email profile');
+
+    res.status(200).json({ success: true, message: 'Sub‑task updated', task: updated });
+  } catch (error) {
+    console.error('❌ Update sub‑task error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// MARK SUB-TASK AS DONE (Assignee only) – with file upload support
+// PATCH /api/tasks/:taskId/subtasks/:subTaskIndex/done
+// ─────────────────────────────────────────────────────────────────────
+const markSubTaskDone = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId, subTaskIndex } = req.params;
+    const { notes, links } = req.body;
+
+    const task = await Task.findOne({ _id: taskId, isDeleted: false });
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found.' });
+    }
+
+    const index = parseInt(subTaskIndex);
+    if (isNaN(index) || index < 0 || index >= task.subTasks.length) {
+      return res.status(400).json({ success: false, message: 'Invalid sub‑task index.' });
+    }
+
+    const subTask = task.subTasks[index];
+    if (subTask.status === 'confirmed') {
+      return res.status(400).json({ success: false, message: 'Sub‑task is already confirmed.' });
+    }
+    if (subTask.status === 'done') {
+      return res.status(400).json({ success: false, message: 'Sub‑task already marked done.' });
+    }
+
+    if (task.assignee?.toString() !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the assignee can mark a sub‑task as done.',
+      });
+    }
+
+    // ── Handle uploaded files ──
+    let uploadedAttachments = [];
+    if (req.files && req.files.attachments) {
+      uploadedAttachments = normalizeAttachments(req.files.attachments);
+    }
+
+    // ── Update sub‑task ──
+    subTask.status = 'done';
+    subTask.completedBy = userId;
+    subTask.completedAt = new Date();
+    if (notes) subTask.notes = notes;
+    if (links) subTask.links = parseArrayField(links);
+    if (uploadedAttachments.length > 0) {
+      // Replace existing attachments with new ones (or you could merge)
+      subTask.attachments = uploadedAttachments;
+    }
+
+    await task.save();
+    await updateTaskProgress(task._id);
+
+    const project = await Project.findById(task.project);
+    const managerIds = project.projectManagers.map(pm => pm.toString());
+    const ownerId = project.workspace.owner?._id ? project.workspace.owner._id.toString() : null;
+    const recipients = [...managerIds];
+    if (ownerId && !recipients.includes(ownerId)) recipients.push(ownerId);
+
+    if (recipients.length > 0) {
+      notifyUsers(recipients, {
+        title: `Sub‑task done: "${subTask.title}"`,
+        body: `${req.user.name || 'Assignee'} marked sub‑task "${subTask.title}" as done. Please confirm.`,
+        data: { taskId: task._id.toString(), subTaskIndex: index },
+        emailEventType: 'taskUpdate',
+        emailHtml: `<p><a href="${process.env.CLIENT_URL}/tasks/${task._id}">View Task</a></p>`,
+      });
+    }
+
+    const updated = await Task.findById(taskId)
+      .populate('assignee', 'name email profile')
+      .populate('createdBy', 'name email profile');
+
+    res.status(200).json({ success: true, message: 'Sub‑task marked done', task: updated });
+  } catch (error) {
+    console.error('❌ Mark sub‑task done error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// CONFIRM SUB-TASK (PM/Owner only)
+// PATCH /api/tasks/:taskId/subtasks/:subTaskIndex/confirm
+// ─────────────────────────────────────────────────────────────────────
+const confirmSubTask = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId, subTaskIndex } = req.params;
+    const { feedback } = req.body;
+
+    const task = await Task.findOne({ _id: taskId, isDeleted: false });
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found.' });
+    }
+
+    const index = parseInt(subTaskIndex);
+    if (isNaN(index) || index < 0 || index >= task.subTasks.length) {
+      return res.status(400).json({ success: false, message: 'Invalid sub‑task index.' });
+    }
+
+    const project = await Project.findById(task.project);
+    const workspace = await Workspace.findById(project.workspace);
+
+    if (!canManageTasks(workspace, project, userId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the workspace owner or project managers can confirm sub‑tasks.',
+      });
+    }
+
+    const subTask = task.subTasks[index];
+    if (subTask.status !== 'done') {
+      return res.status(400).json({
+        success: false,
+        message: 'Sub‑task must be marked done before confirmation.',
+      });
+    }
+
+    subTask.status = 'confirmed';
+    subTask.confirmedBy = userId;
+    subTask.confirmedAt = new Date();
+    if (feedback) subTask.feedback = feedback;
+
+    await task.save();
+    await updateTaskProgress(task._id);
+
+    if (task.assignee) {
+      notifyUsers(task.assignee.toString(), {
+        title: `Sub‑task confirmed: "${subTask.title}"`,
+        body: `Your sub‑task "${subTask.title}" has been confirmed by ${req.user.name}.`,
+        data: { taskId: task._id.toString(), subTaskIndex: index },
+        emailEventType: 'taskUpdate',
+      });
+    }
+
+    const updated = await Task.findById(taskId)
+      .populate('assignee', 'name email profile')
+      .populate('createdBy', 'name email profile');
+
+    res.status(200).json({ success: true, message: 'Sub‑task confirmed', task: updated });
+  } catch (error) {
+    console.error('❌ Confirm sub‑task error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// REJECT SUB-TASK (PM/Owner only)
+// PATCH /api/tasks/:taskId/subtasks/:subTaskIndex/reject
+// ─────────────────────────────────────────────────────────────────────
+const rejectSubTask = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId, subTaskIndex } = req.params;
+    const { reason = '' } = req.body;
+
+    const task = await Task.findOne({ _id: taskId, isDeleted: false });
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found.' });
+    }
+
+    const index = parseInt(subTaskIndex);
+    if (isNaN(index) || index < 0 || index >= task.subTasks.length) {
+      return res.status(400).json({ success: false, message: 'Invalid sub‑task index.' });
+    }
+
+    const project = await Project.findById(task.project);
+    const workspace = await Workspace.findById(project.workspace);
+
+    if (!canManageTasks(workspace, project, userId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the workspace owner or project managers can reject sub‑tasks.',
+      });
+    }
+
+    const subTask = task.subTasks[index];
+    if (subTask.status !== 'done') {
+      return res.status(400).json({
+        success: false,
+        message: 'Sub‑task must be marked done before rejection.',
+      });
+    }
+
+    subTask.status = 'pending';
+    subTask.rejectedBy = userId;
+    subTask.rejectedAt = new Date();
+    subTask.rejectionReason = reason;
+
+    await task.save();
+    await updateTaskProgress(task._id);
+
+    if (task.assignee) {
+      notifyUsers(task.assignee.toString(), {
+        title: `Sub‑task rejected: "${subTask.title}"`,
+        body: `Your sub‑task "${subTask.title}" was rejected by ${req.user.name}. ${reason ? `Reason: ${reason}` : ''}`,
+        data: { taskId: task._id.toString(), subTaskIndex: index },
+        emailEventType: 'taskUpdate',
+      });
+    }
+
+    const updated = await Task.findById(taskId)
+      .populate('assignee', 'name email profile')
+      .populate('createdBy', 'name email profile');
+
+    res.status(200).json({ success: true, message: 'Sub‑task rejected', task: updated });
+  } catch (error) {
+    console.error('❌ Reject sub‑task error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// DELETE SUB-TASK (PM/Owner, or assignee if allowed)
+// DELETE /api/tasks/:taskId/subtasks/:subTaskIndex
+// ─────────────────────────────────────────────────────────────────────
+const deleteSubTask = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId, subTaskIndex } = req.params;
+
+    const task = await Task.findOne({ _id: taskId, isDeleted: false });
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found.' });
+    }
+
+    const index = parseInt(subTaskIndex);
+    if (isNaN(index) || index < 0 || index >= task.subTasks.length) {
+      return res.status(400).json({ success: false, message: 'Invalid sub‑task index.' });
+    }
+
+    const project = await Project.findById(task.project);
+    const workspace = await Workspace.findById(project.workspace);
+
+    const isManager = canManageTasks(workspace, project, userId);
+    const isAssignee = task.assignee?.toString() === userId;
+
+    if (!isManager && !(isAssignee && task.allowAssigneeEditSubtasks)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not allowed to delete this sub‑task.',
+      });
+    }
+
+    const subTask = task.subTasks[index];
+    if (subTask.status === 'confirmed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot delete a confirmed sub‑task.',
+      });
+    }
+
+    task.subTasks.splice(index, 1);
+    await task.save();
+    await updateTaskProgress(task._id);
+
+    const updated = await Task.findById(taskId)
+      .populate('assignee', 'name email profile')
+      .populate('createdBy', 'name email profile');
+
+    res.status(200).json({ success: true, message: 'Sub‑task deleted', task: updated });
+  } catch (error) {
+    console.error('❌ Delete sub‑task error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// MARK MAIN TASK AS COMPLETED (Assignee only)
+// PATCH /api/tasks/:taskId/complete
+// ─────────────────────────────────────────────────────────────────────
+const markTaskCompleted = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId } = req.params;
+    const { notes } = req.body;
+
+    const task = await Task.findOne({ _id: taskId, isDeleted: false });
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found.' });
+    }
+
+    if (task.assignee?.toString() !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the assignee can mark the task as completed.',
+      });
+    }
+
+    if (task.status !== 'ready_for_completion') {
+      return res.status(400).json({
+        success: false,
+        message: 'All sub‑tasks must be confirmed before completing the task.',
+      });
+    }
+
+    task.status = 'completed';
+    task.completedBy = userId;
+    task.completedAt = new Date();
+    if (notes) task.completionNotes = notes;
+
+    await task.save();
+
+    const project = await Project.findById(task.project);
+    const managerIds = project.projectManagers.map(pm => pm.toString());
+    const ownerId = project.workspace.owner?._id ? project.workspace.owner._id.toString() : null;
+    const recipients = [...managerIds];
+    if (ownerId && !recipients.includes(ownerId)) recipients.push(ownerId);
+
+    if (recipients.length > 0) {
+      notifyUsers(recipients, {
+        title: `Task completed: "${task.title}"`,
+        body: `${req.user.name || 'Assignee'} marked task "${task.title}" as completed. Please confirm.`,
+        data: { taskId: task._id.toString(), projectId: project._id.toString() },
+        emailEventType: 'taskUpdate',
+        emailHtml: `<p><a href="${process.env.CLIENT_URL}/tasks/${task._id}">View Task</a></p>`,
+      });
+    }
+
+    await updateProjectProgress(task.project);
+
+    const updated = await Task.findById(taskId)
+      .populate('assignee', 'name email profile')
+      .populate('createdBy', 'name email profile');
+
+    res.status(200).json({ success: true, message: 'Task marked completed', task: updated });
+  } catch (error) {
+    console.error('❌ Mark task completed error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// CONFIRM TASK COMPLETION (PM/Owner only)
+// PATCH /api/tasks/:taskId/confirm-completion
+// ─────────────────────────────────────────────────────────────────────
+const confirmTaskCompletion = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId } = req.params;
+    const { feedback, finalHours, finalLinks, finalAttachments } = req.body;
+
+    const task = await Task.findOne({ _id: taskId, isDeleted: false });
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found.' });
+    }
+
+    if (task.status !== 'completed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Task must be marked completed before confirmation.',
+      });
+    }
+
+    const project = await Project.findById(task.project);
+    const workspace = await Workspace.findById(project.workspace);
+
+    if (!canManageTasks(workspace, project, userId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the workspace owner or project managers can confirm task completion.',
+      });
+    }
+
+    task.status = 'confirmed_completed';
+    task.confirmedBy = userId;
+    task.confirmedAt = new Date();
+    if (feedback) task.completionFeedback = feedback;
+    if (finalHours !== undefined) task.actualHours = finalHours;
+    if (finalLinks) task.finalLinks = parseArrayField(finalLinks);
+    if (finalAttachments) task.finalAttachments = parseArrayField(finalAttachments);
+
+    await task.save();
+
+    if (task.assignee) {
+      notifyUsers(task.assignee.toString(), {
+        title: `Task completion confirmed: "${task.title}"`,
+        body: `Your task "${task.title}" has been confirmed as complete by ${req.user.name}.`,
+        data: { taskId: task._id.toString(), projectId: project._id.toString() },
+        emailEventType: 'taskUpdate',
+      });
+    }
+
+    await updateProjectProgress(task.project);
+
+    const updated = await Task.findById(taskId)
+      .populate('assignee', 'name email profile')
+      .populate('createdBy', 'name email profile');
+
+    res.status(200).json({ success: true, message: 'Task completion confirmed', task: updated });
+  } catch (error) {
+    console.error('❌ Confirm task completion error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -342,7 +1109,8 @@ const getTaskById = async (req, res) => {
       .populate('assignee', 'name email profile')
       .populate('createdBy', 'name email profile')
       .populate('completedBy', 'name email profile')
-      .populate('approvedBy', 'name email profile')
+      .populate('confirmedBy', 'name email profile')
+      .populate('rejectedBy', 'name email profile')
       .populate('comments.user', 'name email profile');
 
     if (!task) {
@@ -359,97 +1127,6 @@ const getTaskById = async (req, res) => {
     res.status(200).json({ success: true, task });
   } catch (error) {
     console.error('❌ Get task error:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// ─────────────────────────────────────────────────────────────────────
-// UPDATE TASK  (Owner / PM only)
-// PUT /api/tasks/:taskId
-// ─────────────────────────────────────────────────────────────────────
-const updateTask = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { taskId } = req.params;
-
-    const task = await Task.findOne({ _id: taskId, isDeleted: false });
-    if (!task) {
-      return res.status(404).json({ success: false, message: 'Task not found.' });
-    }
-
-    const project = await Project.findById(task.project);
-    const workspace = await Workspace.findById(project.workspace);
-
-    if (!canManageTasks(workspace, project, userId)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Only the workspace owner or project managers can edit tasks.',
-      });
-    }
-
-    const {
-      title,
-      description,
-      detailedDescription,
-      taskType,
-      priority,
-      status,
-      dueDate,
-      estimatedHours,
-      actualHours,
-    } = req.body;
-
-    const oldStatus = task.status;
-
-    if (title !== undefined) task.title = title.trim();
-    if (description !== undefined) task.description = description;
-    if (detailedDescription !== undefined) task.detailedDescription = detailedDescription;
-    if (taskType !== undefined) task.taskType = taskType;
-    if (priority !== undefined) task.priority = priority;
-    if (dueDate !== undefined) task.dueDate = dueDate;
-    if (estimatedHours !== undefined) task.estimatedHours = estimatedHours;
-    if (actualHours !== undefined) task.actualHours = actualHours;
-
-    if (status !== undefined && !['completed'].includes(status)) {
-      task.status = status;
-    }
-
-    if (req.body.links !== undefined) task.links = parseArrayField(req.body.links);
-    if (req.body.dependencies !== undefined) {
-      task.dependencies = parseArrayField(req.body.dependencies);
-    }
-
-    // Append new attachments from files (multer)
-    if (req.files?.attachments) {
-      let newAttachments = normalizeAttachments(req.files.attachments);
-      if (!Array.isArray(newAttachments)) {
-        console.warn('❌ attachments is not an array! Raw value:', req.body.attachments);
-        newAttachments = [];
-      }
-      task.attachments.push(...newAttachments);
-    }
-
-    await task.save();
-
-    // ── Notify assignee if status changed (and not completed, which is handled by review) ──
-    if (status && status !== oldStatus && status !== 'completed') {
-      notifyUsers(task.assignee.toString(), {
-        title: `Task status updated: "${task.title}"`,
-        body: `The task "${task.title}" status changed to "${status}".`,
-        data: { taskId: task._id.toString(), projectId: project._id.toString() },
-        emailEventType: 'taskUpdate',
-      });
-    }
-
-    await updateProjectProgress(task.project);
-
-    const updated = await Task.findById(taskId)
-      .populate('assignee', 'name email profile')
-      .populate('createdBy', 'name email profile');
-
-    res.status(200).json({ success: true, message: 'Task updated', task: updated });
-  } catch (error) {
-    console.error('❌ Update task error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -479,7 +1156,7 @@ const deleteTask = async (req, res) => {
     }
 
     const projectId = task.project;
-    const assigneeId = task.assignee.toString();
+    const assigneeId = task.assignee?.toString();
 
     task.isDeleted = true;
     await task.save();
@@ -493,466 +1170,20 @@ const deleteTask = async (req, res) => {
 
     await updateProjectProgress(projectId);
 
-    // ── Notify assignee about deletion ─────────────────────────
-    notifyUsers(assigneeId, {
-      title: `Task deleted: "${task.title}"`,
-      body: `The task "${task.title}" has been deleted from the project.`,
-      data: { projectId: project._id.toString() },
-      emailEventType: 'taskUpdate',
-    });
+    if (assigneeId) {
+      notifyUsers(assigneeId, {
+        title: `Task deleted: "${task.title}"`,
+        body: `The task "${task.title}" has been deleted from the project.`,
+        data: { projectId: project._id.toString() },
+        emailEventType: 'taskUpdate',
+      });
+    }
 
     res.status(200).json({ success: true, message: 'Task deleted' });
   } catch (error) {
     console.error('❌ Delete task error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
-};
-
-// ─────────────────────────────────────────────────────────────────────
-// SUBMIT PROGRESS  (Assignee only)
-// PATCH /api/tasks/:taskId/progress
-// ─────────────────────────────────────────────────────────────────────
-const updateTaskProgress = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { taskId } = req.params;
-    const { progress, notes = '' } = req.body;
-    const links = parseArrayField(req.body.links);
-
-    // Safety net for attachments
-    let attachments = normalizeAttachments(req.files?.attachments);
-    if (!Array.isArray(attachments)) {
-      console.warn('❌ attachments is not an array! Raw value:', req.body.attachments);
-      attachments = [];
-    }
-
-    if (progress === undefined || progress === null || progress < 0 || progress > 100) {
-      return res.status(400).json({
-        success: false,
-        message: 'Progress must be a number between 0 and 100.',
-      });
-    }
-
-    const task = await Task.findOne({ _id: taskId, isDeleted: false });
-    if (!task) {
-      return res.status(404).json({ success: false, message: 'Task not found.' });
-    }
-
-    if (task.assignee?.toString() !== userId) {
-      return res.status(403).json({
-        success: false,
-        message: 'Only the assignee can submit progress for this task.',
-      });
-    }
-
-    if (task.status === 'completed') {
-      return res.status(400).json({
-        success: false,
-        message: 'This task is already completed.',
-      });
-    }
-
-    // Create Feedback entry
-    await Feedback.create({
-      task: taskId,
-      user: userId,
-      type: 'progress_update',
-      progress,
-      notes,
-      links,
-      attachments,
-    });
-
-    // Update task status
-    task.submittedProgress = progress;
-    task.status = progress >= 100 ? 'review' : 'in-progress';
-    await task.save();
-
-    // ── Notify project managers about progress submission ──────
-    const project = await Project.findById(task.project);
-    const managerIds = project.projectManagers.map(pm => pm.toString());
-    if (managerIds.length > 0) {
-      notifyUsers(managerIds, {
-        title: `Progress submitted for "${task.title}"`,
-        body: `Assignee submitted progress of ${progress}% on task "${task.title}".`,
-        data: { taskId: task._id.toString(), projectId: project._id.toString() },
-        emailEventType: 'taskUpdate',
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: 'Progress submitted, awaiting review.',
-      task,
-      feedback, // feedback not returned due to scope but ok
-    });
-  } catch (error) {
-    console.error('❌ Submit progress error:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// ─────────────────────────────────────────────────────────────────────
-// REVIEW PROGRESS  (Owner / PM only)
-// PATCH /api/tasks/:taskId/review
-// ─────────────────────────────────────────────────────────────────────
-const reviewTaskProgress = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { taskId } = req.params;
-    const { approved, feedback: reviewFeedback = '', approvedProgress } = req.body;
-
-    if (typeof approved !== 'boolean') {
-      return res.status(400).json({
-        success: false,
-        message: '"approved" (boolean) is required.',
-      });
-    }
-
-    const task = await Task.findOne({ _id: taskId, isDeleted: false });
-    if (!task) {
-      return res.status(404).json({ success: false, message: 'Task not found.' });
-    }
-
-    const project = await Project.findById(task.project);
-    const workspace = await Workspace.findById(project.workspace);
-
-    if (!canManageTasks(workspace, project, userId)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Only the workspace owner or project managers can review progress.',
-      });
-    }
-
-    if (approved) {
-      const confirmed =
-        approvedProgress !== undefined && approvedProgress !== null
-          ? Math.min(100, Math.max(0, approvedProgress))
-          : task.submittedProgress;
-
-      task.progress = confirmed;
-      task.submittedProgress = confirmed;
-      task.approved = true;
-      task.approvedBy = userId;
-      task.approvedAt = new Date();
-
-      if (confirmed >= 100) {
-        task.status = 'completed';
-        task.completedAt = new Date();
-        task.completedBy = task.assignee;
-        task.completionFeedback = reviewFeedback;
-        task.stages.forEach((s) => {
-          if (!s.completed) {
-            s.completed = true;
-            s.completedAt = new Date();
-            s.completedBy = userId;
-          }
-        });
-      } else {
-        task.status = confirmed > 0 ? 'in-progress' : 'pending';
-      }
-
-      await Feedback.create({
-        task: taskId,
-        user: userId,
-        type: 'review',
-        progress: confirmed,
-        notes: reviewFeedback,
-        approved: true,
-        feedback: reviewFeedback,
-        reviewedBy: userId,
-        reviewedAt: new Date(),
-      });
-    } else {
-      task.submittedProgress = task.progress;
-      task.approved = false;
-      if (task.status === 'review') {
-        task.status = task.progress > 0 ? 'in-progress' : 'pending';
-      }
-
-      await Feedback.create({
-        task: taskId,
-        user: userId,
-        type: 'review',
-        progress: task.progress,
-        notes: reviewFeedback,
-        approved: false,
-        feedback: reviewFeedback,
-        reviewedBy: userId,
-        reviewedAt: new Date(),
-      });
-    }
-
-    await task.save();
-    await updateProjectProgress(task.project);
-
-    // ── Notify assignee about review decision ─────────────────
-    const decision = approved ? 'approved' : 'rejected';
-    notifyUsers(task.assignee.toString(), {
-      title: `Progress ${decision} for "${task.title}"`,
-      body: `Your submitted progress on task "${task.title}" has been ${decision}.`,
-      data: { taskId: task._id.toString(), projectId: project._id.toString() },
-      emailEventType: 'taskUpdate',
-      emailHtml: `
-        <h3>Task Progress ${decision.charAt(0).toUpperCase() + decision.slice(1)}</h3>
-        <p>Task: <strong>${task.title}</strong></p>
-        <p>Status: ${task.status}</p>
-        <p><a href="${process.env.CLIENT_URL}/tasks/${task._id}">View Task</a></p>
-      `,
-    });
-
-    const updated = await Task.findById(taskId)
-      .populate('assignee', 'name email profile')
-      .populate('createdBy', 'name email profile');
-
-    res.status(200).json({
-      success: true,
-      message: approved ? 'Progress approved.' : 'Progress rejected.',
-      task: updated,
-    });
-  } catch (error) {
-    console.error('❌ Review progress error:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// ─────────────────────────────────────────────────────────────────────
-// DAILY CHECK-IN  (Assignee only)
-// POST /api/tasks/:taskId/daily-report
-// ─────────────────────────────────────────────────────────────────────
-const submitDailyReport = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { taskId } = req.params;
-    const { notes = '', progress } = req.body;
-    const links = parseArrayField(req.body.links);
-    const blocks = parseArrayField(req.body.blocks);
-
-    // Safety net for attachments
-    let attachments = normalizeAttachments(req.files?.attachments);
-    if (!Array.isArray(attachments)) {
-      console.warn('❌ attachments is not an array! Raw value:', req.body.attachments);
-      attachments = [];
-    }
-
-    if (!notes.trim() && blocks.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please describe what you worked on today.',
-      });
-    }
-
-    const task = await Task.findOne({ _id: taskId, isDeleted: false });
-    if (!task) {
-      return res.status(404).json({ success: false, message: 'Task not found.' });
-    }
-
-    if (task.assignee?.toString() !== userId) {
-      return res.status(403).json({
-        success: false,
-        message: 'Only the assignee can check in on this task.',
-      });
-    }
-
-    const project = await Project.findById(task.project);
-
-    const now = new Date();
-    const [h, m] = (project.dailyReportTime || '17:00').split(':').map(Number);
-    const cutoff = new Date(now);
-    cutoff.setHours(h || 17, m || 0, 0, 0);
-    const isLate = now > cutoff;
-
-    const startOfDay = new Date(now);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(now);
-    endOfDay.setHours(23, 59, 59, 999);
-
-    let report = await Feedback.findOne({
-      task: taskId,
-      user: userId,
-      type: 'daily_report',
-      createdAt: { $gte: startOfDay, $lte: endOfDay },
-    });
-
-    if (report) {
-      report.notes = notes;
-      report.links = links;
-      report.blocks = blocks;
-      report.attachments = attachments;
-      report.isLate = report.isLate || isLate;
-      if (progress !== undefined && progress !== null) report.progress = progress;
-      await report.save();
-    } else {
-      report = await Feedback.create({
-        task: taskId,
-        user: userId,
-        type: 'daily_report',
-        progress: progress ?? task.submittedProgress,
-        notes,
-        links,
-        blocks,
-        attachments,
-        isLate,
-      });
-    }
-
-    if (progress !== undefined && progress !== null && task.status !== 'completed') {
-      task.submittedProgress = progress;
-      task.status = progress >= 100 ? 'review' : 'in-progress';
-      await task.save();
-    }
-
-    // No notification for daily report (optional; could add later)
-
-    res.status(report.createdAt >= startOfDay && report.updatedAt > report.createdAt ? 200 : 201).json({
-      success: true,
-      message: report.createdAt < startOfDay ? 'Daily report submitted.' : 'Daily report saved.',
-      dailyReport: report,
-      isLate: report.isLate,
-    });
-  } catch (error) {
-    console.error('❌ Daily report error:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// ─────────────────────────────────────────────────────────────────────
-// REASSIGN TASK  (Owner / PM only)
-// PATCH /api/tasks/:taskId/reassign
-// ─────────────────────────────────────────────────────────────────────
-const reassignTask = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { taskId } = req.params;
-    const { assigneeId, reason = '' } = req.body;
-
-    if (!assigneeId) {
-      return res.status(400).json({ success: false, message: 'assigneeId is required.' });
-    }
-
-    const task = await Task.findOne({ _id: taskId, isDeleted: false });
-    if (!task) {
-      return res.status(404).json({ success: false, message: 'Task not found.' });
-    }
-
-    const project = await Project.findById(task.project);
-    const workspace = await Workspace.findById(project.workspace);
-
-    if (!canManageTasks(workspace, project, userId)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Only the workspace owner or project managers can reassign tasks.',
-      });
-    }
-
-    await ensureProjectMember(project, workspace, assigneeId);
-
-    task.reassignmentHistory.push({
-      from: task.assignee,
-      to: assigneeId,
-      reassignedBy: userId,
-      reason,
-    });
-    task.assignee = assigneeId;
-    task.submittedProgress = task.progress;
-    if (task.status === 'review') {
-      task.status = task.progress > 0 ? 'in-progress' : 'pending';
-    }
-
-    await task.save();
-
-    // ── Notify new assignee ────────────────────────────────────
-    notifyUsers(assigneeId, {
-      title: `Task reassigned to you: "${task.title}"`,
-      body: `You have been assigned the task "${task.title}". ${reason ? `Reason: ${reason}` : ''}`,
-      data: { taskId: task._id.toString(), projectId: project._id.toString() },
-      emailEventType: 'taskAssignment',
-      emailHtml: `
-        <h3>Task Reassigned</h3>
-        <p>Task: <strong>${task.title}</strong></p>
-        <p>Project: ${project.name}</p>
-        <p><a href="${process.env.CLIENT_URL}/tasks/${task._id}">View Task</a></p>
-      `,
-    });
-
-    const updated = await Task.findById(taskId)
-      .populate('assignee', 'name email profile')
-      .populate('createdBy', 'name email profile');
-
-    res.status(200).json({ success: true, message: 'Task reassigned', task: updated });
-  } catch (error) {
-    console.error('❌ Reassign task error:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// ─────────────────────────────────────────────────────────────────────
-// UPDATE TASK STAGE
-// PATCH /api/tasks/:taskId/stage
-// ─────────────────────────────────────────────────────────────────────
-const updateTaskStage = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { taskId } = req.params;
-    const { stageName, notes = '', actualHours } = req.body;
-
-    const task = await Task.findOne({ _id: taskId, isDeleted: false });
-    if (!task) {
-      return res.status(404).json({ success: false, message: 'Task not found.' });
-    }
-
-    const project = await Project.findById(task.project);
-    const workspace = await Workspace.findById(project.workspace);
-
-    const isAssignee = task.assignee?.toString() === userId;
-    if (!isAssignee && !canManageTasks(workspace, project, userId)) {
-      return res.status(403).json({ success: false, message: 'Access denied.' });
-    }
-
-    const stage = task.stages.find((s) => s.name === stageName);
-    if (!stage) {
-      return res.status(404).json({ success: false, message: 'Stage not found.' });
-    }
-
-    stage.completed = true;
-    stage.completedAt = new Date();
-    stage.completedBy = userId;
-    if (notes) stage.notes = notes;
-    if (actualHours !== undefined) task.actualHours = actualHours;
-
-    const next = task.stages
-      .filter((s) => !s.completed)
-      .sort((a, b) => a.order - b.order)[0];
-    task.currentStage = next ? next.name : 'Done';
-
-    await task.save();
-
-    // Notification could be added for stage completion if desired, but omitted for brevity.
-
-    res.status(200).json({ success: true, message: 'Stage updated', task });
-  } catch (error) {
-    console.error('❌ Update stage error:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// ─────────────────────────────────────────────────────────────────────
-// APPROVE TASK COMPLETION  (Owner / PM)
-// PATCH /api/tasks/:taskId/approve
-// ─────────────────────────────────────────────────────────────────────
-const approveTaskCompletion = async (req, res) => {
-  req.body.approved = true;
-  req.body.approvedProgress = 100;
-  req.body.feedback = req.body.feedback || req.body.completionFeedback || '';
-  if (req.body.finalHours !== undefined) {
-    await Task.findByIdAndUpdate(req.params.taskId, {
-      actualHours: req.body.finalHours,
-      finalLinks: parseArrayField(req.body.finalLinks),
-      finalAttachments: parseArrayField(req.body.finalAttachments),
-    });
-  }
-  // Review progress will handle notification
-  return reviewTaskProgress(req, res);
 };
 
 // ─────────────────────────────────────────────────────────────────────
@@ -986,7 +1217,6 @@ const addComment = async (req, res) => {
     task.comments.push({ user: userId, comment: comment.trim(), mentions, attachments });
     await task.save();
 
-    // ── Notify mentioned users ─────────────────────────────────
     const validMentions = mentions.filter(mentionId =>
       project.teamMembers.some(tm => tm.user.toString() === mentionId && tm.status === 'active') ||
       project.projectManagers.some(pm => pm.toString() === mentionId) ||
@@ -1001,16 +1231,9 @@ const addComment = async (req, res) => {
       });
     }
 
-    const updated = await Task.findById(taskId).populate(
-      'comments.user',
-      'name email profile'
-    );
+    const updated = await Task.findById(taskId).populate('comments.user', 'name email profile');
 
-    res.status(201).json({
-      success: true,
-      message: 'Comment added',
-      comments: updated.comments,
-    });
+    res.status(201).json({ success: true, message: 'Comment added', comments: updated.comments });
   } catch (error) {
     console.error('❌ Add comment error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -1019,7 +1242,7 @@ const addComment = async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────
 // GET TASK FEEDBACK
-// GET /api/tasks/:taskId/feedback?type=progress_update|daily_report|review
+// GET /api/tasks/:taskId/feedback
 // ─────────────────────────────────────────────────────────────────────
 const getTaskFeedback = async (req, res) => {
   try {
@@ -1056,20 +1279,103 @@ const getTaskFeedback = async (req, res) => {
   }
 };
 
-// ─── EXPORTS ──────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
+// POST /api/tasks/reminders  (Controller – for manual trigger or cron)
+// ─────────────────────────────────────────────────────────────────────
+const sendTaskReminders = async (req, res) => {
+  try {
+    const count = await checkAndSendReminders();
+    res.status(200).json({
+      success: true,
+      message: `Reminders sent for ${count} tasks/sub‑tasks.`,
+      count,
+    });
+  } catch (error) {
+    console.error('❌ Send reminders error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// POST /api/tasks/:taskId/remind (Manual reminder – PM/Owner only)
+// ─────────────────────────────────────────────────────────────────────
+const sendManualReminder = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId } = req.params;
+    const { message } = req.body;
+
+    const task = await Task.findOne({ _id: taskId, isDeleted: false })
+      .populate('assignee', 'name email');
+
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found.' });
+    }
+
+    const project = await Project.findById(task.project);
+    const workspace = await Workspace.findById(project.workspace);
+
+    if (!canManageTasks(workspace, project, userId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the workspace owner or project managers can send manual reminders.',
+      });
+    }
+
+    if (!task.assignee) {
+      return res.status(400).json({
+        success: false,
+        message: 'This task has no assignee to remind.',
+      });
+    }
+
+    const customMessage = message || 'Please check your task and complete it.';
+    await notifyUsers(task.assignee._id, {
+      title: `📢 Manual Reminder: Task "${task.title}"`,
+      body: `${req.user.name} reminded you about the task "${task.title}". ${customMessage}`,
+      data: { taskId: task._id.toString(), projectId: project._id.toString() },
+      emailEventType: 'taskUpdate',
+      emailHtml: `
+        <h3>Task Reminder</h3>
+        <p>Task: <strong>${task.title}</strong></p>
+        <p>Project: ${project.name}</p>
+        <p>Message: ${customMessage}</p>
+        <p><a href="${process.env.CLIENT_URL}/tasks/${task._id}">View Task</a></p>
+      `,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Manual reminder sent to ${task.assignee.name}.`,
+    });
+  } catch (error) {
+    console.error('❌ Manual reminder error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// EXPORTS
+// ─────────────────────────────────────────────────────────────────────
 export {
   createTask,
+  updateTask,
+  assignTask,
+  addSubTask,
+  updateSubTask,
+  markSubTaskDone,
+  confirmSubTask,
+  rejectSubTask,
+  deleteSubTask,
+  markTaskCompleted,
+  confirmTaskCompletion,
   getProjectTasks,
   getMyTasks,
   getTaskById,
-  updateTask,
   deleteTask,
-  updateTaskProgress,
-  reviewTaskProgress,
-  submitDailyReport,
-  reassignTask,
-  updateTaskStage,
-  approveTaskCompletion,
   addComment,
   getTaskFeedback,
+  sendTaskReminders,
+  sendManualReminder,
+  checkAndSendReminders,
 };

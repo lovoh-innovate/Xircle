@@ -10,7 +10,7 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       query: (data) => ({
         url: TASKS_URL,
         method: 'POST',
-        body: data, // FormData or plain object
+        body: data,
       }),
       invalidatesTags: ['Task', 'Project'],
     }),
@@ -38,7 +38,7 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       query: ({ taskId, data }) => ({
         url: `${TASKS_URL}/${taskId}`,
         method: 'PUT',
-        body: data, // FormData or plain object
+        body: data,
       }),
       invalidatesTags: (result, error, { taskId }) => [
         { type: 'Task', id: taskId },
@@ -51,108 +51,143 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['Task', 'Project'],
     }),
 
-    // ─── Progress workflow ───
-    // Accepts both FormData (with files) and plain object (no files)
-    updateTaskProgress: builder.mutation({
-      query: (payload) => {
-        if (payload instanceof FormData) {
-          return {
-            url: `${TASKS_URL}/${payload.get('taskId')}/progress`,
-            method: 'PATCH',
-            body: payload,
-          };
-        }
-        // Plain object
-        return {
-          url: `${TASKS_URL}/${payload.taskId}/progress`,
-          method: 'PATCH',
-          body: payload,
-        };
-      },
-      invalidatesTags: (result, error, payload) => {
-        const taskId = payload instanceof FormData ? payload.get('taskId') : payload.taskId;
-        return [
-          { type: 'Task', id: taskId },
-          { type: 'Task', id: `${taskId}-feedback` },
-          'Project',
-        ];
-      },
-    }),
-
-    // Owner/PM approves or rejects (plain JSON)
-    reviewTaskProgress: builder.mutation({
-      query: ({ taskId, approved, feedback, approvedProgress }) => ({
-        url: `${TASKS_URL}/${taskId}/review`,
+    // ─── Assign task (PM/Owner only) ───
+    assignTask: builder.mutation({
+      query: ({ taskId, assigneeId }) => ({
+        url: `${TASKS_URL}/${taskId}/assign`,
         method: 'PATCH',
-        body: { approved, feedback, approvedProgress },
-      }),
-      invalidatesTags: (result, error, { taskId }) => [
-        { type: 'Task', id: taskId },
-        { type: 'Task', id: `${taskId}-feedback` },
-        'Project',
-      ],
-    }),
-
-    // Daily check-in (accepts FormData with files or plain object)
-    submitDailyReport: builder.mutation({
-      query: (payload) => {
-        if (payload instanceof FormData) {
-          return {
-            url: `${TASKS_URL}/${payload.get('taskId')}/daily-report`,
-            method: 'POST',
-            body: payload,
-          };
-        }
-        return {
-          url: `${TASKS_URL}/${payload.taskId}/daily-report`,
-          method: 'POST',
-          body: payload,
-        };
-      },
-      invalidatesTags: (result, error, payload) => {
-        const taskId = payload instanceof FormData ? payload.get('taskId') : payload.taskId;
-        return [
-          { type: 'Task', id: taskId },
-          { type: 'Task', id: `${taskId}-feedback` },
-        ];
-      },
-    }),
-
-    // ─── Management ───
-    reassignTask: builder.mutation({
-      query: ({ taskId, assigneeId, reason }) => ({
-        url: `${TASKS_URL}/${taskId}/reassign`,
-        method: 'PATCH',
-        body: { assigneeId, reason },
+        body: { assigneeId },
       }),
       invalidatesTags: (result, error, { taskId }) => [
         { type: 'Task', id: taskId },
         'Task',
+        'Project',
       ],
     }),
 
-    updateTaskStage: builder.mutation({
-      query: ({ taskId, stageName, notes, actualHours }) => ({
-        url: `${TASKS_URL}/${taskId}/stage`,
-        method: 'PATCH',
-        body: { stageName, notes, actualHours },
+    // ─── Sub‑tasks ───
+    addSubTask: builder.mutation({
+      query: ({ taskId, data }) => ({
+        url: `${TASKS_URL}/${taskId}/subtasks`,
+        method: 'POST',
+        body: data,
       }),
-      invalidatesTags: (result, error, { taskId }) => [{ type: 'Task', id: taskId }],
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'Task', id: taskId },
+        'Task',
+        'Project',
+      ],
     }),
 
-    approveTaskCompletion: builder.mutation({
+    updateSubTask: builder.mutation({
+      query: ({ taskId, subTaskIndex, data }) => ({
+        url: `${TASKS_URL}/${taskId}/subtasks/${subTaskIndex}`,
+        method: 'PUT',
+        body: data,
+      }),
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'Task', id: taskId },
+        'Task',
+        'Project',
+      ],
+    }),
+
+    markSubTaskDone: builder.mutation({
+      query: ({ taskId, subTaskIndex, data }) => ({
+        url: `${TASKS_URL}/${taskId}/subtasks/${subTaskIndex}/done`,
+        method: 'PATCH',
+        body: data,
+      }),
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'Task', id: taskId },
+        'Task',
+        'Project',
+      ],
+    }),
+
+    confirmSubTask: builder.mutation({
+      query: ({ taskId, subTaskIndex, feedback }) => ({
+        url: `${TASKS_URL}/${taskId}/subtasks/${subTaskIndex}/confirm`,
+        method: 'PATCH',
+        body: { feedback },
+      }),
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'Task', id: taskId },
+        'Task',
+        'Project',
+      ],
+    }),
+
+    // 👇 Reject sub‑task (PM/Owner only)
+    rejectSubTask: builder.mutation({
+      query: ({ taskId, subTaskIndex, reason }) => ({
+        url: `${TASKS_URL}/${taskId}/subtasks/${subTaskIndex}/reject`,
+        method: 'PATCH',
+        body: { reason },
+      }),
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'Task', id: taskId },
+        'Task',
+        'Project',
+      ],
+    }),
+
+    deleteSubTask: builder.mutation({
+      query: ({ taskId, subTaskIndex }) => ({
+        url: `${TASKS_URL}/${taskId}/subtasks/${subTaskIndex}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'Task', id: taskId },
+        'Task',
+        'Project',
+      ],
+    }),
+
+    // ─── Main task completion flow ───
+    markTaskCompleted: builder.mutation({
+      query: ({ taskId, notes }) => ({
+        url: `${TASKS_URL}/${taskId}/complete`,
+        method: 'PATCH',
+        body: { notes },
+      }),
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'Task', id: taskId },
+        'Task',
+        'Project',
+      ],
+    }),
+
+    confirmTaskCompletion: builder.mutation({
       query: ({ taskId, feedback, finalHours, finalLinks, finalAttachments }) => ({
-        url: `${TASKS_URL}/${taskId}/approve`,
+        url: `${TASKS_URL}/${taskId}/confirm-completion`,
         method: 'PATCH',
         body: { feedback, finalHours, finalLinks, finalAttachments },
       }),
       invalidatesTags: (result, error, { taskId }) => [
         { type: 'Task', id: taskId },
+        'Task',
         'Project',
       ],
     }),
 
-    // ─── Comments & history ───
+    // ─── Reminders ───
+    triggerTaskReminders: builder.mutation({
+      query: () => ({
+        url: `${TASKS_URL}/reminders`,
+        method: 'POST',
+      }),
+    }),
+
+    sendManualReminder: builder.mutation({
+      query: ({ taskId, message }) => ({
+        url: `${TASKS_URL}/${taskId}/remind`,
+        method: 'POST',
+        body: { message },
+      }),
+    }),
+
+    // ─── Comments & feedback history ───
     addComment: builder.mutation({
       query: ({ taskId, comment, mentions, attachments }) => ({
         url: `${TASKS_URL}/${taskId}/comments`,
@@ -188,12 +223,17 @@ export const {
   useGetTaskByIdQuery,
   useUpdateTaskMutation,
   useDeleteTaskMutation,
-  useUpdateTaskProgressMutation,
-  useReviewTaskProgressMutation,
-  useSubmitDailyReportMutation,
-  useReassignTaskMutation,
-  useUpdateTaskStageMutation,
-  useApproveTaskCompletionMutation,
+  useAssignTaskMutation,
+  useAddSubTaskMutation,
+  useUpdateSubTaskMutation,
+  useMarkSubTaskDoneMutation,
+  useConfirmSubTaskMutation,
+  useRejectSubTaskMutation, // 👈 new export
+  useDeleteSubTaskMutation,
+  useMarkTaskCompletedMutation,
+  useConfirmTaskCompletionMutation,
+  useTriggerTaskRemindersMutation,
+  useSendManualReminderMutation,
   useAddCommentMutation,
   useGetMyTasksQuery,
   useGetTaskFeedbackQuery,

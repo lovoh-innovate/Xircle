@@ -6,15 +6,20 @@ import {
   getMyTasks,
   getTaskById,
   updateTask,
+  assignTask,
   deleteTask,
-  updateTaskProgress,
-  reviewTaskProgress,
-  submitDailyReport,
-  reassignTask,
-  updateTaskStage,
-  approveTaskCompletion,
+  addSubTask,
+  updateSubTask,
+  markSubTaskDone,
+  confirmSubTask,
+  rejectSubTask, // 👈 new import
+  deleteSubTask,
+  markTaskCompleted,
+  confirmTaskCompletion,
   addComment,
   getTaskFeedback,
+  sendTaskReminders,
+  sendManualReminder,
 } from '../controllers/taskController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import upload from '../middleware/uploadMiddleware.js';
@@ -41,29 +46,57 @@ router.put(
 );
 router.delete('/:taskId', protect, deleteTask);
 
-// ── Assignee: submit progress (with optional attachments) ──
-router.patch(
-  '/:taskId/progress',
-  protect,
-  upload.fields([{ name: 'attachments', maxCount: 10 }]), // <-- ADDED
-  updateTaskProgress
-);
+// ── Assign / Unassign task (PM/Owner only) ──
+router.patch('/:taskId/assign', protect, assignTask);
 
-// ── Owner/PM: approve or reject submitted progress ──
-router.patch('/:taskId/review', protect, reviewTaskProgress);
-
-// ── Assignee: daily check-in (one per day, upserts) ──
+// ─── SUB‑TASK ENDPOINTS (must come after the task CRUD above) ───
 router.post(
-  '/:taskId/daily-report',
+  '/:taskId/subtasks',
   protect,
-  upload.fields([{ name: 'attachments', maxCount: 10 }]), // optional, for consistency
-  submitDailyReport
+  upload.fields([{ name: 'attachments', maxCount: 10 }]),
+  addSubTask
 );
 
-// ── Management actions ──
-router.patch('/:taskId/reassign', protect, reassignTask);
-router.patch('/:taskId/stage', protect, updateTaskStage);
-router.patch('/:taskId/approve', protect, approveTaskCompletion);
+router.put(
+  '/:taskId/subtasks/:subTaskIndex',
+  protect,
+  upload.fields([{ name: 'attachments', maxCount: 10 }]),
+  updateSubTask
+);
+
+router.patch(
+  '/:taskId/subtasks/:subTaskIndex/done',
+  protect,
+  upload.fields([{ name: 'attachments', maxCount: 10 }]),
+  markSubTaskDone
+);
+
+router.patch(
+  '/:taskId/subtasks/:subTaskIndex/confirm',
+  protect,
+  confirmSubTask
+);
+
+// 👇 Reject sub‑task (PM/Owner only)
+router.patch(
+  '/:taskId/subtasks/:subTaskIndex/reject',
+  protect,
+  rejectSubTask
+);
+
+router.delete(
+  '/:taskId/subtasks/:subTaskIndex',
+  protect,
+  deleteSubTask
+);
+
+// ── Main task completion flow ──
+router.patch('/:taskId/complete', protect, markTaskCompleted);
+router.patch('/:taskId/confirm-completion', protect, confirmTaskCompletion);
+
+// ── Reminder endpoints ──
+router.post('/reminders', protect, sendTaskReminders);
+router.post('/:taskId/remind', protect, sendManualReminder);
 
 // ── Comments & feedback history ──
 router.post('/:taskId/comments', protect, addComment);

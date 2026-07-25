@@ -1,6 +1,46 @@
 // models/taskModel.js
 import mongoose from 'mongoose';
 
+const attachmentSchema = new mongoose.Schema(
+  {
+    name: { type: String },
+    url: { type: String },
+    publicId: { type: String },
+    size: { type: Number },
+    type: { type: String },
+  },
+  { _id: false }
+);
+
+const subTaskSchema = new mongoose.Schema(
+  {
+    title: { type: String, required: true, trim: true },
+    description: { type: String, default: '' },
+    startDate: { type: Date, default: null },
+    dueDate: { type: Date, default: null },
+    bufferTime: { type: Number, default: 0 }, // minutes
+    links: [String],
+    attachments: [attachmentSchema],
+    status: {
+      type: String,
+      enum: ['pending', 'done', 'confirmed'],
+      default: 'pending',
+    },
+    completedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    completedAt: { type: Date, default: null },
+    confirmedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    confirmedAt: { type: Date, default: null },
+    notes: { type: String, default: '' },
+    feedback: { type: String, default: '' },
+    reminderSent: { type: Boolean, default: false },
+    // Rejection fields
+    rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    rejectedAt: { type: Date, default: null },
+    rejectionReason: { type: String, default: '' },
+  },
+  { _id: false }
+);
+
 const taskSchema = new mongoose.Schema(
   {
     project: {
@@ -45,7 +85,14 @@ const taskSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'in-progress', 'review', 'completed', 'cancelled'],
+      enum: [
+        'pending',
+        'in-progress',
+        'ready_for_completion',
+        'completed',
+        'confirmed_completed',
+        'cancelled',
+      ],
       default: 'pending',
     },
     priority: {
@@ -53,9 +100,17 @@ const taskSchema = new mongoose.Schema(
       enum: ['low', 'medium', 'high', 'urgent'],
       default: 'medium',
     },
+    startDate: {
+      type: Date,
+      default: null,
+    },
     dueDate: {
       type: Date,
       default: null,
+    },
+    bufferTime: {
+      type: Number,
+      default: 0, // minutes
     },
     estimatedHours: {
       type: Number,
@@ -71,6 +126,52 @@ const taskSchema = new mongoose.Schema(
       min: 0,
       max: 100,
     },
+    subTasks: [subTaskSchema],
+    allowAssigneeEditSubtasks: {
+      type: Boolean,
+      default: false,
+    },
+    dependencies: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Task',
+      },
+    ],
+    links: [String],
+    attachments: [attachmentSchema],
+    reminderSent: {
+      type: Boolean,
+      default: false,
+    },
+    completedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    completedAt: {
+      type: Date,
+      default: null,
+    },
+    completionNotes: {
+      type: String,
+      default: '',
+    },
+    confirmedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    confirmedAt: {
+      type: Date,
+      default: null,
+    },
+    completionFeedback: {
+      type: String,
+      default: '',
+    },
+    finalLinks: [String],
+    finalAttachments: [attachmentSchema],
+    // Legacy fields – kept for backward compatibility
     submittedProgress: {
       type: Number,
       default: 0,
@@ -90,53 +191,13 @@ const taskSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
-    completedAt: {
-      type: Date,
-      default: null,
-    },
-    completedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      default: null,
-    },
-    completionFeedback: {
-      type: String,
-      default: '',
-    },
-    dependencies: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Task',
-      },
-    ],
-    links: [
-      {
-        type: String,
-      },
-    ],
-    // Attachments are stored as structured subdocuments, not plain strings.
-    // Each attachment must be an object: { name, url, publicId, size, type }
-    attachments: [
-      {
-        name: { type: String },
-        url: { type: String },
-        publicId: { type: String },
-        size: { type: Number },
-        type: { type: String },
-        _id: false,
-      },
-    ],
     stages: [
       {
         name: { type: String, required: true },
         order: { type: Number, default: 0 },
         completed: { type: Boolean, default: false },
         completedAt: { type: Date, default: null },
-        completedBy: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'User',
-          default: null,
-        },
+        completedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
         notes: { type: String, default: '' },
       },
     ],
@@ -158,11 +219,7 @@ const taskSchema = new mongoose.Schema(
             ref: 'User',
           },
         ],
-        attachments: [
-          {
-            type: String,
-          },
-        ],
+        attachments: [String],
         createdAt: { type: Date, default: Date.now },
       },
     ],
