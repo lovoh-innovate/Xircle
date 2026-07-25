@@ -1,6 +1,6 @@
 // src/workspaceScreens/MyWorkspaceChannelId.jsx
 import React, { useState, useEffect, useRef } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, Link, useSearchParams } from "react-router-dom";
 import { useSelector } from "react-redux";
 import { useGetWorkspaceQuery } from "../slices/workspaceApiSlice";
 import {
@@ -10,6 +10,7 @@ import {
   useDeleteMessageMutation,
 } from "../slices/messagingApiSlice";
 import MyWorkspaceSidebar from "../workspaceComponents/MyWorkspaceSidebar";
+import { useInitiateCallMutation } from "../slices/callApiSlice"; // ← NEW import
 import {
   FaHashtag,
   FaArrowLeft,
@@ -151,7 +152,7 @@ const ImagePreviewModal = ({ imageUrl, onClose, senderName, time }) => {
   );
 };
 
-// ─── Media Message Component (only sender can delete) ───────────────
+// ─── Media Message Component ───────────────────────────────
 const MediaMessage = ({
   message,
   isOwn,
@@ -327,7 +328,6 @@ const MediaMessage = ({
               <span>{time}</span>
               <MessageTicks message={message} isOwn={isOwn} isDM={isDM} />
             </div>
-            {/* Only show delete for own images */}
             {isOwn && (
               <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition">
                 <button
@@ -404,7 +404,6 @@ const MediaMessage = ({
         >
           <span>{time}</span>
           <MessageTicks message={message} isOwn={isOwn} isDM={isDM} />
-          {/* Only show delete for own messages */}
           {isOwn && (
             <div className="relative ml-2">
               <button
@@ -553,6 +552,7 @@ const ChatDetailsSheet = ({
 const MyWorkspaceChannelId = () => {
   const { workspaceId, chatId } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { userInfo } = useSelector((state) => state.auth);
   const [message, setMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -562,6 +562,17 @@ const MyWorkspaceChannelId = () => {
   const imageInputRef = useRef(null);
   const [previewImage, setPreviewImage] = useState(null);
   const [showDetailsSheet, setShowDetailsSheet] = useState(false);
+
+  // ── Focus input if queried (quick reply) ─────────────────────────
+  const inputRef = useRef(null);
+  useEffect(() => {
+    if (searchParams.get("focusInput") === "true") {
+      setTimeout(() => inputRef.current?.focus(), 300);
+    }
+  }, [searchParams]);
+
+  // ── Call mutation ────────────────────────────────────────────────
+  const [initiateCall, { isLoading: isCallInitiating }] = useInitiateCallMutation();
 
   // Voice recording states
   const [isRecording, setIsRecording] = useState(false);
@@ -908,9 +919,62 @@ const MyWorkspaceChannelId = () => {
     }
   };
 
-  const handleCall = () => toast.info("Voice/Video calls not available yet");
+  // ── ⭐ NEW: Start a call (voice or video) ──────────────────────
+  const handleCall = async (type) => {
+    if (!workspace || !chat) {
+      toast.error("Missing workspace or chat data");
+      return;
+    }
 
-  // Mic pointer events
+    // Build participant list
+    let participantIds = [];
+    if (isDM) {
+      // DM: only the other participant
+      const otherId = otherParticipant?._id;
+      if (!otherId) {
+        toast.error("No other participant in this DM");
+        return;
+      }
+      participantIds = [otherId];
+    } else {
+      // Group: exclude the current user
+      participantIds = chat.participants
+        .filter((p) => {
+          const uid = p.user?._id || p.user;
+          return uid !== userInfo._id && uid !== userInfo?._id;
+        })
+        .map((p) => p.user?._id || p.user);
+    }
+
+    if (participantIds.length === 0) {
+      toast.info("No one else to call in this chat.");
+      return;
+    }
+
+    try {
+      const response = await initiateCall({
+        workspaceId,
+        type,
+        participantIds,
+      }).unwrap();
+
+      // Navigate to call screen as initiator
+      navigate(`/call/${response.call.roomId}`, {
+        state: {
+          callData: {
+            ...response.call,
+            status: "ringing",
+            isInitiator: true,
+            workspaceColor: brandColor,
+          },
+        },
+      });
+    } catch (err) {
+      toast.error(err?.data?.message || "Failed to initiate call");
+    }
+  };
+
+  // Mic pointer events (unchanged)
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1081,7 +1145,7 @@ const MyWorkspaceChannelId = () => {
 
       {/* Chat area */}
       <div className="flex-1 flex flex-col bg-white h-full overflow-hidden">
-        {/* Header – fixed on mobile (keyboard-safe), sticky on desktop */}
+        {/* Header – fixed on mobile, sticky on desktop */}
         <header
           className="fixed lg:sticky top-0 left-0 right-0 lg:left-auto lg:right-auto z-20 flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-teal-600 text-white flex-shrink-0 cursor-pointer"
           style={{
@@ -1135,10 +1199,20 @@ const MyWorkspaceChannelId = () => {
             className="flex gap-2 flex-shrink-0"
             onClick={(e) => e.stopPropagation()}
           >
-            <button onClick={handleCall} className="p-1.5">
+            <button
+              onClick={() => handleCall('voice')}
+              disabled={isCallInitiating}
+              className="p-1.5 disabled:opacity-50"
+              aria-label="Start voice call"
+            >
               <FaPhone />
             </button>
-            <button onClick={handleCall} className="p-1.5">
+            <button
+              onClick={() => handleCall('video')}
+              disabled={isCallInitiating}
+              className="p-1.5 disabled:opacity-50"
+              aria-label="Start video call"
+            >
               <FaVideo />
             </button>
           </div>
@@ -1317,6 +1391,7 @@ const MyWorkspaceChannelId = () => {
             />
 
             <input
+              ref={inputRef}
               type="text"
               value={message}
               onChange={(e) => setMessage(e.target.value)}

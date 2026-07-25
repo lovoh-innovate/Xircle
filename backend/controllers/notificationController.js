@@ -92,6 +92,7 @@ export const sendPushNotification = async (userId, title, body, data = {}) => {
 
     for (const tokenRecord of tokens) {
       try {
+        // ── Web push ──────────────────────────────────────────────────
         if (tokenRecord.deviceType === 'web' && tokenRecord.subscription) {
           console.log(`📤 Sending web push to endpoint: ${tokenRecord.token?.substring(0, 30)}...`);
           await webpush.sendNotification(
@@ -102,44 +103,92 @@ export const sendPushNotification = async (userId, title, body, data = {}) => {
               icon: '/icon.png',
               badge: '/badge.png',
               data,
-              vibrate: [200, 100, 200],
-              requireInteraction: true,
+              vibrate: data.notificationType === 'call' ? [1000, 500, 1000, 500, 1000] : [200, 100, 200],
+              requireInteraction: data.notificationType === 'call' ? true : false,
+              actions: data.actions || [],
             })
           );
           sentCount++;
           console.log(`✅ Web push sent successfully to ${tokenRecord.token?.substring(0, 20)}...`);
-        } else if (['ios', 'android'].includes(tokenRecord.deviceType) && tokenRecord.token) {
-          if (firebaseInitialised) {
-            console.log(`📤 Sending FCM push to token: ${tokenRecord.token?.substring(0, 20)}...`);
-            const message = {
-              notification: { title, body },
-              data: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
-              token: tokenRecord.token,
-              // ── CRITICAL for heads‑up pop‑up ──────────────────────────
-              android: {
+        }
+
+        // ── Mobile push (FCM) ─────────────────────────────────────────
+        else if (['ios', 'android'].includes(tokenRecord.deviceType) && tokenRecord.token) {
+          if (!firebaseInitialised) {
+            console.log(`⚠️ Firebase not initialised, skipping mobile token`);
+            continue;
+          }
+
+          console.log(`📤 Sending FCM push to token: ${tokenRecord.token?.substring(0, 20)}...`);
+
+          // ════════════════════════════════════════════════════════════
+          // ⭐ CRITICAL FIX: DATA-ONLY FOR CALLS – no top‑level `notification`
+          // ════════════════════════════════════════════════════════════
+          const message = {
+            data: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
+            token: tokenRecord.token,
+          };
+
+          // Only attach a `notification` payload for NON‑call notifications.
+          // For calls, we send a data‑only message so the OS does NOT auto‑display
+          // a generic tray notification, and instead our native code handles it.
+          if (data.notificationType !== 'call') {
+            message.notification = { title, body };
+          }
+
+          // ── Android platform overrides ─────────────────────────────
+          if (data.notificationType === 'call') {
+            message.android = {
+              priority: 'high',
+              notification: {
+                channelId: 'call_channel',   // must match channel created in the app
+                sound: 'ringtone',
                 priority: 'high',
-                notification: {
-                  channelId: 'default',          // must match channel created in the app
-                  sound: 'default',
+                visibility: 'public',
+                fullScreenIntent: true,      // shows over lock screen
+                clickAction: 'OPEN_CALL',
+              },
+              ttl: 86400,
+            };
+            // ── iOS platform overrides (VoIP‑style) ──────────────────
+            message.apns = {
+              payload: {
+                aps: {
+                  sound: 'ringtone.caf',
+                  'content-available': 1,
+                  category: 'call',
                   priority: 'high',
-                  visibility: 'public',
                 },
               },
-              apns: {
-                payload: {
-                  aps: {
-                    sound: 'default',
-                    contentAvailable: true,
-                  },
+              headers: {
+                'apns-push-type': 'voip',
+                'apns-expiration': '86400',
+              },
+            };
+          } else {
+            // Default (messages, etc.)
+            message.android = {
+              priority: 'high',
+              notification: {
+                channelId: 'default',
+                sound: 'default',
+                priority: 'high',
+                visibility: 'public',
+              },
+            };
+            message.apns = {
+              payload: {
+                aps: {
+                  sound: 'default',
+                  'content-available': 1,
                 },
               },
             };
-            await getMessaging().send(message);
-            sentCount++;
-            console.log(`✅ FCM push sent successfully`);
-          } else {
-            console.log(`⚠️ Firebase not initialised, skipping mobile token`);
           }
+
+          await getMessaging().send(message);
+          sentCount++;
+          console.log(`✅ FCM push sent successfully`);
         } else {
           console.log(`⚠️ Unknown device type or missing subscription/token for token:`, tokenRecord);
         }

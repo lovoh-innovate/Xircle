@@ -16,7 +16,7 @@ import 'react-toastify/dist/ReactToastify.css';
 import './index.css';
 import store from './store';
 
-import { SocketProvider } from './components/SocketContext.jsx';
+import { SocketProvider, useSocket } from './components/SocketContext.jsx';
 import IncomingCallModal from './components/IncomingCallModal.jsx';
 
 import Login from './screens/Login.jsx';
@@ -77,29 +77,46 @@ const PushNotificationInitializer = () => {
   const { userInfo } = useSelector((state) => state.auth);
   const { permission, subscribe, unsubscribe } = useMobilePushNotifications();
 
+  // Create both channels on app start (Android)
   useEffect(() => {
     if (Capacitor.isNativePlatform()) {
-      const createChannel = async () => {
+      const createChannels = async () => {
         try {
+          // 1. Default channel for messages & other notifications
           await PushNotifications.createChannel({
             id: 'default',
-            name: 'Default Channel',
-            importance: 4,
+            name: 'Default',
+            importance: 3,
             visibility: 1,
             sound: 'default',
             vibration: true,
             lights: true,
-            description: 'High‑priority notifications pop on screen',
+            description: 'General notifications',
           });
-          console.log('✅ Notification channel created with pop‑up enabled');
+          console.log('✅ Default channel created');
+
+          // 2. Call channel – HIGH importance, full‑screen intent, bypass DND
+          await PushNotifications.createChannel({
+            id: 'call_channel',
+            name: 'Incoming Calls',
+            importance: 4,                 // MAX
+            visibility: 1,                // PUBLIC
+            sound: 'ringtone',            // must be in resources
+            vibration: true,
+            lights: true,
+            bypassDnd: true,              // override Do Not Disturb
+            description: 'Incoming call notifications',
+          });
+          console.log('✅ Call channel created with full‑screen intent');
         } catch (err) {
-          console.warn('Could not create notification channel:', err);
+          console.warn('Could not create notification channels:', err);
         }
       };
-      createChannel();
+      createChannels();
     }
   }, []);
 
+  // Subscribe on login, unsubscribe on logout
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     if (userInfo?.token) {
@@ -117,14 +134,36 @@ const PushNotificationInitializer = () => {
 // ── Root layout ──────────────────────────────────────────────────────
 const RootLayout = () => {
   const navigate = useNavigate();
+  const { setIncomingCallFromPush } = useSocket();
 
+  // ── Listen for Capacitor push events (foreground) ────────────────
   useEffect(() => {
     const handlePushReceived = (event) => {
       const notification = event.detail;
+      const data = notification?.data || {};
+
+      // ── CALL NOTIFICATION (foreground) ──────────────────────────
+      if (data.notificationType === 'call' && data.roomId) {
+        console.log('📞 Call push received in foreground:', data);
+        const callData = {
+          callId: data.callId,
+          roomId: data.roomId,
+          type: data.type || 'voice',
+          participants: data.participants || [],
+          caller: data.caller || { name: 'Unknown Caller' },
+          workspaceId: data.workspaceId,
+          workspaceColor: data.workspaceColor || '#0d9488',
+          status: 'ringing',
+          isInitiator: false,
+        };
+        setIncomingCallFromPush(callData);
+        return;
+      }
+
+      // ── MESSAGE NOTIFICATION (foreground) ──────────────────────
       if (notification?.title && notification?.body) {
         toast.info(`${notification.title}: ${notification.body}`, {
           onClick: () => {
-            const data = notification.data || {};
             if (data.chatId && data.workspaceId) {
               navigate(`/workspace/${data.workspaceId}/chat/${data.chatId}`);
             }
@@ -137,7 +176,7 @@ const RootLayout = () => {
       const data = event.detail || {};
       console.log('📱 Push tapped data:', data);
 
-      // Handle call notifications
+      // Handle call notifications (background tap)
       if (data.notificationType === 'call' && data.roomId) {
         navigate(`/call/${data.roomId}?autoJoin=true`);
         return;
@@ -157,6 +196,32 @@ const RootLayout = () => {
     return () => {
       window.removeEventListener('mobile-push-received', handlePushReceived);
       window.removeEventListener('mobile-push-tapped', handlePushTapped);
+    };
+  }, [navigate, setIncomingCallFromPush]);
+
+  // ── NEW: Listen for native call data injected from MainActivity ──
+  useEffect(() => {
+    const handleCallPushFromNative = (event) => {
+      const callData = event.detail;
+      console.log('📞 Native call data received from MainActivity:', callData);
+      if (callData && callData.roomId) {
+        // Navigate directly to the call screen with auto‑join
+        navigate(`/call/${callData.roomId}?autoJoin=true`);
+      }
+    };
+
+    // Also check if the data was already injected before the listener was attached
+    if (window.__callDataFromPush) {
+      console.log('📞 Found __callDataFromPush on window:', window.__callDataFromPush);
+      handleCallPushFromNative({ detail: window.__callDataFromPush });
+      // Clean up to avoid duplicates
+      delete window.__callDataFromPush;
+    }
+
+    window.addEventListener('call-push-received', handleCallPushFromNative);
+
+    return () => {
+      window.removeEventListener('call-push-received', handleCallPushFromNative);
     };
   }, [navigate]);
 

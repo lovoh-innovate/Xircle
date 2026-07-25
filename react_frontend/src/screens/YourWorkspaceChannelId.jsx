@@ -1,6 +1,6 @@
 // src/screens/YourWorkspaceChannelId.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
 import {
@@ -10,7 +10,7 @@ import {
   useDeleteMessageMutation,
 } from '../slices/messagingApiSlice';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
-import { useInitiateCallMutation } from '../slices/callApiSlice'; // ← new import
+import { useInitiateCallMutation } from '../slices/callApiSlice';
 import {
   FaHashtag,
   FaArrowLeft,
@@ -427,6 +427,7 @@ const ChatDetailsSheet = ({ isOpen, onClose, chat, workspace, isDM, otherPartici
 const YourWorkspaceChannelId = () => {
   const { workspaceId, chatId } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { userInfo } = useSelector((state) => state.auth);
   const [message, setMessage] = useState('');
   const messagesEndRef = useRef(null);
@@ -435,6 +436,14 @@ const YourWorkspaceChannelId = () => {
   const imageInputRef = useRef(null);
   const [previewImage, setPreviewImage] = useState(null);
   const [showDetailsSheet, setShowDetailsSheet] = useState(false);
+
+  // ── Focus input if queried (quick reply) ─────────────────────────
+  const inputRef = useRef(null);
+  useEffect(() => {
+    if (searchParams.get('focusInput') === 'true') {
+      setTimeout(() => inputRef.current?.focus(), 300);
+    }
+  }, [searchParams]);
 
   // Voice recording states
   const [isRecording, setIsRecording] = useState(false);
@@ -465,7 +474,7 @@ const YourWorkspaceChannelId = () => {
   } = useGetChatMessagesQuery({ chatId, page: 1, limit: 50 }, { skip: !chatId });
   const [sendMessageApi] = useSendMessageMutation();
   const [deleteMessageApi] = useDeleteMessageMutation();
-  const [initiateCall, { isLoading: isCallInitiating }] = useInitiateCallMutation(); // ← call mutation
+  const [initiateCall, { isLoading: isCallInitiating }] = useInitiateCallMutation();
 
   const chat = chatsData?.chats?.find(c => c._id === chatId);
   const isDM = chat?.type === 'direct';
@@ -906,7 +915,7 @@ const YourWorkspaceChannelId = () => {
             <button
               onClick={() => handleCall('voice')}
               disabled={isCallInitiating}
-              className="p-1.5"
+              className="p-1.5 disabled:opacity-50"
               aria-label="Start voice call"
             >
               <FaPhone />
@@ -914,7 +923,7 @@ const YourWorkspaceChannelId = () => {
             <button
               onClick={() => handleCall('video')}
               disabled={isCallInitiating}
-              className="p-1.5"
+              className="p-1.5 disabled:opacity-50"
               aria-label="Start video call"
             >
               <FaVideo />
@@ -1029,6 +1038,7 @@ const YourWorkspaceChannelId = () => {
             <input type="file" ref={imageInputRef} onChange={(e) => handleFileChange(e, 'image')} className="hidden" accept="image/*,video/*" />
 
             <input
+              ref={inputRef}
               type="text"
               value={message}
               onChange={(e) => setMessage(e.target.value)}

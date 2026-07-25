@@ -7,7 +7,7 @@ const SocketContext = createContext(null);
 export const SocketProvider = ({ children, token }) => {
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [incomingCall, setIncomingCall] = useState(null); // new
+  const [incomingCall, setIncomingCall] = useState(null);
 
   console.log('🔍 SocketProvider rendered, token:', token ? 'present' : 'MISSING');
 
@@ -35,22 +35,22 @@ export const SocketProvider = ({ children, token }) => {
       setIsConnected(false);
     };
 
-    // 🔔 Listen for incoming calls globally
+    // 🔔 Listen for incoming calls from WebSocket
     const onIncomingCall = (callData) => {
-      console.log('📞 Incoming call received:', callData);
+      console.log('📞 Incoming call received via socket:', callData);
       setIncomingCall(callData);
     };
 
     newSocket.on('connect', onConnect);
     newSocket.on('disconnect', onDisconnect);
-    newSocket.on('incoming-call', onIncomingCall); // new
+    newSocket.on('incoming-call', onIncomingCall);
 
     if (newSocket.connected) setIsConnected(true);
 
     return () => {
       newSocket.off('connect', onConnect);
       newSocket.off('disconnect', onDisconnect);
-      newSocket.off('incoming-call', onIncomingCall); // new
+      newSocket.off('incoming-call', onIncomingCall);
     };
   }, [token]);
 
@@ -61,11 +61,26 @@ export const SocketProvider = ({ children, token }) => {
     };
   }, []);
 
-  // Function to clear incoming call after it's handled
+  // ── Functions to manage incoming call ──────────────────────────
+
   const clearIncomingCall = () => setIncomingCall(null);
 
+  // Allow external triggers (like push notifications) to set the incoming call
+  const setIncomingCallFromPush = (callData) => {
+    console.log('📞 Incoming call set from push:', callData);
+    setIncomingCall(callData);
+  };
+
+  const contextValue = {
+    socket,
+    isConnected,
+    incomingCall,
+    clearIncomingCall,
+    setIncomingCallFromPush, // ← new
+  };
+
   return (
-    <SocketContext.Provider value={{ socket, isConnected, incomingCall, clearIncomingCall }}>
+    <SocketContext.Provider value={contextValue}>
       {children}
     </SocketContext.Provider>
   );

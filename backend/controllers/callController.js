@@ -78,6 +78,24 @@ const notifyParticipants = async (userIds, title, body, data = {}) => {
         ...data,
         notificationType: data.notificationType || 'default',
         actions: data.actions || [],
+        // Platform-specific extras for mobile full‑screen call UI
+        _android: {
+          priority: 'high',
+          notification: {
+            channelId: 'call_channel',
+            sound: 'ringtone',
+            priority: 'high',
+            visibility: 'public',
+            fullScreenIntent: true,
+            clickAction: 'OPEN_CALL',
+          },
+        },
+        _ios: {
+          'content-available': 1,
+          priority: 'high',
+          sound: 'ringtone.caf',
+          category: 'call',
+        },
       },
       sendPush: true,
       emailEventType: 'teamInvite',
