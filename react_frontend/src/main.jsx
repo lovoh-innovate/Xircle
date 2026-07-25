@@ -131,12 +131,25 @@ const PushNotificationInitializer = () => {
   return null;
 };
 
+// ── Helper: build a normalized callData object from raw push data ──────
+const buildCallDataFromPush = (data) => ({
+  callId: data.callId,
+  roomId: data.roomId,
+  type: data.type || 'voice',
+  participants: data.participants || [],
+  caller: data.caller || { name: data.callerName || 'Unknown Caller' },
+  workspaceId: data.workspaceId,
+  workspaceColor: data.workspaceColor || '#0d9488',
+  status: 'ringing',
+  isInitiator: false,
+});
+
 // ── Root layout ──────────────────────────────────────────────────────
 const RootLayout = () => {
   const navigate = useNavigate();
   const { setIncomingCallFromPush } = useSocket();
 
-  // ── Listen for Capacitor push events (foreground) ────────────────
+  // ── Listen for Capacitor push events (foreground + tap) ───────────
   useEffect(() => {
     const handlePushReceived = (event) => {
       const notification = event.detail;
@@ -145,18 +158,7 @@ const RootLayout = () => {
       // ── CALL NOTIFICATION (foreground) ──────────────────────────
       if (data.notificationType === 'call' && data.roomId) {
         console.log('📞 Call push received in foreground:', data);
-        const callData = {
-          callId: data.callId,
-          roomId: data.roomId,
-          type: data.type || 'voice',
-          participants: data.participants || [],
-          caller: data.caller || { name: 'Unknown Caller' },
-          workspaceId: data.workspaceId,
-          workspaceColor: data.workspaceColor || '#0d9488',
-          status: 'ringing',
-          isInitiator: false,
-        };
-        setIncomingCallFromPush(callData);
+        setIncomingCallFromPush(buildCallDataFromPush(data));
         return;
       }
 
@@ -172,12 +174,18 @@ const RootLayout = () => {
       }
     };
 
+    // Fired both by the Capacitor push plugin (background tap) AND by
+    // MainActivity.java's native call notification tap (dispatched from
+    // MyFirebaseMessagingService's full‑screen intent flow).
     const handlePushTapped = (event) => {
       const data = event.detail || {};
       console.log('📱 Push tapped data:', data);
 
-      // Handle call notifications (background tap)
+      // Handle call notifications: populate SocketContext BEFORE navigating
+      // so CallScreen has callData available the moment it mounts, instead
+      // of relying on location.state (which a plain URL navigation never sets).
       if (data.notificationType === 'call' && data.roomId) {
+        setIncomingCallFromPush(buildCallDataFromPush(data));
         navigate(`/call/${data.roomId}?autoJoin=true`);
         return;
       }
@@ -198,32 +206,6 @@ const RootLayout = () => {
       window.removeEventListener('mobile-push-tapped', handlePushTapped);
     };
   }, [navigate, setIncomingCallFromPush]);
-
-  // ── NEW: Listen for native call data injected from MainActivity ──
-  useEffect(() => {
-    const handleCallPushFromNative = (event) => {
-      const callData = event.detail;
-      console.log('📞 Native call data received from MainActivity:', callData);
-      if (callData && callData.roomId) {
-        // Navigate directly to the call screen with auto‑join
-        navigate(`/call/${callData.roomId}?autoJoin=true`);
-      }
-    };
-
-    // Also check if the data was already injected before the listener was attached
-    if (window.__callDataFromPush) {
-      console.log('📞 Found __callDataFromPush on window:', window.__callDataFromPush);
-      handleCallPushFromNative({ detail: window.__callDataFromPush });
-      // Clean up to avoid duplicates
-      delete window.__callDataFromPush;
-    }
-
-    window.addEventListener('call-push-received', handleCallPushFromNative);
-
-    return () => {
-      window.removeEventListener('call-push-received', handleCallPushFromNative);
-    };
-  }, [navigate]);
 
   return (
     <>

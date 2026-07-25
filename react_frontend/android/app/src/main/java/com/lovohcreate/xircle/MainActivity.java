@@ -3,6 +3,7 @@ package com.lovohcreate.xircle;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Looper;
 import android.view.WindowManager;
 
 import com.getcapacitor.BridgeActivity;
@@ -12,6 +13,12 @@ import org.json.JSONObject;
 public class MainActivity extends BridgeActivity {
 
     private static final String ACTION_OPEN_CALL = "OPEN_CALL";
+
+    // Polling config for waiting until the WebView/React app is ready
+    private static final int POLL_INTERVAL_MS = 150;
+    private static final int POLL_TIMEOUT_MS = 8000; // give up after 8s
+
+    private final Handler pollHandler = new Handler(Looper.getMainLooper());
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -37,47 +44,56 @@ public class MainActivity extends BridgeActivity {
                                 | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
                 );
 
-                String roomId = callData.getString("roomId");
-                String callId = callData.getString("callId");
-                String type = callData.getString("type");
-                String callerName = callData.getString("callerName");
-
-                String url = "/call/" + roomId + "?autoJoin=true";
-
-                // Inject call data into the web app
-                new Handler().postDelayed(() -> {
-                    if (bridge != null && bridge.getWebView() != null) {
-                        try {
-                            JSONObject json = new JSONObject();
-                            for (String key : callData.keySet()) {
-                                json.put(key, callData.getString(key));
-                            }
-                            String js = "window.__callDataFromPush = " + json.toString() + ";";
-                            bridge.getWebView().evaluateJavascript(js, null);
-                            String eventJs = "window.dispatchEvent(new CustomEvent('call-push-received', { detail: window.__callDataFromPush }));";
-                            bridge.getWebView().evaluateJavascript(eventJs, null);
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                        }
+                try {
+                    JSONObject json = new JSONObject();
+                    for (String key : callData.keySet()) {
+                        json.put(key, callData.getString(key));
                     }
-                }, 500);
-
-                loadUrl(url);
+                    dispatchWhenReady(json, System.currentTimeMillis());
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
             }
         }
     }
 
-    private void loadUrl(String url) {
-        if (bridge != null && bridge.getWebView() != null) {
-            String fullUrl = bridge.getWebView().getUrl();
-            if (fullUrl == null) {
-                // Fallback: use your production URL or localhost for dev
-                fullUrl = "https://xircle.onrender.com"; // 🔁 Replace with your actual URL
+    /**
+     * Polls the WebView until window.__navigate exists (meaning React Router
+     * and the RootLayout listeners have mounted), then dispatches the
+     * 'mobile-push-tapped' event that main.jsx already listens for.
+     * Falls back to dispatching anyway after POLL_TIMEOUT_MS in case
+     * __navigate never appears for some reason (event listener may still
+     * be registered even without navigate being set yet).
+     */
+    private void dispatchWhenReady(JSONObject json, long startTime) {
+        if (bridge == null || bridge.getWebView() == null) {
+            // Bridge not ready yet at all — retry shortly
+            if (System.currentTimeMillis() - startTime < POLL_TIMEOUT_MS) {
+                pollHandler.postDelayed(() -> dispatchWhenReady(json, startTime), POLL_INTERVAL_MS);
             }
-            int idx = fullUrl.indexOf("?");
-            if (idx != -1) fullUrl = fullUrl.substring(0, idx);
-            String newUrl = fullUrl + url;
-            bridge.getWebView().loadUrl(newUrl);
+            return;
         }
+
+        String checkJs = "(typeof window.__navigate === 'function')";
+
+        bridge.getWebView().evaluateJavascript(checkJs, result -> {
+            boolean isReady = "true".equals(result);
+            boolean timedOut = System.currentTimeMillis() - startTime >= POLL_TIMEOUT_MS;
+
+            if (isReady || timedOut) {
+                dispatchCallEvent(json);
+            } else {
+                pollHandler.postDelayed(() -> dispatchWhenReady(json, startTime), POLL_INTERVAL_MS);
+            }
+        });
+    }
+
+    private void dispatchCallEvent(JSONObject json) {
+        if (bridge == null || bridge.getWebView() == null) return;
+
+        // Dispatch the event main.jsx's RootLayout already listens for
+        String eventJs =
+                "window.dispatchEvent(new CustomEvent('mobile-push-tapped', { detail: " + json.toString() + " }));";
+        bridge.getWebView().evaluateJavascript(eventJs, null);
     }
 }

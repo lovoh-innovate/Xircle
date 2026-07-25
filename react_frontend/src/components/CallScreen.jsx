@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useSelector } from 'react-redux';
+import { useSocket } from './SocketContext.jsx';
 import { useCallSocket } from '../hooks/useCallSocket';
 import {
   FaPhoneSlash,
@@ -10,6 +11,11 @@ import {
   FaVideoSlash,
   FaSpinner,
 } from 'react-icons/fa';
+
+// How long we wait for callData to show up (via socket/incomingCall) before
+// giving up and redirecting. Covers the brief gap between navigation and
+// the SocketContext state update landing on a re-render.
+const CALL_DATA_GRACE_MS = 4000;
 
 const CallScreen = () => {
   const { roomId } = useParams();
@@ -24,21 +30,56 @@ const CallScreen = () => {
   const { userInfo } = useSelector((state) => state.auth);
   const userId = userInfo?._id || userInfo?.id;
 
-  // Extract call data passed via navigation state
-  const callData = location.state?.callData;
+  const { incomingCall, clearIncomingCall } = useSocket();
 
-  // Redirect if no call data
+  // ── Resolve callData from whichever source has it ──────────────────
+  // 1. location.state – used when the caller initiates a call from within
+  //    the app (e.g. clicking "Call" navigates with state directly).
+  // 2. incomingCall (SocketContext) – used for the callee/push‑notification
+  //    flow, populated either by the live socket 'incoming-call' event or
+  //    by main.jsx's handlePushTapped before it navigates here.
+  const stateCallData = location.state?.callData;
+  const socketCallData =
+    incomingCall && incomingCall.roomId === roomId ? incomingCall : null;
+
+  const callData = stateCallData || socketCallData;
+
+  const [waitedTooLong, setWaitedTooLong] = useState(false);
+
+  // Give callData a moment to arrive (covers native cold‑start timing)
+  // before deciding there's genuinely nothing to show.
   useEffect(() => {
-    if (!callData || !callData.roomId) {
+    if (callData) return;
+    const timeout = setTimeout(() => setWaitedTooLong(true), CALL_DATA_GRACE_MS);
+    return () => clearTimeout(timeout);
+  }, [callData]);
+
+  // Redirect only once we've genuinely given up waiting
+  useEffect(() => {
+    if (!callData && waitedTooLong) {
       navigate('/my-workspaces', { replace: true });
     }
-  }, [callData, navigate]);
+  }, [callData, waitedTooLong, navigate]);
 
-  if (!callData) return null;
+  // Clear the "incoming call" flag from context once we've consumed it into
+  // this screen, so IncomingCallModal doesn't also try to render it.
+  useEffect(() => {
+    if (socketCallData) {
+      clearIncomingCall();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socketCallData?.roomId]);
+
+  if (!callData) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white">
+        <FaSpinner className="animate-spin text-3xl" />
+      </div>
+    );
+  }
 
   const {
     callId,
-    roomId: callRoomId,
     type,
     participants = [],
     isInitiator = false,
@@ -64,6 +105,7 @@ const CallScreen = () => {
   const localVideoRef = useRef(null);
   const remoteVideoRefs = useRef({});
   const [isConnecting, setIsConnecting] = useState(false);
+  const hasInitialized = useRef(false);
 
   // Set up local video stream
   useEffect(() => {
@@ -74,16 +116,18 @@ const CallScreen = () => {
 
   // Set up remote video streams
   useEffect(() => {
-    Object.entries(remoteStreams).forEach(([userId, stream]) => {
-      if (remoteVideoRefs.current[userId]) {
-        remoteVideoRefs.current[userId].srcObject = stream;
+    Object.entries(remoteStreams).forEach(([uid, stream]) => {
+      if (remoteVideoRefs.current[uid]) {
+        remoteVideoRefs.current[uid].srcObject = stream;
       }
     });
   }, [remoteStreams]);
 
-  // Handle call initiation / acceptance
+  // Handle call initiation / acceptance — run once, whether autoJoin
+  // came from a push tap or the user is the one who started the call.
   useEffect(() => {
-    if (!callData) return;
+    if (!callData || hasInitialized.current) return;
+    hasInitialized.current = true;
 
     const initCall = async () => {
       setIsConnecting(true);
@@ -91,22 +135,15 @@ const CallScreen = () => {
         // Caller: start peer connections
         await initiatePeerConnections();
       } else {
-        // Receiver: accept call (either manually or via auto‑join)
+        // Receiver: accept call (either via push auto‑join or manual accept)
         await acceptCall();
       }
       setIsConnecting(false);
     };
 
-    // If autoJoin is true, we automatically accept (from push notification)
-    // Otherwise, the user already clicked Accept in the modal, so we accept anyway.
-    // For the caller, we just initiate.
-    if (isInitiator) {
-      initCall();
-    } else {
-      // Auto‑join or manual accept – either way we accept the call
-      initCall();
-    }
-  }, []); // run once on mount
+    initCall();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callData]);
 
   // If call ended, show ended screen
   if (callStatus === 'ended') {
