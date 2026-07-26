@@ -78,26 +78,10 @@ const CallScreen = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socketCallData?.roomId]);
 
-  // ── If no callData yet, show a loading spinner ────────────────────
-  if (!callData) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white">
-        <FaSpinner className="animate-spin text-3xl" />
-      </div>
-    );
-  }
-
-  // ── Destructure callData with defaults ────────────────────────────
-  const {
-    callId,
-    type = 'voice',
-    participants = [],
-    isInitiator = false,
-    workspaceId,
-    workspaceColor = '#0d9488',
-  } = callData;
-
-  // ── Use call socket hook – but only after callData is confirmed ───
+  // ── Use call socket hook — must run on every render regardless of
+  // whether callData exists yet. The hook itself needs to tolerate
+  // callData being null/undefined internally (return no-op state, don't
+  // throw, don't skip calling it).
   const {
     localStream,
     remoteStreams,
@@ -125,14 +109,14 @@ const CallScreen = () => {
 
   // ── Set up remote video streams ────────────────────────────────────
   useEffect(() => {
-    Object.entries(remoteStreams).forEach(([uid, stream]) => {
+    Object.entries(remoteStreams || {}).forEach(([uid, stream]) => {
       if (remoteVideoRefs.current[uid]) {
         remoteVideoRefs.current[uid].srcObject = stream;
       }
     });
   }, [remoteStreams]);
 
-  // ── Handle call initiation / acceptance — run once ────────────────
+  // ── Handle call initiation / acceptance — run once callData exists ─
   useEffect(() => {
     if (!callData || hasInitialized.current) return;
     hasInitialized.current = true;
@@ -140,7 +124,7 @@ const CallScreen = () => {
     const initCall = async () => {
       setIsConnecting(true);
       try {
-        if (isInitiator) {
+        if (callData.isInitiator) {
           // Caller: start peer connections
           await initiatePeerConnections();
         } else {
@@ -158,6 +142,27 @@ const CallScreen = () => {
     initCall();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [callData]);
+
+  // ── NOW it's safe to bail out — every hook above has already run on
+  // every render, so hook count stays constant whether callData exists
+  // or not. ─────────────────────────────────────────────────────────
+  if (!callData) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white">
+        <FaSpinner className="animate-spin text-3xl" />
+      </div>
+    );
+  }
+
+  // ── Destructure callData with defaults ────────────────────────────
+  const {
+    callId,
+    type = 'voice',
+    participants = [],
+    isInitiator = false,
+    workspaceId,
+    workspaceColor = '#0d9488',
+  } = callData;
 
   // ── If call ended, show ended screen ──────────────────────────────
   if (callStatus === 'ended') {

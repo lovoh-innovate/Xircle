@@ -5,7 +5,7 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Intent;
 import android.media.RingtoneManager;
-import android.net.Uri;                     // ← add this
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
@@ -27,6 +27,8 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
     @Override
     public void onMessageReceived(RemoteMessage remoteMessage) {
         Map<String, String> data = remoteMessage.getData();
+        Log.d(TAG, "🔥 onMessageReceived called, data: " + data);
+
         if (data != null && "call".equals(data.get("notificationType"))) {
             Log.d(TAG, "📞 Call push received (data‑only)");
             handleCallNotification(data);
@@ -42,6 +44,7 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
             callData.putString(entry.getKey(), entry.getValue());
         }
 
+        // Build the intent that will open MainActivity when the notification is tapped
         Intent intent = new Intent(this, MainActivity.class);
         intent.setAction("OPEN_CALL");
         intent.putExtra("callData", callData);
@@ -54,16 +57,16 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
+        // Create the call channel (Android 8+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
                     CALL_CHANNEL_ID,
                     "Incoming Calls",
                     NotificationManager.IMPORTANCE_HIGH
             );
-            channel.setSound(
-                Uri.parse("android.resource://" + getPackageName() + "/raw/ringtone"),
-                null
-            );
+            // Custom ringtone (place ringtone.mp3 in res/raw/)
+            Uri ringtoneUri = Uri.parse("android.resource://" + getPackageName() + "/raw/ringtone");
+            channel.setSound(ringtoneUri, null);
             channel.setBypassDnd(true);
             channel.setLockscreenVisibility(NotificationCompat.VISIBILITY_PUBLIC);
             channel.setVibrationPattern(new long[]{1000, 500, 1000});
@@ -71,13 +74,14 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
             manager.createNotificationChannel(channel);
         }
 
+        // Build the notification with full‑screen intent
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CALL_CHANNEL_ID)
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentTitle("Incoming Call")
                 .setContentText(data.get("callerName") != null ? data.get("callerName") : "Unknown Caller")
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setCategory(NotificationCompat.CATEGORY_CALL)
-                .setFullScreenIntent(pendingIntent, true)
+                .setFullScreenIntent(pendingIntent, true)   // ⭐ shows over lock screen
                 .setAutoCancel(true)
                 .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))
                 .setVibrate(new long[]{1000, 500, 1000, 500, 1000})

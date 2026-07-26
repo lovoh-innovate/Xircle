@@ -7,11 +7,10 @@ import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
 import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
 import {
-  FaHashtag,
+  FaUsers,
   FaSearch,
   FaArrowLeft,
   FaTimes,
-  FaUsers,
   FaCircle,
 } from 'react-icons/fa';
 
@@ -91,7 +90,7 @@ const SearchChannelsModal = ({ isOpen, onClose, channels, brandColor, workspaceI
                   className="w-10 h-10 rounded-full flex items-center justify-center"
                   style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
                 >
-                  <FaHashtag className="text-sm" />
+                  <FaUsers className="text-sm" />
                 </div>
                 <div>
                   <p className="text-sm font-medium">{ch.name}</p>
@@ -172,7 +171,7 @@ const YourWorkspaceChannels = () => {
         <div className="flex-1 overflow-y-auto bg-white">
           {channels.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-              <FaHashtag className="text-4xl mb-2 opacity-30" />
+              <FaUsers className="text-4xl mb-2 opacity-30" />
               <p className="text-sm">No channels yet</p>
             </div>
           ) : (
@@ -190,11 +189,11 @@ const YourWorkspaceChannels = () => {
                       className="w-12 h-12 rounded-2xl flex items-center justify-center text-xl"
                       style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
                     >
-                      <FaHashtag className="text-lg" />
+                      <FaUsers className="text-lg" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
-                        <span className="font-semibold text-gray-800 truncate">#{channel.name}</span>
+                        <span className="font-semibold text-gray-800 truncate">{channel.name}</span>
                         <span className="text-xs text-gray-400 flex-shrink-0">{lastMsgTime}</span>
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
@@ -215,7 +214,7 @@ const YourWorkspaceChannels = () => {
           )}
         </div>
 
-        {/* Stats row (optional but nice) */}
+        {/* Stats row */}
         <div className="border-t border-gray-200 px-4 py-3 bg-white flex-shrink-0">
           <div className="grid grid-cols-3 gap-2">
             <div className="text-center">

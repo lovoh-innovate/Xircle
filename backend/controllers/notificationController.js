@@ -113,22 +113,15 @@ export const sendPushNotification = async (userId, title, body, data = {}) => {
             token: tokenRecord.token,
           };
 
-          // ── Only attach a `notification` payload for NON‑calls ──────
-          // Calls must be data‑only so the OS does not auto‑display a tray notification.
-          // The native MyFirebaseMessagingService will handle the full‑screen UI.
-          if (data.notificationType !== 'call') {
-            message.notification = { title, body };
-          }
-
-          // ── Android platform overrides ─────────────────────────────
+          // ════════════════════════════════════════════════════════════════
+          // ⭐ CRITICAL: Calls = DATA‑ONLY (no `notification` key at all)
+          // ════════════════════════════════════════════════════════════════
           if (data.notificationType === 'call') {
-            // For calls: data‑only, no `notification` block at all.
-            // We only set priority and TTL – the native service handles the UI.
+            // Calls: no top‑level notification, no android.notification
             message.android = {
               priority: 'high',
               ttl: 86400,
             };
-            // iOS VoIP‑style
             message.apns = {
               payload: {
                 aps: {
@@ -144,7 +137,8 @@ export const sendPushNotification = async (userId, title, body, data = {}) => {
               },
             };
           } else {
-            // Default for messages, etc.
+            // Non‑call: normal push with notification payload
+            message.notification = { title, body };
             message.android = {
               priority: 'high',
               notification: {

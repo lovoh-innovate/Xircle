@@ -83,19 +83,20 @@ const PushNotificationInitializer = () => {
       const createChannels = async () => {
         try {
           // 1. Default channel for messages & other notifications
+          //    IMPORTANCE 4 (HIGH) enables heads‑up pop‑ups on most devices.
           await PushNotifications.createChannel({
             id: 'default',
             name: 'Default',
-            importance: 3,
+            importance: 4,          // ← fixed: HIGH for pop‑up banners
             visibility: 1,
             sound: 'default',
             vibration: true,
             lights: true,
             description: 'General notifications',
           });
-          console.log('✅ Default channel created');
+          console.log('✅ Default channel created (heads‑up enabled)');
 
-          // 2. Call channel – HIGH importance, full‑screen intent, bypass DND
+          // 2. Call channel – MAX importance, full‑screen intent, bypass DND
           await PushNotifications.createChannel({
             id: 'call_channel',
             name: 'Incoming Calls',

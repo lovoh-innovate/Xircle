@@ -11,33 +11,15 @@ export const useMobilePushNotifications = () => {
 
   const [registerMobileToken] = useRegisterMobileTokenMutation();
 
+  // ── Check if mobile platform, load existing token ────────────────
   useEffect(() => {
     const isMobile = Capacitor.isNativePlatform();
     setIsSupported(isMobile);
     if (isMobile) {
       checkExistingToken();
-      createNotificationChannel();
       setupPushListeners();
     }
   }, []);
-
-  const createNotificationChannel = async () => {
-    try {
-      await PushNotifications.createChannel({
-        id: 'default',
-        name: 'Default Channel',
-        importance: 4,
-        visibility: 1,
-        sound: 'default',
-        vibration: true,
-        lights: true,
-        description: 'High‑priority notifications that pop up on screen',
-      });
-      console.log('✅ Notification channel created with pop‑up enabled');
-    } catch (error) {
-      console.warn('Could not create notification channel:', error);
-    }
-  };
 
   const checkExistingToken = useCallback(() => {
     const storedToken = localStorage.getItem('fcmToken');
@@ -48,6 +30,7 @@ export const useMobilePushNotifications = () => {
     }
   }, []);
 
+  // ── Subscribe (request permissions + register FCM token) ──────────
   const subscribe = useCallback(async () => {
     if (!isSupported) {
       console.warn('Push notifications not supported on this platform');
@@ -65,7 +48,7 @@ export const useMobilePushNotifications = () => {
       }
       setPermission('granted');
 
-      await createNotificationChannel();
+      // ⭐ Channel creation is now handled in main.jsx – no need here
 
       return new Promise((resolve) => {
         let registrationListener;
@@ -123,6 +106,7 @@ export const useMobilePushNotifications = () => {
     }
   }, [isSupported, registerMobileToken]);
 
+  // ── Unsubscribe (remove token from server) ────────────────────────
   const unsubscribe = useCallback(async () => {
     if (!isSupported || !fcmToken) {
       console.warn('Cannot unsubscribe: no token or unsupported platform');
@@ -148,6 +132,7 @@ export const useMobilePushNotifications = () => {
     }
   }, [isSupported, fcmToken, registerMobileToken]);
 
+  // ── Set up push listeners (foreground + tap) ──────────────────────
   const setupPushListeners = useCallback(() => {
     PushNotifications.addListener('pushNotificationReceived', (notification) => {
       console.log('📩 Push received in foreground:', notification);
@@ -157,7 +142,6 @@ export const useMobilePushNotifications = () => {
     PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
       console.log('📩 Push action performed:', notification);
       const data = notification.notification.data || {};
-      // Include actionId if present
       data.actionId = notification.actionId;
       window.dispatchEvent(new CustomEvent('mobile-push-tapped', { detail: data }));
     });
