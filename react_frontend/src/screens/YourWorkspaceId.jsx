@@ -1,10 +1,11 @@
 // src/workspaceScreens/YourWorkspaceId.jsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef, memo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
 import { useGetWorkspaceProjectsQuery } from '../slices/projectApiSlice';
 import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
+import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
 import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
 import {
@@ -20,25 +21,43 @@ import {
   FaTasks,
   FaCheckCircle,
   FaClock,
+  FaSpinner,
 } from 'react-icons/fa';
 import {
   AreaChart,
   Area,
   XAxis,
+  YAxis,
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
 
-// ─── chart data (messages) ──────────────────────────────────────────
-const chartData = [
-  { day: 'Mon', messages: 12 },
-  { day: 'Tue', messages: 19 },
-  { day: 'Wed', messages: 8 },
-  { day: 'Thu', messages: 27 },
-  { day: 'Fri', messages: 34 },
-  { day: 'Sat', messages: 22 },
-  { day: 'Sun', messages: 15 },
-];
+// ─── Helper component to fetch task count for a single project ──
+const TaskCounter = memo(({ projectId, onCount, onLoading }) => {
+  const { data, isLoading } = useGetProjectTasksQuery({ projectId });
+  const mounted = useRef(true);
+  const lastCount = useRef(0);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
+  useEffect(() => {
+    if (data && mounted.current) {
+      const count = data.tasks.length;
+      if (count !== lastCount.current) {
+        lastCount.current = count;
+        onCount(projectId, count);
+      }
+    }
+    if (isLoading !== undefined && mounted.current) {
+      onLoading(projectId, isLoading);
+    }
+  }, [data, isLoading, projectId, onCount, onLoading]);
+
+  return null;
+});
 
 // ─── main component ──────────────────────────────────────────────────
 const YourWorkspaceId = () => {
@@ -48,10 +67,37 @@ const YourWorkspaceId = () => {
   const [hideStats, setHideStats] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
 
-  // ── data fetching ──
   const { data, isLoading, error } = useGetWorkspaceQuery(workspaceId);
   const { data: projectsData, isLoading: projectsLoading } = useGetWorkspaceProjectsQuery({ workspaceId });
   const { data: chatsData } = useGetUserChatsQuery(workspaceId);
+
+  // ── state for aggregating task counts ──────────────────────────
+  const [totalTasks, setTotalTasks] = useState(0);
+  const [taskCounts, setTaskCounts] = useState({});
+  const [loadingTasks, setLoadingTasks] = useState({});
+
+  // ── handle task count updates from TaskCounter (memoized) ────
+  const handleTaskCount = useCallback((projectId, count) => {
+    setTaskCounts(prev => {
+      if (prev[projectId] === count) return prev;
+      return { ...prev, [projectId]: count };
+    });
+  }, []);
+
+  const handleTaskLoading = useCallback((projectId, loading) => {
+    setLoadingTasks(prev => {
+      if (prev[projectId] === loading) return prev;
+      return { ...prev, [projectId]: loading };
+    });
+  }, []);
+
+  // ── recompute total whenever taskCounts changes ──────────────
+  useEffect(() => {
+    const sum = Object.values(taskCounts).reduce((a, b) => a + b, 0);
+    setTotalTasks(sum);
+  }, [taskCounts]);
+
+  const isTasksLoading = projectsData?.projects?.some(p => loadingTasks[p._id] !== false) ?? false;
 
   useEffect(() => {
     if (error) navigate('/my-workspaces');
@@ -88,10 +134,24 @@ const YourWorkspaceId = () => {
   const onlineCount = activeMembers.filter((m) => m.status === 'active').length || 0;
   const channelCount = chats.filter((c) => c.type === 'group').length || 0;
   const brandColor = workspace.color || '#0d9488';
-  const totalMessages = chartData.reduce((sum, d) => sum + d.messages, 0);
 
-  // ─── helpers ──────────────────────────────────────────────────────
-  const formatNumber = (num) => (num > 999 ? (num / 1000).toFixed(1) + 'k' : num);
+  const avgProgress = projects.length > 0 
+    ? Math.round(projects.reduce((sum, p) => sum + (p.progress || 0), 0) / projects.length) 
+    : 0;
+
+  // ─── prepare chart data ──────────────────────────────────────────
+  const chartProjects = [...projects]
+    .sort((a, b) => {
+      if (a.createdAt && b.createdAt) {
+        return new Date(a.createdAt) - new Date(b.createdAt);
+      }
+      return 0;
+    })
+    .slice(0, 10)
+    .map((p) => ({
+      name: p.name.length > 10 ? p.name.slice(0, 10) + '…' : p.name,
+      progress: p.progress || 0,
+    }));
 
   // ─── metric card ──────────────────────────────────────────────────
   const MetricCard = ({ icon: Icon, label, value, to, badge, badgeColor }) => (
@@ -217,11 +277,9 @@ const YourWorkspaceId = () => {
     </div>
   );
 
-  // ─── Project Item (for the list) ──────────────────────────────────
+  // ─── Project Item (always fetches tasks) ──────────────────────────
   const ProjectItem = ({ project }) => {
     const progress = project.progress || 0;
-    const totalTasks = project.taskStats?.totalTasks || 0;
-    const completedTasks = project.taskStats?.completedTasks || 0;
     const statusColor = {
       planning: 'text-blue-400 bg-blue-900/20 border-blue-700/40',
       'in-progress': 'text-yellow-400 bg-yellow-900/20 border-yellow-700/40',
@@ -234,6 +292,16 @@ const YourWorkspaceId = () => {
       completed: 'Completed',
       archived: 'Archived',
     }[project.status] || 'Planning';
+
+    // Always fetch tasks for this project
+    const { data: taskData, isLoading: taskLoading } = useGetProjectTasksQuery(
+      { projectId: project._id }
+    );
+    const tasks = taskData?.tasks || [];
+    const totalTasks = tasks.length;
+    const completedTasks = tasks.filter(
+      (t) => t.status === 'completed' || t.status === 'confirmed_completed'
+    ).length;
 
     return (
       <Link
@@ -256,23 +324,32 @@ const YourWorkspaceId = () => {
             </span>
           </div>
           <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500">
-            <span className="flex items-center gap-1">
-              <FaTasks className="text-[10px]" />
-              {totalTasks} tasks
-            </span>
-            <span className="flex items-center gap-1">
-              <FaCheckCircle className="text-[10px] text-green-400" />
-              {completedTasks} done
-            </span>
-            <span className="flex-1">
-              <div className="w-full h-1 bg-gray-800/60 rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all duration-500"
-                  style={{ width: `${progress}%`, backgroundColor: brandColor }}
-                />
-              </div>
-            </span>
-            <span className="font-mono text-[10px] text-gray-400">{progress}%</span>
+            {taskLoading ? (
+              <span className="flex items-center gap-1">
+                <FaSpinner className="animate-spin text-[10px]" />
+                Loading tasks...
+              </span>
+            ) : (
+              <>
+                <span className="flex items-center gap-1">
+                  <FaTasks className="text-[10px]" />
+                  {totalTasks} tasks
+                </span>
+                <span className="flex items-center gap-1">
+                  <FaCheckCircle className="text-[10px] text-green-400" />
+                  {completedTasks} done
+                </span>
+                <span className="flex-1">
+                  <div className="w-full h-1 bg-gray-800/60 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{ width: `${progress}%`, backgroundColor: brandColor }}
+                    />
+                  </div>
+                </span>
+                <span className="font-mono text-[10px] text-gray-400">{progress}%</span>
+              </>
+            )}
           </div>
         </div>
       </Link>
@@ -309,6 +386,16 @@ const YourWorkspaceId = () => {
         </div>
 
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 md:pb-6 mt-16 md:mt-0">
+          {/* Hidden TaskCounter components to fetch all task counts */}
+          {projects.map((p) => (
+            <TaskCounter
+              key={p._id}
+              projectId={p._id}
+              onCount={handleTaskCount}
+              onLoading={handleTaskLoading}
+            />
+          ))}
+
           {/* mobile hero card */}
           <div className="md:hidden">
             <HeroCard />
@@ -413,61 +500,87 @@ const YourWorkspaceId = () => {
 
           {/* chart + quick actions */}
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
+            {/* Trading‑style AreaChart */}
             <div className="lg:col-span-3 bg-[#14141a] rounded-2xl border border-gray-800/60 p-4 sm:p-5 relative overflow-hidden group">
               <div className="absolute top-0 right-0 w-32 h-32 bg-[#0d9488]/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <p className="text-[10px] text-gray-500 uppercase tracking-widest">Activity</p>
-                  <h2 className="text-lg font-bold text-gray-100">
-                    {totalMessages} messages
+                  <p className="text-[10px] text-gray-500 uppercase tracking-widest">Project Progress Trend</p>
+                  <h2 className="text-lg font-bold text-gray-100 flex items-center gap-3">
+                    {isTasksLoading && projects.length > 0 ? (
+                      <span className="flex items-center gap-2 text-sm text-gray-400">
+                        <FaSpinner className="animate-spin" /> Loading tasks…
+                      </span>
+                    ) : (
+                      <>
+                        <span>{totalTasks} tasks</span>
+                        <span className="text-sm font-normal text-gray-400">
+                          Avg {avgProgress}% complete
+                        </span>
+                      </>
+                    )}
                   </h2>
                 </div>
                 <Link
-                  to={`/workspace/${workspaceId}/channels`}
+                  to={`/workspace/${workspaceId}/projects`}
                   className="text-xs font-medium text-[#0d9488] hover:text-[#14b8a6] transition flex items-center gap-1"
                   style={{ color: brandColor }}
                 >
                   <FaChartLine />
-                  <span className="hidden sm:inline">Report</span>
+                  <span className="hidden sm:inline">Projects</span>
                 </Link>
               </div>
-              <div className="h-28 sm:h-32 w-full -ml-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData}>
-                    <defs>
-                      <linearGradient id="futuristicGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={brandColor} stopOpacity={0.4} />
-                        <stop offset="95%" stopColor={brandColor} stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis
-                      dataKey="day"
-                      tick={{ fontSize: 9, fill: '#6b7280' }}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        borderRadius: '12px',
-                        border: '1px solid #2d2d3a',
-                        fontSize: '11px',
-                        backgroundColor: '#14141a',
-                        color: '#e5e7eb',
-                        boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-                      }}
-                      formatter={(value) => [`${value} msgs`, '']}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="messages"
-                      stroke={brandColor}
-                      strokeWidth={2}
-                      fill="url(#futuristicGrad)"
-                      dot={{ r: 2, fill: brandColor }}
-                      activeDot={{ r: 4, stroke: '#fff', strokeWidth: 1 }}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
+              <div className="h-28 sm:h-32 w-full">
+                {chartProjects.length > 1 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartProjects}>
+                      <defs>
+                        <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={brandColor} stopOpacity={0.4} />
+                          <stop offset="95%" stopColor={brandColor} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <XAxis
+                        dataKey="name"
+                        tick={{ fontSize: 9, fill: '#6b7280' }}
+                        tickLine={false}
+                        axisLine={false}
+                        interval="preserveStartEnd"
+                      />
+                      <YAxis
+                        domain={[0, 100]}
+                        tick={{ fontSize: 9, fill: '#6b7280' }}
+                        tickLine={false}
+                        axisLine={false}
+                        tickCount={6}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: '12px',
+                          border: '1px solid #2d2d3a',
+                          fontSize: '11px',
+                          backgroundColor: '#14141a',
+                          color: '#e5e7eb',
+                          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                        }}
+                        formatter={(value) => [`${value}%`, 'Progress']}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="progress"
+                        stroke={brandColor}
+                        strokeWidth={2}
+                        fill="url(#chartGradient)"
+                        dot={{ r: 2, fill: brandColor }}
+                        activeDot={{ r: 4, stroke: '#fff', strokeWidth: 1 }}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+                    {chartProjects.length === 1 ? 'Add more projects to see trends' : 'No project data'}
+                  </div>
+                )}
               </div>
             </div>
 

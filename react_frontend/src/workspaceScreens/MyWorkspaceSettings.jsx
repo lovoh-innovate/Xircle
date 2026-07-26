@@ -42,10 +42,10 @@ const getInitials = (name) => {
     .toUpperCase();
 };
 
-// ─── Image Preview Modal ──────────────────────────────────────────────
+// ─── Image Preview Modal (dark) ──────────────────────────────────────
 const ImagePreviewModal = ({ imageUrl, onClose }) => {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0b0b10]/80 backdrop-blur-sm p-4" onClick={onClose}>
       <div className="relative max-w-4xl w-full max-h-[90vh]">
         <img src={imageUrl} alt="Preview" className="w-full h-auto max-h-[90vh] object-contain rounded-2xl shadow-2xl" />
         <button
@@ -105,11 +105,13 @@ const MyWorkspaceSettings = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-[#0b0b10]">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-t-transparent rounded-full animate-spin mx-auto"
-               style={{ borderColor: '#0d9488', borderTopColor: 'transparent' }} />
-          <p className="mt-4 text-gray-500">Loading settings...</p>
+          <div
+            className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin mx-auto"
+            style={{ borderColor: workspaceData?.workspace?.color || '#0d9488', borderTopColor: 'transparent' }}
+          />
+          <p className="mt-3 text-gray-500 text-sm">Loading settings...</p>
         </div>
       </div>
     );
@@ -195,7 +197,7 @@ const MyWorkspaceSettings = () => {
   };
 
   return (
-    <div className="h-dvh bg-gray-50 flex flex-col lg:flex-row overflow-hidden">
+    <div className="h-dvh bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
       {/* Desktop Sidebar */}
       <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
         <MyWorkspaceSidebar workspace={workspace} chats={[]} />
@@ -204,65 +206,69 @@ const MyWorkspaceSettings = () => {
       {/* Main Content */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Fixed Header */}
-        <header className="sticky top-0 z-10 bg-teal-600 text-white flex-shrink-0 shadow-sm">
+        <header className="sticky top-0 z-10 bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-800/40 flex-shrink-0">
           <div className="flex items-center justify-between px-4 h-14">
             <div className="flex items-center gap-3 min-w-0">
-              <button onClick={() => navigate(`/my-workspace/${workspaceId}`)} className="p-1 lg:hidden">
+              <button
+                onClick={() => navigate(`/my-workspace/${workspaceId}`)}
+                className="p-1 lg:hidden text-gray-400 hover:text-white transition"
+              >
                 <FaArrowLeft />
               </button>
-              <h1 className="text-lg font-semibold">Settings</h1>
+              <h1 className="text-lg font-semibold text-gray-100">Settings</h1>
             </div>
             <div className="flex items-center gap-2">
-              <span className="hidden sm:inline text-xs text-white/80">{memberCount} members</span>
-              <FaUsers className="hidden sm:block text-sm text-white/80" />
+              <span className="hidden sm:inline text-xs text-gray-400">{memberCount} members</span>
+              <FaUsers className="hidden sm:block text-sm text-gray-400" />
             </div>
           </div>
         </header>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 md:pb-6">
           <div className="max-w-3xl mx-auto space-y-6">
             {/* Workspace Info Card */}
-            <div className="bg-white rounded-2xl border border-gray-200/60 p-5">
-              <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-2 mb-4">
-                <FaInfoCircle className="text-teal-500" /> General Information
+            <div className="bg-[#14141a] rounded-2xl border border-gray-800/60 p-5">
+              <h2 className="text-sm font-semibold text-gray-300 flex items-center gap-2 mb-4">
+                <FaInfoCircle className="text-[#0d9488]" /> General Information
               </h2>
               <form onSubmit={handleSave} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Workspace Name *</label>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Workspace Name *</label>
                   <input
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+                    className="w-full px-4 py-2.5 bg-[#0b0b10] border border-gray-700/60 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#0d9488] text-sm text-gray-200 placeholder-gray-500"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Industry</label>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Industry</label>
                   <input
                     type="text"
                     value={industry}
                     onChange={(e) => setIndustry(e.target.value)}
                     placeholder="Technology"
-                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+                    className="w-full px-4 py-2.5 bg-[#0b0b10] border border-gray-700/60 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#0d9488] text-sm text-gray-200 placeholder-gray-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Description</label>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Description</label>
                   <textarea
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     placeholder="What's this workspace about?"
                     rows="2"
-                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm resize-none"
+                    className="w-full px-4 py-2.5 bg-[#0b0b10] border border-gray-700/60 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#0d9488] text-sm text-gray-200 placeholder-gray-500 resize-none"
                   />
                 </div>
                 <div className="pt-2">
                   <button
                     type="submit"
                     disabled={isSaving}
-                    className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition disabled:opacity-50 text-sm font-medium"
+                    className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 text-white rounded-xl transition hover:opacity-80 disabled:opacity-50 text-sm font-medium"
+                    style={{ backgroundColor: brandColor }}
                   >
                     {isSaving ? <FaSpinner className="animate-spin" /> : <FaSave className="text-sm" />}
                     {isSaving ? 'Saving...' : 'Save Changes'}
@@ -272,15 +278,15 @@ const MyWorkspaceSettings = () => {
             </div>
 
             {/* Branding Card */}
-            <div className="bg-white rounded-2xl border border-gray-200/60 p-5">
-              <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-2 mb-4">
-                <FaPalette className="text-teal-500" /> Branding
+            <div className="bg-[#14141a] rounded-2xl border border-gray-800/60 p-5">
+              <h2 className="text-sm font-semibold text-gray-300 flex items-center gap-2 mb-4">
+                <FaPalette className="text-[#0d9488]" /> Branding
               </h2>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Brand Color</label>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Brand Color</label>
                   <div className="flex items-center gap-3">
-                    <div className="relative w-14 h-14 rounded-xl border-2 border-gray-200 overflow-hidden">
+                    <div className="relative w-14 h-14 rounded-xl border-2 border-gray-700/60 overflow-hidden">
                       <input
                         type="color"
                         value={color}
@@ -293,28 +299,28 @@ const MyWorkspaceSettings = () => {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Workspace Logo</label>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Workspace Logo</label>
                   <div className="flex items-center gap-3">
                     {logoPreview ? (
                       <div className="relative">
                         <img
                           src={logoPreview}
                           alt="Logo"
-                          className="w-16 h-16 rounded-xl object-cover border-2 border-gray-200 cursor-pointer"
+                          className="w-16 h-16 rounded-xl object-cover border-2 border-gray-700/60 cursor-pointer"
                           onClick={() => setPreviewImage(logoPreview)}
                         />
                         <button
                           type="button"
                           onClick={removeLogo}
-                          className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 hover:bg-red-600"
+                          className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 hover:bg-red-600 transition"
                         >
                           <FaTrashAlt className="w-3 h-3" />
                         </button>
                       </div>
                     ) : (
-                      <label className="flex items-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-gray-400 bg-gray-50">
+                      <label className="flex items-center gap-2 px-4 py-3 border-2 border-dashed border-gray-700/60 rounded-xl cursor-pointer hover:border-gray-500 bg-[#0b0b10]">
                         <FaImage className="text-gray-400" />
-                        <span className="text-sm text-gray-500">Upload Logo</span>
+                        <span className="text-sm text-gray-400">Upload Logo</span>
                         <input
                           type="file"
                           ref={fileInputRef}
@@ -325,34 +331,35 @@ const MyWorkspaceSettings = () => {
                       </label>
                     )}
                   </div>
-                  <p className="text-xs text-gray-400 mt-1">PNG, JPG, WebP (max 5MB)</p>
+                  <p className="text-xs text-gray-500 mt-1">PNG, JPG, WebP (max 5MB)</p>
                 </div>
               </div>
             </div>
 
             {/* Invite Code Card */}
-            <div className="bg-white rounded-2xl border border-gray-200/60 p-5">
-              <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-2 mb-4">
-                <FaRocket className="text-teal-500" /> Invite Code
+            <div className="bg-[#14141a] rounded-2xl border border-gray-800/60 p-5">
+              <h2 className="text-sm font-semibold text-gray-300 flex items-center gap-2 mb-4">
+                <FaRocket className="text-[#0d9488]" /> Invite Code
               </h2>
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-3 w-full sm:w-auto">
-                  <div className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5">
-                    <span className="text-lg font-mono font-bold text-gray-900 tracking-wider">{workspace.inviteCode}</span>
+                  <div className="flex-1 bg-[#0b0b10] border border-gray-700/60 rounded-xl px-4 py-2.5">
+                    <span className="text-lg font-mono font-bold text-gray-200 tracking-wider">{workspace.inviteCode}</span>
                   </div>
                   <button
                     type="button"
                     onClick={copyInviteCode}
-                    className="p-2.5 bg-gray-50 hover:bg-gray-100 rounded-xl transition border border-gray-200"
+                    className="p-2.5 bg-[#0b0b10] hover:bg-gray-800/60 rounded-xl transition border border-gray-700/60 text-gray-400 hover:text-white"
                   >
-                    {copied ? <FaCheck className="text-green-500" /> : <FaCopy className="text-gray-500" />}
+                    {copied ? <FaCheck className="text-green-400" /> : <FaCopy className="text-sm" />}
                   </button>
                 </div>
                 <button
                   type="button"
                   onClick={handleRegenerateInvite}
                   disabled={isRegenerating}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition disabled:opacity-50 text-sm font-medium"
+                  className="flex items-center gap-2 px-4 py-2.5 text-white rounded-xl transition hover:opacity-80 disabled:opacity-50 text-sm font-medium"
+                  style={{ backgroundColor: brandColor }}
                 >
                   {isRegenerating ? <FaSpinner className="animate-spin" /> : <FaRedo className="text-sm" />}
                   {isRegenerating ? 'Generating...' : 'Regenerate'}
@@ -361,11 +368,11 @@ const MyWorkspaceSettings = () => {
             </div>
 
             {/* Danger Zone */}
-            <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
-              <h2 className="text-sm font-semibold text-red-700 flex items-center gap-2 mb-4">
+            <div className="bg-red-950/20 border border-red-800/40 rounded-2xl p-5">
+              <h2 className="text-sm font-semibold text-red-400 flex items-center gap-2 mb-4">
                 <FaExclamationTriangle className="text-red-500" /> Danger Zone
               </h2>
-              <p className="text-xs text-red-600/70 mb-3">Deleting this workspace is irreversible.</p>
+              <p className="text-xs text-red-400/70 mb-3">Deleting this workspace is irreversible.</p>
               {!showDeleteConfirm ? (
                 <button
                   type="button"
@@ -375,8 +382,8 @@ const MyWorkspaceSettings = () => {
                   Delete Workspace
                 </button>
               ) : (
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-red-700 font-medium">Are you sure?</span>
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-sm text-red-300 font-medium">Are you sure?</span>
                   <button
                     type="button"
                     onClick={handleDeleteWorkspace}
@@ -388,7 +395,7 @@ const MyWorkspaceSettings = () => {
                   <button
                     type="button"
                     onClick={() => setShowDeleteConfirm(false)}
-                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-300 transition"
+                    className="px-4 py-2 bg-gray-700 text-gray-200 rounded-xl text-sm font-medium hover:bg-gray-600 transition"
                   >
                     Cancel
                   </button>

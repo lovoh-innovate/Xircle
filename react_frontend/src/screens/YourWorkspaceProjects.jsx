@@ -4,6 +4,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
 import { useGetWorkspaceProjectsQuery, useDeleteProjectMutation } from '../slices/projectApiSlice';
+import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
 import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
 import {
@@ -115,6 +116,16 @@ const ProjectCard = ({
     archived: 'text-gray-400',
   };
   const canManage = isOwner || isManager;
+
+  // ── fetch tasks for this project ──────────────────────────────
+  const { data: taskData, isLoading: taskLoading } = useGetProjectTasksQuery(
+    { projectId: project._id }
+  );
+  const tasks = taskData?.tasks || [];
+  const totalTasks = tasks.length;
+  const completedTasks = tasks.filter(
+    (t) => t.status === 'completed' || t.status === 'confirmed_completed'
+  ).length;
 
   const handleDelete = () => {
     if (window.confirm(`Delete project "${project.name}"?`)) {
@@ -253,16 +264,22 @@ const ProjectCard = ({
           </div>
         </div>
 
-        {/* Meta info */}
+        {/* Meta info – now showing real task counts */}
         <div className="flex flex-wrap items-center gap-2 md:gap-3 mt-2 md:mt-3 text-[9px] md:text-[10px] text-gray-500">
           <span className="flex items-center gap-1">
             <FaCalendarAlt className="text-[8px] md:text-[10px] text-[#0d9488]" />
             {project.startDate ? new Date(project.startDate).toLocaleDateString() : 'N/A'}
           </span>
-          <span className="flex items-center gap-1">
-            <FaTasks className="text-[8px] md:text-[10px] text-[#0d9488]" />
-            {project.taskStats?.totalTasks || 0}
-          </span>
+          {taskLoading ? (
+            <span className="flex items-center gap-1">
+              <FaSpinner className="animate-spin text-[10px]" />
+            </span>
+          ) : (
+            <span className="flex items-center gap-1">
+              <FaTasks className="text-[8px] md:text-[10px] text-[#0d9488]" />
+              {totalTasks} tasks
+            </span>
+          )}
           {project.links?.length > 0 && (
             <span className="flex items-center gap-1 text-blue-400">
               <FaLink className="text-[8px] md:text-[10px]" />
@@ -304,14 +321,11 @@ const YourWorkspaceProjects = () => {
     workspace?.owner?._id === userInfo?._id || workspace?.owner === userInfo?._id;
 
   // ─── AUTO‑COMPLETE LOGIC ────────────────────────────────────────────────
-  // If a project's progress reaches 100, mark it as 'completed' in the UI.
-  // This is frontend only – you can later call an API update.
   const projectsWithAutoComplete = projects.map((p) => ({
     ...p,
     status: p.progress >= 100 ? 'completed' : p.status,
   }));
 
-  // Use the derived array for all filtering and rendering
   const allProjects = projectsWithAutoComplete;
 
   // Filter and sort
@@ -402,7 +416,7 @@ const YourWorkspaceProjects = () => {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Header (unchanged) */}
+        {/* Header */}
         <header className="sticky top-0 z-10 bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-800/40 flex-shrink-0">
           <div className="flex items-center justify-between px-4 h-14 lg:h-16">
             <div className="flex items-center gap-3">
@@ -459,14 +473,7 @@ const YourWorkspaceProjects = () => {
               >
                 <FaFilter className="text-sm" />
               </button>
-              {/* Create project button */}
-              <Link
-                to={`/workspace/${workspaceId}/projects/create`}
-                className="bg-[#0d9488] hover:bg-[#0f9e96] text-white text-sm font-medium px-3 py-1.5 rounded-xl transition flex items-center gap-1.5"
-              >
-                <FaPlus className="text-xs" />
-                <span className="hidden sm:inline">New</span>
-              </Link>
+              {/* ── Removed "New Project" button ── */}
             </div>
           </div>
           {/* Filter chips (desktop) */}
@@ -487,12 +494,11 @@ const YourWorkspaceProjects = () => {
           </div>
         </header>
 
-        {/* Scrollable Content – added extra bottom padding for mobile bottom bar */}
+        {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-5 pb-28 md:pb-6">
-          {/* ─── MOBILE STATS CARD (new design) ───────────────────────────── */}
+          {/* ─── MOBILE STATS CARD ───────────────────────────── */}
           <div className="md:hidden mb-4">
             <div className="relative bg-[#14141a] rounded-2xl border border-gray-800/40 p-4 overflow-hidden">
-              {/* subtle glow */}
               <div className="absolute top-0 right-0 w-24 h-24 bg-[#0d9488]/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
               <div className="relative flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-gray-200 flex items-center gap-2">
@@ -529,7 +535,6 @@ const YourWorkspaceProjects = () => {
                   </p>
                 </div>
               </div>
-              {/* Overall progress bar */}
               <div className="mt-3">
                 <div className="flex justify-between text-[10px] text-gray-500 mb-1">
                   <span>Overall progress</span>
@@ -545,7 +550,7 @@ const YourWorkspaceProjects = () => {
             </div>
           </div>
 
-          {/* ─── DESKTOP STATS GRID (unchanged) ──────────────────────────── */}
+          {/* ─── DESKTOP STATS GRID ──────────────────────────── */}
           <div className="hidden md:grid md:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
             <div className="bg-[#14141a] rounded-xl border border-gray-800/40 p-4 backdrop-blur-sm hover:border-[#0d9488]/30 transition group">
               <p className="text-2xl font-bold text-gray-100 group-hover:text-[#0d9488] transition">

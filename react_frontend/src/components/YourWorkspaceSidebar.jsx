@@ -13,17 +13,37 @@ import {
   FaEnvelope,
   FaSearch,
   FaBell,
+  FaFolder,
+  FaTasks,
+  FaPlus,
+  FaRocket,
+  FaSpinner,
 } from 'react-icons/fa';
+import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
+import { useGetWorkspaceProjectsQuery } from '../slices/projectApiSlice';
+import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
 
-const YourWorkspaceSidebar = ({ workspace, chats }) => {
+const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   const { workspaceId } = useParams();
   const location = useLocation();
   const { userInfo } = useSelector((state) => state.auth);
   const [isCollapsed, setIsCollapsed] = useState(false);
 
+  // ── fetch chats if not provided ──
+  const { data: chatsData, isLoading: chatsLoading } = useGetUserChatsQuery(workspaceId, {
+    skip: !!propChats,
+  });
+  const chats = propChats || chatsData?.chats || [];
+
+  // ── fetch projects ──
+  const { data: projectsData, isLoading: projectsLoading } = useGetWorkspaceProjectsQuery({
+    workspaceId,
+  });
+  const projects = projectsData?.projects || [];
+
   const [expandedSections, setExpandedSections] = useState({
+    projects: true,
     channels: true,
-    members: false,
     dms: true,
   });
 
@@ -48,19 +68,18 @@ const YourWorkspaceSidebar = ({ workspace, chats }) => {
 
   // ─── Navigation ───
   const navOptions = [
-    { id: 'home', label: 'Home', icon: FaHome, path: `/workspace/${workspaceId}` },
+    { id: 'home', label: 'Dashboard', icon: FaHome, path: `/workspace/${workspaceId}` },
+    { id: 'projects', label: 'Projects', icon: FaFolder, path: `/workspace/${workspaceId}/projects` },
     { id: 'channels', label: 'Channels', icon: FaComment, path: `/workspace/${workspaceId}/channels` },
     { id: 'dms', label: 'Direct Messages', icon: FaEnvelope, path: `/workspace/${workspaceId}/dms` },
-    { id: 'members', label: 'Members', icon: FaUsers, path: `/workspace/${workspaceId}/members` },
+    // Members removed from navigation
   ];
 
-  // ─── Real Data ───
   const members = workspace?.members || [];
   const onlineCount = members.filter((m) => m.status === 'active').length || 0;
-  const displayMembers = members.slice(0, 6);
 
-  const channels = chats?.filter((chat) => chat.type === 'group') || [];
-  const directMessages = chats?.filter((chat) => chat.type === 'direct') || [];
+  const channels = chats.filter((chat) => chat.type === 'group') || [];
+  const directMessages = chats.filter((chat) => chat.type === 'direct') || [];
 
   const isActive = (path) => {
     if (path === `/workspace/${workspaceId}`) {
@@ -82,6 +101,70 @@ const YourWorkspaceSidebar = ({ workspace, chats }) => {
     (m) => m.user?._id === userInfo?._id || m.user === userInfo?._id
   );
   const userRole = userMembership?.role || 'Member';
+
+  // ─── Project Item with always‑fetch tasks ──────────────────────
+  const ProjectItem = ({ project }) => {
+    const progress = project.progress || 0;
+    const statusColor =
+      {
+        planning: 'text-blue-400',
+        'in-progress': 'text-yellow-400',
+        completed: 'text-green-400',
+        archived: 'text-gray-400',
+      }[project.status] || 'text-gray-400';
+
+    // Always fetch tasks for this project
+    const { data: taskData, isLoading: taskLoading } = useGetProjectTasksQuery(
+      { projectId: project._id }
+    );
+    const tasks = taskData?.tasks || [];
+    const totalTasks = tasks.length;
+    const completedTasks = tasks.filter(
+      (t) => t.status === 'completed' || t.status === 'confirmed_completed'
+    ).length;
+
+    return (
+      <Link
+        to={`/workspace/${workspaceId}/project/${project._id}`}
+        className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-800 transition-colors group"
+      >
+        <FaFolder className="text-xs text-gray-500 group-hover:text-gray-300 flex-shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between">
+            <span className="truncate text-sm text-gray-400 group-hover:text-gray-200">
+              {project.name}
+            </span>
+            <span className={`text-[10px] font-medium ${statusColor}`}>
+              {progress}%
+            </span>
+          </div>
+          <div className="w-full h-1 bg-gray-800 rounded-full mt-0.5 overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{ width: `${progress}%`, backgroundColor: brandColor }}
+            />
+          </div>
+          <div className="flex items-center gap-2 text-[10px] text-gray-500 mt-0.5">
+            {taskLoading ? (
+              <span className="flex items-center gap-1">
+                <FaSpinner className="animate-spin text-[8px]" />
+                Loading tasks...
+              </span>
+            ) : (
+              <>
+                <span className="flex items-center gap-0.5">
+                  <FaTasks className="text-[8px]" />
+                  {totalTasks} tasks
+                </span>
+                <span>·</span>
+                <span className="text-green-400">{completedTasks} done</span>
+              </>
+            )}
+          </div>
+        </div>
+      </Link>
+    );
+  };
 
   return (
     <div
@@ -162,11 +245,25 @@ const YourWorkspaceSidebar = ({ workspace, chats }) => {
       {isCollapsed ? (
         <div className="flex-1 overflow-y-auto scrollbar-hide py-3 px-2 flex flex-col items-center gap-3">
           <Link
+            to={`/workspace/${workspaceId}/projects`}
+            title="Projects"
+            className="relative p-2 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-gray-200 transition-colors"
+          >
+            <FaFolder className="text-lg" />
+            {projects.some((p) => p.progress < 100) && (
+              <span
+                className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full"
+                style={{ backgroundColor: brandColor }}
+              />
+            )}
+          </Link>
+
+          <Link
             to={`/workspace/${workspaceId}/channels`}
             title="Channels"
             className="relative p-2 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-gray-200 transition-colors"
           >
-            <FaHashtag className="text-lg" />
+            <FaComment className="text-lg" />
             {channels.some((c) => c.unreadCount > 0) && (
               <span
                 className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full"
@@ -188,20 +285,53 @@ const YourWorkspaceSidebar = ({ workspace, chats }) => {
               />
             )}
           </Link>
-
-          <Link
-            to={`/workspace/${workspaceId}/members`}
-            title="Members"
-            className="relative p-2 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-gray-200 transition-colors"
-          >
-            <FaUsers className="text-lg" />
-            {onlineCount > 0 && (
-              <span className="absolute bottom-1.5 right-1.5 w-2 h-2 bg-green-500 rounded-full border-2 border-[#18181b]" />
-            )}
-          </Link>
+          {/* Members icon removed from collapsed view */}
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto scrollbar-hide">
+        <div className="flex-1 overflow-y-auto scrollbar-hide pb-2">
+          {/* Projects Section */}
+          <div className="px-3 py-2 border-b border-gray-800/50">
+            <button
+              onClick={() => toggleSection('projects')}
+              className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 uppercase tracking-wider"
+            >
+              {expandedSections.projects ? (
+                <FaChevronDown className="text-[10px]" />
+              ) : (
+                <FaChevronRight className="text-[10px]" />
+              )}
+              <span>Projects</span>
+              <span className="ml-auto text-xs text-gray-600">
+                {projects.length}
+              </span>
+            </button>
+            {expandedSections.projects && (
+              <div className="mt-1 space-y-0.5">
+                {projectsLoading ? (
+                  <div className="px-3 py-2 text-xs text-gray-500">
+                    Loading projects...
+                  </div>
+                ) : projects.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-gray-600">
+                    No projects yet
+                  </div>
+                ) : (
+                  projects.slice(0, 6).map((project) => (
+                    <ProjectItem key={project._id} project={project} />
+                  ))
+                )}
+                {projects.length > 6 && (
+                  <Link
+                    to={`/workspace/${workspaceId}/projects`}
+                    className="block px-3 py-1 text-xs text-gray-600 hover:text-gray-400 hover:bg-gray-800 rounded-lg"
+                  >
+                    +{projects.length - 6} more
+                  </Link>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Channels */}
           <div className="px-3 py-2 border-b border-gray-800/50">
             <button
@@ -214,10 +344,17 @@ const YourWorkspaceSidebar = ({ workspace, chats }) => {
                 <FaChevronRight className="text-[10px]" />
               )}
               <span>Channels</span>
+              <span className="ml-auto text-xs text-gray-600">
+                {channels.length}
+              </span>
             </button>
             {expandedSections.channels && (
               <div className="mt-1 space-y-0.5">
-                {channels.length === 0 ? (
+                {chatsLoading ? (
+                  <div className="px-3 py-2 text-xs text-gray-500">
+                    Loading channels...
+                  </div>
+                ) : channels.length === 0 ? (
                   <p className="px-3 py-2 text-xs text-gray-600">No channels yet</p>
                 ) : (
                   channels.slice(0, 6).map((chat) => (
@@ -267,10 +404,17 @@ const YourWorkspaceSidebar = ({ workspace, chats }) => {
                 <FaChevronRight className="text-[10px]" />
               )}
               <span>Direct Messages</span>
+              <span className="ml-auto text-xs text-gray-600">
+                {directMessages.length}
+              </span>
             </button>
             {expandedSections.dms && (
               <div className="mt-1 space-y-0.5">
-                {directMessages.length === 0 ? (
+                {chatsLoading ? (
+                  <div className="px-3 py-2 text-xs text-gray-500">
+                    Loading DMs...
+                  </div>
+                ) : directMessages.length === 0 ? (
                   <p className="px-3 py-2 text-xs text-gray-600">No DMs</p>
                 ) : (
                   directMessages.slice(0, 6).map((chat) => {
@@ -325,70 +469,6 @@ const YourWorkspaceSidebar = ({ workspace, chats }) => {
                     className="block px-3 py-1 text-xs text-gray-600 hover:text-gray-400 hover:bg-gray-800 rounded-lg"
                   >
                     +{directMessages.length - 6} more
-                  </Link>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Members */}
-          <div className="px-3 py-2">
-            <button
-              onClick={() => toggleSection('members')}
-              className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 uppercase tracking-wider"
-            >
-              {expandedSections.members ? (
-                <FaChevronDown className="text-[10px]" />
-              ) : (
-                <FaChevronRight className="text-[10px]" />
-              )}
-              <span>Members</span>
-              <span className="ml-auto text-xs text-gray-600">{onlineCount} online</span>
-            </button>
-            {expandedSections.members && (
-              <div className="mt-1 space-y-0.5">
-                {displayMembers.map((member) => {
-                  const m = member.user || member;
-                  const isOwner =
-                    m._id === workspace?.owner?._id || m._id === workspace?.owner;
-                  const isOnline = member.status === 'active';
-                  return (
-                    <div
-                      key={m._id}
-                      className="flex items-center gap-3 px-3 py-1.5 rounded-lg hover:bg-gray-800 transition-colors cursor-pointer"
-                    >
-                      <div className="relative flex-shrink-0">
-                        {m?.profile ? (
-                          <img
-                            src={m.profile}
-                            alt={m.name}
-                            className="w-6 h-6 rounded-full object-cover"
-                          />
-                        ) : (
-                          <div
-                            className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold"
-                            style={{ backgroundColor: brandColor }}
-                          >
-                            {getInitials(m?.name)}
-                          </div>
-                        )}
-                        {isOnline && (
-                          <span className="absolute bottom-0 right-0 w-2 h-2 bg-green-500 rounded-full border-2 border-[#18181b]" />
-                        )}
-                      </div>
-                      <span className="truncate flex-1 text-sm text-gray-400">
-                        {m?.name || 'Unknown'}
-                        {isOwner && <span className="text-xs text-amber-500 ml-1">👑</span>}
-                      </span>
-                    </div>
-                  );
-                })}
-                {members.length > 6 && (
-                  <Link
-                    to={`/workspace/${workspaceId}/members`}
-                    className="block px-3 py-1.5 text-sm text-gray-600 hover:text-gray-400 hover:bg-gray-800 rounded-lg"
-                  >
-                    View all {members.length} members →
                   </Link>
                 )}
               </div>

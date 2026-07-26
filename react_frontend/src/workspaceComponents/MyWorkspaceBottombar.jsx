@@ -21,7 +21,7 @@ import { useLogoutMutation } from '../slices/userApiSlice';
 import { logout } from '../slices/authSlice';
 import { toast } from 'react-toastify';
 
-// ─── Invite Modal (cleaner, WhatsApp‑like) ───────────────────────────
+// ─── Invite Modal (dark themed) ──────────────────────────────────────
 const InviteModal = ({ isOpen, onClose, inviteCode, brandColor, workspaceName }) => {
   const [copied, setCopied] = useState(false);
 
@@ -44,30 +44,30 @@ const InviteModal = ({ isOpen, onClose, inviteCode, brandColor, workspaceName })
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-[#0b0b10]/80 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-t-3xl w-full max-w-md p-6 pb-8 animate-slide-up"
+        className="bg-[#14141a] border border-gray-800/60 rounded-t-3xl w-full max-w-md p-6 pb-8 animate-slide-up shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900">Invite Members</h2>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-full text-gray-400">
+          <h2 className="text-lg font-semibold text-gray-200">Invite Members</h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-800/60 rounded-full text-gray-400 hover:text-white transition">
             <FiX className="text-lg" />
           </button>
         </div>
 
-        <p className="text-sm text-gray-600 mb-4">
+        <p className="text-sm text-gray-400 mb-4">
           Share this invite code with your team. They can join using the code.
         </p>
 
         {/* Invite code card */}
-        <div className="bg-gray-50 rounded-xl border border-gray-200 p-4 mb-4">
+        <div className="bg-[#0b0b10] rounded-xl border border-gray-700/60 p-4 mb-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs text-gray-400 uppercase tracking-wider">Invite Code</p>
-              <p className="text-xl font-mono font-bold text-gray-900 mt-1">{inviteCode}</p>
+              <p className="text-xs text-gray-500 uppercase tracking-wider">Invite Code</p>
+              <p className="text-xl font-mono font-bold text-gray-200 mt-1">{inviteCode}</p>
             </div>
             <button
               onClick={handleCopy}
@@ -83,13 +83,13 @@ const InviteModal = ({ isOpen, onClose, inviteCode, brandColor, workspaceName })
         {/* Copy invite link */}
         <button
           onClick={handleCopyLink}
-          className="flex items-center justify-center gap-2 w-full py-2.5 border border-gray-300 rounded-lg hover:bg-gray-50 transition text-sm font-medium text-gray-700"
+          className="flex items-center justify-center gap-2 w-full py-2.5 border border-gray-700/60 rounded-xl hover:bg-gray-800/30 transition text-sm font-medium text-gray-300 hover:text-white"
         >
           <FiCopy className="text-xs" />
           Copy invite link
         </button>
 
-        <p className="text-xs text-gray-400 text-center mt-4">
+        <p className="text-xs text-gray-500 text-center mt-4">
           Anyone with this link can join {workspaceName}
         </p>
       </div>
@@ -144,7 +144,7 @@ const MyWorkspaceBottombar = ({ workspace }) => {
   return (
     <>
       {/* ── Bottom Bar (mobile only) ── */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-gray-100 md:hidden">
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-[#0f0f12]/90 backdrop-blur-xl border-t border-gray-800/60 md:hidden">
         <div className="flex items-center justify-around h-16 px-2 max-w-lg mx-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -158,18 +158,20 @@ const MyWorkspaceBottombar = ({ workspace }) => {
                 <Icon
                   strokeWidth={active ? 2.5 : 1.8}
                   className={`text-xl transition-all duration-200 ${
-                    active ? 'text-teal-600 scale-110' : 'text-gray-400 group-hover:text-gray-600'
+                    active
+                      ? `text-[#0d9488] scale-110`
+                      : 'text-gray-500 group-hover:text-gray-300'
                   }`}
                 />
                 <span
                   className={`text-[10px] font-medium transition-colors duration-200 ${
-                    active ? 'text-gray-800' : 'text-gray-400 group-hover:text-gray-600'
+                    active ? 'text-gray-200' : 'text-gray-500 group-hover:text-gray-300'
                   }`}
                 >
                   {item.label}
                 </span>
                 {active && (
-                  <span className="absolute -top-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-teal-600" />
+                  <span className="absolute -top-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#0d9488]" />
                 )}
               </Link>
             );
@@ -180,38 +182,38 @@ const MyWorkspaceBottombar = ({ workspace }) => {
             onClick={() => setMenuOpen(true)}
             className="relative flex flex-col items-center justify-center gap-0.5 px-3 py-1 rounded-full transition-all group"
           >
-            <FiMenu className="text-xl text-gray-400 group-hover:text-gray-600" strokeWidth={1.8} />
-            <span className="text-[10px] font-medium text-gray-400 group-hover:text-gray-600">Menu</span>
+            <FiMenu className="text-xl text-gray-500 group-hover:text-gray-300" strokeWidth={1.8} />
+            <span className="text-[10px] font-medium text-gray-500 group-hover:text-gray-300">Menu</span>
           </button>
         </div>
       </div>
 
       {/* ── Slide-out Menu (mobile) ── */}
       {menuOpen && (
-        <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm md:hidden" onClick={() => setMenuOpen(false)} />
+        <div className="fixed inset-0 z-50 bg-[#0b0b10]/70 backdrop-blur-sm md:hidden" onClick={() => setMenuOpen(false)} />
       )}
       <div
-        className={`fixed top-0 left-0 z-50 h-full w-[300px] bg-white shadow-2xl transition-transform duration-300 ease-out md:hidden ${
+        className={`fixed top-0 left-0 z-50 h-full w-[300px] bg-[#14141a] border-r border-gray-800/60 shadow-2xl transition-transform duration-300 ease-out md:hidden ${
           menuOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
         style={{ borderRadius: '0 24px 24px 0' }}
       >
         {/* Menu Header */}
-        <div className="px-5 py-5 flex items-center justify-between border-b border-gray-100">
+        <div className="px-5 py-5 flex items-center justify-between border-b border-gray-800/60">
           <div className="flex items-center gap-3">
             {workspace?.logo ? (
-              <img src={workspace.logo} alt={workspace.name} className="w-10 h-10 rounded-xl object-cover" />
+              <img src={workspace.logo} alt={workspace.name} className="w-10 h-10 rounded-xl object-cover border border-gray-700/60" />
             ) : (
               <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm" style={{ backgroundColor: brandColor }}>
                 {workspace?.initials || workspace?.name?.charAt(0).toUpperCase() || 'W'}
               </div>
             )}
             <div>
-              <p className="text-sm font-semibold text-gray-900">{workspace?.name || 'Workspace'}</p>
-              <p className="text-xs text-gray-400">Owner</p>
+              <p className="text-sm font-semibold text-gray-200">{workspace?.name || 'Workspace'}</p>
+              <p className="text-xs text-gray-500">Owner</p>
             </div>
           </div>
-          <button onClick={() => setMenuOpen(false)} className="p-1.5 hover:bg-gray-100 rounded-full text-gray-400">
+          <button onClick={() => setMenuOpen(false)} className="p-1.5 hover:bg-gray-800/60 rounded-full text-gray-400 hover:text-white transition">
             <FiX className="text-lg" strokeWidth={2} />
           </button>
         </div>
@@ -225,12 +227,12 @@ const MyWorkspaceBottombar = ({ workspace }) => {
                 <button
                   key={item.id}
                   onClick={() => { setMenuOpen(false); item.action(); }}
-                  className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-50 transition w-full"
+                  className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-800/30 transition w-full"
                 >
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${brandColor}10` }}>
-                    <Icon className="text-sm" style={{ color: brandColor }} strokeWidth={2} />
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${brandColor}20`, color: brandColor }}>
+                    <Icon className="text-sm" strokeWidth={2} />
                   </div>
-                  <span className="text-sm font-medium text-gray-700">{item.label}</span>
+                  <span className="text-sm font-medium text-gray-300 hover:text-white transition">{item.label}</span>
                 </button>
               );
             }
@@ -239,33 +241,33 @@ const MyWorkspaceBottombar = ({ workspace }) => {
                 key={item.id}
                 to={item.path}
                 onClick={() => setMenuOpen(false)}
-                className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-50 transition"
+                className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-800/30 transition"
               >
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${brandColor}10` }}>
-                  <Icon className="text-sm" style={{ color: brandColor }} strokeWidth={2} />
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${brandColor}20`, color: brandColor }}>
+                  <Icon className="text-sm" strokeWidth={2} />
                 </div>
-                <span className="text-sm font-medium text-gray-700">{item.label}</span>
+                <span className="text-sm font-medium text-gray-300 hover:text-white transition">{item.label}</span>
               </Link>
             );
           })}
 
-          <div className="h-px bg-gray-100 my-2 mx-4" />
+          <div className="h-px bg-gray-800/60 my-2 mx-4" />
 
           {/* Logout */}
           <button
             onClick={handleLogout}
-            className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-red-50 transition w-full"
+            className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-red-500/10 transition w-full"
           >
-            <div className="w-9 h-9 rounded-xl bg-red-50 flex items-center justify-center">
-              <FiLogOut className="text-sm text-red-500" strokeWidth={2} />
+            <div className="w-9 h-9 rounded-xl bg-red-500/10 flex items-center justify-center">
+              <FiLogOut className="text-sm text-red-400" strokeWidth={2} />
             </div>
-            <span className="text-sm font-medium text-red-600">Logout</span>
+            <span className="text-sm font-medium text-red-400 hover:text-red-300 transition">Logout</span>
           </button>
         </div>
 
         {/* Footer */}
-        <div className="absolute bottom-0 left-0 right-0 px-6 py-4 border-t border-gray-100 bg-white/50 backdrop-blur-sm">
-          <p className="text-xs text-gray-400 text-center">Xircle v1.0 · {workspace?.name}</p>
+        <div className="absolute bottom-0 left-0 right-0 px-6 py-4 border-t border-gray-800/60 bg-[#14141a]/80 backdrop-blur-sm">
+          <p className="text-xs text-gray-500 text-center">Xircle v1.0 · {workspace?.name}</p>
         </div>
       </div>
 

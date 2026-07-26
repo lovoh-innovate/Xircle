@@ -42,7 +42,7 @@ const getInitials = (name) => {
     .toUpperCase();
 };
 
-// ─── Search Members Modal (full-screen overlay) ────────────────────────
+// ─── Search Members Modal (dark) ──────────────────────────────────────
 const SearchMembersModal = ({ isOpen, onClose, members, brandColor, workspaceId, userInfo }) => {
   const [query, setQuery] = useState('');
 
@@ -57,52 +57,55 @@ const SearchMembersModal = ({ isOpen, onClose, members, brandColor, workspaceId,
   });
 
   return (
-    <div className="fixed inset-0 z-50 bg-white flex flex-col">
+    <div className="fixed inset-0 z-50 bg-[#0b0b10]/90 backdrop-blur-xl flex flex-col">
       {/* Modal Header */}
-      <div className="flex items-center gap-3 px-4 h-14 border-b border-gray-100">
-        <button onClick={onClose} className="p-1">
-          <FaArrowLeft className="text-gray-600" />
+      <div className="flex items-center gap-3 px-4 h-16 border-b border-gray-800/60 bg-[#14141a]/80">
+        <button onClick={onClose} className="p-1 text-gray-400 hover:text-white transition">
+          <FaArrowLeft />
         </button>
-        <div className="flex-1 bg-gray-100 rounded-full px-4 py-2 flex items-center gap-2">
-          <FaSearch className="text-gray-400 text-xs" />
+        <div className="flex-1 bg-[#1e1e26] rounded-2xl px-4 py-2 flex items-center gap-3 border border-gray-800/40 focus-within:border-[#0d9488]/50 transition">
+          <FaSearch className="text-gray-500 text-xs" />
           <input
             type="text"
             placeholder="Search members..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="bg-transparent w-full outline-none text-sm"
+            className="bg-transparent w-full outline-none text-sm text-gray-200 placeholder-gray-500"
             autoFocus
           />
           {query && (
-            <button onClick={() => setQuery('')}>
-              <FaTimes className="text-gray-400 text-xs" />
+            <button onClick={() => setQuery('')} className="text-gray-500 hover:text-gray-300">
+              <FaTimes className="text-xs" />
             </button>
           )}
         </div>
       </div>
 
       {/* Results */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto p-4">
         {!query && (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400">
-            <FaSearch className="text-4xl mb-2 opacity-30" />
+          <div className="flex flex-col items-center justify-center h-full text-gray-500">
+            <FaSearch className="text-5xl mb-3 opacity-20" />
             <p className="text-sm">Search members by name or email</p>
           </div>
         )}
 
         {query && filtered.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400">
+          <div className="flex flex-col items-center justify-center h-full text-gray-500">
             <p className="text-sm">No members found for "{query}"</p>
           </div>
         )}
 
         {query && filtered.length > 0 && (
-          <div className="divide-y divide-gray-100">
+          <div className="space-y-1">
             {filtered.map((member) => {
               const user = member.user || member;
               const isOnline = member.status === 'active';
               return (
-                <div key={user._id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition">
+                <div
+                  key={user._id}
+                  className="flex items-center gap-4 px-4 py-3 bg-[#14141a] rounded-xl border border-gray-800/40 hover:border-[#0d9488]/40 hover:bg-[#1a1a24] transition cursor-pointer group"
+                >
                   <div className="relative flex-shrink-0">
                     {user?.profile ? (
                       <img src={user.profile} alt={user.name} className="w-12 h-12 rounded-2xl object-cover" />
@@ -115,11 +118,13 @@ const SearchMembersModal = ({ isOpen, onClose, members, brandColor, workspaceId,
                       </div>
                     )}
                     {isOnline && (
-                      <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white" />
+                      <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-[#0b0b10]" />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-800 truncate">{user?.name || 'Unknown'}</p>
+                    <p className="font-semibold text-gray-200 truncate group-hover:text-white transition">
+                      {user?.name || 'Unknown'}
+                    </p>
                     <p className="text-xs text-gray-500">{user?.email || 'No email'}</p>
                   </div>
                 </div>
@@ -132,7 +137,7 @@ const SearchMembersModal = ({ isOpen, onClose, members, brandColor, workspaceId,
   );
 };
 
-// ─── Update Member Modal ──────────────────────────────────────────────
+// ─── Update Member Modal (dark) ──────────────────────────────────────
 const UpdateMemberModal = ({ isOpen, onClose, member, brandColor, onSuccess }) => {
   const [role, setRole] = useState(member?.role || 'Staff');
   const [department, setDepartment] = useState(member?.department || 'General');
@@ -162,49 +167,45 @@ const UpdateMemberModal = ({ isOpen, onClose, member, brandColor, onSuccess }) =
   if (!isOpen || !member) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-[#14141a] border border-gray-800/60 rounded-2xl shadow-2xl max-w-md w-full p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+          <h2 className="text-xl font-bold text-gray-200 flex items-center gap-2">
             <FaUserCog className="text-sm" style={{ color: brandColor }} /> Update Member
           </h2>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-800/60 rounded-lg transition text-gray-400 hover:text-white">
             <FaTimes />
           </button>
         </div>
         <form onSubmit={handleSubmit}>
           <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Role</label>
+            <label className="block text-sm font-medium text-gray-400 mb-1.5">Role</label>
             <input
               type="text"
               value={role}
               onChange={(e) => setRole(e.target.value)}
               placeholder="e.g. Developer, Manager"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:border-transparent text-sm"
-              style={{ '--tw-ring-color': brandColor }}
-              onFocus={(e) => e.target.style.setProperty('--tw-ring-color', brandColor)}
+              className="w-full px-4 py-2 bg-[#0b0b10] border border-gray-700/60 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#0d9488] text-sm text-gray-200 placeholder-gray-500"
             />
           </div>
           <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Department</label>
+            <label className="block text-sm font-medium text-gray-400 mb-1.5">Department</label>
             <input
               type="text"
               value={department}
               onChange={(e) => setDepartment(e.target.value)}
               placeholder="e.g. Engineering, Design"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:border-transparent text-sm"
-              style={{ '--tw-ring-color': brandColor }}
-              onFocus={(e) => e.target.style.setProperty('--tw-ring-color', brandColor)}
+              className="w-full px-4 py-2 bg-[#0b0b10] border border-gray-700/60 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#0d9488] text-sm text-gray-200 placeholder-gray-500"
             />
           </div>
           <div className="flex gap-3">
-            <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition text-sm font-medium text-gray-700">
+            <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-700/60 rounded-xl hover:bg-gray-800/30 transition text-sm font-medium text-gray-400 hover:text-white">
               Cancel
             </button>
             <button
               type="submit"
               disabled={isLoading}
-              className="flex-1 py-2 text-white rounded-lg transition hover:opacity-90 disabled:opacity-70 text-sm font-medium"
+              className="flex-1 py-2 text-white rounded-xl transition hover:opacity-80 disabled:opacity-50 text-sm font-medium"
               style={{ backgroundColor: brandColor }}
             >
               {isLoading ? 'Updating...' : 'Update Member'}
@@ -216,7 +217,7 @@ const UpdateMemberModal = ({ isOpen, onClose, member, brandColor, onSuccess }) =
   );
 };
 
-// ─── Approve Member Modal ────────────────────────────────────────────
+// ─── Approve Member Modal (dark) ────────────────────────────────────
 const ApproveMemberModal = ({ isOpen, onClose, memberId, workspaceId, brandColor, onSuccess }) => {
   const [department, setDepartment] = useState('');
   const [role, setRole] = useState('Staff');
@@ -250,51 +251,47 @@ const ApproveMemberModal = ({ isOpen, onClose, memberId, workspaceId, brandColor
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-[#14141a] border border-gray-800/60 rounded-2xl shadow-2xl max-w-md w-full p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+          <h2 className="text-xl font-bold text-gray-200 flex items-center gap-2">
             <FaUserCheck className="text-sm" style={{ color: brandColor }} /> Approve Member
           </h2>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-800/60 rounded-lg transition text-gray-400 hover:text-white">
             <FaTimes />
           </button>
         </div>
         <form onSubmit={handleSubmit}>
           <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Department *</label>
+            <label className="block text-sm font-medium text-gray-400 mb-1.5">Department *</label>
             <input
               type="text"
               value={department}
               onChange={(e) => setDepartment(e.target.value)}
               placeholder="e.g. Engineering, Design"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:border-transparent text-sm"
-              style={{ '--tw-ring-color': brandColor }}
-              onFocus={(e) => e.target.style.setProperty('--tw-ring-color', brandColor)}
+              className="w-full px-4 py-2 bg-[#0b0b10] border border-gray-700/60 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#0d9488] text-sm text-gray-200 placeholder-gray-500"
               required
             />
           </div>
           <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Role</label>
+            <label className="block text-sm font-medium text-gray-400 mb-1.5">Role</label>
             <input
               type="text"
               value={role}
               onChange={(e) => setRole(e.target.value)}
               placeholder="e.g. Developer, Manager"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:border-transparent text-sm"
-              style={{ '--tw-ring-color': brandColor }}
-              onFocus={(e) => e.target.style.setProperty('--tw-ring-color', brandColor)}
+              className="w-full px-4 py-2 bg-[#0b0b10] border border-gray-700/60 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#0d9488] text-sm text-gray-200 placeholder-gray-500"
             />
-            <p className="text-xs text-gray-400 mt-1">Default: Staff</p>
+            <p className="text-xs text-gray-500 mt-1">Default: Staff</p>
           </div>
           <div className="flex gap-3">
-            <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition text-sm font-medium text-gray-700">
+            <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-700/60 rounded-xl hover:bg-gray-800/30 transition text-sm font-medium text-gray-400 hover:text-white">
               Cancel
             </button>
             <button
               type="submit"
               disabled={isLoading}
-              className="flex-1 py-2 text-white rounded-lg transition hover:opacity-90 disabled:opacity-70 text-sm font-medium"
+              className="flex-1 py-2 text-white rounded-xl transition hover:opacity-80 disabled:opacity-50 text-sm font-medium"
               style={{ backgroundColor: brandColor }}
             >
               {isLoading ? 'Approving...' : 'Approve Member'}
@@ -358,11 +355,13 @@ const MyWorkspaceMembers = () => {
 
   if (workspaceLoading || membersLoading || pendingLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-[#0b0b10]">
         <div className="text-center">
-          <div className="w-10 h-10 border-4 border-t-transparent rounded-full animate-spin mx-auto"
-               style={{ borderColor: workspaceData?.workspace?.color || '#4F46E5', borderTopColor: 'transparent' }} />
-          <p className="mt-4 text-gray-500">Loading members...</p>
+          <div
+            className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin mx-auto"
+            style={{ borderColor: workspaceData?.workspace?.color || '#0d9488', borderTopColor: 'transparent' }}
+          />
+          <p className="mt-3 text-gray-500 text-sm">Loading members...</p>
         </div>
       </div>
     );
@@ -383,7 +382,7 @@ const MyWorkspaceMembers = () => {
   const renderMemberList = (list, type = 'active') => {
     if (list.length === 0) {
       return (
-        <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+        <div className="flex flex-col items-center justify-center py-16 text-gray-500">
           <FaUsers className="text-4xl mb-2 opacity-30" />
           <p className="text-sm">{type === 'active' ? 'No members found' : 'No pending requests'}</p>
         </div>
@@ -396,7 +395,10 @@ const MyWorkspaceMembers = () => {
       const isPending = type === 'pending';
 
       return (
-        <div key={user._id || item._id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors">
+        <div
+          key={user._id || item._id}
+          className="flex items-center gap-3 px-4 py-3 hover:bg-[#1a1a24] transition-colors border-b border-gray-800/30 last:border-0"
+        >
           {/* Avatar */}
           <div className="relative flex-shrink-0">
             {user?.profile ? (
@@ -410,25 +412,33 @@ const MyWorkspaceMembers = () => {
               </div>
             )}
             {!isPending && member.status === 'active' && (
-              <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white" />
+              <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-[#0f0f12]" />
             )}
           </div>
 
           {/* Info */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <p className="font-semibold text-gray-800 truncate">{user?.name || 'Unknown'}</p>
+              <p className="font-semibold text-gray-200 truncate group-hover:text-white transition">
+                {user?.name || 'Unknown'}
+              </p>
               {isPending && (
-                <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">Pending</span>
+                <span className="text-xs bg-yellow-900/30 text-yellow-300 px-2 py-0.5 rounded-full border border-yellow-700/40">
+                  Pending
+                </span>
               )}
               {!isPending && user._id === workspace?.owner?._id && (
-                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Owner</span>
+                <span className="text-xs bg-amber-900/30 text-amber-300 px-2 py-0.5 rounded-full border border-amber-700/40">
+                  Owner
+                </span>
               )}
               {!isPending && member.role && member.role !== 'Staff' && (
-                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{member.role}</span>
+                <span className="text-xs bg-blue-900/30 text-blue-300 px-2 py-0.5 rounded-full border border-blue-700/40">
+                  {member.role}
+                </span>
               )}
             </div>
-            <div className="flex items-center gap-2 text-sm text-gray-500 mt-0.5">
+            <div className="flex items-center gap-2 text-sm text-gray-400 mt-0.5">
               <span>{user?.email || 'No email'}</span>
               {member.department && <span>· {member.department}</span>}
             </div>
@@ -439,14 +449,14 @@ const MyWorkspaceMembers = () => {
             <div className="flex items-center gap-2 flex-shrink-0">
               <button
                 onClick={() => handleApproveClick(user._id)}
-                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white rounded-full hover:opacity-90 transition"
+                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white rounded-full hover:opacity-80 transition"
                 style={{ backgroundColor: brandColor }}
               >
                 <FaCheck className="text-xs" /> Approve
               </button>
               <button
                 onClick={() => handleReject(user._id)}
-                className="p-1.5 text-gray-400 hover:text-red-500 rounded-full transition"
+                className="p-1.5 text-gray-400 hover:text-red-400 rounded-full transition"
               >
                 <FaTimes className="text-xs" />
               </button>
@@ -457,23 +467,22 @@ const MyWorkspaceMembers = () => {
             <div className="relative">
               <button
                 onClick={(e) => {
-                  // Toggle menu
                   const menu = e.currentTarget.nextSibling;
                   menu.classList.toggle('hidden');
                 }}
-                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition"
+                className="p-1.5 text-gray-400 hover:text-gray-200 hover:bg-gray-800/60 rounded-lg transition"
               >
                 <FaEllipsisV className="text-xs" />
               </button>
-              <div className="hidden absolute right-0 top-10 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[160px] z-10 py-1">
+              <div className="hidden absolute right-0 top-10 bg-[#1e1e26] rounded-xl shadow-lg border border-gray-800/60 min-w-[160px] z-10 py-1">
                 <button
                   onClick={() => {
                     setSelectedMember({ ...member, workspaceId });
                     setShowUpdateModal(true);
                   }}
-                  className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition w-full"
+                  className="flex items-center gap-2 px-4 py-2 text-sm text-gray-300 hover:bg-[#0d9488]/10 hover:text-white transition w-full"
                 >
-                  <FaEdit className="text-xs" /> Edit Role/Dept
+                  <FaEdit className="text-xs text-[#0d9488]" /> Edit Role/Dept
                 </button>
                 <button
                   onClick={() => {
@@ -481,7 +490,7 @@ const MyWorkspaceMembers = () => {
                       handleRemoveMember(user._id);
                     }
                   }}
-                  className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition w-full"
+                  className="flex items-center gap-2 px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition w-full"
                 >
                   <FaTrashAlt className="text-xs" /> Remove
                 </button>
@@ -494,7 +503,7 @@ const MyWorkspaceMembers = () => {
   };
 
   return (
-    <div className="h-dvh bg-gray-50 flex flex-col lg:flex-row overflow-hidden">
+    <div className="h-dvh bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
       {/* ── Search Members Modal ── */}
       <SearchMembersModal
         isOpen={searchOpen}
@@ -513,23 +522,32 @@ const MyWorkspaceMembers = () => {
       {/* Main content area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Header (fixed on mobile) */}
-        <header className="sticky top-0 z-10 bg-teal-600 text-white flex-shrink-0 shadow-sm">
+        <header className="sticky top-0 z-10 bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-800/40 flex-shrink-0">
           <div className="flex items-center justify-between px-4 h-14">
-            <div className="flex items-center gap-2 min-w-0">
-              <button onClick={() => navigate(`/my-workspace/${workspaceId}`)} className="p-1 lg:hidden">
+            <div className="flex items-center gap-3 min-w-0">
+              <button
+                onClick={() => navigate(`/my-workspace/${workspaceId}`)}
+                className="p-1 lg:hidden text-gray-400 hover:text-white transition"
+              >
                 <FaArrowLeft />
               </button>
-              <h1 className="text-lg font-semibold">Members</h1>
-              <span className="text-xs text-white/70 ml-1">{members.length}</span>
+              <h1 className="text-lg font-semibold text-gray-100">Members</h1>
+              <span className="text-xs font-normal text-gray-500 bg-[#1a1a24] px-2 py-0.5 rounded-full border border-gray-800/40">
+                {members.length}
+              </span>
             </div>
-            <div className="flex items-center gap-3">
-              <button onClick={() => setSearchOpen(true)} className="p-1">
-                <FaSearch className="text-white" />
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSearchOpen(true)}
+                className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800/30 rounded-xl transition"
+              >
+                <FaSearch className="text-sm" />
               </button>
               {isOwner && pendingRequests.length > 0 && (
                 <button
                   onClick={() => setActiveTab('pending')}
-                  className="text-xs bg-white/20 px-2 py-1 rounded-full flex items-center gap-1"
+                  className="text-xs text-white font-medium px-2 py-1 rounded-full flex items-center gap-1"
+                  style={{ backgroundColor: brandColor }}
                 >
                   <FaUserPlus className="text-xs" /> {pendingRequests.length}
                 </button>
@@ -538,13 +556,13 @@ const MyWorkspaceMembers = () => {
           </div>
 
           {/* Tabs */}
-          <div className="flex gap-6 px-4 border-t border-white/20">
+          <div className="flex gap-6 px-4 border-t border-gray-800/30">
             <button
               onClick={() => setActiveTab('active')}
               className={`pb-2 text-sm font-medium transition ${
                 activeTab === 'active'
-                  ? 'border-b-2 border-white text-white'
-                  : 'text-white/70 hover:text-white'
+                  ? 'border-b-2 border-[#0d9488] text-[#0d9488]'
+                  : 'text-gray-400 hover:text-gray-200'
               }`}
             >
               Active ({members.length})
@@ -554,8 +572,8 @@ const MyWorkspaceMembers = () => {
                 onClick={() => setActiveTab('pending')}
                 className={`pb-2 text-sm font-medium transition ${
                   activeTab === 'pending'
-                    ? 'border-b-2 border-white text-white'
-                    : 'text-white/70 hover:text-white'
+                    ? 'border-b-2 border-[#0d9488] text-[#0d9488]'
+                    : 'text-gray-400 hover:text-gray-200'
                 }`}
               >
                 Pending ({pendingRequests.length})
@@ -565,17 +583,9 @@ const MyWorkspaceMembers = () => {
         </header>
 
         {/* Member List */}
-        <div className="flex-1 overflow-y-auto bg-white">
-          {activeTab === 'active' && (
-            <div className="divide-y divide-gray-100">
-              {renderMemberList(members, 'active')}
-            </div>
-          )}
-          {activeTab === 'pending' && isOwner && (
-            <div className="divide-y divide-gray-100">
-              {renderMemberList(pendingRequests, 'pending')}
-            </div>
-          )}
+        <div className="flex-1 overflow-y-auto bg-[#0f0f12] divide-y divide-gray-800/30">
+          {activeTab === 'active' && renderMemberList(members, 'active')}
+          {activeTab === 'pending' && isOwner && renderMemberList(pendingRequests, 'pending')}
         </div>
       </div>
 

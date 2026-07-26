@@ -1,53 +1,105 @@
 // src/workspaceScreens/MyWorkspaceId.jsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef, memo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
+import { useGetWorkspaceProjectsQuery } from '../slices/projectApiSlice';
 import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
+import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
 import MyWorkspaceSidebar from '../workspaceComponents/MyWorkspaceSidebar';
 import MyWorkspaceBottombar from '../workspaceComponents/MyWorkspaceBottombar';
 import {
   FaUsers,
-  FaComment,
-  FaCheck,
-  FaUserPlus,
-  FaCog,
   FaHashtag,
-  FaCircle,
-  FaEnvelope,
   FaFolder,
+  FaCircle,
   FaEye,
   FaEyeSlash,
-  FaThLarge,
+  FaChartLine,
+  FaUserPlus,
+  FaCopy,
+  FaTasks,
+  FaCheckCircle,
+  FaClock,
+  FaSpinner,
+  FaCog,
 } from 'react-icons/fa';
-import { toast } from 'react-toastify';
 import {
   AreaChart,
   Area,
   XAxis,
+  YAxis,
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
+import { toast } from 'react-toastify';
 
-const chartData = [
-  { day: 'Mon', messages: 12 },
-  { day: 'Tue', messages: 19 },
-  { day: 'Wed', messages: 8 },
-  { day: 'Thu', messages: 27 },
-  { day: 'Fri', messages: 34 },
-  { day: 'Sat', messages: 22 },
-  { day: 'Sun', messages: 15 },
-];
+// ─── Helper component to fetch task count for a single project ──
+const TaskCounter = memo(({ projectId, onCount, onLoading }) => {
+  const { data, isLoading } = useGetProjectTasksQuery({ projectId });
+  const mounted = useRef(true);
+  const lastCount = useRef(0);
 
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
+  useEffect(() => {
+    if (data && mounted.current) {
+      const count = data.tasks.length;
+      if (count !== lastCount.current) {
+        lastCount.current = count;
+        onCount(projectId, count);
+      }
+    }
+    if (isLoading !== undefined && mounted.current) {
+      onLoading(projectId, isLoading);
+    }
+  }, [data, isLoading, projectId, onCount, onLoading]);
+
+  return null;
+});
+
+// ─── main component ──────────────────────────────────────────────────
 const MyWorkspaceId = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
-  const [copied, setCopied] = useState(false);
   const [hideStats, setHideStats] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
 
-  const { data: workspaceData, isLoading, error } = useGetWorkspaceQuery(workspaceId);
+  const { data, isLoading, error } = useGetWorkspaceQuery(workspaceId);
+  const { data: projectsData, isLoading: projectsLoading } = useGetWorkspaceProjectsQuery({ workspaceId });
   const { data: chatsData } = useGetUserChatsQuery(workspaceId);
+
+  // ── state for aggregating task counts ──────────────────────────
+  const [totalTasks, setTotalTasks] = useState(0);
+  const [taskCounts, setTaskCounts] = useState({});
+  const [loadingTasks, setLoadingTasks] = useState({});
+
+  // ── handle task count updates from TaskCounter (memoized) ────
+  const handleTaskCount = useCallback((projectId, count) => {
+    setTaskCounts(prev => {
+      if (prev[projectId] === count) return prev;
+      return { ...prev, [projectId]: count };
+    });
+  }, []);
+
+  const handleTaskLoading = useCallback((projectId, loading) => {
+    setLoadingTasks(prev => {
+      if (prev[projectId] === loading) return prev;
+      return { ...prev, [projectId]: loading };
+    });
+  }, []);
+
+  // ── recompute total whenever taskCounts changes ──────────────
+  useEffect(() => {
+    const sum = Object.values(taskCounts).reduce((a, b) => a + b, 0);
+    setTotalTasks(sum);
+  }, [taskCounts]);
+
+  const isTasksLoading = projectsData?.projects?.some(p => loadingTasks[p._id] !== false) ?? false;
 
   useEffect(() => {
     if (error) navigate('/my-workspaces');
@@ -56,375 +108,548 @@ const MyWorkspaceId = () => {
   const copyInviteCode = () => {
     if (workspace?.inviteCode) {
       navigator.clipboard.writeText(workspace.inviteCode);
-      setCopied(true);
+      setCopySuccess(true);
       toast.success('Invite code copied!');
-      setTimeout(() => setCopied(false), 3000);
+      setTimeout(() => setCopySuccess(false), 2000);
     }
   };
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-[#0b0b10]">
         <div className="text-center">
-          <div className="w-10 h-10 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="mt-4 text-gray-500">Loading workspace...</p>
+          <div
+            className="w-8 h-8 border-[3px] border-t-transparent rounded-full animate-spin mx-auto"
+            style={{ borderColor: '#0d9488', borderTopColor: 'transparent' }}
+          />
+          <p className="mt-3 text-gray-500 text-sm">Loading workspace...</p>
         </div>
       </div>
     );
   }
 
-  const workspace = workspaceData?.workspace;
+  const workspace = data?.workspace;
   const chats = chatsData?.chats || [];
+  const projects = projectsData?.projects || [];
   if (!workspace) return null;
 
   const activeMembers = workspace.members?.filter((m) => m.status === 'active') || [];
   const onlineCount = activeMembers.filter((m) => m.status === 'active').length || 0;
   const channelCount = chats.filter((c) => c.type === 'group').length || 0;
-  const dmCount = chats.filter((c) => c.type === 'direct').length || 0;
   const brandColor = workspace.color || '#0d9488';
-  const totalMessages = chartData.reduce((sum, d) => sum + d.messages, 0);
 
-  // ── Dark identity card — balance-style stat, masked invite code, invite CTA ──
+  const avgProgress = projects.length > 0 
+    ? Math.round(projects.reduce((sum, p) => sum + (p.progress || 0), 0) / projects.length) 
+    : 0;
+
+  // ─── prepare chart data ──────────────────────────────────────────
+  const chartProjects = [...projects]
+    .sort((a, b) => {
+      if (a.createdAt && b.createdAt) {
+        return new Date(a.createdAt) - new Date(b.createdAt);
+      }
+      return 0;
+    })
+    .slice(0, 10)
+    .map((p) => ({
+      name: p.name.length > 10 ? p.name.slice(0, 10) + '…' : p.name,
+      progress: p.progress || 0,
+    }));
+
+  // ─── metric card ──────────────────────────────────────────────────
+  const MetricCard = ({ icon: Icon, label, value, to, badge, badgeColor }) => (
+    <Link
+      to={to}
+      className="group relative bg-[#14141a] rounded-2xl border border-gray-800/60 p-4 flex flex-col items-start gap-1 hover:border-transparent hover:shadow-[0_0_20px_rgba(13,148,136,0.2)] transition-all duration-300 overflow-hidden"
+    >
+      <div className="absolute inset-0 bg-gradient-to-br from-[#0d9488]/0 via-[#0d9488]/0 to-transparent group-hover:from-[#0d9488]/10 group-hover:via-[#0d9488]/5 transition-all duration-500" />
+      {badge && (
+        <span
+          className={`absolute -top-1 right-2 text-[9px] font-bold px-2 py-0.5 rounded-full text-white ${badgeColor} shadow-[0_0_10px_rgba(34,197,94,0.4)]`}
+        >
+          {badge}
+        </span>
+      )}
+      <div className="flex items-center justify-between w-full">
+        <div
+          className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#0d9488]/10 text-[#0d9488] group-hover:scale-110 transition-transform"
+          style={{ color: brandColor, backgroundColor: `${brandColor}15` }}
+        >
+          <Icon className="text-sm" />
+        </div>
+        <span className="text-xs font-mono text-gray-600 group-hover:text-gray-400 transition">
+          {hideStats ? '••••' : '→'}
+        </span>
+      </div>
+      <p className="text-lg font-bold text-gray-100 tracking-tight mt-1">
+        {hideStats ? '••••' : value}
+      </p>
+      <p className="text-[11px] text-gray-500 uppercase tracking-wider">{label}</p>
+    </Link>
+  );
+
+  // ─── quick action button ──────────────────────────────────────────
+  const QuickAction = ({ icon: Icon, label, to, onClick }) => {
+    const content = (
+      <div className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-xl bg-[#14141a] border border-gray-800/60 hover:border-[#0d9488]/40 hover:shadow-[0_0_15px_rgba(13,148,136,0.15)] transition-all duration-300 group">
+        <div className="text-gray-400 group-hover:text-[#0d9488] transition-colors text-lg">
+          <Icon />
+        </div>
+        <span className="text-[10px] text-gray-500 uppercase tracking-wider group-hover:text-gray-300 transition">
+          {label}
+        </span>
+      </div>
+    );
+    if (to) return <Link to={to}>{content}</Link>;
+    return <button onClick={onClick} className="w-full">{content}</button>;
+  };
+
+  // ─── Hero Card (mobile & desktop) ────────────────────────────────
   const HeroCard = () => (
-    <div className="relative overflow-hidden bg-gray-900 text-white rounded-3xl p-5 sm:p-6 shadow-lg shadow-gray-900/20">
-      <div
-        className="pointer-events-none absolute -top-16 -right-16 w-48 h-48 rounded-full blur-3xl opacity-25"
-        style={{ backgroundColor: brandColor }}
-      />
-
-      <div className="relative flex items-center justify-between mb-5">
+    <div className="relative bg-[#14141a] border border-gray-800/60 rounded-2xl p-5">
+      <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3 min-w-0">
           {workspace.logo ? (
             <img
               src={workspace.logo}
               alt={workspace.name}
-              className="w-11 h-11 rounded-full object-cover border-2 border-white/15 flex-shrink-0"
+              className="w-12 h-12 rounded-xl object-cover border border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)] flex-shrink-0"
             />
           ) : (
             <div
-              className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold border-2 border-white/15 flex-shrink-0"
+              className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-lg border border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)] flex-shrink-0"
               style={{ backgroundColor: brandColor }}
             >
               {workspace.initials || workspace.name.charAt(0).toUpperCase()}
             </div>
           )}
           <div className="min-w-0">
-            <p className="text-[11px] text-white/50 leading-none mb-1">Workspace</p>
-            <h1 className="text-base sm:text-lg font-bold leading-tight truncate">
+            <p className="text-[10px] text-gray-500 uppercase tracking-widest">Workspace</p>
+            <h1 className="text-lg font-bold leading-tight truncate text-gray-100">
               {workspace.name}
             </h1>
           </div>
         </div>
         <Link
           to={`/my-workspace/${workspaceId}/settings`}
-          className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/15 flex items-center justify-center transition flex-shrink-0"
+          className="w-8 h-8 rounded-full bg-[#0b0b10] border border-gray-800 flex items-center justify-center text-gray-400 hover:text-gray-200 transition"
           aria-label="Workspace settings"
         >
           <FaCog className="text-sm" />
         </Link>
       </div>
 
-      <div className="relative flex items-end justify-between mb-4">
+      <div className="flex items-end justify-between mb-4">
         <div>
           <button
             onClick={() => setHideStats((v) => !v)}
-            className="flex items-center gap-2 text-white/60 text-xs mb-1.5"
+            className="flex items-center gap-2 text-gray-500 text-xs mb-1.5 hover:text-gray-300 transition-colors"
           >
             <FaUsers className="text-[10px]" />
             Active members
             {hideStats ? <FaEyeSlash className="text-[11px]" /> : <FaEye className="text-[11px]" />}
           </button>
-          <p className="text-3xl sm:text-4xl font-bold tracking-tight">
+          <p className="text-3xl font-bold tracking-tight text-gray-100">
             {hideStats ? '••••' : activeMembers.length}
           </p>
         </div>
         <button
           onClick={copyInviteCode}
-          className="flex items-center gap-1.5 bg-white text-gray-900 px-4 py-2.5 rounded-full text-xs sm:text-sm font-semibold hover:bg-white/90 transition flex-shrink-0"
+          className="flex items-center gap-1.5 bg-[#0d9488] text-white px-4 py-2.5 rounded-full text-xs sm:text-sm font-semibold hover:bg-[#0f9e96] transition flex-shrink-0"
         >
-          {copied ? <FaCheck className="text-xs" /> : <FaUserPlus className="text-xs" />}
-          {copied ? 'Copied' : 'Invite'}
+          {copySuccess ? <FaCheckCircle className="text-xs" /> : <FaUserPlus className="text-xs" />}
+          {copySuccess ? 'Copied' : 'Invite'}
         </button>
       </div>
 
-      <div className="relative flex items-center justify-between bg-white/10 rounded-2xl px-4 py-2.5">
-        <span className="text-xs text-white/70 flex items-center gap-2">
+      <div className="flex items-center justify-between bg-gray-800/30 rounded-xl px-4 py-2.5 border border-gray-800/40">
+        <span className="text-xs text-gray-400 flex items-center gap-2">
           <FaCircle className="text-[6px] text-green-400" />
           {onlineCount} online now
         </span>
-        <span className="text-xs font-mono tracking-wider text-white/80">
+        <span className="text-xs font-mono tracking-wider text-gray-300">
           {hideStats ? '••••••••' : workspace.inviteCode || '—'}
         </span>
       </div>
     </div>
   );
 
-  // ── Core action tile — row on mobile, vertical list on desktop ──
-  const QuickActionTile = ({ icon: Icon, label, to }) => (
-    <Link
-      to={to}
-      className="flex flex-col items-center justify-center gap-2 lg:flex-row lg:justify-start lg:gap-3 bg-white rounded-2xl border border-gray-200/60 py-3.5 lg:py-3 lg:px-4 hover:border-gray-300 hover:shadow-sm transition"
-    >
-      <div
-        className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
-        style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
-      >
-        <Icon className="text-sm" />
-      </div>
-      <span className="text-xs lg:text-sm font-medium text-gray-700">{label}</span>
-    </Link>
-  );
+  // ─── Project Item (always fetches tasks) ──────────────────────────
+  const ProjectItem = ({ project }) => {
+    const progress = project.progress || 0;
+    const statusColor = {
+      planning: 'text-blue-400 bg-blue-900/20 border-blue-700/40',
+      'in-progress': 'text-yellow-400 bg-yellow-900/20 border-yellow-700/40',
+      completed: 'text-green-400 bg-green-900/20 border-green-700/40',
+      archived: 'text-gray-400 bg-gray-800/40 border-gray-700/40',
+    }[project.status] || 'text-gray-400 bg-gray-800/40 border-gray-700/40';
+    const statusLabel = {
+      planning: 'Planning',
+      'in-progress': 'In Progress',
+      completed: 'Completed',
+      archived: 'Archived',
+    }[project.status] || 'Planning';
 
-  // ── Quick-access grid tile with optional badge ──
-  const StatTile = ({ icon: Icon, label, value, badge, badgeColor }) => (
-    <div className="relative bg-white rounded-2xl border border-gray-200/60 px-3 py-4 flex flex-col items-center text-center gap-2">
-      {badge && (
-        <span
-          className={`absolute -top-1.5 right-2 text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white ${badgeColor}`}
+    // Always fetch tasks for this project
+    const { data: taskData, isLoading: taskLoading } = useGetProjectTasksQuery(
+      { projectId: project._id }
+    );
+    const tasks = taskData?.tasks || [];
+    const totalTasks = tasks.length;
+    const completedTasks = tasks.filter(
+      (t) => t.status === 'completed' || t.status === 'confirmed_completed'
+    ).length;
+
+    return (
+      <Link
+        to={`/my-workspace/${workspaceId}/project/${project._id}`}
+        className="flex items-center gap-3 px-4 sm:px-5 py-3 hover:bg-[#0d9488]/5 transition group border-b border-gray-800/30 last:border-0"
+      >
+        <div
+          className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+          style={{ backgroundColor: `${brandColor}15` }}
         >
-          {badge}
-        </span>
-      )}
-      <div
-        className="w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center"
-        style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
-      >
-        <Icon className="text-base" />
-      </div>
-      <div>
-        <p className="text-base sm:text-lg font-bold text-gray-900 leading-none">{value}</p>
-        <p className="text-[10px] sm:text-xs text-gray-500 mt-1">{label}</p>
-      </div>
-    </div>
-  );
+          <FaFolder className="text-xs" style={{ color: brandColor }} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-medium text-gray-200 truncate group-hover:text-white transition">
+              {project.name}
+            </p>
+            <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${statusColor}`}>
+              {statusLabel}
+            </span>
+          </div>
+          <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500">
+            {taskLoading ? (
+              <span className="flex items-center gap-1">
+                <FaSpinner className="animate-spin text-[10px]" />
+                Loading tasks...
+              </span>
+            ) : (
+              <>
+                <span className="flex items-center gap-1">
+                  <FaTasks className="text-[10px]" />
+                  {totalTasks} tasks
+                </span>
+                <span className="flex items-center gap-1">
+                  <FaCheckCircle className="text-[10px] text-green-400" />
+                  {completedTasks} done
+                </span>
+                <span className="flex-1">
+                  <div className="w-full h-1 bg-gray-800/60 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{ width: `${progress}%`, backgroundColor: brandColor }}
+                    />
+                  </div>
+                </span>
+                <span className="font-mono text-[10px] text-gray-400">{progress}%</span>
+              </>
+            )}
+          </div>
+        </div>
+      </Link>
+    );
+  };
 
+  // ─── main render ─────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Desktop Sidebar */}
-      <div className="hidden md:block md:w-64 md:min-h-screen md:flex-shrink-0 fixed top-0 left-0 z-20">
+    <div className="min-h-screen bg-[#0b0b10] flex flex-col">
+      {/* desktop sidebar */}
+      <div className="hidden md:block md:w-[260px] md:min-h-screen md:flex-shrink-0 fixed top-0 left-0 z-20">
         <MyWorkspaceSidebar workspace={workspace} chats={chats} />
       </div>
 
-      {/* Main content */}
-      <div className="flex-1 md:ml-64">
-        {/* Mobile-only greeting bar — fixed at top */}
-        <div className="md:hidden fixed top-0 left-0 right-0 z-10 bg-gray-50 px-4 pt-4 pb-2 border-b border-gray-200/60">
+      {/* main content */}
+      <div className="flex-1 md:ml-[260px]">
+        {/* mobile header */}
+        <div className="md:hidden fixed top-0 left-0 right-0 z-10 bg-[#0b0b10]/80 backdrop-blur-md px-4 pt-4 pb-2 border-b border-gray-800/40">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-gray-400">Welcome back</p>
-              <h2 className="text-base font-bold text-gray-900">
-                Hi, {userInfo?.name?.split(' ')[0] || 'there'}
-              </h2>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-gray-500 uppercase tracking-widest">Workspace</span>
+              <span className="text-gray-700">/</span>
+              <span className="text-sm font-semibold text-gray-100 truncate max-w-[150px]">
+                {workspace.name}
+              </span>
             </div>
-            <Link
-              to="/my-workspaces"
-              className="w-9 h-9 rounded-full bg-white border border-gray-200 flex items-center justify-center text-gray-500 hover:text-gray-700 transition"
-              aria-label="All workspaces"
+            <button
+              onClick={() => setHideStats((v) => !v)}
+              className="w-8 h-8 rounded-full bg-[#14141a] border border-gray-800 flex items-center justify-center text-gray-400 hover:text-gray-200 transition"
             >
-              <FaThLarge className="text-sm" />
-            </Link>
+              {hideStats ? <FaEyeSlash className="text-xs" /> : <FaEye className="text-xs" />}
+            </button>
           </div>
         </div>
 
-        <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 md:pb-6 mt-16 md:mt-0">
-          {/* Hero + core actions — stacked on mobile, split 2/3 + 1/3 on desktop */}
-          <div className="lg:grid lg:grid-cols-3 lg:gap-6 mb-4 sm:mb-6">
-            <div className="lg:col-span-2">
-              <HeroCard />
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 md:pb-6 mt-16 md:mt-0">
+          {/* Hidden TaskCounter components to fetch all task counts */}
+          {projects.map((p) => (
+            <TaskCounter
+              key={p._id}
+              projectId={p._id}
+              onCount={handleTaskCount}
+              onLoading={handleTaskLoading}
+            />
+          ))}
+
+          {/* mobile hero card */}
+          <div className="md:hidden mb-4">
+            <HeroCard />
+          </div>
+
+          {/* desktop hero bar */}
+          <div className="hidden md:flex flex-wrap items-center justify-between gap-3 mb-6">
+            <div className="flex items-center gap-3">
+              {workspace.logo ? (
+                <img
+                  src={workspace.logo}
+                  alt={workspace.name}
+                  className="w-10 h-10 rounded-xl object-cover border border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)]"
+                />
+              ) : (
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm border border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)]"
+                  style={{ backgroundColor: brandColor }}
+                >
+                  {workspace.initials || workspace.name.charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div>
+                <h1 className="text-xl font-bold text-gray-100 tracking-tight">
+                  {workspace.name}
+                </h1>
+                <div className="flex items-center gap-2 text-xs text-gray-500">
+                  <span className="flex items-center gap-1">
+                    <FaCircle className="text-[6px] text-green-400" />
+                    {onlineCount} online
+                  </span>
+                  <span className="w-px h-3 bg-gray-700" />
+                  <span>
+                    {hideStats ? '••••' : `${activeMembers.length} members`}
+                  </span>
+                  <span className="w-px h-3 bg-gray-700" />
+                  <button
+                    onClick={() => setHideStats((v) => !v)}
+                    className="text-gray-600 hover:text-gray-300 transition"
+                  >
+                    {hideStats ? <FaEyeSlash className="text-[10px]" /> : <FaEye className="text-[10px]" />}
+                  </button>
+                </div>
+              </div>
             </div>
-            <div className="mt-4 lg:mt-0 grid grid-cols-3 lg:grid-cols-1 gap-2 sm:gap-3">
-              <QuickActionTile
-                icon={FaFolder}
-                label="Projects"
-                to={`/my-workspace/${workspaceId}/projects`}
-              />
-              <QuickActionTile
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-mono text-gray-600 bg-[#14141a] px-3 py-1.5 rounded-full border border-gray-800/60 flex items-center gap-2">
+                {hideStats ? '••••••••' : workspace.inviteCode}
+                {!hideStats && (
+                  <button
+                    onClick={copyInviteCode}
+                    className="text-[#0d9488] hover:text-[#14b8a6] transition-colors"
+                    title="Copy invite code"
+                  >
+                    <FaCopy className="text-[10px]" />
+                  </button>
+                )}
+                {copySuccess && (
+                  <span className="text-[10px] text-green-400 animate-pulse">Copied!</span>
+                )}
+              </span>
+            </div>
+          </div>
+
+          {/* metrics grid */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
+            <div className="col-span-1">
+              <MetricCard
                 icon={FaUsers}
                 label="Members"
+                value={activeMembers.length}
                 to={`/my-workspace/${workspaceId}/members`}
               />
-              <QuickActionTile
+            </div>
+            <div className="col-span-1">
+              <MetricCard
+                icon={FaFolder}
+                label="Projects"
+                value={projects.length}
+                to={`/my-workspace/${workspaceId}/projects`}
+              />
+            </div>
+            <div className="hidden md:block">
+              <MetricCard
                 icon={FaHashtag}
                 label="Channels"
+                value={channelCount}
                 to={`/my-workspace/${workspaceId}/channels`}
+              />
+            </div>
+            <div className="hidden md:block">
+              <MetricCard
+                icon={FaCircle}
+                label="Online Now"
+                value={onlineCount}
+                to={`/my-workspace/${workspaceId}/members`}
+                badge={onlineCount > 0 ? 'LIVE' : null}
+                badgeColor="bg-green-500"
               />
             </div>
           </div>
 
-          {/* Quick-access grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
-            <StatTile icon={FaHashtag} label="Channels" value={channelCount} />
-            <StatTile icon={FaEnvelope} label="DMs" value={dmCount} />
-            <StatTile icon={FaUsers} label="Members" value={activeMembers.length} />
-            <StatTile
-              icon={FaCircle}
-              label="Online"
-              value={onlineCount}
-              badge={onlineCount > 0 ? 'LIVE' : null}
-              badgeColor="bg-green-500"
-            />
-          </div>
-
-          {/* Gradient signature card — weekly activity */}
-          <div
-            className="relative overflow-hidden rounded-3xl p-5 sm:p-6 mb-4 sm:mb-6 text-white"
-            style={{ background: `linear-gradient(135deg, ${brandColor} 0%, #111827 100%)` }}
-          >
-            <div className="flex items-center justify-between mb-1">
-              <div>
-                <p className="text-xs text-white/70">This week</p>
-                <h2 className="text-lg sm:text-xl font-bold">{totalMessages} messages</h2>
-              </div>
-              <Link
-                to={`/my-workspace/${workspaceId}/channels`}
-                className="bg-white/15 hover:bg-white/25 transition text-xs font-semibold px-3.5 py-2 rounded-full"
-              >
-                View report
-              </Link>
-            </div>
-            <div className="h-32 sm:h-40 w-full -ml-2">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData}>
-                  <defs>
-                    <linearGradient id="colorMessages" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#ffffff" stopOpacity={0.5} />
-                      <stop offset="95%" stopColor="#ffffff" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <XAxis
-                    dataKey="day"
-                    tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.6)' }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      borderRadius: '8px',
-                      border: 'none',
-                      fontSize: '12px',
-                    }}
-                    formatter={(value) => [`${value} messages`, '']}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="messages"
-                    stroke="#ffffff"
-                    strokeWidth={2}
-                    fill="url(#colorMessages)"
-                    dot={{ r: 2, fill: '#ffffff' }}
-                    activeDot={{ r: 4 }}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* Two‑column responsive grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Left – conversations */}
-            <div className="lg:col-span-2 space-y-6">
-              <div className="bg-white rounded-2xl border border-gray-200/60 overflow-hidden">
-                <div className="px-4 sm:px-5 py-3 sm:py-3.5 flex items-center justify-between border-b border-gray-100">
-                  <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                    <FaComment className="text-sm" style={{ color: brandColor }} />
-                    Recent Conversations
+          {/* chart + quick actions */}
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
+            {/* Trading‑style AreaChart */}
+            <div className="lg:col-span-3 bg-[#14141a] rounded-2xl border border-gray-800/60 p-4 sm:p-5 relative overflow-hidden group">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-[#0d9488]/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="text-[10px] text-gray-500 uppercase tracking-widest">Project Progress Trend</p>
+                  <h2 className="text-lg font-bold text-gray-100 flex items-center gap-3">
+                    {isTasksLoading && projects.length > 0 ? (
+                      <span className="flex items-center gap-2 text-sm text-gray-400">
+                        <FaSpinner className="animate-spin" /> Loading tasks…
+                      </span>
+                    ) : (
+                      <>
+                        <span>{totalTasks} tasks</span>
+                        <span className="text-sm font-normal text-gray-400">
+                          Avg {avgProgress}% complete
+                        </span>
+                      </>
+                    )}
                   </h2>
+                </div>
+                <Link
+                  to={`/my-workspace/${workspaceId}/projects`}
+                  className="text-xs font-medium text-[#0d9488] hover:text-[#14b8a6] transition flex items-center gap-1"
+                  style={{ color: brandColor }}
+                >
+                  <FaChartLine />
+                  <span className="hidden sm:inline">Projects</span>
+                </Link>
+              </div>
+              <div className="h-28 sm:h-32 w-full">
+                {chartProjects.length > 1 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartProjects}>
+                      <defs>
+                        <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={brandColor} stopOpacity={0.4} />
+                          <stop offset="95%" stopColor={brandColor} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <XAxis
+                        dataKey="name"
+                        tick={{ fontSize: 9, fill: '#6b7280' }}
+                        tickLine={false}
+                        axisLine={false}
+                        interval="preserveStartEnd"
+                      />
+                      <YAxis
+                        domain={[0, 100]}
+                        tick={{ fontSize: 9, fill: '#6b7280' }}
+                        tickLine={false}
+                        axisLine={false}
+                        tickCount={6}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: '12px',
+                          border: '1px solid #2d2d3a',
+                          fontSize: '11px',
+                          backgroundColor: '#14141a',
+                          color: '#e5e7eb',
+                          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                        }}
+                        formatter={(value) => [`${value}%`, 'Progress']}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="progress"
+                        stroke={brandColor}
+                        strokeWidth={2}
+                        fill="url(#chartGradient)"
+                        dot={{ r: 2, fill: brandColor }}
+                        activeDot={{ r: 4, stroke: '#fff', strokeWidth: 1 }}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+                    {chartProjects.length === 1 ? 'Add more projects to see trends' : 'No project data'}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* quick actions */}
+            <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-1 gap-2">
+              <QuickAction icon={FaFolder} label="Projects" to={`/my-workspace/${workspaceId}/projects`} />
+              <QuickAction icon={FaHashtag} label="Channels" to={`/my-workspace/${workspaceId}/channels`} />
+              <QuickAction icon={FaUserPlus} label="Invite" onClick={copyInviteCode} />
+            </div>
+          </div>
+
+          {/* two‑column feed: Projects + Members/About */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            {/* Projects list */}
+            <div className="lg:col-span-2 bg-[#14141a] rounded-2xl border border-gray-800/60 overflow-hidden">
+              <div className="px-4 sm:px-5 py-3 flex items-center justify-between border-b border-gray-800/40">
+                <h2 className="text-sm font-semibold text-gray-100 flex items-center gap-2">
+                  <FaFolder className="text-sm" style={{ color: brandColor }} />
+                  Active Projects
+                </h2>
+                <Link
+                  to={`/my-workspace/${workspaceId}/projects`}
+                  className="text-[10px] font-medium uppercase tracking-wider hover:underline"
+                  style={{ color: brandColor }}
+                >
+                  View all
+                </Link>
+              </div>
+              <div className="divide-y divide-gray-800/30">
+                {projectsLoading ? (
+                  <div className="px-4 py-8 text-center text-xs text-gray-500">
+                    Loading projects...
+                  </div>
+                ) : projects.length === 0 ? (
+                  <div className="px-4 py-8 text-center text-xs text-gray-500">
+                    No projects yet. Create your first project!
+                  </div>
+                ) : (
+                  projects.slice(0, 5).map((project) => (
+                    <ProjectItem key={project._id} project={project} />
+                  ))
+                )}
+                {projects.length > 5 && (
                   <Link
-                    to={`/my-workspace/${workspaceId}/channels`}
-                    className="text-xs font-medium hover:underline"
+                    to={`/my-workspace/${workspaceId}/projects`}
+                    className="block text-[10px] font-medium uppercase tracking-wider px-4 sm:px-5 py-2.5 hover:bg-[#0d9488]/5 transition border-t border-gray-800/30 text-center"
                     style={{ color: brandColor }}
                   >
-                    View all
+                    +{projects.length - 5} more projects
                   </Link>
-                </div>
-                <div className="divide-y divide-gray-100">
-                  {chats.length === 0 ? (
-                    <div className="px-4 py-8 text-center text-xs sm:text-sm text-gray-400">
-                      No activity yet — start a conversation!
-                    </div>
-                  ) : (
-                    chats.slice(0, 5).map((chat) => {
-                      const isGroup = chat.type === 'group';
-                      const otherParticipant = isGroup
-                        ? null
-                        : chat.participants.find(
-                            (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id
-                          );
-                      const participant = otherParticipant?.user || otherParticipant;
-                      const name = isGroup ? chat.name : participant?.name || 'Unknown';
-                      const lastMessage = chat.lastMessage?.content || 'No messages yet';
-                      const time = chat.updatedAt
-                        ? new Date(chat.updatedAt).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
-                        : '';
-                      return (
-                        <Link
-                          key={chat._id}
-                          to={`/my-workspace/${workspaceId}/chat/${chat._id}`}
-                          className="flex items-center gap-3 px-4 sm:px-5 py-3 hover:bg-gray-50 transition"
-                        >
-                          {isGroup ? (
-                            <div
-                              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center border border-gray-200"
-                              style={{ backgroundColor: `${brandColor}10` }}
-                            >
-                              <FaHashtag className="text-xs sm:text-sm" style={{ color: brandColor }} />
-                            </div>
-                          ) : participant?.profile ? (
-                            <img
-                              src={participant.profile}
-                              alt={name}
-                              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full object-cover border border-gray-200"
-                            />
-                          ) : (
-                            <div
-                              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-white font-bold text-xs sm:text-sm border border-gray-200"
-                              style={{ backgroundColor: brandColor }}
-                            >
-                              {name.charAt(0).toUpperCase()}
-                            </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="text-xs sm:text-sm font-medium text-gray-900 truncate">
-                                {name}
-                              </p>
-                              <span className="text-[10px] sm:text-xs text-gray-400 flex-shrink-0">
-                                {time}
-                              </span>
-                            </div>
-                            <p className="text-[11px] sm:text-xs text-gray-500 truncate mt-0.5">
-                              {lastMessage}
-                            </p>
-                          </div>
-                        </Link>
-                      );
-                    })
-                  )}
-                </div>
+                )}
               </div>
             </div>
 
-            {/* Right column – members + about */}
-            <div className="space-y-6">
-              <div className="bg-white rounded-2xl border border-gray-200/60 overflow-hidden">
-                <div className="px-4 sm:px-5 py-3 sm:py-3.5 flex items-center justify-between border-b border-gray-100">
-                  <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+            {/* right – members online + about */}
+            <div className="space-y-4">
+              <div className="bg-[#14141a] rounded-2xl border border-gray-800/60 overflow-hidden">
+                <div className="px-4 sm:px-5 py-3 flex items-center justify-between border-b border-gray-800/40">
+                  <h2 className="text-sm font-semibold text-gray-100 flex items-center gap-2">
                     <FaUsers className="text-sm" style={{ color: brandColor }} />
-                    Members
+                    Online
                   </h2>
                   <Link
                     to={`/my-workspace/${workspaceId}/members`}
-                    className="text-xs font-medium hover:underline"
+                    className="text-[10px] font-medium uppercase tracking-wider hover:underline"
                     style={{ color: brandColor }}
                   >
                     See all
                   </Link>
                 </div>
-                <div className="divide-y divide-gray-100">
-                  {activeMembers.slice(0, 6).map((member) => {
+                <div className="divide-y divide-gray-800/30">
+                  {activeMembers.slice(0, 5).map((member) => {
                     const memberUser = member.user || member;
                     const isOwner =
                       memberUser._id === workspace.owner?._id ||
@@ -432,55 +657,61 @@ const MyWorkspaceId = () => {
                     return (
                       <div
                         key={memberUser._id}
-                        className="flex items-center gap-3 px-4 sm:px-5 py-2 sm:py-2.5 hover:bg-gray-50 transition"
+                        className="flex items-center gap-3 px-4 sm:px-5 py-2 hover:bg-[#0d9488]/5 transition"
                       >
                         {memberUser?.profile ? (
                           <img
                             src={memberUser.profile}
                             alt={memberUser.name}
-                            className="w-7 h-7 sm:w-8 sm:h-8 rounded-full object-cover border border-gray-200"
+                            className="w-7 h-7 rounded-xl object-cover border border-gray-700/50"
                           />
                         ) : (
                           <div
-                            className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-white text-[10px] sm:text-xs font-bold"
+                            className="w-7 h-7 rounded-xl flex items-center justify-center text-white text-[10px] font-bold"
                             style={{ backgroundColor: brandColor }}
                           >
                             {memberUser?.name?.charAt(0).toUpperCase() || '?'}
                           </div>
                         )}
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs sm:text-sm text-gray-700 truncate flex items-center gap-1">
+                          <p className="text-sm text-gray-300 truncate flex items-center gap-1">
                             {memberUser?.name || 'Unknown'}
-                            {isOwner && <span className="text-[10px]" title="Owner">👑</span>}
+                            {isOwner && (
+                              <span className="text-[10px]" title="Owner">
+                                👑
+                              </span>
+                            )}
                           </p>
                         </div>
                         {member.status === 'active' && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] flex-shrink-0" />
                         )}
                       </div>
                     );
                   })}
-                  {activeMembers.length > 6 && (
+                  {activeMembers.length > 5 && (
                     <Link
                       to={`/my-workspace/${workspaceId}/members`}
-                      className="block text-xs font-medium px-4 sm:px-5 py-2.5 hover:bg-gray-50 transition border-t border-gray-100"
+                      className="block text-[10px] font-medium uppercase tracking-wider px-4 sm:px-5 py-2.5 hover:bg-[#0d9488]/5 transition border-t border-gray-800/30 text-center"
                       style={{ color: brandColor }}
                     >
-                      +{activeMembers.length - 6} more
+                      +{activeMembers.length - 5} more
                     </Link>
                   )}
                 </div>
               </div>
 
               {(workspace.description || workspace.industry || workspace.location || workspace.website) && (
-                <div className="bg-white rounded-2xl border border-gray-200/60 p-4 sm:p-5">
-                  <h2 className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                <div className="bg-[#14141a] rounded-2xl border border-gray-800/60 p-4">
+                  <h2 className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-2">
                     About
                   </h2>
                   {workspace.description && (
-                    <p className="text-xs sm:text-sm text-gray-700 mb-4">{workspace.description}</p>
+                    <p className="text-xs text-gray-300 mb-3 leading-relaxed">
+                      {workspace.description}
+                    </p>
                   )}
-                  <div className="space-y-1.5 text-[11px] sm:text-sm text-gray-600">
+                  <div className="space-y-1.5 text-xs text-gray-400">
                     {workspace.industry && (
                       <div className="flex items-center gap-2">
                         <span>🏢</span>
@@ -513,6 +744,7 @@ const MyWorkspaceId = () => {
         </main>
       </div>
 
+      {/* bottom bar */}
       <MyWorkspaceBottombar workspace={workspace} />
     </div>
   );

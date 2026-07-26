@@ -10,7 +10,7 @@ import {
   useDeleteMessageMutation,
 } from "../slices/messagingApiSlice";
 import MyWorkspaceSidebar from "../workspaceComponents/MyWorkspaceSidebar";
-import { useInitiateCallMutation } from "../slices/callApiSlice"; // ← NEW import
+import { useInitiateCallMutation } from "../slices/callApiSlice";
 import {
   FaHashtag,
   FaArrowLeft,
@@ -246,15 +246,15 @@ const MediaMessage = ({
         );
       case "file":
         return (
-          <div className="flex items-center gap-3 bg-gray-100 rounded-lg p-3 min-w-[200px]">
-            <div className="w-10 h-10 rounded-lg bg-gray-300 flex items-center justify-center text-gray-600">
+          <div className="flex items-center gap-3 bg-gray-800/60 rounded-lg p-3 min-w-[200px]">
+            <div className="w-10 h-10 rounded-lg bg-gray-700 flex items-center justify-center text-gray-300">
               📄
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-gray-900 truncate">
+              <div className="text-sm font-medium text-gray-200 truncate">
                 {message.mediaName || "File"}
               </div>
-              <div className="text-xs text-gray-500">
+              <div className="text-xs text-gray-400">
                 {message.mediaSize
                   ? `${(message.mediaSize / 1024).toFixed(1)} KB`
                   : "File"}
@@ -265,7 +265,7 @@ const MediaMessage = ({
                 e.stopPropagation();
                 handleDownload(e);
               }}
-              className="text-gray-400 hover:text-gray-600 transition"
+              className="text-gray-400 hover:text-gray-200 transition"
             >
               <FaDownload className="text-sm" />
             </button>
@@ -304,7 +304,7 @@ const MediaMessage = ({
           className={`max-w-[85%] ${isOwn ? "items-end" : "items-start"} flex flex-col`}
         >
           {!isOwn && (
-            <span className="text-xs font-medium text-gray-600 ml-1 mb-0.5">
+            <span className="text-xs font-medium text-gray-300 ml-1 mb-0.5">
               {senderName}
             </span>
           )}
@@ -340,14 +340,14 @@ const MediaMessage = ({
                   <FaEllipsisV className="text-xs" />
                 </button>
                 {showMenu && (
-                  <div className="absolute right-0 top-8 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[120px] z-10">
+                  <div className="absolute right-0 top-8 bg-[#1e1e26] rounded-lg shadow-lg border border-gray-800/60 min-w-[120px] z-10">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         setShowMenu(false);
                         onDelete && onDelete(message._id);
                       }}
-                      className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition w-full"
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 rounded-lg transition w-full"
                     >
                       <FaTrashAlt className="text-xs" /> Delete
                     </button>
@@ -388,12 +388,12 @@ const MediaMessage = ({
         className={`max-w-[85%] ${isOwn ? "items-end" : "items-start"} flex flex-col gap-0.5`}
       >
         {!isOwn && (
-          <span className="text-xs font-medium text-gray-600 ml-1">
+          <span className="text-xs font-medium text-gray-300 ml-1">
             {senderName}
           </span>
         )}
         <div
-          className={`px-4 py-2.5 rounded-2xl text-sm break-words ${isOwn ? "text-white" : "bg-gray-100 text-gray-800"}`}
+          className={`px-4 py-2.5 rounded-2xl text-sm break-words ${isOwn ? "text-white" : "bg-gray-800/60 text-gray-200"}`}
           style={isOwn ? { backgroundColor: brandColor } : {}}
         >
           {message.content && <p className="mb-2">{message.content}</p>}
@@ -408,18 +408,18 @@ const MediaMessage = ({
             <div className="relative ml-2">
               <button
                 onClick={() => setShowMenu(!showMenu)}
-                className="text-gray-300 hover:text-gray-500 transition p-0.5"
+                className="text-gray-400 hover:text-gray-200 transition p-0.5"
               >
                 <FaEllipsisV className="text-xs" />
               </button>
               {showMenu && (
-                <div className="absolute right-0 bottom-6 bg-white rounded-lg shadow-lg border border-gray-200 min-w-[120px] z-10">
+                <div className="absolute right-0 bottom-6 bg-[#1e1e26] rounded-lg shadow-lg border border-gray-800/60 min-w-[120px] z-10">
                   <button
                     onClick={() => {
                       setShowMenu(false);
                       onDelete && onDelete(message._id);
                     }}
-                    className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition w-full"
+                    className="flex items-center gap-2 px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 rounded-lg transition w-full"
                   >
                     <FaTrashAlt className="text-xs" /> Delete
                   </button>
@@ -433,7 +433,7 @@ const MediaMessage = ({
   );
 };
 
-// ─── Bottom Sheet for Chat Details ─────────────────────────────────────
+// ─── Bottom Sheet for Chat Details (dark themed) ─────────────────────
 const ChatDetailsSheet = ({
   isOpen,
   onClose,
@@ -456,14 +456,14 @@ const ChatDetailsSheet = ({
   return (
     <>
       <div
-        className="fixed inset-0 z-40 bg-black/50 transition-opacity duration-300"
+        className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-300"
         onClick={onClose}
       />
       <div
-        className={`fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl max-h-[70vh] overflow-y-auto transform transition-transform duration-300 ${
+        className={`fixed bottom-0 left-0 right-0 z-50 bg-[#14141a] border border-gray-800/60 rounded-t-2xl max-h-[70vh] overflow-y-auto transform transition-transform duration-300 ${
           isOpen ? "translate-y-0" : "translate-y-full"
         }`}
-        style={{ boxShadow: "0 -4px 20px rgba(0,0,0,0.15)" }}
+        style={{ boxShadow: "0 -4px 30px rgba(0,0,0,0.5)" }}
       >
         <div className="p-5">
           <div className="flex items-center gap-4 mb-5">
@@ -472,7 +472,7 @@ const ChatDetailsSheet = ({
                 <img
                   src={displayAvatar}
                   alt=""
-                  className="w-14 h-14 rounded-full object-cover"
+                  className="w-14 h-14 rounded-full object-cover border border-gray-700/60"
                 />
               ) : (
                 <div
@@ -491,8 +491,8 @@ const ChatDetailsSheet = ({
               </div>
             )}
             <div>
-              <h3 className="font-bold text-lg text-gray-900">{displayName}</h3>
-              <p className="text-sm text-gray-500">
+              <h3 className="font-bold text-lg text-gray-200">{displayName}</h3>
+              <p className="text-sm text-gray-400">
                 {isDM
                   ? isDMOnline
                     ? "Online"
@@ -503,7 +503,7 @@ const ChatDetailsSheet = ({
           </div>
 
           <div>
-            <h4 className="text-sm font-semibold text-gray-700 mb-3">
+            <h4 className="text-sm font-semibold text-gray-300 mb-3">
               {isDM ? "Participant" : `Members (${memberCount})`}
             </h4>
             <ul className="space-y-2">
@@ -520,15 +520,15 @@ const ChatDetailsSheet = ({
                       <img
                         src={profile}
                         alt=""
-                        className="w-9 h-9 rounded-full object-cover"
+                        className="w-9 h-9 rounded-full object-cover border border-gray-700/60"
                       />
                     ) : (
-                      <div className="w-9 h-9 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 text-sm font-medium">
+                      <div className="w-9 h-9 rounded-full bg-gray-800 flex items-center justify-center text-gray-300 text-sm font-medium">
                         {name.charAt(0).toUpperCase()}
                       </div>
                     )}
                     <div>
-                      <span className="text-sm font-medium text-gray-900">
+                      <span className="text-sm font-medium text-gray-200">
                         {name}
                       </span>
                       {isDM && otherParticipant?._id === user._id && (
@@ -760,7 +760,7 @@ const MyWorkspaceChannelId = () => {
   if (error) navigate("/my-workspaces");
   if (workspaceLoading || chatsLoading || messagesLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-[#0b0b10]">
         <div className="w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -1054,7 +1054,7 @@ const MyWorkspaceChannelId = () => {
   };
 
   return (
-    <div className="h-dvh bg-gray-50 flex flex-col lg:flex-row">
+    <div className="h-dvh bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
       {previewImage && (
         <ImagePreviewModal
           imageUrl={previewImage.url}
@@ -1069,24 +1069,23 @@ const MyWorkspaceChannelId = () => {
         <MyWorkspaceSidebar workspace={workspace} chats={chats} />
       </div>
 
-      {/* Channel list (desktop) */}
-      <div className="hidden lg:flex lg:w-72 lg:flex-col bg-white border-r border-gray-200 h-full overflow-hidden">
-        <div className="p-4 border-b border-gray-200 flex-shrink-0">
-          <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+      {/* Channel list (desktop) – dark themed */}
+      <div className="hidden lg:flex lg:w-72 lg:flex-col bg-[#0f0f12] border-r border-gray-800/60 h-full overflow-hidden">
+        <div className="p-4 border-b border-gray-800/60 flex-shrink-0">
+          <h2 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
             <FaHashtag className="text-sm" style={{ color: brandColor }} />
             Channels
           </h2>
         </div>
-        <div className="px-3 py-2 border-b border-gray-200 flex-shrink-0">
+        <div className="px-3 py-2 border-b border-gray-800/60 flex-shrink-0">
           <div className="relative">
-            <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs" />
+            <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs" />
             <input
               type="text"
               placeholder="Search..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 border border-gray-200 rounded-lg bg-gray-50 text-sm focus:outline-none focus:ring-2"
-              style={{ "--tw-ring-color": brandColor }}
+              className="w-full pl-8 pr-3 py-1.5 bg-[#0b0b10] border border-gray-700/60 rounded-xl text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-[#0d9488]"
             />
           </div>
         </div>
@@ -1096,13 +1095,13 @@ const MyWorkspaceChannelId = () => {
               key={channel._id}
               to={`/my-workspace/${workspaceId}/chat/${channel._id}`}
               className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition ${
-                channel._id === chatId ? "bg-gray-100" : "hover:bg-gray-50"
+                channel._id === chatId ? "bg-gray-800/60" : "hover:bg-gray-800/30"
               }`}
             >
-              <FaHashtag className="text-xs text-gray-400" />
-              <span className="text-sm truncate">{channel.name}</span>
+              <FaHashtag className="text-xs text-gray-500" />
+              <span className="text-sm text-gray-300 truncate">{channel.name}</span>
               {channel.unreadCount > 0 && (
-                <span className="ml-auto bg-teal-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                <span className="ml-auto text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center" style={{ backgroundColor: brandColor }}>
                   {channel.unreadCount}
                 </span>
               )}
@@ -1115,7 +1114,7 @@ const MyWorkspaceChannelId = () => {
                 key={dm._id}
                 to={`/my-workspace/${workspaceId}/chat/${dm._id}`}
                 className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition ${
-                  dm._id === chatId ? "bg-gray-100" : "hover:bg-gray-50"
+                  dm._id === chatId ? "bg-gray-800/60" : "hover:bg-gray-800/30"
                 }`}
               >
                 <div className="w-6 h-6 rounded-full overflow-hidden">
@@ -1134,7 +1133,7 @@ const MyWorkspaceChannelId = () => {
                     </div>
                   )}
                 </div>
-                <span className="text-sm truncate">
+                <span className="text-sm text-gray-300 truncate">
                   {participant?.name || "Unknown"}
                 </span>
               </Link>
@@ -1144,10 +1143,10 @@ const MyWorkspaceChannelId = () => {
       </div>
 
       {/* Chat area */}
-      <div className="flex-1 flex flex-col bg-white h-full overflow-hidden">
-        {/* Header – fixed on mobile, sticky on desktop */}
+      <div className="flex-1 flex flex-col bg-[#0f0f12] h-full overflow-hidden">
+        {/* Header – dark glass */}
         <header
-          className="fixed lg:sticky top-0 left-0 right-0 lg:left-auto lg:right-auto z-20 flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-teal-600 text-white flex-shrink-0 cursor-pointer"
+          className="fixed lg:sticky top-0 left-0 right-0 lg:left-auto lg:right-auto z-20 flex items-center justify-between px-4 py-3 border-b border-gray-800/60 bg-[#0f0f12]/80 backdrop-blur-xl text-white flex-shrink-0 cursor-pointer"
           style={{
             paddingTop: 'calc(0.75rem + var(--safe-top))',
             paddingLeft: 'calc(1rem + var(--safe-left))',
@@ -1161,7 +1160,7 @@ const MyWorkspaceChannelId = () => {
                 e.stopPropagation();
                 navigate(`/my-workspace/${workspaceId}/channels`);
               }}
-              className="p-1 lg:hidden flex-shrink-0"
+              className="p-1 lg:hidden flex-shrink-0 text-gray-400 hover:text-white transition"
             >
               <FaArrowLeft />
             </button>
@@ -1170,23 +1169,23 @@ const MyWorkspaceChannelId = () => {
                 <img
                   src={displayAvatar}
                   alt=""
-                  className="w-9 h-9 rounded-full object-cover flex-shrink-0"
+                  className="w-9 h-9 rounded-full object-cover flex-shrink-0 border border-gray-700/60"
                 />
               ) : (
-                <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center font-bold text-sm flex-shrink-0">
+                <div className="w-9 h-9 rounded-full bg-gray-800 flex items-center justify-center font-bold text-sm flex-shrink-0">
                   {displayName.charAt(0).toUpperCase()}
                 </div>
               )
             ) : (
-              <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
-                <FaHashtag />
+              <div className="w-9 h-9 rounded-full bg-gray-800 flex items-center justify-center flex-shrink-0">
+                <FaHashtag className="text-sm" />
               </div>
             )}
             <div className="min-w-0 flex-1">
-              <h2 className="font-semibold text-base truncate">
+              <h2 className="font-semibold text-base text-gray-100 truncate">
                 {displayName}
               </h2>
-              <p className="text-xs text-white/80 truncate">
+              <p className="text-xs text-gray-400 truncate">
                 {isDM
                   ? isDMOnline
                     ? "Online"
@@ -1202,7 +1201,7 @@ const MyWorkspaceChannelId = () => {
             <button
               onClick={() => handleCall('voice')}
               disabled={isCallInitiating}
-              className="p-1.5 disabled:opacity-50"
+              className="p-1.5 text-gray-400 hover:text-white transition disabled:opacity-50"
               aria-label="Start voice call"
             >
               <FaPhone />
@@ -1210,7 +1209,7 @@ const MyWorkspaceChannelId = () => {
             <button
               onClick={() => handleCall('video')}
               disabled={isCallInitiating}
-              className="p-1.5 disabled:opacity-50"
+              className="p-1.5 text-gray-400 hover:text-white transition disabled:opacity-50"
               aria-label="Start video call"
             >
               <FaVideo />
@@ -1226,7 +1225,7 @@ const MyWorkspaceChannelId = () => {
             className="h-full overflow-y-auto px-4 py-3 space-y-4 pt-20 lg:pt-3 pb-24 lg:pb-3"
           >
             {localMessages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-gray-400">
+              <div className="flex flex-col items-center justify-center h-full text-gray-500">
                 <FaComment className="text-4xl mb-2 opacity-30" />
                 <p className="text-sm">No messages yet</p>
               </div>
@@ -1257,17 +1256,16 @@ const MyWorkspaceChannelId = () => {
           {showScrollDown && (
             <button
               onClick={scrollToBottom}
-              className="absolute bottom-4 right-4 z-30 w-10 h-10 rounded-full bg-white shadow-lg border border-gray-200 flex items-center justify-center text-gray-600 hover:bg-gray-50 transition-all"
-              style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}
+              className="absolute bottom-4 right-4 z-30 w-10 h-10 rounded-full bg-[#14141a] shadow-lg border border-gray-700/60 flex items-center justify-center text-gray-400 hover:text-white hover:bg-gray-800/60 transition-all"
             >
               <FaChevronDown className="text-sm" />
             </button>
           )}
         </div>
 
-        {/* Input area – fixed on mobile, sticky on desktop */}
+        {/* Input area – dark themed */}
         <div
-          className="fixed lg:sticky bottom-0 left-0 right-0 lg:left-auto lg:right-auto z-20 border-t border-gray-200 bg-white flex-shrink-0"
+          className="fixed lg:sticky bottom-0 left-0 right-0 lg:left-auto lg:right-auto z-20 border-t border-gray-800/60 bg-[#0f0f12]/90 backdrop-blur-xl flex-shrink-0"
           style={{
             paddingTop: '0.5rem',
             paddingLeft: 'calc(0.75rem + var(--safe-left))',
@@ -1276,11 +1274,11 @@ const MyWorkspaceChannelId = () => {
           }}
         >
           {showRecordedPreview && recordingBlob && (
-            <div className="flex items-center justify-between px-3 py-2 mb-2 bg-green-50 rounded-lg border border-green-200">
+            <div className="flex items-center justify-between px-3 py-2 mb-2 bg-green-900/30 rounded-lg border border-green-700/40">
               <div className="flex items-center gap-2">
-                <FaCheckCircle className="text-green-500" />
-                <span className="text-sm">Voice note ready</span>
-                <span className="text-xs text-gray-500">
+                <FaCheckCircle className="text-green-400" />
+                <span className="text-sm text-gray-200">Voice note ready</span>
+                <span className="text-xs text-gray-400">
                   {formatTime(recordingTime)}
                 </span>
               </div>
@@ -1290,17 +1288,17 @@ const MyWorkspaceChannelId = () => {
                     const audio = new Audio(URL.createObjectURL(recordingBlob));
                     audio.play();
                   }}
-                  className="p-1"
+                  className="p-1 text-gray-400 hover:text-white"
                 >
                   <FaPlay className="text-xs" />
                 </button>
                 <button
                   onClick={() => sendAudioMessage(recordingBlob)}
-                  className="px-3 py-1 bg-green-600 text-white rounded text-xs"
+                  className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 transition"
                 >
                   Send
                 </button>
-                <button onClick={cancelRecording} className="p-1 text-gray-400">
+                <button onClick={cancelRecording} className="p-1 text-gray-400 hover:text-white">
                   <FaTimes className="text-xs" />
                 </button>
               </div>
@@ -1308,8 +1306,8 @@ const MyWorkspaceChannelId = () => {
           )}
 
           {isRecording && !isLocked && (
-            <div className="relative flex items-center justify-between px-3 py-2 mb-2 bg-red-50 rounded-lg border border-red-200">
-              <span className="text-xs text-red-600 flex items-center gap-2">
+            <div className="relative flex items-center justify-between px-3 py-2 mb-2 bg-red-900/30 rounded-lg border border-red-700/40">
+              <span className="text-xs text-red-300 flex items-center gap-2">
                 <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />{" "}
                 Recording... {formatTime(recordingTime)}
               </span>
@@ -1323,16 +1321,16 @@ const MyWorkspaceChannelId = () => {
                     color: swipeProgress > 0.6 ? brandColor : "#9CA3AF",
                   }}
                 />
-                <FaChevronUp className="text-gray-300 text-xs" />
+                <FaChevronUp className="text-gray-500 text-xs" />
               </div>
             </div>
           )}
 
           {isRecording && isLocked && (
-            <div className="flex items-center justify-between px-3 py-2 mb-2 bg-red-50 rounded-lg border border-red-200">
+            <div className="flex items-center justify-between px-3 py-2 mb-2 bg-red-900/30 rounded-lg border border-red-700/40">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                <span className="text-xs text-red-600">
+                <span className="text-xs text-red-300">
                   {recordingPaused ? "Paused" : "Recording..."}{" "}
                   {formatTime(recordingTime)}
                 </span>
@@ -1341,16 +1339,16 @@ const MyWorkspaceChannelId = () => {
               <div className="flex gap-2">
                 <button
                   onClick={pauseRecording}
-                  className="text-xs text-red-600"
+                  className="text-xs text-red-300 hover:text-red-200"
                 >
                   {recordingPaused ? "Resume" : "Pause"}
                 </button>
-                <button onClick={cancelRecording} className="text-gray-400">
+                <button onClick={cancelRecording} className="text-gray-400 hover:text-white">
                   <FaTrashAlt className="text-xs" />
                 </button>
                 <button
                   onClick={stopRecording}
-                  className="bg-red-500 text-white p-1 rounded-full"
+                  className="bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition"
                 >
                   <FaStop className="text-xs" />
                 </button>
@@ -1365,14 +1363,14 @@ const MyWorkspaceChannelId = () => {
             <button
               type="button"
               onClick={() => handleFileUpload("file")}
-              className="p-1.5 text-gray-400 hover:text-gray-600 flex-shrink-0"
+              className="p-1.5 text-gray-400 hover:text-white transition flex-shrink-0"
             >
               <FaPaperclip className="text-sm" />
             </button>
             <button
               type="button"
               onClick={() => handleFileUpload("image")}
-              className="p-1.5 text-gray-400 hover:text-gray-600 flex-shrink-0"
+              className="p-1.5 text-gray-400 hover:text-white transition flex-shrink-0"
             >
               <FaImage className="text-sm" />
             </button>
@@ -1396,15 +1394,14 @@ const MyWorkspaceChannelId = () => {
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               placeholder="Type a message..."
-              className="flex-1 min-w-0 px-4 py-2 border border-gray-200 rounded-full bg-gray-100 text-sm focus:outline-none focus:ring-2"
-              style={{ "--tw-ring-color": brandColor }}
+              className="flex-1 min-w-0 px-4 py-2 border border-gray-700/60 rounded-full bg-[#0b0b10] text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-[#0d9488]"
             />
 
             {message.trim() ? (
               <button
                 type="submit"
                 disabled={!isConnected}
-                className="p-2 rounded-full text-white disabled:opacity-50 flex-shrink-0"
+                className="p-2 rounded-full text-white disabled:opacity-50 flex-shrink-0 transition hover:opacity-80"
                 style={{ backgroundColor: brandColor }}
               >
                 <FaPaperPlane className="text-sm" />
@@ -1416,7 +1413,7 @@ const MyWorkspaceChannelId = () => {
                 onPointerMove={handleMicPointerMove}
                 onPointerUp={handleMicPointerUp}
                 onPointerCancel={handleMicPointerUp}
-                className="p-2 rounded-full text-white flex-shrink-0"
+                className="p-2 rounded-full text-white flex-shrink-0 transition hover:opacity-80"
                 style={{ backgroundColor: brandColor }}
               >
                 <FaMicrophone className="text-sm" />

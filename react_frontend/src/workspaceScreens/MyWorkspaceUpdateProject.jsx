@@ -27,14 +27,14 @@ import {
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
-// ─── Rich Text Toolbar ──────────────────────────────────────────────────
-const RichTextToolbar = ({ onFormat }) => {
+// ─── Rich Text Toolbar (dark themed) ──────────────────────────────
+const RichTextToolbar = ({ onFormat, brandColor }) => {
   return (
-    <div className="flex items-center gap-0.5 px-3 py-1.5 bg-gray-50 border-b border-gray-200 rounded-t-xl flex-wrap">
+    <div className="flex items-center gap-0.5 px-3 py-1.5 bg-[#1a1a24] border-b border-gray-800/60 rounded-t-xl flex-wrap">
       <button
         type="button"
         onClick={() => onFormat('bold')}
-        className="p-1.5 hover:bg-gray-200 rounded text-gray-600 text-xs font-bold"
+        className="p-1.5 hover:bg-gray-800/60 rounded text-gray-400 hover:text-white text-xs font-bold transition"
         title="Bold"
       >
         <FaBold className="text-xs" />
@@ -42,7 +42,7 @@ const RichTextToolbar = ({ onFormat }) => {
       <button
         type="button"
         onClick={() => onFormat('italic')}
-        className="p-1.5 hover:bg-gray-200 rounded text-gray-600 text-xs italic"
+        className="p-1.5 hover:bg-gray-800/60 rounded text-gray-400 hover:text-white text-xs italic transition"
         title="Italic"
       >
         <FaItalic className="text-xs" />
@@ -50,16 +50,16 @@ const RichTextToolbar = ({ onFormat }) => {
       <button
         type="button"
         onClick={() => onFormat('underline')}
-        className="p-1.5 hover:bg-gray-200 rounded text-gray-600 text-xs underline"
+        className="p-1.5 hover:bg-gray-800/60 rounded text-gray-400 hover:text-white text-xs underline transition"
         title="Underline"
       >
         <FaUnderline className="text-xs" />
       </button>
-      <span className="w-px h-5 bg-gray-300 mx-1" />
+      <span className="w-px h-5 bg-gray-700 mx-1" />
       <button
         type="button"
         onClick={() => onFormat('bullet')}
-        className="p-1.5 hover:bg-gray-200 rounded text-gray-600 text-xs"
+        className="p-1.5 hover:bg-gray-800/60 rounded text-gray-400 hover:text-white text-xs transition"
         title="Bullet List"
       >
         <FaListUl className="text-xs" />
@@ -67,16 +67,16 @@ const RichTextToolbar = ({ onFormat }) => {
       <button
         type="button"
         onClick={() => onFormat('number')}
-        className="p-1.5 hover:bg-gray-200 rounded text-gray-600 text-xs"
+        className="p-1.5 hover:bg-gray-800/60 rounded text-gray-400 hover:text-white text-xs transition"
         title="Numbered List"
       >
         <FaListOl className="text-xs" />
       </button>
-      <span className="w-px h-5 bg-gray-300 mx-1" />
+      <span className="w-px h-5 bg-gray-700 mx-1" />
       <button
         type="button"
         onClick={() => onFormat('quote')}
-        className="p-1.5 hover:bg-gray-200 rounded text-gray-600 text-xs"
+        className="p-1.5 hover:bg-gray-800/60 rounded text-gray-400 hover:text-white text-xs transition"
         title="Quote"
       >
         <FaQuoteRight className="text-xs" />
@@ -85,8 +85,7 @@ const RichTextToolbar = ({ onFormat }) => {
   );
 };
 
-// ─── Main Component ──────────────────────────────────────────────────────
-
+// ─── Main Component ──────────────────────────────────────────────────
 const MyWorkspaceUpdateProject = () => {
   const { workspaceId, projectId } = useParams();
   const navigate = useNavigate();
@@ -120,7 +119,6 @@ const MyWorkspaceUpdateProject = () => {
       setPriority(p.priority || 'medium');
       setProjectType(p.projectType || 'general');
       setDailyReportTime(p.dailyReportTime || '17:00');
-      // Convert links array to string (one per line)
       if (p.links && Array.isArray(p.links)) {
         setLinks(p.links.join('\n'));
       }
@@ -135,11 +133,16 @@ const MyWorkspaceUpdateProject = () => {
 
   if (workspaceLoading || projectLoading || isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-[#0b0b10]">
         <div className="text-center">
-          <div className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin mx-auto"
-               style={{ borderColor: workspaceData?.workspace?.color || '#4F46E5', borderTopColor: 'transparent' }} />
-          <p className="mt-3 text-gray-500">Loading...</p>
+          <div
+            className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin mx-auto"
+            style={{
+              borderColor: workspaceData?.workspace?.color || '#0d9488',
+              borderTopColor: 'transparent',
+            }}
+          />
+          <p className="mt-3 text-gray-500 text-sm">Loading...</p>
         </div>
       </div>
     );
@@ -149,7 +152,7 @@ const MyWorkspaceUpdateProject = () => {
   const project = projectData?.project;
   if (!workspace || !project) return null;
 
-  const brandColor = workspace.color || '#4F46E5';
+  const brandColor = workspace.color || '#0d9488';
 
   // ─── Handlers ──────────────────────────────────────────────────────────
 
@@ -250,7 +253,6 @@ const MyWorkspaceUpdateProject = () => {
       formData.append('projectType', projectType);
       formData.append('dailyReportTime', dailyReportTime);
       
-      // ✅ Links as a simple string
       if (links.trim()) {
         formData.append('links', links.trim());
       }
@@ -273,93 +275,92 @@ const MyWorkspaceUpdateProject = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
+    <div className="min-h-screen bg-[#0b0b10] flex flex-col md:flex-row">
+      {/* Desktop Sidebar */}
       <div className="hidden md:block md:w-64 md:min-h-screen md:flex-shrink-0 sticky top-0">
         <MyWorkspaceSidebar workspace={workspace} chats={[]} />
       </div>
 
-      <div className="flex-1 bg-white md:min-h-screen overflow-y-auto pb-24 md:pb-0">
+      {/* Main Content */}
+      <div className="flex-1 bg-[#0f0f12] md:min-h-screen overflow-y-auto pb-24 md:pb-0">
         <div className="max-w-3xl mx-auto px-4 md:px-8 py-4 md:py-6">
           
-          <div className="flex items-center gap-3 mb-6 pb-4 border-b border-gray-200">
+          {/* Header */}
+          <div className="flex items-center gap-3 mb-6 pb-4 border-b border-gray-800/40">
             <button
               onClick={() => navigate(`/my-workspace/${workspaceId}/projects`)}
-              className="p-2 hover:bg-gray-100 rounded-xl transition"
+              className="p-2 hover:bg-gray-800/30 rounded-xl transition text-gray-400 hover:text-white"
             >
-              <FaArrowLeft className="text-gray-500" />
+              <FaArrowLeft />
             </button>
             <div>
-              <h1 className="text-xl font-bold text-gray-900">Edit Project</h1>
-              <p className="text-sm text-gray-500">Update your project details</p>
+              <h1 className="text-xl font-bold text-gray-100">Edit Project</h1>
+              <p className="text-sm text-gray-400">Update your project details</p>
             </div>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* ── Basic Information ── */}
-            <div className="bg-gray-50 rounded-xl p-5 border border-gray-100">
-              <h2 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+            <div className="bg-[#14141a] rounded-2xl p-5 border border-gray-800/60">
+              <h2 className="text-sm font-semibold text-gray-300 mb-4 flex items-center gap-2">
                 <FaInfoCircle className="text-xs" style={{ color: brandColor }} />
                 Basic Information
               </h2>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Project Name <span className="text-red-500">*</span>
+                  <label className="block text-sm font-medium text-gray-400 mb-1.5">
+                    Project Name <span className="text-red-400">*</span>
                   </label>
                   <input
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:border-transparent text-sm"
-                    style={{ '--tw-ring-color': brandColor }}
-                    onFocus={(e) => e.target.style.setProperty('--tw-ring-color', brandColor)}
+                    className="w-full px-4 py-2.5 bg-[#0b0b10] border border-gray-700/60 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#0d9488] text-sm text-gray-200 placeholder-gray-500"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  <label className="block text-sm font-medium text-gray-400 mb-1.5">
                     Short Description
                   </label>
                   <input
                     type="text"
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:border-transparent text-sm"
-                    style={{ '--tw-ring-color': brandColor }}
-                    onFocus={(e) => e.target.style.setProperty('--tw-ring-color', brandColor)}
+                    className="w-full px-4 py-2.5 bg-[#0b0b10] border border-gray-700/60 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#0d9488] text-sm text-gray-200 placeholder-gray-500"
                   />
                 </div>
               </div>
             </div>
 
             {/* ── Detailed Description with Rich Text ── */}
-            <div className="bg-gray-50 rounded-xl p-5 border border-gray-100">
-              <h2 className="text-sm font-semibold text-gray-700 mb-4">Detailed Description</h2>
-              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                <RichTextToolbar onFormat={handleRichTextFormat} />
+            <div className="bg-[#14141a] rounded-2xl p-5 border border-gray-800/60">
+              <h2 className="text-sm font-semibold text-gray-300 mb-4">Detailed Description</h2>
+              <div className="bg-[#0b0b10] border border-gray-800/60 rounded-xl overflow-hidden">
+                <RichTextToolbar onFormat={handleRichTextFormat} brandColor={brandColor} />
                 <textarea
                   id="detailedDescription"
                   value={detailedDescription}
                   onChange={(e) => setDetailedDescription(e.target.value)}
                   placeholder="Detailed project description with formatting support..."
-                  className="w-full px-4 py-3 text-sm focus:outline-none min-h-[150px] resize-y"
+                  className="w-full px-4 py-3 text-sm focus:outline-none bg-[#0b0b10] text-gray-200 placeholder-gray-500 min-h-[150px] resize-y"
                   rows="6"
                 />
-                <div className="px-3 py-1.5 bg-gray-50 border-t border-gray-200 text-[10px] text-gray-400">
+                <div className="px-3 py-1.5 bg-[#1a1a24] border-t border-gray-800/60 text-[10px] text-gray-500">
                   Supports Markdown: **bold**, *italic*, • bullet, 1. numbered, &gt; quotes
                 </div>
               </div>
             </div>
 
             {/* ── Project Settings ── */}
-            <div className="bg-gray-50 rounded-xl p-5 border border-gray-100">
-              <h2 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+            <div className="bg-[#14141a] rounded-2xl p-5 border border-gray-800/60">
+              <h2 className="text-sm font-semibold text-gray-300 mb-4 flex items-center gap-2">
                 <FaTag className="text-xs" style={{ color: brandColor }} />
                 Project Settings
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Priority</label>
+                  <label className="block text-sm font-medium text-gray-400 mb-1.5">Priority</label>
                   <div className="flex gap-2">
                     {['low', 'medium', 'high', 'urgent'].map((p) => (
                       <button
@@ -368,8 +369,8 @@ const MyWorkspaceUpdateProject = () => {
                         onClick={() => setPriority(p)}
                         className={`flex-1 py-2 rounded-xl text-sm font-medium transition capitalize ${
                           priority === p
-                            ? 'text-white'
-                            : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+                            ? 'text-white shadow-[0_0_15px_rgba(13,148,136,0.2)]'
+                            : 'bg-[#0b0b10] border border-gray-700/60 text-gray-400 hover:bg-gray-800/30'
                         }`}
                         style={priority === p ? { backgroundColor: brandColor } : {}}
                       >
@@ -379,13 +380,11 @@ const MyWorkspaceUpdateProject = () => {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Project Type</label>
+                  <label className="block text-sm font-medium text-gray-400 mb-1.5">Project Type</label>
                   <select
                     value={projectType}
                     onChange={(e) => setProjectType(e.target.value)}
-                    className="w-full px-4 py-2 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:border-transparent text-sm"
-                    style={{ '--tw-ring-color': brandColor }}
-                    onFocus={(e) => e.target.style.setProperty('--tw-ring-color', brandColor)}
+                    className="w-full px-4 py-2.5 bg-[#0b0b10] border border-gray-700/60 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#0d9488] text-sm text-gray-200"
                   >
                     <option value="general">General</option>
                     <option value="software">Software Development</option>
@@ -396,7 +395,7 @@ const MyWorkspaceUpdateProject = () => {
                 </div>
               </div>
               <div className="mt-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1.5 flex items-center gap-2">
+                <label className="block text-sm font-medium text-gray-400 mb-1.5 flex items-center gap-2">
                   <FaClock className="text-xs" style={{ color: brandColor }} />
                   Daily Report Time
                 </label>
@@ -404,19 +403,17 @@ const MyWorkspaceUpdateProject = () => {
                   type="time"
                   value={dailyReportTime}
                   onChange={(e) => setDailyReportTime(e.target.value)}
-                  className="w-full px-4 py-2 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:border-transparent text-sm"
-                  style={{ '--tw-ring-color': brandColor }}
-                  onFocus={(e) => e.target.style.setProperty('--tw-ring-color', brandColor)}
+                  className="w-full px-4 py-2.5 bg-[#0b0b10] border border-gray-700/60 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#0d9488] text-sm text-gray-200"
                 />
-                <p className="text-xs text-gray-400 mt-1">
+                <p className="text-xs text-gray-500 mt-1">
                   Team members will submit daily reports by this time
                 </p>
               </div>
             </div>
 
             {/* ── Links ── */}
-            <div className="bg-gray-50 rounded-xl p-5 border border-gray-100">
-              <h2 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+            <div className="bg-[#14141a] rounded-2xl p-5 border border-gray-800/60">
+              <h2 className="text-sm font-semibold text-gray-300 mb-4 flex items-center gap-2">
                 <FaLink className="text-xs" style={{ color: brandColor }} />
                 Important Links
               </h2>
@@ -424,27 +421,25 @@ const MyWorkspaceUpdateProject = () => {
                 value={links}
                 onChange={(e) => setLinks(e.target.value)}
                 placeholder="Enter links (one per line)&#10;https://example.com&#10;https://another.com"
-                className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:border-transparent text-sm"
-                style={{ '--tw-ring-color': brandColor }}
-                onFocus={(e) => e.target.style.setProperty('--tw-ring-color', brandColor)}
+                className="w-full px-4 py-2.5 bg-[#0b0b10] border border-gray-700/60 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#0d9488] text-sm text-gray-200 placeholder-gray-500"
                 rows="3"
               />
-              <p className="text-xs text-gray-400 mt-1">Enter each link on a new line</p>
+              <p className="text-xs text-gray-500 mt-1">Enter each link on a new line</p>
             </div>
 
             {/* ── Cover Image ── */}
-            <div className="bg-gray-50 rounded-xl p-5 border border-gray-100">
-              <h2 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+            <div className="bg-[#14141a] rounded-2xl p-5 border border-gray-800/60">
+              <h2 className="text-sm font-semibold text-gray-300 mb-4 flex items-center gap-2">
                 <FaImage className="text-xs" style={{ color: brandColor }} />
                 Cover Image
               </h2>
-              <div className="flex items-center gap-4">
+              <div className="flex flex-wrap items-center gap-4">
                 {coverPreview ? (
                   <div className="relative">
                     <img
                       src={coverPreview}
                       alt="Cover preview"
-                      className="w-24 h-24 rounded-xl object-cover border-2 border-gray-200"
+                      className="w-24 h-24 rounded-xl object-cover border-2 border-gray-700/60"
                     />
                     <button
                       type="button"
@@ -454,15 +449,15 @@ const MyWorkspaceUpdateProject = () => {
                       <FaTrashAlt className="w-3 h-3" />
                     </button>
                     {existingCoverImage && (
-                      <span className="absolute -bottom-6 left-0 text-[10px] text-gray-400">
+                      <span className="absolute -bottom-6 left-0 text-[10px] text-gray-500">
                         Existing cover (click to replace)
                       </span>
                     )}
                   </div>
                 ) : (
-                  <label className="flex items-center gap-3 px-5 py-3 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-gray-400 transition bg-white">
+                  <label className="flex items-center gap-3 px-5 py-3 border-2 border-dashed border-gray-700/60 rounded-xl cursor-pointer hover:border-gray-500 transition bg-[#0b0b10]">
                     <FaImage className="text-gray-400" />
-                    <span className="text-sm text-gray-500">Upload Cover Image</span>
+                    <span className="text-sm text-gray-400">Upload Cover Image</span>
                     <input
                       type="file"
                       onChange={handleCoverImageChange}
@@ -471,16 +466,16 @@ const MyWorkspaceUpdateProject = () => {
                     />
                   </label>
                 )}
-                <p className="text-xs text-gray-400">PNG, JPG, WebP (max 5MB)</p>
+                <p className="text-xs text-gray-500">PNG, JPG, WebP (max 5MB)</p>
               </div>
               {existingCoverImage && !coverImage && (
                 <p className="text-xs text-gray-400 mt-2">Current cover image will be kept</p>
               )}
             </div>
 
-            {/* ── Documents ── */}
-            <div className="bg-gray-50 rounded-xl p-5 border border-gray-100">
-              <h2 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+            // ── Documents ──
+            <div className="bg-[#14141a] rounded-2xl p-5 border border-gray-800/60">
+              <h2 className="text-sm font-semibold text-gray-300 mb-4 flex items-center gap-2">
                 <FaFileAlt className="text-xs" style={{ color: brandColor }} />
                 Documents
               </h2>
@@ -488,12 +483,12 @@ const MyWorkspaceUpdateProject = () => {
                 <div className="mb-3 space-y-1">
                   <p className="text-xs text-gray-400 mb-1">Existing Documents:</p>
                   {existingDocuments.map((doc, index) => (
-                    <div key={index} className="flex items-center justify-between bg-gray-100 rounded-lg px-3 py-1.5">
-                      <span className="text-sm text-gray-600 truncate max-w-[80%]">{doc.name}</span>
+                    <div key={index} className="flex items-center justify-between bg-[#1a1a24] rounded-lg px-3 py-1.5 border border-gray-800/40">
+                      <span className="text-sm text-gray-300 truncate max-w-[80%]">{doc.name}</span>
                       <button
                         type="button"
                         onClick={() => handleRemoveExistingDocument(index)}
-                        className="text-red-400 hover:text-red-600"
+                        className="text-red-400 hover:text-red-300 transition"
                       >
                         <FaTrashAlt className="text-xs" />
                       </button>
@@ -505,19 +500,19 @@ const MyWorkspaceUpdateProject = () => {
                 type="file"
                 multiple
                 onChange={handleFileChange}
-                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-medium file:bg-gray-50 file:text-gray-700 hover:file:bg-gray-100"
+                className="w-full px-4 py-3 bg-[#0b0b10] border border-gray-700/60 rounded-xl text-sm text-gray-300 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-medium file:bg-[#0d9488]/20 file:text-[#0d9488] hover:file:bg-[#0d9488]/30"
                 accept=".pdf,.doc,.docx,.txt,.zip,.png,.jpg,.jpeg"
               />
               {documents.length > 0 && (
                 <div className="mt-2 space-y-1">
                   <p className="text-xs text-gray-400 mb-1">New Documents:</p>
                   {documents.map((doc, index) => (
-                    <div key={index} className="flex items-center justify-between bg-white rounded-lg px-3 py-1.5 border border-gray-200">
-                      <span className="text-sm text-gray-600 truncate max-w-[80%]">{doc.name}</span>
+                    <div key={index} className="flex items-center justify-between bg-[#0b0b10] rounded-lg px-3 py-1.5 border border-gray-700/60">
+                      <span className="text-sm text-gray-300 truncate max-w-[80%]">{doc.name}</span>
                       <button
                         type="button"
                         onClick={() => handleRemoveDocument(index)}
-                        className="text-red-400 hover:text-red-600"
+                        className="text-red-400 hover:text-red-300 transition"
                       >
                         <FaTrashAlt className="text-xs" />
                       </button>
@@ -525,15 +520,15 @@ const MyWorkspaceUpdateProject = () => {
                   ))}
                 </div>
               )}
-              <p className="text-xs text-gray-400 mt-1">Upload PDFs, documents, images (max 10 files)</p>
+              <p className="text-xs text-gray-500 mt-1">Upload PDFs, documents, images (max 10 files)</p>
             </div>
 
-            {/* ── Actions ── */}
-            <div className="flex gap-3 pt-4 border-t border-gray-200">
+            // ── Actions ──
+            <div className="flex gap-3 pt-4 border-t border-gray-800/40">
               <button
                 type="button"
                 onClick={() => navigate(`/my-workspace/${workspaceId}/projects`)}
-                className="flex-1 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 transition text-sm font-medium text-gray-700"
+                className="flex-1 py-3 border border-gray-700/60 rounded-xl hover:bg-gray-800/30 transition text-sm font-medium text-gray-400"
               >
                 Cancel
               </button>

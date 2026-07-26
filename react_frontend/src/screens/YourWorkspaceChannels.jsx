@@ -32,7 +32,7 @@ const formatTime = (date) => {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
-// ─── Search Channels Modal ────────────────────────────────────────────
+// ─── Search Channels Modal (dark themed) ──────────────────────────────
 const SearchChannelsModal = ({ isOpen, onClose, channels, brandColor, workspaceId }) => {
   const [query, setQuery] = useState('');
   if (!isOpen) return null;
@@ -42,58 +42,58 @@ const SearchChannelsModal = ({ isOpen, onClose, channels, brandColor, workspaceI
   );
 
   return (
-    <div className="fixed inset-0 z-50 bg-white flex flex-col">
-      <div className="flex items-center gap-3 px-4 h-14 border-b border-gray-100">
-        <button onClick={onClose} className="p-1">
-          <FaArrowLeft className="text-gray-600" />
+    <div className="fixed inset-0 z-50 bg-[#0b0b10]/90 backdrop-blur-xl flex flex-col">
+      <div className="flex items-center gap-3 px-4 h-16 border-b border-gray-800/60 bg-[#14141a]/80">
+        <button onClick={onClose} className="p-1 text-gray-400 hover:text-white transition">
+          <FaArrowLeft />
         </button>
-        <div className="flex-1 bg-gray-100 rounded-full px-4 py-2 flex items-center gap-2">
-          <FaSearch className="text-gray-400 text-xs" />
+        <div className="flex-1 bg-[#1e1e26] rounded-2xl px-4 py-2 flex items-center gap-3 border border-gray-800/40 focus-within:border-[#0d9488]/50 transition">
+          <FaSearch className="text-gray-500 text-xs" />
           <input
             type="text"
             placeholder="Search channels..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="bg-transparent w-full outline-none text-sm"
+            className="bg-transparent w-full outline-none text-sm text-gray-200 placeholder-gray-500"
             autoFocus
           />
           {query && (
-            <button onClick={() => setQuery('')}>
-              <FaTimes className="text-gray-400 text-xs" />
+            <button onClick={() => setQuery('')} className="text-gray-500 hover:text-gray-300">
+              <FaTimes className="text-xs" />
             </button>
           )}
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto p-4">
         {!query && (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400">
-            <FaSearch className="text-4xl mb-2 opacity-30" />
+          <div className="flex flex-col items-center justify-center h-full text-gray-500">
+            <FaSearch className="text-5xl mb-3 opacity-20" />
             <p className="text-sm">Search channels</p>
           </div>
         )}
         {query && filtered.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400">
+          <div className="flex flex-col items-center justify-center h-full text-gray-500">
             <p className="text-sm">No channels found for "{query}"</p>
           </div>
         )}
         {query && filtered.length > 0 && (
-          <div className="divide-y divide-gray-100">
+          <div className="space-y-1">
             {filtered.map(ch => (
               <Link
                 key={ch._id}
                 to={`/workspace/${workspaceId}/chat/${ch._id}`}
                 onClick={onClose}
-                className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition"
+                className="flex items-center gap-4 px-4 py-3 bg-[#14141a] rounded-xl border border-gray-800/40 hover:border-[#0d9488]/40 hover:bg-[#1a1a24] transition cursor-pointer group"
               >
                 <div
-                  className="w-10 h-10 rounded-full flex items-center justify-center"
-                  style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
+                  className="w-10 h-10 rounded-xl flex items-center justify-center"
+                  style={{ backgroundColor: `${brandColor}20`, color: brandColor }}
                 >
                   <FaUsers className="text-sm" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium">{ch.name}</p>
+                  <p className="text-sm font-medium text-gray-200 group-hover:text-white transition">{ch.name}</p>
                   <p className="text-xs text-gray-500">{ch.participants?.length} members</p>
                 </div>
               </Link>
@@ -105,6 +105,7 @@ const SearchChannelsModal = ({ isOpen, onClose, channels, brandColor, workspaceI
   );
 };
 
+// ─── Main Component ──────────────────────────────────────────────────────
 const YourWorkspaceChannels = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
@@ -121,13 +122,13 @@ const YourWorkspaceChannels = () => {
 
   if (workspaceLoading || chatsLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-[#0b0b10]">
         <div className="text-center">
           <div
-            className="w-10 h-10 border-4 border-t-transparent rounded-full animate-spin mx-auto"
+            className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin mx-auto"
             style={{ borderColor: workspaceData?.workspace?.color || '#0d9488', borderTopColor: 'transparent' }}
           />
-          <p className="mt-4 text-gray-500">Loading channels...</p>
+          <p className="mt-3 text-gray-500 text-sm">Loading channels...</p>
         </div>
       </div>
     );
@@ -143,7 +144,7 @@ const YourWorkspaceChannels = () => {
   const onlineCount = activeMembers.filter(m => m.status === 'active').length || 0;
 
   return (
-    <div className="h-dvh bg-gray-50 flex flex-col lg:flex-row overflow-hidden">
+    <div className="h-dvh bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
       {/* Desktop Sidebar */}
       <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
         <YourWorkspaceSidebar workspace={workspace} chats={chats} />
@@ -151,82 +152,91 @@ const YourWorkspaceChannels = () => {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Fixed Header */}
-        <header className="sticky top-0 z-10 bg-teal-600 text-white flex-shrink-0 shadow-sm">
+        {/* Fixed Header – dark glass */}
+        <header className="sticky top-0 z-10 bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-800/40 flex-shrink-0">
           <div className="flex items-center justify-between px-4 h-14">
-            <div className="flex items-center gap-2">
-              <button onClick={() => navigate(`/workspace/${workspaceId}`)} className="p-1 lg:hidden">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => navigate(`/workspace/${workspaceId}`)}
+                className="p-1 lg:hidden text-gray-400 hover:text-white transition"
+              >
                 <FaArrowLeft />
               </button>
-              <h1 className="text-lg font-semibold">Channels</h1>
-              <span className="text-xs text-white/70 ml-1">{channels.length}</span>
+              <h1 className="text-lg font-semibold text-gray-100">Channels</h1>
+              <span className="text-xs font-normal text-gray-500 bg-[#1a1a24] px-2 py-0.5 rounded-full border border-gray-800/40">
+                {channels.length}
+              </span>
             </div>
-            <button onClick={() => setSearchOpen(true)} className="p-1">
-              <FaSearch className="text-white" />
+            <button
+              onClick={() => setSearchOpen(true)}
+              className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800/30 rounded-xl transition"
+            >
+              <FaSearch className="text-sm" />
             </button>
           </div>
         </header>
 
         {/* Channel List */}
-        <div className="flex-1 overflow-y-auto bg-white">
+        <div className="flex-1 overflow-y-auto bg-[#0f0f12] divide-y divide-gray-800/30">
           {channels.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+            <div className="flex flex-col items-center justify-center py-20 text-gray-500">
               <FaUsers className="text-4xl mb-2 opacity-30" />
               <p className="text-sm">No channels yet</p>
             </div>
           ) : (
-            <div className="divide-y divide-gray-100">
-              {channels.map(channel => {
-                const lastMsg = channel.lastMessage?.content || 'No messages yet';
-                const lastMsgTime = formatTime(channel.updatedAt);
-                return (
-                  <Link
-                    key={channel._id}
-                    to={`/workspace/${workspaceId}/chat/${channel._id}`}
-                    className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition"
+            channels.map(channel => {
+              const lastMsg = channel.lastMessage?.content || 'No messages yet';
+              const lastMsgTime = formatTime(channel.updatedAt);
+              return (
+                <Link
+                  key={channel._id}
+                  to={`/workspace/${workspaceId}/chat/${channel._id}`}
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-[#1a1a24] transition group"
+                >
+                  <div
+                    className="w-12 h-12 rounded-2xl flex items-center justify-center text-xl flex-shrink-0"
+                    style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
                   >
-                    <div
-                      className="w-12 h-12 rounded-2xl flex items-center justify-center text-xl"
-                      style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
-                    >
-                      <FaUsers className="text-lg" />
+                    <FaUsers className="text-lg" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-gray-200 truncate group-hover:text-white transition">
+                        {channel.name}
+                      </span>
+                      <span className="text-xs text-gray-500 flex-shrink-0">{lastMsgTime}</span>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-gray-800 truncate">{channel.name}</span>
-                        <span className="text-xs text-gray-400 flex-shrink-0">{lastMsgTime}</span>
-                      </div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-xs text-gray-500 truncate flex-1">{lastMsg}</span>
-                        {channel.unreadCount > 0 && (
-                          <span
-                            className="bg-teal-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center"
-                          >
-                            {channel.unreadCount}
-                          </span>
-                        )}
-                      </div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-xs text-gray-400 truncate flex-1">{lastMsg}</span>
+                      {channel.unreadCount > 0 && (
+                        <span
+                          className="text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center flex-shrink-0"
+                          style={{ backgroundColor: brandColor }}
+                        >
+                          {channel.unreadCount}
+                        </span>
+                      )}
                     </div>
-                  </Link>
-                );
-              })}
-            </div>
+                  </div>
+                </Link>
+              );
+            })
           )}
         </div>
 
-        {/* Stats row */}
-        <div className="border-t border-gray-200 px-4 py-3 bg-white flex-shrink-0">
+        {/* Stats row – dark themed */}
+        <div className="border-t border-gray-800/40 px-4 py-3 bg-[#0f0f12] flex-shrink-0">
           <div className="grid grid-cols-3 gap-2">
             <div className="text-center">
-              <p className="text-sm font-bold text-gray-900">{channels.length}</p>
+              <p className="text-sm font-bold text-gray-100">{channels.length}</p>
               <p className="text-[10px] text-gray-500">Channels</p>
             </div>
             <div className="text-center">
-              <p className="text-sm font-bold text-gray-900">{activeMembers.length}</p>
+              <p className="text-sm font-bold text-gray-100">{activeMembers.length}</p>
               <p className="text-[10px] text-gray-500">Members</p>
             </div>
             <div className="text-center">
-              <p className="text-sm font-bold text-gray-900">{onlineCount}</p>
+              <p className="text-sm font-bold text-gray-100">{onlineCount}</p>
               <p className="text-[10px] text-gray-500">Online</p>
             </div>
           </div>
