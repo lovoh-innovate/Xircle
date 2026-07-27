@@ -49,7 +49,7 @@ const formatTime = (date) => {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
-// ─── Search Modal (dark themed) ─────────────────────────────────────
+// ─── Search Modal ─────────────────────────────────────────────────────
 const SearchModal = ({ isOpen, onClose, channels, dms, brandColor, workspaceId, userInfo }) => {
   const [query, setQuery] = useState('');
   if (!isOpen) return null;
@@ -69,23 +69,23 @@ const SearchModal = ({ isOpen, onClose, channels, dms, brandColor, workspaceId, 
   const showDMs = filteredDMs.length > 0;
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#0b0b10]/90 backdrop-blur-xl flex flex-col">
-      <div className="flex items-center gap-3 px-4 h-16 border-b border-gray-800/60 bg-[#14141a]/80">
-        <button onClick={onClose} className="p-1 text-gray-400 hover:text-white transition">
+    <div className="fixed inset-0 z-50 bg-white dark:bg-[#0b0b10]/90 backdrop-blur-xl flex flex-col">
+      <div className="flex items-center gap-3 px-4 h-16 border-b border-gray-200/60 dark:border-gray-800/60 bg-gray-50 dark:bg-[#14141a]/80">
+        <button onClick={onClose} className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition">
           <FaArrowLeft />
         </button>
-        <div className="flex-1 bg-[#1e1e26] rounded-2xl px-4 py-2 flex items-center gap-3 border border-gray-800/40 focus-within:border-[#0d9488]/50 transition">
-          <FaSearch className="text-gray-500 text-xs" />
+        <div className="flex-1 bg-gray-100 dark:bg-[#1e1e26] rounded-2xl px-4 py-2 flex items-center gap-3 border border-gray-200 dark:border-gray-800/40 focus-within:border-teal-500 dark:focus-within:border-[#0d9488]/50 transition">
+          <FaSearch className="text-gray-400 dark:text-gray-500 text-xs" />
           <input
             type="text"
             placeholder="Search..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="bg-transparent w-full outline-none text-sm text-gray-200 placeholder-gray-500"
+            className="bg-transparent w-full outline-none text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500"
             autoFocus
           />
           {query && (
-            <button onClick={() => setQuery('')} className="text-gray-500 hover:text-gray-300">
+            <button onClick={() => setQuery('')} className="text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
               <FaTimes className="text-xs" />
             </button>
           )}
@@ -94,21 +94,21 @@ const SearchModal = ({ isOpen, onClose, channels, dms, brandColor, workspaceId, 
 
       <div className="flex-1 overflow-y-auto p-4">
         {!query && (
-          <div className="flex flex-col items-center justify-center h-full text-gray-500">
+          <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
             <FaSearch className="text-5xl mb-3 opacity-20" />
             <p className="text-sm">Search channels and people</p>
           </div>
         )}
 
         {query && !showChannels && !showDMs && (
-          <div className="flex flex-col items-center justify-center h-full text-gray-500">
+          <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
             <p className="text-sm">No results for "{query}"</p>
           </div>
         )}
 
         {showChannels && (
           <div>
-            <h3 className="px-2 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+            <h3 className="px-2 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               Channels
             </h3>
             <div className="space-y-1">
@@ -117,7 +117,7 @@ const SearchModal = ({ isOpen, onClose, channels, dms, brandColor, workspaceId, 
                   key={ch._id}
                   to={`/my-workspace/${workspaceId}/chat/${ch._id}`}
                   onClick={onClose}
-                  className="flex items-center gap-4 px-4 py-3 bg-[#14141a] rounded-xl border border-gray-800/40 hover:border-[#0d9488]/40 hover:bg-[#1a1a24] transition cursor-pointer group"
+                  className="flex items-center gap-4 px-4 py-3 bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/40 hover:border-teal-500 dark:hover:border-[#0d9488]/40 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition cursor-pointer group"
                 >
                   <div
                     className="w-10 h-10 rounded-xl flex items-center justify-center"
@@ -126,10 +126,10 @@ const SearchModal = ({ isOpen, onClose, channels, dms, brandColor, workspaceId, 
                     <FaHashtag className="text-sm" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-gray-200 group-hover:text-white transition">
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition">
                       {ch.name}
                     </p>
-                    <p className="text-xs text-gray-500">{ch.participants?.length} members</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-500">{ch.participants?.length} members</p>
                   </div>
                 </Link>
               ))}
@@ -139,7 +139,7 @@ const SearchModal = ({ isOpen, onClose, channels, dms, brandColor, workspaceId, 
 
         {showDMs && (
           <div className="mt-4">
-            <h3 className="px-2 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+            <h3 className="px-2 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               People
             </h3>
             <div className="space-y-1">
@@ -153,7 +153,7 @@ const SearchModal = ({ isOpen, onClose, channels, dms, brandColor, workspaceId, 
                     key={dm._id}
                     to={`/my-workspace/${workspaceId}/chat/${dm._id}`}
                     onClick={onClose}
-                    className="flex items-center gap-4 px-4 py-3 bg-[#14141a] rounded-xl border border-gray-800/40 hover:border-[#0d9488]/40 hover:bg-[#1a1a24] transition cursor-pointer group"
+                    className="flex items-center gap-4 px-4 py-3 bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/40 hover:border-teal-500 dark:hover:border-[#0d9488]/40 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition cursor-pointer group"
                   >
                     {user?.profile ? (
                       <img src={user.profile} alt={user.name} className="w-10 h-10 rounded-xl object-cover" />
@@ -166,10 +166,10 @@ const SearchModal = ({ isOpen, onClose, channels, dms, brandColor, workspaceId, 
                       </div>
                     )}
                     <div>
-                      <p className="text-sm font-medium text-gray-200 group-hover:text-white transition">
+                      <p className="text-sm font-medium text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition">
                         {user?.name || 'Unknown'}
                       </p>
-                      <p className="text-xs text-gray-500">Direct message</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-500">Direct message</p>
                     </div>
                   </Link>
                 );
@@ -182,7 +182,7 @@ const SearchModal = ({ isOpen, onClose, channels, dms, brandColor, workspaceId, 
   );
 };
 
-// ─── Add Participant Modal (dark) ──────────────────────────────────────
+// ─── Add Participant Modal ──────────────────────────────────────────────
 const AddParticipantModal = ({
   isOpen,
   onClose,
@@ -238,37 +238,37 @@ const AddParticipantModal = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0b0b10]/80 backdrop-blur-sm p-4">
-      <div className="bg-[#14141a] border border-gray-800/60 rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between p-4 border-b border-gray-800/60">
-          <h2 className="text-lg font-semibold text-gray-200">Add Members</h2>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-800/60 rounded-lg text-gray-400 hover:text-white transition">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-gray-200/60 dark:border-gray-800/60">
+          <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Add Members</h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white transition">
             <FaTimes className="text-sm" />
           </button>
         </div>
 
-        <div className="p-4 border-b border-gray-800/60">
+        <div className="p-4 border-b border-gray-200/60 dark:border-gray-800/60">
           <div className="relative">
-            <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs" />
+            <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 text-xs" />
             <input
               type="text"
               placeholder="Search members..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-2 bg-[#0b0b10] border border-gray-700/60 rounded-xl text-sm text-gray-200 placeholder-gray-500 focus:border-[#0d9488] outline-none"
+              className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none"
             />
           </div>
-          <p className="text-xs text-gray-500 mt-1.5">{availableMembers.length} available</p>
+          <p className="text-xs text-gray-500 dark:text-gray-500 mt-1.5">{availableMembers.length} available</p>
         </div>
 
         <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
           {membersLoading ? (
-            <div className="text-center py-8 text-gray-500">
+            <div className="text-center py-8 text-gray-500 dark:text-gray-500">
               <FaSpinner className="animate-spin mx-auto text-lg" />
               <p className="text-xs mt-1">Loading...</p>
             </div>
           ) : availableMembers.length === 0 ? (
-            <div className="text-center py-8 text-gray-500 text-sm">
+            <div className="text-center py-8 text-gray-500 dark:text-gray-500 text-sm">
               {searchQuery ? 'No members found' : 'All members are already in this channel'}
             </div>
           ) : (
@@ -280,7 +280,7 @@ const AddParticipantModal = ({
                   key={user._id}
                   onClick={() => toggleUser(user._id)}
                   className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-xl transition ${
-                    isSelected ? 'bg-[#0d9488]/20' : 'hover:bg-gray-800/30'
+                    isSelected ? 'bg-teal-50 dark:bg-[#0d9488]/20' : 'hover:bg-gray-50 dark:hover:bg-gray-800/30'
                   }`}
                 >
                   <div className="relative flex-shrink-0">
@@ -296,18 +296,18 @@ const AddParticipantModal = ({
                     )}
                   </div>
                   <div className="flex-1 text-left min-w-0">
-                    <p className="text-sm font-medium text-gray-200 truncate">{user?.name || 'Unknown'}</p>
-                    <p className="text-xs text-gray-500 truncate">{user?.email}</p>
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{user?.name || 'Unknown'}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{user?.email}</p>
                   </div>
-                  {isSelected && <FaCheck className="text-sm" style={{ color: brandColor }} />}
+                  {isSelected && <FaCheck className="text-sm text-teal-600 dark:text-[#0d9488]" />}
                 </button>
               );
             })
           )}
         </div>
 
-        <div className="flex gap-3 p-4 border-t border-gray-800/60">
-          <button onClick={onClose} className="flex-1 py-2.5 border border-gray-700/60 rounded-xl text-sm font-medium text-gray-400 hover:bg-gray-800/30 transition">
+        <div className="flex gap-3 p-4 border-t border-gray-200/60 dark:border-gray-800/60">
+          <button onClick={onClose} className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
             Cancel
           </button>
           <button
@@ -324,7 +324,7 @@ const AddParticipantModal = ({
   );
 };
 
-// ─── Create Channel Modal (dark) ──────────────────────────────────────
+// ─── Create Channel Modal ──────────────────────────────────────────────
 const CreateChannelModal = ({ isOpen, onClose, workspaceId, brandColor, onSuccess }) => {
   const [channelName, setChannelName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -353,32 +353,32 @@ const CreateChannelModal = ({ isOpen, onClose, workspaceId, brandColor, onSucces
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0b0b10]/80 backdrop-blur-sm p-4">
-      <div className="bg-[#14141a] border border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-gray-200">Create Channel</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-white transition">
+          <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200">Create Channel</h2>
+          <button onClick={onClose} className="text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white transition">
             <FaTimes />
           </button>
         </div>
         <form onSubmit={handleSubmit}>
           <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-400 mb-1.5">Channel Name</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Channel Name</label>
             <div className="relative">
-              <FaHashtag className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm" />
+              <FaHashtag className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 text-sm" />
               <input
                 type="text"
                 value={channelName}
                 onChange={(e) => setChannelName(e.target.value)}
                 placeholder="general"
-                className="w-full pl-9 pr-3 py-2.5 bg-[#0b0b10] border border-gray-700/60 rounded-xl text-sm text-gray-200 placeholder-gray-500 focus:border-[#0d9488] outline-none"
+                className="w-full pl-9 pr-3 py-2.5 bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none"
                 required
               />
             </div>
-            <p className="text-xs text-gray-500 mt-1">Lowercase, no spaces</p>
+            <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">Lowercase, no spaces</p>
           </div>
           <div className="flex gap-3">
-            <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-gray-700/60 rounded-xl text-sm text-gray-400 hover:bg-gray-800/30 transition">
+            <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
               Cancel
             </button>
             <button
@@ -425,8 +425,8 @@ const MyWorkspaceChannels = () => {
   if (error) navigate('/my-workspaces');
   if (workspaceLoading || chatsLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0b0b10]">
-        <div className="w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
+        <div className="w-8 h-8 border-4 border-teal-500 dark:border-teal-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -453,7 +453,7 @@ const MyWorkspaceChannels = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#0b0b10] flex flex-col">
+    <div className="min-h-screen bg-gray-50 dark:bg-[#0b0b10] flex flex-col">
       {/* Desktop Sidebar */}
       <div className="hidden lg:block lg:w-64 lg:min-h-screen fixed top-0 left-0 z-20">
         <MyWorkspaceSidebar workspace={workspace} chats={chats} />
@@ -462,30 +462,30 @@ const MyWorkspaceChannels = () => {
       {/* Main content with left and right margins for sidebars */}
       <div className="flex-1 lg:ml-64 lg:mr-64 flex flex-col h-screen">
         {/* ── Fixed Header ── */}
-        <header className="sticky top-0 z-10 bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-800/40 flex-shrink-0">
+        <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
           <div className="flex items-center justify-between px-4 h-14">
             <div className="flex items-center gap-3">
               <button
                 onClick={() => navigate(`/my-workspace/${workspaceId}`)}
-                className="lg:hidden p-1 text-gray-400 hover:text-white transition"
+                className="lg:hidden p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
               >
                 <FaArrowLeft />
               </button>
-              <h1 className="text-lg font-semibold text-gray-100">Channels</h1>
-              <span className="text-xs font-normal text-gray-500 bg-[#1a1a24] px-2 py-0.5 rounded-full border border-gray-800/40">
+              <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Channels</h1>
+              <span className="text-xs font-normal text-gray-500 dark:text-gray-500 bg-gray-100 dark:bg-[#1a1a24] px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-800/40">
                 {groupChats.length + directMessages.length}
               </span>
             </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setSearchOpen(true)}
-                className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800/30 rounded-xl transition"
+                className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
               >
                 <FaSearch className="text-sm" />
               </button>
               <button
                 onClick={() => setShowCreateModal(true)}
-                className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800/30 rounded-xl transition"
+                className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
               >
                 <FaPlus className="text-sm" />
               </button>
@@ -494,11 +494,11 @@ const MyWorkspaceChannels = () => {
         </header>
 
         {/* ── Channel List ── */}
-        <div className="flex-1 overflow-y-auto bg-[#0f0f12] divide-y divide-gray-800/30">
+        <div className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12] divide-y divide-gray-100 dark:divide-gray-800/30">
           {/* Channels Section */}
           {groupChats.length > 0 && (
             <div>
-              <div className="px-4 py-2 text-xs font-semibold text-[#0d9488] uppercase tracking-wider bg-[#0f0f12] border-b border-gray-800/30">
+              <div className="px-4 py-2 text-xs font-semibold text-teal-600 dark:text-[#0d9488] uppercase tracking-wider bg-gray-50 dark:bg-[#0f0f12] border-b border-gray-100 dark:border-gray-800/30">
                 Channels · {groupChats.length}
               </div>
               {groupChats.map((ch) => {
@@ -515,7 +515,7 @@ const MyWorkspaceChannels = () => {
                 return (
                   <div
                     key={ch._id}
-                    className="flex items-center gap-3 px-4 py-3 hover:bg-[#1a1a24] transition group"
+                    className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition group"
                   >
                     <Link
                       to={`/my-workspace/${workspaceId}/chat/${ch._id}`}
@@ -529,13 +529,13 @@ const MyWorkspaceChannels = () => {
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between">
-                          <span className="font-semibold text-gray-200 truncate group-hover:text-white transition">
+                          <span className="font-semibold text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
                             #{ch.name}
                           </span>
-                          <span className="text-xs text-gray-500 flex-shrink-0 ml-2">{lastMsgTime}</span>
+                          <span className="text-xs text-gray-500 dark:text-gray-500 flex-shrink-0 ml-2">{lastMsgTime}</span>
                         </div>
                         <div className="flex items-center justify-between mt-0.5">
-                          <p className="text-xs text-gray-400 truncate flex-1">{lastMsgPreview}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 truncate flex-1">{lastMsgPreview}</p>
                           {ch.unreadCount > 0 && (
                             <span
                               className="text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center ml-2"
@@ -556,7 +556,7 @@ const MyWorkspaceChannels = () => {
                           setSelectedChatId(ch._id);
                           setShowAddParticipantModal(true);
                         }}
-                        className="p-1.5 text-gray-500 hover:text-[#0d9488] flex-shrink-0 rounded-lg hover:bg-[#0d9488]/10 transition"
+                        className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-teal-600 dark:hover:text-[#0d9488] flex-shrink-0 rounded-lg hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 transition"
                       >
                         <FaUserPlus className="text-sm" />
                       </button>
@@ -570,7 +570,7 @@ const MyWorkspaceChannels = () => {
           {/* Direct Messages Section */}
           {directMessages.length > 0 && (
             <div>
-              <div className="px-4 py-2 text-xs font-semibold text-[#0d9488] uppercase tracking-wider bg-[#0f0f12] border-b border-gray-800/30">
+              <div className="px-4 py-2 text-xs font-semibold text-teal-600 dark:text-[#0d9488] uppercase tracking-wider bg-gray-50 dark:bg-[#0f0f12] border-b border-gray-100 dark:border-gray-800/30">
                 Direct Messages · {directMessages.length}
               </div>
               {directMessages.map((dm) => {
@@ -582,7 +582,7 @@ const MyWorkspaceChannels = () => {
                   <Link
                     key={dm._id}
                     to={`/my-workspace/${workspaceId}/chat/${dm._id}`}
-                    className="flex items-center gap-3 px-4 py-3 hover:bg-[#1a1a24] transition group"
+                    className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition group"
                   >
                     {participant?.profile ? (
                       <img src={participant.profile} alt={participant.name} className="w-12 h-12 rounded-2xl object-cover" />
@@ -596,13 +596,13 @@ const MyWorkspaceChannels = () => {
                     )}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
-                        <span className="font-semibold text-gray-200 truncate group-hover:text-white transition">
+                        <span className="font-semibold text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
                           {participant?.name || 'Unknown'}
                         </span>
-                        <span className="text-xs text-gray-500 flex-shrink-0">{lastMsgTime}</span>
+                        <span className="text-xs text-gray-500 dark:text-gray-500 flex-shrink-0">{lastMsgTime}</span>
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
-                        <p className="text-xs text-gray-400 truncate flex-1">{lastMsgText}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate flex-1">{lastMsgText}</p>
                         {dm.unreadCount > 0 && (
                           <span
                             className="text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center"
@@ -620,7 +620,7 @@ const MyWorkspaceChannels = () => {
           )}
 
           {groupChats.length === 0 && directMessages.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-20 text-gray-500">
+            <div className="flex flex-col items-center justify-center py-20 text-gray-400 dark:text-gray-500">
               <FaHashtag className="text-4xl mb-2 opacity-30" />
               <p className="text-sm">No channels or messages yet</p>
             </div>
@@ -631,11 +631,11 @@ const MyWorkspaceChannels = () => {
         <MyWorkspaceBottombar workspace={workspace} />
       </div>
 
-      {/* Right Sidebar (desktop only) – dark theme */}
-      <div className="hidden lg:block fixed right-0 top-0 bottom-0 w-64 bg-[#14141a] border-l border-gray-800/60 p-4 overflow-y-auto z-20">
+      {/* Right Sidebar (desktop only) – dark/light theme */}
+      <div className="hidden lg:block fixed right-0 top-0 bottom-0 w-64 bg-white dark:bg-[#14141a] border-l border-gray-200/60 dark:border-gray-800/60 p-4 overflow-y-auto z-20">
         <div className="flex items-center gap-3 mb-4">
           {workspace.logo ? (
-            <img src={workspace.logo} alt={workspace.name} className="w-10 h-10 rounded-xl object-cover" />
+            <img src={workspace.logo} alt={workspace.name} className="w-10 h-10 rounded-xl object-cover border border-gray-200 dark:border-gray-700/60" />
           ) : (
             <div
               className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold"
@@ -645,8 +645,8 @@ const MyWorkspaceChannels = () => {
             </div>
           )}
           <div>
-            <p className="text-sm font-semibold text-gray-200">{workspace.name}</p>
-            <p className="text-xs text-gray-500">{workspace.members?.length} members</p>
+            <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{workspace.name}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-500">{workspace.members?.length} members</p>
           </div>
         </div>
 
@@ -661,12 +661,12 @@ const MyWorkspaceChannels = () => {
           <FaCopy className="text-xs" /> Invite People
         </button>
 
-        <div className="mt-4 text-xs text-gray-400 space-y-2">
-          <p className="font-semibold text-gray-300">About</p>
-          {workspace.description && <p className="text-gray-400">{workspace.description}</p>}
+        <div className="mt-4 text-xs text-gray-500 dark:text-gray-400 space-y-2">
+          <p className="font-semibold text-gray-700 dark:text-gray-300">About</p>
+          {workspace.description && <p className="text-gray-600 dark:text-gray-400">{workspace.description}</p>}
           {workspace.industry && <p>🏢 {workspace.industry}</p>}
           {workspace.website && (
-            <a href={workspace.website} target="_blank" rel="noopener noreferrer" className="text-[#0d9488] hover:underline block">
+            <a href={workspace.website} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] hover:underline block">
               🌐 {workspace.website}
             </a>
           )}

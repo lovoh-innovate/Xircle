@@ -73,17 +73,17 @@ const ForgotPassword = () => {
       return (
         <div className="text-center">
           <div className="flex justify-center mb-4">
-            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
-              <FaCheckCircle className="w-8 h-8 text-green-500" />
+            <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
+              <FaCheckCircle className="w-8 h-8 text-green-500 dark:text-green-400" />
             </div>
           </div>
-          <h3 className="text-xl font-semibold text-gray-800">Password Reset Successful!</h3>
-          <p className="text-gray-500 mt-2">
+          <h3 className="text-xl font-semibold text-gray-800 dark:text-white">Password Reset Successful!</h3>
+          <p className="text-gray-500 dark:text-gray-400 mt-2">
             Your password has been reset. You will be redirected to login.
           </p>
           <Link
             to="/login"
-            className="mt-4 inline-block text-teal-600 hover:text-teal-700 font-medium"
+            className="mt-4 inline-block text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 font-medium"
           >
             Go to Login →
           </Link>
@@ -95,18 +95,18 @@ const ForgotPassword = () => {
       return (
         <form onSubmit={handleResetPassword} className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
               OTP Code
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <FaLock className="h-5 w-5 text-gray-400" />
+                <FaLock className="h-5 w-5 text-gray-400 dark:text-gray-500" />
               </div>
               <input
                 type="text"
                 value={otp}
                 onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-                className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors duration-200"
+                className="block w-full pl-10 pr-3 py-2.5 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors duration-200 text-gray-900 dark:text-white"
                 placeholder="Enter 6-digit OTP"
                 maxLength={6}
                 required
@@ -115,18 +115,18 @@ const ForgotPassword = () => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
               New Password
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <FaLock className="h-5 w-5 text-gray-400" />
+                <FaLock className="h-5 w-5 text-gray-400 dark:text-gray-500" />
               </div>
               <input
                 type={showPassword ? 'text' : 'password'}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors duration-200"
+                className="block w-full pl-10 pr-3 py-2.5 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors duration-200 text-gray-900 dark:text-white"
                 placeholder="Enter new password"
                 required
               />
@@ -134,18 +134,18 @@ const ForgotPassword = () => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
               Confirm Password
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <FaLock className="h-5 w-5 text-gray-400" />
+                <FaLock className="h-5 w-5 text-gray-400 dark:text-gray-500" />
               </div>
               <input
                 type={showPassword ? 'text' : 'password'}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors duration-200"
+                className="block w-full pl-10 pr-3 py-2.5 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors duration-200 text-gray-900 dark:text-white"
                 placeholder="Confirm new password"
                 required
               />
@@ -156,14 +156,14 @@ const ForgotPassword = () => {
             <button
               type="button"
               onClick={() => setStep('request')}
-              className="text-sm text-teal-600 hover:text-teal-700 font-medium transition-colors duration-200 flex items-center gap-1"
+              className="text-sm text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 font-medium transition-colors duration-200 flex items-center gap-1"
             >
               <FaArrowLeft size={12} /> Back
             </button>
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
+              className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
             >
               {showPassword ? 'Hide' : 'Show'} passwords
             </button>
@@ -172,7 +172,7 @@ const ForgotPassword = () => {
           <button
             type="submit"
             disabled={isLoading || isResetLoading}
-            className="w-full flex items-center justify-center px-4 py-3 bg-gradient-to-r from-teal-600 to-teal-500 text-white font-semibold rounded-lg hover:from-teal-700 hover:to-teal-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition-all duration-200 transform hover:scale-[1.02] disabled:opacity-70 disabled:cursor-not-allowed"
+            className="w-full flex items-center justify-center px-4 py-3 bg-teal-600 dark:bg-teal-500 text-white font-semibold rounded-lg hover:bg-teal-700 dark:hover:bg-teal-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition-all duration-200 transform hover:scale-[1.02] disabled:opacity-70 disabled:cursor-not-allowed"
           >
             {isLoading || isResetLoading ? (
               <div className="flex items-center gap-2">
@@ -191,24 +191,24 @@ const ForgotPassword = () => {
     return (
       <form onSubmit={handleRequestOTP} className="space-y-5">
         <div>
-          <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1.5">
+          <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
             Email Address
           </label>
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <FaEnvelope className="h-5 w-5 text-gray-400" />
+              <FaEnvelope className="h-5 w-5 text-gray-400 dark:text-gray-500" />
             </div>
             <input
               id="email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors duration-200"
+              className="block w-full pl-10 pr-3 py-2.5 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors duration-200 text-gray-900 dark:text-white"
               placeholder="you@example.com"
               required
             />
           </div>
-          <p className="mt-2 text-sm text-gray-500">
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
             We'll send a 6-digit OTP to your email to reset your password.
           </p>
         </div>
@@ -216,7 +216,7 @@ const ForgotPassword = () => {
         <button
           type="submit"
           disabled={isLoading || isForgotLoading}
-          className="w-full flex items-center justify-center px-4 py-3 bg-gradient-to-r from-teal-600 to-teal-500 text-white font-semibold rounded-lg hover:from-teal-700 hover:to-teal-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition-all duration-200 transform hover:scale-[1.02] disabled:opacity-70 disabled:cursor-not-allowed"
+          className="w-full flex items-center justify-center px-4 py-3 bg-teal-600 dark:bg-teal-500 text-white font-semibold rounded-lg hover:bg-teal-700 dark:hover:bg-teal-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition-all duration-200 transform hover:scale-[1.02] disabled:opacity-70 disabled:cursor-not-allowed"
         >
           {isLoading || isForgotLoading ? (
             <div className="flex items-center gap-2">
@@ -232,7 +232,7 @@ const ForgotPassword = () => {
   };
 
   return (
-    <div className="min-h-screen flex bg-gradient-to-br from-teal-50 to-white">
+    <div className="min-h-screen flex bg-gray-50 dark:bg-[#0b0b10]">
       {/* Left Side - Brand Image (Hidden on Mobile) */}
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden">
         <div
@@ -243,8 +243,8 @@ const ForgotPassword = () => {
             backgroundPosition: 'center',
           }}
         >
-          {/* Overlay */}
-          <div className="absolute inset-0 bg-gradient-to-br from-teal-700/90 to-teal-500/80"></div>
+          {/* Overlay – adapts to dark/light */}
+          <div className="absolute inset-0 bg-gradient-to-br from-teal-700/90 dark:from-[#0b0b10]/95 to-teal-500/80 dark:to-[#0d9488]/60"></div>
 
           {/* Subtle decorative blobs */}
           <div className="absolute inset-0 opacity-10">
@@ -261,7 +261,7 @@ const ForgotPassword = () => {
 
             {/* Center - Glass Card */}
             <div className="max-w-lg mx-auto w-full">
-              <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-8 shadow-2xl shadow-black/10">
+              <div className="bg-white/10 dark:bg-white/5 backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-2xl p-8 shadow-2xl shadow-black/10">
                 <h2 className="text-3xl font-bold mb-4 leading-tight">
                   {step === 'success'
                     ? "You're All Set!"
@@ -319,14 +319,14 @@ const ForgotPassword = () => {
           </div>
 
           <div className="mb-8">
-            <h2 className="text-2xl font-bold text-gray-800">
+            <h2 className="text-2xl font-bold text-gray-800 dark:text-white">
               {step === 'request'
                 ? 'Reset Password'
                 : step === 'reset'
                 ? 'Enter OTP & New Password'
                 : 'Success!'}
             </h2>
-            <p className="text-gray-500 mt-1">
+            <p className="text-gray-500 dark:text-gray-400 mt-1">
               {step === 'request'
                 ? 'We\'ll send you a verification code'
                 : step === 'reset'
@@ -342,7 +342,7 @@ const ForgotPassword = () => {
             <div className="mt-6 text-center">
               <Link
                 to="/login"
-                className="text-sm text-teal-600 hover:text-teal-700 font-medium transition-colors duration-200 inline-flex items-center gap-1"
+                className="text-sm text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 font-medium transition-colors duration-200 inline-flex items-center gap-1"
               >
                 <FaArrowLeft size={14} /> Back to Login
               </Link>
@@ -350,13 +350,13 @@ const ForgotPassword = () => {
           )}
 
           <div className="mt-8 lg:hidden text-center">
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-gray-400 dark:text-gray-500">
               A product of{' '}
               <a
                 href="https://lovohcreate.com"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-teal-600 hover:underline font-medium"
+                className="text-teal-600 dark:text-teal-400 hover:underline font-medium"
               >
                 LovohCreate
               </a>

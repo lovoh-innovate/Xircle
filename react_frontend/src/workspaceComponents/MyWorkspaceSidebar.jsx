@@ -18,15 +18,20 @@ import {
   FaTasks,
   FaSpinner,
   FaCircle,
+  FaSun,
+  FaMoon,
+  FaDesktop,
 } from 'react-icons/fa';
 import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
 import { useGetWorkspaceProjectsQuery } from '../slices/projectApiSlice';
 import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
+import { useTheme } from '../contexts/ThemeContext';
 
 const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   const { workspaceId } = useParams();
   const location = useLocation();
   const { userInfo } = useSelector((state) => state.auth);
+  const { theme, toggleTheme, isDarkMode } = useTheme();
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   // ── fetch chats if not provided ──
@@ -131,25 +136,25 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
     return (
       <Link
         to={`/my-workspace/${workspaceId}/project/${project._id}`}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-800 transition-colors group"
+        className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group"
       >
-        <FaFolder className="text-xs text-gray-500 group-hover:text-gray-300 flex-shrink-0" />
+        <FaFolder className="text-xs text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300 flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between">
-            <span className="truncate text-sm text-gray-400 group-hover:text-gray-200">
+            <span className="truncate text-sm text-gray-700 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-gray-200">
               {project.name}
             </span>
             <span className={`text-[10px] font-medium ${statusColor}`}>
               {progress}%
             </span>
           </div>
-          <div className="w-full h-1 bg-gray-800 rounded-full mt-0.5 overflow-hidden">
+          <div className="w-full h-1 bg-gray-200 dark:bg-gray-800 rounded-full mt-0.5 overflow-hidden">
             <div
               className="h-full rounded-full transition-all duration-500"
               style={{ width: `${progress}%`, backgroundColor: brandColor }}
             />
           </div>
-          <div className="flex items-center gap-2 text-[10px] text-gray-500 mt-0.5">
+          <div className="flex items-center gap-2 text-[10px] text-gray-500 dark:text-gray-500 mt-0.5">
             {taskLoading ? (
               <span className="flex items-center gap-1">
                 <FaSpinner className="animate-spin text-[8px]" />
@@ -162,7 +167,7 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
                   {totalTasks} tasks
                 </span>
                 <span>·</span>
-                <span className="text-green-400">{completedTasks} done</span>
+                <span className="text-green-500 dark:text-green-400">{completedTasks} done</span>
               </>
             )}
           </div>
@@ -171,15 +176,40 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
     );
   };
 
+  // ─── Theme Toggle Button ─────────────────────────────────────────
+  const ThemeToggleButton = () => {
+    const getIcon = () => {
+      if (theme === 'light') return <FaSun className="text-yellow-500" />;
+      if (theme === 'dark') return <FaMoon className="text-purple-400" />;
+      return <FaDesktop className="text-blue-400" />;
+    };
+    const getLabel = () => {
+      if (theme === 'light') return 'Light';
+      if (theme === 'dark') return 'Dark';
+      return 'System';
+    };
+
+    return (
+      <button
+        onClick={toggleTheme}
+        className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white flex items-center gap-1 text-xs"
+        title={`Theme: ${getLabel()}`}
+      >
+        {getIcon()}
+        {!isCollapsed && <span className="ml-1">{getLabel()}</span>}
+      </button>
+    );
+  };
+
   return (
     <div
-      className={`sticky top-0 h-screen bg-[#18181b] border-r border-gray-800 flex flex-col overflow-hidden transition-all duration-300 ease-in-out ${
+      className={`sticky top-0 h-screen bg-white dark:bg-[#18181b] border-r border-gray-200 dark:border-gray-800 flex flex-col overflow-hidden transition-all duration-300 ease-in-out ${
         isCollapsed ? 'w-16' : 'w-64'
       }`}
     >
       {/* ── Header ── */}
       <div
-        className={`flex items-center border-b border-gray-800 min-h-[56px] flex-shrink-0 ${
+        className={`flex items-center border-b border-gray-200 dark:border-gray-800 min-h-[56px] flex-shrink-0 ${
           isCollapsed ? 'justify-center px-2' : 'gap-3 px-4'
         }`}
       >
@@ -200,10 +230,10 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
 
         {!isCollapsed && (
           <div className="flex-1 min-w-0">
-            <p className="font-semibold text-gray-100 truncate text-sm">
+            <p className="font-semibold text-gray-800 dark:text-gray-100 truncate text-sm">
               {workspace?.name}
             </p>
-            <p className="text-xs text-gray-500 truncate">
+            <p className="text-xs text-gray-500 dark:text-gray-500 truncate">
               {members.length} members · {onlineCount} online
             </p>
           </div>
@@ -212,7 +242,7 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
 
       {/* ── Navigation ── */}
       <div
-        className={`py-2 border-b border-gray-800 flex-shrink-0 ${
+        className={`py-2 border-b border-gray-200 dark:border-gray-800 flex-shrink-0 ${
           isCollapsed ? 'px-2' : 'px-3'
         }`}
       >
@@ -231,7 +261,7 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
               } ${
                 active
                   ? 'text-white'
-                  : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200'
               }`}
               style={active ? { backgroundColor: brandColor } : {}}
             >
@@ -252,7 +282,7 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
           <Link
             to={`/my-workspace/${workspaceId}/projects`}
             title="Projects"
-            className="relative p-2 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-gray-200 transition-colors"
+            className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
           >
             <FaFolder className="text-lg" />
             {projects.some((p) => p.progress < 100) && (
@@ -266,7 +296,7 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
           <Link
             to={`/my-workspace/${workspaceId}/channels`}
             title="Channels"
-            className="relative p-2 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-gray-200 transition-colors"
+            className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
           >
             <FaComment className="text-lg" />
             {channels.some((c) => c.unreadCount > 0) && (
@@ -280,7 +310,7 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
           <Link
             to={`/my-workspace/${workspaceId}/dms`}
             title="Direct Messages"
-            className="relative p-2 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-gray-200 transition-colors"
+            className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
           >
             <FaEnvelope className="text-lg" />
             {directMessages.some((c) => c.unreadCount > 0) && (
@@ -294,10 +324,10 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
       ) : (
         <div className="flex-1 overflow-y-auto scrollbar-hide pb-2">
           {/* Projects Section */}
-          <div className="px-3 py-2 border-b border-gray-800/50">
+          <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-800/50">
             <button
               onClick={() => toggleSection('projects')}
-              className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 uppercase tracking-wider"
+              className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider"
             >
               {expandedSections.projects ? (
                 <FaChevronDown className="text-[10px]" />
@@ -305,18 +335,18 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
                 <FaChevronRight className="text-[10px]" />
               )}
               <span>Projects</span>
-              <span className="ml-auto text-xs text-gray-600">
+              <span className="ml-auto text-xs text-gray-400 dark:text-gray-600">
                 {projects.length}
               </span>
             </button>
             {expandedSections.projects && (
               <div className="mt-1 space-y-0.5">
                 {projectsLoading ? (
-                  <div className="px-3 py-2 text-xs text-gray-500">
+                  <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-500">
                     Loading projects...
                   </div>
                 ) : projects.length === 0 ? (
-                  <div className="px-3 py-2 text-xs text-gray-600">
+                  <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-600">
                     No projects yet
                   </div>
                 ) : (
@@ -327,21 +357,20 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
                 {projects.length > 6 && (
                   <Link
                     to={`/my-workspace/${workspaceId}/projects`}
-                    className="block px-3 py-1 text-xs text-gray-600 hover:text-gray-400 hover:bg-gray-800 rounded-lg"
+                    className="block px-3 py-1 text-xs text-gray-500 dark:text-gray-600 hover:text-gray-800 dark:hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
                   >
                     +{projects.length - 6} more
                   </Link>
                 )}
-                {/* No "New Project" button – creation handled elsewhere */}
               </div>
             )}
           </div>
 
           {/* Channels */}
-          <div className="px-3 py-2 border-b border-gray-800/50">
+          <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-800/50">
             <button
               onClick={() => toggleSection('channels')}
-              className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 uppercase tracking-wider"
+              className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider"
             >
               {expandedSections.channels ? (
                 <FaChevronDown className="text-[10px]" />
@@ -349,28 +378,28 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
                 <FaChevronRight className="text-[10px]" />
               )}
               <span>Channels</span>
-              <span className="ml-auto text-xs text-gray-600">
+              <span className="ml-auto text-xs text-gray-400 dark:text-gray-600">
                 {channels.length}
               </span>
             </button>
             {expandedSections.channels && (
               <div className="mt-1 space-y-0.5">
                 {chatsLoading ? (
-                  <div className="px-3 py-2 text-xs text-gray-500">
+                  <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-500">
                     Loading channels...
                   </div>
                 ) : channels.length === 0 ? (
-                  <p className="px-3 py-2 text-xs text-gray-600">No channels yet</p>
+                  <p className="px-3 py-2 text-xs text-gray-500 dark:text-gray-600">No channels yet</p>
                 ) : (
                   channels.slice(0, 6).map((chat) => (
                     <Link
                       key={chat._id}
                       to={`/my-workspace/${workspaceId}/chat/${chat._id}`}
-                      className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-gray-800 transition-colors text-sm group"
+                      className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-sm group"
                     >
                       <div className="flex items-center gap-2 min-w-0">
-                        <FaHashtag className="text-gray-500 text-xs" />
-                        <span className="truncate text-gray-400 group-hover:text-gray-200">
+                        <FaHashtag className="text-gray-400 dark:text-gray-500 text-xs" />
+                        <span className="truncate text-gray-700 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-gray-200">
                           {chat.name || 'Unnamed'}
                         </span>
                       </div>
@@ -388,7 +417,7 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
                 {channels.length > 6 && (
                   <Link
                     to={`/my-workspace/${workspaceId}/channels`}
-                    className="block px-3 py-1 text-xs text-gray-600 hover:text-gray-400 hover:bg-gray-800 rounded-lg"
+                    className="block px-3 py-1 text-xs text-gray-500 dark:text-gray-600 hover:text-gray-800 dark:hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
                   >
                     +{channels.length - 6} more
                   </Link>
@@ -398,10 +427,10 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
           </div>
 
           {/* Direct Messages */}
-          <div className="px-3 py-2 border-b border-gray-800/50">
+          <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-800/50">
             <button
               onClick={() => toggleSection('dms')}
-              className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 uppercase tracking-wider"
+              className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider"
             >
               {expandedSections.dms ? (
                 <FaChevronDown className="text-[10px]" />
@@ -409,18 +438,18 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
                 <FaChevronRight className="text-[10px]" />
               )}
               <span>Direct Messages</span>
-              <span className="ml-auto text-xs text-gray-600">
+              <span className="ml-auto text-xs text-gray-400 dark:text-gray-600">
                 {directMessages.length}
               </span>
             </button>
             {expandedSections.dms && (
               <div className="mt-1 space-y-0.5">
                 {chatsLoading ? (
-                  <div className="px-3 py-2 text-xs text-gray-500">
+                  <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-500">
                     Loading DMs...
                   </div>
                 ) : directMessages.length === 0 ? (
-                  <p className="px-3 py-2 text-xs text-gray-600">No DMs</p>
+                  <p className="px-3 py-2 text-xs text-gray-500 dark:text-gray-600">No DMs</p>
                 ) : (
                   directMessages.slice(0, 6).map((chat) => {
                     const participant = getDMParticipant(chat);
@@ -430,7 +459,7 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
                       <Link
                         key={chat._id}
                         to={`/my-workspace/${workspaceId}/chat/${chat._id}`}
-                        className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-gray-800 transition-colors group"
+                        className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group"
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="relative flex-shrink-0">
@@ -449,10 +478,10 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
                               </div>
                             )}
                             {isOnline && (
-                              <span className="absolute bottom-0 right-0 w-2 h-2 bg-green-500 rounded-full border-2 border-[#18181b]" />
+                              <span className="absolute bottom-0 right-0 w-2 h-2 bg-green-500 rounded-full border-2 border-white dark:border-[#18181b]" />
                             )}
                           </div>
-                          <span className="truncate text-gray-400 group-hover:text-gray-200 text-sm">
+                          <span className="truncate text-gray-700 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-gray-200 text-sm">
                             {participant?.name || 'Unknown'}
                           </span>
                         </div>
@@ -471,7 +500,7 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
                 {directMessages.length > 6 && (
                   <Link
                     to={`/my-workspace/${workspaceId}/dms`}
-                    className="block px-3 py-1 text-xs text-gray-600 hover:text-gray-400 hover:bg-gray-800 rounded-lg"
+                    className="block px-3 py-1 text-xs text-gray-500 dark:text-gray-600 hover:text-gray-800 dark:hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
                   >
                     +{directMessages.length - 6} more
                   </Link>
@@ -481,10 +510,10 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
           </div>
 
           {/* Admin Section */}
-          <div className="px-3 py-2 border-t border-gray-800/50">
+          <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-800/50">
             <button
               onClick={() => toggleSection('admin')}
-              className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 uppercase tracking-wider"
+              className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider"
             >
               {expandedSections.admin ? (
                 <FaChevronDown className="text-[10px]" />
@@ -504,8 +533,8 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
                       to={opt.path}
                       className={`flex items-center gap-3 px-3 py-1.5 rounded-lg transition text-sm ${
                         active
-                          ? 'bg-gray-800 text-white'
-                          : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+                          ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
+                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200'
                       }`}
                     >
                       <Icon className="text-sm" />
@@ -520,10 +549,10 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
       )}
 
       {/* ── Collapse Toggle ── */}
-      <div className="flex-shrink-0 border-t border-gray-800 p-2 flex justify-center">
+      <div className="flex-shrink-0 border-t border-gray-200 dark:border-gray-800 p-2 flex justify-center">
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
-          className="p-1.5 rounded-lg hover:bg-gray-800 text-gray-500 hover:text-gray-300 transition-colors"
+          className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
           title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           {isCollapsed ? (
@@ -534,31 +563,34 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
         </button>
       </div>
 
-      {/* ── User Footer ── */}
+      {/* ── User Footer with Theme Toggle ── */}
       <div
-        className={`border-t border-gray-800 flex-shrink-0 bg-[#18181b] ${
-          isCollapsed ? 'p-2 flex justify-center' : 'p-3'
+        className={`border-t border-gray-200 dark:border-gray-800 flex-shrink-0 bg-white dark:bg-[#18181b] ${
+          isCollapsed ? 'p-2 flex flex-col items-center gap-2' : 'p-3'
         }`}
       >
         {isCollapsed ? (
-          <div className="relative">
-            {userInfo?.profile ? (
-              <img
-                src={userInfo.profile}
-                alt={userInfo.name}
-                className="w-8 h-8 rounded-full object-cover"
-              />
-            ) : (
-              <div
-                className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold"
-                style={{ backgroundColor: brandColor }}
-              >
-                {getInitials(userInfo?.name)}
-              </div>
-            )}
-          </div>
+          <>
+            <div className="relative">
+              {userInfo?.profile ? (
+                <img
+                  src={userInfo.profile}
+                  alt={userInfo.name}
+                  className="w-8 h-8 rounded-full object-cover"
+                />
+              ) : (
+                <div
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold"
+                  style={{ backgroundColor: brandColor }}
+                >
+                  {getInitials(userInfo?.name)}
+                </div>
+              )}
+            </div>
+            <ThemeToggleButton />
+          </>
         ) : (
-          <div className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 transition-colors cursor-pointer">
+          <div className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer">
             {userInfo?.profile ? (
               <img
                 src={userInfo.profile}
@@ -574,18 +606,19 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
               </div>
             )}
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-100 truncate">
+              <p className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
                 {userInfo?.name}
               </p>
-              <p className="text-xs text-gray-500 truncate">{userRole}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{userRole}</p>
             </div>
-            <div className="flex gap-1">
-              <button className="p-1.5 rounded-lg hover:bg-gray-700 transition text-gray-500 hover:text-gray-300">
+            <div className="flex gap-1 items-center">
+              <button className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
                 <FaSearch className="text-xs" />
               </button>
-              <button className="p-1.5 rounded-lg hover:bg-gray-700 transition text-gray-500 hover:text-gray-300">
+              <button className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
                 <FaBell className="text-xs" />
               </button>
+              <ThemeToggleButton />
             </div>
           </div>
         )}

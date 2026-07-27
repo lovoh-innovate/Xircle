@@ -113,13 +113,13 @@ const YourWorkspaceId = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0b0b10]">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
         <div className="text-center">
           <div
             className="w-8 h-8 border-[3px] border-t-transparent rounded-full animate-spin mx-auto"
             style={{ borderColor: '#0d9488', borderTopColor: 'transparent' }}
           />
-          <p className="mt-3 text-gray-500 text-sm">Loading workspace...</p>
+          <p className="mt-3 text-gray-500 dark:text-gray-500 text-sm">Loading workspace...</p>
         </div>
       </div>
     );
@@ -157,9 +157,9 @@ const YourWorkspaceId = () => {
   const MetricCard = ({ icon: Icon, label, value, to, badge, badgeColor }) => (
     <Link
       to={to}
-      className="group relative bg-[#14141a] rounded-2xl border border-gray-800/60 p-4 flex flex-col items-start gap-1 hover:border-transparent hover:shadow-[0_0_20px_rgba(13,148,136,0.2)] transition-all duration-300 overflow-hidden"
+      className="group relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-4 flex flex-col items-start gap-1 hover:border-teal-500 dark:hover:border-transparent hover:shadow-[0_0_20px_rgba(13,148,136,0.2)] dark:hover:shadow-[0_0_20px_rgba(13,148,136,0.2)] transition-all duration-300 overflow-hidden"
     >
-      <div className="absolute inset-0 bg-gradient-to-br from-[#0d9488]/0 via-[#0d9488]/0 to-transparent group-hover:from-[#0d9488]/10 group-hover:via-[#0d9488]/5 transition-all duration-500" />
+      <div className="absolute inset-0 bg-gradient-to-br from-teal-500/0 via-teal-500/0 to-transparent dark:group-hover:from-[#0d9488]/10 dark:group-hover:via-[#0d9488]/5 group-hover:from-teal-500/10 group-hover:via-teal-500/5 transition-all duration-500" />
       {badge && (
         <span
           className={`absolute -top-1 right-2 text-[9px] font-bold px-2 py-0.5 rounded-full text-white ${badgeColor} shadow-[0_0_10px_rgba(34,197,94,0.4)]`}
@@ -169,30 +169,30 @@ const YourWorkspaceId = () => {
       )}
       <div className="flex items-center justify-between w-full">
         <div
-          className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#0d9488]/10 text-[#0d9488] group-hover:scale-110 transition-transform"
+          className="w-9 h-9 rounded-xl flex items-center justify-center bg-teal-50 dark:bg-[#0d9488]/10 text-teal-600 dark:text-[#0d9488] group-hover:scale-110 transition-transform"
           style={{ color: brandColor, backgroundColor: `${brandColor}15` }}
         >
           <Icon className="text-sm" />
         </div>
-        <span className="text-xs font-mono text-gray-600 group-hover:text-gray-400 transition">
+        <span className="text-xs font-mono text-gray-400 dark:text-gray-600 group-hover:text-gray-600 dark:group-hover:text-gray-400 transition">
           {hideStats ? '••••' : '→'}
         </span>
       </div>
-      <p className="text-lg font-bold text-gray-100 tracking-tight mt-1">
+      <p className="text-lg font-bold text-gray-800 dark:text-gray-100 tracking-tight mt-1">
         {hideStats ? '••••' : value}
       </p>
-      <p className="text-[11px] text-gray-500 uppercase tracking-wider">{label}</p>
+      <p className="text-[11px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">{label}</p>
     </Link>
   );
 
   // ─── quick action button ──────────────────────────────────────────
   const QuickAction = ({ icon: Icon, label, to, onClick }) => {
     const content = (
-      <div className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-xl bg-[#14141a] border border-gray-800/60 hover:border-[#0d9488]/40 hover:shadow-[0_0_15px_rgba(13,148,136,0.15)] transition-all duration-300 group">
-        <div className="text-gray-400 group-hover:text-[#0d9488] transition-colors text-lg">
+      <div className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-xl bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 hover:border-teal-500 dark:hover:border-[#0d9488]/40 hover:shadow-[0_0_15px_rgba(13,148,136,0.15)] dark:hover:shadow-[0_0_15px_rgba(13,148,136,0.15)] transition-all duration-300 group">
+        <div className="text-gray-400 dark:text-gray-400 group-hover:text-teal-600 dark:group-hover:text-[#0d9488] transition-colors text-lg">
           <Icon />
         </div>
-        <span className="text-[10px] text-gray-500 uppercase tracking-wider group-hover:text-gray-300 transition">
+        <span className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider group-hover:text-gray-700 dark:group-hover:text-gray-300 transition">
           {label}
         </span>
       </div>
@@ -203,33 +203,33 @@ const YourWorkspaceId = () => {
 
   // ─── Hero Card (mobile) ───────────────────────────────────────────
   const HeroCard = () => (
-    <div className="relative bg-[#14141a] border border-gray-800/60 rounded-2xl p-5 mb-4">
+    <div className="relative bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl p-5 mb-4">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3 min-w-0">
           {workspace.logo ? (
             <img
               src={workspace.logo}
               alt={workspace.name}
-              className="w-12 h-12 rounded-xl object-cover border border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)] flex-shrink-0"
+              className="w-12 h-12 rounded-xl object-cover border border-gray-200 dark:border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)] flex-shrink-0"
             />
           ) : (
             <div
-              className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-lg border border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)] flex-shrink-0"
+              className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-lg border border-gray-200 dark:border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)] flex-shrink-0"
               style={{ backgroundColor: brandColor }}
             >
               {workspace.initials || workspace.name.charAt(0).toUpperCase()}
             </div>
           )}
           <div className="min-w-0">
-            <p className="text-[10px] text-gray-500 uppercase tracking-widest">Workspace</p>
-            <h1 className="text-lg font-bold leading-tight truncate text-gray-100">
+            <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest">Workspace</p>
+            <h1 className="text-lg font-bold leading-tight truncate text-gray-800 dark:text-gray-100">
               {workspace.name}
             </h1>
           </div>
         </div>
         <button
           onClick={() => setHideStats((v) => !v)}
-          className="w-8 h-8 rounded-full bg-[#0b0b10] border border-gray-800 flex items-center justify-center text-gray-400 hover:text-gray-200 transition"
+          className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition"
         >
           {hideStats ? <FaEyeSlash className="text-xs" /> : <FaEye className="text-xs" />}
         </button>
@@ -239,31 +239,31 @@ const YourWorkspaceId = () => {
         <div>
           <button
             onClick={() => setHideStats((v) => !v)}
-            className="flex items-center gap-2 text-gray-500 text-xs mb-1.5 hover:text-gray-300 transition-colors"
+            className="flex items-center gap-2 text-gray-500 dark:text-gray-500 text-xs mb-1.5 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
           >
             <FaUsers className="text-[10px]" />
             Active members
           </button>
-          <p className="text-3xl font-bold tracking-tight text-gray-100">
+          <p className="text-3xl font-bold tracking-tight text-gray-800 dark:text-gray-100">
             {hideStats ? '••••' : activeMembers.length}
           </p>
         </div>
         <div className="text-right">
-          <span className="text-xs text-gray-400 flex items-center gap-2 justify-end">
-            <FaCircle className="text-[6px] text-green-400" />
+          <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2 justify-end">
+            <FaCircle className="text-[6px] text-green-500 dark:text-green-400" />
             {onlineCount} online now
           </span>
         </div>
       </div>
 
-      <div className="flex items-center justify-between bg-gray-800/30 rounded-xl px-4 py-2.5 border border-gray-800/40">
-        <span className="text-xs text-gray-400">Invite code</span>
-        <span className="text-xs font-mono tracking-wider text-gray-300 flex items-center gap-2">
+      <div className="flex items-center justify-between bg-gray-100 dark:bg-gray-800/30 rounded-xl px-4 py-2.5 border border-gray-200 dark:border-gray-800/40">
+        <span className="text-xs text-gray-500 dark:text-gray-400">Invite code</span>
+        <span className="text-xs font-mono tracking-wider text-gray-800 dark:text-gray-300 flex items-center gap-2">
           {hideStats ? '••••••••' : workspace.inviteCode || '—'}
           {!hideStats && (
             <button
               onClick={copyInviteCode}
-              className="text-[#0d9488] hover:text-[#14b8a6] transition-colors"
+              className="text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] transition-colors"
               title="Copy invite code"
             >
               <FaCopy className="text-xs" />
@@ -271,7 +271,7 @@ const YourWorkspaceId = () => {
           )}
         </span>
         {copySuccess && (
-          <span className="text-[10px] text-green-400 animate-pulse">Copied!</span>
+          <span className="text-[10px] text-green-500 dark:text-green-400 animate-pulse">Copied!</span>
         )}
       </div>
     </div>
@@ -281,11 +281,11 @@ const YourWorkspaceId = () => {
   const ProjectItem = ({ project }) => {
     const progress = project.progress || 0;
     const statusColor = {
-      planning: 'text-blue-400 bg-blue-900/20 border-blue-700/40',
-      'in-progress': 'text-yellow-400 bg-yellow-900/20 border-yellow-700/40',
-      completed: 'text-green-400 bg-green-900/20 border-green-700/40',
-      archived: 'text-gray-400 bg-gray-800/40 border-gray-700/40',
-    }[project.status] || 'text-gray-400 bg-gray-800/40 border-gray-700/40';
+      planning: 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700/40',
+      'in-progress': 'text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-700/40',
+      completed: 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700/40',
+      archived: 'text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700/40',
+    }[project.status] || 'text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700/40';
     const statusLabel = {
       planning: 'Planning',
       'in-progress': 'In Progress',
@@ -306,7 +306,7 @@ const YourWorkspaceId = () => {
     return (
       <Link
         to={`/workspace/${workspaceId}/project/${project._id}`}
-        className="flex items-center gap-3 px-4 sm:px-5 py-3 hover:bg-[#0d9488]/5 transition group border-b border-gray-800/30 last:border-0"
+        className="flex items-center gap-3 px-4 sm:px-5 py-3 hover:bg-teal-50 dark:hover:bg-[#0d9488]/5 transition group border-b border-gray-100 dark:border-gray-800/30 last:border-0"
       >
         <div
           className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
@@ -316,17 +316,17 @@ const YourWorkspaceId = () => {
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-medium text-gray-200 truncate group-hover:text-white transition">
+            <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
               {project.name}
             </p>
             <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${statusColor}`}>
               {statusLabel}
             </span>
           </div>
-          <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500">
+          <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500 dark:text-gray-500">
             {taskLoading ? (
               <span className="flex items-center gap-1">
-                <FaSpinner className="animate-spin text-[10px]" />
+                <FaSpinner className="animate-spin text-[10px] text-teal-600 dark:text-[#0d9488]" />
                 Loading tasks...
               </span>
             ) : (
@@ -336,18 +336,18 @@ const YourWorkspaceId = () => {
                   {totalTasks} tasks
                 </span>
                 <span className="flex items-center gap-1">
-                  <FaCheckCircle className="text-[10px] text-green-400" />
+                  <FaCheckCircle className="text-[10px] text-green-500 dark:text-green-400" />
                   {completedTasks} done
                 </span>
                 <span className="flex-1">
-                  <div className="w-full h-1 bg-gray-800/60 rounded-full overflow-hidden">
+                  <div className="w-full h-1 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
                     <div
                       className="h-full rounded-full transition-all duration-500"
                       style={{ width: `${progress}%`, backgroundColor: brandColor }}
                     />
                   </div>
                 </span>
-                <span className="font-mono text-[10px] text-gray-400">{progress}%</span>
+                <span className="font-mono text-[10px] text-gray-400 dark:text-gray-400">{progress}%</span>
               </>
             )}
           </div>
@@ -358,7 +358,7 @@ const YourWorkspaceId = () => {
 
   // ─── main render ─────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#0b0b10] flex flex-col">
+    <div className="min-h-screen bg-gray-50 dark:bg-[#0b0b10] flex flex-col">
       {/* desktop sidebar */}
       <div className="hidden md:block md:w-[260px] md:min-h-screen md:flex-shrink-0 fixed top-0 left-0 z-20">
         <YourWorkspaceSidebar workspace={workspace} chats={chats} />
@@ -367,18 +367,18 @@ const YourWorkspaceId = () => {
       {/* main content */}
       <div className="flex-1 md:ml-[260px]">
         {/* mobile header */}
-        <div className="md:hidden fixed top-0 left-0 right-0 z-10 bg-[#0b0b10]/80 backdrop-blur-md px-4 pt-4 pb-2 border-b border-gray-800/40">
+        <div className="md:hidden fixed top-0 left-0 right-0 z-10 bg-white/80 dark:bg-[#0b0b10]/80 backdrop-blur-md px-4 pt-4 pb-2 border-b border-gray-200/60 dark:border-gray-800/40">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="text-[10px] text-gray-500 uppercase tracking-widest">Workspace</span>
-              <span className="text-gray-700">/</span>
-              <span className="text-sm font-semibold text-gray-100 truncate max-w-[150px]">
+              <span className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest">Workspace</span>
+              <span className="text-gray-300 dark:text-gray-700">/</span>
+              <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate max-w-[150px]">
                 {workspace.name}
               </span>
             </div>
             <button
               onClick={() => setHideStats((v) => !v)}
-              className="w-8 h-8 rounded-full bg-[#14141a] border border-gray-800 flex items-center justify-center text-gray-400 hover:text-gray-200 transition"
+              className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition"
             >
               {hideStats ? <FaEyeSlash className="text-xs" /> : <FaEye className="text-xs" />}
             </button>
@@ -408,33 +408,33 @@ const YourWorkspaceId = () => {
                 <img
                   src={workspace.logo}
                   alt={workspace.name}
-                  className="w-10 h-10 rounded-xl object-cover border border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)]"
+                  className="w-10 h-10 rounded-xl object-cover border border-gray-200 dark:border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)]"
                 />
               ) : (
                 <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm border border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)]"
+                  className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm border border-gray-200 dark:border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)]"
                   style={{ backgroundColor: brandColor }}
                 >
                   {workspace.initials || workspace.name.charAt(0).toUpperCase()}
                 </div>
               )}
               <div>
-                <h1 className="text-xl font-bold text-gray-100 tracking-tight">
+                <h1 className="text-xl font-bold text-gray-800 dark:text-gray-100 tracking-tight">
                   {workspace.name}
                 </h1>
-                <div className="flex items-center gap-2 text-xs text-gray-500">
+                <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-500">
                   <span className="flex items-center gap-1">
-                    <FaCircle className="text-[6px] text-green-400" />
+                    <FaCircle className="text-[6px] text-green-500 dark:text-green-400" />
                     {onlineCount} online
                   </span>
-                  <span className="w-px h-3 bg-gray-700" />
+                  <span className="w-px h-3 bg-gray-300 dark:bg-gray-700" />
                   <span>
                     {hideStats ? '••••' : `${activeMembers.length} members`}
                   </span>
-                  <span className="w-px h-3 bg-gray-700" />
+                  <span className="w-px h-3 bg-gray-300 dark:bg-gray-700" />
                   <button
                     onClick={() => setHideStats((v) => !v)}
-                    className="text-gray-600 hover:text-gray-300 transition"
+                    className="text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-300 transition"
                   >
                     {hideStats ? <FaEyeSlash className="text-[10px]" /> : <FaEye className="text-[10px]" />}
                   </button>
@@ -442,19 +442,19 @@ const YourWorkspaceId = () => {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-mono text-gray-600 bg-[#14141a] px-3 py-1.5 rounded-full border border-gray-800/60 flex items-center gap-2">
+              <span className="text-[10px] font-mono text-gray-500 dark:text-gray-600 bg-gray-100 dark:bg-[#14141a] px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-800/60 flex items-center gap-2">
                 {hideStats ? '••••••••' : workspace.inviteCode}
                 {!hideStats && (
                   <button
                     onClick={copyInviteCode}
-                    className="text-[#0d9488] hover:text-[#14b8a6] transition-colors"
+                    className="text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] transition-colors"
                     title="Copy invite code"
                   >
                     <FaCopy className="text-[10px]" />
                   </button>
                 )}
                 {copySuccess && (
-                  <span className="text-[10px] text-green-400 animate-pulse">Copied!</span>
+                  <span className="text-[10px] text-green-500 dark:text-green-400 animate-pulse">Copied!</span>
                 )}
               </span>
             </div>
@@ -501,20 +501,20 @@ const YourWorkspaceId = () => {
           {/* chart + quick actions */}
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
             {/* Trading‑style AreaChart */}
-            <div className="lg:col-span-3 bg-[#14141a] rounded-2xl border border-gray-800/60 p-4 sm:p-5 relative overflow-hidden group">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-[#0d9488]/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+            <div className="lg:col-span-3 bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-4 sm:p-5 relative overflow-hidden group">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-teal-500/5 dark:bg-[#0d9488]/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <p className="text-[10px] text-gray-500 uppercase tracking-widest">Project Progress Trend</p>
-                  <h2 className="text-lg font-bold text-gray-100 flex items-center gap-3">
+                  <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest">Project Progress Trend</p>
+                  <h2 className="text-lg font-bold text-gray-800 dark:text-gray-100 flex items-center gap-3">
                     {isTasksLoading && projects.length > 0 ? (
-                      <span className="flex items-center gap-2 text-sm text-gray-400">
-                        <FaSpinner className="animate-spin" /> Loading tasks…
+                      <span className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                        <FaSpinner className="animate-spin text-teal-600 dark:text-[#0d9488]" /> Loading tasks…
                       </span>
                     ) : (
                       <>
                         <span>{totalTasks} tasks</span>
-                        <span className="text-sm font-normal text-gray-400">
+                        <span className="text-sm font-normal text-gray-500 dark:text-gray-400">
                           Avg {avgProgress}% complete
                         </span>
                       </>
@@ -523,7 +523,7 @@ const YourWorkspaceId = () => {
                 </div>
                 <Link
                   to={`/workspace/${workspaceId}/projects`}
-                  className="text-xs font-medium text-[#0d9488] hover:text-[#14b8a6] transition flex items-center gap-1"
+                  className="text-xs font-medium text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] transition flex items-center gap-1"
                   style={{ color: brandColor }}
                 >
                   <FaChartLine />
@@ -557,11 +557,11 @@ const YourWorkspaceId = () => {
                       <Tooltip
                         contentStyle={{
                           borderRadius: '12px',
-                          border: '1px solid #2d2d3a',
+                          border: '1px solid #e5e7eb',
                           fontSize: '11px',
-                          backgroundColor: '#14141a',
-                          color: '#e5e7eb',
-                          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                          backgroundColor: 'var(--bg-tooltip)',
+                          color: 'var(--text-tooltip)',
+                          boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
                         }}
                         formatter={(value) => [`${value}%`, 'Progress']}
                       />
@@ -577,7 +577,7 @@ const YourWorkspaceId = () => {
                     </AreaChart>
                   </ResponsiveContainer>
                 ) : (
-                  <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+                  <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-500 text-sm">
                     {chartProjects.length === 1 ? 'Add more projects to see trends' : 'No project data'}
                   </div>
                 )}
@@ -595,27 +595,27 @@ const YourWorkspaceId = () => {
           {/* two‑column feed: Projects + Members/About */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
             {/* Projects list */}
-            <div className="lg:col-span-2 bg-[#14141a] rounded-2xl border border-gray-800/60 overflow-hidden">
-              <div className="px-4 sm:px-5 py-3 flex items-center justify-between border-b border-gray-800/40">
-                <h2 className="text-sm font-semibold text-gray-100 flex items-center gap-2">
+            <div className="lg:col-span-2 bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden">
+              <div className="px-4 sm:px-5 py-3 flex items-center justify-between border-b border-gray-200/60 dark:border-gray-800/40">
+                <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
                   <FaFolder className="text-sm" style={{ color: brandColor }} />
                   Active Projects
                 </h2>
                 <Link
                   to={`/workspace/${workspaceId}/projects`}
-                  className="text-[10px] font-medium uppercase tracking-wider hover:underline"
+                  className="text-[10px] font-medium uppercase tracking-wider hover:underline text-teal-600 dark:text-[#0d9488]"
                   style={{ color: brandColor }}
                 >
                   View all
                 </Link>
               </div>
-              <div className="divide-y divide-gray-800/30">
+              <div className="divide-y divide-gray-100 dark:divide-gray-800/30">
                 {projectsLoading ? (
-                  <div className="px-4 py-8 text-center text-xs text-gray-500">
+                  <div className="px-4 py-8 text-center text-xs text-gray-500 dark:text-gray-500">
                     Loading projects...
                   </div>
                 ) : projects.length === 0 ? (
-                  <div className="px-4 py-8 text-center text-xs text-gray-500">
+                  <div className="px-4 py-8 text-center text-xs text-gray-500 dark:text-gray-500">
                     No projects yet. Create your first project!
                   </div>
                 ) : (
@@ -626,7 +626,7 @@ const YourWorkspaceId = () => {
                 {projects.length > 5 && (
                   <Link
                     to={`/workspace/${workspaceId}/projects`}
-                    className="block text-[10px] font-medium uppercase tracking-wider px-4 sm:px-5 py-2.5 hover:bg-[#0d9488]/5 transition border-t border-gray-800/30 text-center"
+                    className="block text-[10px] font-medium uppercase tracking-wider px-4 sm:px-5 py-2.5 hover:bg-teal-50 dark:hover:bg-[#0d9488]/5 transition border-t border-gray-100 dark:border-gray-800/30 text-center text-teal-600 dark:text-[#0d9488]"
                     style={{ color: brandColor }}
                   >
                     +{projects.length - 5} more projects
@@ -637,21 +637,21 @@ const YourWorkspaceId = () => {
 
             {/* right – members online + about */}
             <div className="space-y-4">
-              <div className="bg-[#14141a] rounded-2xl border border-gray-800/60 overflow-hidden">
-                <div className="px-4 sm:px-5 py-3 flex items-center justify-between border-b border-gray-800/40">
-                  <h2 className="text-sm font-semibold text-gray-100 flex items-center gap-2">
+              <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden">
+                <div className="px-4 sm:px-5 py-3 flex items-center justify-between border-b border-gray-200/60 dark:border-gray-800/40">
+                  <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
                     <FaUsers className="text-sm" style={{ color: brandColor }} />
                     Online
                   </h2>
                   <Link
                     to={`/workspace/${workspaceId}/members`}
-                    className="text-[10px] font-medium uppercase tracking-wider hover:underline"
+                    className="text-[10px] font-medium uppercase tracking-wider hover:underline text-teal-600 dark:text-[#0d9488]"
                     style={{ color: brandColor }}
                   >
                     See all
                   </Link>
                 </div>
-                <div className="divide-y divide-gray-800/30">
+                <div className="divide-y divide-gray-100 dark:divide-gray-800/30">
                   {activeMembers.slice(0, 5).map((member) => {
                     const memberUser = member.user || member;
                     const isOwner =
@@ -660,13 +660,13 @@ const YourWorkspaceId = () => {
                     return (
                       <div
                         key={memberUser._id}
-                        className="flex items-center gap-3 px-4 sm:px-5 py-2 hover:bg-[#0d9488]/5 transition"
+                        className="flex items-center gap-3 px-4 sm:px-5 py-2 hover:bg-teal-50 dark:hover:bg-[#0d9488]/5 transition"
                       >
                         {memberUser?.profile ? (
                           <img
                             src={memberUser.profile}
                             alt={memberUser.name}
-                            className="w-7 h-7 rounded-xl object-cover border border-gray-700/50"
+                            className="w-7 h-7 rounded-xl object-cover border border-gray-200 dark:border-gray-700/50"
                           />
                         ) : (
                           <div
@@ -677,7 +677,7 @@ const YourWorkspaceId = () => {
                           </div>
                         )}
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm text-gray-300 truncate flex items-center gap-1">
+                          <p className="text-sm text-gray-700 dark:text-gray-300 truncate flex items-center gap-1">
                             {memberUser?.name || 'Unknown'}
                             {isOwner && (
                               <span className="text-[10px]" title="Owner">
@@ -687,7 +687,7 @@ const YourWorkspaceId = () => {
                           </p>
                         </div>
                         {member.status === 'active' && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] flex-shrink-0" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-green-500 dark:bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] flex-shrink-0" />
                         )}
                       </div>
                     );
@@ -695,7 +695,7 @@ const YourWorkspaceId = () => {
                   {activeMembers.length > 5 && (
                     <Link
                       to={`/workspace/${workspaceId}/members`}
-                      className="block text-[10px] font-medium uppercase tracking-wider px-4 sm:px-5 py-2.5 hover:bg-[#0d9488]/5 transition border-t border-gray-800/30 text-center"
+                      className="block text-[10px] font-medium uppercase tracking-wider px-4 sm:px-5 py-2.5 hover:bg-teal-50 dark:hover:bg-[#0d9488]/5 transition border-t border-gray-100 dark:border-gray-800/30 text-center text-teal-600 dark:text-[#0d9488]"
                       style={{ color: brandColor }}
                     >
                       +{activeMembers.length - 5} more
@@ -705,16 +705,16 @@ const YourWorkspaceId = () => {
               </div>
 
               {(workspace.description || workspace.industry || workspace.location || workspace.website) && (
-                <div className="bg-[#14141a] rounded-2xl border border-gray-800/60 p-4">
-                  <h2 className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-2">
+                <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-4">
+                  <h2 className="text-[10px] font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-widest mb-2">
                     About
                   </h2>
                   {workspace.description && (
-                    <p className="text-xs text-gray-300 mb-3 leading-relaxed">
+                    <p className="text-xs text-gray-600 dark:text-gray-300 mb-3 leading-relaxed">
                       {workspace.description}
                     </p>
                   )}
-                  <div className="space-y-1.5 text-xs text-gray-400">
+                  <div className="space-y-1.5 text-xs text-gray-500 dark:text-gray-400">
                     {workspace.industry && (
                       <div className="flex items-center gap-2">
                         <span>🏢</span>
@@ -732,7 +732,7 @@ const YourWorkspaceId = () => {
                         href={workspace.website}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center gap-2 hover:underline"
+                        className="flex items-center gap-2 hover:underline text-teal-600 dark:text-[#0d9488]"
                         style={{ color: brandColor }}
                       >
                         <span>🌐</span>

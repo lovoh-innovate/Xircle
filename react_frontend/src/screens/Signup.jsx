@@ -151,17 +151,17 @@ const Signup = () => {
       return (
         <div className="text-center">
           <div className="flex justify-center mb-4">
-            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
-              <FaCheckCircle className="w-8 h-8 text-green-500" />
+            <div className="w-16 h-16 bg-green-100 dark:bg-green-500/20 rounded-full flex items-center justify-center">
+              <FaCheckCircle className="w-8 h-8 text-green-600 dark:text-green-400" />
             </div>
           </div>
-          <h3 className="text-xl font-semibold text-gray-800">Account Created!</h3>
-          <p className="text-gray-500 mt-2">
+          <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-200">Account Created!</h3>
+          <p className="text-gray-600 dark:text-gray-400 mt-2">
             Your email has been verified. You will be redirected to your workspaces.
           </p>
           <Link
             to="/my-workspaces"
-            className="mt-4 inline-block text-teal-600 hover:text-teal-700 font-medium"
+            className="mt-4 inline-block text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] font-medium transition-colors"
           >
             Go to My Workspaces →
           </Link>
@@ -173,25 +173,25 @@ const Signup = () => {
       return (
         <form onSubmit={handleVerify} className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
               OTP Code
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <FaLock className="h-5 w-5 text-gray-400" />
+                <FaLock className="h-5 w-5 text-gray-400 dark:text-gray-500" />
               </div>
               <input
                 type="text"
                 value={otp}
                 onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-                className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors duration-200"
+                className="block w-full pl-10 pr-3 py-2.5 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 dark:focus:ring-[#0d9488] text-sm text-gray-900 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 transition-colors duration-200"
                 placeholder="Enter 6-digit OTP"
                 maxLength={6}
                 required
               />
             </div>
-            <p className="mt-2 text-sm text-gray-500">
-              We sent the OTP to <strong>{formData.email}</strong>. It expires in 10 minutes.
+            <p className="mt-2 text-sm text-gray-500 dark:text-gray-500">
+              We sent the OTP to <strong className="text-gray-800 dark:text-gray-300">{formData.email}</strong>. It expires in 10 minutes.
             </p>
           </div>
 
@@ -199,14 +199,14 @@ const Signup = () => {
             <button
               type="button"
               onClick={() => setStep('register')}
-              className="text-sm text-teal-600 hover:text-teal-700 font-medium transition-colors duration-200 flex items-center gap-1"
+              className="text-sm text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] font-medium transition-colors duration-200 flex items-center gap-1"
             >
               <FaArrowLeft size={12} /> Back
             </button>
             <button
               type="button"
               onClick={handleResendOTP}
-              className="text-sm text-teal-600 hover:text-teal-700 font-medium transition-colors"
+              className="text-sm text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] font-medium transition-colors"
             >
               Resend OTP
             </button>
@@ -215,7 +215,7 @@ const Signup = () => {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full flex items-center justify-center px-4 py-3 bg-gradient-to-r from-teal-600 to-teal-500 text-white font-semibold rounded-lg hover:from-teal-700 hover:to-teal-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition-all duration-200 transform hover:scale-[1.02] disabled:opacity-70 disabled:cursor-not-allowed"
+            className="w-full flex items-center justify-center px-4 py-3 bg-teal-600 dark:bg-[#0d9488] text-white font-semibold rounded-xl hover:bg-teal-700 dark:hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition-all duration-200 disabled:opacity-70 disabled:cursor-not-allowed"
           >
             {isLoading ? (
               <div className="flex items-center gap-2">
@@ -233,14 +233,13 @@ const Signup = () => {
     // Step: register
     return (
       <form onSubmit={handleRegister} className="space-y-4">
-        {/* ... (same form fields as before) ... */}
         <div>
-          <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1.5">
+          <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
             Full Name
           </label>
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <FaUser className="h-5 w-5 text-gray-400" />
+              <FaUser className="h-5 w-5 text-gray-400 dark:text-gray-500" />
             </div>
             <input
               id="name"
@@ -248,7 +247,7 @@ const Signup = () => {
               type="text"
               value={formData.name}
               onChange={handleChange}
-              className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors duration-200"
+              className="block w-full pl-10 pr-3 py-2.5 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 dark:focus:ring-[#0d9488] text-sm text-gray-900 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 transition-colors duration-200"
               placeholder="John Doe"
               required
             />
@@ -256,12 +255,12 @@ const Signup = () => {
         </div>
 
         <div>
-          <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1.5">
+          <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
             Email Address
           </label>
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <FaEnvelope className="h-5 w-5 text-gray-400" />
+              <FaEnvelope className="h-5 w-5 text-gray-400 dark:text-gray-500" />
             </div>
             <input
               id="email"
@@ -269,7 +268,7 @@ const Signup = () => {
               type="email"
               value={formData.email}
               onChange={handleChange}
-              className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors duration-200"
+              className="block w-full pl-10 pr-3 py-2.5 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 dark:focus:ring-[#0d9488] text-sm text-gray-900 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 transition-colors duration-200"
               placeholder="you@example.com"
               required
             />
@@ -277,12 +276,12 @@ const Signup = () => {
         </div>
 
         <div>
-          <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1.5">
+          <label htmlFor="phone" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
             Phone Number
           </label>
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <FaPhone className="h-5 w-5 text-gray-400" />
+              <FaPhone className="h-5 w-5 text-gray-400 dark:text-gray-500" />
             </div>
             <input
               id="phone"
@@ -290,7 +289,7 @@ const Signup = () => {
               type="tel"
               value={formData.phone}
               onChange={handleChange}
-              className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors duration-200"
+              className="block w-full pl-10 pr-3 py-2.5 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 dark:focus:ring-[#0d9488] text-sm text-gray-900 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 transition-colors duration-200"
               placeholder="+1 234 567 890"
               required
             />
@@ -298,12 +297,12 @@ const Signup = () => {
         </div>
 
         <div>
-          <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1.5">
+          <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
             Password
           </label>
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <FaLock className="h-5 w-5 text-gray-400" />
+              <FaLock className="h-5 w-5 text-gray-400 dark:text-gray-500" />
             </div>
             <input
               id="password"
@@ -311,7 +310,7 @@ const Signup = () => {
               type={showPassword ? 'text' : 'password'}
               value={formData.password}
               onChange={handleChange}
-              className="block w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors duration-200"
+              className="block w-full pl-10 pr-10 py-2.5 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 dark:focus:ring-[#0d9488] text-sm text-gray-900 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 transition-colors duration-200"
               placeholder="Min 6 characters"
               required
             />
@@ -321,21 +320,21 @@ const Signup = () => {
               className="absolute inset-y-0 right-0 pr-3 flex items-center"
             >
               {showPassword ? (
-                <FaEyeSlash className="h-5 w-5 text-gray-400 hover:text-gray-600" />
+                <FaEyeSlash className="h-5 w-5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors" />
               ) : (
-                <FaEye className="h-5 w-5 text-gray-400 hover:text-gray-600" />
+                <FaEye className="h-5 w-5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors" />
               )}
             </button>
           </div>
         </div>
 
         <div>
-          <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-1.5">
+          <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
             Confirm Password
           </label>
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <FaLock className="h-5 w-5 text-gray-400" />
+              <FaLock className="h-5 w-5 text-gray-400 dark:text-gray-500" />
             </div>
             <input
               id="confirmPassword"
@@ -343,7 +342,7 @@ const Signup = () => {
               type={showConfirmPassword ? 'text' : 'password'}
               value={formData.confirmPassword}
               onChange={handleChange}
-              className="block w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors duration-200"
+              className="block w-full pl-10 pr-10 py-2.5 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 dark:focus:ring-[#0d9488] text-sm text-gray-900 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 transition-colors duration-200"
               placeholder="Re-enter password"
               required
             />
@@ -353,9 +352,9 @@ const Signup = () => {
               className="absolute inset-y-0 right-0 pr-3 flex items-center"
             >
               {showConfirmPassword ? (
-                <FaEyeSlash className="h-5 w-5 text-gray-400 hover:text-gray-600" />
+                <FaEyeSlash className="h-5 w-5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors" />
               ) : (
-                <FaEye className="h-5 w-5 text-gray-400 hover:text-gray-600" />
+                <FaEye className="h-5 w-5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors" />
               )}
             </button>
           </div>
@@ -368,12 +367,12 @@ const Signup = () => {
             type="checkbox"
             checked={formData.acceptedTerms}
             onChange={handleChange}
-            className="mt-1 w-4 h-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500"
+            className="mt-1 w-4 h-4 text-teal-600 dark:text-[#0d9488] border-gray-300 dark:border-gray-700/60 bg-white dark:bg-[#0b0b10] rounded focus:ring-teal-500 dark:focus:ring-[#0d9488]"
             required
           />
-          <label htmlFor="acceptedTerms" className="text-sm text-gray-600">
+          <label htmlFor="acceptedTerms" className="text-sm text-gray-600 dark:text-gray-400">
             I agree to the{' '}
-            <Link to="/terms" className="text-teal-600 hover:text-teal-700 font-medium">
+            <Link to="/terms" className="text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] font-medium transition-colors">
               Terms and Conditions
             </Link>
           </label>
@@ -382,7 +381,7 @@ const Signup = () => {
         <button
           type="submit"
           disabled={isLoading}
-          className="w-full flex items-center justify-center px-4 py-3 bg-gradient-to-r from-teal-600 to-teal-500 text-white font-semibold rounded-lg hover:from-teal-700 hover:to-teal-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition-all duration-200 transform hover:scale-[1.02] disabled:opacity-70 disabled:cursor-not-allowed"
+          className="w-full flex items-center justify-center px-4 py-3 bg-teal-600 dark:bg-[#0d9488] text-white font-semibold rounded-xl hover:bg-teal-700 dark:hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition-all duration-200 disabled:opacity-70 disabled:cursor-not-allowed"
         >
           {isLoading ? (
             <div className="flex items-center gap-2">
@@ -399,7 +398,7 @@ const Signup = () => {
 
   // ── Render Page ──
   return (
-    <div className="h-screen flex bg-gradient-to-br from-teal-50 to-white overflow-hidden">
+    <div className="min-h-screen flex bg-gray-50 dark:bg-[#0b0b10] overflow-hidden">
       {/* Left Side - Fixed Full Height */}
       <div className="hidden lg:flex lg:w-1/2 h-full relative overflow-hidden">
         <div
@@ -410,8 +409,9 @@ const Signup = () => {
             backgroundPosition: 'center',
           }}
         >
-          <div className="absolute inset-0 bg-gradient-to-br from-teal-700/90 to-teal-500/80"></div>
-          <div className="absolute inset-0 opacity-10">
+          {/* Overlay – adapts to theme */}
+          <div className="absolute inset-0 bg-gradient-to-br from-teal-700/90 dark:from-[#0b0b10]/95 to-teal-500/80 dark:to-[#0d9488]/60"></div>
+          <div className="absolute inset-0 opacity-20">
             <div className="absolute top-20 left-10 w-64 h-64 bg-white rounded-full blur-3xl"></div>
             <div className="absolute bottom-20 right-10 w-80 h-80 bg-teal-300 rounded-full blur-3xl"></div>
           </div>
@@ -420,7 +420,7 @@ const Signup = () => {
               <img src="/xircle-logo.png" alt="Xircle" className="h-12 w-auto" />
             </div>
             <div className="max-w-lg mx-auto w-full">
-              <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-8 shadow-2xl shadow-black/10">
+              <div className="bg-white/10 dark:bg-white/5 backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-2xl p-8 shadow-2xl shadow-black/10">
                 <h2 className="text-3xl font-bold mb-4 leading-tight">
                   {step === 'success'
                     ? 'Welcome Aboard!'
@@ -475,14 +475,14 @@ const Signup = () => {
           </div>
 
           <div className="mb-8">
-            <h2 className="text-2xl font-bold text-gray-800">
+            <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">
               {step === 'register'
                 ? 'Create Account'
                 : step === 'verify'
                 ? 'Verify OTP'
                 : 'Success!'}
             </h2>
-            <p className="text-gray-500 mt-1">
+            <p className="text-gray-600 dark:text-gray-400 mt-1">
               {step === 'register'
                 ? 'Fill in your details to get started'
                 : step === 'verify'
@@ -494,23 +494,25 @@ const Signup = () => {
           {step === 'register' && (
             <>
               <div className="mb-6">
-                <GoogleLogin
-                  onSuccess={handleGoogleSuccess}
-                  onError={handleGoogleError}
-                  theme="outline"
-                  size="large"
-                  width="100%"
-                  text="signup_with"
-                  shape="rectangular"
-                  logo_alignment="center"
-                />
+                <div className="flex justify-center">
+                  <GoogleLogin
+                    onSuccess={handleGoogleSuccess}
+                    onError={handleGoogleError}
+                    theme="filled_black"
+                    size="large"
+                    width="100%"
+                    text="signup_with"
+                    shape="rectangular"
+                    logo_alignment="center"
+                  />
+                </div>
               </div>
               <div className="relative mb-6">
                 <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-300"></div>
+                  <div className="w-full border-t border-gray-300 dark:border-gray-700/60"></div>
                 </div>
                 <div className="relative flex justify-center text-sm">
-                  <span className="px-4 bg-gradient-to-br from-teal-50 to-white text-gray-500">
+                  <span className="px-4 bg-white dark:bg-[#0b0b10] text-gray-500 dark:text-gray-500">
                     or sign up with email
                   </span>
                 </div>
@@ -524,7 +526,7 @@ const Signup = () => {
             <div className="mt-6 text-center">
               <Link
                 to="/login"
-                className="text-sm text-teal-600 hover:text-teal-700 font-medium transition-colors duration-200 inline-flex items-center gap-1"
+                className="text-sm text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] font-medium transition-colors duration-200 inline-flex items-center gap-1"
               >
                 <FaArrowLeft size={14} /> Back to Login
               </Link>
@@ -532,13 +534,13 @@ const Signup = () => {
           )}
 
           <div className="mt-8 lg:hidden text-center">
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-gray-500 dark:text-gray-500">
               A product of{' '}
               <a
                 href="https://lovohcreate.com"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-teal-600 hover:underline font-medium"
+                className="text-teal-600 dark:text-[#0d9488] hover:underline font-medium"
               >
                 LovohCreate
               </a>

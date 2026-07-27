@@ -22,10 +22,14 @@ import {
   FaTimesCircle,
   FaSync,
   FaInfoCircle,
+  FaSun,
+  FaMoon,
+  FaDesktop,
 } from 'react-icons/fa';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { useNavigate } from 'react-router-dom';
+import { useTheme } from '../contexts/ThemeContext';
 
 // ─── Custom hook – centralises all settings logic ──────────────────────
 
@@ -232,14 +236,14 @@ const useNotificationSettings = () => {
   };
 };
 
-// ─── Toggle Switch Component ─────────────────────────────────────────
+// ─── Toggle Switch Component ─────────────────────────────────────────────
 
 const ToggleSwitch = ({ enabled, onChange, disabled = false, loading = false }) => (
   <button
     onClick={onChange}
     disabled={disabled || loading}
     className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-      enabled ? 'bg-teal-600' : 'bg-gray-300'
+      enabled ? 'bg-teal-500 dark:bg-[#0d9488]' : 'bg-gray-300 dark:bg-gray-700'
     } ${disabled || loading ? 'opacity-50 cursor-not-allowed' : ''}`}
   >
     <span
@@ -249,6 +253,69 @@ const ToggleSwitch = ({ enabled, onChange, disabled = false, loading = false }) 
     />
   </button>
 );
+
+// ─── Theme Toggle Component ─────────────────────────────────────────────
+
+const ThemeToggleCard = () => {
+  const { theme, isDarkMode, toggleTheme } = useTheme();
+
+  const getThemeIcon = () => {
+    switch (theme) {
+      case 'light':
+        return <FaSun className="w-5 h-5 text-yellow-500 dark:text-yellow-400" />;
+      case 'dark':
+        return <FaMoon className="w-5 h-5 text-purple-500 dark:text-purple-400" />;
+      default:
+        return <FaDesktop className="w-5 h-5 text-blue-500 dark:text-blue-400" />;
+    }
+  };
+
+  const getThemeLabel = () => {
+    switch (theme) {
+      case 'light':
+        return 'Light';
+      case 'dark':
+        return 'Dark';
+      default:
+        return 'System';
+    }
+  };
+
+  return (
+    <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden transition-colors duration-300">
+      <div className="px-5 py-3 bg-gray-50 dark:bg-[#0f0f12] border-b border-gray-200/60 dark:border-gray-800/40">
+        <div className="flex items-center space-x-2">
+          <FaSun className="w-4 h-4 text-teal-600 dark:text-[#0d9488]" />
+          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Appearance</h2>
+        </div>
+      </div>
+      <div className="p-5 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-gray-100 dark:bg-gray-800/40">
+            {getThemeIcon()}
+          </div>
+          <div>
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Theme</p>
+            <p className="text-xs text-gray-500 dark:text-gray-500">
+              Current: <span className="text-gray-800 dark:text-gray-300 font-medium">{getThemeLabel()}</span>
+              {theme === 'system' && (
+                <span className="text-gray-500 dark:text-gray-500 ml-1">
+                  ({isDarkMode ? 'Dark' : 'Light'} mode)
+                </span>
+              )}
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={toggleTheme}
+          className="px-4 py-2 text-sm font-medium text-white bg-teal-600 dark:bg-[#0d9488] rounded-lg hover:bg-teal-700 dark:hover:opacity-80 transition"
+        >
+          Switch to {theme === 'light' ? 'Dark' : theme === 'dark' ? 'System' : 'Light'}
+        </button>
+      </div>
+    </div>
+  );
+};
 
 // ─── Desktop View ──────────────────────────────────────────────────────
 
@@ -278,48 +345,51 @@ const DesktopNotificationSettings = ({ state }) => {
   } = state;
 
   return (
-    <div className="hidden md:block min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
+    <div className="hidden md:block min-h-screen bg-gray-50 dark:bg-[#0b0b10] transition-colors duration-300">
       <div className="px-6 py-6 lg:px-8">
         <div className="max-w-4xl mx-auto">
           {/* Header */}
           <div className="mb-6">
             <div className="flex items-center space-x-2">
-              <div className="p-1.5 bg-purple-50 dark:bg-purple-900/30 rounded-lg">
-                <FaBell className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+              <div className="p-1.5 bg-teal-100 dark:bg-[#0d9488]/20 rounded-lg">
+                <FaBell className="w-5 h-5 text-teal-600 dark:text-[#0d9488]" />
               </div>
               <div>
-                <h1 className="text-lg font-semibold text-gray-800 dark:text-white">Notification Settings</h1>
-                <p className="text-xs text-gray-400 dark:text-gray-500">Manage your notification preferences</p>
+                <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Notification Settings</h1>
+                <p className="text-xs text-gray-500 dark:text-gray-500">Manage your notification preferences</p>
               </div>
             </div>
           </div>
 
           {error && (
-            <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg flex items-center space-x-2">
+            <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700/40 rounded-lg flex items-center space-x-2">
               <FaExclamationTriangle className="w-4 h-4 text-red-500 dark:text-red-400" />
-              <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+              <p className="text-sm text-red-600 dark:text-red-300">{error}</p>
             </div>
           )}
 
           {success && (
-            <div className="mb-4 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg flex items-center space-x-2">
+            <div className="mb-4 p-3 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700/40 rounded-lg flex items-center space-x-2">
               <FaCheckCircle className="w-4 h-4 text-green-500 dark:text-green-400" />
-              <p className="text-sm text-green-600 dark:text-green-400">{success}</p>
+              <p className="text-sm text-green-600 dark:text-green-300">{success}</p>
             </div>
           )}
 
           <div className="grid grid-cols-1 gap-6">
+            {/* Theme Toggle */}
+            <ThemeToggleCard />
+
             {/* Email Notifications */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden transition-colors duration-300">
-              <div className="px-5 py-3 bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-700">
+            <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden transition-colors duration-300">
+              <div className="px-5 py-3 bg-gray-50 dark:bg-[#0f0f12] border-b border-gray-200/60 dark:border-gray-800/40">
                 <div className="flex items-center space-x-2">
-                  <FaEnvelope className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                  <h2 className="text-sm font-semibold text-gray-800 dark:text-white">Email Notifications</h2>
+                  <FaEnvelope className="w-4 h-4 text-teal-600 dark:text-[#0d9488]" />
+                  <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Email Notifications</h2>
                 </div>
               </div>
               <div className="p-5 space-y-4">
                 {Object.keys(emailPrefs).length === 0 ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">No email preferences configured.</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-500">No email preferences configured.</p>
                 ) : (
                   Object.entries(emailPrefs).map(([key, value]) => (
                     <div key={key} className="flex items-center justify-between">
@@ -327,7 +397,7 @@ const DesktopNotificationSettings = ({ state }) => {
                         <p className="text-sm font-medium text-gray-700 dark:text-gray-300 capitalize">
                           {key.replace(/([A-Z])/g, ' $1').trim()}
                         </p>
-                        <p className="text-xs text-gray-400 dark:text-gray-500">
+                        <p className="text-xs text-gray-500 dark:text-gray-500">
                           Receive email when {key.replace(/([A-Z])/g, ' $1').toLowerCase()} occurs
                         </p>
                       </div>
@@ -343,15 +413,15 @@ const DesktopNotificationSettings = ({ state }) => {
             </div>
 
             {/* Push Notifications */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden transition-colors duration-300">
-              <div className="px-5 py-3 bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-700">
+            <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden transition-colors duration-300">
+              <div className="px-5 py-3 bg-gray-50 dark:bg-[#0f0f12] border-b border-gray-200/60 dark:border-gray-800/40">
                 <div className="flex items-center space-x-2">
                   {isNative ? (
-                    <FaMobileAlt className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                    <FaMobileAlt className="w-4 h-4 text-teal-600 dark:text-[#0d9488]" />
                   ) : (
-                    <FaBell className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                    <FaBell className="w-4 h-4 text-teal-600 dark:text-[#0d9488]" />
                   )}
-                  <h2 className="text-sm font-semibold text-gray-800 dark:text-white">
+                  <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
                     {isNative ? 'Mobile Push Notifications' : 'Web Push Notifications'}
                   </h2>
                 </div>
@@ -359,7 +429,7 @@ const DesktopNotificationSettings = ({ state }) => {
               <div className="p-5 space-y-4">
                 {isNative ? (
                   <div className="flex items-center gap-3">
-                    <FaCheckCircle className="text-green-500" />
+                    <FaCheckCircle className="text-green-500 dark:text-green-400" />
                     <p className="text-sm text-gray-700 dark:text-gray-300">
                       Push notifications are automatically enabled on this device.
                     </p>
@@ -369,7 +439,7 @@ const DesktopNotificationSettings = ({ state }) => {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Enable push notifications</p>
-                        <p className="text-xs text-gray-400 dark:text-gray-500">
+                        <p className="text-xs text-gray-500 dark:text-gray-500">
                           {permission === 'denied'
                             ? 'Notifications are blocked in browser settings.'
                             : 'Receive push notifications in this browser'}
@@ -377,12 +447,12 @@ const DesktopNotificationSettings = ({ state }) => {
                       </div>
                       <div className="flex items-center gap-3">
                         {permission === 'denied' ? (
-                          <span className="text-xs text-red-500 flex items-center gap-1">
+                          <span className="text-xs text-red-500 dark:text-red-400 flex items-center gap-1">
                             <FaTimesCircle /> Blocked
                           </span>
                         ) : (
                           <>
-                            {actionLoading && <FaSpinner className="animate-spin text-teal-600" />}
+                            {actionLoading && <FaSpinner className="animate-spin text-teal-600 dark:text-[#0d9488]" />}
                             <ToggleSwitch
                               enabled={pushEnabled}
                               onChange={() => handlePushMasterToggle(pushEnabled)}
@@ -395,9 +465,9 @@ const DesktopNotificationSettings = ({ state }) => {
                     </div>
 
                     {/* Diagnostic info */}
-                    <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3 text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                    <div className="bg-gray-50 dark:bg-[#0b0b10] rounded-lg p-3 text-xs text-gray-600 dark:text-gray-400 space-y-1 border border-gray-200 dark:border-gray-800/40">
                       <div className="flex items-center gap-2">
-                        <FaInfoCircle className="text-teal-500" />
+                        <FaInfoCircle className="text-teal-600 dark:text-[#0d9488]" />
                         <span>Service Worker: {swReady ? '✅ Ready' : '⏳ Loading...'}</span>
                       </div>
                       {subscription && (
@@ -411,7 +481,7 @@ const DesktopNotificationSettings = ({ state }) => {
                       <button
                         onClick={handleReRegister}
                         disabled={actionLoading || !isSupported || permission === 'denied'}
-                        className="mt-2 flex items-center gap-1 text-teal-600 hover:text-teal-700 transition disabled:opacity-50"
+                        className="mt-2 flex items-center gap-1 text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] transition disabled:opacity-50"
                       >
                         <FaSync className={actionLoading ? 'animate-spin' : ''} />
                         Re‑register Push
@@ -422,7 +492,7 @@ const DesktopNotificationSettings = ({ state }) => {
 
                 {/* Push sub-preferences */}
                 {pushEnabled && Object.keys(pushPrefs).length > 1 && (
-                  <div className="space-y-3 pt-2 border-t border-gray-100 dark:border-gray-700">
+                  <div className="space-y-3 pt-2 border-t border-gray-200 dark:border-gray-800/40">
                     {Object.entries(pushPrefs).map(([key, value]) => {
                       if (key === 'enabled') return null;
                       return (
@@ -431,7 +501,7 @@ const DesktopNotificationSettings = ({ state }) => {
                             <p className="text-sm font-medium text-gray-700 dark:text-gray-300 capitalize">
                               {key.replace(/([A-Z])/g, ' $1').trim()}
                             </p>
-                            <p className="text-xs text-gray-400 dark:text-gray-500">
+                            <p className="text-xs text-gray-500 dark:text-gray-500">
                               Push when {key.replace(/([A-Z])/g, ' $1').toLowerCase()} occurs
                             </p>
                           </div>
@@ -447,8 +517,8 @@ const DesktopNotificationSettings = ({ state }) => {
                 )}
 
                 {isNative && fcmToken && (
-                  <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3">
-                    <p className="text-xs text-gray-500 dark:text-gray-400 break-all">
+                  <div className="bg-gray-50 dark:bg-[#0b0b10] rounded-lg p-3 border border-gray-200 dark:border-gray-800/40">
+                    <p className="text-xs text-gray-600 dark:text-gray-400 break-all">
                       <span className="font-medium">FCM Token:</span> {fcmToken}
                     </p>
                   </div>
@@ -457,11 +527,11 @@ const DesktopNotificationSettings = ({ state }) => {
             </div>
 
             {/* Test Notifications */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden transition-colors duration-300">
-              <div className="px-5 py-3 bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-700">
+            <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden transition-colors duration-300">
+              <div className="px-5 py-3 bg-gray-50 dark:bg-[#0f0f12] border-b border-gray-200/60 dark:border-gray-800/40">
                 <div className="flex items-center space-x-2">
-                  <FaBell className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                  <h2 className="text-sm font-semibold text-gray-800 dark:text-white">Test Notifications</h2>
+                  <FaBell className="w-4 h-4 text-teal-600 dark:text-[#0d9488]" />
+                  <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Test Notifications</h2>
                 </div>
               </div>
               <div className="p-5">
@@ -469,13 +539,13 @@ const DesktopNotificationSettings = ({ state }) => {
                   <button
                     onClick={handleTestPush}
                     disabled={!pushAvailable}
-                    className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-full text-sm font-medium hover:bg-teal-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex items-center gap-2 px-4 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-full text-sm font-medium hover:bg-teal-700 dark:hover:opacity-80 transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <FaMobileAlt /> Send Test Push
                   </button>
                   <button
                     onClick={handleTestEmail}
-                    className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-full text-sm font-medium hover:bg-teal-700 transition"
+                    className="flex items-center gap-2 px-4 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-full text-sm font-medium hover:bg-teal-700 dark:hover:opacity-80 transition"
                   >
                     <FaEnvelope /> Send Test Email
                   </button>
@@ -522,40 +592,43 @@ const MobileNotificationSettings = ({ state }) => {
   } = state;
 
   return (
-    <div className="md:hidden bg-gray-50 dark:bg-gray-900 min-h-screen pb-20 transition-colors duration-300">
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700 px-4 py-3 sticky top-0 z-10">
+    <div className="md:hidden bg-gray-50 dark:bg-[#0b0b10] min-h-screen pb-20 transition-colors duration-300">
+      <div className="bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 px-4 py-3 sticky top-0 z-10">
         <div className="flex items-center space-x-2">
-          <FaBell className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-          <h1 className="text-base font-semibold text-gray-800 dark:text-white">Notification Settings</h1>
+          <FaBell className="w-5 h-5 text-teal-600 dark:text-[#0d9488]" />
+          <h1 className="text-base font-semibold text-gray-800 dark:text-gray-200">Notification Settings</h1>
         </div>
       </div>
 
       <div className="px-4 py-4 space-y-4">
         {error && (
-          <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg flex items-center space-x-2">
+          <div className="p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700/40 rounded-lg flex items-center space-x-2">
             <FaExclamationTriangle className="w-4 h-4 text-red-500 dark:text-red-400" />
-            <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
+            <p className="text-xs text-red-600 dark:text-red-300">{error}</p>
           </div>
         )}
 
         {success && (
-          <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg flex items-center space-x-2">
+          <div className="p-3 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700/40 rounded-lg flex items-center space-x-2">
             <FaCheckCircle className="w-4 h-4 text-green-500 dark:text-green-400" />
-            <p className="text-xs text-green-600 dark:text-green-400">{success}</p>
+            <p className="text-xs text-green-600 dark:text-green-300">{success}</p>
           </div>
         )}
 
+        {/* Theme Toggle */}
+        <ThemeToggleCard />
+
         {/* Email Notifications */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden transition-colors duration-300">
-          <div className="px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-700">
+        <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden transition-colors duration-300">
+          <div className="px-4 py-3 bg-gray-50 dark:bg-[#0f0f12] border-b border-gray-200/60 dark:border-gray-800/40">
             <div className="flex items-center space-x-2">
-              <FaEnvelope className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-              <h2 className="text-sm font-semibold text-gray-800 dark:text-white">Email Notifications</h2>
+              <FaEnvelope className="w-4 h-4 text-teal-600 dark:text-[#0d9488]" />
+              <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Email Notifications</h2>
             </div>
           </div>
-          <div className="divide-y divide-gray-50 dark:divide-gray-700/50">
+          <div className="divide-y divide-gray-100 dark:divide-gray-800/30">
             {Object.keys(emailPrefs).length === 0 ? (
-              <p className="p-4 text-sm text-gray-500 dark:text-gray-400">No email preferences configured.</p>
+              <p className="p-4 text-sm text-gray-500 dark:text-gray-500">No email preferences configured.</p>
             ) : (
               Object.entries(emailPrefs).map(([key, value]) => (
                 <div key={key} className="p-4 flex items-center justify-between">
@@ -563,7 +636,7 @@ const MobileNotificationSettings = ({ state }) => {
                     <p className="text-sm font-medium text-gray-700 dark:text-gray-300 capitalize">
                       {key.replace(/([A-Z])/g, ' $1').trim()}
                     </p>
-                    <p className="text-xs text-gray-400 dark:text-gray-500">
+                    <p className="text-xs text-gray-500 dark:text-gray-500">
                       Receive email when {key.replace(/([A-Z])/g, ' $1').toLowerCase()} occurs
                     </p>
                   </div>
@@ -579,23 +652,23 @@ const MobileNotificationSettings = ({ state }) => {
         </div>
 
         {/* Push Notifications */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden transition-colors duration-300">
-          <div className="px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-700">
+        <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden transition-colors duration-300">
+          <div className="px-4 py-3 bg-gray-50 dark:bg-[#0f0f12] border-b border-gray-200/60 dark:border-gray-800/40">
             <div className="flex items-center space-x-2">
               {isNative ? (
-                <FaMobileAlt className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                <FaMobileAlt className="w-4 h-4 text-teal-600 dark:text-[#0d9488]" />
               ) : (
-                <FaBell className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                <FaBell className="w-4 h-4 text-teal-600 dark:text-[#0d9488]" />
               )}
-              <h2 className="text-sm font-semibold text-gray-800 dark:text-white">
+              <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
                 {isNative ? 'Mobile Push' : 'Web Push'}
               </h2>
             </div>
           </div>
-          <div className="divide-y divide-gray-50 dark:divide-gray-700/50">
+          <div className="divide-y divide-gray-100 dark:divide-gray-800/30">
             {isNative ? (
               <div className="p-4 flex items-center gap-3">
-                <FaCheckCircle className="text-green-500" />
+                <FaCheckCircle className="text-green-500 dark:text-green-400" />
                 <p className="text-sm text-gray-700 dark:text-gray-300">
                   Push notifications are automatically enabled on this device.
                 </p>
@@ -605,7 +678,7 @@ const MobileNotificationSettings = ({ state }) => {
                 <div className="p-4 flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Enable push</p>
-                    <p className="text-xs text-gray-400 dark:text-gray-500">
+                    <p className="text-xs text-gray-500 dark:text-gray-500">
                       {permission === 'denied'
                         ? 'Notifications are blocked in browser settings.'
                         : 'Receive push notifications in this browser'}
@@ -613,12 +686,12 @@ const MobileNotificationSettings = ({ state }) => {
                   </div>
                   <div className="flex items-center gap-3">
                     {permission === 'denied' ? (
-                      <span className="text-xs text-red-500 flex items-center gap-1">
+                      <span className="text-xs text-red-500 dark:text-red-400 flex items-center gap-1">
                         <FaTimesCircle /> Blocked
                       </span>
                     ) : (
                       <>
-                        {actionLoading && <FaSpinner className="animate-spin text-teal-600" />}
+                        {actionLoading && <FaSpinner className="animate-spin text-teal-600 dark:text-[#0d9488]" />}
                         <ToggleSwitch
                           enabled={pushEnabled}
                           onChange={() => handlePushMasterToggle(pushEnabled)}
@@ -631,9 +704,9 @@ const MobileNotificationSettings = ({ state }) => {
                 </div>
 
                 {/* Diagnostic info */}
-                <div className="p-4 bg-gray-50 dark:bg-gray-900/50 space-y-1">
+                <div className="p-4 bg-gray-50 dark:bg-[#0b0b10] space-y-1 border-t border-gray-200 dark:border-gray-800/30">
                   <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-                    <FaInfoCircle className="text-teal-500" />
+                    <FaInfoCircle className="text-teal-600 dark:text-[#0d9488]" />
                     <span>Service Worker: {swReady ? '✅ Ready' : '⏳ Loading...'}</span>
                   </div>
                   {subscription && (
@@ -647,7 +720,7 @@ const MobileNotificationSettings = ({ state }) => {
                   <button
                     onClick={handleReRegister}
                     disabled={actionLoading || !isSupported || permission === 'denied'}
-                    className="mt-1 flex items-center gap-1 text-xs text-teal-600 hover:text-teal-700 transition disabled:opacity-50"
+                    className="mt-1 flex items-center gap-1 text-xs text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] transition disabled:opacity-50"
                   >
                     <FaSync className={actionLoading ? 'animate-spin' : ''} />
                     Re‑register Push
@@ -658,7 +731,7 @@ const MobileNotificationSettings = ({ state }) => {
 
             {/* Push sub-preferences */}
             {pushEnabled && Object.keys(pushPrefs).length > 1 && (
-              <div className="divide-y divide-gray-50 dark:divide-gray-700/50">
+              <div className="divide-y divide-gray-100 dark:divide-gray-800/30">
                 {Object.entries(pushPrefs).map(([key, value]) => {
                   if (key === 'enabled') return null;
                   return (
@@ -667,7 +740,7 @@ const MobileNotificationSettings = ({ state }) => {
                         <p className="text-sm font-medium text-gray-700 dark:text-gray-300 capitalize">
                           {key.replace(/([A-Z])/g, ' $1').trim()}
                         </p>
-                        <p className="text-xs text-gray-400 dark:text-gray-500">
+                        <p className="text-xs text-gray-500 dark:text-gray-500">
                           Push when {key.replace(/([A-Z])/g, ' $1').toLowerCase()} occurs
                         </p>
                       </div>
@@ -683,8 +756,8 @@ const MobileNotificationSettings = ({ state }) => {
             )}
 
             {isNative && fcmToken && (
-              <div className="p-4 bg-gray-50 dark:bg-gray-900/50">
-                <p className="text-xs text-gray-500 dark:text-gray-400 break-all">
+              <div className="p-4 bg-gray-50 dark:bg-[#0b0b10] border-t border-gray-200 dark:border-gray-800/30">
+                <p className="text-xs text-gray-600 dark:text-gray-400 break-all">
                   <span className="font-medium">FCM Token:</span> {fcmToken}
                 </p>
               </div>
@@ -693,11 +766,11 @@ const MobileNotificationSettings = ({ state }) => {
         </div>
 
         {/* Test Notifications */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden transition-colors duration-300">
-          <div className="px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-700">
+        <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden transition-colors duration-300">
+          <div className="px-4 py-3 bg-gray-50 dark:bg-[#0f0f12] border-b border-gray-200/60 dark:border-gray-800/40">
             <div className="flex items-center space-x-2">
-              <FaBell className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-              <h2 className="text-sm font-semibold text-gray-800 dark:text-white">Test Notifications</h2>
+              <FaBell className="w-4 h-4 text-teal-600 dark:text-[#0d9488]" />
+              <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Test Notifications</h2>
             </div>
           </div>
           <div className="p-4">
@@ -705,13 +778,13 @@ const MobileNotificationSettings = ({ state }) => {
               <button
                 onClick={handleTestPush}
                 disabled={!pushAvailable}
-                className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-full text-sm font-medium hover:bg-teal-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 px-4 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-full text-sm font-medium hover:bg-teal-700 dark:hover:opacity-80 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <FaMobileAlt /> Send Test Push
               </button>
               <button
                 onClick={handleTestEmail}
-                className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-full text-sm font-medium hover:bg-teal-700 transition"
+                className="flex items-center gap-2 px-4 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-full text-sm font-medium hover:bg-teal-700 dark:hover:opacity-80 transition"
               >
                 <FaEnvelope /> Send Test Email
               </button>
@@ -734,12 +807,15 @@ const Settings = () => {
   const state = useNotificationSettings();
   const navigate = useNavigate();
 
+  // Make ToastContainer respect the current theme
+  const { isDarkMode } = useTheme();
+
   if (state.isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
+      <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-[#0b0b10] transition-colors duration-300">
         <div className="text-center">
-          <FaSpinner className="w-10 h-10 text-purple-600 dark:text-purple-400 animate-spin mx-auto mb-3" />
-          <p className="text-sm text-gray-400 dark:text-gray-500">Loading settings...</p>
+          <FaSpinner className="w-10 h-10 text-teal-600 dark:text-[#0d9488] animate-spin mx-auto mb-3" />
+          <p className="text-sm text-gray-500 dark:text-gray-400">Loading settings...</p>
         </div>
       </div>
     );
@@ -747,13 +823,13 @@ const Settings = () => {
 
   if (state.isError) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
+      <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-[#0b0b10] transition-colors duration-300">
         <div className="text-center">
           <FaExclamationTriangle className="w-10 h-10 text-red-500 mx-auto mb-3" />
           <p className="text-sm text-gray-600 dark:text-gray-400">Could not load preferences. Pull down to retry.</p>
           <button
             onClick={() => state.refetch()}
-            className="mt-3 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 transition"
+            className="mt-3 px-4 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-lg text-sm hover:bg-teal-700 dark:hover:opacity-80 transition"
           >
             Retry
           </button>
@@ -764,16 +840,21 @@ const Settings = () => {
 
   return (
     <>
-      {/* Header with back button */}
-      <header className="sticky top-0 z-10 bg-teal-600 text-white shadow-sm px-4 h-14 flex items-center gap-3 md:hidden">
-        <button onClick={() => navigate(-1)} className="p-1">
+      {/* Header with back button (mobile) */}
+      <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 px-4 h-14 flex items-center gap-3 md:hidden">
+        <button onClick={() => navigate(-1)} className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition">
           <FaArrowLeft />
         </button>
-        <h1 className="text-lg font-semibold">Settings</h1>
+        <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Settings</h1>
       </header>
       <DesktopNotificationSettings state={state} />
       <MobileNotificationSettings state={state} />
-      <ToastContainer position="bottom-center" autoClose={4000} hideProgressBar={false} />
+      <ToastContainer
+        position="bottom-center"
+        autoClose={4000}
+        hideProgressBar={false}
+        theme={isDarkMode ? 'dark' : 'light'}
+      />
     </>
   );
 };

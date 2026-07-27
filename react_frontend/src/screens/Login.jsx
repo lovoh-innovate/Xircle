@@ -59,7 +59,6 @@ const Login = () => {
       navigate(from, { replace: true });
     } catch (err) {
       const errorMsg = err?.data?.message || 'Login failed. Please try again.';
-      // If the error indicates unverified email, switch to OTP verification
       if (errorMsg.toLowerCase().includes('verify your email')) {
         setPendingEmail(email);
         setShowOTPVerification(true);
@@ -135,15 +134,15 @@ const Login = () => {
   const renderOTPForm = () => (
     <div className="w-full max-w-md">
       <div className="mb-8">
-        <h2 className="text-2xl font-bold text-gray-800">Verify Your Email</h2>
-        <p className="text-gray-500 mt-1">
-          We sent a 6-digit OTP to <strong>{pendingEmail}</strong>
+        <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">Verify Your Email</h2>
+        <p className="text-gray-600 dark:text-gray-400 mt-1">
+          We sent a 6-digit OTP to <strong className="text-gray-800 dark:text-gray-200">{pendingEmail}</strong>
         </p>
       </div>
 
       <form onSubmit={handleVerifyOTP} className="space-y-5">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
             OTP Code
           </label>
           <div className="relative">
@@ -151,13 +150,13 @@ const Login = () => {
               type="text"
               value={otp}
               onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-              className="block w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors duration-200"
+              className="block w-full px-4 py-2.5 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 dark:focus:ring-[#0d9488] text-sm text-gray-900 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 transition-colors duration-200"
               placeholder="Enter 6-digit OTP"
               maxLength={6}
               required
             />
           </div>
-          <p className="mt-2 text-sm text-gray-500">
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
             The OTP expires in 10 minutes. Check your spam folder if you don't see it.
           </p>
         </div>
@@ -166,7 +165,7 @@ const Login = () => {
           <button
             type="button"
             onClick={handleBackToLogin}
-            className="text-sm text-teal-600 hover:text-teal-700 font-medium flex items-center gap-1"
+            className="text-sm text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 font-medium flex items-center gap-1 transition-colors"
           >
             <FaArrowLeft size={12} /> Back to login
           </button>
@@ -174,7 +173,7 @@ const Login = () => {
             type="button"
             onClick={handleResendOTP}
             disabled={isResendLoading}
-            className="text-sm text-teal-600 hover:text-teal-700 font-medium"
+            className="text-sm text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 font-medium transition-colors disabled:opacity-50"
           >
             {isResendLoading ? 'Sending...' : 'Resend OTP'}
           </button>
@@ -183,7 +182,7 @@ const Login = () => {
         <button
           type="submit"
           disabled={isLoading || isVerifyLoading}
-          className="w-full flex items-center justify-center px-4 py-3 bg-gradient-to-r from-teal-600 to-teal-500 text-white font-semibold rounded-lg hover:from-teal-700 hover:to-teal-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition-all duration-200 transform hover:scale-[1.02] disabled:opacity-70 disabled:cursor-not-allowed"
+          className="w-full flex items-center justify-center px-4 py-3 bg-teal-600 dark:bg-teal-500 text-white font-semibold rounded-xl hover:bg-teal-700 dark:hover:bg-teal-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition-all duration-200 disabled:opacity-70 disabled:cursor-not-allowed"
         >
           {isLoading || isVerifyLoading ? (
             <div className="flex items-center gap-2">
@@ -197,12 +196,12 @@ const Login = () => {
       </form>
 
       <div className="mt-6 text-center">
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-gray-500 dark:text-gray-400">
           Didn't receive the email?{' '}
           <button
             onClick={handleResendOTP}
             disabled={isResendLoading}
-            className="text-teal-600 hover:text-teal-700 font-medium"
+            className="text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 font-medium transition-colors disabled:opacity-50"
           >
             {isResendLoading ? 'Sending...' : 'Resend OTP'}
           </button>
@@ -213,7 +212,7 @@ const Login = () => {
 
   // ── Main render ──
   return (
-    <div className="min-h-screen flex bg-gradient-to-br from-teal-50 to-white">
+    <div className="min-h-screen flex bg-gray-50 dark:bg-[#0b0b10]">
       {/* Left Side - Brand Image (Hidden on Mobile) */}
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden">
         <div
@@ -224,8 +223,9 @@ const Login = () => {
             backgroundPosition: 'center',
           }}
         >
-          <div className="absolute inset-0 bg-gradient-to-br from-teal-700/90 to-teal-500/80"></div>
-          <div className="absolute inset-0 opacity-10">
+          {/* Overlay – adapts to theme */}
+          <div className="absolute inset-0 bg-gradient-to-br from-teal-700/90 dark:from-[#0b0b10]/95 to-teal-500/80 dark:to-[#0d9488]/60"></div>
+          <div className="absolute inset-0 opacity-20">
             <div className="absolute top-20 left-10 w-64 h-64 bg-white rounded-full blur-3xl"></div>
             <div className="absolute bottom-20 right-10 w-80 h-80 bg-teal-300 rounded-full blur-3xl"></div>
           </div>
@@ -235,7 +235,7 @@ const Login = () => {
               <img src="/xircle-logo.png" alt="Xircle" className="h-12 w-auto" />
             </div>
             <div className="max-w-lg mx-auto w-full">
-              <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-8 shadow-2xl shadow-black/10">
+              <div className="bg-white/10 dark:bg-white/5 backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-2xl p-8 shadow-2xl shadow-black/10">
                 <h2 className="text-4xl font-bold mb-4 leading-tight">
                   {showOTPVerification ? 'Verify Your Email' : 'Welcome Back to Your Creative Hub'}
                 </h2>
@@ -291,29 +291,31 @@ const Login = () => {
             </div>
 
             <div className="mb-8">
-              <h2 className="text-2xl font-bold text-gray-800">Welcome Back</h2>
-              <p className="text-gray-500 mt-1">Sign in to continue to your workspace</p>
+              <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">Welcome Back</h2>
+              <p className="text-gray-600 dark:text-gray-400 mt-1">Sign in to continue to your workspace</p>
             </div>
 
             <div className="mb-6">
-              <GoogleLogin
-                onSuccess={handleGoogleSuccess}
-                onError={handleGoogleError}
-                theme="outline"
-                size="large"
-                width="100%"
-                text="signin_with"
-                shape="rectangular"
-                logo_alignment="center"
-              />
+              <div className="flex justify-center">
+                <GoogleLogin
+                  onSuccess={handleGoogleSuccess}
+                  onError={handleGoogleError}
+                  theme="filled_black"
+                  size="large"
+                  width="100%"
+                  text="signin_with"
+                  shape="rectangular"
+                  logo_alignment="center"
+                />
+              </div>
             </div>
 
             <div className="relative mb-6">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300"></div>
+                <div className="w-full border-t border-gray-300 dark:border-gray-700/60"></div>
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-4 bg-gradient-to-br from-teal-50 to-white text-gray-500">
+                <span className="px-4 bg-white dark:bg-[#0b0b10] text-gray-500 dark:text-gray-500">
                   or sign in with email
                 </span>
               </div>
@@ -321,19 +323,19 @@ const Login = () => {
 
             <form onSubmit={handleSubmit} className="space-y-5">
               <div>
-                <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1.5">
+                <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   Email Address
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <FaEnvelope className="h-5 w-5 text-gray-400" />
+                    <FaEnvelope className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                   </div>
                   <input
                     id="email"
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors duration-200"
+                    className="block w-full pl-10 pr-3 py-2.5 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 dark:focus:ring-[#0d9488] text-sm text-gray-900 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 transition-colors duration-200"
                     placeholder="you@example.com"
                     required
                   />
@@ -342,26 +344,26 @@ const Login = () => {
 
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                  <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Password
                   </label>
                   <Link
                     to="/forgot-password"
-                    className="text-sm text-teal-600 hover:text-teal-700 font-medium transition-colors duration-200"
+                    className="text-sm text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 font-medium transition-colors duration-200"
                   >
                     Forgot Password?
                   </Link>
                 </div>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <FaLock className="h-5 w-5 text-gray-400" />
+                    <FaLock className="h-5 w-5 text-gray-400 dark:text-gray-500" />
                   </div>
                   <input
                     id="password"
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="block w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-colors duration-200"
+                    className="block w-full pl-10 pr-10 py-2.5 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 dark:focus:ring-[#0d9488] text-sm text-gray-900 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 transition-colors duration-200"
                     placeholder="Enter your password"
                     required
                   />
@@ -371,9 +373,9 @@ const Login = () => {
                     className="absolute inset-y-0 right-0 pr-3 flex items-center"
                   >
                     {showPassword ? (
-                      <FaEyeSlash className="h-5 w-5 text-gray-400 hover:text-gray-600 transition-colors" />
+                      <FaEyeSlash className="h-5 w-5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors" />
                     ) : (
-                      <FaEye className="h-5 w-5 text-gray-400 hover:text-gray-600 transition-colors" />
+                      <FaEye className="h-5 w-5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors" />
                     )}
                   </button>
                 </div>
@@ -382,7 +384,7 @@ const Login = () => {
               <button
                 type="submit"
                 disabled={isLoading || isLoginLoading}
-                className="w-full flex items-center justify-center px-4 py-3 bg-gradient-to-r from-teal-600 to-teal-500 text-white font-semibold rounded-lg hover:from-teal-700 hover:to-teal-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition-all duration-200 transform hover:scale-[1.02] disabled:opacity-70 disabled:cursor-not-allowed"
+                className="w-full flex items-center justify-center px-4 py-3 bg-teal-600 dark:bg-teal-500 text-white font-semibold rounded-xl hover:bg-teal-700 dark:hover:bg-teal-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition-all duration-200 disabled:opacity-70 disabled:cursor-not-allowed"
               >
                 {isLoading || isLoginLoading ? (
                   <div className="flex items-center gap-2">
@@ -395,24 +397,24 @@ const Login = () => {
               </button>
             </form>
 
-            <p className="mt-6 text-center text-sm text-gray-600">
+            <p className="mt-6 text-center text-sm text-gray-600 dark:text-gray-400">
               Don't have an account?{' '}
               <Link
                 to="/signup"
-                className="font-medium text-teal-600 hover:text-teal-700 transition-colors duration-200"
+                className="font-medium text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 transition-colors duration-200"
               >
                 Create one now
               </Link>
             </p>
 
             <div className="mt-8 lg:hidden text-center">
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-gray-500 dark:text-gray-500">
                 A product of{' '}
                 <a
                   href="https://lovohcreate.com"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-teal-600 hover:underline font-medium"
+                  className="text-teal-600 dark:text-teal-400 hover:underline font-medium"
                 >
                   LovohCreate
                 </a>

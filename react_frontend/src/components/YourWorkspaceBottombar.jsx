@@ -63,8 +63,8 @@ const YourWorkspaceBottombar = ({ workspace }) => {
 
   return (
     <>
-      {/* Bottom Bar (mobile only) – dark glass */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-[#0f0f12]/90 backdrop-blur-xl border-t border-gray-800/60 md:hidden shadow-lg">
+      {/* Bottom Bar (mobile only) – glass effect with light/dark */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/90 dark:bg-[#0f0f12]/90 backdrop-blur-xl border-t border-gray-200/60 dark:border-gray-800/60 md:hidden shadow-lg">
         <div className="flex items-center justify-around h-16 px-2 max-w-lg mx-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -80,13 +80,15 @@ const YourWorkspaceBottombar = ({ workspace }) => {
                   className={`text-xl transition-all duration-200 ${
                     active
                       ? 'scale-110'
-                      : 'text-gray-500 group-hover:text-gray-300 group-hover:scale-105'
+                      : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300 group-hover:scale-105'
                   }`}
                   style={active ? { color: brandColor } : {}}
                 />
                 <span
                   className={`text-[10px] font-medium transition-colors duration-200 ${
-                    active ? 'text-gray-200' : 'text-gray-500'
+                    active
+                      ? 'text-gray-800 dark:text-gray-200'
+                      : 'text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300'
                   }`}
                 >
                   {item.label}
@@ -106,8 +108,8 @@ const YourWorkspaceBottombar = ({ workspace }) => {
             onClick={() => setMenuOpen(true)}
             className="relative flex flex-col items-center justify-center gap-0.5 px-3 py-1 rounded-full transition-all group"
           >
-            <FiMenu className="text-xl text-gray-500 group-hover:text-gray-300 group-hover:scale-105 transition" strokeWidth={1.8} />
-            <span className="text-[10px] font-medium text-gray-500 group-hover:text-gray-300 transition">Menu</span>
+            <FiMenu className="text-xl text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300 group-hover:scale-105 transition" strokeWidth={1.8} />
+            <span className="text-[10px] font-medium text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300 transition">Menu</span>
           </button>
         </div>
       </div>
@@ -115,23 +117,23 @@ const YourWorkspaceBottombar = ({ workspace }) => {
       {/* Slide‑out overlay (mobile only) */}
       {menuOpen && (
         <div
-          className="fixed inset-0 z-50 bg-[#0b0b10]/70 backdrop-blur-sm md:hidden"
+          className="fixed inset-0 z-50 bg-black/40 dark:bg-[#0b0b10]/70 backdrop-blur-sm md:hidden"
           onClick={() => setMenuOpen(false)}
         />
       )}
 
-      {/* Slide‑out panel – dark */}
+      {/* Slide‑out panel – light/dark */}
       <div
-        className={`fixed top-0 left-0 z-50 h-full w-[280px] bg-[#14141a] border-r border-gray-800/60 shadow-2xl transition-transform duration-300 ease-out md:hidden ${
+        className={`fixed top-0 left-0 z-50 h-full w-[280px] bg-white dark:bg-[#14141a] border-r border-gray-200/60 dark:border-gray-800/60 shadow-2xl transition-transform duration-300 ease-out md:hidden ${
           menuOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
         style={{ borderRadius: '0 24px 24px 0' }}
       >
         {/* Header */}
-        <div className="px-5 py-5 flex items-center justify-between border-b border-gray-800/60">
+        <div className="px-5 py-5 flex items-center justify-between border-b border-gray-200/60 dark:border-gray-800/60">
           <div className="flex items-center gap-3">
             {workspace?.logo ? (
-              <img src={workspace.logo} alt={workspace.name} className="w-9 h-9 rounded-xl object-cover border border-gray-700/60" />
+              <img src={workspace.logo} alt={workspace.name} className="w-9 h-9 rounded-xl object-cover border border-gray-200 dark:border-gray-700/60" />
             ) : (
               <div
                 className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-sm"
@@ -141,11 +143,11 @@ const YourWorkspaceBottombar = ({ workspace }) => {
               </div>
             )}
             <div>
-              <p className="text-sm font-semibold text-gray-200">{workspace?.name || 'Workspace'}</p>
-              <p className="text-xs text-gray-500">Member</p>
+              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{workspace?.name || 'Workspace'}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-500">Member</p>
             </div>
           </div>
-          <button onClick={() => setMenuOpen(false)} className="p-1.5 hover:bg-gray-800/60 rounded-full text-gray-400 hover:text-white transition">
+          <button onClick={() => setMenuOpen(false)} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-full text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition">
             <FiX className="text-lg" strokeWidth={2} />
           </button>
         </div>
@@ -159,12 +161,12 @@ const YourWorkspaceBottombar = ({ workspace }) => {
                 <button
                   key={item.id}
                   onClick={() => { setMenuOpen(false); item.action(); }}
-                  className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-800/30 transition w-full"
+                  className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800/30 transition w-full"
                 >
                   <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${brandColor}20` }}>
                     <Icon className="text-sm" style={{ color: brandColor }} strokeWidth={2} />
                   </div>
-                  <span className="text-sm font-medium text-gray-300 hover:text-white transition">{item.label}</span>
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition">{item.label}</span>
                 </button>
               );
             }
@@ -173,20 +175,20 @@ const YourWorkspaceBottombar = ({ workspace }) => {
                 key={item.id}
                 to={item.path}
                 onClick={() => setMenuOpen(false)}
-                className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-800/30 transition"
+                className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
               >
                 <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${brandColor}20` }}>
                   <Icon className="text-sm" style={{ color: brandColor }} strokeWidth={2} />
                 </div>
-                <span className="text-sm font-medium text-gray-300 hover:text-white transition">{item.label}</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition">{item.label}</span>
               </Link>
             );
           })}
         </div>
 
         {/* Footer */}
-        <div className="absolute bottom-0 left-0 right-0 px-6 py-4 border-t border-gray-800/60 bg-[#14141a]/80 backdrop-blur-sm">
-          <p className="text-xs text-gray-500 text-center">
+        <div className="absolute bottom-0 left-0 right-0 px-6 py-4 border-t border-gray-200/60 dark:border-gray-800/60 bg-white/80 dark:bg-[#14141a]/80 backdrop-blur-sm">
+          <p className="text-xs text-gray-500 dark:text-gray-500 text-center">
             Xircle · {workspace?.name}
           </p>
         </div>

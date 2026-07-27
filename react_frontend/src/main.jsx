@@ -16,6 +16,9 @@ import 'react-toastify/dist/ReactToastify.css';
 import './index.css';
 import store from './store';
 
+// ── Import ThemeProvider and useTheme ──────────────────────────────
+import { ThemeProvider, useTheme } from './contexts/ThemeContext.jsx';
+
 import { SocketProvider, useSocket } from './components/SocketContext.jsx';
 import IncomingCallModal from './components/IncomingCallModal.jsx';
 
@@ -149,6 +152,7 @@ const buildCallDataFromPush = (data) => ({
 const RootLayout = () => {
   const navigate = useNavigate();
   const { setIncomingCallFromPush } = useSocket();
+  const { isDarkMode } = useTheme(); // 👈 get current theme for toast
 
   // ── Listen for Capacitor push events (foreground + tap) ───────────
   useEffect(() => {
@@ -209,12 +213,17 @@ const RootLayout = () => {
   }, [navigate, setIncomingCallFromPush]);
 
   return (
-    <>
+    <div className="bg-gray-50 dark:bg-[#0b0b10] min-h-screen w-full transition-colors duration-300">
       <GlobalNavigator />
       <Outlet />
       <IncomingCallModal />
-      <ToastContainer position="bottom-center" autoClose={4000} hideProgressBar={false} />
-    </>
+      <ToastContainer
+        position="bottom-center"
+        autoClose={4000}
+        hideProgressBar={false}
+        theme={isDarkMode ? 'dark' : 'light'}
+      />
+    </div>
   );
 };
 
@@ -275,9 +284,12 @@ const AppRoot = () => {
 createRoot(document.getElementById('root')).render(
   <Provider store={store}>
     <StrictMode>
-      <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID}>
-        <AppRoot />
-      </GoogleOAuthProvider>
+      {/* ✅ ThemeProvider wraps the entire app */}
+      <ThemeProvider>
+        <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID}>
+          <AppRoot />
+        </GoogleOAuthProvider>
+      </ThemeProvider>
     </StrictMode>
   </Provider>
 );
