@@ -1,6 +1,7 @@
 // routes/taskRoutes.js
 import express from 'express';
 import {
+  // Existing
   createTask,
   getProjectTasks,
   getMyTasks,
@@ -12,7 +13,7 @@ import {
   updateSubTask,
   markSubTaskDone,
   confirmSubTask,
-  rejectSubTask, // 👈 new import
+  rejectSubTask,
   deleteSubTask,
   markTaskCompleted,
   confirmTaskCompletion,
@@ -20,14 +21,34 @@ import {
   getTaskFeedback,
   sendTaskReminders,
   sendManualReminder,
+  // New
+  copyTask,
+  moveTask,
+  archiveTask,
+  restoreTask,
+  permanentlyDeleteTask,
+  createFolder,
+  updateFolder,
+  deleteFolder,
+  getProjectFolders,
+  getAllUrgentTasks,
 } from '../controllers/taskController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import upload from '../middleware/uploadMiddleware.js';
 
 const router = express.Router();
 
-// ── Personal view (must stay above /:taskId) ──
+// ── All urgent tasks (must be above /:taskId) ──
+router.get('/all-urgent', protect, getAllUrgentTasks);
+
+// ── Personal tasks (already above /:taskId) ──
 router.get('/my-tasks', protect, getMyTasks);
+
+// ── Folder management (project‑scoped) ──
+router.get('/project/:projectId/folders', protect, getProjectFolders);
+router.post('/folders', protect, createFolder);               // expects { projectId, name }
+router.put('/folders/:folderId', protect, updateFolder);
+router.delete('/folders/:folderId', protect, deleteFolder);
 
 // ── Task CRUD ──
 router.post(
@@ -44,51 +65,42 @@ router.put(
   upload.fields([{ name: 'attachments', maxCount: 10 }]),
   updateTask
 );
-router.delete('/:taskId', protect, deleteTask);
+
+// ── Copy / Move tasks ──
+router.post('/:taskId/copy', protect, copyTask);          // body: { targetFolderId }
+router.patch('/:taskId/move', protect, moveTask);         // body: { targetFolderId }
+
+// ── Archive / Trash / Permanent delete ──
+router.patch('/:taskId/archive', protect, archiveTask);    // personal archive
+router.patch('/:taskId/restore', protect, restoreTask);    // restore from trash/archive
+router.delete('/:taskId', protect, deleteTask);             // soft‑delete (trash)
+router.delete('/:taskId/permanent', protect, permanentlyDeleteTask); // hard delete
 
 // ── Assign / Unassign task (PM/Owner only) ──
 router.patch('/:taskId/assign', protect, assignTask);
 
-// ─── SUB‑TASK ENDPOINTS (must come after the task CRUD above) ───
+// ── Sub‑task endpoints ──
 router.post(
   '/:taskId/subtasks',
   protect,
   upload.fields([{ name: 'attachments', maxCount: 10 }]),
   addSubTask
 );
-
 router.put(
   '/:taskId/subtasks/:subTaskIndex',
   protect,
   upload.fields([{ name: 'attachments', maxCount: 10 }]),
   updateSubTask
 );
-
 router.patch(
   '/:taskId/subtasks/:subTaskIndex/done',
   protect,
   upload.fields([{ name: 'attachments', maxCount: 10 }]),
   markSubTaskDone
 );
-
-router.patch(
-  '/:taskId/subtasks/:subTaskIndex/confirm',
-  protect,
-  confirmSubTask
-);
-
-// 👇 Reject sub‑task (PM/Owner only)
-router.patch(
-  '/:taskId/subtasks/:subTaskIndex/reject',
-  protect,
-  rejectSubTask
-);
-
-router.delete(
-  '/:taskId/subtasks/:subTaskIndex',
-  protect,
-  deleteSubTask
-);
+router.patch('/:taskId/subtasks/:subTaskIndex/confirm', protect, confirmSubTask);
+router.patch('/:taskId/subtasks/:subTaskIndex/reject', protect, rejectSubTask);
+router.delete('/:taskId/subtasks/:subTaskIndex', protect, deleteSubTask);
 
 // ── Main task completion flow ──
 router.patch('/:taskId/complete', protect, markTaskCompleted);

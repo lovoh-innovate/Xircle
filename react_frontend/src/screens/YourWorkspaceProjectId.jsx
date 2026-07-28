@@ -8,6 +8,11 @@ import {
   useManageProjectManagersMutation,
   useAddTeamMemberMutation,
   useRemoveTeamMemberMutation,
+  useArchiveProjectMutation,
+  useUnarchiveProjectMutation,
+  useDeleteProjectMutation,
+  useRestoreProjectMutation,
+  usePermanentlyDeleteProjectMutation,
 } from '../slices/projectApiSlice';
 import {
   useGetProjectTasksQuery,
@@ -65,6 +70,10 @@ import {
   FaChartPie,
   FaClipboardList,
   FaStream,
+  FaExclamationTriangle,
+  FaArchive,
+  FaUndo,
+  FaTrashRestore,
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
@@ -170,7 +179,124 @@ const TaskPriorityBadge = ({ priority }) => {
   return <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2.5 py-0.5 rounded-full border ${p.color}`}>{p.label}</span>;
 };
 
-// ─── Task Card (grid style) ──────────────────────────────────────────
+// ─── Custom Confirm Modal ──────────────────────────────────────────────
+const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = 'Confirm', cancelText = 'Cancel', danger = false }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
+        <div className="flex items-center gap-3 mb-4">
+          {danger && <FaExclamationTriangle className="text-red-500 text-xl" />}
+          <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">{title}</h3>
+        </div>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{message}</p>
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+            {cancelText}
+          </button>
+          <button
+            onClick={() => { onConfirm(); onClose(); }}
+            className={`flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80 ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-teal-600 dark:bg-[#0d9488] hover:bg-teal-700 dark:hover:bg-[#0f9e96]'}`}
+          >
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Delete Task Confirm Modal (with type verification) ────────────────
+const DeleteTaskConfirmModal = ({ isOpen, onClose, onConfirm, taskName }) => {
+  const [inputValue, setInputValue] = useState('');
+  const expectedPhrase = `I want to delete ${taskName}`;
+
+  const handleConfirm = () => {
+    if (inputValue === expectedPhrase) {
+      onConfirm();
+      onClose();
+      setInputValue('');
+    } else {
+      toast.error('Please type the exact phrase to confirm deletion.');
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
+        <div className="flex items-center gap-3 mb-4">
+          <FaExclamationTriangle className="text-red-500 text-xl" />
+          <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Delete Task</h3>
+        </div>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+          This action cannot be undone. Type the following to confirm:
+        </p>
+        <div className="bg-gray-100 dark:bg-[#0b0b10] p-3 rounded-xl border border-gray-300 dark:border-gray-700/60 mb-4">
+          <code className="text-sm text-gray-800 dark:text-gray-200 font-mono">{expectedPhrase}</code>
+        </div>
+        <input
+          type="text"
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          placeholder="Type the phrase above"
+          className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none mb-4"
+        />
+        <div className="flex gap-3">
+          <button onClick={() => { onClose(); setInputValue(''); }} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+            Cancel
+          </button>
+          <button
+            onClick={handleConfirm}
+            className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-medium transition"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Reject Reason Modal ────────────────────────────────────────────────
+const RejectReasonModal = ({ isOpen, onClose, onConfirm }) => {
+  const [reason, setReason] = useState('');
+
+  const handleConfirm = () => {
+    onConfirm(reason);
+    setReason('');
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">Reject Sub‑task</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Reason for rejection (optional):</p>
+        <input
+          type="text"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Enter reason..."
+          className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none mb-4"
+        />
+        <div className="flex gap-3">
+          <button onClick={() => { onClose(); setReason(''); }} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+            Cancel
+          </button>
+          <button onClick={handleConfirm} className="flex-1 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl text-sm font-medium transition hover:opacity-80">
+            Confirm Rejection
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Task Card ──────────────────────────────────────────────────────────
 const TaskCard = ({ task, onClick, brandColor, isActive }) => {
   const progress = task.progress || 0;
   const subTaskCount = task.subTasks?.length || 0;
@@ -239,7 +365,7 @@ const TaskCard = ({ task, onClick, brandColor, isActive }) => {
   );
 };
 
-// ─── Search Modal (dark/light) ─────────────────────────────────────────
+// ─── Search Modal ──────────────────────────────────────────────────────
 const SearchModal = ({ isOpen, onClose, items, type, brandColor, onSelect }) => {
   const [query, setQuery] = useState('');
   if (!isOpen) return null;
@@ -331,7 +457,7 @@ const SearchModal = ({ isOpen, onClose, items, type, brandColor, onSelect }) => 
   );
 };
 
-// ─── Sub‑task Item (mobile‑friendly, with link wrapping) ────────────
+// ─── Sub‑task Item ──────────────────────────────────────────────────────
 const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh, brandColor }) => {
   const [markDone] = useMarkSubTaskDoneMutation();
   const [confirmSub] = useConfirmSubTaskMutation();
@@ -348,6 +474,10 @@ const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh,
   const [confirmFeedback, setConfirmFeedback] = useState('');
 
   const [isExpanded, setIsExpanded] = useState(false);
+
+  // ── Reject modal state ──
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
 
   const hasDetails = subTask.notes ||
     (subTask.links && subTask.links.length > 0) ||
@@ -404,9 +534,12 @@ const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh,
     setConfirmFeedback('');
   };
 
-  const handleReject = async () => {
-    const reason = window.prompt('Reason for rejection (optional):');
-    if (reason === null) return;
+  // ── Reject handler with modal ──
+  const handleRejectClick = () => {
+    setShowRejectModal(true);
+  };
+
+  const handleRejectConfirm = async (reason) => {
     setUpdating(true);
     try {
       await rejectSub({ taskId, subTaskIndex: index, reason }).unwrap();
@@ -435,193 +568,198 @@ const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh,
   const st = statusMap[subTask.status] || statusMap.pending;
 
   return (
-    <div className="flex flex-col py-2 border-b border-gray-100 dark:border-gray-800/20 last:border-0">
-      {/* Main row: title + status + toggle button */}
-      <div className="flex items-start gap-2 flex-wrap">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium text-gray-800 dark:text-gray-300">{subTask.title}</span>
-            <span className={`text-[10px] font-medium ${st.color}`}>{st.label}</span>
-            {subTask.dueDate && new Date(subTask.dueDate) < new Date() && subTask.status !== 'confirmed' && (
-              <span className="text-[10px] text-red-500 dark:text-red-400 flex items-center gap-1"><FaClock className="text-[8px]" /> Overdue</span>
+    <>
+      <div className="flex flex-col py-2 border-b border-gray-100 dark:border-gray-800/20 last:border-0">
+        <div className="flex items-start gap-2 flex-wrap">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-medium text-gray-800 dark:text-gray-300">{subTask.title}</span>
+              <span className={`text-[10px] font-medium ${st.color}`}>{st.label}</span>
+              {subTask.dueDate && new Date(subTask.dueDate) < new Date() && subTask.status !== 'confirmed' && (
+                <span className="text-[10px] text-red-500 dark:text-red-400 flex items-center gap-1"><FaClock className="text-[8px]" /> Overdue</span>
+              )}
+            </div>
+            {subTask.description && <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{subTask.description}</p>}
+            {subTask.dueDate && <p className="text-[10px] text-gray-500 dark:text-gray-500 flex items-center gap-1"><FaRegClock className="text-xs" /> {formatDateTime(subTask.dueDate)}</p>}
+          </div>
+          {hasDetails && (
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="p-1 text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition flex-shrink-0"
+            >
+              <FaAngleDown className={`text-xs transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1 mt-1 sm:mt-0 sm:ml-auto sm:flex-nowrap">
+          {isAssignee && subTask.status === 'pending' && (
+            <button onClick={handleMarkDone} disabled={updating} className="p-1 text-blue-500 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg transition">
+              <FaCheck className="text-xs" />
+            </button>
+          )}
+          {canManage && subTask.status === 'done' && (
+            <>
+              <button onClick={handleConfirmClick} disabled={updating} className="p-1 text-green-500 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-500/10 rounded-lg transition">
+                <FaCheckDouble className="text-xs" />
+              </button>
+              <button onClick={handleRejectClick} disabled={updating} className="p-1 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition">
+                <FaTimes className="text-xs" />
+              </button>
+            </>
+          )}
+          {(isAssignee && subTask.status !== 'confirmed') || canManage ? (
+            <button onClick={handleDelete} disabled={updating} className="p-1 text-red-400 dark:text-red-400/60 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition">
+              <FaTrashAlt className="text-xs" />
+            </button>
+          ) : null}
+        </div>
+
+        {isExpanded && (
+          <div className="mt-1 text-xs text-gray-600 dark:text-gray-400 space-y-1 bg-gray-50 dark:bg-[#1a1a24] p-3 rounded-xl border border-gray-200 dark:border-gray-800/40 w-full overflow-hidden">
+            {subTask.notes && <div><span className="font-medium text-gray-700 dark:text-gray-300">Notes:</span> {subTask.notes}</div>}
+            {subTask.links && subTask.links.length > 0 && (
+              <div>
+                <span className="font-medium text-gray-700 dark:text-gray-300">Links:</span>
+                <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                  {subTask.links.map((l, i) => (
+                    <React.Fragment key={i}>
+                      <a
+                        href={l}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-teal-600 dark:text-[#0d9488] underline hover:text-teal-700 dark:hover:text-[#14b8a6] break-all"
+                      >
+                        {l}
+                      </a>
+                      {i < subTask.links.length - 1 && <span className="text-gray-400 dark:text-gray-500">,</span>}
+                    </React.Fragment>
+                  ))}
+                </div>
+              </div>
             )}
+            {subTask.attachments && subTask.attachments.length > 0 && (
+              <div>
+                <span className="font-medium text-gray-700 dark:text-gray-300">Attachments:</span>
+                <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                  {subTask.attachments.map((att, i) => (
+                    <React.Fragment key={i}>
+                      <a href={att.url} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] underline hover:text-teal-700 dark:hover:text-[#14b8a6] break-all">
+                        {att.name || 'file'}
+                      </a>
+                      {i < subTask.attachments.length - 1 && <span className="text-gray-400 dark:text-gray-500">,</span>}
+                    </React.Fragment>
+                  ))}
+                </div>
+              </div>
+            )}
+            {subTask.feedback && <div><span className="font-medium text-gray-700 dark:text-gray-300">Confirm feedback:</span> {subTask.feedback}</div>}
+            {subTask.rejectedBy && (
+              <div><span className="font-medium text-gray-700 dark:text-gray-300">Rejected by:</span> {subTask.rejectedBy.name || 'Unknown'} on {formatDateTime(subTask.rejectedAt)}</div>
+            )}
+            {subTask.rejectionReason && <div><span className="font-medium text-gray-700 dark:text-gray-300">Rejection reason:</span> {subTask.rejectionReason}</div>}
+            {subTask.completedAt && <div><span className="font-medium text-gray-700 dark:text-gray-300">Submitted on:</span> {formatDateTime(subTask.completedAt)}</div>}
+            {subTask.confirmedAt && <div><span className="font-medium text-gray-700 dark:text-gray-300">Confirmed on:</span> {formatDateTime(subTask.confirmedAt)}</div>}
           </div>
-          {subTask.description && <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{subTask.description}</p>}
-          {subTask.dueDate && <p className="text-[10px] text-gray-500 dark:text-gray-500 flex items-center gap-1"><FaRegClock className="text-xs" /> {formatDateTime(subTask.dueDate)}</p>}
-        </div>
-        {/* Toggle details button (only if there are details) */}
-        {hasDetails && (
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="p-1 text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition flex-shrink-0"
-          >
-            <FaAngleDown className={`text-xs transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-          </button>
         )}
-      </div>
 
-      {/* Action buttons – stacked below on mobile, inline on larger screens */}
-      <div className="flex flex-wrap items-center gap-1 mt-1 sm:mt-0 sm:ml-auto sm:flex-nowrap">
-        {isAssignee && subTask.status === 'pending' && (
-          <button onClick={handleMarkDone} disabled={updating} className="p-1 text-blue-500 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg transition">
-            <FaCheck className="text-xs" />
-          </button>
-        )}
-        {canManage && subTask.status === 'done' && (
-          <>
-            <button onClick={handleConfirmClick} disabled={updating} className="p-1 text-green-500 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-500/10 rounded-lg transition">
-              <FaCheckDouble className="text-xs" />
-            </button>
-            <button onClick={handleReject} disabled={updating} className="p-1 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition">
-              <FaTimes className="text-xs" />
-            </button>
-          </>
-        )}
-        {(isAssignee && subTask.status !== 'confirmed') || canManage ? (
-          <button onClick={handleDelete} disabled={updating} className="p-1 text-red-400 dark:text-red-400/60 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition">
-            <FaTrashAlt className="text-xs" />
-          </button>
-        ) : null}
-      </div>
-
-      {/* Expandable details – now with proper link wrapping */}
-      {isExpanded && (
-        <div className="mt-1 text-xs text-gray-600 dark:text-gray-400 space-y-1 bg-gray-50 dark:bg-[#1a1a24] p-3 rounded-xl border border-gray-200 dark:border-gray-800/40 w-full overflow-hidden">
-          {subTask.notes && <div><span className="font-medium text-gray-700 dark:text-gray-300">Notes:</span> {subTask.notes}</div>}
-          {subTask.links && subTask.links.length > 0 && (
-            <div>
-              <span className="font-medium text-gray-700 dark:text-gray-300">Links:</span>
-              <div className="flex flex-wrap items-center gap-1 mt-0.5">
-                {subTask.links.map((l, i) => (
-                  <React.Fragment key={i}>
-                    <a
-                      href={l}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-teal-600 dark:text-[#0d9488] underline hover:text-teal-700 dark:hover:text-[#14b8a6] break-all"
-                    >
-                      {l}
-                    </a>
-                    {i < subTask.links.length - 1 && <span className="text-gray-400 dark:text-gray-500">,</span>}
-                  </React.Fragment>
-                ))}
-              </div>
-            </div>
-          )}
-          {subTask.attachments && subTask.attachments.length > 0 && (
-            <div>
-              <span className="font-medium text-gray-700 dark:text-gray-300">Attachments:</span>
-              <div className="flex flex-wrap items-center gap-1 mt-0.5">
-                {subTask.attachments.map((att, i) => (
-                  <React.Fragment key={i}>
-                    <a href={att.url} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] underline hover:text-teal-700 dark:hover:text-[#14b8a6] break-all">
-                      {att.name || 'file'}
-                    </a>
-                    {i < subTask.attachments.length - 1 && <span className="text-gray-400 dark:text-gray-500">,</span>}
-                  </React.Fragment>
-                ))}
-              </div>
-            </div>
-          )}
-          {subTask.feedback && <div><span className="font-medium text-gray-700 dark:text-gray-300">Confirm feedback:</span> {subTask.feedback}</div>}
-          {subTask.rejectedBy && (
-            <div><span className="font-medium text-gray-700 dark:text-gray-300">Rejected by:</span> {subTask.rejectedBy.name || 'Unknown'} on {formatDateTime(subTask.rejectedAt)}</div>
-          )}
-          {subTask.rejectionReason && <div><span className="font-medium text-gray-700 dark:text-gray-300">Rejection reason:</span> {subTask.rejectionReason}</div>}
-          {subTask.completedAt && <div><span className="font-medium text-gray-700 dark:text-gray-300">Submitted on:</span> {formatDateTime(subTask.completedAt)}</div>}
-          {subTask.confirmedAt && <div><span className="font-medium text-gray-700 dark:text-gray-300">Confirmed on:</span> {formatDateTime(subTask.confirmedAt)}</div>}
-        </div>
-      )}
-
-      {showDoneForm && (
-        <div className="mt-2 bg-white dark:bg-[#1a1a24] border border-gray-200 dark:border-gray-800/60 rounded-xl p-3 w-full">
-          <textarea
-            placeholder="Add notes (optional)"
-            value={doneNotes}
-            onChange={(e) => setDoneNotes(e.target.value)}
-            rows={2}
-            className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none mb-2"
-          />
-          <textarea
-            placeholder="Links (one per line)"
-            value={doneLinks}
-            onChange={(e) => setDoneLinks(e.target.value)}
-            rows={2}
-            className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none mb-2"
-          />
-          <div className="flex items-center gap-2 mb-2">
-            <input
-              type="file"
-              multiple
-              ref={fileInputRef}
-              onChange={(e) => setDoneFiles([...e.target.files])}
-              className="text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-teal-50 dark:file:bg-[#0d9488]/20 file:text-teal-600 dark:file:text-[#0d9488]"
+        {showDoneForm && (
+          <div className="mt-2 bg-white dark:bg-[#1a1a24] border border-gray-200 dark:border-gray-800/60 rounded-xl p-3 w-full">
+            <textarea
+              placeholder="Add notes (optional)"
+              value={doneNotes}
+              onChange={(e) => setDoneNotes(e.target.value)}
+              rows={2}
+              className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none mb-2"
             />
-            {doneFiles.length > 0 && <span className="text-xs text-gray-500 dark:text-gray-500">{doneFiles.length} file(s)</span>}
+            <textarea
+              placeholder="Links (one per line)"
+              value={doneLinks}
+              onChange={(e) => setDoneLinks(e.target.value)}
+              rows={2}
+              className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none mb-2"
+            />
+            <div className="flex items-center gap-2 mb-2">
+              <input
+                type="file"
+                multiple
+                ref={fileInputRef}
+                onChange={(e) => setDoneFiles([...e.target.files])}
+                className="text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-teal-50 dark:file:bg-[#0d9488]/20 file:text-teal-600 dark:file:text-[#0d9488]"
+              />
+              {doneFiles.length > 0 && <span className="text-xs text-gray-500 dark:text-gray-500">{doneFiles.length} file(s)</span>}
+            </div>
+            <div className="flex gap-2">
+              <button onClick={submitDone} disabled={updating} className="px-3 py-1.5 bg-teal-600 dark:bg-[#0d9488] text-white text-xs rounded-lg hover:bg-teal-700 dark:hover:bg-[#0f9e96] transition">
+                {updating ? 'Saving...' : 'Submit Done'}
+              </button>
+              <button onClick={cancelDone} className="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition">
+                Cancel
+              </button>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <button onClick={submitDone} disabled={updating} className="px-3 py-1.5 bg-teal-600 dark:bg-[#0d9488] text-white text-xs rounded-lg hover:bg-teal-700 dark:hover:bg-[#0f9e96] transition">
-              {updating ? 'Saving...' : 'Submit Done'}
-            </button>
-            <button onClick={cancelDone} className="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition">
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
+        )}
 
-      {showConfirmForm && (
-        <div className="mt-2 bg-white dark:bg-[#1a1a24] border border-gray-200 dark:border-gray-800/60 rounded-xl p-3 w-full">
-          <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Assignee submitted:</p>
-          {subTask.notes && <div className="text-xs text-gray-600 dark:text-gray-400 mb-1"><span className="font-medium text-gray-700 dark:text-gray-300">Notes:</span> {subTask.notes}</div>}
-          {subTask.links && subTask.links.length > 0 && (
-            <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">
-              <span className="font-medium text-gray-700 dark:text-gray-300">Links:</span>
-              <div className="flex flex-wrap items-center gap-1 mt-0.5">
-                {subTask.links.map((l, i) => (
-                  <React.Fragment key={i}>
-                    <a href={l} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] underline break-all">{l}</a>
-                    {i < subTask.links.length - 1 && <span className="text-gray-400 dark:text-gray-500">,</span>}
-                  </React.Fragment>
-                ))}
+        {showConfirmForm && (
+          <div className="mt-2 bg-white dark:bg-[#1a1a24] border border-gray-200 dark:border-gray-800/60 rounded-xl p-3 w-full">
+            <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Assignee submitted:</p>
+            {subTask.notes && <div className="text-xs text-gray-600 dark:text-gray-400 mb-1"><span className="font-medium text-gray-700 dark:text-gray-300">Notes:</span> {subTask.notes}</div>}
+            {subTask.links && subTask.links.length > 0 && (
+              <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">
+                <span className="font-medium text-gray-700 dark:text-gray-300">Links:</span>
+                <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                  {subTask.links.map((l, i) => (
+                    <React.Fragment key={i}>
+                      <a href={l} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] underline break-all">{l}</a>
+                      {i < subTask.links.length - 1 && <span className="text-gray-400 dark:text-gray-500">,</span>}
+                    </React.Fragment>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-          {subTask.attachments && subTask.attachments.length > 0 && (
-            <div className="text-xs text-gray-600 dark:text-gray-400 mb-2">
-              <span className="font-medium text-gray-700 dark:text-gray-300">Attachments:</span>
-              <div className="flex flex-wrap items-center gap-1 mt-0.5">
-                {subTask.attachments.map((att, i) => (
-                  <React.Fragment key={i}>
-                    <a href={att.url} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] underline break-all">{att.name || 'file'}</a>
-                    {i < subTask.attachments.length - 1 && <span className="text-gray-400 dark:text-gray-500">,</span>}
-                  </React.Fragment>
-                ))}
+            )}
+            {subTask.attachments && subTask.attachments.length > 0 && (
+              <div className="text-xs text-gray-600 dark:text-gray-400 mb-2">
+                <span className="font-medium text-gray-700 dark:text-gray-300">Attachments:</span>
+                <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                  {subTask.attachments.map((att, i) => (
+                    <React.Fragment key={i}>
+                      <a href={att.url} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] underline break-all">{att.name || 'file'}</a>
+                      {i < subTask.attachments.length - 1 && <span className="text-gray-400 dark:text-gray-500">,</span>}
+                    </React.Fragment>
+                  ))}
+                </div>
               </div>
+            )}
+            <textarea
+              placeholder="Add feedback (optional)"
+              value={confirmFeedback}
+              onChange={(e) => setConfirmFeedback(e.target.value)}
+              rows={2}
+              className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none mb-2"
+            />
+            <div className="flex gap-2">
+              <button onClick={submitConfirm} disabled={updating} className="px-3 py-1.5 bg-green-600 dark:bg-green-700 text-white text-xs rounded-lg hover:bg-green-700 dark:hover:bg-green-800 transition">
+                {updating ? 'Confirming...' : 'Confirm'}
+              </button>
+              <button onClick={cancelConfirm} className="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition">
+                Cancel
+              </button>
             </div>
-          )}
-          <textarea
-            placeholder="Add feedback (optional)"
-            value={confirmFeedback}
-            onChange={(e) => setConfirmFeedback(e.target.value)}
-            rows={2}
-            className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none mb-2"
-          />
-          <div className="flex gap-2">
-            <button onClick={submitConfirm} disabled={updating} className="px-3 py-1.5 bg-green-600 dark:bg-green-700 text-white text-xs rounded-lg hover:bg-green-700 dark:hover:bg-green-800 transition">
-              {updating ? 'Confirming...' : 'Confirm'}
-            </button>
-            <button onClick={cancelConfirm} className="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition">
-              Cancel
-            </button>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+
+      {/* Reject Reason Modal */}
+      <RejectReasonModal
+        isOpen={showRejectModal}
+        onClose={() => setShowRejectModal(false)}
+        onConfirm={(reason) => handleRejectConfirm(reason)}
+      />
+    </>
   );
 };
 
-// ─── Assign Task Modal (dark/light) ────────────────────────────────────
+// ─── Assign Task Modal ──────────────────────────────────────────────────
 const AssignTaskModal = ({ isOpen, onClose, task, assignableMembers, brandColor, onAssign }) => {
   const [assigneeId, setAssigneeId] = useState('');
   const [loading, setLoading] = useState(false);
@@ -764,7 +902,7 @@ const TaskDetailView = ({
               <FaEdit className="text-xs" /> Edit
             </button>
             {canManage && (
-              <button onClick={() => { setShowMenu(false); onDelete(task._id); }} className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 w-full transition">
+              <button onClick={() => { setShowMenu(false); onDelete(task); }} className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 w-full transition">
                 <FaTrashAlt className="text-xs" /> Delete
               </button>
             )}
@@ -888,11 +1026,10 @@ const TaskDetailView = ({
   );
 };
 
-// ─── Create Task Modal (dark/light) ─────────────────────────────────────
+// ─── Create Task Modal ──────────────────────────────────────────────────
 const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMembers, onSuccess }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [detailedDescription, setDetailedDescription] = useState('');
   const [assigneeId, setAssigneeId] = useState('');
   const [priority, setPriority] = useState('medium');
   const [startDate, setStartDate] = useState('');
@@ -904,6 +1041,43 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
   const [attachments, setAttachments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [createTask] = useCreateTaskMutation();
+
+  // ── Quick due date presets ──
+  const setQuickDueDate = (preset) => {
+    const now = new Date();
+    let target = new Date(now);
+    switch (preset) {
+      case 'in an hour':
+        target.setHours(now.getHours() + 1);
+        break;
+      case 'in 12 hours':
+        target.setHours(now.getHours() + 12);
+        break;
+      case 'today':
+        target.setHours(23, 59, 59);
+        break;
+      case 'in two days':
+        target.setDate(now.getDate() + 2);
+        break;
+      case 'in one week':
+        target.setDate(now.getDate() + 7);
+        break;
+      case 'in two weeks':
+        target.setDate(now.getDate() + 14);
+        break;
+      case 'in one month':
+        target.setMonth(now.getMonth() + 1);
+        break;
+      default:
+        return;
+    }
+    const year = target.getFullYear();
+    const month = String(target.getMonth() + 1).padStart(2, '0');
+    const day = String(target.getDate()).padStart(2, '0');
+    const hours = String(target.getHours()).padStart(2, '0');
+    const minutes = String(target.getMinutes()).padStart(2, '0');
+    setDueDate(`${year}-${month}-${day}T${hours}:${minutes}`);
+  };
 
   useEffect(() => {
     if (startDate && dueDate) {
@@ -941,7 +1115,6 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
       fd.append('projectId', projectId);
       fd.append('title', title.trim());
       fd.append('description', description.trim());
-      fd.append('detailedDescription', detailedDescription.trim());
       fd.append('assigneeId', assigneeId || '');
       fd.append('priority', priority);
       fd.append('estimatedHours', estimatedHours || '');
@@ -974,32 +1147,40 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
             <input type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none" required />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description <span className="text-gray-400 text-xs">(optional)</span></label>
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Detailed Description</label>
-            <textarea value={detailedDescription} onChange={e => setDetailedDescription(e.target.value)} rows={3} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none" />
           </div>
           <CustomDropdown label="Assignee" options={assigneeOpts} value={assigneeId} onChange={setAssigneeId} placeholder="Select assignee" brandColor={brandColor} />
           <div className="grid grid-cols-2 gap-3">
             <CustomDropdown label="Priority" options={priorityOptions} value={priority} onChange={setPriority} brandColor={brandColor} />
             <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Start Date & Time</label>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Start Date & Time <span className="text-gray-400 text-xs">(optional)</span></label>
               <input type="datetime-local" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none" />
             </div>
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Due Date & Time</label>
+            <div className="flex flex-wrap gap-2 mb-2">
+              {['in an hour', 'in 12 hours', 'today', 'in two days', 'in one week', 'in two weeks', 'in one month'].map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setQuickDueDate(preset)}
+                  className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 transition"
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
             <input type="datetime-local" value={dueDate} onChange={e => setDueDate(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Est. Hours</label>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Est. Hours <span className="text-gray-400 text-xs">(optional)</span></label>
               <input type="number" step="0.5" value={estimatedHours} onChange={e => setEstimatedHours(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none" readOnly={!!(startDate && dueDate)} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Buffer (min)</label>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Buffer (min) <span className="text-gray-400 text-xs">(optional)</span></label>
               <input type="number" min="0" value={bufferTime} onChange={e => setBufferTime(parseInt(e.target.value) || 0)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none" />
             </div>
           </div>
@@ -1008,11 +1189,11 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
             <label htmlFor="allowEdit" className="text-xs text-gray-600 dark:text-gray-400">Allow assignee to edit sub‑tasks</label>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaLink className="inline mr-1" /> Links (one per line)</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaLink className="inline mr-1" /> Links <span className="text-gray-400 text-xs">(optional, one per line)</span></label>
             <textarea value={linksText} onChange={e => setLinksText(e.target.value)} rows={3} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaPaperclip className="inline mr-1" /> Attachments</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaPaperclip className="inline mr-1" /> Attachments <span className="text-gray-400 text-xs">(optional)</span></label>
             <input type="file" multiple onChange={handleFile} className="w-full text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-teal-50 dark:file:bg-[#0d9488]/20 file:text-teal-600 dark:file:text-[#0d9488]" />
             {attachments.length > 0 && (
               <div className="mt-2 space-y-1">
@@ -1035,11 +1216,10 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
   );
 };
 
-// ─── Edit Task Modal (dark/light) ───────────────────────────────────────
+// ─── Edit Task Modal ────────────────────────────────────────────────────
 const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, onSuccess }) => {
   const [title, setTitle] = useState(task?.title || '');
   const [description, setDescription] = useState(task?.description || '');
-  const [detailedDescription, setDetailedDescription] = useState(task?.detailedDescription || '');
   const [assigneeId, setAssigneeId] = useState(task?.assignee?._id || '');
   const [priority, setPriority] = useState(task?.priority || 'medium');
   const [startDate, setStartDate] = useState(task?.startDate ? new Date(task.startDate).toISOString().slice(0, 16) : '');
@@ -1058,7 +1238,6 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, o
     if (task) {
       setTitle(task.title || '');
       setDescription(task.description || '');
-      setDetailedDescription(task.detailedDescription || '');
       setAssigneeId(task.assignee?._id || task.assignee || '');
       setPriority(task.priority || 'medium');
       setStartDate(task.startDate ? new Date(task.startDate).toISOString().slice(0, 16) : '');
@@ -1110,7 +1289,6 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, o
       const fd = new FormData();
       fd.append('title', title.trim());
       fd.append('description', description.trim());
-      fd.append('detailedDescription', detailedDescription.trim());
       fd.append('priority', priority);
       fd.append('status', status);
       fd.append('estimatedHours', estimatedHours || '');
@@ -1143,19 +1321,15 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, o
             <input type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none" required />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description <span className="text-gray-400 text-xs">(optional)</span></label>
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Detailed Description</label>
-            <textarea value={detailedDescription} onChange={e => setDetailedDescription(e.target.value)} rows={3} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none" />
           </div>
           <CustomDropdown label="Status" options={statusOptions} value={status} onChange={setStatus} brandColor={brandColor} />
           <CustomDropdown label="Assignee" options={assigneeOpts} value={assigneeId} onChange={setAssigneeId} brandColor={brandColor} />
           <div className="grid grid-cols-2 gap-3">
             <CustomDropdown label="Priority" options={priorityOptions} value={priority} onChange={setPriority} brandColor={brandColor} />
             <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Start Date & Time</label>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Start Date & Time <span className="text-gray-400 text-xs">(optional)</span></label>
               <input type="datetime-local" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none" />
             </div>
           </div>
@@ -1165,11 +1339,11 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, o
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Est. Hours</label>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Est. Hours <span className="text-gray-400 text-xs">(optional)</span></label>
               <input type="number" step="0.5" value={estimatedHours} onChange={e => setEstimatedHours(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none" readOnly={!!(startDate && dueDate)} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Buffer (min)</label>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Buffer (min) <span className="text-gray-400 text-xs">(optional)</span></label>
               <input type="number" min="0" value={bufferTime} onChange={e => setBufferTime(parseInt(e.target.value) || 0)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none" />
             </div>
           </div>
@@ -1178,11 +1352,11 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, o
             <label htmlFor="allowEditEdit" className="text-xs text-gray-600 dark:text-gray-400">Allow assignee to edit sub‑tasks</label>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaLink className="inline mr-1" /> Links</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaLink className="inline mr-1" /> Links <span className="text-gray-400 text-xs">(optional)</span></label>
             <textarea value={linksText} onChange={e => setLinksText(e.target.value)} rows={3} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaPaperclip className="inline mr-1" /> Attachments</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaPaperclip className="inline mr-1" /> Attachments <span className="text-gray-400 text-xs">(optional)</span></label>
             {existingAttachments.length > 0 && (
               <div className="mb-2 space-y-1">
                 <p className="text-xs text-gray-500 dark:text-gray-500">Existing:</p>
@@ -1217,7 +1391,7 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, o
   );
 };
 
-// ─── Add Member Modal (dark/light) ──────────────────────────────────────
+// ─── Add Member Modal ───────────────────────────────────────────────────
 const AddMemberModal = ({ isOpen, onClose, workspace, project, brandColor, onSuccess }) => {
   const [memberId, setMemberId] = useState('');
   const [loading, setLoading] = useState(false);
@@ -1272,7 +1446,7 @@ const YourWorkspaceProjectId = () => {
   const { userInfo } = useSelector((state) => state.auth);
 
   const [selectedTaskId, setSelectedTaskId] = useState(null);
-  const [activeTab, setActiveTab] = useState('tasks'); // 'tasks' | 'team'
+  const [activeTab, setActiveTab] = useState('tasks');
   const [mobileShowDetail, setMobileShowDetail] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
 
@@ -1285,6 +1459,28 @@ const YourWorkspaceProjectId = () => {
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assignTaskTarget, setAssignTaskTarget] = useState(null);
 
+  // ── Project-level archive/trash state ──
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+
+  // ── Confirmation modals state ──
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+    danger: false,
+  });
+  const [deleteTaskModal, setDeleteTaskModal] = useState({
+    isOpen: false,
+    taskName: '',
+    onConfirm: () => {},
+  });
+  const [addManagerConfirm, setAddManagerConfirm] = useState({
+    isOpen: false,
+    managerName: '',
+    managerId: '',
+  });
+
   const { data: wData, isLoading: wLoad, error: wErr } = useGetWorkspaceQuery(workspaceId);
   const { data: pData, isLoading: pLoad, error: pErr, refetch: refetchProject } = useGetProjectByIdQuery(projectId);
   const { data: tData, isLoading: tLoad, refetch: refetchTasks } = useGetProjectTasksQuery({ projectId });
@@ -1292,6 +1488,13 @@ const YourWorkspaceProjectId = () => {
     { taskId: selectedTaskId },
     { skip: !selectedTaskId }
   );
+
+  // ── Project archive/trash mutations ──
+  const [archiveProject] = useArchiveProjectMutation();
+  const [unarchiveProject] = useUnarchiveProjectMutation();
+  const [deleteProject] = useDeleteProjectMutation();
+  const [restoreProject] = useRestoreProjectMutation();
+  const [permanentlyDeleteProject] = usePermanentlyDeleteProjectMutation();
 
   const [deleteTask] = useDeleteTaskMutation();
   const [removeTeamMember] = useRemoveTeamMemberMutation();
@@ -1329,6 +1532,8 @@ const YourWorkspaceProjectId = () => {
   const activeTask = useMemo(() => tasks.find(t => t._id === selectedTaskId) || null, [tasks, selectedTaskId]);
   const projectManagers = project?.projectManagers || [];
   const projectProgress = project?.progress || 0;
+  const isArchivedForMe = project?.isArchivedForMe || false;
+  const isTrash = project?.isTrash || false;
 
   if (wErr || pErr) { navigate(`/workspace/${workspaceId}/projects`); return null; }
   if (wLoad || pLoad || tLoad) return (
@@ -1338,22 +1543,164 @@ const YourWorkspaceProjectId = () => {
   );
   if (!workspace || !project) return null;
 
-  const handleDeleteTask = async (id) => {
-    if (!confirm('Delete task?')) return;
-    try { await deleteTask(id).unwrap(); toast.success('Deleted'); refetchTasks(); refetchProject(); if (selectedTaskId === id) { setSelectedTaskId(null); setMobileShowDetail(false); } } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+  // ── Project-level handlers ──
+  const handleArchiveProject = async () => {
+    try {
+      await archiveProject(projectId).unwrap();
+      toast.success('Project archived for you.');
+      refetchProject();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to archive');
+    }
+    setProjectMenuOpen(false);
   };
+
+  const handleUnarchiveProject = async () => {
+    try {
+      await unarchiveProject(projectId).unwrap();
+      toast.success('Project unarchived.');
+      refetchProject();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to unarchive');
+    }
+    setProjectMenuOpen(false);
+  };
+
+  const handleMoveToTrash = () => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Move to Trash',
+      message: `Are you sure you want to move "${project.name}" to trash? This can be restored within 30 days.`,
+      onConfirm: async () => {
+        try {
+          await deleteProject(projectId).unwrap();
+          toast.success('Project moved to trash.');
+          navigate(`/workspace/${workspaceId}/projects`);
+        } catch (err) {
+          toast.error(err?.data?.message || 'Failed to move to trash');
+        }
+      },
+      danger: false,
+    });
+    setProjectMenuOpen(false);
+  };
+
+  const handleRestoreProject = () => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Restore Project',
+      message: `Are you sure you want to restore "${project.name}" from trash?`,
+      onConfirm: async () => {
+        try {
+          await restoreProject(projectId).unwrap();
+          toast.success('Project restored.');
+          refetchProject();
+        } catch (err) {
+          toast.error(err?.data?.message || 'Failed to restore');
+        }
+      },
+      danger: false,
+    });
+    setProjectMenuOpen(false);
+  };
+
+  const handlePermanentDeleteProject = () => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Permanently Delete',
+      message: `Are you sure you want to permanently delete "${project.name}"? This cannot be undone.`,
+      onConfirm: async () => {
+        try {
+          await permanentlyDeleteProject(projectId).unwrap();
+          toast.success('Project permanently deleted.');
+          navigate(`/workspace/${workspaceId}/projects`);
+        } catch (err) {
+          toast.error(err?.data?.message || 'Failed to delete');
+        }
+      },
+      danger: true,
+    });
+    setProjectMenuOpen(false);
+  };
+
+  // ── Task handlers ──
+  const handleDeleteTask = (task) => {
+    setDeleteTaskModal({
+      isOpen: true,
+      taskName: task.title,
+      onConfirm: async () => {
+        try {
+          await deleteTask(task._id).unwrap();
+          toast.success('Deleted');
+          refetchTasks();
+          refetchProject();
+          if (selectedTaskId === task._id) {
+            setSelectedTaskId(null);
+            setMobileShowDetail(false);
+          }
+        } catch (e) {
+          toast.error(e?.data?.message || 'Failed');
+        }
+      },
+    });
+  };
+
   const handleEditTask = (task) => { setSelectedTask(task); setShowEditTask(true); };
+  
   const handleRemoveMember = async (id) => {
     if (!id) { toast.error('Invalid member ID'); return; }
-    if (!confirm('Remove member?')) return;
-    try { await removeTeamMember({ projectId, memberId: id }).unwrap(); toast.success('Removed'); refetchProject(); } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Remove Member',
+      message: 'Are you sure you want to remove this member from the project?',
+      onConfirm: async () => {
+        try {
+          await removeTeamMember({ projectId, memberId: id }).unwrap();
+          toast.success('Removed');
+          refetchProject();
+        } catch (e) {
+          toast.error(e?.data?.message || 'Failed');
+        }
+      },
+      danger: true,
+    });
   };
-  const handleAddManager = async (id) => {
-    try { await manageProjectManagers({ projectId, action: 'add', managerId: id }).unwrap(); toast.success('Manager added'); refetchProject(); setShowAddManager(false); } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+
+  const handleAddManager = (id, name) => {
+    setAddManagerConfirm({
+      isOpen: true,
+      managerName: name,
+      managerId: id,
+    });
   };
+
+  const confirmAddManager = async () => {
+    try {
+      await manageProjectManagers({ projectId, action: 'add', managerId: addManagerConfirm.managerId }).unwrap();
+      toast.success('Manager added');
+      refetchProject();
+      setAddManagerConfirm({ isOpen: false, managerName: '', managerId: '' });
+    } catch (e) {
+      toast.error(e?.data?.message || 'Failed');
+    }
+  };
+
   const handleRemoveManager = async (id) => {
-    if (!confirm('Remove manager?')) return;
-    try { await manageProjectManagers({ projectId, action: 'remove', managerId: id }).unwrap(); toast.success('Manager removed'); refetchProject(); } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Remove Manager',
+      message: 'Are you sure you want to remove this manager?',
+      onConfirm: async () => {
+        try {
+          await manageProjectManagers({ projectId, action: 'remove', managerId: id }).unwrap();
+          toast.success('Manager removed');
+          refetchProject();
+        } catch (e) {
+          toast.error(e?.data?.message || 'Failed');
+        }
+      },
+      danger: true,
+    });
   };
 
   const handleTaskClick = (taskId) => { setSelectedTaskId(taskId); setMobileShowDetail(true); };
@@ -1386,12 +1733,21 @@ const YourWorkspaceProjectId = () => {
   };
 
   const handleConfirmCompletion = async (taskId) => {
-    if (!window.confirm('Confirm completion of this task?')) return;
-    try {
-      await confirmTaskCompletion({ taskId }).unwrap();
-      toast.success('Task completion confirmed');
-      refreshAll();
-    } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Confirm Completion',
+      message: 'Are you sure you want to confirm completion of this task?',
+      onConfirm: async () => {
+        try {
+          await confirmTaskCompletion({ taskId }).unwrap();
+          toast.success('Task completion confirmed');
+          refreshAll();
+        } catch (e) {
+          toast.error(e?.data?.message || 'Failed');
+        }
+      },
+      danger: false,
+    });
   };
 
   const handleAssignTask = async (assigneeId) => {
@@ -1434,7 +1790,19 @@ const YourWorkspaceProjectId = () => {
                   </div>
                 )}
                 <div>
-                  <h1 className="text-base font-semibold text-gray-800 dark:text-gray-200 truncate max-w-[150px] md:max-w-xs">{project.name}</h1>
+                  <h1 className="text-base font-semibold text-gray-800 dark:text-gray-200 truncate max-w-[150px] md:max-w-xs flex items-center gap-2">
+                    {project.name}
+                    {isArchivedForMe && (
+                      <span className="text-xs font-normal text-gray-400 dark:text-gray-400 bg-gray-100 dark:bg-gray-800/40 px-2 py-0.5 rounded-full border border-gray-300 dark:border-gray-700/40">
+                        Archived
+                      </span>
+                    )}
+                    {isTrash && (
+                      <span className="text-xs font-normal text-red-400 dark:text-red-400 bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full border border-red-300 dark:border-red-700/40">
+                        Trash
+                      </span>
+                    )}
+                  </h1>
                   <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                     <span>{activeTeam.length} members</span>
                     <span className="w-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-full" />
@@ -1445,9 +1813,72 @@ const YourWorkspaceProjectId = () => {
             </div>
             <div className="flex items-center gap-2">
               <button onClick={openSearchModal} className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"><FaSearch /></button>
-              {canManage && (
+              {canManage && !isTrash && !isArchivedForMe && (
                 <button onClick={() => activeTab === 'tasks' ? setShowCreateTask(true) : setShowAddMember(true)} className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"><FaPlus /></button>
               )}
+              {/* ─── Three-dot menu for project actions ─── */}
+              <div className="relative">
+                <button
+                  onClick={() => setProjectMenuOpen(!projectMenuOpen)}
+                  className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
+                >
+                  <FaEllipsisV className="text-sm" />
+                </button>
+                {projectMenuOpen && (
+                  <div className="absolute right-0 top-full mt-1 bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-800/60 rounded-xl min-w-[180px] z-20 py-1 shadow-lg">
+                    {/* Archive / Unarchive – for all members */}
+                    {!isTrash && (
+                      isArchivedForMe ? (
+                        <button
+                          onClick={handleUnarchiveProject}
+                          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 w-full transition"
+                        >
+                          <FaUndo className="text-xs text-teal-500 dark:text-[#0d9488]" /> Unarchive
+                        </button>
+                      ) : (
+                        <button
+                          onClick={handleArchiveProject}
+                          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 w-full transition"
+                        >
+                          <FaArchive className="text-xs text-gray-500" /> Archive
+                        </button>
+                      )
+                    )}
+
+                    {/* ─── Trash actions – workspace owner only ─── */}
+                    {isOwner && (
+                      <>
+                        <div className="border-t border-gray-200 dark:border-gray-700/60 my-1" />
+                        {isTrash ? (
+                          <>
+                            <button
+                              onClick={handleRestoreProject}
+                              className="flex items-center gap-2 px-4 py-2 text-sm text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-500/10 w-full transition"
+                            >
+                              <FaTrashRestore className="text-xs" /> Restore
+                            </button>
+                            <button
+                              onClick={handlePermanentDeleteProject}
+                              className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 w-full transition"
+                            >
+                              <FaTrashAlt className="text-xs" /> Delete Permanently
+                            </button>
+                          </>
+                        ) : (
+                          !isArchivedForMe && (
+                            <button
+                              onClick={handleMoveToTrash}
+                              className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 w-full transition"
+                            >
+                              <FaTrashAlt className="text-xs" /> Move to Trash
+                            </button>
+                          )
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           {/* Tabs */}
@@ -1477,7 +1908,7 @@ const YourWorkspaceProjectId = () => {
 
         {/* Content Area */}
         <div className="flex-1 flex overflow-hidden">
-          {/* Left Panel – List (grid or team list) */}
+          {/* Left Panel – List */}
           <div className={`${mobileShowDetail ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-2/5 lg:w-1/3 border-r border-gray-200/60 dark:border-gray-800/40 bg-white dark:bg-[#0f0f12] h-full`}>
             <div className="flex-1 overflow-y-auto p-4">
               {activeTab === 'tasks' ? (
@@ -1507,7 +1938,7 @@ const YourWorkspaceProjectId = () => {
                       <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase flex items-center gap-1">
                         <FaCrown className="text-yellow-500 dark:text-yellow-400" /> Managers
                       </span>
-                      {isOwner && (
+                      {isOwner && !isTrash && !isArchivedForMe && (
                         <button onClick={() => setShowAddManager(true)} className="text-xs text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] transition font-medium">
                           Add
                         </button>
@@ -1522,7 +1953,7 @@ const YourWorkspaceProjectId = () => {
                           <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{m.name}</p>
                           <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{m.email}</p>
                         </div>
-                        {isOwner && projectManagers.length > 1 && (
+                        {isOwner && projectManagers.length > 1 && !isTrash && !isArchivedForMe && (
                           <button onClick={() => handleRemoveManager(m._id)} className="p-1 text-red-500 dark:text-red-400 opacity-0 group-hover:opacity-100 transition">
                             <FaUserMinus className="text-sm" />
                           </button>
@@ -1536,7 +1967,7 @@ const YourWorkspaceProjectId = () => {
                       <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase flex items-center gap-1">
                         <FaUsers className="text-teal-600 dark:text-[#0d9488]" /> Team ({activeTeam.length})
                       </span>
-                      {canManage && (
+                      {canManage && !isTrash && !isArchivedForMe && (
                         <button onClick={() => setShowAddMember(true)} className="text-xs text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] transition font-medium">
                           Add
                         </button>
@@ -1554,7 +1985,7 @@ const YourWorkspaceProjectId = () => {
                             <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{user.name || 'Unknown'}</p>
                             <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{user.email}</p>
                           </div>
-                          {canManage && (
+                          {canManage && !isTrash && !isArchivedForMe && (
                             <button onClick={() => handleRemoveMember(memberId)} className="p-1 text-red-500 dark:text-red-400 opacity-0 group-hover:opacity-100 transition">
                               <FaUserMinus className="text-sm" />
                             </button>
@@ -1568,7 +1999,7 @@ const YourWorkspaceProjectId = () => {
             </div>
           </div>
 
-          {/* Right Panel – Detail (slides in) */}
+          {/* Right Panel – Detail */}
           <div className={`${mobileShowDetail ? 'flex' : 'hidden md:flex'} flex-col flex-1 h-full bg-gray-50 dark:bg-[#0f0f12]`}>
             {activeTask ? (
               <TaskDetailView
@@ -1579,7 +2010,7 @@ const YourWorkspaceProjectId = () => {
                 userInfo={userInfo}
                 onBack={handleBackToList}
                 onEdit={handleEditTask}
-                onDelete={handleDeleteTask}
+                onDelete={() => handleDeleteTask(activeTask)}
                 onRefresh={refreshAll}
                 canManage={canManage}
                 onSendReminder={handleSendManualReminder}
@@ -1599,7 +2030,7 @@ const YourWorkspaceProjectId = () => {
         </div>
       </div>
 
-      {/* Bottom Navigation (mobile) – hidden when detail open */}
+      {/* Bottom Navigation (mobile) */}
       {!mobileShowDetail && <YourWorkspaceBottombar workspace={workspace} />}
 
       {/* Modals */}
@@ -1650,7 +2081,16 @@ const YourWorkspaceProjectId = () => {
               label="Select Member"
               options={managerOptions}
               value=""
-              onChange={(v) => { if (v) handleAddManager(v); setShowAddManager(false); }}
+              onChange={(v) => {
+                if (v) {
+                  const selected = availableForManager.find(m => (m.user?._id || m._id) === v);
+                  if (selected) {
+                    const name = selected.user?.name || selected.name || 'Unknown';
+                    handleAddManager(v, name);
+                    setShowAddManager(false);
+                  }
+                }
+              }}
               brandColor={brandColor}
             />
             <div className="flex gap-3 mt-4">
@@ -1666,6 +2106,30 @@ const YourWorkspaceProjectId = () => {
         assignableMembers={assignableMembers}
         brandColor={brandColor}
         onAssign={handleAssignTask}
+      />
+
+      {/* ── Global Confirm Modals ── */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })}
+        onConfirm={confirmModal.onConfirm}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        danger={confirmModal.danger}
+      />
+      <DeleteTaskConfirmModal
+        isOpen={deleteTaskModal.isOpen}
+        onClose={() => setDeleteTaskModal({ isOpen: false, taskName: '', onConfirm: () => {} })}
+        onConfirm={deleteTaskModal.onConfirm}
+        taskName={deleteTaskModal.taskName}
+      />
+      <ConfirmModal
+        isOpen={addManagerConfirm.isOpen}
+        onClose={() => setAddManagerConfirm({ isOpen: false, managerName: '', managerId: '' })}
+        onConfirm={confirmAddManager}
+        title="Add Manager"
+        message={`Are you sure you want to add ${addManagerConfirm.managerName} as manager?`}
+        danger={false}
       />
     </div>
   );

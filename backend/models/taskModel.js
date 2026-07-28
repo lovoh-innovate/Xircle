@@ -54,6 +54,12 @@ const taskSchema = new mongoose.Schema(
       ref: 'Workspace',
       required: true,
     },
+    // ── NEW: Folder reference ─────────────────────────────────────
+    folder: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Folder',
+      default: null,
+    },
     title: {
       type: String,
       required: true,
@@ -143,6 +149,34 @@ const taskSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // ── NEW: Daily reminder time & tracking ────────────────────────
+    dailyReminderTime: {
+      type: String,          // e.g., "09:00" (HH:MM)
+      default: null,
+    },
+    lastDailyReminderSent: {
+      type: Date,
+      default: null,
+    },
+    // ── NEW: Archive / Trash fields ────────────────────────────────
+    isArchived: {
+      type: Boolean,
+      default: false,
+    },
+    archivedAt: {
+      type: Date,
+      default: null,
+    },
+    isTrash: {
+      type: Boolean,
+      default: false,
+      index: true,           // useful for queries filtering out trash
+    },
+    trashedAt: {
+      type: Date,
+      default: null,
+    },
+    // ── Existing fields continue ────────────────────────────────────
     completedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
@@ -247,6 +281,8 @@ const taskSchema = new mongoose.Schema(
 taskSchema.index({ project: 1, status: 1 });
 taskSchema.index({ assignee: 1, status: 1 });
 taskSchema.index({ dueDate: 1 });
+// New index for efficient trash queries
+taskSchema.index({ isTrash: 1, trashedAt: 1 });
 
 const Task = mongoose.model('Task', taskSchema);
 export default Task;

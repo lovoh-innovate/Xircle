@@ -12,7 +12,11 @@ import {
   getProjectTeamWithTasks,
   getTeamMemberDM,
   getProjectStats,
-  deleteProject,
+  deleteProject,          // soft‑delete (trash)
+  restoreProject,         // restore from trash
+  permanentlyDeleteProject, // permanent delete
+  archiveProject,         // personal archive
+  unarchiveProject,       // personal unarchive
 } from '../controllers/projectController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import upload from '../middleware/uploadMiddleware.js';
@@ -40,7 +44,19 @@ router.put(
   ]),
   updateProject
 );
+
+// ── Soft‑delete (trash) – owner only ──
 router.delete('/:projectId', protect, deleteProject);
+
+// ── Restore from trash (owner only) ──
+router.patch('/:projectId/restore', protect, restoreProject);
+
+// ── Permanent delete (owner only) ──
+router.delete('/:projectId/permanent', protect, permanentlyDeleteProject);
+
+// ── Personal archive / unarchive (any member) ──
+router.patch('/:projectId/archive', protect, archiveProject);
+router.patch('/:projectId/unarchive', protect, unarchiveProject);
 
 // ── Final step: owner confirms project completion ──
 router.patch('/:projectId/confirm-completion', protect, confirmProjectCompletion);

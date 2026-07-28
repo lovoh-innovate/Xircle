@@ -106,7 +106,6 @@ const projectSchema = new mongoose.Schema(
       min: 0,
       max: 100,
     },
-    // ─── NEW FIELDS ───
     projectType: {
       type: String,
       enum: ['general', 'software', 'design', 'social_media', 'marketing'],
@@ -141,11 +140,6 @@ const projectSchema = new mongoose.Schema(
         },
       },
     ],
-    // models/projectModel.js — ADD these fields to your existing schema:
-
-    // ── Completion confirmation ──
-    // Set automatically when every task is completed/cancelled,
-    // waiting for the workspace owner to confirm completion.
     readyForCompletion: {
       type: Boolean,
       default: false,
@@ -159,6 +153,29 @@ const projectSchema = new mongoose.Schema(
       ref: 'User',
       default: null,
     },
+    // ── NEW: Per‑user archive ─────────────────────────────────────
+    archivedBy: [
+      {
+        user: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
+        },
+        archivedAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
+    // ── NEW: Global soft‑delete (trash) ───────────────────────────
+    isTrash: {
+      type: Boolean,
+      default: false,
+      index: true, // quick filter
+    },
+    trashedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -170,6 +187,8 @@ projectSchema.index({ workspace: 1, status: 1 });
 projectSchema.index({ projectManagers: 1 });
 projectSchema.index({ 'teamMembers.user': 1 });
 projectSchema.index({ projectType: 1 });
+// Additional index for trash queries
+projectSchema.index({ isTrash: 1, trashedAt: 1 });
 
 const Project = mongoose.model('Project', projectSchema);
 export default Project;

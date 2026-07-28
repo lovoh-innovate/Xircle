@@ -1,13 +1,13 @@
 // controllers/projectController.js
 import Project from '../models/projectModel.js';
 import Task from '../models/taskModel.js';
+import Folder from '../models/folderModel.js';
 import Workspace from '../models/workspaceModel.js';
 import User from '../models/userModel.js';
 import { Chat } from '../models/messagingModel.js';
+import Feedback from '../models/feedbackModel.js';
 import mongoose from 'mongoose';
 import { v2 as cloudinary } from 'cloudinary';
-
-// ── Notification service ──────────────────────────────────────────
 import { createAndSendNotification } from './notificationController.js';
 
 // ─────────────────────────────────────────────────────────────────────
@@ -53,10 +53,6 @@ const parseArrayField = (value) => {
 // NOTIFICATION HELPER
 // ─────────────────────────────────────────────────────────────────────
 
-/**
- * Sends in‑app, push, and email notifications to one or more users.
- * All calls are fire‑and‑forget (errors are logged, never thrown).
- */
 async function notifyUsers(userIds, { title, body, data = {}, emailEventType = null, emailHtml = null }) {
   if (!userIds) return;
   const recipients = Array.isArray(userIds) ? userIds : [userIds];
@@ -179,6 +175,8 @@ const createProject = async (req, res) => {
       dailyReportTime,
       projectType,
       tags,
+      archivedBy: [],            // per‑user archive
+      isTrash: false,
     });
 
     // Team chat (best-effort)
@@ -242,7 +240,7 @@ const createProject = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// GET WORKSPACE PROJECTS
+// GET WORKSPACE PROJECTS  (respects personal archive & global trash)
 // GET /api/projects/workspace/:workspaceId
 // ─────────────────────────────────────────────────────────────────────
 
@@ -250,7 +248,7 @@ const getWorkspaceProjects = async (req, res) => {
   try {
     const userId = req.user.id;
     const { workspaceId } = req.params;
-    const { status, priority, projectType } = req.query;
+    const { status, priority, projectType, archived, trash } = req.query;
 
     const workspace = await Workspace.findById(workspaceId);
     if (!workspace) {
@@ -270,6 +268,32 @@ const getWorkspaceProjects = async (req, res) => {
     if (priority) query.priority = priority;
     if (projectType) query.projectType = projectType;
 
+    // Global trash filter – only owner can see trashed projects
+    if (trash === 'true' && isOwner) {
+      query.isTrash = true;
+    } else if (trash !== 'true') {
+      query.isTrash = { $ne: true };
+    } else {
+      // non-owner asking for trash – return empty array
+      return res.status(200).json({ success: true, projects: [], count: 0 });
+    }
+
+    // Personal archive: if not explicitly asking for archived, exclude projects archived by this user
+    if (archived === 'true') {
+      query['archivedBy.user'] = userId;
+    } else if (archived !== 'true' && !query.isTrash) {
+      // Exclude projects that the user has archived (unless we're in trash view)
+      query.$and = query.$and || [];
+      query.$and.push({
+        $or: [
+          { 'archivedBy.user': { $ne: userId } },
+          { 'archivedBy.user': { $exists: false } },
+          { archivedBy: { $size: 0 } }
+        ]
+      });
+    }
+
+    // Permissions: non-owners only see projects they belong to
     if (!isOwner) {
       query.$or = [
         { projectManagers: userId },
@@ -286,7 +310,7 @@ const getWorkspaceProjects = async (req, res) => {
     const projectsWithStats = await Promise.all(
       projects.map(async (project) => {
         const taskCounts = await Task.aggregate([
-          { $match: { project: project._id, isDeleted: false } },
+          { $match: { project: project._id, isDeleted: false, isTrash: { $ne: true } } },
           { $group: { _id: '$status', count: { $sum: 1 } } },
         ]);
 
@@ -306,6 +330,7 @@ const getWorkspaceProjects = async (req, res) => {
           : isProjectManager(project, userId)
           ? 'projectManager'
           : 'teamMember';
+        obj.isArchivedForMe = project.archivedBy.some(a => a.user.toString() === userId);
         return obj;
       })
     );
@@ -331,19 +356,16 @@ const getProjectById = async (req, res) => {
     const userId = req.user.id;
     const { projectId } = req.params;
 
-    // 1. Fetch project WITHOUT population (permission check uses raw IDs)
     const project = await Project.findById(projectId);
     if (!project) {
       return res.status(404).json({ success: false, message: 'Project not found.' });
     }
 
-    // 2. Get workspace for owner check
     const workspace = await Workspace.findById(project.workspace);
     if (!workspace) {
       return res.status(404).json({ success: false, message: 'Workspace not found.' });
     }
 
-    // 3. Permission check (unpopulated, so helpers work correctly)
     const isOwner = isWorkspaceOwner(workspace, userId);
     const isPM = isProjectManager(project, userId);
     const isMember = isProjectMember(project, userId);
@@ -357,19 +379,18 @@ const getProjectById = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Access denied.' });
     }
 
-    // 4. Now populate for the response
     const populated = await Project.findById(projectId)
       .populate('projectManagers', 'name email profile')
       .populate('teamMembers.user', 'name email profile')
       .populate('createdBy', 'name email profile')
       .populate('completedBy', 'name email profile');
 
-    // 5. Compute task stats
     const taskStats = await Task.aggregate([
       {
         $match: {
           project: new mongoose.Types.ObjectId(projectId),
           isDeleted: false,
+          isTrash: { $ne: true }
         },
       },
       {
@@ -423,6 +444,7 @@ const getProjectById = async (req, res) => {
       overdueTasks: 0,
     };
     obj.canManage = isOwner || isPM;
+    obj.isArchivedForMe = populated.archivedBy.some(a => a.user.toString() === userId);
 
     res.status(200).json({ success: true, project: obj });
   } catch (error) {
@@ -570,6 +592,7 @@ const confirmProjectCompletion = async (req, res) => {
     const incompleteTasks = await Task.find({
       project: projectId,
       isDeleted: false,
+      isTrash: { $ne: true },
       status: { $nin: ['completed', 'cancelled'] },
     }).select('title status progress assignee');
 
@@ -893,6 +916,7 @@ const getProjectTeamWithTasks = async (req, res) => {
           project: projectId,
           assignee: tm.user._id,
           isDeleted: false,
+          isTrash: { $ne: true },
         }).select('title status progress submittedProgress priority dueDate');
 
         return {
@@ -983,7 +1007,11 @@ const getProjectStats = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Access denied.' });
     }
 
-    const tasks = await Task.find({ project: projectId, isDeleted: false })
+    const tasks = await Task.find({
+      project: projectId,
+      isDeleted: false,
+      isTrash: { $ne: true },
+    })
       .populate('assignee', 'name email profile')
       .select('title status progress submittedProgress priority dueDate assignee');
 
@@ -1033,7 +1061,66 @@ const getProjectStats = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// DELETE PROJECT  (Workspace owner only)
+// PERSONAL ARCHIVE / UNARCHIVE (any project member)
+// ─────────────────────────────────────────────────────────────────────
+
+const archiveProject = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { projectId } = req.params;
+
+    const project = await Project.findById(projectId);
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
+
+    const workspace = await Workspace.findById(project.workspace);
+    const isOwner = isWorkspaceOwner(workspace, userId);
+    const isPM = isProjectManager(project, userId);
+    const isMember = isProjectMember(project, userId);
+    if (!isOwner && !isPM && !isMember) {
+      return res.status(403).json({ success: false, message: 'You are not a member of this project.' });
+    }
+
+    const alreadyArchived = project.archivedBy.some(a => a.user.toString() === userId);
+    if (!alreadyArchived) {
+      project.archivedBy.push({ user: userId, archivedAt: new Date() });
+      await project.save();
+    }
+
+    res.status(200).json({ success: true, message: 'Project archived for you.' });
+  } catch (error) {
+    console.error('❌ Archive project error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const unarchiveProject = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { projectId } = req.params;
+
+    const project = await Project.findById(projectId);
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
+
+    const workspace = await Workspace.findById(project.workspace);
+    const isOwner = isWorkspaceOwner(workspace, userId);
+    const isPM = isProjectManager(project, userId);
+    const isMember = isProjectMember(project, userId);
+    if (!isOwner && !isPM && !isMember) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    project.archivedBy = project.archivedBy.filter(a => a.user.toString() !== userId);
+    await project.save();
+
+    res.status(200).json({ success: true, message: 'Project unarchived for you.' });
+  } catch (error) {
+    console.error('❌ Unarchive project error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// DELETE PROJECT – Soft‑delete (workspace owner only)
 // DELETE /api/projects/:projectId
 // ─────────────────────────────────────────────────────────────────────
 
@@ -1043,57 +1130,130 @@ const deleteProject = async (req, res) => {
     const { projectId } = req.params;
 
     const project = await Project.findById(projectId);
-    if (!project) {
-      return res.status(404).json({ success: false, message: 'Project not found.' });
-    }
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
 
     const workspace = await Workspace.findById(project.workspace);
     if (!isWorkspaceOwner(workspace, userId)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Only the workspace owner can delete projects.',
-      });
+      return res.status(403).json({ success: false, message: 'Only the workspace owner can delete projects.' });
     }
 
-    // Gather recipients before deletion
+    // Move to trash (soft‑delete)
+    project.isTrash = true;
+    project.trashedAt = new Date();
+    await project.save();
+
     const recipients = [
       ...project.projectManagers.map(pm => pm.toString()),
-      ...project.teamMembers
-        .filter(tm => tm.status === 'active')
-        .map(tm => tm.user.toString()),
+      ...project.teamMembers.filter(tm => tm.status === 'active').map(tm => tm.user.toString()),
     ];
-
-    // Clean up tasks + their feedback
-    const Feedback = (await import('../models/feedbackModel.js')).default;
-    const tasks = await Task.find({ project: projectId });
-    const taskIds = tasks.map((t) => t._id);
-    await Feedback.deleteMany({ task: { $in: taskIds } });
-    await Task.deleteMany({ project: projectId });
-
-    // Best-effort Cloudinary cleanup
-    for (const doc of project.documents || []) {
-      if (doc.publicId) cloudinary.uploader.destroy(doc.publicId).catch(() => {});
-    }
-
-    const projectName = project.name;
-    await Project.findByIdAndDelete(projectId);
-
-    // ── Notify everyone that the project was deleted ─────────
     notifyUsers(recipients, {
-      title: `Project "${projectName}" deleted`,
-      body: 'The project has been permanently removed.',
+      title: `Project "${project.name}" moved to trash`,
+      body: 'The project has been moved to trash and will be permanently deleted after 30 days.',
       data: { workspaceId: workspace._id.toString() },
       emailEventType: 'projectUpdate',
     });
 
-    res.status(200).json({ success: true, message: 'Project deleted' });
+    res.status(200).json({ success: true, message: 'Project moved to trash.' });
   } catch (error) {
     console.error('❌ Delete project error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ─── EXPORTS ──────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
+// RESTORE PROJECT FROM TRASH (owner only)
+// PATCH /api/projects/:projectId/restore
+// ─────────────────────────────────────────────────────────────────────
+
+const restoreProject = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { projectId } = req.params;
+
+    const project = await Project.findById(projectId);
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
+
+    const workspace = await Workspace.findById(project.workspace);
+    if (!isWorkspaceOwner(workspace, userId)) {
+      return res.status(403).json({ success: false, message: 'Only the workspace owner can restore projects.' });
+    }
+
+    project.isTrash = false;
+    project.trashedAt = null;
+    await project.save();
+
+    res.status(200).json({ success: true, message: 'Project restored.' });
+  } catch (error) {
+    console.error('❌ Restore project error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// PERMANENTLY DELETE PROJECT (owner only)
+// DELETE /api/projects/:projectId/permanent
+// ─────────────────────────────────────────────────────────────────────
+
+const permanentlyDeleteProject = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { projectId } = req.params;
+
+    const project = await Project.findById(projectId);
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
+
+    const workspace = await Workspace.findById(project.workspace);
+    if (!isWorkspaceOwner(workspace, userId)) {
+      return res.status(403).json({ success: false, message: 'Only the workspace owner can permanently delete projects.' });
+    }
+
+    // Remove associated data
+    const tasks = await Task.find({ project: projectId });
+    const taskIds = tasks.map(t => t._id);
+    await Feedback.deleteMany({ task: { $in: taskIds } });
+    await Task.deleteMany({ project: projectId });
+    await Folder.deleteMany({ project: projectId });
+
+    for (const doc of project.documents || []) {
+      if (doc.publicId) cloudinary.uploader.destroy(doc.publicId).catch(() => {});
+    }
+
+    await Project.findByIdAndDelete(projectId);
+
+    res.status(200).json({ success: true, message: 'Project permanently deleted.' });
+  } catch (error) {
+    console.error('❌ Permanent delete project error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// CRON: Auto‑purge projects in trash > 30 days
+// ─────────────────────────────────────────────────────────────────────
+
+const permanentlyDeleteOldTrashedProjects = async () => {
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const projects = await Project.find({ isTrash: true, trashedAt: { $lte: thirtyDaysAgo } });
+
+  for (const project of projects) {
+    const tasks = await Task.find({ project: project._id });
+    const taskIds = tasks.map(t => t._id);
+    await Feedback.deleteMany({ task: { $in: taskIds } });
+    await Task.deleteMany({ project: project._id });
+    await Folder.deleteMany({ project: project._id });
+
+    for (const doc of project.documents || []) {
+      if (doc.publicId) cloudinary.uploader.destroy(doc.publicId).catch(() => {});
+    }
+    await Project.findByIdAndDelete(project._id);
+  }
+  console.log(`🧹 Permanently deleted ${projects.length} trashed projects.`);
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// EXPORTS
+// ─────────────────────────────────────────────────────────────────────
+
 export {
   createProject,
   getWorkspaceProjects,
@@ -1106,5 +1266,10 @@ export {
   getProjectTeamWithTasks,
   getTeamMemberDM,
   getProjectStats,
+  archiveProject,
+  unarchiveProject,
   deleteProject,
+  restoreProject,
+  permanentlyDeleteProject,
+  permanentlyDeleteOldTrashedProjects,
 };

@@ -7,27 +7,27 @@ export const projectApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     // ─── Project CRUD ──────────────────────────────────────────────
 
-  createProject: builder.mutation({
-  query: ({ workspaceId, data }) => {
-    const isFormData = data instanceof FormData;
-    let url = PROJECTS_URL;
-    if (workspaceId) {
-      url += `?workspaceId=${workspaceId}`;
-    }
-    return {
-      url,
-      method: "POST",
-      body: data,
-      headers: isFormData ? undefined : { "Content-Type": "application/json" },
-    };
-  },
-  invalidatesTags: ["Project"],
-}),
+    createProject: builder.mutation({
+      query: ({ workspaceId, data }) => {
+        const isFormData = data instanceof FormData;
+        let url = PROJECTS_URL;
+        if (workspaceId) {
+          url += `?workspaceId=${workspaceId}`;
+        }
+        return {
+          url,
+          method: "POST",
+          body: data,
+          headers: isFormData ? undefined : { "Content-Type": "application/json" },
+        };
+      },
+      invalidatesTags: ["Project"],
+    }),
 
     getWorkspaceProjects: builder.query({
-      query: ({ workspaceId, status, priority, projectType, assigneeId }) => ({
+      query: ({ workspaceId, status, priority, projectType, archived, trash }) => ({
         url: `${PROJECTS_URL}/workspace/${workspaceId}`,
-        params: { status, priority, projectType, assigneeId },
+        params: { status, priority, projectType, archived, trash },
       }),
       providesTags: (result) =>
         result
@@ -64,12 +64,58 @@ export const projectApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    // Soft‑delete → trash (owner only)
     deleteProject: builder.mutation({
       query: (projectId) => ({
         url: `${PROJECTS_URL}/${projectId}`,
         method: "DELETE",
       }),
       invalidatesTags: ["Project"],
+    }),
+
+    // Permanent delete (owner only)
+    permanentlyDeleteProject: builder.mutation({
+      query: (projectId) => ({
+        url: `${PROJECTS_URL}/${projectId}/permanent`,
+        method: "DELETE",
+      }),
+      invalidatesTags: ["Project"],
+    }),
+
+    // Restore from trash (owner only)
+    restoreProject: builder.mutation({
+      query: (projectId) => ({
+        url: `${PROJECTS_URL}/${projectId}/restore`,
+        method: "PATCH",
+      }),
+      invalidatesTags: (result, error, projectId) => [
+        { type: "Project", id: projectId },
+        "Project",
+      ],
+    }),
+
+    // Personal archive (any member)
+    archiveProject: builder.mutation({
+      query: (projectId) => ({
+        url: `${PROJECTS_URL}/${projectId}/archive`,
+        method: "PATCH",
+      }),
+      invalidatesTags: (result, error, projectId) => [
+        { type: "Project", id: projectId },
+        "Project",
+      ],
+    }),
+
+    // Personal unarchive (any member)
+    unarchiveProject: builder.mutation({
+      query: (projectId) => ({
+        url: `${PROJECTS_URL}/${projectId}/unarchive`,
+        method: "PATCH",
+      }),
+      invalidatesTags: (result, error, projectId) => [
+        { type: "Project", id: projectId },
+        "Project",
+      ],
     }),
 
     // ─── Project Managers Management ──────────────────────────────
@@ -87,7 +133,6 @@ export const projectApiSlice = apiSlice.injectEndpoints({
 
     // ─── Team Member Management ─────────────────────────────────────
 
-    // Add a team member (sends userId in body)
     addTeamMember: builder.mutation({
       query: ({ projectId, userId, role = "member" }) => ({
         url: `${PROJECTS_URL}/${projectId}/team`,
@@ -99,7 +144,6 @@ export const projectApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // Remove a team member – URL uses memberId
     removeTeamMember: builder.mutation({
       query: ({ projectId, memberId }) => ({
         url: `${PROJECTS_URL}/${projectId}/team/${memberId}`,
@@ -158,6 +202,10 @@ export const {
   useGetProjectByIdQuery,
   useUpdateProjectMutation,
   useDeleteProjectMutation,
+  usePermanentlyDeleteProjectMutation,
+  useRestoreProjectMutation,
+  useArchiveProjectMutation,
+  useUnarchiveProjectMutation,
   useManageProjectManagersMutation,
   useAddTeamMemberMutation,
   useRemoveTeamMemberMutation,

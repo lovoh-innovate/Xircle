@@ -3,7 +3,14 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
-import { useGetWorkspaceProjectsQuery, useDeleteProjectMutation } from '../slices/projectApiSlice';
+import {
+  useGetWorkspaceProjectsQuery,
+  useDeleteProjectMutation,
+  useArchiveProjectMutation,
+  useUnarchiveProjectMutation,
+  useRestoreProjectMutation,
+  usePermanentlyDeleteProjectMutation,
+} from '../slices/projectApiSlice';
 import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
 import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
@@ -30,6 +37,9 @@ import {
   FaCheckCircle,
   FaSpinner,
   FaChartPie,
+  FaArchive,
+  FaUndo,
+  FaTrashRestore,
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
@@ -100,6 +110,10 @@ const ProjectCard = ({
   isManager,
   onDelete,
   onEdit,
+  onArchive,
+  onUnarchive,
+  onRestore,
+  onPermanentDelete,
 }) => {
   const [showMenu, setShowMenu] = useState(false);
   const progress = project.progress || 0;
@@ -116,6 +130,7 @@ const ProjectCard = ({
     archived: 'text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700/40',
   };
   const canManage = isOwner || isManager;
+  const isArchivedForMe = project.isArchivedForMe || false;
 
   // ── fetch tasks for this project ──────────────────────────────
   const { data: taskData, isLoading: taskLoading } = useGetProjectTasksQuery(
@@ -128,12 +143,33 @@ const ProjectCard = ({
   ).length;
 
   const handleDelete = () => {
-    if (window.confirm(`Delete project "${project.name}"?`)) {
+    if (window.confirm(`Delete project "${project.name}"? This moves it to trash.`)) {
       onDelete && onDelete(project._id);
     }
   };
 
+  const handlePermanentDelete = () => {
+    if (window.confirm(`Permanently delete "${project.name}"? This cannot be undone.`)) {
+      onPermanentDelete && onPermanentDelete(project._id);
+    }
+  };
+
+  const handleRestore = () => {
+    if (window.confirm(`Restore "${project.name}" from trash?`)) {
+      onRestore && onRestore(project._id);
+    }
+  };
+
   const stopProp = (e) => e.stopPropagation();
+
+  const handleArchiveClick = (e) => {
+    e.stopPropagation();
+    if (isArchivedForMe) {
+      onUnarchive && onUnarchive(project._id);
+    } else {
+      onArchive && onArchive(project._id);
+    }
+  };
 
   return (
     <div className="group relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/40 hover:border-teal-500 dark:hover:border-[#0d9488]/50 transition-all duration-500 hover:shadow-[0_8px_40px_rgba(13,148,136,0.15)] dark:hover:shadow-[0_8px_40px_rgba(13,148,136,0.15)] overflow-hidden">
@@ -157,9 +193,24 @@ const ProjectCard = ({
           className={`absolute top-2 right-2 text-[10px] font-medium px-2.5 py-1 rounded-full backdrop-blur-sm border ${statusColor[project.status] || 'text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700/40'} bg-black/30 border-gray-700/50`}
         >
           {statusLabels[project.status] || 'Planning'}
+          {isArchivedForMe && ' (Archived)'}
         </span>
-        {/* Menu button */}
-        {canManage && (
+
+        {/* Archive/Unarchive button - always visible for members */}
+        <button
+          onClick={handleArchiveClick}
+          className="absolute bottom-2 right-2 p-1.5 bg-black/40 backdrop-blur-sm rounded-lg text-gray-300 hover:text-white hover:bg-black/60 transition z-10"
+          title={isArchivedForMe ? 'Unarchive' : 'Archive'}
+        >
+          {isArchivedForMe ? (
+            <FaUndo className="text-xs text-teal-400" />
+          ) : (
+            <FaArchive className="text-xs text-gray-300" />
+          )}
+        </button>
+
+        {/* Menu button (dropdown) – only for managers/owner */}
+        {(canManage || isOwner) && (
           <div className="absolute top-2 left-2">
             <button
               onClick={(e) => {
@@ -171,28 +222,85 @@ const ProjectCard = ({
               <FaEllipsisV className="text-xs" />
             </button>
             {showMenu && (
-              <div className="absolute left-0 top-full mt-1 bg-white dark:bg-[#1e1e26] rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.8)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.8)] border border-gray-200 dark:border-gray-800/60 min-w-[130px] z-20 py-1">
-                <button
-                  onClick={(e) => {
-                    stopProp(e);
-                    setShowMenu(false);
-                    onEdit && onEdit(project._id);
-                  }}
-                  className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 hover:text-gray-900 dark:hover:text-white transition w-full"
-                >
-                  <FaEdit className="text-xs text-teal-600 dark:text-[#0d9488]" /> Edit
-                </button>
-                {isOwner && (
+              <div className="absolute left-0 top-full mt-1 bg-white dark:bg-[#1e1e26] rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.8)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.8)] border border-gray-200 dark:border-gray-800/60 min-w-[150px] z-20 py-1">
+                {/* Edit – only for managers/owner */}
+                {(canManage || isOwner) && (
                   <button
                     onClick={(e) => {
                       stopProp(e);
                       setShowMenu(false);
-                      handleDelete();
+                      onEdit && onEdit(project._id);
                     }}
-                    className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-700 dark:hover:text-red-300 transition w-full"
+                    className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 hover:text-gray-900 dark:hover:text-white transition w-full"
                   >
-                    <FaTrashAlt className="text-xs" /> Delete
+                    <FaEdit className="text-xs text-teal-600 dark:text-[#0d9488]" /> Edit
                   </button>
+                )}
+
+                {/* Archive/Unarchive – for any member (already on card, but keep for consistency) */}
+                {!isArchivedForMe ? (
+                  <button
+                    onClick={(e) => {
+                      stopProp(e);
+                      setShowMenu(false);
+                      onArchive && onArchive(project._id);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 w-full transition"
+                  >
+                    <FaArchive className="text-xs text-gray-500" /> Archive
+                  </button>
+                ) : (
+                  <button
+                    onClick={(e) => {
+                      stopProp(e);
+                      setShowMenu(false);
+                      onUnarchive && onUnarchive(project._id);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 w-full transition"
+                  >
+                    <FaUndo className="text-xs text-teal-500" /> Unarchive
+                  </button>
+                )}
+
+                {/* Trash actions – only workspace owner */}
+                {isOwner && (
+                  <>
+                    {project.isTrash ? (
+                      <>
+                        <button
+                          onClick={(e) => {
+                            stopProp(e);
+                            setShowMenu(false);
+                            handleRestore();
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 text-sm text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-500/10 w-full transition"
+                        >
+                          <FaTrashRestore className="text-xs" /> Restore
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            stopProp(e);
+                            setShowMenu(false);
+                            handlePermanentDelete();
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 w-full transition"
+                        >
+                          <FaTrashAlt className="text-xs" /> Delete Permanently
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={(e) => {
+                          stopProp(e);
+                          setShowMenu(false);
+                          handleDelete();
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 w-full transition"
+                      >
+                        <FaTrashAlt className="text-xs" /> Move to Trash
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             )}
@@ -306,13 +414,30 @@ const YourWorkspaceProjects = () => {
     isLoading: workspaceLoading,
     error: workspaceError,
   } = useGetWorkspaceQuery(workspaceId);
+
+  // ── Fetch projects ──────────────────────────────────────────────
+  // NOTE: "archived" here means "archived for me" (a per-user flag), which is
+  // NOT the same thing as the project's lifecycle `status` field. So we only
+  // forward real status values (planning/in-progress/completed) to the API,
+  // and handle the archived view entirely on the client using isArchivedForMe.
+  const apiStatus =
+    filters.status !== 'all' && filters.status !== 'archived' ? filters.status : undefined;
+
   const {
     data: projectsData,
     isLoading: projectsLoading,
     error: projectsError,
     refetch: refetchProjects,
-  } = useGetWorkspaceProjectsQuery({ workspaceId });
+  } = useGetWorkspaceProjectsQuery(
+    { workspaceId, status: apiStatus },
+    { skip: !workspaceId }
+  );
+
   const [deleteProject] = useDeleteProjectMutation();
+  const [archiveProject] = useArchiveProjectMutation();
+  const [unarchiveProject] = useUnarchiveProjectMutation();
+  const [restoreProject] = useRestoreProjectMutation();
+  const [permanentlyDeleteProject] = usePermanentlyDeleteProjectMutation();
 
   const workspace = workspaceData?.workspace;
   const projects = projectsData?.projects || [];
@@ -320,46 +445,109 @@ const YourWorkspaceProjects = () => {
   const isOwner =
     workspace?.owner?._id === userInfo?._id || workspace?.owner === userInfo?._id;
 
-  // ─── AUTO‑COMPLETE LOGIC ────────────────────────────────────────────────
-  const projectsWithAutoComplete = projects.map((p) => ({
-    ...p,
-    status: p.progress >= 100 ? 'completed' : p.status,
-  }));
+  // ─── Handlers ──────────────────────────────────────────────────────
+  const handleArchive = async (projectId) => {
+    try {
+      await archiveProject(projectId).unwrap();
+      toast.success('Project archived for you.');
+      refetchProjects();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to archive');
+    }
+  };
 
-  const allProjects = projectsWithAutoComplete;
+  const handleUnarchive = async (projectId) => {
+    try {
+      await unarchiveProject(projectId).unwrap();
+      toast.success('Project unarchived.');
+      refetchProjects();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to unarchive');
+    }
+  };
 
-  // Filter and sort
-  const filteredProjects = allProjects
-    .filter((p) => {
-      if (filters.status !== 'all' && p.status !== filters.status) return false;
-      if (filters.search) {
-        const q = filters.search.toLowerCase();
-        return p.name.toLowerCase().includes(q) || (p.description && p.description.toLowerCase().includes(q));
-      }
-      return true;
-    })
-    .sort((a, b) => {
-      if (filters.sort === 'newest') return new Date(b.createdAt) - new Date(a.createdAt);
-      if (filters.sort === 'oldest') return new Date(a.createdAt) - new Date(b.createdAt);
-      if (filters.sort === 'progress') return (b.progress || 0) - (a.progress || 0);
-      if (filters.sort === 'name') return a.name.localeCompare(b.name);
-      return 0;
-    });
+  const handleDelete = async (projectId) => {
+    try {
+      await deleteProject(projectId).unwrap();
+      toast.success('Project moved to trash.');
+      refetchProjects();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to delete');
+    }
+  };
 
-  const totalProjects = allProjects.length;
-  const completedProjects = allProjects.filter((p) => p.status === 'completed').length;
-  const inProgressProjects = allProjects.filter((p) => p.status === 'in-progress').length;
-  const planningProjects = allProjects.filter((p) => p.status === 'planning').length;
-  const overallProgress = totalProjects > 0 ? Math.round((completedProjects / totalProjects) * 100) : 0;
+  const handleRestore = async (projectId) => {
+    try {
+      await restoreProject(projectId).unwrap();
+      toast.success('Project restored from trash.');
+      refetchProjects();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to restore');
+    }
+  };
+
+  const handlePermanentDelete = async (projectId) => {
+    try {
+      await permanentlyDeleteProject(projectId).unwrap();
+      toast.success('Project permanently deleted.');
+      refetchProjects();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to permanently delete');
+    }
+  };
+
+  const handleEditProject = (projectId) => {
+    navigate(`/workspace/${workspaceId}/projects/edit/${projectId}`);
+  };
+
+  // ─── Filtering (local) ────────────────────────────────────────────
+  // Archived-for-me projects are only ever shown in the "Archived" tab, and
+  // are hidden from every other tab (All / Planning / In Progress / Completed).
+  const filteredProjects = projects.filter((p) => {
+    if (filters.status === 'archived') {
+      if (!p.isArchivedForMe) return false;
+    } else {
+      if (p.isArchivedForMe) return false;
+    }
+
+    if (filters.search) {
+      const q = filters.search.toLowerCase();
+      const matches =
+        p.name.toLowerCase().includes(q) ||
+        (p.description && p.description.toLowerCase().includes(q));
+      if (!matches) return false;
+    }
+
+    return true;
+  });
+
+  // ─── Stats: computed from non-archived-for-me projects only ────────
+  // (archived projects shouldn't skew the "live" workspace overview)
+  const visibleProjects = projects.filter((p) => !p.isArchivedForMe);
+  const totalProjects = visibleProjects.length;
+  const completedProjects = visibleProjects.filter((p) => p.status === 'completed').length;
+  const inProgressProjects = visibleProjects.filter((p) => p.status === 'in-progress').length;
+  const planningProjects = visibleProjects.filter((p) => p.status === 'planning').length;
+
+  // Completion rate = average of each project's own progress percentage,
+  // not just a count of fully-completed projects. So 4 projects sitting at
+  // 100%, 100%, 100%, 0% correctly shows 75%, not 75% by coincidence of count
+  // but by the actual weighted percentage across all projects.
+  const overallProgress =
+    totalProjects > 0
+      ? Math.round(
+          visibleProjects.reduce((sum, p) => sum + (p.progress || 0), 0) / totalProjects
+        )
+      : 0;
 
   // Active projects (top 3 by progress)
-  const activeProjects = [...allProjects]
-    .filter((p) => p.status !== 'completed' && p.status !== 'archived')
+  const activeProjects = [...visibleProjects]
+    .filter((p) => p.status !== 'completed')
     .sort((a, b) => (b.progress || 0) - (a.progress || 0))
     .slice(0, 3);
 
   // Recent activity (simulated)
-  const recentActivity = allProjects
+  const recentActivity = visibleProjects
     .slice(0, 5)
     .map((p) => ({
       id: p._id,
@@ -371,20 +559,6 @@ const YourWorkspaceProjects = () => {
     }))
     .sort((a, b) => new Date(b.time) - new Date(a.time))
     .slice(0, 5);
-
-  const handleDeleteProject = async (projectId) => {
-    try {
-      await deleteProject(projectId).unwrap();
-      toast.success('Project deleted!');
-      refetchProjects();
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to delete project');
-    }
-  };
-
-  const handleEditProject = (projectId) => {
-    navigate(`/workspace/${workspaceId}/projects/edit/${projectId}`);
-  };
 
   if (workspaceError || projectsError) {
     navigate(`/workspace/${workspaceId}`);
@@ -428,7 +602,7 @@ const YourWorkspaceProjects = () => {
               </button>
               <h1 className="text-lg font-bold text-gray-800 dark:text-gray-100 tracking-tight">Projects</h1>
               <span className="text-xs font-normal text-gray-500 dark:text-gray-500 bg-gray-100 dark:bg-[#1a1a24] px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-800/40">
-                {totalProjects}
+                {filters.status === 'archived' ? filteredProjects.length : totalProjects}
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -473,7 +647,6 @@ const YourWorkspaceProjects = () => {
               >
                 <FaFilter className="text-sm" />
               </button>
-              {/* ── Removed "New Project" button ── */}
             </div>
           </div>
           {/* Filter chips (desktop) */}
@@ -506,7 +679,7 @@ const YourWorkspaceProjects = () => {
                   Overview
                 </h3>
                 <span className="text-xs text-gray-500 dark:text-gray-500">
-                  {completedProjects}/{totalProjects} done
+                  {overallProgress}% complete
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -585,10 +758,20 @@ const YourWorkspaceProjects = () => {
               {filteredProjects.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-gray-500 dark:text-gray-500">
                   <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 flex items-center justify-center mb-4">
-                    <FaFolder className="text-3xl text-gray-300 dark:text-gray-700" />
+                    {filters.status === 'archived' ? (
+                      <FaArchive className="text-3xl text-gray-300 dark:text-gray-700" />
+                    ) : (
+                      <FaFolder className="text-3xl text-gray-300 dark:text-gray-700" />
+                    )}
                   </div>
-                  <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300">No projects match</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-600 mt-1">Try adjusting your filters</p>
+                  <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300">
+                    {filters.status === 'archived' ? 'No archived projects' : 'No projects match'}
+                  </h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-600 mt-1">
+                    {filters.status === 'archived'
+                      ? 'Projects you archive will show up here'
+                      : 'Try adjusting your filters'}
+                  </p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -604,8 +787,12 @@ const YourWorkspaceProjects = () => {
                         workspaceId={workspaceId}
                         isOwner={isOwner}
                         isManager={isManager}
-                        onDelete={handleDeleteProject}
+                        onDelete={handleDelete}
                         onEdit={handleEditProject}
+                        onArchive={handleArchive}
+                        onUnarchive={handleUnarchive}
+                        onRestore={handleRestore}
+                        onPermanentDelete={handlePermanentDelete}
                       />
                     );
                   })}
@@ -702,7 +889,7 @@ const YourWorkspaceProjects = () => {
                         className="stroke-teal-500 dark:stroke-[#0d9488] transition-all duration-1000"
                         strokeWidth="3"
                         strokeDasharray="100"
-                        strokeDashoffset={100 - (totalProjects ? (completedProjects / totalProjects) * 100 : 0)}
+                        strokeDashoffset={100 - overallProgress}
                         strokeLinecap="round"
                       />
                     </svg>
@@ -712,10 +899,10 @@ const YourWorkspaceProjects = () => {
                   </div>
                   <div>
                     <p className="text-sm text-gray-700 dark:text-gray-300">
-                      {completedProjects} of {totalProjects} completed
+                      Average progress across {totalProjects} project{totalProjects === 1 ? '' : 's'}
                     </p>
                     <p className="text-xs text-gray-500 dark:text-gray-500">
-                      {totalProjects - completedProjects} remaining
+                      {completedProjects} fully completed
                     </p>
                   </div>
                 </div>
@@ -732,7 +919,7 @@ const YourWorkspaceProjects = () => {
       <SearchProjectsModal
         isOpen={searchOpen}
         onClose={() => setSearchOpen(false)}
-        projects={allProjects}
+        projects={visibleProjects}
         brandColor={brandColor}
         workspaceId={workspaceId}
       />

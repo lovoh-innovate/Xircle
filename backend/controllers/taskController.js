@@ -1,7 +1,8 @@
-// controllers/taskController.js
 import Task from '../models/taskModel.js';
 import Project from '../models/projectModel.js';
 import Workspace from '../models/workspaceModel.js';
+import Folder from '../models/folderModel.js';
+import PersonalTask from '../models/personalTaskModel.js';
 import Feedback from '../models/feedbackModel.js';
 import { v2 as cloudinary } from 'cloudinary';
 import { createAndSendNotification } from './notificationController.js';
@@ -35,6 +36,7 @@ const canViewTask = (workspace, project, userId, task) => {
   if (canManageTasks(workspace, project, userId)) return true;
   if (task.assignee?.toString() === userId) return true;
   if (task.createdBy?.toString() === userId) return true;
+  if (isProjectMember(project, userId)) return true;
   return false;
 };
 
@@ -102,7 +104,7 @@ const updateTaskProgress = async (taskId) => {
     task.progress = 0;
     task.status = 'pending';
   } else {
-    const confirmed = task.subTasks.filter(st => st.status === 'confirmed').length;
+    const confirmed = task.subTasks.filter((st) => st.status === 'confirmed').length;
     task.progress = Math.round((confirmed / total) * 100);
     if (confirmed === total) {
       task.status = 'ready_for_completion';
@@ -120,7 +122,11 @@ const updateProjectProgress = async (projectId) => {
   const project = await Project.findById(projectId);
   if (!project) return;
 
-  const tasks = await Task.find({ project: projectId, isDeleted: false });
+  const tasks = await Task.find({
+    project: projectId,
+    isDeleted: false,
+    isTrash: { $ne: true },
+  });
   if (tasks.length === 0) {
     project.progress = 0;
     project.readyForCompletion = false;
@@ -138,7 +144,10 @@ const updateProjectProgress = async (projectId) => {
   await project.save();
 };
 
-const notifyUsers = async (userIds, { title, body, data = {}, emailEventType = null, emailHtml = null }) => {
+const notifyUsers = async (
+  userIds,
+  { title, body, data = {}, emailEventType = null, emailHtml = null }
+) => {
   if (!userIds) return;
   const recipients = Array.isArray(userIds) ? userIds : [userIds];
   for (const recipient of recipients) {
@@ -151,74 +160,12 @@ const notifyUsers = async (userIds, { title, body, data = {}, emailEventType = n
       emailEventType,
       emailSubject: title,
       emailHtml: emailHtml || `<p>${body}</p>`,
-    }).catch(err => console.error(`Notification to ${recipient} failed:`, err.message));
+    }).catch((err) => console.error(`Notification to ${recipient} failed:`, err.message));
   }
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// REMINDER ENGINE – pure logic (no Express req/res)
-// ─────────────────────────────────────────────────────────────────────
-const checkAndSendReminders = async () => {
-  const now = new Date();
-  const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000);
-
-  const tasks = await Task.find({
-    isDeleted: false,
-    dueDate: { $gte: now, $lte: oneHourLater },
-    reminderSent: { $ne: true },
-    status: { $nin: ['completed', 'confirmed_completed', 'cancelled'] },
-  }).populate('assignee', 'name email');
-
-  const allTasks = await Task.find({
-    isDeleted: false,
-    'subTasks.dueDate': { $gte: now, $lte: oneHourLater },
-    'subTasks.reminderSent': { $ne: true },
-  }).populate('assignee', 'name email');
-
-  let reminderCount = 0;
-
-  for (const task of tasks) {
-    if (task.assignee) {
-      await notifyUsers(task.assignee._id, {
-        title: `⏰ Reminder: Task "${task.title}" due soon`,
-        body: `The task "${task.title}" is due within 1 hour (due at ${new Date(task.dueDate).toLocaleString()}).`,
-        data: { taskId: task._id.toString(), projectId: task.project.toString() },
-        emailEventType: 'taskUpdate',
-      });
-      task.reminderSent = true;
-      await task.save();
-      reminderCount++;
-    }
-  }
-
-  for (const task of allTasks) {
-    const assignee = task.assignee;
-    if (!assignee) continue;
-
-    let updated = false;
-    for (const subTask of task.subTasks) {
-      if (subTask.dueDate && subTask.dueDate >= now && subTask.dueDate <= oneHourLater && !subTask.reminderSent) {
-        await notifyUsers(assignee._id, {
-          title: `⏰ Reminder: Sub‑task "${subTask.title}" due soon`,
-          body: `The sub‑task "${subTask.title}" of task "${task.title}" is due within 1 hour (due at ${new Date(subTask.dueDate).toLocaleString()}).`,
-          data: { taskId: task._id.toString(), projectId: task.project.toString() },
-          emailEventType: 'taskUpdate',
-        });
-        subTask.reminderSent = true;
-        updated = true;
-        reminderCount++;
-      }
-    }
-    if (updated) {
-      await task.save();
-    }
-  }
-
-  return reminderCount;
-};
-
-// ─────────────────────────────────────────────────────────────────────
-// CREATE TASK
+// CREATE TASK (updated: folder, dailyReminderTime, self‑assign)
 // POST /api/tasks
 // ─────────────────────────────────────────────────────────────────────
 const createTask = async (req, res) => {
@@ -226,6 +173,7 @@ const createTask = async (req, res) => {
     const userId = req.user.id;
     const {
       projectId,
+      folderId = null,
       title,
       description = '',
       detailedDescription = '',
@@ -238,16 +186,14 @@ const createTask = async (req, res) => {
       bufferTime = 0,
       dependencies,
       allowAssigneeEditSubtasks = false,
+      dailyReminderTime = null,
     } = req.body;
 
     const links = parseArrayField(req.body.links);
     const deps = parseArrayField(dependencies);
 
     if (!projectId || !title?.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: 'projectId and title are required.',
-      });
+      return res.status(400).json({ success: false, message: 'projectId and title are required.' });
     }
 
     const project = await Project.findById(projectId);
@@ -263,9 +209,18 @@ const createTask = async (req, res) => {
       });
     }
 
+    if (folderId) {
+      const folder = await Folder.findById(folderId);
+      if (!folder || folder.project.toString() !== projectId) {
+        return res.status(400).json({ success: false, message: 'Invalid folder.' });
+      }
+    }
+
     let assignee = null;
     if (assigneeId) {
-      await ensureProjectMember(project, workspace, assigneeId);
+      if (assigneeId !== userId) {
+        await ensureProjectMember(project, workspace, assigneeId);
+      }
       assignee = assigneeId;
     }
 
@@ -275,6 +230,7 @@ const createTask = async (req, res) => {
     const task = await Task.create({
       project: projectId,
       workspace: project.workspace,
+      folder: folderId,
       title: title.trim(),
       description,
       detailedDescription,
@@ -290,6 +246,7 @@ const createTask = async (req, res) => {
       links,
       attachments,
       allowAssigneeEditSubtasks,
+      dailyReminderTime: dailyReminderTime || null,
       subTasks: [],
       status: 'pending',
       progress: 0,
@@ -308,7 +265,8 @@ const createTask = async (req, res) => {
 
     const populated = await Task.findById(task._id)
       .populate('assignee', 'name email profile')
-      .populate('createdBy', 'name email profile');
+      .populate('createdBy', 'name email profile')
+      .populate('folder', 'name');
 
     res.status(201).json({ success: true, message: 'Task created', task: populated });
   } catch (error) {
@@ -318,7 +276,7 @@ const createTask = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// UPDATE TASK (Basic fields – only PM/Owner)
+// UPDATE TASK (basic fields, folder, dailyReminderTime)
 // PUT /api/tasks/:taskId
 // ─────────────────────────────────────────────────────────────────────
 const updateTask = async (req, res) => {
@@ -326,7 +284,7 @@ const updateTask = async (req, res) => {
     const userId = req.user.id;
     const { taskId } = req.params;
 
-    const task = await Task.findOne({ _id: taskId, isDeleted: false });
+    const task = await Task.findOne({ _id: taskId, isDeleted: false, isTrash: { $ne: true } });
     if (!task) {
       return res.status(404).json({ success: false, message: 'Task not found.' });
     }
@@ -334,10 +292,13 @@ const updateTask = async (req, res) => {
     const project = await Project.findById(task.project);
     const workspace = await Workspace.findById(project.workspace);
 
-    if (!canManageTasks(workspace, project, userId)) {
+    const isManager = canManageTasks(workspace, project, userId);
+    const isAssignee = task.assignee?.toString() === userId;
+
+    if (!isManager && !(isAssignee && task.allowAssigneeEditSubtasks)) {
       return res.status(403).json({
         success: false,
-        message: 'Only the workspace owner or project managers can edit tasks.',
+        message: 'You are not allowed to edit this task.',
       });
     }
 
@@ -353,40 +314,54 @@ const updateTask = async (req, res) => {
       estimatedHours,
       bufferTime,
       allowAssigneeEditSubtasks,
+      folderId,
+      dailyReminderTime,
     } = req.body;
 
-    if (title !== undefined) task.title = title.trim();
-    if (description !== undefined) task.description = description;
-    if (detailedDescription !== undefined) task.detailedDescription = detailedDescription;
-    if (taskType !== undefined) task.taskType = taskType;
-    if (priority !== undefined) task.priority = priority;
-    if (startDate !== undefined) task.startDate = startDate;
-    if (dueDate !== undefined) task.dueDate = dueDate;
-    if (bufferTime !== undefined) task.bufferTime = bufferTime;
-    if (estimatedHours !== undefined) task.estimatedHours = estimatedHours;
-    if (allowAssigneeEditSubtasks !== undefined) task.allowAssigneeEditSubtasks = allowAssigneeEditSubtasks;
-
-    if (assigneeId !== undefined) {
-      if (assigneeId && assigneeId !== task.assignee?.toString()) {
-        await ensureProjectMember(project, workspace, assigneeId);
-        task.assignee = assigneeId;
-        notifyUsers(assigneeId, {
-          title: `Task assigned to you: "${task.title}"`,
-          body: `You have been assigned the task "${task.title}".`,
-          data: { taskId: task._id.toString(), projectId: project._id.toString() },
-          emailEventType: 'taskAssignment',
-        });
-      } else if (!assigneeId) {
-        task.assignee = null;
+    if (isManager) {
+      if (title !== undefined) task.title = title.trim();
+      if (description !== undefined) task.description = description;
+      if (detailedDescription !== undefined) task.detailedDescription = detailedDescription;
+      if (taskType !== undefined) task.taskType = taskType;
+      if (priority !== undefined) task.priority = priority;
+      if (startDate !== undefined) task.startDate = startDate;
+      if (dueDate !== undefined) task.dueDate = dueDate;
+      if (bufferTime !== undefined) task.bufferTime = bufferTime;
+      if (estimatedHours !== undefined) task.estimatedHours = estimatedHours;
+      if (allowAssigneeEditSubtasks !== undefined) task.allowAssigneeEditSubtasks = allowAssigneeEditSubtasks;
+      if (dailyReminderTime !== undefined) task.dailyReminderTime = dailyReminderTime;
+      if (folderId !== undefined) {
+        if (folderId) {
+          const folder = await Folder.findById(folderId);
+          if (!folder || folder.project.toString() !== task.project.toString()) {
+            return res.status(400).json({ success: false, message: 'Invalid folder.' });
+          }
+          task.folder = folderId;
+        } else {
+          task.folder = null;
+        }
       }
+
+      if (assigneeId !== undefined) {
+        if (assigneeId && assigneeId !== task.assignee?.toString()) {
+          await ensureProjectMember(project, workspace, assigneeId);
+          task.assignee = assigneeId;
+          notifyUsers(assigneeId, {
+            title: `Task assigned to you: "${task.title}"`,
+            body: `You have been assigned the task "${task.title}".`,
+            data: { taskId: task._id.toString(), projectId: project._id.toString() },
+            emailEventType: 'taskAssignment',
+          });
+        } else if (!assigneeId) {
+          task.assignee = null;
+        }
+      }
+
+      if (req.body.links !== undefined) task.links = parseArrayField(req.body.links);
+      if (req.body.dependencies !== undefined) task.dependencies = parseArrayField(req.body.dependencies);
     }
 
-    if (req.body.links !== undefined) task.links = parseArrayField(req.body.links);
-    if (req.body.dependencies !== undefined) {
-      task.dependencies = parseArrayField(req.body.dependencies);
-    }
-
-    if (req.files?.attachments) {
+    if (req.files?.attachments && isManager) {
       let newAttachments = normalizeAttachments(req.files.attachments);
       if (!Array.isArray(newAttachments)) newAttachments = [];
       task.attachments.push(...newAttachments);
@@ -397,7 +372,8 @@ const updateTask = async (req, res) => {
 
     const updated = await Task.findById(taskId)
       .populate('assignee', 'name email profile')
-      .populate('createdBy', 'name email profile');
+      .populate('createdBy', 'name email profile')
+      .populate('folder', 'name');
 
     res.status(200).json({ success: true, message: 'Task updated', task: updated });
   } catch (error) {
@@ -407,7 +383,7 @@ const updateTask = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// ASSIGN TASK – separate endpoint for assigning (or unassigning) a task
+// ASSIGN TASK (separate endpoint)
 // PATCH /api/tasks/:taskId/assign
 // ─────────────────────────────────────────────────────────────────────
 const assignTask = async (req, res) => {
@@ -417,76 +393,37 @@ const assignTask = async (req, res) => {
     const { assigneeId } = req.body;
 
     const task = await Task.findOne({ _id: taskId, isDeleted: false });
-    if (!task) {
-      return res.status(404).json({ success: false, message: 'Task not found.' });
-    }
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
 
     const project = await Project.findById(task.project);
     const workspace = await Workspace.findById(project.workspace);
 
     if (!canManageTasks(workspace, project, userId)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Only the workspace owner or project managers can assign tasks.',
-      });
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
     }
 
-    if (assigneeId !== undefined && assigneeId !== null && assigneeId !== '') {
+    if (assigneeId && assigneeId !== '') {
       await ensureProjectMember(project, workspace, assigneeId);
-
       if (task.assignee?.toString() !== assigneeId) {
         task.assignee = assigneeId;
         await task.save();
-
         notifyUsers(assigneeId, {
           title: `Task assigned to you: "${task.title}"`,
           body: `You have been assigned the task "${task.title}" in project "${project.name}".`,
           data: { taskId: task._id.toString(), projectId: project._id.toString() },
           emailEventType: 'taskAssignment',
-          emailHtml: `<p><a href="${process.env.CLIENT_URL}/tasks/${task._id}">View Task</a></p>`,
-        });
-
-        const updated = await Task.findById(taskId)
-          .populate('assignee', 'name email profile')
-          .populate('createdBy', 'name email profile');
-
-        return res.status(200).json({
-          success: true,
-          message: 'Task assigned successfully',
-          task: updated,
-        });
-      } else {
-        return res.status(200).json({
-          success: true,
-          message: 'Task already assigned to this user',
-          task: await Task.findById(taskId)
-            .populate('assignee', 'name email profile')
-            .populate('createdBy', 'name email profile'),
         });
       }
     } else {
-      if (task.assignee !== null) {
-        task.assignee = null;
-        await task.save();
-        const updated = await Task.findById(taskId)
-          .populate('assignee', 'name email profile')
-          .populate('createdBy', 'name email profile');
-
-        return res.status(200).json({
-          success: true,
-          message: 'Task unassigned successfully',
-          task: updated,
-        });
-      } else {
-        return res.status(200).json({
-          success: true,
-          message: 'Task is already unassigned',
-          task: await Task.findById(taskId)
-            .populate('assignee', 'name email profile')
-            .populate('createdBy', 'name email profile'),
-        });
-      }
+      task.assignee = null;
+      await task.save();
     }
+
+    const updated = await Task.findById(taskId)
+      .populate('assignee', 'name email profile')
+      .populate('createdBy', 'name email profile');
+
+    res.status(200).json({ success: true, task: updated });
   } catch (error) {
     console.error('❌ Assign task error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -494,9 +431,9 @@ const assignTask = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// ADD SUB-TASK
-// POST /api/tasks/:taskId/subtasks
+// SUB‑TASKS (all existing functions kept)
 // ─────────────────────────────────────────────────────────────────────
+
 const addSubTask = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -508,9 +445,7 @@ const addSubTask = async (req, res) => {
     }
 
     const task = await Task.findOne({ _id: taskId, isDeleted: false });
-    if (!task) {
-      return res.status(404).json({ success: false, message: 'Task not found.' });
-    }
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
 
     const project = await Project.findById(task.project);
     const workspace = await Workspace.findById(project.workspace);
@@ -561,10 +496,6 @@ const addSubTask = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// UPDATE SUB-TASK
-// PUT /api/tasks/:taskId/subtasks/:subTaskIndex
-// ─────────────────────────────────────────────────────────────────────
 const updateSubTask = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -572,9 +503,7 @@ const updateSubTask = async (req, res) => {
     const { title, description, startDate, dueDate, bufferTime, links, attachments } = req.body;
 
     const task = await Task.findOne({ _id: taskId, isDeleted: false });
-    if (!task) {
-      return res.status(404).json({ success: false, message: 'Task not found.' });
-    }
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
 
     const index = parseInt(subTaskIndex);
     if (isNaN(index) || index < 0 || index >= task.subTasks.length) {
@@ -588,18 +517,12 @@ const updateSubTask = async (req, res) => {
     const isAssignee = task.assignee?.toString() === userId;
 
     if (!isManager && !(isAssignee && task.allowAssigneeEditSubtasks)) {
-      return res.status(403).json({
-        success: false,
-        message: 'You are not allowed to edit this sub‑task.',
-      });
+      return res.status(403).json({ success: false, message: 'Not allowed.' });
     }
 
     const subTask = task.subTasks[index];
     if (subTask.status === 'confirmed') {
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot edit a confirmed sub‑task.',
-      });
+      return res.status(400).json({ success: false, message: 'Cannot edit a confirmed sub‑task.' });
     }
 
     if (title !== undefined) subTask.title = title.trim();
@@ -624,10 +547,6 @@ const updateSubTask = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// MARK SUB-TASK AS DONE (Assignee only) – with file upload support
-// PATCH /api/tasks/:taskId/subtasks/:subTaskIndex/done
-// ─────────────────────────────────────────────────────────────────────
 const markSubTaskDone = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -635,9 +554,7 @@ const markSubTaskDone = async (req, res) => {
     const { notes, links } = req.body;
 
     const task = await Task.findOne({ _id: taskId, isDeleted: false });
-    if (!task) {
-      return res.status(404).json({ success: false, message: 'Task not found.' });
-    }
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
 
     const index = parseInt(subTaskIndex);
     if (isNaN(index) || index < 0 || index >= task.subTasks.length) {
@@ -646,44 +563,38 @@ const markSubTaskDone = async (req, res) => {
 
     const subTask = task.subTasks[index];
     if (subTask.status === 'confirmed') {
-      return res.status(400).json({ success: false, message: 'Sub‑task is already confirmed.' });
+      return res.status(400).json({ success: false, message: 'Sub‑task already confirmed.' });
     }
     if (subTask.status === 'done') {
       return res.status(400).json({ success: false, message: 'Sub‑task already marked done.' });
     }
 
     if (task.assignee?.toString() !== userId) {
-      return res.status(403).json({
-        success: false,
-        message: 'Only the assignee can mark a sub‑task as done.',
-      });
+      return res.status(403).json({ success: false, message: 'Only the assignee can mark a sub‑task as done.' });
     }
 
-    // ── Handle uploaded files ──
     let uploadedAttachments = [];
     if (req.files && req.files.attachments) {
       uploadedAttachments = normalizeAttachments(req.files.attachments);
     }
 
-    // ── Update sub‑task ──
     subTask.status = 'done';
     subTask.completedBy = userId;
     subTask.completedAt = new Date();
     if (notes) subTask.notes = notes;
     if (links) subTask.links = parseArrayField(links);
-    if (uploadedAttachments.length > 0) {
-      // Replace existing attachments with new ones (or you could merge)
-      subTask.attachments = uploadedAttachments;
-    }
+    if (uploadedAttachments.length > 0) subTask.attachments = uploadedAttachments;
 
     await task.save();
     await updateTaskProgress(task._id);
 
     const project = await Project.findById(task.project);
-    const managerIds = project.projectManagers.map(pm => pm.toString());
-    const ownerId = project.workspace.owner?._id ? project.workspace.owner._id.toString() : null;
+    const managerIds = project.projectManagers.map((pm) => pm.toString());
+    const ownerId = workspace.owner?._id ? workspace.owner._id.toString() : null; // workspace from earlier
+    const workspace = await Workspace.findById(project.workspace);
+    const ownerIdFinal = workspace.owner._id.toString();
     const recipients = [...managerIds];
-    if (ownerId && !recipients.includes(ownerId)) recipients.push(ownerId);
+    if (ownerIdFinal && !recipients.includes(ownerIdFinal)) recipients.push(ownerIdFinal);
 
     if (recipients.length > 0) {
       notifyUsers(recipients, {
@@ -706,10 +617,6 @@ const markSubTaskDone = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// CONFIRM SUB-TASK (PM/Owner only)
-// PATCH /api/tasks/:taskId/subtasks/:subTaskIndex/confirm
-// ─────────────────────────────────────────────────────────────────────
 const confirmSubTask = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -717,9 +624,7 @@ const confirmSubTask = async (req, res) => {
     const { feedback } = req.body;
 
     const task = await Task.findOne({ _id: taskId, isDeleted: false });
-    if (!task) {
-      return res.status(404).json({ success: false, message: 'Task not found.' });
-    }
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
 
     const index = parseInt(subTaskIndex);
     if (isNaN(index) || index < 0 || index >= task.subTasks.length) {
@@ -730,18 +635,12 @@ const confirmSubTask = async (req, res) => {
     const workspace = await Workspace.findById(project.workspace);
 
     if (!canManageTasks(workspace, project, userId)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Only the workspace owner or project managers can confirm sub‑tasks.',
-      });
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
     }
 
     const subTask = task.subTasks[index];
     if (subTask.status !== 'done') {
-      return res.status(400).json({
-        success: false,
-        message: 'Sub‑task must be marked done before confirmation.',
-      });
+      return res.status(400).json({ success: false, message: 'Sub‑task must be marked done first.' });
     }
 
     subTask.status = 'confirmed';
@@ -772,10 +671,6 @@ const confirmSubTask = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// REJECT SUB-TASK (PM/Owner only)
-// PATCH /api/tasks/:taskId/subtasks/:subTaskIndex/reject
-// ─────────────────────────────────────────────────────────────────────
 const rejectSubTask = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -783,9 +678,7 @@ const rejectSubTask = async (req, res) => {
     const { reason = '' } = req.body;
 
     const task = await Task.findOne({ _id: taskId, isDeleted: false });
-    if (!task) {
-      return res.status(404).json({ success: false, message: 'Task not found.' });
-    }
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
 
     const index = parseInt(subTaskIndex);
     if (isNaN(index) || index < 0 || index >= task.subTasks.length) {
@@ -796,18 +689,12 @@ const rejectSubTask = async (req, res) => {
     const workspace = await Workspace.findById(project.workspace);
 
     if (!canManageTasks(workspace, project, userId)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Only the workspace owner or project managers can reject sub‑tasks.',
-      });
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
     }
 
     const subTask = task.subTasks[index];
     if (subTask.status !== 'done') {
-      return res.status(400).json({
-        success: false,
-        message: 'Sub‑task must be marked done before rejection.',
-      });
+      return res.status(400).json({ success: false, message: 'Sub‑task must be marked done first.' });
     }
 
     subTask.status = 'pending';
@@ -838,19 +725,13 @@ const rejectSubTask = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// DELETE SUB-TASK (PM/Owner, or assignee if allowed)
-// DELETE /api/tasks/:taskId/subtasks/:subTaskIndex
-// ─────────────────────────────────────────────────────────────────────
 const deleteSubTask = async (req, res) => {
   try {
     const userId = req.user.id;
     const { taskId, subTaskIndex } = req.params;
 
     const task = await Task.findOne({ _id: taskId, isDeleted: false });
-    if (!task) {
-      return res.status(404).json({ success: false, message: 'Task not found.' });
-    }
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
 
     const index = parseInt(subTaskIndex);
     if (isNaN(index) || index < 0 || index >= task.subTasks.length) {
@@ -864,18 +745,12 @@ const deleteSubTask = async (req, res) => {
     const isAssignee = task.assignee?.toString() === userId;
 
     if (!isManager && !(isAssignee && task.allowAssigneeEditSubtasks)) {
-      return res.status(403).json({
-        success: false,
-        message: 'You are not allowed to delete this sub‑task.',
-      });
+      return res.status(403).json({ success: false, message: 'Not allowed.' });
     }
 
     const subTask = task.subTasks[index];
     if (subTask.status === 'confirmed') {
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot delete a confirmed sub‑task.',
-      });
+      return res.status(400).json({ success: false, message: 'Cannot delete a confirmed sub‑task.' });
     }
 
     task.subTasks.splice(index, 1);
@@ -894,8 +769,7 @@ const deleteSubTask = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// MARK MAIN TASK AS COMPLETED (Assignee only)
-// PATCH /api/tasks/:taskId/complete
+// TASK COMPLETION (main task)
 // ─────────────────────────────────────────────────────────────────────
 const markTaskCompleted = async (req, res) => {
   try {
@@ -904,22 +778,14 @@ const markTaskCompleted = async (req, res) => {
     const { notes } = req.body;
 
     const task = await Task.findOne({ _id: taskId, isDeleted: false });
-    if (!task) {
-      return res.status(404).json({ success: false, message: 'Task not found.' });
-    }
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
 
     if (task.assignee?.toString() !== userId) {
-      return res.status(403).json({
-        success: false,
-        message: 'Only the assignee can mark the task as completed.',
-      });
+      return res.status(403).json({ success: false, message: 'Only the assignee can mark the task as completed.' });
     }
 
     if (task.status !== 'ready_for_completion') {
-      return res.status(400).json({
-        success: false,
-        message: 'All sub‑tasks must be confirmed before completing the task.',
-      });
+      return res.status(400).json({ success: false, message: 'All sub‑tasks must be confirmed before completing the task.' });
     }
 
     task.status = 'completed';
@@ -930,8 +796,9 @@ const markTaskCompleted = async (req, res) => {
     await task.save();
 
     const project = await Project.findById(task.project);
-    const managerIds = project.projectManagers.map(pm => pm.toString());
-    const ownerId = project.workspace.owner?._id ? project.workspace.owner._id.toString() : null;
+    const managerIds = project.projectManagers.map((pm) => pm.toString());
+    const workspace = await Workspace.findById(project.workspace);
+    const ownerId = workspace.owner._id.toString();
     const recipients = [...managerIds];
     if (ownerId && !recipients.includes(ownerId)) recipients.push(ownerId);
 
@@ -958,10 +825,6 @@ const markTaskCompleted = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// CONFIRM TASK COMPLETION (PM/Owner only)
-// PATCH /api/tasks/:taskId/confirm-completion
-// ─────────────────────────────────────────────────────────────────────
 const confirmTaskCompletion = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -969,25 +832,17 @@ const confirmTaskCompletion = async (req, res) => {
     const { feedback, finalHours, finalLinks, finalAttachments } = req.body;
 
     const task = await Task.findOne({ _id: taskId, isDeleted: false });
-    if (!task) {
-      return res.status(404).json({ success: false, message: 'Task not found.' });
-    }
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
 
     if (task.status !== 'completed') {
-      return res.status(400).json({
-        success: false,
-        message: 'Task must be marked completed before confirmation.',
-      });
+      return res.status(400).json({ success: false, message: 'Task must be marked completed before confirmation.' });
     }
 
     const project = await Project.findById(task.project);
     const workspace = await Workspace.findById(project.workspace);
 
     if (!canManageTasks(workspace, project, userId)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Only the workspace owner or project managers can confirm task completion.',
-      });
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
     }
 
     task.status = 'confirmed_completed';
@@ -1023,19 +878,17 @@ const confirmTaskCompletion = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// GET PROJECT TASKS
+// GET PROJECT TASKS (with folder filter, archive/trash, user views)
 // GET /api/tasks/project/:projectId
 // ─────────────────────────────────────────────────────────────────────
 const getProjectTasks = async (req, res) => {
   try {
     const userId = req.user.id;
     const { projectId } = req.params;
-    const { status, priority, assigneeId, taskType } = req.query;
+    const { status, priority, assigneeId, taskType, folderId, archived } = req.query;
 
     const project = await Project.findById(projectId);
-    if (!project) {
-      return res.status(404).json({ success: false, message: 'Project not found.' });
-    }
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
 
     const workspace = await Workspace.findById(project.workspace);
     const isOwner = isWorkspaceOwner(workspace, userId);
@@ -1047,19 +900,37 @@ const getProjectTasks = async (req, res) => {
     }
 
     const query = { project: projectId, isDeleted: false };
+
+    if (archived === 'true') {
+      query.isArchived = true;
+    } else {
+      query.isArchived = { $ne: true };
+      query.isTrash = { $ne: true };
+    }
+
     if (status) query.status = status;
     if (priority) query.priority = priority;
     if (taskType) query.taskType = taskType;
+    if (folderId) query.folder = folderId;
 
     if (isOwner || isPM) {
       if (assigneeId) query.assignee = assigneeId;
     } else {
-      query.assignee = userId;
+      const assignedFolderIds = await Task.distinct('folder', {
+        project: projectId,
+        assignee: userId,
+        folder: { $ne: null },
+      });
+      query.$or = [
+        { assignee: userId },
+        { folder: { $in: assignedFolderIds } },
+      ];
     }
 
     const tasks = await Task.find(query)
       .populate('assignee', 'name email profile')
       .populate('createdBy', 'name email profile')
+      .populate('folder', 'name')
       .sort({ createdAt: -1 });
 
     res.status(200).json({ success: true, tasks, count: tasks.length });
@@ -1070,7 +941,7 @@ const getProjectTasks = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// GET MY TASKS
+// GET MY TASKS (across all projects)
 // GET /api/tasks/my-tasks
 // ─────────────────────────────────────────────────────────────────────
 const getMyTasks = async (req, res) => {
@@ -1078,7 +949,7 @@ const getMyTasks = async (req, res) => {
     const userId = req.user.id;
     const { status, priority, workspaceId, projectId } = req.query;
 
-    const query = { assignee: userId, isDeleted: false };
+    const query = { assignee: userId, isDeleted: false, isTrash: { $ne: true } };
     if (status) query.status = status;
     if (priority) query.priority = priority;
     if (workspaceId) query.workspace = workspaceId;
@@ -1097,7 +968,7 @@ const getMyTasks = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// GET SINGLE TASK
+// GET SINGLE TASK (by id)
 // GET /api/tasks/:taskId
 // ─────────────────────────────────────────────────────────────────────
 const getTaskById = async (req, res) => {
@@ -1111,11 +982,10 @@ const getTaskById = async (req, res) => {
       .populate('completedBy', 'name email profile')
       .populate('confirmedBy', 'name email profile')
       .populate('rejectedBy', 'name email profile')
-      .populate('comments.user', 'name email profile');
+      .populate('comments.user', 'name email profile')
+      .populate('folder', 'name');
 
-    if (!task) {
-      return res.status(404).json({ success: false, message: 'Task not found.' });
-    }
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
 
     const project = await Project.findById(task.project);
     const workspace = await Workspace.findById(project.workspace);
@@ -1132,62 +1002,120 @@ const getTaskById = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// DELETE TASK  (Owner / PM only)
-// DELETE /api/tasks/:taskId
+// DELETE / ARCHIVE / TRASH / PERMANENT DELETE (all three states)
 // ─────────────────────────────────────────────────────────────────────
+
 const deleteTask = async (req, res) => {
   try {
     const userId = req.user.id;
     const { taskId } = req.params;
 
     const task = await Task.findOne({ _id: taskId, isDeleted: false });
-    if (!task) {
-      return res.status(404).json({ success: false, message: 'Task not found.' });
-    }
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
 
     const project = await Project.findById(task.project);
     const workspace = await Workspace.findById(project.workspace);
-
     if (!canManageTasks(workspace, project, userId)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Only the workspace owner or project managers can delete tasks.',
-      });
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
     }
 
-    const projectId = task.project;
-    const assigneeId = task.assignee?.toString();
-
-    task.isDeleted = true;
+    // Soft delete -> trash
+    task.isTrash = true;
+    task.trashedAt = new Date();
+    task.isArchived = false;
     await task.save();
-    await Feedback.deleteMany({ task: taskId });
 
-    for (const att of task.attachments || []) {
-      if (att.publicId) {
-        cloudinary.uploader.destroy(att.publicId).catch(() => {});
-      }
-    }
-
-    await updateProjectProgress(projectId);
-
-    if (assigneeId) {
-      notifyUsers(assigneeId, {
-        title: `Task deleted: "${task.title}"`,
-        body: `The task "${task.title}" has been deleted from the project.`,
-        data: { projectId: project._id.toString() },
-        emailEventType: 'taskUpdate',
-      });
-    }
-
-    res.status(200).json({ success: true, message: 'Task deleted' });
+    res.status(200).json({ success: true, message: 'Task moved to trash (auto‑delete in 30 days).' });
   } catch (error) {
     console.error('❌ Delete task error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
+const archiveTask = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId } = req.params;
+
+    const task = await Task.findOne({ _id: taskId, isDeleted: false });
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
+
+    const project = await Project.findById(task.project);
+    const workspace = await Workspace.findById(project.workspace);
+    if (!canManageTasks(workspace, project, userId)) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    task.isArchived = true;
+    task.archivedAt = new Date();
+    task.isTrash = false;
+    await task.save();
+
+    res.status(200).json({ success: true, message: 'Task archived' });
+  } catch (error) {
+    console.error('❌ Archive task error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const restoreTask = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId } = req.params;
+
+    const task = await Task.findOne({ _id: taskId, isDeleted: false });
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
+
+    const project = await Project.findById(task.project);
+    const workspace = await Workspace.findById(project.workspace);
+    if (!canManageTasks(workspace, project, userId)) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    task.isArchived = false;
+    task.isTrash = false;
+    task.trashedAt = null;
+    await task.save();
+
+    res.status(200).json({ success: true, message: 'Task restored' });
+  } catch (error) {
+    console.error('❌ Restore task error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const permanentlyDeleteTask = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId } = req.params;
+
+    const task = await Task.findById(taskId);
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
+
+    const project = await Project.findById(task.project);
+    const workspace = await Workspace.findById(project.workspace);
+    if (!canManageTasks(workspace, project, userId)) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    await Feedback.deleteMany({ task: taskId });
+    for (const att of task.attachments || []) {
+      if (att.publicId) {
+        cloudinary.uploader.destroy(att.publicId).catch(() => {});
+      }
+    }
+    await Task.findByIdAndDelete(taskId);
+    await updateProjectProgress(project._id);
+
+    res.status(200).json({ success: true, message: 'Task permanently deleted.' });
+  } catch (error) {
+    console.error('❌ Permanent delete error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // ─────────────────────────────────────────────────────────────────────
-// ADD COMMENT
+// COMMENTS
 // POST /api/tasks/:taskId/comments
 // ─────────────────────────────────────────────────────────────────────
 const addComment = async (req, res) => {
@@ -1203,9 +1131,7 @@ const addComment = async (req, res) => {
     }
 
     const task = await Task.findOne({ _id: taskId, isDeleted: false });
-    if (!task) {
-      return res.status(404).json({ success: false, message: 'Task not found.' });
-    }
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
 
     const project = await Project.findById(task.project);
     const workspace = await Workspace.findById(project.workspace);
@@ -1217,9 +1143,9 @@ const addComment = async (req, res) => {
     task.comments.push({ user: userId, comment: comment.trim(), mentions, attachments });
     await task.save();
 
-    const validMentions = mentions.filter(mentionId =>
-      project.teamMembers.some(tm => tm.user.toString() === mentionId && tm.status === 'active') ||
-      project.projectManagers.some(pm => pm.toString() === mentionId) ||
+    const validMentions = mentions.filter((mentionId) =>
+      project.teamMembers.some((tm) => tm.user.toString() === mentionId && tm.status === 'active') ||
+      project.projectManagers.some((pm) => pm.toString() === mentionId) ||
       (task.assignee && task.assignee.toString() === mentionId)
     );
     if (validMentions.length > 0) {
@@ -1232,7 +1158,6 @@ const addComment = async (req, res) => {
     }
 
     const updated = await Task.findById(taskId).populate('comments.user', 'name email profile');
-
     res.status(201).json({ success: true, message: 'Comment added', comments: updated.comments });
   } catch (error) {
     console.error('❌ Add comment error:', error);
@@ -1251,9 +1176,7 @@ const getTaskFeedback = async (req, res) => {
     const { type } = req.query;
 
     const task = await Task.findById(taskId);
-    if (!task) {
-      return res.status(404).json({ success: false, message: 'Task not found.' });
-    }
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
 
     const project = await Project.findById(task.project);
     const workspace = await Workspace.findById(project.workspace);
@@ -1280,25 +1203,18 @@ const getTaskFeedback = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// POST /api/tasks/reminders  (Controller – for manual trigger or cron)
+// REMINDERS (manual + cron)
 // ─────────────────────────────────────────────────────────────────────
 const sendTaskReminders = async (req, res) => {
   try {
     const count = await checkAndSendReminders();
-    res.status(200).json({
-      success: true,
-      message: `Reminders sent for ${count} tasks/sub‑tasks.`,
-      count,
-    });
+    res.status(200).json({ success: true, message: `Reminders sent for ${count} tasks/sub‑tasks.`, count });
   } catch (error) {
     console.error('❌ Send reminders error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// POST /api/tasks/:taskId/remind (Manual reminder – PM/Owner only)
-// ─────────────────────────────────────────────────────────────────────
 const sendManualReminder = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1308,46 +1224,29 @@ const sendManualReminder = async (req, res) => {
     const task = await Task.findOne({ _id: taskId, isDeleted: false })
       .populate('assignee', 'name email');
 
-    if (!task) {
-      return res.status(404).json({ success: false, message: 'Task not found.' });
-    }
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
 
     const project = await Project.findById(task.project);
     const workspace = await Workspace.findById(project.workspace);
 
     if (!canManageTasks(workspace, project, userId)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Only the workspace owner or project managers can send manual reminders.',
-      });
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
     }
 
     if (!task.assignee) {
-      return res.status(400).json({
-        success: false,
-        message: 'This task has no assignee to remind.',
-      });
+      return res.status(400).json({ success: false, message: 'Task has no assignee.' });
     }
 
     const customMessage = message || 'Please check your task and complete it.';
     await notifyUsers(task.assignee._id, {
       title: `📢 Manual Reminder: Task "${task.title}"`,
-      body: `${req.user.name} reminded you about the task "${task.title}". ${customMessage}`,
+      body: `${req.user.name} reminded you: ${customMessage}`,
       data: { taskId: task._id.toString(), projectId: project._id.toString() },
       emailEventType: 'taskUpdate',
-      emailHtml: `
-        <h3>Task Reminder</h3>
-        <p>Task: <strong>${task.title}</strong></p>
-        <p>Project: ${project.name}</p>
-        <p>Message: ${customMessage}</p>
-        <p><a href="${process.env.CLIENT_URL}/tasks/${task._id}">View Task</a></p>
-      `,
+      emailHtml: `<p>${customMessage}</p><p><a href="${process.env.CLIENT_URL}/tasks/${task._id}">View Task</a></p>`,
     });
 
-    res.status(200).json({
-      success: true,
-      message: `Manual reminder sent to ${task.assignee.name}.`,
-    });
+    res.status(200).json({ success: true, message: `Reminder sent to ${task.assignee.name}.` });
   } catch (error) {
     console.error('❌ Manual reminder error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -1355,7 +1254,387 @@ const sendManualReminder = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// EXPORTS
+// FOLDERS (CRUD)
+// ─────────────────────────────────────────────────────────────────────
+const createFolder = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { projectId, name } = req.body;
+
+    if (!projectId || !name?.trim()) {
+      return res.status(400).json({ success: false, message: 'projectId and name are required.' });
+    }
+
+    const project = await Project.findById(projectId);
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
+
+    const workspace = await Workspace.findById(project.workspace);
+    if (!canManageTasks(workspace, project, userId)) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    const folder = await Folder.create({
+      name: name.trim(),
+      project: projectId,
+      workspace: project.workspace,
+      createdBy: userId,
+    });
+
+    res.status(201).json({ success: true, folder });
+  } catch (error) {
+    console.error('❌ Create folder error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const updateFolder = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { folderId } = req.params;
+    const { name } = req.body;
+
+    const folder = await Folder.findById(folderId);
+    if (!folder) return res.status(404).json({ success: false, message: 'Folder not found.' });
+
+    const project = await Project.findById(folder.project);
+    const workspace = await Workspace.findById(project.workspace);
+    if (!canManageTasks(workspace, project, userId)) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    folder.name = name?.trim() || folder.name;
+    await folder.save();
+
+    res.status(200).json({ success: true, folder });
+  } catch (error) {
+    console.error('❌ Update folder error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const deleteFolder = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { folderId } = req.params;
+
+    const folder = await Folder.findById(folderId);
+    if (!folder) return res.status(404).json({ success: false, message: 'Folder not found.' });
+
+    const project = await Project.findById(folder.project);
+    const workspace = await Workspace.findById(project.workspace);
+    if (!canManageTasks(workspace, project, userId)) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    await Task.updateMany({ folder: folderId }, { $set: { folder: null } });
+    await Folder.findByIdAndDelete(folderId);
+
+    res.status(200).json({ success: true, message: 'Folder deleted, tasks unlinked.' });
+  } catch (error) {
+    console.error('❌ Delete folder error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const getProjectFolders = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const project = await Project.findById(projectId);
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
+
+    const folders = await Folder.find({ project: projectId }).sort({ order: 1 });
+    res.status(200).json({ success: true, folders });
+  } catch (error) {
+    console.error('❌ Get folders error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// COPY / MOVE TASK (between folders)
+// ─────────────────────────────────────────────────────────────────────
+const copyTask = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId } = req.params;
+    const { targetFolderId } = req.body;
+
+    const original = await Task.findOne({ _id: taskId, isDeleted: false, isTrash: { $ne: true } });
+    if (!original) return res.status(404).json({ success: false, message: 'Task not found.' });
+
+    const project = await Project.findById(original.project);
+    const workspace = await Workspace.findById(project.workspace);
+    if (!canManageTasks(workspace, project, userId)) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    if (targetFolderId) {
+      const folder = await Folder.findById(targetFolderId);
+      if (!folder || folder.project.toString() !== original.project.toString()) {
+        return res.status(400).json({ success: false, message: 'Invalid target folder.' });
+      }
+    }
+
+    const taskData = original.toObject();
+    delete taskData._id;
+    delete taskData.createdAt;
+    delete taskData.updatedAt;
+    taskData.folder = targetFolderId || original.folder;
+    taskData.title = `${taskData.title} (copy)`;
+    taskData.status = 'pending';
+    taskData.progress = 0;
+    taskData.subTasks = taskData.subTasks.map((st) => ({ ...st, status: 'pending' }));
+
+    const newTask = await Task.create(taskData);
+
+    const populated = await Task.findById(newTask._id)
+      .populate('assignee', 'name email profile')
+      .populate('createdBy', 'name email profile')
+      .populate('folder', 'name');
+
+    res.status(201).json({ success: true, message: 'Task copied', task: populated });
+  } catch (error) {
+    console.error('❌ Copy task error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const moveTask = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId } = req.params;
+    const { targetFolderId } = req.body;
+
+    const task = await Task.findOne({ _id: taskId, isDeleted: false, isTrash: { $ne: true } });
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
+
+    const project = await Project.findById(task.project);
+    const workspace = await Workspace.findById(project.workspace);
+    if (!canManageTasks(workspace, project, userId)) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    if (targetFolderId) {
+      const folder = await Folder.findById(targetFolderId);
+      if (!folder || folder.project.toString() !== task.project.toString()) {
+        return res.status(400).json({ success: false, message: 'Invalid target folder.' });
+      }
+      task.folder = targetFolderId;
+    } else {
+      task.folder = null;
+    }
+
+    await task.save();
+    const updated = await Task.findById(taskId).populate('folder', 'name');
+    res.status(200).json({ success: true, message: 'Task moved', task: updated });
+  } catch (error) {
+    console.error('❌ Move task error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// ALL‑URGENT TASKS (project + personal)
+// ─────────────────────────────────────────────────────────────────────
+const getAllUrgentTasks = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // 1. Project tasks (visible to user)
+    const userProjects = await Project.find({
+      $or: [
+        { projectManagers: userId },
+        { 'teamMembers.user': userId, 'teamMembers.status': 'active' },
+      ],
+    }).select('_id');
+
+    const projectIds = userProjects.map((p) => p._id);
+
+    const projectTasks = await Task.find({
+      project: { $in: projectIds },
+      isDeleted: false,
+      isTrash: { $ne: true },
+      isArchived: { $ne: true },
+      status: { $nin: ['completed', 'cancelled'] },
+      $or: [
+        { assignee: userId },
+        { createdBy: userId },
+        { project: { $in: projectIds } },
+      ],
+    })
+      .populate('project', 'name workspace')
+      .populate('assignee', 'name email')
+      .populate('folder', 'name')
+      .lean();
+
+    // 2. Personal tasks
+    const personalTasks = await PersonalTask.find({
+      user: userId,
+      isTrash: { $ne: true },
+      isArchived: { $ne: true },
+      status: { $ne: 'completed' },
+    })
+      .populate('folder', 'name')
+      .lean();
+
+    // 3. Urgency scoring
+    const now = new Date();
+    const priorityWeight = { urgent: 100, high: 75, medium: 50, low: 25 };
+
+    const scoreTask = (task, isPersonal = false) => {
+      let score = 0;
+      if (!isPersonal) {
+        score += priorityWeight[task.priority] || 0;
+        if (task.dueDate) {
+          const diffHours = (new Date(task.dueDate) - now) / (1000 * 60 * 60);
+          if (diffHours <= 0) score += 200;
+          else if (diffHours < 24) score += 100;
+          else if (diffHours < 72) score += 50;
+        }
+        if (task.status === 'ready_for_completion') score += 30;
+      } else {
+        score += priorityWeight[task.priority] || 0;
+        if (task.dueDate) {
+          const diffHours = (new Date(task.dueDate) - now) / (1000 * 60 * 60);
+          if (diffHours <= 0) score += 200;
+          else if (diffHours < 24) score += 100;
+          else if (diffHours < 72) score += 50;
+        }
+      }
+      return score;
+    };
+
+    const enrichedProjectTasks = projectTasks.map((t) => ({
+      ...t,
+      source: 'project',
+      urgency: scoreTask(t),
+    }));
+    const enrichedPersonalTasks = personalTasks.map((t) => ({
+      ...t,
+      source: 'personal',
+      urgency: scoreTask(t, true),
+    }));
+
+    const allTasks = [...enrichedProjectTasks, ...enrichedPersonalTasks];
+    allTasks.sort((a, b) => b.urgency - a.urgency);
+
+    res.status(200).json({ success: true, tasks: allTasks, count: allTasks.length });
+  } catch (error) {
+    console.error('❌ All urgent tasks error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// CRON HELPERS (called externally)
+// ─────────────────────────────────────────────────────────────────────
+const checkAndSendReminders = async () => {
+  const now = new Date();
+  const currentTime = now.toTimeString().slice(0, 5);
+
+  let reminderCount = 0;
+
+  // Hour‑before due date
+  const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000);
+  const tasksDueSoon = await Task.find({
+    isDeleted: false,
+    isTrash: { $ne: true },
+    dueDate: { $gte: now, $lte: oneHourLater },
+    reminderSent: { $ne: true },
+    status: { $nin: ['completed', 'confirmed_completed', 'cancelled'] },
+  }).populate('assignee', 'name email');
+
+  for (const task of tasksDueSoon) {
+    if (task.assignee) {
+      await notifyUsers(task.assignee._id, {
+        title: `⏰ Reminder: Task "${task.title}" due soon`,
+        body: `The task "${task.title}" is due within 1 hour.`,
+        data: { taskId: task._id.toString(), projectId: task.project.toString() },
+        emailEventType: 'taskUpdate',
+      });
+      task.reminderSent = true;
+      await task.save();
+      reminderCount++;
+    }
+  }
+
+  // Daily custom reminders
+  const tasksWithDaily = await Task.find({
+    isDeleted: false,
+    isTrash: { $ne: true },
+    dailyReminderTime: currentTime,
+    status: { $nin: ['completed', 'confirmed_completed', 'cancelled'] },
+    $or: [
+      { lastDailyReminderSent: { $lt: new Date(now.toDateString()) } },
+      { lastDailyReminderSent: null },
+    ],
+  }).populate('assignee', 'name email');
+
+  for (const task of tasksWithDaily) {
+    if (task.assignee) {
+      await notifyUsers(task.assignee._id, {
+        title: `📅 Daily reminder: "${task.title}"`,
+        body: `Your daily reminder for task "${task.title}".`,
+        data: { taskId: task._id.toString(), projectId: task.project.toString() },
+        emailEventType: 'taskUpdate',
+      });
+      task.lastDailyReminderSent = now;
+      await task.save();
+      reminderCount++;
+    }
+  }
+
+  // Personal tasks daily reminders
+  const personalTasks = await PersonalTask.find({
+    isTrash: { $ne: true },
+    status: { $ne: 'completed' },
+    dailyReminderTime: currentTime,
+    $or: [
+      { lastDailyReminderSent: { $lt: new Date(now.toDateString()) } },
+      { lastDailyReminderSent: null },
+    ],
+  }).populate('user', 'name email');
+
+  for (const ptask of personalTasks) {
+    if (ptask.user) {
+      await notifyUsers(ptask.user._id, {
+        title: `📅 Personal reminder: "${ptask.title}"`,
+        body: `Your daily reminder for personal task "${ptask.title}".`,
+        data: { personalTaskId: ptask._id.toString() },
+        emailEventType: 'taskUpdate',
+      });
+      ptask.lastDailyReminderSent = now;
+      await ptask.save();
+      reminderCount++;
+    }
+  }
+
+  return reminderCount;
+};
+
+const permanentlyDeleteTrashedTasks = async () => {
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  const trashedTasks = await Task.find({ isTrash: true, trashedAt: { $lte: thirtyDaysAgo } });
+  for (const task of trashedTasks) {
+    await Feedback.deleteMany({ task: task._id });
+    for (const att of task.attachments || []) {
+      if (att.publicId) cloudinary.uploader.destroy(att.publicId).catch(() => {});
+    }
+    await Task.findByIdAndDelete(task._id);
+  }
+
+  const trashedPersonal = await PersonalTask.find({
+    isTrash: true,
+    trashedAt: { $lte: thirtyDaysAgo },
+  });
+  for (const ptask of trashedPersonal) {
+    await PersonalTask.findByIdAndDelete(ptask._id);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// EXPORT
 // ─────────────────────────────────────────────────────────────────────
 export {
   createTask,
@@ -1373,9 +1652,20 @@ export {
   getMyTasks,
   getTaskById,
   deleteTask,
+  archiveTask,
+  restoreTask,
+  permanentlyDeleteTask,
+  createFolder,
+  updateFolder,
+  deleteFolder,
+  getProjectFolders,
+  copyTask,
+  moveTask,
   addComment,
   getTaskFeedback,
   sendTaskReminders,
   sendManualReminder,
+  getAllUrgentTasks,
   checkAndSendReminders,
+  permanentlyDeleteTrashedTasks,
 };
