@@ -199,6 +199,12 @@ const statusOptions = [
   { value: 'completed', label: 'Completed', icon: <FaCheckCircle className="text-green-400" /> },
   { value: 'confirmed_completed', label: 'Confirmed', icon: <FaCheckCircle className="text-green-600" /> },
 ];
+const taskTypeOptions = [
+  { value: 'general', label: 'General' },
+  { value: 'feature', label: 'Feature' },
+  { value: 'bug', label: 'Bug' },
+  { value: 'improvement', label: 'Improvement' },
+];
 
 // ─── Modals ──────────────────────────────────────────────────────────
 const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = 'Confirm', cancelText = 'Cancel', danger = false }) => {
@@ -1648,7 +1654,7 @@ const MyWorkspaceProjectId = () => {
 
       {showEditTask && selectedTask && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
+          <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between mb-4">
               <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200"><FaEdit className="inline mr-1 text-[#0d9488]" /> Edit Task</h2>
               <button onClick={() => setShowEditTask(false)} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"><FaTimes /></button>
@@ -1810,13 +1816,18 @@ const MyWorkspaceProjectId = () => {
 const CreateTaskForm = ({ projectId, brandColor, assignableMembers, folders, onSuccess }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [taskType, setTaskType] = useState('general');
   const [assigneeId, setAssigneeId] = useState('');
   const [priority, setPriority] = useState('medium');
   const [startDate, setStartDate] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [estimatedHours, setEstimatedHours] = useState('');
+  const [bufferTime, setBufferTime] = useState(0);
+  const [links, setLinks] = useState('');
+  const [allowAssigneeEditSubtasks, setAllowAssigneeEditSubtasks] = useState(false);
   const [folderId, setFolderId] = useState(null);
   const [dailyReminderTime, setDailyReminderTime] = useState('');
+  const [attachments, setAttachments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [createTask] = useCreateTaskMutation();
 
@@ -1879,13 +1890,18 @@ const CreateTaskForm = ({ projectId, brandColor, assignableMembers, folders, onS
       fd.append('projectId', projectId);
       fd.append('title', title.trim());
       fd.append('description', description.trim());
+      fd.append('taskType', taskType);
       if (assigneeId) fd.append('assigneeId', assigneeId);
       fd.append('priority', priority);
       if (startDate) fd.append('startDate', new Date(startDate).toISOString());
       if (dueDate) fd.append('dueDate', new Date(dueDate).toISOString());
       if (estimatedHours) fd.append('estimatedHours', estimatedHours);
+      fd.append('bufferTime', bufferTime);
+      fd.append('links', JSON.stringify(links.split('\n').filter(Boolean)));
+      fd.append('allowAssigneeEditSubtasks', allowAssigneeEditSubtasks);
       if (folderId) fd.append('folderId', folderId);
       if (dailyReminderTime) fd.append('dailyReminderTime', dailyReminderTime);
+      attachments.forEach(file => fd.append('attachments', file));
       await createTask(fd).unwrap();
       toast.success('Task created');
       onSuccess();
@@ -1903,6 +1919,7 @@ const CreateTaskForm = ({ projectId, brandColor, assignableMembers, folders, onS
         <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
         <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
       </div>
+      <CustomDropdown label="Task Type" options={taskTypeOptions} value={taskType} onChange={setTaskType} brandColor={brandColor} />
       <CustomDropdown label="Folder" options={folderOpts} value={folderId} onChange={setFolderId} brandColor={brandColor} />
       <CustomDropdown label="Assignee" options={assigneeOpts} value={assigneeId} onChange={setAssigneeId} brandColor={brandColor} />
       <div className="grid grid-cols-2 gap-3">
@@ -1931,13 +1948,31 @@ const CreateTaskForm = ({ projectId, brandColor, assignableMembers, folders, onS
         </div>
         <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">Sets start date to now and due date accordingly</p>
       </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Est. Hours</label>
+          <input type="number" step="0.5" value={estimatedHours} onChange={e => setEstimatedHours(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Buffer Time (hours)</label>
+          <input type="number" step="0.5" value={bufferTime} onChange={e => setBufferTime(parseFloat(e.target.value) || 0)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
+        </div>
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Links (one per line)</label>
+        <textarea value={links} onChange={e => setLinks(e.target.value)} rows={2} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" placeholder="https://..." />
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Attachments</label>
+        <input type="file" multiple onChange={e => setAttachments([...e.target.files])} className="text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-[#0d9488]/20 file:text-[#0d9488]" />
+      </div>
+      <div className="flex items-center gap-2">
+        <input type="checkbox" id="allowAssigneeEditSubtasks" checked={allowAssigneeEditSubtasks} onChange={e => setAllowAssigneeEditSubtasks(e.target.checked)} className="w-4 h-4 rounded border-gray-300 dark:border-gray-700 text-[#0d9488] focus:ring-[#0d9488]" />
+        <label htmlFor="allowAssigneeEditSubtasks" className="text-xs text-gray-700 dark:text-gray-300">Allow assignee to add/edit sub‑tasks</label>
+      </div>
       <div>
         <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Daily Reminder Time</label>
         <input type="time" value={dailyReminderTime} onChange={e => setDailyReminderTime(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Est. Hours</label>
-        <input type="number" step="0.5" value={estimatedHours} onChange={e => setEstimatedHours(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
       </div>
       <div className="flex gap-3 pt-2">
         <button type="button" onClick={() => {}} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
@@ -1950,13 +1985,19 @@ const CreateTaskForm = ({ projectId, brandColor, assignableMembers, folders, onS
 const EditTaskForm = ({ task, brandColor, assignableMembers, folders, onSuccess }) => {
   const [title, setTitle] = useState(task?.title || '');
   const [description, setDescription] = useState(task?.description || '');
+  const [taskType, setTaskType] = useState(task?.taskType || 'general');
   const [assigneeId, setAssigneeId] = useState(task?.assignee?._id || '');
   const [priority, setPriority] = useState(task?.priority || 'medium');
   const [startDate, setStartDate] = useState(task?.startDate ? new Date(task.startDate).toISOString().slice(0, 16) : '');
   const [dueDate, setDueDate] = useState(task?.dueDate ? new Date(task.dueDate).toISOString().slice(0, 16) : '');
   const [status, setStatus] = useState(task?.status || 'pending');
+  const [estimatedHours, setEstimatedHours] = useState(task?.estimatedHours || '');
+  const [bufferTime, setBufferTime] = useState(task?.bufferTime || 0);
+  const [links, setLinks] = useState((task?.links || []).join('\n'));
+  const [allowAssigneeEditSubtasks, setAllowAssigneeEditSubtasks] = useState(task?.allowAssigneeEditSubtasks || false);
   const [folderId, setFolderId] = useState(task?.folder?._id || null);
   const [dailyReminderTime, setDailyReminderTime] = useState(task?.dailyReminderTime || '');
+  const [attachments, setAttachments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [updateTask] = useUpdateTaskMutation();
 
@@ -1979,13 +2020,19 @@ const EditTaskForm = ({ task, brandColor, assignableMembers, folders, onSuccess 
       const fd = new FormData();
       fd.append('title', title.trim());
       fd.append('description', description.trim());
+      fd.append('taskType', taskType);
       if (assigneeId) fd.append('assigneeId', assigneeId);
       fd.append('priority', priority);
       if (startDate) fd.append('startDate', new Date(startDate).toISOString());
       if (dueDate) fd.append('dueDate', new Date(dueDate).toISOString());
       fd.append('status', status);
+      if (estimatedHours) fd.append('estimatedHours', estimatedHours);
+      fd.append('bufferTime', bufferTime);
+      fd.append('links', JSON.stringify(links.split('\n').filter(Boolean)));
+      fd.append('allowAssigneeEditSubtasks', allowAssigneeEditSubtasks);
       if (folderId) fd.append('folderId', folderId);
       if (dailyReminderTime) fd.append('dailyReminderTime', dailyReminderTime);
+      attachments.forEach(file => fd.append('attachments', file));
       await updateTask({ taskId: task._id, data: fd }).unwrap();
       toast.success('Task updated');
       onSuccess();
@@ -2003,6 +2050,7 @@ const EditTaskForm = ({ task, brandColor, assignableMembers, folders, onSuccess 
         <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
         <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
       </div>
+      <CustomDropdown label="Task Type" options={taskTypeOptions} value={taskType} onChange={setTaskType} brandColor={brandColor} />
       <CustomDropdown label="Status" options={statusOptions} value={status} onChange={setStatus} brandColor={brandColor} />
       <CustomDropdown label="Folder" options={folderOpts} value={folderId} onChange={setFolderId} brandColor={brandColor} />
       <CustomDropdown label="Assignee" options={assigneeOpts} value={assigneeId} onChange={setAssigneeId} brandColor={brandColor} />
@@ -2016,6 +2064,28 @@ const EditTaskForm = ({ task, brandColor, assignableMembers, folders, onSuccess 
       <div>
         <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Due Date & Time</label>
         <input type="datetime-local" value={dueDate} onChange={e => setDueDate(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Est. Hours</label>
+          <input type="number" step="0.5" value={estimatedHours} onChange={e => setEstimatedHours(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Buffer Time (hours)</label>
+          <input type="number" step="0.5" value={bufferTime} onChange={e => setBufferTime(parseFloat(e.target.value) || 0)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
+        </div>
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Links (one per line)</label>
+        <textarea value={links} onChange={e => setLinks(e.target.value)} rows={2} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" placeholder="https://..." />
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Attachments</label>
+        <input type="file" multiple onChange={e => setAttachments([...e.target.files])} className="text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-[#0d9488]/20 file:text-[#0d9488]" />
+      </div>
+      <div className="flex items-center gap-2">
+        <input type="checkbox" id="allowAssigneeEditSubtasks-edit" checked={allowAssigneeEditSubtasks} onChange={e => setAllowAssigneeEditSubtasks(e.target.checked)} className="w-4 h-4 rounded border-gray-300 dark:border-gray-700 text-[#0d9488] focus:ring-[#0d9488]" />
+        <label htmlFor="allowAssigneeEditSubtasks-edit" className="text-xs text-gray-700 dark:text-gray-300">Allow assignee to add/edit sub‑tasks</label>
       </div>
       <div>
         <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Daily Reminder Time</label>

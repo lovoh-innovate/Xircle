@@ -766,16 +766,19 @@ export const getChatMessages = async (req, res) => {
 
     // Exclude messages archived by this user
     const messages = await Message.find({
-      chat: chatId,
-      isDeleted: false,
-      archivedBy: { $ne: userId } // exclude archived messages
-    })
-      .populate("sender", "name email profile")
-      .populate("mentions", "name email profile")
-      .populate("replyTo")
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit);
+  chat: chatId,
+  isDeleted: false,
+  archivedBy: { $ne: userId } // exclude archived messages
+})
+  .populate("sender", "name email profile")
+  .populate("mentions", "name email profile")
+  .populate({
+    path: "replyTo",
+    populate: { path: "sender", select: "name email profile" },
+  })
+  .sort({ createdAt: -1 })
+  .skip((page - 1) * limit)
+  .limit(limit);
 
     await Message.updateMany(
       {
@@ -908,10 +911,12 @@ export const sendMessage = async (req, res) => {
 
     // 6. Populate message
     const populatedMessage = await Message.findById(message._id)
-      .populate("sender", "name email profile")
-      .populate("mentions", "name email profile")
-      .populate("replyTo");
-    console.log(`✅ Message populated`);
+  .populate("sender", "name email profile")
+  .populate("mentions", "name email profile")
+  .populate({
+    path: "replyTo",
+    populate: { path: "sender", select: "name email profile" },
+  });
 
     // 7. Clear typing indicator
     await TypingIndicator.deleteOne({ chat: chatId, user: userId });

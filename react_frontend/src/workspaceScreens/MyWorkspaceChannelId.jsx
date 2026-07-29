@@ -1,5 +1,5 @@
 // src/workspaceScreens/MyWorkspaceChannelId.jsx
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate, Link, useSearchParams } from "react-router-dom";
 import { useSelector } from "react-redux";
 import { useGetWorkspaceQuery } from "../slices/workspaceApiSlice";
@@ -59,7 +59,9 @@ import {
   FaRegStar,
   FaSignOutAlt,
   FaPen,
-  FaExclamationTriangle
+  FaExclamationTriangle,
+  FaSpinner,
+  FaReply,
 } from "react-icons/fa";
 import { toast } from "react-toastify";
 import { useSocket } from "../components/SocketContext.jsx";
@@ -73,6 +75,21 @@ const formatTime = (seconds) => {
 
 const LOCK_THRESHOLD = 80;
 const SEEN_TICK_COLOR = "#34B7F1";
+const SWIPE_REPLY_THRESHOLD = 60; // px to drag right before reply triggers
+const SWIPE_REPLY_MAX = 72; // cap visual drag distance
+
+// ─── Media Query hook ──────────────────────────────────────────────────
+const useMediaQuery = (query) => {
+  const [matches, setMatches] = useState(false);
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    if (media.matches !== matches) setMatches(media.matches);
+    const listener = () => setMatches(media.matches);
+    media.addEventListener("change", listener);
+    return () => media.removeEventListener("change", listener);
+  }, [matches, query]);
+  return matches;
+};
 
 // ─── Confirm Modal ────────────────────────────────────────────────
 const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = "Confirm", cancelText = "Cancel", danger = false }) => {
@@ -102,7 +119,10 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmText 
 };
 
 // ─── Prompt Modal ──────────────────────────────────────────────────
-const PromptModal = ({ isOpen, onClose, onConfirm, title, label, placeholder = "", initialValue = "", confirmText = "Save" }) => {
+// NOTE: previously this referenced `brandColor` without it being passed in as a
+// prop at all, which would throw a ReferenceError the moment the modal opened.
+// Fixed by accepting `brandColor` as a prop and passing it in from the parent.
+const PromptModal = ({ isOpen, onClose, onConfirm, title, label, placeholder = "", initialValue = "", confirmText = "Save", brandColor }) => {
   const [value, setValue] = useState(initialValue);
 
   useEffect(() => {
@@ -283,6 +303,109 @@ const AddParticipantModal = ({
   );
 };
 
+// ─── Message Action Modal (mobile long-press) ──────────────────────────
+const MessageActionModal = ({
+  isOpen,
+  onClose,
+  message,
+  isOwn,
+  isStarred,
+  isArchived,
+  onDelete,
+  onArchive,
+  onUnarchive,
+  onStar,
+  onUnstar,
+  onReply,
+  brandColor,
+}) => {
+  if (!isOpen || !message) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 dark:bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="bg-white dark:bg-[#14141a] rounded-t-2xl w-full max-w-lg p-5 transform transition-transform duration-300"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxHeight: "70vh", overflowY: "auto" }}
+      >
+        <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-200 dark:border-gray-700/60">
+          <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-500 dark:text-gray-400">
+            {message.messageType === "image" ? <FaImage className="text-sm" /> : <FaComment className="text-sm" />}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+              {message.content ? message.content.substring(0, 60) : (message.mediaName || "Media")}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              {new Date(message.createdAt).toLocaleString()}
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <button
+            onClick={() => { onReply(message); onClose(); }}
+            className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+          >
+            <FaReply className="text-sm" />
+            <span className="text-sm font-medium">Reply</span>
+          </button>
+          {isOwn && (
+            <button
+              onClick={() => { onDelete(message._id); onClose(); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition"
+            >
+              <FaTrashAlt className="text-sm" />
+              <span className="text-sm font-medium">Delete for everyone</span>
+            </button>
+          )}
+          {isStarred ? (
+            <button
+              onClick={() => { onUnstar(message._id); onClose(); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 transition"
+            >
+              <FaStar className="text-sm" />
+              <span className="text-sm font-medium">Unstar</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => { onStar(message._id); onClose(); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+            >
+              <FaRegStar className="text-sm" />
+              <span className="text-sm font-medium">Star</span>
+            </button>
+          )}
+          {isArchived ? (
+            <button
+              onClick={() => { onUnarchive(message._id); onClose(); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition"
+            >
+              <FaUndo className="text-sm" />
+              <span className="text-sm font-medium">Unarchive</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => { onArchive(message._id); onClose(); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+            >
+              <FaArchive className="text-sm" />
+              <span className="text-sm font-medium">Archive</span>
+            </button>
+          )}
+        </div>
+
+        <button
+          onClick={onClose}
+          className="w-full mt-3 py-3 text-center text-sm font-medium text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700/60 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/30 transition"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+};
+
 // ─── Message status ticks ────────────────────────────────────────
 const MessageTicks = ({ message, isOwn, isDM }) => {
   if (!isOwn) return null;
@@ -384,7 +507,92 @@ const ImagePreviewModal = ({ imageUrl, onClose, senderName, time }) => {
   );
 };
 
-// ─── Media Message Component (with archive/star) ────────────────────
+// ─── Quoted reply preview (rendered inside a sent/received message) ──
+const QuotedReplyBlock = ({ replyData, isOwn, brandColor, onJump }) => {
+  if (!replyData) return null;
+  const name = replyData.senderName || "Unknown";
+  const text = replyData.content
+    ? replyData.content
+    : replyData.mediaName
+    ? `📎 ${replyData.mediaName}`
+    : replyData.messageType === "image"
+    ? "📷 Photo"
+    : replyData.messageType === "audio"
+    ? "🎤 Voice note"
+    : replyData.messageType === "video"
+    ? "🎥 Video"
+    : "Media";
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); onJump && onJump(replyData.id); }}
+      className={`block w-full text-left mb-1.5 px-2.5 py-1.5 rounded-lg border-l-2 text-xs cursor-pointer transition ${
+        isOwn
+          ? "bg-black/10 border-white/60 hover:bg-black/20"
+          : "bg-black/[0.04] dark:bg-white/[0.06] hover:bg-black/[0.07] dark:hover:bg-white/[0.1]"
+      }`}
+      style={!isOwn ? { borderLeftColor: brandColor } : {}}
+    >
+      <p
+        className={`font-semibold truncate ${isOwn ? "text-white/90" : ""}`}
+        style={isOwn ? {} : { color: brandColor }}
+      >
+        {name}
+      </p>
+      <p className={`truncate ${isOwn ? "text-white/70" : "text-gray-500 dark:text-gray-400"}`}>{text}</p>
+    </button>
+  );
+};
+
+// Resolves a message's replyTo reference into displayable data.
+// Handles both a populated object (from backend) and a raw id (looked up locally).
+const resolveReplyPreview = (msg, allMessages) => {
+  const replyTo = msg?.replyTo;
+  if (!replyTo) return null;
+
+  if (typeof replyTo === "object") {
+    return {
+      id: replyTo._id,
+      senderName: replyTo.sender?.name || replyTo.senderName || "Unknown",
+      content: replyTo.content,
+      mediaName: replyTo.mediaName,
+      messageType: replyTo.messageType,
+    };
+  }
+
+  const original = allMessages?.find((m) => m._id === replyTo);
+  if (!original) return null;
+
+  return {
+    id: original._id,
+    senderName: original.sender?.name || "Unknown",
+    content: original.content,
+    mediaName: original.mediaName,
+    messageType: original.messageType,
+  };
+};
+
+// ─── Reply Preview Bar ──────────────────────────────────────────────
+const ReplyPreview = ({ replyTo, onCancel, brandColor }) => {
+  if (!replyTo) return null;
+  const senderName = replyTo.sender?.name || "Unknown";
+  const content = replyTo.content || (replyTo.mediaName ? `📎 ${replyTo.mediaName}` : "Media");
+
+  return (
+    <div className="flex items-center justify-between px-3 py-2 mb-2 bg-gray-100 dark:bg-gray-800/60 rounded-lg border-l-4 border-teal-500 dark:border-[#0d9488]">
+      <div className="flex-1 min-w-0">
+        <span className="text-xs font-semibold text-teal-600 dark:text-teal-400">Replying to {senderName}</span>
+        <p className="text-sm text-gray-700 dark:text-gray-300 truncate">{content}</p>
+      </div>
+      <button onClick={onCancel} className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition">
+        <FaTimes className="text-sm" />
+      </button>
+    </div>
+  );
+};
+
+// ─── Media Message Component (with archive/star/reply) ────────────────────
 const MediaMessage = ({
   message,
   isOwn,
@@ -398,7 +606,12 @@ const MediaMessage = ({
   onUnarchive,
   onStar,
   onUnstar,
+  onReply,
   userId,
+  isMobile,
+  onLongPress,
+  allMessages,
+  onJumpToMessage,
 }) => {
   const time = new Date(message.createdAt).toLocaleTimeString("en-US", {
     hour: "2-digit",
@@ -407,9 +620,87 @@ const MediaMessage = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const audioRef = useRef(null);
+  const longPressTimer = useRef(null);
+  const isLongPress = useRef(false);
+
+  // ── Swipe-to-reply (mobile) ──
+  const touchStartRef = useRef({ x: 0, y: 0 });
+  const [swipeX, setSwipeX] = useState(0);
+  const swipeTriggered = useRef(false);
+  const swipeActive = useRef(false);
 
   const isArchived = message.archivedBy?.some(id => id === userId) || false;
   const isStarred = message.starredBy?.some(id => id === userId) || false;
+  const replyPreview = resolveReplyPreview(message, allMessages);
+
+  const menuRef = useRef(null);
+  useEffect(() => {
+    const handler = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setShowMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // ── Long press + swipe combined touch handling for mobile ──
+  const handleTouchStart = (e) => {
+    if (!isMobile) return;
+    const touch = e.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    isLongPress.current = false;
+    swipeTriggered.current = false;
+    swipeActive.current = false;
+    longPressTimer.current = setTimeout(() => {
+      isLongPress.current = true;
+      onLongPress(message);
+    }, 500);
+  };
+
+  const handleTouchMove = (e) => {
+    if (!isMobile) return;
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - touchStartRef.current.x;
+    const deltaY = touch.clientY - touchStartRef.current.y;
+
+    if (Math.abs(deltaX) > 8 || Math.abs(deltaY) > 8) {
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current);
+        longPressTimer.current = null;
+      }
+    }
+
+    if (deltaX > 8 && Math.abs(deltaX) > Math.abs(deltaY)) {
+      swipeActive.current = true;
+      const capped = Math.min(deltaX, SWIPE_REPLY_MAX);
+      setSwipeX(capped);
+      if (capped >= SWIPE_REPLY_THRESHOLD && !swipeTriggered.current) {
+        swipeTriggered.current = true;
+        if (navigator.vibrate) navigator.vibrate(10);
+      }
+    }
+  };
+
+  const handleTouchEnd = (e) => {
+    if (!isMobile) return;
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+
+    if (swipeTriggered.current) {
+      onReply(message);
+    }
+    setSwipeX(0);
+    swipeTriggered.current = false;
+
+    if (isLongPress.current || swipeActive.current) {
+      e.preventDefault();
+      isLongPress.current = false;
+      swipeActive.current = false;
+    }
+  };
 
   const handleDownload = (e) => {
     e.stopPropagation();
@@ -516,11 +807,190 @@ const MediaMessage = ({
     }
   };
 
+  const swipeStyle = {
+    transform: `translateX(${swipeX}px)`,
+    transition: swipeX === 0 ? "transform 0.2s ease" : "none",
+  };
+  const swipeIconOpacity = Math.min(swipeX / SWIPE_REPLY_THRESHOLD, 1);
+
   // Image messages without bubble
   if (message.messageType === "image") {
     return (
       <div
+        data-message-id={message._id}
+        className="relative"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onTouchMove={handleTouchMove}
+      >
+        {isMobile && swipeX > 0 && (
+          <div
+            className="absolute left-0 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
+            style={{ opacity: swipeIconOpacity }}
+          >
+            <FaReply className="text-sm" />
+          </div>
+        )}
+        <div className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`} style={isMobile ? swipeStyle : undefined}>
+          {!isOwn && (
+            <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
+              {senderProfile ? (
+                <img
+                  src={senderProfile}
+                  alt={senderName}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div
+                  className="w-full h-full flex items-center justify-center text-white text-xs font-bold"
+                  style={{ backgroundColor: brandColor }}
+                >
+                  {senderName?.charAt(0).toUpperCase() || "?"}
+                </div>
+              )}
+            </div>
+          )}
+          <div
+            className={`max-w-[85%] ${isOwn ? "items-end" : "items-start"} flex flex-col`}
+          >
+            {!isOwn && (
+              <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1 mb-0.5">
+                {senderName}
+              </span>
+            )}
+            {replyPreview && (
+              <div className="w-full mb-1">
+                <QuotedReplyBlock replyData={replyPreview} isOwn={isOwn} brandColor={brandColor} onJump={onJumpToMessage} />
+              </div>
+            )}
+            <div
+              className="relative rounded-2xl overflow-hidden cursor-pointer group"
+              onClick={() =>
+                onImageClick &&
+                onImageClick({
+                  url: message.mediaUrl,
+                  senderName: isOwn ? "You" : senderName,
+                  time,
+                })
+              }
+            >
+              <img
+                src={message.mediaUrl}
+                alt={message.mediaName || "Image"}
+                className="max-w-full max-h-80 object-cover w-full"
+              />
+              <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 text-[10px] text-white bg-black/50 px-2 py-0.5 rounded-full">
+                <span>{time}</span>
+                <MessageTicks message={message} isOwn={isOwn} isDM={isDM} />
+              </div>
+              {!isMobile && (
+                <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition" ref={menuRef}>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowMenu(!showMenu);
+                    }}
+                    className="text-white bg-black/40 p-1 rounded-full hover:bg-black/60"
+                  >
+                    <FaEllipsisV className="text-xs" />
+                  </button>
+                  {showMenu && (
+                    <div className="absolute right-0 top-8 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[160px] z-10 py-1">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setShowMenu(false); onReply(message); }}
+                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+                      >
+                        <FaReply className="text-xs" /> Reply
+                      </button>
+                      {isOwn && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowMenu(false);
+                            onDelete && onDelete(message._id);
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full"
+                        >
+                          <FaTrashAlt className="text-xs" /> Delete
+                        </button>
+                      )}
+                      {isStarred ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowMenu(false);
+                            onUnstar(message._id);
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 rounded-lg transition w-full"
+                        >
+                          <FaStar className="text-xs" /> Unstar
+                        </button>
+                      ) : (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowMenu(false);
+                            onStar(message._id);
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+                        >
+                          <FaRegStar className="text-xs" /> Star
+                        </button>
+                      )}
+                      {isArchived ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowMenu(false);
+                            onUnarchive(message._id);
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 rounded-lg transition w-full"
+                        >
+                          <FaUndo className="text-xs" /> Unarchive
+                        </button>
+                      ) : (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowMenu(false);
+                            onArchive(message._id);
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+                        >
+                          <FaArchive className="text-xs" /> Archive
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Regular messages with bubble
+  return (
+    <div
+      data-message-id={message._id}
+      className="relative"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchMove={handleTouchMove}
+    >
+      {isMobile && swipeX > 0 && (
+        <div
+          className="absolute left-0 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
+          style={{ opacity: swipeIconOpacity }}
+        >
+          <FaReply className="text-sm" />
+        </div>
+      )}
+      <div
         className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
+        style={isMobile ? swipeStyle : undefined}
       >
         {!isOwn && (
           <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
@@ -541,50 +1011,62 @@ const MediaMessage = ({
           </div>
         )}
         <div
-          className={`max-w-[85%] ${isOwn ? "items-end" : "items-start"} flex flex-col`}
+          className={`max-w-[85%] ${isOwn ? "items-end" : "items-start"} flex flex-col gap-0.5`}
         >
           {!isOwn && (
-            <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1 mb-0.5">
+            <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1">
               {senderName}
             </span>
           )}
           <div
-            className="relative rounded-2xl overflow-hidden cursor-pointer group"
-            onClick={() =>
-              onImageClick &&
-              onImageClick({
-                url: message.mediaUrl,
-                senderName: isOwn ? "You" : senderName,
-                time,
-              })
-            }
+            className={`px-4 py-2.5 rounded-2xl text-sm break-words ${
+              isOwn
+                ? "text-white"
+                : "bg-gray-100 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200"
+            }`}
+            style={isOwn ? { backgroundColor: brandColor } : {}}
           >
-            <img
-              src={message.mediaUrl}
-              alt={message.mediaName || "Image"}
-              className="max-w-full max-h-80 object-cover w-full"
-            />
-            <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 text-[10px] text-white bg-black/50 px-2 py-0.5 rounded-full">
-              <span>{time}</span>
-              <MessageTicks message={message} isOwn={isOwn} isDM={isDM} />
-            </div>
-            {isOwn && (
-              <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition">
+            {replyPreview && (
+              <QuotedReplyBlock replyData={replyPreview} isOwn={isOwn} brandColor={brandColor} onJump={onJumpToMessage} />
+            )}
+            {message.content && <p className="mb-2">{message.content}</p>}
+            {renderMediaContent()}
+          </div>
+          <div
+            className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 ${isOwn ? "flex-row-reverse" : ""}`}
+          >
+            <span>{time}</span>
+            <MessageTicks message={message} isOwn={isOwn} isDM={isDM} />
+            {!isMobile && (
+              <div className="relative ml-2" ref={menuRef}>
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowMenu(!showMenu);
-                  }}
-                  className="text-white bg-black/40 p-1 rounded-full hover:bg-black/60"
+                  onClick={() => setShowMenu(!showMenu)}
+                  className="text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition p-0.5"
                 >
                   <FaEllipsisV className="text-xs" />
                 </button>
                 {showMenu && (
-                  <div className="absolute right-0 top-8 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[150px] z-10">
+                  <div className="absolute right-0 bottom-6 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[160px] z-10 py-1">
+                    <button
+                      onClick={() => { setShowMenu(false); onReply(message); }}
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+                    >
+                      <FaReply className="text-xs" /> Reply
+                    </button>
+                    {isOwn && (
+                      <button
+                        onClick={() => {
+                          setShowMenu(false);
+                          onDelete && onDelete(message._id);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full"
+                      >
+                        <FaTrashAlt className="text-xs" /> Delete
+                      </button>
+                    )}
                     {isStarred ? (
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
+                        onClick={() => {
                           setShowMenu(false);
                           onUnstar(message._id);
                         }}
@@ -594,8 +1076,7 @@ const MediaMessage = ({
                       </button>
                     ) : (
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
+                        onClick={() => {
                           setShowMenu(false);
                           onStar(message._id);
                         }}
@@ -606,8 +1087,7 @@ const MediaMessage = ({
                     )}
                     {isArchived ? (
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
+                        onClick={() => {
                           setShowMenu(false);
                           onUnarchive(message._id);
                         }}
@@ -617,8 +1097,7 @@ const MediaMessage = ({
                       </button>
                     ) : (
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
+                        onClick={() => {
                           setShowMenu(false);
                           onArchive(message._id);
                         }}
@@ -627,138 +1106,11 @@ const MediaMessage = ({
                         <FaArchive className="text-xs" /> Archive
                       </button>
                     )}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowMenu(false);
-                        onDelete && onDelete(message._id);
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full"
-                    >
-                      <FaTrashAlt className="text-xs" /> Delete
-                    </button>
                   </div>
                 )}
               </div>
             )}
           </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Regular messages with bubble
-  return (
-    <div
-      className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
-    >
-      {!isOwn && (
-        <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
-          {senderProfile ? (
-            <img
-              src={senderProfile}
-              alt={senderName}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div
-              className="w-full h-full flex items-center justify-center text-white text-xs font-bold"
-              style={{ backgroundColor: brandColor }}
-            >
-              {senderName?.charAt(0).toUpperCase() || "?"}
-            </div>
-          )}
-        </div>
-      )}
-      <div
-        className={`max-w-[85%] ${isOwn ? "items-end" : "items-start"} flex flex-col gap-0.5`}
-      >
-        {!isOwn && (
-          <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1">
-            {senderName}
-          </span>
-        )}
-        <div
-          className={`px-4 py-2.5 rounded-2xl text-sm break-words ${
-            isOwn
-              ? "text-white"
-              : "bg-gray-100 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200"
-          }`}
-          style={isOwn ? { backgroundColor: brandColor } : {}}
-        >
-          {message.content && <p className="mb-2">{message.content}</p>}
-          {renderMediaContent()}
-        </div>
-        <div
-          className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 ${isOwn ? "flex-row-reverse" : ""}`}
-        >
-          <span>{time}</span>
-          <MessageTicks message={message} isOwn={isOwn} isDM={isDM} />
-          {isOwn && (
-            <div className="relative ml-2">
-              <button
-                onClick={() => setShowMenu(!showMenu)}
-                className="text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition p-0.5"
-              >
-                <FaEllipsisV className="text-xs" />
-              </button>
-              {showMenu && (
-                <div className="absolute right-0 bottom-6 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[150px] z-10">
-                  {isStarred ? (
-                    <button
-                      onClick={() => {
-                        setShowMenu(false);
-                        onUnstar(message._id);
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 rounded-lg transition w-full"
-                    >
-                      <FaStar className="text-xs" /> Unstar
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => {
-                        setShowMenu(false);
-                        onStar(message._id);
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
-                    >
-                      <FaRegStar className="text-xs" /> Star
-                    </button>
-                  )}
-                  {isArchived ? (
-                    <button
-                      onClick={() => {
-                        setShowMenu(false);
-                        onUnarchive(message._id);
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 rounded-lg transition w-full"
-                    >
-                      <FaUndo className="text-xs" /> Unarchive
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => {
-                        setShowMenu(false);
-                        onArchive(message._id);
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
-                    >
-                      <FaArchive className="text-xs" /> Archive
-                    </button>
-                  )}
-                  <button
-                    onClick={() => {
-                      setShowMenu(false);
-                      onDelete && onDelete(message._id);
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full"
-                  >
-                    <FaTrashAlt className="text-xs" /> Delete
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -994,6 +1346,9 @@ const MyWorkspaceChannelId = () => {
   const [previewImage, setPreviewImage] = useState(null);
   const [showDetailsSheet, setShowDetailsSheet] = useState(false);
 
+  // ── Device detection ──
+  const isMobile = useMediaQuery("(max-width: 768px)");
+
   // ── Modal states ────────────────────────────────────────────────
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
@@ -1014,6 +1369,17 @@ const MyWorkspaceChannelId = () => {
     isOpen: false,
     chatId: null,
   });
+  const [actionModal, setActionModal] = useState({
+    isOpen: false,
+    message: null,
+  });
+
+  // ── Reply & mention state ──────────────────────────────────────────
+  const [replyToMessage, setReplyToMessage] = useState(null);
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [showMentions, setShowMentions] = useState(false);
+  const [mentionSuggestions, setMentionSuggestions] = useState([]);
+  const [pendingMentions, setPendingMentions] = useState([]);
 
   // ── Focus input if queried (quick reply) ─────────────────────────
   const inputRef = useRef(null);
@@ -1101,6 +1467,20 @@ const MyWorkspaceChannelId = () => {
   );
   const userRole = userMembership?.role || "Member";
 
+  // ── Build participant map for mentions ──────────────────────────────
+  const participants = chat?.participants || [];
+  const usernameMap = React.useMemo(() => {
+    const map = new Map();
+    participants.forEach((p) => {
+      const user = p.user || {};
+      if (user._id && user.name) {
+        const key = user.username || user.name;
+        map.set(key.toLowerCase(), user._id);
+      }
+    });
+    return map;
+  }, [participants]);
+
   // ── Lock body scroll while this chat is mounted ─────────────────────
   useEffect(() => {
     document.body.style.overflow = 'hidden';
@@ -1143,6 +1523,20 @@ const MyWorkspaceChannelId = () => {
       setShowScrollDown(true);
     }
   }, [localMessages.length]);
+
+  // ── Jump to (and briefly highlight) a message when a quoted reply is tapped ──
+  const handleJumpToMessage = useCallback((messageId) => {
+    if (!messageId) return;
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const target = container.querySelector(`[data-message-id="${messageId}"]`);
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    target.classList.add("ring-2", "ring-teal-400", "rounded-2xl");
+    setTimeout(() => {
+      target.classList.remove("ring-2", "ring-teal-400", "rounded-2xl");
+    }, 1200);
+  }, []);
 
   // ── Join chat room + socket events ─────────────────────────────────
   useEffect(() => {
@@ -1232,6 +1626,99 @@ const MyWorkspaceChannelId = () => {
     }
   };
 
+  // ── Mention logic ──────────────────────────────────────────────────
+  const extractMentionsFromText = (text) => {
+    const matches = text.match(/@(\w+)/g);
+    if (!matches) return [];
+    const ids = [];
+    const seen = new Set();
+    matches.forEach((m) => {
+      const username = m.slice(1).toLowerCase();
+      const userId = usernameMap.get(username);
+      if (userId && !seen.has(userId)) {
+        seen.add(userId);
+        ids.push(userId);
+      }
+    });
+    return ids;
+  };
+
+  // Handles input change — the "@" mention UI is only ever driven by the user
+  // actually typing "@" themselves (never auto-inserted, e.g. on reply).
+  const handleMessageChange = (e) => {
+    const value = e.target.value;
+    setMessage(value);
+
+    const mentions = extractMentionsFromText(value);
+    setPendingMentions(mentions);
+
+    const cursorPos = e.target.selectionStart || 0;
+    const beforeCursor = value.slice(0, cursorPos);
+    const lastAt = beforeCursor.lastIndexOf("@");
+    if (lastAt !== -1) {
+      const afterAt = value.slice(lastAt + 1, cursorPos);
+      if (!afterAt.includes(" ")) {
+        setMentionQuery(afterAt);
+        setShowMentions(true);
+        const queryLower = afterAt.toLowerCase();
+        const filtered = participants
+          .map((p) => p.user)
+          .filter((u) => u && u._id !== userInfo?._id)
+          .filter((u) => {
+            const name = (u.name || "").toLowerCase();
+            const username = (u.username || "").toLowerCase();
+            return name.includes(queryLower) || username.includes(queryLower);
+          });
+        setMentionSuggestions(filtered);
+        return;
+      }
+    }
+    setShowMentions(false);
+    setMentionQuery("");
+    setMentionSuggestions([]);
+  };
+
+  const handleSelectMention = (user) => {
+    const value = message;
+    const cursorPos = inputRef.current?.selectionStart || 0;
+    const beforeCursor = value.slice(0, cursorPos);
+    const lastAt = beforeCursor.lastIndexOf("@");
+    if (lastAt === -1) return;
+    const beforeMention = value.slice(0, lastAt);
+    const afterCursor = value.slice(cursorPos);
+    const mentionText = `@${user.username || user.name} `;
+    const newValue = beforeMention + mentionText + afterCursor;
+    setMessage(newValue);
+    setShowMentions(false);
+    setMentionQuery("");
+    setMentionSuggestions([]);
+    setTimeout(() => {
+      if (inputRef.current) {
+        const newCursor = beforeMention.length + mentionText.length;
+        inputRef.current.selectionStart = newCursor;
+        inputRef.current.selectionEnd = newCursor;
+        inputRef.current.focus();
+      }
+    }, 0);
+  };
+
+  // ── Reply logic ────────────────────────────────────────────────────
+  // Replying just sets the reply target and focuses the input — it does not
+  // stuff "@SenderName" into the text box.
+  const handleReply = (msg) => {
+    setReplyToMessage(msg);
+    setTimeout(() => inputRef.current?.focus(), 100);
+  };
+
+  const cancelReply = () => {
+    setReplyToMessage(null);
+  };
+
+  // ── Long press handler for mobile ──────────────────────────────────
+  const handleLongPress = (msg) => {
+    setActionModal({ isOpen: true, message: msg });
+  };
+
   // ── Error / Loading ──────────────────────────────────────────────
   if (error) navigate("/my-workspaces");
   if (workspaceLoading || chatsLoading || messagesLoading) {
@@ -1277,7 +1764,7 @@ const MyWorkspaceChannelId = () => {
     return member?.user || null;
   };
 
-  // ── Send text message via socket (optimistic) ────────────────────
+  // ── Send text message via socket (optimistic, with mentions + reply) ─
   const handleSendMessage = (e) => {
     e.preventDefault();
     const trimmed = message.trim();
@@ -1296,10 +1783,23 @@ const MyWorkspaceChannelId = () => {
       createdAt: new Date().toISOString(),
       messageType: "text",
       chat: chatId,
+      mentions: pendingMentions,
+      replyTo: replyToMessage
+        ? {
+            _id: replyToMessage._id,
+            sender: replyToMessage.sender,
+            content: replyToMessage.content,
+            mediaName: replyToMessage.mediaName,
+            messageType: replyToMessage.messageType,
+          }
+        : null,
     };
 
     setLocalMessages((prev) => [...prev, optimisticMsg]);
     setMessage("");
+    const replyToId = replyToMessage?._id || null;
+    const mentions = pendingMentions;
+    setReplyToMessage(null);
 
     socket.emit(
       "send-message",
@@ -1307,8 +1807,8 @@ const MyWorkspaceChannelId = () => {
         chatId,
         content: trimmed,
         messageType: "text",
-        mentions: [],
-        replyToId: null,
+        mentions,
+        replyToId,
         mediaUrl: null,
         mediaName: null,
         mediaSize: null,
@@ -1345,9 +1845,16 @@ const MyWorkspaceChannelId = () => {
     const formData = new FormData();
     formData.append("media", file);
     formData.append("messageType", type === "image" ? "image" : "file");
+    if (pendingMentions.length > 0) {
+      formData.append("mentions", JSON.stringify(pendingMentions));
+    }
+    if (replyToMessage) {
+      formData.append("replyToId", replyToMessage._id);
+    }
     try {
       await sendMessageApi({ chatId, data: formData }).unwrap();
       toast.success(`${type === "image" ? "Image" : "File"} sent!`);
+      setReplyToMessage(null);
     } catch (err) {
       toast.error(err?.data?.message || `Failed to send ${type}`);
     } finally {
@@ -1363,11 +1870,18 @@ const MyWorkspaceChannelId = () => {
     formData.append("media", audioFile);
     formData.append("messageType", "audio");
     formData.append("mediaDuration", recordingTime.toString());
+    if (pendingMentions.length > 0) {
+      formData.append("mentions", JSON.stringify(pendingMentions));
+    }
+    if (replyToMessage) {
+      formData.append("replyToId", replyToMessage._id);
+    }
     try {
       await sendMessageApi({ chatId, data: formData }).unwrap();
       setRecordingBlob(null);
       setShowRecordedPreview(false);
       setRecordingTime(0);
+      setReplyToMessage(null);
     } catch (err) {
       toast.error(err?.data?.message || "Failed to send voice note");
     }
@@ -1550,10 +2064,7 @@ const MyWorkspaceChannelId = () => {
           toast.error("Name cannot be empty");
           return;
         }
-        // We don't have a dedicated rename endpoint; we'll show a toast and refetch.
-        // In a real implementation, you'd call an update endpoint.
         toast.info("Rename feature coming soon");
-        // If we had an update endpoint: await updateChat({ chatId, name: newName.trim() });
         refetchChats();
       },
     });
@@ -1893,7 +2404,12 @@ const MyWorkspaceChannelId = () => {
                     onUnarchive={handleUnarchiveMessage}
                     onStar={handleStarMessage}
                     onUnstar={handleUnstarMessage}
+                    onReply={handleReply}
                     userId={userInfo?._id}
+                    isMobile={isMobile}
+                    onLongPress={handleLongPress}
+                    allMessages={localMessages}
+                    onJumpToMessage={handleJumpToMessage}
                   />
                 );
               })
@@ -1921,6 +2437,13 @@ const MyWorkspaceChannelId = () => {
             paddingBottom: 'calc(0.5rem + var(--safe-bottom))',
           }}
         >
+          {/* Reply Preview Bar */}
+          <ReplyPreview
+            replyTo={replyToMessage}
+            onCancel={cancelReply}
+            brandColor={brandColor}
+          />
+
           {showRecordedPreview && recordingBlob && (
             <div className="flex items-center justify-between px-3 py-2 mb-2 bg-green-50 dark:bg-green-900/30 rounded-lg border border-green-200 dark:border-green-700/40">
               <div className="flex items-center gap-2">
@@ -2006,8 +2529,40 @@ const MyWorkspaceChannelId = () => {
 
           <form
             onSubmit={handleSendMessage}
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 relative"
           >
+            {/* Mention Suggestions Dropdown — only shown while actively typing "@" */}
+            {showMentions && (
+              <div className="absolute bottom-full left-0 right-0 mb-1 bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-xl shadow-lg max-h-48 overflow-y-auto z-40">
+                {mentionSuggestions.length > 0 ? (
+                  mentionSuggestions.map((user) => (
+                    <button
+                      key={user._id}
+                      onClick={() => handleSelectMention(user)}
+                      className="flex items-center gap-3 w-full px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+                    >
+                      {user.profile ? (
+                        <img src={user.profile} alt={user.name} className="w-8 h-8 rounded-full object-cover" />
+                      ) : (
+                        <div
+                          className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold"
+                          style={{ backgroundColor: brandColor }}
+                        >
+                          {user.name?.charAt(0).toUpperCase() || "?"}
+                        </div>
+                      )}
+                      <div className="text-left">
+                        <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{user.name}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">@{user.username || user.name}</p>
+                      </div>
+                    </button>
+                  ))
+                ) : (
+                  <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">No users found</div>
+                )}
+              </div>
+            )}
+
             <button
               type="button"
               onClick={() => handleFileUpload("file")}
@@ -2040,7 +2595,7 @@ const MyWorkspaceChannelId = () => {
               ref={inputRef}
               type="text"
               value={message}
-              onChange={(e) => setMessage(e.target.value)}
+              onChange={handleMessageChange}
               placeholder="Type a message..."
               className="flex-1 min-w-0 px-4 py-2 border border-gray-300 dark:border-gray-700/60 rounded-full bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500 dark:focus:ring-[#0d9488]"
             />
@@ -2110,6 +2665,7 @@ const MyWorkspaceChannelId = () => {
         label={promptModal.label}
         initialValue={promptModal.initialValue}
         placeholder={promptModal.placeholder}
+        brandColor={brandColor}
       />
 
       <AddParticipantModal
@@ -2124,6 +2680,23 @@ const MyWorkspaceChannelId = () => {
             : []
         }
         onSuccess={handleAddMemberSuccess}
+      />
+
+      {/* Mobile Action Modal (with Reply) */}
+      <MessageActionModal
+        isOpen={actionModal.isOpen}
+        onClose={() => setActionModal({ isOpen: false, message: null })}
+        message={actionModal.message}
+        isOwn={actionModal.message?.sender?._id === userInfo?._id || actionModal.message?.sender === userInfo?._id}
+        isStarred={actionModal.message?.starredBy?.some(id => id === userInfo?._id) || false}
+        isArchived={actionModal.message?.archivedBy?.some(id => id === userInfo?._id) || false}
+        onDelete={handleDeleteMessage}
+        onArchive={handleArchiveMessage}
+        onUnarchive={handleUnarchiveMessage}
+        onStar={handleStarMessage}
+        onUnstar={handleUnstarMessage}
+        onReply={handleReply}
+        brandColor={brandColor}
       />
     </div>
   );

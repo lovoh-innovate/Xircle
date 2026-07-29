@@ -1,3 +1,4 @@
+// models/folderModel.js
 import mongoose from 'mongoose';
 
 const folderSchema = new mongoose.Schema(
@@ -25,6 +26,13 @@ const folderSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    // ✅ ADD THIS FIELD
+    readOnlyUsers: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
   },
   {
     timestamps: true,
@@ -32,5 +40,4 @@ const folderSchema = new mongoose.Schema(
 );
 
 const Folder = mongoose.model('Folder', folderSchema);
-
 export default Folder;
