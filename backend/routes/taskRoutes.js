@@ -21,7 +21,7 @@ import {
   getTaskFeedback,
   sendTaskReminders,
   sendManualReminder,
-  // New
+  // New from previous additions
   copyTask,
   moveTask,
   archiveTask,
@@ -32,6 +32,9 @@ import {
   deleteFolder,
   getProjectFolders,
   getAllUrgentTasks,
+  // New folder access management
+  addFolderReadOnly,
+  removeFolderReadOnly,
 } from '../controllers/taskController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import upload from '../middleware/uploadMiddleware.js';
@@ -49,6 +52,9 @@ router.get('/project/:projectId/folders', protect, getProjectFolders);
 router.post('/folders', protect, createFolder);               // expects { projectId, name }
 router.put('/folders/:folderId', protect, updateFolder);
 router.delete('/folders/:folderId', protect, deleteFolder);
+// ── Folder read‑only access management ──
+router.post('/folders/:folderId/read-only', protect, addFolderReadOnly);   // body: { users: [userId] }
+router.delete('/folders/:folderId/read-only', protect, removeFolderReadOnly); // body: { users: [userId] }
 
 // ── Task CRUD ──
 router.post(

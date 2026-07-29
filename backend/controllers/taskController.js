@@ -1,3 +1,4 @@
+// taskController.js
 import Task from '../models/taskModel.js';
 import Project from '../models/projectModel.js';
 import Workspace from '../models/workspaceModel.js';
@@ -31,6 +32,23 @@ const isProjectMember = (project, userId) =>
 
 const canManageTasks = (workspace, project, userId) =>
   isWorkspaceOwner(workspace, userId) || isProjectManager(project, userId);
+
+// Returns array of folder IDs that the user can see (assigned tasks OR read-only)
+const getVisibleFolderIdsForUser = async (projectId, userId) => {
+  const assignedFolders = await Task.distinct('folder', {
+    project: projectId,
+    assignee: userId,
+    folder: { $ne: null },
+    isDeleted: false,
+    isTrash: { $ne: true },
+  });
+  const readOnlyFolders = await Folder.distinct('_id', {
+    project: projectId,
+    readOnlyUsers: userId,
+  });
+  const all = new Set([...assignedFolders, ...readOnlyFolders]);
+  return Array.from(all);
+};
 
 const canViewTask = (workspace, project, userId, task) => {
   if (canManageTasks(workspace, project, userId)) return true;
@@ -165,7 +183,7 @@ const notifyUsers = async (
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// CREATE TASK (updated: folder, dailyReminderTime, self‑assign)
+// CREATE TASK
 // POST /api/tasks
 // ─────────────────────────────────────────────────────────────────────
 const createTask = async (req, res) => {
@@ -276,7 +294,7 @@ const createTask = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// UPDATE TASK (basic fields, folder, dailyReminderTime)
+// UPDATE TASK
 // PUT /api/tasks/:taskId
 // ─────────────────────────────────────────────────────────────────────
 const updateTask = async (req, res) => {
@@ -383,7 +401,7 @@ const updateTask = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// ASSIGN TASK (separate endpoint)
+// ASSIGN TASK
 // PATCH /api/tasks/:taskId/assign
 // ─────────────────────────────────────────────────────────────────────
 const assignTask = async (req, res) => {
@@ -431,7 +449,7 @@ const assignTask = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// SUB‑TASKS (all existing functions kept)
+// SUB‑TASKS
 // ─────────────────────────────────────────────────────────────────────
 
 const addSubTask = async (req, res) => {
@@ -589,12 +607,11 @@ const markSubTaskDone = async (req, res) => {
     await updateTaskProgress(task._id);
 
     const project = await Project.findById(task.project);
-    const managerIds = project.projectManagers.map((pm) => pm.toString());
-    const ownerId = workspace.owner?._id ? workspace.owner._id.toString() : null; // workspace from earlier
     const workspace = await Workspace.findById(project.workspace);
-    const ownerIdFinal = workspace.owner._id.toString();
+    const managerIds = project.projectManagers.map((pm) => pm.toString());
+    const ownerId = workspace.owner._id.toString();
     const recipients = [...managerIds];
-    if (ownerIdFinal && !recipients.includes(ownerIdFinal)) recipients.push(ownerIdFinal);
+    if (ownerId && !recipients.includes(ownerId)) recipients.push(ownerId);
 
     if (recipients.length > 0) {
       notifyUsers(recipients, {
@@ -769,8 +786,9 @@ const deleteSubTask = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// TASK COMPLETION (main task)
+// TASK COMPLETION
 // ─────────────────────────────────────────────────────────────────────
+
 const markTaskCompleted = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -878,7 +896,7 @@ const confirmTaskCompletion = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// GET PROJECT TASKS (with folder filter, archive/trash, user views)
+// GET PROJECT TASKS (with folder access control)
 // GET /api/tasks/project/:projectId
 // ─────────────────────────────────────────────────────────────────────
 const getProjectTasks = async (req, res) => {
@@ -916,14 +934,10 @@ const getProjectTasks = async (req, res) => {
     if (isOwner || isPM) {
       if (assigneeId) query.assignee = assigneeId;
     } else {
-      const assignedFolderIds = await Task.distinct('folder', {
-        project: projectId,
-        assignee: userId,
-        folder: { $ne: null },
-      });
+      const visibleFolderIds = await getVisibleFolderIdsForUser(projectId, userId);
       query.$or = [
         { assignee: userId },
-        { folder: { $in: assignedFolderIds } },
+        { folder: { $in: visibleFolderIds } },
       ];
     }
 
@@ -941,7 +955,7 @@ const getProjectTasks = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// GET MY TASKS (across all projects)
+// GET MY TASKS
 // GET /api/tasks/my-tasks
 // ─────────────────────────────────────────────────────────────────────
 const getMyTasks = async (req, res) => {
@@ -968,7 +982,7 @@ const getMyTasks = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// GET SINGLE TASK (by id)
+// GET SINGLE TASK
 // GET /api/tasks/:taskId
 // ─────────────────────────────────────────────────────────────────────
 const getTaskById = async (req, res) => {
@@ -1002,9 +1016,8 @@ const getTaskById = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// DELETE / ARCHIVE / TRASH / PERMANENT DELETE (all three states)
+// DELETE / ARCHIVE / RESTORE / PERMANENT DELETE
 // ─────────────────────────────────────────────────────────────────────
-
 const deleteTask = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1019,7 +1032,6 @@ const deleteTask = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Not authorized.' });
     }
 
-    // Soft delete -> trash
     task.isTrash = true;
     task.trashedAt = new Date();
     task.isArchived = false;
@@ -1254,7 +1266,7 @@ const sendManualReminder = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// FOLDERS (CRUD)
+// FOLDERS (CRUD) – with access control
 // ─────────────────────────────────────────────────────────────────────
 const createFolder = async (req, res) => {
   try {
@@ -1338,11 +1350,27 @@ const deleteFolder = async (req, res) => {
 
 const getProjectFolders = async (req, res) => {
   try {
+    const userId = req.user.id;
     const { projectId } = req.params;
+
     const project = await Project.findById(projectId);
     if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
 
-    const folders = await Folder.find({ project: projectId }).sort({ order: 1 });
+    const workspace = await Workspace.findById(project.workspace);
+    const isOwner = isWorkspaceOwner(workspace, userId);
+    const isPM = isProjectManager(project, userId);
+
+    let folders;
+    if (isOwner || isPM) {
+      folders = await Folder.find({ project: projectId }).sort({ order: 1 });
+    } else {
+      const visibleFolderIds = await getVisibleFolderIdsForUser(projectId, userId);
+      folders = await Folder.find({
+        project: projectId,
+        _id: { $in: visibleFolderIds },
+      }).sort({ order: 1 });
+    }
+
     res.status(200).json({ success: true, folders });
   } catch (error) {
     console.error('❌ Get folders error:', error);
@@ -1351,7 +1379,82 @@ const getProjectFolders = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// COPY / MOVE TASK (between folders)
+// FOLDER ACCESS MANAGEMENT (add / remove read‑only users)
+// ─────────────────────────────────────────────────────────────────────
+const addFolderReadOnly = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { folderId } = req.params;
+    const { users } = req.body; // array of user IDs
+
+    if (!users || !Array.isArray(users) || users.length === 0) {
+      return res.status(400).json({ success: false, message: 'Provide an array of user IDs.' });
+    }
+
+    const folder = await Folder.findById(folderId);
+    if (!folder) return res.status(404).json({ success: false, message: 'Folder not found.' });
+
+    const project = await Project.findById(folder.project);
+    const workspace = await Workspace.findById(project.workspace);
+    if (!canManageTasks(workspace, project, userId)) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    const activeMemberIds = project.teamMembers
+      .filter(tm => tm.status === 'active')
+      .map(tm => tm.user.toString());
+    const validUsers = users.filter(id => activeMemberIds.includes(id));
+
+    if (validUsers.length === 0) {
+      return res.status(400).json({ success: false, message: 'No valid active members provided.' });
+    }
+
+    const current = folder.readOnlyUsers.map(id => id.toString());
+    const toAdd = validUsers.filter(id => !current.includes(id));
+    folder.readOnlyUsers.push(...toAdd);
+    await folder.save();
+
+    res.status(200).json({ success: true, message: `${toAdd.length} user(s) added to read‑only access.`, folder });
+  } catch (error) {
+    console.error('❌ Add folder read‑only error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const removeFolderReadOnly = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { folderId } = req.params;
+    const { users } = req.body; // array of user IDs
+
+    if (!users || !Array.isArray(users) || users.length === 0) {
+      return res.status(400).json({ success: false, message: 'Provide an array of user IDs.' });
+    }
+
+    const folder = await Folder.findById(folderId);
+    if (!folder) return res.status(404).json({ success: false, message: 'Folder not found.' });
+
+    const project = await Project.findById(folder.project);
+    const workspace = await Workspace.findById(project.workspace);
+    if (!canManageTasks(workspace, project, userId)) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    const toRemove = users.map(id => id.toString());
+    folder.readOnlyUsers = folder.readOnlyUsers.filter(
+      id => !toRemove.includes(id.toString())
+    );
+    await folder.save();
+
+    res.status(200).json({ success: true, message: `${toRemove.length} user(s) removed from read‑only access.`, folder });
+  } catch (error) {
+    console.error('❌ Remove folder read‑only error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// COPY / MOVE TASK
 // ─────────────────────────────────────────────────────────────────────
 const copyTask = async (req, res) => {
   try {
@@ -1440,7 +1543,6 @@ const getAllUrgentTasks = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // 1. Project tasks (visible to user)
     const userProjects = await Project.find({
       $or: [
         { projectManagers: userId },
@@ -1467,7 +1569,6 @@ const getAllUrgentTasks = async (req, res) => {
       .populate('folder', 'name')
       .lean();
 
-    // 2. Personal tasks
     const personalTasks = await PersonalTask.find({
       user: userId,
       isTrash: { $ne: true },
@@ -1477,7 +1578,6 @@ const getAllUrgentTasks = async (req, res) => {
       .populate('folder', 'name')
       .lean();
 
-    // 3. Urgency scoring
     const now = new Date();
     const priorityWeight = { urgent: 100, high: 75, medium: 50, low: 25 };
 
@@ -1526,7 +1626,7 @@ const getAllUrgentTasks = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// CRON HELPERS (called externally)
+// CRON HELPERS
 // ─────────────────────────────────────────────────────────────────────
 const checkAndSendReminders = async () => {
   const now = new Date();
@@ -1534,7 +1634,6 @@ const checkAndSendReminders = async () => {
 
   let reminderCount = 0;
 
-  // Hour‑before due date
   const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000);
   const tasksDueSoon = await Task.find({
     isDeleted: false,
@@ -1558,7 +1657,6 @@ const checkAndSendReminders = async () => {
     }
   }
 
-  // Daily custom reminders
   const tasksWithDaily = await Task.find({
     isDeleted: false,
     isTrash: { $ne: true },
@@ -1584,7 +1682,6 @@ const checkAndSendReminders = async () => {
     }
   }
 
-  // Personal tasks daily reminders
   const personalTasks = await PersonalTask.find({
     isTrash: { $ne: true },
     status: { $ne: 'completed' },
@@ -1659,6 +1756,8 @@ export {
   updateFolder,
   deleteFolder,
   getProjectFolders,
+  addFolderReadOnly,
+  removeFolderReadOnly,
   copyTask,
   moveTask,
   addComment,

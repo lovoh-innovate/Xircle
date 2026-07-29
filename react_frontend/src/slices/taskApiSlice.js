@@ -341,6 +341,33 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: ['Folder', 'Task'], // tasks become unlinked
     }),
+
+    // ─── Folder read‑only access management ──────────────────────
+    addFolderReadOnly: builder.mutation({
+      query: ({ folderId, users }) => ({
+        url: `${TASKS_URL}/folders/${folderId}/read-only`,
+        method: 'POST',
+        body: { users },
+      }),
+      invalidatesTags: (result, error, { folderId }) => [
+        { type: 'Folder', id: folderId },
+        'Folder',
+        'Task', // tasks visibility may change
+      ],
+    }),
+
+    removeFolderReadOnly: builder.mutation({
+      query: ({ folderId, users }) => ({
+        url: `${TASKS_URL}/folders/${folderId}/read-only`,
+        method: 'DELETE',
+        body: { users },
+      }),
+      invalidatesTags: (result, error, { folderId }) => [
+        { type: 'Folder', id: folderId },
+        'Folder',
+        'Task', // tasks visibility may change
+      ],
+    }),
   }),
 });
 
@@ -374,4 +401,6 @@ export const {
   useCreateFolderMutation,
   useUpdateFolderMutation,
   useDeleteFolderMutation,
+  useAddFolderReadOnlyMutation,
+  useRemoveFolderReadOnlyMutation,
 } = taskApiSlice;

@@ -31,6 +31,14 @@ import {
   useGetTaskFeedbackQuery,
   useAssignTaskMutation,
 } from '../slices/taskApiSlice';
+import {
+  useGetProjectFoldersQuery,
+  useCreateFolderMutation,
+  useUpdateFolderMutation,
+  useDeleteFolderMutation,
+  useAddFolderReadOnlyMutation,
+  useRemoveFolderReadOnlyMutation,
+} from '../slices/taskApiSlice'; // folder endpoints are in the same slice
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
 import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
 import {
@@ -74,6 +82,10 @@ import {
   FaArchive,
   FaUndo,
   FaTrashRestore,
+  FaFolderOpen,
+  FaLock,
+  FaUserLock,
+  FaUserEdit,
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
@@ -304,6 +316,7 @@ const TaskCard = ({ task, onClick, brandColor, isActive }) => {
   const due = task.dueDate ? new Date(task.dueDate) : null;
   const isOverdue = due && due < new Date() && task.status !== 'completed' && task.status !== 'confirmed_completed';
   const assignee = task.assignee;
+  const folderName = task.folder?.name;
 
   return (
     <div
@@ -336,6 +349,11 @@ const TaskCard = ({ task, onClick, brandColor, isActive }) => {
           {isOverdue && (
             <span className="text-[10px] text-red-500 dark:text-red-400 flex items-center gap-1">
               <FaClock className="text-[8px]" /> Overdue
+            </span>
+          )}
+          {folderName && (
+            <span className="text-[10px] text-gray-500 dark:text-gray-500 flex items-center gap-1">
+              <FaFolder className="text-[8px]" /> {folderName}
             </span>
           )}
         </div>
@@ -886,6 +904,7 @@ const TaskDetailView = ({
             <TaskStatusBadge status={task.status} />
             <TaskPriorityBadge priority={task.priority} />
             {task.assignee && <span className="text-gray-600 dark:text-gray-400 truncate">{task.assignee.name}</span>}
+            {task.folder && <span className="text-gray-600 dark:text-gray-400 truncate flex items-center gap-1"><FaFolder className="text-xs" /> {task.folder.name}</span>}
           </div>
         </div>
         <button onClick={() => setShowMenu(!showMenu)} className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition">
@@ -1026,8 +1045,213 @@ const TaskDetailView = ({
   );
 };
 
-// ─── Create Task Modal ──────────────────────────────────────────────────
-const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMembers, onSuccess }) => {
+// ─── Folder Management Modals ─────────────────────────────────────────
+
+// Create/Edit Folder Modal
+const FolderFormModal = ({ isOpen, onClose, onSuccess, folder, brandColor, projectId }) => {
+  const [name, setName] = useState(folder?.name || '');
+  const [loading, setLoading] = useState(false);
+  const [createFolder] = useCreateFolderMutation();
+  const [updateFolder] = useUpdateFolderMutation();
+
+  useEffect(() => {
+    if (folder) setName(folder.name);
+    else setName('');
+  }, [folder]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) { toast.error('Folder name required'); return; }
+    setLoading(true);
+    try {
+      if (folder) {
+        await updateFolder({ folderId: folder._id, name: name.trim() }).unwrap();
+        toast.success('Folder updated');
+      } else {
+        await createFolder({ projectId, name: name.trim() }).unwrap();
+        toast.success('Folder created');
+      }
+      onSuccess();
+      onClose();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
+        <div className="flex justify-between mb-4">
+          <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">
+            {folder ? <FaEdit className="inline mr-1 text-teal-600 dark:text-[#0d9488]" /> : <FaFolder className="inline mr-1 text-teal-600 dark:text-[#0d9488]" />}
+            {folder ? 'Edit Folder' : 'New Folder'}
+          </h2>
+          <button onClick={onClose} className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"><FaTimes /></button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Folder Name *</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none"
+            required
+          />
+          <div className="flex gap-3 mt-4">
+            <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
+            <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80" style={{ backgroundColor: brandColor }}>
+              {loading ? 'Saving...' : folder ? 'Update' : 'Create'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// Manage Folder Read-Only Users Modal
+const FolderReadOnlyModal = ({ isOpen, onClose, folder, project, brandColor, onSuccess }) => {
+  const [users, setUsers] = useState([]); // currently selected to add/remove
+  const [loading, setLoading] = useState(false);
+  const [addReadOnly] = useAddFolderReadOnlyMutation();
+  const [removeReadOnly] = useRemoveFolderReadOnlyMutation();
+
+  const activeTeam = (project?.teamMembers || []).filter(m => m.status === 'active');
+  const currentReadOnly = folder?.readOnlyUsers?.map(id => id.toString()) || [];
+  const available = activeTeam.filter(m => {
+    const uid = m.user?._id || m._id;
+    return uid && !currentReadOnly.includes(uid.toString());
+  });
+
+  // select users to add
+  const [selectedUsers, setSelectedUsers] = useState([]);
+
+  useEffect(() => {
+    setSelectedUsers([]);
+  }, [folder]);
+
+  const handleAdd = async () => {
+    if (selectedUsers.length === 0) { toast.error('Select at least one user'); return; }
+    setLoading(true);
+    try {
+      await addReadOnly({ folderId: folder._id, users: selectedUsers }).unwrap();
+      toast.success(`${selectedUsers.length} user(s) added`);
+      onSuccess();
+      onClose();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRemove = async (userId) => {
+    setLoading(true);
+    try {
+      await removeReadOnly({ folderId: folder._id, users: [userId] }).unwrap();
+      toast.success('User removed from read-only');
+      onSuccess();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen || !folder) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-lg w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between mb-4">
+          <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
+            <FaUserLock className="text-teal-600 dark:text-[#0d9488]" /> Read-Only Users
+            <span className="text-sm font-normal text-gray-500 dark:text-gray-400">- {folder.name}</span>
+          </h2>
+          <button onClick={onClose} className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"><FaTimes /></button>
+        </div>
+
+        {/* Current read-only users */}
+        <div className="mb-4">
+          <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">Current Read-Only Users</h4>
+          {currentReadOnly.length === 0 ? (
+            <p className="text-sm text-gray-500 dark:text-gray-500">No users have read-only access.</p>
+          ) : (
+            <div className="space-y-2">
+              {currentReadOnly.map((uid) => {
+                const member = activeTeam.find(m => (m.user?._id || m._id)?.toString() === uid);
+                const user = member?.user || member;
+                return (
+                  <div key={uid} className="flex items-center justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-xl px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      {user?.profile ? <img src={user.profile} className="w-6 h-6 rounded-full object-cover" alt="" /> : <FaUser className="text-gray-400 dark:text-gray-400" />}
+                      <span className="text-sm text-gray-800 dark:text-gray-200">{user?.name || 'Unknown'}</span>
+                    </div>
+                    <button
+                      onClick={() => handleRemove(uid)}
+                      disabled={loading}
+                      className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition"
+                    >
+                      <FaUserMinus className="text-xs" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Add users */}
+        {available.length > 0 && (
+          <div>
+            <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">Add Users</h4>
+            <div className="space-y-1 max-h-40 overflow-y-auto">
+              {available.map((m) => {
+                const user = m.user || m;
+                const uid = (user._id || m._id).toString();
+                const isChecked = selectedUsers.includes(uid);
+                return (
+                  <label key={uid} className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-[#1a1a24] rounded-xl cursor-pointer hover:bg-gray-100 dark:hover:bg-[#0d9488]/5 transition">
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={(e) => {
+                        if (e.target.checked) setSelectedUsers([...selectedUsers, uid]);
+                        else setSelectedUsers(selectedUsers.filter(id => id !== uid));
+                      }}
+                      className="accent-teal-600 dark:accent-[#0d9488]"
+                    />
+                    <span className="text-sm text-gray-800 dark:text-gray-200">{user?.name || 'Unknown'}</span>
+                  </label>
+                );
+              })}
+            </div>
+            <div className="flex gap-3 mt-3">
+              <button
+                onClick={handleAdd}
+                disabled={loading || selectedUsers.length === 0}
+                className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ backgroundColor: brandColor }}
+              >
+                {loading ? 'Adding...' : `Add ${selectedUsers.length} user(s)`}
+              </button>
+            </div>
+          </div>
+        )}
+        <div className="flex gap-3 mt-4">
+          <button onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Close</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Create Task Modal (with folder selection) ──────────────────────────
+const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMembers, folders, onSuccess }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [assigneeId, setAssigneeId] = useState('');
@@ -1039,6 +1263,7 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
   const [allowAssigneeEditSubtasks, setAllowAssigneeEditSubtasks] = useState(false);
   const [linksText, setLinksText] = useState('');
   const [attachments, setAttachments] = useState([]);
+  const [folderId, setFolderId] = useState('');
   const [loading, setLoading] = useState(false);
   const [createTask] = useCreateTaskMutation();
 
@@ -1103,6 +1328,11 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
     })
   ];
 
+  const folderOpts = [
+    { value: '', label: 'No Folder', icon: <FaFolderOpen className="text-gray-400 dark:text-gray-400" /> },
+    ...folders.map(f => ({ value: f._id, label: f.name, icon: <FaFolder className="text-gray-400 dark:text-gray-400" /> })),
+  ];
+
   const handleFile = (e) => { setAttachments(prev => [...prev, ...Array.from(e.target.files)]); e.target.value = ''; };
   const removeFile = (i) => setAttachments(prev => prev.filter((_, idx) => idx !== i));
 
@@ -1122,6 +1352,7 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
       fd.append('allowAssigneeEditSubtasks', allowAssigneeEditSubtasks ? 'true' : 'false');
       if (startDate) fd.append('startDate', startDate);
       if (dueDate) fd.append('dueDate', dueDate);
+      if (folderId) fd.append('folderId', folderId);
       linksText.split('\n').map(l => l.trim()).filter(Boolean).forEach(l => fd.append('links', l));
       attachments.forEach(f => fd.append('attachments', f));
       await createTask(fd).unwrap();
@@ -1151,6 +1382,7 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none" />
           </div>
           <CustomDropdown label="Assignee" options={assigneeOpts} value={assigneeId} onChange={setAssigneeId} placeholder="Select assignee" brandColor={brandColor} />
+          <CustomDropdown label="Folder" options={folderOpts} value={folderId} onChange={setFolderId} placeholder="Select folder" brandColor={brandColor} />
           <div className="grid grid-cols-2 gap-3">
             <CustomDropdown label="Priority" options={priorityOptions} value={priority} onChange={setPriority} brandColor={brandColor} />
             <div>
@@ -1216,8 +1448,8 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
   );
 };
 
-// ─── Edit Task Modal ────────────────────────────────────────────────────
-const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, onSuccess }) => {
+// ─── Edit Task Modal (with folder selection) ────────────────────────────
+const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, folders, onSuccess }) => {
   const [title, setTitle] = useState(task?.title || '');
   const [description, setDescription] = useState(task?.description || '');
   const [assigneeId, setAssigneeId] = useState(task?.assignee?._id || '');
@@ -1231,6 +1463,7 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, o
   const [linksText, setLinksText] = useState(task?.links?.join('\n') || '');
   const [attachments, setAttachments] = useState([]);
   const [existingAttachments, setExistingAttachments] = useState(task?.attachments || []);
+  const [folderId, setFolderId] = useState(task?.folder?._id || '');
   const [loading, setLoading] = useState(false);
   const [updateTask] = useUpdateTaskMutation();
 
@@ -1248,6 +1481,7 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, o
       setAllowAssigneeEditSubtasks(task.allowAssigneeEditSubtasks || false);
       setLinksText((task.links || []).join('\n'));
       setExistingAttachments(task.attachments || []);
+      setFolderId(task.folder?._id || '');
     }
   }, [task]);
 
@@ -1277,6 +1511,11 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, o
     })
   ];
 
+  const folderOpts = [
+    { value: '', label: 'No Folder', icon: <FaFolderOpen className="text-gray-400 dark:text-gray-400" /> },
+    ...folders.map(f => ({ value: f._id, label: f.name, icon: <FaFolder className="text-gray-400 dark:text-gray-400" /> })),
+  ];
+
   const handleFile = (e) => { setAttachments(prev => [...prev, ...Array.from(e.target.files)]); e.target.value = ''; };
   const removeNew = (i) => setAttachments(prev => prev.filter((_, idx) => idx !== i));
   const removeExisting = (i) => setExistingAttachments(prev => prev.filter((_, idx) => idx !== i));
@@ -1296,6 +1535,7 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, o
       fd.append('allowAssigneeEditSubtasks', allowAssigneeEditSubtasks ? 'true' : 'false');
       if (startDate) fd.append('startDate', startDate);
       if (dueDate) fd.append('dueDate', dueDate);
+      if (folderId) fd.append('folderId', folderId);
       linksText.split('\n').map(l => l.trim()).filter(Boolean).forEach(l => fd.append('links', l));
       attachments.forEach(f => fd.append('attachments', f));
       await updateTask({ taskId: task._id, data: fd }).unwrap();
@@ -1326,6 +1566,7 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, o
           </div>
           <CustomDropdown label="Status" options={statusOptions} value={status} onChange={setStatus} brandColor={brandColor} />
           <CustomDropdown label="Assignee" options={assigneeOpts} value={assigneeId} onChange={setAssigneeId} brandColor={brandColor} />
+          <CustomDropdown label="Folder" options={folderOpts} value={folderId} onChange={setFolderId} brandColor={brandColor} />
           <div className="grid grid-cols-2 gap-3">
             <CustomDropdown label="Priority" options={priorityOptions} value={priority} onChange={setPriority} brandColor={brandColor} />
             <div>
@@ -1459,6 +1700,13 @@ const YourWorkspaceProjectId = () => {
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assignTaskTarget, setAssignTaskTarget] = useState(null);
 
+  // ── Folder states ──
+  const [selectedFolderId, setSelectedFolderId] = useState(null);
+  const [showFolderForm, setShowFolderForm] = useState(false);
+  const [editingFolder, setEditingFolder] = useState(null);
+  const [showReadOnlyModal, setShowReadOnlyModal] = useState(false);
+  const [readOnlyFolder, setReadOnlyFolder] = useState(null);
+
   // ── Project-level archive/trash state ──
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
 
@@ -1481,9 +1729,14 @@ const YourWorkspaceProjectId = () => {
     managerId: '',
   });
 
+  // ── Data fetching ──
   const { data: wData, isLoading: wLoad, error: wErr } = useGetWorkspaceQuery(workspaceId);
   const { data: pData, isLoading: pLoad, error: pErr, refetch: refetchProject } = useGetProjectByIdQuery(projectId);
-  const { data: tData, isLoading: tLoad, refetch: refetchTasks } = useGetProjectTasksQuery({ projectId });
+  // fetch folders
+  const { data: foldersData, isLoading: foldersLoading, refetch: refetchFolders } = useGetProjectFoldersQuery(projectId);
+  const { data: tData, isLoading: tLoad, refetch: refetchTasks } = useGetProjectTasksQuery(
+    { projectId, folderId: selectedFolderId || undefined } // pass folderId filter
+  );
   const { data: feedbackData, isLoading: feedbackLoading } = useGetTaskFeedbackQuery(
     { taskId: selectedTaskId },
     { skip: !selectedTaskId }
@@ -1505,6 +1758,7 @@ const YourWorkspaceProjectId = () => {
 
   const workspace = wData?.workspace;
   const project = pData?.project;
+  const folders = foldersData?.folders || [];
   const tasks = tData?.tasks || [];
 
   const activeTeam = useMemo(() => (project?.teamMembers || []).filter(m => m.status === 'active'), [project?.teamMembers]);
@@ -1536,7 +1790,7 @@ const YourWorkspaceProjectId = () => {
   const isTrash = project?.isTrash || false;
 
   if (wErr || pErr) { navigate(`/workspace/${workspaceId}/projects`); return null; }
-  if (wLoad || pLoad || tLoad) return (
+  if (wLoad || pLoad || tLoad || foldersLoading) return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
       <div className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin" style={{ borderTopColor: brandColor }} />
     </div>
@@ -1730,6 +1984,7 @@ const YourWorkspaceProjectId = () => {
   const refreshAll = () => {
     refetchTasks();
     refetchProject();
+    refetchFolders();
   };
 
   const handleConfirmCompletion = async (taskId) => {
@@ -1767,6 +2022,49 @@ const YourWorkspaceProjectId = () => {
     setShowAssignModal(true);
   };
 
+  // ── Folder handlers ──
+  const handleCreateFolder = () => {
+    setEditingFolder(null);
+    setShowFolderForm(true);
+  };
+
+  const handleEditFolder = (folder) => {
+    setEditingFolder(folder);
+    setShowFolderForm(true);
+  };
+
+  const handleDeleteFolder = async (folder) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Folder',
+      message: `Are you sure you want to delete folder "${folder.name}"? Tasks will be unlinked but not deleted.`,
+      onConfirm: async () => {
+        try {
+          await useDeleteFolderMutation()[0](folder._id).unwrap();
+          toast.success('Folder deleted');
+          refetchFolders();
+          refetchTasks();
+          if (selectedFolderId === folder._id) setSelectedFolderId(null);
+        } catch (e) {
+          toast.error(e?.data?.message || 'Failed');
+        }
+      },
+      danger: true,
+    });
+  };
+
+  const handleManageReadOnly = (folder) => {
+    setReadOnlyFolder(folder);
+    setShowReadOnlyModal(true);
+  };
+
+  const handleFolderSelect = (folderId) => {
+    setSelectedFolderId(folderId === selectedFolderId ? null : folderId);
+    setSelectedTaskId(null);
+    setMobileShowDetail(false);
+  };
+
+  // ── Render ──
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
       {/* Desktop Sidebar */}
@@ -1807,6 +2105,14 @@ const YourWorkspaceProjectId = () => {
                     <span>{activeTeam.length} members</span>
                     <span className="w-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-full" />
                     <span>{projectProgress}% done</span>
+                    {selectedFolderId && (
+                      <>
+                        <span className="w-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-full" />
+                        <span className="text-teal-600 dark:text-[#0d9488] flex items-center gap-1">
+                          <FaFolder className="text-[10px]" /> {folders.find(f => f._id === selectedFolderId)?.name || 'Folder'}
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1910,12 +2216,75 @@ const YourWorkspaceProjectId = () => {
         <div className="flex-1 flex overflow-hidden">
           {/* Left Panel – List */}
           <div className={`${mobileShowDetail ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-2/5 lg:w-1/3 border-r border-gray-200/60 dark:border-gray-800/40 bg-white dark:bg-[#0f0f12] h-full`}>
+            {/* Folders Sidebar (only in tasks tab) */}
+            {activeTab === 'tasks' && (
+              <div className="border-b border-gray-200/60 dark:border-gray-800/30 px-3 py-2 bg-gray-50 dark:bg-[#14141a]/60">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Folders</span>
+                  {canManage && !isTrash && !isArchivedForMe && (
+                    <button onClick={handleCreateFolder} className="text-xs text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] transition font-medium flex items-center gap-1">
+                      <FaPlus className="text-[10px]" /> New
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    onClick={() => handleFolderSelect(null)}
+                    className={`text-xs px-2.5 py-1 rounded-full border transition ${
+                      !selectedFolderId
+                        ? 'bg-teal-600 dark:bg-[#0d9488] text-white border-teal-600 dark:border-[#0d9488]'
+                        : 'bg-gray-100 dark:bg-[#1e1e26] border-gray-300 dark:border-gray-700/60 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-800/30'
+                    }`}
+                  >
+                    All
+                  </button>
+                  {folders.map(f => (
+                    <div key={f._id} className="relative group flex items-center">
+                      <button
+                        onClick={() => handleFolderSelect(f._id)}
+                        className={`text-xs px-2.5 py-1 rounded-full border transition flex items-center gap-1 ${
+                          selectedFolderId === f._id
+                            ? 'bg-teal-600 dark:bg-[#0d9488] text-white border-teal-600 dark:border-[#0d9488]'
+                            : 'bg-gray-100 dark:bg-[#1e1e26] border-gray-300 dark:border-gray-700/60 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-800/30'
+                        }`}
+                      >
+                        <FaFolder className="text-[10px]" />
+                        {f.name}
+                      </button>
+                      {canManage && !isTrash && !isArchivedForMe && (
+                        <div className="hidden group-hover:flex items-center gap-0.5 ml-0.5">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleEditFolder(f); }}
+                            className="p-0.5 text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 transition"
+                          >
+                            <FaEdit className="text-[8px]" />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleManageReadOnly(f); }}
+                            className="p-0.5 text-gray-400 dark:text-gray-500 hover:text-teal-500 dark:hover:text-teal-400 transition"
+                          >
+                            <FaUserLock className="text-[8px]" />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteFolder(f); }}
+                            className="p-0.5 text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition"
+                          >
+                            <FaTrashAlt className="text-[8px]" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex-1 overflow-y-auto p-4">
               {activeTab === 'tasks' ? (
                 tasks.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-gray-400 dark:text-gray-500">
                     <FaTasks className="text-4xl mb-2 opacity-30" />
-                    <p className="text-sm">No tasks yet</p>
+                    <p className="text-sm">No tasks {selectedFolderId ? 'in this folder' : 'yet'}</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 gap-3">
@@ -2048,7 +2417,8 @@ const YourWorkspaceProjectId = () => {
         projectId={projectId}
         brandColor={brandColor}
         assignableMembers={assignableMembers}
-        onSuccess={() => { refetchTasks(); refetchProject(); }}
+        folders={folders}
+        onSuccess={() => { refetchTasks(); refetchProject(); refetchFolders(); }}
       />
       <EditTaskModal
         key={selectedTask?._id}
@@ -2060,7 +2430,8 @@ const YourWorkspaceProjectId = () => {
         task={selectedTask}
         brandColor={brandColor}
         assignableMembers={assignableMembers}
-        onSuccess={() => { refetchTasks(); refetchProject(); }}
+        folders={folders}
+        onSuccess={() => { refetchTasks(); refetchProject(); refetchFolders(); }}
       />
       <AddMemberModal
         isOpen={showAddMember}
@@ -2106,6 +2477,24 @@ const YourWorkspaceProjectId = () => {
         assignableMembers={assignableMembers}
         brandColor={brandColor}
         onAssign={handleAssignTask}
+      />
+
+      {/* ── Folder Modals ── */}
+      <FolderFormModal
+        isOpen={showFolderForm}
+        onClose={() => { setShowFolderForm(false); setEditingFolder(null); }}
+        onSuccess={() => { refetchFolders(); }}
+        folder={editingFolder}
+        brandColor={brandColor}
+        projectId={projectId}
+      />
+      <FolderReadOnlyModal
+        isOpen={showReadOnlyModal}
+        onClose={() => { setShowReadOnlyModal(false); setReadOnlyFolder(null); }}
+        folder={readOnlyFolder}
+        project={project}
+        brandColor={brandColor}
+        onSuccess={() => { refetchFolders(); }}
       />
 
       {/* ── Global Confirm Modals ── */}
