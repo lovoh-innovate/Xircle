@@ -14,25 +14,90 @@ import {
   addParticipant,
   removeParticipant,
   markChatAsRead,
-  updateOnlineStatus  // ← ADD THIS IMPORT
+  updateOnlineStatus,
+  // Public chat
+  createPublicDirectChat,
+  createPublicGroupChat,
+  searchPublicGroups,
+  requestJoinGroup,
+  handleJoinRequest,
+  getJoinRequests,
+  // Group admin
+  makeGroupAdmin,
+  removeGroupAdmin,
+  // Group deletion & members
+  deleteGroupChat,
+  getGroupMembers,
+  // Archiving & exiting
+  archiveChat,
+  unarchiveChat,
+  exitGroupChat,
+  // ── new message archive/star ──
+  archiveMessage,
+  unarchiveMessage,
+  starMessage,
+  unstarMessage,
 } from '../controllers/messagingController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import upload from '../middleware/uploadMiddleware.js';
+import multer from 'multer';
 
 const router = express.Router();
 
-// Chat management
+// ─── Chat management (workspace) ──────────────────────────────────────
 router.post('/group', protect, createGroupChat);
 router.post('/direct', protect, createDirectChat);
 router.get('/chats', protect, getUserChats);
 router.get('/search/users', protect, searchUsers);
 
-// Online status (NEW)
-router.post('/online-status', protect, updateOnlineStatus);  // ← ADD THIS
+// ─── Online status ────────────────────────────────────────────────────
+router.post('/online-status', protect, updateOnlineStatus);
 
-// Chat messages
+// ─── Public (outside workspace) chat endpoints ──────────────────────
+router.post('/public/direct', protect, createPublicDirectChat);
+router.post('/public/group', protect, createPublicGroupChat);
+router.get('/public/groups/search', protect, searchPublicGroups);
+router.post('/public/groups/:chatId/join-request', protect, requestJoinGroup);
+router.post('/public/groups/:chatId/join-request/:requestId', protect, handleJoinRequest);
+router.get('/public/groups/:chatId/join-requests', protect, getJoinRequests);
+
+// ─── Group admin management ──────────────────────────────────────────
+router.post('/:chatId/make-admin', protect, makeGroupAdmin);
+router.post('/:chatId/remove-admin', protect, removeGroupAdmin);
+
+// ─── Group deletion and member listing ──────────────────────────────
+router.delete('/group/:chatId', protect, deleteGroupChat);
+router.get('/group/:chatId/members', protect, getGroupMembers);
+
+// ─── Archiving and exiting (chat level) ─────────────────────────────
+router.post('/:chatId/archive', protect, archiveChat);
+router.post('/:chatId/unarchive', protect, unarchiveChat);
+router.post('/:chatId/exit', protect, exitGroupChat);
+
+// ─── Chat messages ────────────────────────────────────────────────────
 router.get('/:chatId', protect, getChatMessages);
 router.post('/:chatId', protect, upload.single('media'), sendMessage);
+router.delete('/:messageId', protect, deleteMessage);
+
+// ─── Message archive/star ─────────────────────────────────────────────
+router.post('/:messageId/archive', protect, archiveMessage);
+router.post('/:messageId/unarchive', protect, unarchiveMessage);
+router.post('/:messageId/star', protect, starMessage);
+router.post('/:messageId/unstar', protect, unstarMessage);
+
+// ─── Typing indicators ───────────────────────────────────────────────
+router.post('/:chatId/typing', protect, startTyping);
+router.delete('/:chatId/typing', protect, stopTyping);
+router.get('/:chatId/typing', protect, getTypingUsers);
+
+// ─── Read receipts ────────────────────────────────────────────────────
+router.post('/:chatId/read', protect, markChatAsRead);
+
+// ─── Participant management ──────────────────────────────────────────
+router.post('/:chatId/participants', protect, addParticipant);
+router.delete('/:chatId/participants/:userId', protect, removeParticipant);
+
+// ─── Error handling for multer ──────────────────────────────────────
 router.use((err, req, res, next) => {
   console.error('MIDDLEWARE ERROR:', err);
   if (err instanceof multer.MulterError) {
@@ -40,18 +105,5 @@ router.use((err, req, res, next) => {
   }
   next(err);
 });
-router.delete('/:messageId', protect, deleteMessage);
-
-// Typing indicators
-router.post('/:chatId/typing', protect, startTyping);
-router.delete('/:chatId/typing', protect, stopTyping);
-router.get('/:chatId/typing', protect, getTypingUsers);
-
-// Read receipts
-router.post('/:chatId/read', protect, markChatAsRead);
-
-// Participant management
-router.post('/:chatId/participants', protect, addParticipant);
-router.delete('/:chatId/participants/:userId', protect, removeParticipant);
 
 export default router;

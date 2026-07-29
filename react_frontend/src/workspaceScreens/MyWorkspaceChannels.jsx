@@ -5,14 +5,18 @@ import { useSelector } from 'react-redux';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
 import {
   useGetUserChatsQuery,
+  useLazyGetUserChatsQuery, // <-- import lazy query
   useCreateGroupChatMutation,
   useAddParticipantMutation,
+  useArchiveChatMutation,
+  useUnarchiveChatMutation,
+  useExitGroupChatMutation,
+  useDeleteGroupChatMutation,
 } from '../slices/messagingApiSlice';
 import { useGetMembersQuery } from '../slices/teamApiSlice';
 import MyWorkspaceSidebar from '../workspaceComponents/MyWorkspaceSidebar';
 import MyWorkspaceBottombar from '../workspaceComponents/MyWorkspaceBottombar';
 import {
-  FaHashtag,
   FaUsers,
   FaPlus,
   FaSearch,
@@ -21,13 +25,12 @@ import {
   FaUserPlus,
   FaCheck,
   FaSpinner,
-  FaCircle,
-  FaUserCircle,
-  FaCog,
-  FaRocket,
-  FaStar,
-  FaBell,
   FaCopy,
+  FaEllipsisV,
+  FaArchive,
+  FaUndo,
+  FaSignOutAlt,
+  FaTrashAlt,
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
@@ -47,6 +50,30 @@ const formatTime = (date) => {
     return d.toLocaleDateString('en-US', { weekday: 'short' });
   }
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+};
+
+// ─── Confirm Modal ──────────────────────────────────────────────────────
+const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = 'Confirm', danger = false }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">{title}</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{message}</p>
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+            Cancel
+          </button>
+          <button
+            onClick={() => { onConfirm(); onClose(); }}
+            className={`flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80 ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-teal-600 dark:bg-[#0d9488] hover:bg-teal-700 dark:hover:bg-[#0f9e96]'}`}
+          >
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 // ─── Search Modal ─────────────────────────────────────────────────────
@@ -123,7 +150,7 @@ const SearchModal = ({ isOpen, onClose, channels, dms, brandColor, workspaceId, 
                     className="w-10 h-10 rounded-xl flex items-center justify-center"
                     style={{ backgroundColor: `${brandColor}20`, color: brandColor }}
                   >
-                    <FaHashtag className="text-sm" />
+                    <FaUsers className="text-sm" />
                   </div>
                   <div>
                     <p className="text-sm font-medium text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition">
@@ -365,7 +392,7 @@ const CreateChannelModal = ({ isOpen, onClose, workspaceId, brandColor, onSucces
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Channel Name</label>
             <div className="relative">
-              <FaHashtag className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 text-sm" />
+              <FaUsers className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 text-sm" />
               <input
                 type="text"
                 value={channelName}
@@ -396,6 +423,89 @@ const CreateChannelModal = ({ isOpen, onClose, workspaceId, brandColor, onSucces
   );
 };
 
+// ─── Channel Dropdown Menu ──────────────────────────────────────────────
+const ChannelMenu = ({
+  chat,
+  userInfo,
+  userRole,
+  onArchive,
+  onUnarchive,
+  onExit,
+  onDelete,
+  isArchived = false,
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = React.useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const isAdmin = chat.participants?.some(
+    (p) => (p.user?._id === userInfo?._id || p.user === userInfo?._id) && p.role === 'admin'
+  );
+  const isCreator = chat.createdBy?._id === userInfo?._id;
+  const isWorkspaceOwner = userRole === 'Owner';
+  const canManage = isAdmin || isWorkspaceOwner;
+  const canDelete = isCreator || isWorkspaceOwner;
+
+  return (
+    <div className="relative flex-shrink-0" ref={menuRef}>
+      <button
+        onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }}
+        className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition"
+      >
+        <FaEllipsisV className="text-sm" />
+      </button>
+      {isOpen && (
+        <div className="absolute right-0 top-full mt-1 bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-800/60 rounded-xl min-w-[180px] z-30 py-1 shadow-lg">
+          {isArchived ? (
+            <button
+              onClick={() => { setIsOpen(false); onUnarchive(chat._id); }}
+              className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 w-full transition"
+            >
+              <FaUndo className="text-xs" /> Unarchive
+            </button>
+          ) : (
+            <>
+              {canManage && (
+                <button
+                  onClick={() => { setIsOpen(false); onArchive(chat._id); }}
+                  className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 w-full transition"
+                >
+                  <FaArchive className="text-xs" /> Archive
+                </button>
+              )}
+              {!isAdmin && !isCreator && (
+                <button
+                  onClick={() => { setIsOpen(false); onExit(chat._id); }}
+                  className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 w-full transition"
+                >
+                  <FaSignOutAlt className="text-xs" /> Exit Group
+                </button>
+              )}
+              {canDelete && (
+                <button
+                  onClick={() => { setIsOpen(false); onDelete(chat._id); }}
+                  className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 w-full transition"
+                >
+                  <FaTrashAlt className="text-xs" /> Delete Group
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── Main Component ──────────────────────────────────────────────────────
 const MyWorkspaceChannels = () => {
   const { workspaceId } = useParams();
@@ -405,25 +515,142 @@ const MyWorkspaceChannels = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedChatId, setSelectedChatId] = useState(null);
   const [showAddParticipantModal, setShowAddParticipantModal] = useState(false);
+  const [activeTab, setActiveTab] = useState('channels');
+
+  // Confirm modal state
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+    danger: false,
+  });
 
   const { data: workspaceData, isLoading: workspaceLoading, error } = useGetWorkspaceQuery(workspaceId);
-  const { data: chatsData, isLoading: chatsLoading, refetch } = useGetUserChatsQuery(workspaceId);
+
+  // ─── Active chats (always fetched) ─────────────────────────────────
+  const {
+    data: chatsData,
+    isLoading: chatsLoading,
+    refetch: refetchChats,
+  } = useGetUserChatsQuery({ workspaceId, archived: false });
+
+  // ─── Archived chats (lazy – only when tab is 'archived') ───────────
+  const [getArchivedChats, { data: archivedData, isLoading: archivedLoading }] = useLazyGetUserChatsQuery();
+
+  // Fetch archived when tab changes to 'archived'
+  useEffect(() => {
+    if (activeTab === 'archived') {
+      getArchivedChats({ workspaceId, archived: true });
+    }
+  }, [activeTab, workspaceId, getArchivedChats]);
+
+  // Mutations
+  const [archiveChat] = useArchiveChatMutation();
+  const [unarchiveChat] = useUnarchiveChatMutation();
+  const [exitGroupChat] = useExitGroupChatMutation();
+  const [deleteGroupChat] = useDeleteGroupChatMutation();
 
   const userMembership = workspaceData?.workspace?.members?.find(
     (m) => m.user?._id === userInfo?._id || m.user === userInfo?._id
   );
   const userRole = userMembership?.role || 'Member';
 
-  useEffect(() => { refetch(); }, [workspaceId, refetch]);
+  // ─── Refresh handlers ─────────────────────────────────────────────────
+  const refreshActive = () => refetchChats();
+  const refreshArchived = () => {
+    if (activeTab === 'archived') {
+      getArchivedChats({ workspaceId, archived: true });
+    }
+  };
+  const refreshAll = () => {
+    refreshActive();
+    refreshArchived();
+  };
 
-  const handleChannelCreated = () => refetch();
+  const handleChannelCreated = () => {
+    refreshAll();
+  };
   const handleParticipantsAdded = () => {
-    refetch();
+    refreshAll();
     setSelectedChatId(null);
   };
 
+  // ─── Action handlers ────────────────────────────────────────────────────
+  const handleArchive = (chatId) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Archive Channel',
+      message: 'This will hide the channel from your main list. You can find it in Archived.',
+      onConfirm: async () => {
+        try {
+          await archiveChat(chatId).unwrap();
+          toast.success('Channel archived');
+          refreshAll();
+        } catch (err) {
+          toast.error(err?.data?.message || 'Failed to archive');
+        }
+      },
+      danger: false,
+    });
+  };
+
+  const handleUnarchive = (chatId) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Unarchive Channel',
+      message: 'This will move the channel back to your main list.',
+      onConfirm: async () => {
+        try {
+          await unarchiveChat(chatId).unwrap();
+          toast.success('Channel unarchived');
+          refreshAll();
+        } catch (err) {
+          toast.error(err?.data?.message || 'Failed to unarchive');
+        }
+      },
+      danger: false,
+    });
+  };
+
+  const handleExit = (chatId) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Exit Group',
+      message: 'You will leave this group and no longer receive messages.',
+      onConfirm: async () => {
+        try {
+          await exitGroupChat(chatId).unwrap();
+          toast.success('You left the group');
+          refreshAll();
+        } catch (err) {
+          toast.error(err?.data?.message || 'Failed to exit');
+        }
+      },
+      danger: true,
+    });
+  };
+
+  const handleDelete = (chatId) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Group',
+      message: 'This will permanently delete the group and all its messages. This cannot be undone.',
+      onConfirm: async () => {
+        try {
+          await deleteGroupChat(chatId).unwrap();
+          toast.success('Group deleted');
+          refreshAll();
+        } catch (err) {
+          toast.error(err?.data?.message || 'Failed to delete');
+        }
+      },
+      danger: true,
+    });
+  };
+
   if (error) navigate('/my-workspaces');
-  if (workspaceLoading || chatsLoading) {
+  if (workspaceLoading || chatsLoading || (activeTab === 'archived' && archivedLoading)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
         <div className="w-8 h-8 border-4 border-teal-500 dark:border-teal-500 border-t-transparent rounded-full animate-spin" />
@@ -433,11 +660,14 @@ const MyWorkspaceChannels = () => {
 
   const workspace = workspaceData?.workspace;
   const chats = chatsData?.chats || [];
+  const archivedChats = archivedData?.chats || [];
   if (!workspace) return null;
 
   const brandColor = workspace.color || '#0d9488';
   const groupChats = chats.filter((c) => c.type === 'group');
   const directMessages = chats.filter((c) => c.type === 'direct');
+  const archivedGroups = archivedChats.filter((c) => c.type === 'group');
+  const archivedDMs = archivedChats.filter((c) => c.type === 'direct');
 
   const canAddParticipants = (chat) => {
     const isAdmin = chat.participants?.some(
@@ -450,6 +680,159 @@ const MyWorkspaceChannels = () => {
     return dm.participants.find(
       (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id
     )?.user || {};
+  };
+
+  // ─── Render channel list ────────────────────────────────────────────────
+  const renderChannelList = (channels, dms, isArchived = false) => {
+    const hasChannels = channels.length > 0;
+    const hasDMs = dms.length > 0;
+
+    if (!hasChannels && !hasDMs) {
+      return (
+        <div className="flex flex-col items-center justify-center py-20 text-gray-400 dark:text-gray-500">
+          <FaUsers className="text-4xl mb-2 opacity-30" />
+          <p className="text-sm">{isArchived ? 'No archived chats' : 'No channels or messages yet'}</p>
+        </div>
+      );
+    }
+
+    return (
+      <>
+        {hasChannels && (
+          <div>
+            <div className="px-4 py-2 text-xs font-semibold text-teal-600 dark:text-[#0d9488] uppercase tracking-wider bg-gray-50 dark:bg-[#0f0f12] border-b border-gray-100 dark:border-gray-800/30">
+              {isArchived ? 'Archived Channels' : 'Channels'} · {channels.length}
+            </div>
+            {channels.map((ch) => {
+              const lastMsg = ch.lastMessage;
+              const lastMsgSender = lastMsg?.sender;
+              const isOwnLastMsg = lastMsgSender?._id === userInfo?._id || lastMsgSender === userInfo?._id;
+              const lastMsgText = lastMsg?.content || '';
+              const lastMsgSenderName = isOwnLastMsg ? 'You' : (lastMsgSender?.name || '');
+              const lastMsgPreview = lastMsgText
+                ? (lastMsgSenderName ? `${lastMsgSenderName}: ${lastMsgText}` : lastMsgText)
+                : 'No messages yet';
+              const lastMsgTime = formatTime(lastMsg?.createdAt || ch.updatedAt);
+
+              return (
+                <div
+                  key={ch._id}
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition group"
+                >
+                  <Link
+                    to={`/my-workspace/${workspaceId}/chat/${ch._id}`}
+                    className="flex items-center gap-3 flex-1 min-w-0"
+                  >
+                    <div
+                      className="w-12 h-12 rounded-2xl flex items-center justify-center text-xl flex-shrink-0"
+                      style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
+                    >
+                      <FaUsers className="text-lg" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
+                          {ch.name}
+                        </span>
+                        <span className="text-xs text-gray-500 dark:text-gray-500 flex-shrink-0 ml-2">{lastMsgTime}</span>
+                      </div>
+                      <div className="flex items-center justify-between mt-0.5">
+                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate flex-1">{lastMsgPreview}</p>
+                        {!isArchived && ch.unreadCount > 0 && (
+                          <span
+                            className="text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center ml-2"
+                            style={{ backgroundColor: brandColor }}
+                          >
+                            {ch.unreadCount}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </Link>
+
+                  <div className="flex items-center gap-1">
+                    {!isArchived && canAddParticipants(ch) && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedChatId(ch._id);
+                          setShowAddParticipantModal(true);
+                        }}
+                        className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-teal-600 dark:hover:text-[#0d9488] rounded-lg hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 transition"
+                        title="Add members"
+                      >
+                        <FaUserPlus className="text-sm" />
+                      </button>
+                    )}
+                    <ChannelMenu
+                      chat={ch}
+                      userInfo={userInfo}
+                      userRole={userRole}
+                      onArchive={handleArchive}
+                      onUnarchive={handleUnarchive}
+                      onExit={handleExit}
+                      onDelete={handleDelete}
+                      isArchived={isArchived}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {hasDMs && (
+          <div>
+            <div className="px-4 py-2 text-xs font-semibold text-teal-600 dark:text-[#0d9488] uppercase tracking-wider bg-gray-50 dark:bg-[#0f0f12] border-b border-gray-100 dark:border-gray-800/30">
+              {isArchived ? 'Archived Direct Messages' : 'Direct Messages'} · {dms.length}
+            </div>
+            {dms.map((dm) => {
+              const participant = getDMParticipant(dm);
+              const lastMsg = dm.lastMessage;
+              const lastMsgTime = formatTime(lastMsg?.createdAt || dm.updatedAt);
+              const lastMsgText = lastMsg?.content || 'No messages yet';
+              return (
+                <Link
+                  key={dm._id}
+                  to={`/my-workspace/${workspaceId}/chat/${dm._id}`}
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition group"
+                >
+                  {participant?.profile ? (
+                    <img src={participant.profile} alt={participant.name} className="w-12 h-12 rounded-2xl object-cover" />
+                  ) : (
+                    <div
+                      className="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-bold text-lg"
+                      style={{ backgroundColor: brandColor }}
+                    >
+                      {participant?.name?.charAt(0).toUpperCase() || '?'}
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
+                        {participant?.name || 'Unknown'}
+                      </span>
+                      <span className="text-xs text-gray-500 dark:text-gray-500 flex-shrink-0">{lastMsgTime}</span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate flex-1">{lastMsgText}</p>
+                      {!isArchived && dm.unreadCount > 0 && (
+                        <span
+                          className="text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center"
+                          style={{ backgroundColor: brandColor }}
+                        >
+                          {dm.unreadCount}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </>
+    );
   };
 
   return (
@@ -483,148 +866,47 @@ const MyWorkspaceChannels = () => {
               >
                 <FaSearch className="text-sm" />
               </button>
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
-              >
-                <FaPlus className="text-sm" />
-              </button>
+              {activeTab === 'channels' && (
+                <button
+                  onClick={() => setShowCreateModal(true)}
+                  className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
+                >
+                  <FaPlus className="text-sm" />
+                </button>
+              )}
             </div>
+          </div>
+
+          {/* ── Tabs ── */}
+          <div className="flex border-b border-gray-200/60 dark:border-gray-800/30 px-4">
+            <button
+              onClick={() => setActiveTab('channels')}
+              className={`py-2 px-3 text-sm font-medium transition ${
+                activeTab === 'channels'
+                  ? 'border-b-2 border-teal-600 dark:border-[#0d9488] text-teal-600 dark:text-[#0d9488]'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+              }`}
+            >
+              Channels
+            </button>
+            <button
+              onClick={() => setActiveTab('archived')}
+              className={`py-2 px-3 text-sm font-medium transition ${
+                activeTab === 'archived'
+                  ? 'border-b-2 border-teal-600 dark:border-[#0d9488] text-teal-600 dark:text-[#0d9488]'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+              }`}
+            >
+              Archived
+            </button>
           </div>
         </header>
 
         {/* ── Channel List ── */}
         <div className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12] divide-y divide-gray-100 dark:divide-gray-800/30">
-          {/* Channels Section */}
-          {groupChats.length > 0 && (
-            <div>
-              <div className="px-4 py-2 text-xs font-semibold text-teal-600 dark:text-[#0d9488] uppercase tracking-wider bg-gray-50 dark:bg-[#0f0f12] border-b border-gray-100 dark:border-gray-800/30">
-                Channels · {groupChats.length}
-              </div>
-              {groupChats.map((ch) => {
-                const lastMsg = ch.lastMessage;
-                const lastMsgSender = lastMsg?.sender;
-                const isOwnLastMsg = lastMsgSender?._id === userInfo?._id || lastMsgSender === userInfo?._id;
-                const lastMsgText = lastMsg?.content || '';
-                const lastMsgSenderName = isOwnLastMsg ? 'You' : (lastMsgSender?.name || '');
-                const lastMsgPreview = lastMsgText
-                  ? (lastMsgSenderName ? `${lastMsgSenderName}: ${lastMsgText}` : lastMsgText)
-                  : 'No messages yet';
-                const lastMsgTime = formatTime(lastMsg?.createdAt || ch.updatedAt);
-
-                return (
-                  <div
-                    key={ch._id}
-                    className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition group"
-                  >
-                    <Link
-                      to={`/my-workspace/${workspaceId}/chat/${ch._id}`}
-                      className="flex items-center gap-3 flex-1 min-w-0"
-                    >
-                      <div
-                        className="w-12 h-12 rounded-2xl flex items-center justify-center text-xl flex-shrink-0"
-                        style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
-                      >
-                        <FaHashtag className="text-lg" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <span className="font-semibold text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
-                            #{ch.name}
-                          </span>
-                          <span className="text-xs text-gray-500 dark:text-gray-500 flex-shrink-0 ml-2">{lastMsgTime}</span>
-                        </div>
-                        <div className="flex items-center justify-between mt-0.5">
-                          <p className="text-xs text-gray-500 dark:text-gray-400 truncate flex-1">{lastMsgPreview}</p>
-                          {ch.unreadCount > 0 && (
-                            <span
-                              className="text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center ml-2"
-                              style={{ backgroundColor: brandColor }}
-                            >
-                              {ch.unreadCount}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </Link>
-
-                    {/* Plus icon on the right */}
-                    {canAddParticipants(ch) && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedChatId(ch._id);
-                          setShowAddParticipantModal(true);
-                        }}
-                        className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-teal-600 dark:hover:text-[#0d9488] flex-shrink-0 rounded-lg hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 transition"
-                      >
-                        <FaUserPlus className="text-sm" />
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Direct Messages Section */}
-          {directMessages.length > 0 && (
-            <div>
-              <div className="px-4 py-2 text-xs font-semibold text-teal-600 dark:text-[#0d9488] uppercase tracking-wider bg-gray-50 dark:bg-[#0f0f12] border-b border-gray-100 dark:border-gray-800/30">
-                Direct Messages · {directMessages.length}
-              </div>
-              {directMessages.map((dm) => {
-                const participant = getDMParticipant(dm);
-                const lastMsg = dm.lastMessage;
-                const lastMsgTime = formatTime(lastMsg?.createdAt || dm.updatedAt);
-                const lastMsgText = lastMsg?.content || 'No messages yet';
-                return (
-                  <Link
-                    key={dm._id}
-                    to={`/my-workspace/${workspaceId}/chat/${dm._id}`}
-                    className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition group"
-                  >
-                    {participant?.profile ? (
-                      <img src={participant.profile} alt={participant.name} className="w-12 h-12 rounded-2xl object-cover" />
-                    ) : (
-                      <div
-                        className="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-bold text-lg"
-                        style={{ backgroundColor: brandColor }}
-                      >
-                        {participant?.name?.charAt(0).toUpperCase() || '?'}
-                      </div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
-                          {participant?.name || 'Unknown'}
-                        </span>
-                        <span className="text-xs text-gray-500 dark:text-gray-500 flex-shrink-0">{lastMsgTime}</span>
-                      </div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate flex-1">{lastMsgText}</p>
-                        {dm.unreadCount > 0 && (
-                          <span
-                            className="text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center"
-                            style={{ backgroundColor: brandColor }}
-                          >
-                            {dm.unreadCount}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          )}
-
-          {groupChats.length === 0 && directMessages.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-20 text-gray-400 dark:text-gray-500">
-              <FaHashtag className="text-4xl mb-2 opacity-30" />
-              <p className="text-sm">No channels or messages yet</p>
-            </div>
-          )}
+          {activeTab === 'channels'
+            ? renderChannelList(groupChats, directMessages, false)
+            : renderChannelList(archivedGroups, archivedDMs, true)}
         </div>
 
         {/* Bottom Navigation (mobile) */}
@@ -705,6 +987,16 @@ const MyWorkspaceChannels = () => {
             : []
         }
         onSuccess={handleParticipantsAdded}
+      />
+
+      {/* Confirm Modal */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })}
+        onConfirm={confirmModal.onConfirm}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        danger={confirmModal.danger}
       />
     </div>
   );

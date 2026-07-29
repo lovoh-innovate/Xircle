@@ -179,29 +179,8 @@ const createProject = async (req, res) => {
       isTrash: false,
     });
 
-    // Team chat (best-effort)
-    try {
-      const projectChat = await Chat.create({
-        workspace: workspaceId,
-        type: 'group',
-        name: `${name.trim()} - Team Chat`,
-        participants: [
-          { user: userId, role: 'admin', joinedAt: new Date() },
-          ...validPMs.map((pmId) => ({ user: pmId, role: 'admin', joinedAt: new Date() })),
-          ...validTeamMembers.map((tm) => ({
-            user: tm.user,
-            role: 'member',
-            joinedAt: new Date(),
-          })),
-        ],
-        createdBy: userId,
-        lastMessageAt: new Date(),
-      });
-      project.teamChat = projectChat._id;
-      await project.save();
-    } catch (chatError) {
-      console.warn('⚠️ Failed to create project chat:', chatError.message);
-    }
+    // ⛔ REMOVED: automatic creation of team chat
+    // The project chat is no longer created automatically.
 
     // ── Notify all newly added members ────────────────────────
     const allNewMembers = [

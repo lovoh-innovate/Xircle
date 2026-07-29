@@ -6,7 +6,7 @@ const MESSAGING_URL = '/messages';
 export const messagingApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
 
-    // ─── Create Group Chat ────────────────────────────────────────────────
+    // ─── Workspace Chat Creation ──────────────────────────────────────
     createGroupChat: builder.mutation({
       query: (data) => ({
         url: `${MESSAGING_URL}/group`,
@@ -16,7 +16,6 @@ export const messagingApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['Chat', 'Message'],
     }),
 
-    // ─── Create Direct Chat ──────────────────────────────────────────────
     createDirectChat: builder.mutation({
       query: (data) => ({
         url: `${MESSAGING_URL}/direct`,
@@ -26,16 +25,171 @@ export const messagingApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['Chat'],
     }),
 
-    // ─── Get User Chats ──────────────────────────────────────────────────
+    // ─── Public (Outside Workspace) Chats ─────────────────────────────
+    createPublicDirectChat: builder.mutation({
+      query: (data) => ({
+        url: `${MESSAGING_URL}/public/direct`,
+        method: 'POST',
+        body: data, // { username }
+      }),
+      invalidatesTags: ['Chat'],
+    }),
+
+    createPublicGroupChat: builder.mutation({
+      query: (data) => ({
+        url: `${MESSAGING_URL}/public/group`,
+        method: 'POST',
+        body: data, // { name, description?, avatar?, isPublic? }
+      }),
+      invalidatesTags: ['Chat'],
+    }),
+
+    searchPublicGroups: builder.query({
+      query: (query) => ({
+        url: `${MESSAGING_URL}/public/groups/search`,
+        params: { query },
+      }),
+      providesTags: ['PublicGroup'],
+    }),
+
+    requestJoinGroup: builder.mutation({
+      query: (chatId) => ({
+        url: `${MESSAGING_URL}/public/groups/${chatId}/join-request`,
+        method: 'POST',
+      }),
+      invalidatesTags: (result, error, chatId) => [{ type: 'Chat', id: chatId }],
+    }),
+
+    handleJoinRequest: builder.mutation({
+      query: ({ chatId, requestId, action }) => ({
+        url: `${MESSAGING_URL}/public/groups/${chatId}/join-request/${requestId}`,
+        method: 'POST',
+        body: { action }, // 'accept' or 'reject'
+      }),
+      invalidatesTags: (result, error, { chatId }) => [{ type: 'Chat', id: chatId }],
+    }),
+
+    getJoinRequests: builder.query({
+      query: (chatId) => ({
+        url: `${MESSAGING_URL}/public/groups/${chatId}/join-requests`,
+      }),
+      providesTags: (result, error, chatId) => [{ type: 'JoinRequest', id: chatId }],
+    }),
+
+    // ─── Group Admin Management ────────────────────────────────────────
+    makeGroupAdmin: builder.mutation({
+      query: ({ chatId, userId }) => ({
+        url: `${MESSAGING_URL}/${chatId}/make-admin`,
+        method: 'POST',
+        body: { userId },
+      }),
+      invalidatesTags: (result, error, { chatId }) => [{ type: 'Chat', id: chatId }],
+    }),
+
+    removeGroupAdmin: builder.mutation({
+      query: ({ chatId, userId }) => ({
+        url: `${MESSAGING_URL}/${chatId}/remove-admin`,
+        method: 'POST',
+        body: { userId },
+      }),
+      invalidatesTags: (result, error, { chatId }) => [{ type: 'Chat', id: chatId }],
+    }),
+
+    // ─── Group Deletion and Member Listing ────────────────────────────
+    deleteGroupChat: builder.mutation({
+      query: (chatId) => ({
+        url: `${MESSAGING_URL}/group/${chatId}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['Chat', 'Message'],
+    }),
+
+    getGroupMembers: builder.query({
+      query: (chatId) => ({
+        url: `${MESSAGING_URL}/group/${chatId}/members`,
+      }),
+      providesTags: (result, error, chatId) => [{ type: 'Member', id: chatId }],
+    }),
+
+    // ─── Archiving and Exiting (Chat level) ────────────────────────────
+    archiveChat: builder.mutation({
+      query: (chatId) => ({
+        url: `${MESSAGING_URL}/${chatId}/archive`,
+        method: 'POST',
+      }),
+      invalidatesTags: (result, error, chatId) => [{ type: 'Chat', id: chatId }],
+    }),
+
+    unarchiveChat: builder.mutation({
+      query: (chatId) => ({
+        url: `${MESSAGING_URL}/${chatId}/unarchive`,
+        method: 'POST',
+      }),
+      invalidatesTags: (result, error, chatId) => [{ type: 'Chat', id: chatId }],
+    }),
+
+    exitGroupChat: builder.mutation({
+      query: (chatId) => ({
+        url: `${MESSAGING_URL}/${chatId}/exit`,
+        method: 'POST',
+      }),
+      invalidatesTags: (result, error, chatId) => [{ type: 'Chat', id: chatId }],
+    }),
+
+    // ─── Message Archive/Star ──────────────────────────────────────────
+    archiveMessage: builder.mutation({
+      query: (messageId) => ({
+        url: `${MESSAGING_URL}/${messageId}/archive`,
+        method: 'POST',
+      }),
+      invalidatesTags: (result, error, messageId) => [
+        { type: 'Message', id: messageId },
+        'Message',
+      ],
+    }),
+
+    unarchiveMessage: builder.mutation({
+      query: (messageId) => ({
+        url: `${MESSAGING_URL}/${messageId}/unarchive`,
+        method: 'POST',
+      }),
+      invalidatesTags: (result, error, messageId) => [
+        { type: 'Message', id: messageId },
+        'Message',
+      ],
+    }),
+
+    starMessage: builder.mutation({
+      query: (messageId) => ({
+        url: `${MESSAGING_URL}/${messageId}/star`,
+        method: 'POST',
+      }),
+      invalidatesTags: (result, error, messageId) => [
+        { type: 'Message', id: messageId },
+        'Message',
+      ],
+    }),
+
+    unstarMessage: builder.mutation({
+      query: (messageId) => ({
+        url: `${MESSAGING_URL}/${messageId}/unstar`,
+        method: 'POST',
+      }),
+      invalidatesTags: (result, error, messageId) => [
+        { type: 'Message', id: messageId },
+        'Message',
+      ],
+    }),
+
+    // ─── Chat Messages ──────────────────────────────────────────────────
     getUserChats: builder.query({
-      query: (workspaceId) => ({
+      query: ({ workspaceId, archived } = {}) => ({
         url: `${MESSAGING_URL}/chats`,
-        params: { workspaceId },
+        params: { workspaceId, archived },
       }),
       providesTags: ['Chat'],
     }),
 
-    // ─── Online Status ──────────────────────────────────────────────────
     updateOnlineStatus: builder.mutation({
       query: (data) => ({
         url: `${MESSAGING_URL}/online-status`,
@@ -44,7 +198,6 @@ export const messagingApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
-    // ─── Get Chat Messages ──────────────────────────────────────────────
     getChatMessages: builder.query({
       query: ({ chatId, page = 1, limit = 50 }) => ({
         url: `${MESSAGING_URL}/${chatId}`,
@@ -60,16 +213,13 @@ export const messagingApiSlice = apiSlice.injectEndpoints({
           : [{ type: 'Message', id: 'LIST' }, { type: 'Chat', id: chatId }],
     }),
 
-    // ─── Send Message (supports both FormData and JSON) ─────────────────
     sendMessage: builder.mutation({
       query: ({ chatId, data }) => {
-        // Detect if data is FormData (file upload) or plain object (text)
         const isFormData = data instanceof FormData;
         return {
           url: `${MESSAGING_URL}/${chatId}`,
           method: 'POST',
           body: data,
-          // If it's FormData, let the browser set Content-Type; otherwise, set JSON
           headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
         };
       },
@@ -79,7 +229,6 @@ export const messagingApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // ─── Delete Message ──────────────────────────────────────────────────
     deleteMessage: builder.mutation({
       query: (messageId) => ({
         url: `${MESSAGING_URL}/${messageId}`,
@@ -88,7 +237,6 @@ export const messagingApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['Message'],
     }),
 
-    // ─── Typing Indicators ──────────────────────────────────────────────
     startTyping: builder.mutation({
       query: (chatId) => ({
         url: `${MESSAGING_URL}/${chatId}/typing`,
@@ -110,7 +258,6 @@ export const messagingApiSlice = apiSlice.injectEndpoints({
       providesTags: ['Typing'],
     }),
 
-    // ─── Read Receipts ──────────────────────────────────────────────────
     markChatAsRead: builder.mutation({
       query: (chatId) => ({
         url: `${MESSAGING_URL}/${chatId}/read`,
@@ -119,7 +266,6 @@ export const messagingApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (result, error, chatId) => [{ type: 'Chat', id: chatId }],
     }),
 
-    // ─── Participant Management ─────────────────────────────────────────
     addParticipant: builder.mutation({
       query: ({ chatId, userIds }) => ({
         url: `${MESSAGING_URL}/${chatId}/participants`,
@@ -137,7 +283,6 @@ export const messagingApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['Chat'],
     }),
 
-    // ─── User Search ────────────────────────────────────────────────────
     searchUsers: builder.query({
       query: ({ workspaceId, query }) => ({
         url: `${MESSAGING_URL}/search/users`,
@@ -150,9 +295,40 @@ export const messagingApiSlice = apiSlice.injectEndpoints({
 });
 
 export const {
+  // Workspace chat creation
   useCreateGroupChatMutation,
   useCreateDirectChatMutation,
+
+  // Public chat
+  useCreatePublicDirectChatMutation,
+  useCreatePublicGroupChatMutation,
+  useSearchPublicGroupsQuery,
+  useRequestJoinGroupMutation,
+  useHandleJoinRequestMutation,
+  useGetJoinRequestsQuery,
+
+  // Group admin
+  useMakeGroupAdminMutation,
+  useRemoveGroupAdminMutation,
+
+  // Group deletion & members
+  useDeleteGroupChatMutation,
+  useGetGroupMembersQuery,
+
+  // Chat archiving & exiting
+  useArchiveChatMutation,
+  useUnarchiveChatMutation,
+  useExitGroupChatMutation,
+
+  // Message archive/star
+  useArchiveMessageMutation,
+  useUnarchiveMessageMutation,
+  useStarMessageMutation,
+  useUnstarMessageMutation,
+
+  // Core chat & messages
   useGetUserChatsQuery,
+  useLazyGetUserChatsQuery, // <-- added here
   useUpdateOnlineStatusMutation,
   useGetChatMessagesQuery,
   useSendMessageMutation,

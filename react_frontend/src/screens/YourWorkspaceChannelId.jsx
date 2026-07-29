@@ -1,5 +1,5 @@
 // src/workspaceScreens/YourWorkspaceChannelId.jsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
@@ -8,7 +8,20 @@ import {
   useGetChatMessagesQuery,
   useSendMessageMutation,
   useDeleteMessageMutation,
+  useArchiveMessageMutation,
+  useUnarchiveMessageMutation,
+  useStarMessageMutation,
+  useUnstarMessageMutation,
+  useAddParticipantMutation,
+  useRemoveParticipantMutation,
+  useMakeGroupAdminMutation,
+  useRemoveGroupAdminMutation,
+  useArchiveChatMutation,
+  useUnarchiveChatMutation,
+  useExitGroupChatMutation,
+  useDeleteGroupChatMutation,
 } from '../slices/messagingApiSlice';
+import { useGetMembersQuery } from '../slices/teamApiSlice';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
 import { useInitiateCallMutation } from '../slices/callApiSlice';
 import {
@@ -34,6 +47,18 @@ import {
   FaLock,
   FaChevronUp,
   FaChevronDown,
+  FaUserPlus,
+  FaUserMinus,
+  FaCrown,
+  FaArchive,
+  FaUndo,
+  FaStar,
+  FaRegStar,
+  FaSignOutAlt,
+  FaPen,
+  FaSearch,
+  FaSpinner,
+  FaExclamationTriangle,
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import { useSocket } from '../components/SocketContext.jsx';
@@ -48,7 +73,324 @@ const formatTime = (seconds) => {
 const LOCK_THRESHOLD = 80;
 const SEEN_TICK_COLOR = '#34B7F1';
 
-// ─── Message status ticks (optimistic) ─────────────────────────────────
+// ─── Media Query hook ──────────────────────────────────────────────────
+const useMediaQuery = (query) => {
+  const [matches, setMatches] = useState(false);
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    if (media.matches !== matches) setMatches(media.matches);
+    const listener = () => setMatches(media.matches);
+    media.addEventListener('change', listener);
+    return () => media.removeEventListener('change', listener);
+  }, [matches, query]);
+  return matches;
+};
+
+// ─── Confirm Modal ──────────────────────────────────────────────────────
+const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = 'Confirm', danger = false }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
+        <div className="flex items-center gap-3 mb-4">
+          {danger && <FaExclamationTriangle className="text-red-500 text-xl" />}
+          <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">{title}</h3>
+        </div>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{message}</p>
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+            Cancel
+          </button>
+          <button
+            onClick={() => { onConfirm(); onClose(); }}
+            className={`flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80 ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-teal-600 dark:bg-[#0d9488] hover:bg-teal-700 dark:hover:bg-[#0f9e96]'}`}
+          >
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Prompt Modal ──────────────────────────────────────────────────
+const PromptModal = ({ isOpen, onClose, onConfirm, title, label, placeholder = "", initialValue = "", confirmText = "Save", brandColor }) => {
+  const [value, setValue] = useState(initialValue);
+
+  useEffect(() => {
+    if (isOpen) setValue(initialValue);
+  }, [isOpen, initialValue]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">{title}</h3>
+        {label && <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{label}</label>}
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={placeholder}
+          className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none mb-4"
+          autoFocus
+        />
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+            Cancel
+          </button>
+          <button
+            onClick={() => { onConfirm(value); onClose(); }}
+            className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80"
+            style={{ backgroundColor: brandColor || "#0d9488" }}
+          >
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Add Participant Modal ──────────────────────────────────────────────
+const AddParticipantModal = ({
+  isOpen,
+  onClose,
+  workspaceId,
+  chatId,
+  brandColor,
+  existingParticipantIds,
+  onSuccess,
+}) => {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedUsers, setSelectedUsers] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [addParticipant] = useAddParticipantMutation();
+  const { data: membersData, isLoading: membersLoading } = useGetMembersQuery(workspaceId);
+
+  const availableMembers = membersData?.members
+    ?.filter((m) => {
+      const userId = m.user?._id || m._id;
+      return !existingParticipantIds.includes(userId);
+    })
+    .filter((m) => {
+      const user = m.user || m;
+      const name = user?.name?.toLowerCase() || "";
+      const email = user?.email?.toLowerCase() || "";
+      const query = searchQuery.toLowerCase();
+      return name.includes(query) || email.includes(query);
+    }) || [];
+
+  const toggleUser = (userId) => {
+    setSelectedUsers((prev) =>
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
+    );
+  };
+
+  const handleSubmit = async () => {
+    if (selectedUsers.length === 0) {
+      toast.info("Select at least one member to add.");
+      return;
+    }
+    try {
+      setIsLoading(true);
+      await addParticipant({ chatId, userIds: selectedUsers }).unwrap();
+      toast.success(`${selectedUsers.length} member(s) added!`);
+      onSuccess();
+      onClose();
+    } catch (err) {
+      toast.error(err?.data?.message || "Failed to add participants");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-gray-200/60 dark:border-gray-800/60">
+          <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Add Members</h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white transition">
+            <FaTimes className="text-sm" />
+          </button>
+        </div>
+
+        <div className="p-4 border-b border-gray-200/60 dark:border-gray-800/60">
+          <div className="relative">
+            <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 text-xs" />
+            <input
+              type="text"
+              placeholder="Search members..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none"
+            />
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-500 mt-1.5">{availableMembers.length} available</p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
+          {membersLoading ? (
+            <div className="text-center py-8 text-gray-500 dark:text-gray-500">
+              <FaSpinner className="animate-spin mx-auto text-lg" />
+              <p className="text-xs mt-1">Loading...</p>
+            </div>
+          ) : availableMembers.length === 0 ? (
+            <div className="text-center py-8 text-gray-500 dark:text-gray-500 text-sm">
+              {searchQuery ? "No members found" : "All members are already in this channel"}
+            </div>
+          ) : (
+            availableMembers.map((member) => {
+              const user = member.user || member;
+              const isSelected = selectedUsers.includes(user._id);
+              return (
+                <button
+                  key={user._id}
+                  onClick={() => toggleUser(user._id)}
+                  className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-xl transition ${
+                    isSelected ? "bg-teal-50 dark:bg-[#0d9488]/20" : "hover:bg-gray-50 dark:hover:bg-gray-800/30"
+                  }`}
+                >
+                  <div className="relative flex-shrink-0">
+                    {user?.profile ? (
+                      <img src={user.profile} alt={user.name} className="w-9 h-9 rounded-full object-cover" />
+                    ) : (
+                      <div
+                        className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold"
+                        style={{ backgroundColor: brandColor }}
+                      >
+                        {user?.name?.charAt(0).toUpperCase() || "?"}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 text-left min-w-0">
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{user?.name || "Unknown"}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{user?.email}</p>
+                  </div>
+                  {isSelected && <FaCheck className="text-sm text-teal-600 dark:text-[#0d9488]" />}
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        <div className="flex gap-3 p-4 border-t border-gray-200/60 dark:border-gray-800/60">
+          <button onClick={onClose} className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+            Cancel
+          </button>
+          <button
+            disabled={isLoading || selectedUsers.length === 0}
+            onClick={handleSubmit}
+            className="flex-1 py-2.5 text-white rounded-xl text-sm font-medium transition hover:opacity-80 disabled:opacity-50"
+            style={{ backgroundColor: brandColor }}
+          >
+            {isLoading ? <FaSpinner className="animate-spin mx-auto" /> : `Add ${selectedUsers.length}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Message Action Modal (mobile long-press) ──────────────────────────
+const MessageActionModal = ({
+  isOpen,
+  onClose,
+  message,
+  isOwn,
+  isStarred,
+  isArchived,
+  onDelete,
+  onArchive,
+  onUnarchive,
+  onStar,
+  onUnstar,
+  brandColor,
+}) => {
+  if (!isOpen || !message) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 dark:bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="bg-white dark:bg-[#14141a] rounded-t-2xl w-full max-w-lg p-5 transform transition-transform duration-300"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxHeight: '70vh', overflowY: 'auto' }}
+      >
+        <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-200 dark:border-gray-700/60">
+          <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-500 dark:text-gray-400">
+            {message.messageType === 'image' ? <FaImage className="text-sm" /> : <FaComment className="text-sm" />}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+              {message.content ? message.content.substring(0, 60) : (message.mediaName || 'Media')}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              {new Date(message.createdAt).toLocaleString()}
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          {isOwn && (
+            <button
+              onClick={() => { onDelete(message._id); onClose(); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition"
+            >
+              <FaTrashAlt className="text-sm" />
+              <span className="text-sm font-medium">Delete for everyone</span>
+            </button>
+          )}
+          {isStarred ? (
+            <button
+              onClick={() => { onUnstar(message._id); onClose(); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 transition"
+            >
+              <FaStar className="text-sm" />
+              <span className="text-sm font-medium">Unstar</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => { onStar(message._id); onClose(); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+            >
+              <FaRegStar className="text-sm" />
+              <span className="text-sm font-medium">Star</span>
+            </button>
+          )}
+          {isArchived ? (
+            <button
+              onClick={() => { onUnarchive(message._id); onClose(); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition"
+            >
+              <FaUndo className="text-sm" />
+              <span className="text-sm font-medium">Unarchive</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => { onArchive(message._id); onClose(); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+            >
+              <FaArchive className="text-sm" />
+              <span className="text-sm font-medium">Archive</span>
+            </button>
+          )}
+        </div>
+
+        <button
+          onClick={onClose}
+          className="w-full mt-3 py-3 text-center text-sm font-medium text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700/60 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/30 transition"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ─── Message status ticks ──────────────────────────────────────────────
 const MessageTicks = ({ message, isOwn, isDM }) => {
   if (!isOwn) return null;
 
@@ -147,6 +489,13 @@ const MediaMessage = ({
   brandColor,
   onImageClick,
   onDelete,
+  onArchive,
+  onUnarchive,
+  onStar,
+  onUnstar,
+  userId,
+  isMobile,
+  onLongPress,
 }) => {
   const time = new Date(message.createdAt).toLocaleTimeString('en-US', {
     hour: '2-digit',
@@ -155,6 +504,61 @@ const MediaMessage = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const audioRef = useRef(null);
+  const longPressTimer = useRef(null);
+  const isLongPress = useRef(false);
+
+  const isArchived = message.archivedBy?.some(id => id === userId) || false;
+  const isStarred = message.starredBy?.some(id => id === userId) || false;
+
+  // ── Long press for mobile ──
+  const handleTouchStart = (e) => {
+    if (!isMobile) return;
+    isLongPress.current = false;
+    longPressTimer.current = setTimeout(() => {
+      isLongPress.current = true;
+      onLongPress(message);
+    }, 500);
+  };
+
+  const handleTouchEnd = (e) => {
+    if (!isMobile) return;
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    // Prevent click if long press was triggered
+    if (isLongPress.current) {
+      e.preventDefault();
+      isLongPress.current = false;
+    }
+  };
+
+  const handleTouchMove = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  // ── Desktop dropdown toggle ──
+  const toggleMenu = (e) => {
+    e.stopPropagation();
+    setShowMenu(!showMenu);
+  };
+
+  const closeMenu = () => setShowMenu(false);
+
+  // ── Click outside for desktop ──
+  const menuRef = useRef(null);
+  useEffect(() => {
+    const handler = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        closeMenu();
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   const handleDownload = (e) => {
     e.stopPropagation();
@@ -243,7 +647,12 @@ const MediaMessage = ({
   // ── Image messages without bubble ──
   if (message.messageType === 'image') {
     return (
-      <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
+      <div
+        className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onTouchMove={handleTouchMove}
+      >
         {!isOwn && (
           <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
             {senderProfile ? (
@@ -273,24 +682,59 @@ const MediaMessage = ({
               <span>{time}</span>
               <MessageTicks message={message} isOwn={isOwn} isDM={isDM} />
             </div>
-            <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition">
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
-                className="text-white bg-black/40 p-1 rounded-full hover:bg-black/60"
-              >
-                <FaEllipsisV className="text-xs" />
-              </button>
-              {showMenu && (
-                <div className="absolute right-0 top-8 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[120px] z-10">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setShowMenu(false); onDelete && onDelete(message._id); }}
-                    className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full"
-                  >
-                    <FaTrashAlt className="text-xs" /> Delete
-                  </button>
-                </div>
-              )}
-            </div>
+            {/* Desktop 3-dot menu */}
+            {!isMobile && isOwn && (
+              <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition" ref={menuRef}>
+                <button
+                  onClick={toggleMenu}
+                  className="text-white bg-black/40 p-1 rounded-full hover:bg-black/60"
+                >
+                  <FaEllipsisV className="text-xs" />
+                </button>
+                {showMenu && (
+                  <div className="absolute right-0 top-8 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[160px] z-10 py-1">
+                    {isOwn && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); closeMenu(); onDelete(message._id); }}
+                        className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full"
+                      >
+                        <FaTrashAlt className="text-xs" /> Delete
+                      </button>
+                    )}
+                    {isStarred ? (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); closeMenu(); onUnstar(message._id); }}
+                        className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 rounded-lg transition w-full"
+                      >
+                        <FaStar className="text-xs" /> Unstar
+                      </button>
+                    ) : (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); closeMenu(); onStar(message._id); }}
+                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+                      >
+                        <FaRegStar className="text-xs" /> Star
+                      </button>
+                    )}
+                    {isArchived ? (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); closeMenu(); onUnarchive(message._id); }}
+                        className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 rounded-lg transition w-full"
+                      >
+                        <FaUndo className="text-xs" /> Unarchive
+                      </button>
+                    ) : (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); closeMenu(); onArchive(message._id); }}
+                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+                      >
+                        <FaArchive className="text-xs" /> Archive
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -299,7 +743,12 @@ const MediaMessage = ({
 
   // ── Regular messages with bubble ──
   return (
-    <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
+    <div
+      className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchMove={handleTouchMove}
+    >
       {!isOwn && (
         <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
           {senderProfile ? (
@@ -327,36 +776,96 @@ const MediaMessage = ({
         <div className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 ${isOwn ? 'flex-row-reverse' : ''}`}>
           <span>{time}</span>
           <MessageTicks message={message} isOwn={isOwn} isDM={isDM} />
-          <div className="relative ml-2">
-            <button onClick={() => setShowMenu(!showMenu)} className="text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition p-0.5">
-              <FaEllipsisV className="text-xs" />
-            </button>
-            {showMenu && (
-              <div className="absolute right-0 bottom-6 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[120px] z-10">
-                <button
-                  onClick={() => { setShowMenu(false); onDelete && onDelete(message._id); }}
-                  className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full"
-                >
-                  <FaTrashAlt className="text-xs" /> Delete
-                </button>
-              </div>
-            )}
-          </div>
+          {/* Desktop 3-dot menu */}
+          {!isMobile && isOwn && (
+            <div className="relative ml-2" ref={menuRef}>
+              <button
+                onClick={toggleMenu}
+                className="text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition p-0.5"
+              >
+                <FaEllipsisV className="text-xs" />
+              </button>
+              {showMenu && (
+                <div className="absolute right-0 bottom-6 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[160px] z-10 py-1">
+                  <button
+                    onClick={() => { closeMenu(); onDelete(message._id); }}
+                    className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full"
+                  >
+                    <FaTrashAlt className="text-xs" /> Delete
+                  </button>
+                  {isStarred ? (
+                    <button
+                      onClick={() => { closeMenu(); onUnstar(message._id); }}
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 rounded-lg transition w-full"
+                    >
+                      <FaStar className="text-xs" /> Unstar
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => { closeMenu(); onStar(message._id); }}
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+                    >
+                      <FaRegStar className="text-xs" /> Star
+                    </button>
+                  )}
+                  {isArchived ? (
+                    <button
+                      onClick={() => { closeMenu(); onUnarchive(message._id); }}
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 rounded-lg transition w-full"
+                    >
+                      <FaUndo className="text-xs" /> Unarchive
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => { closeMenu(); onArchive(message._id); }}
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+                    >
+                      <FaArchive className="text-xs" /> Archive
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 };
 
-// ─── Bottom Sheet for Chat Details ─────────────────────────────────────
-const ChatDetailsSheet = ({ isOpen, onClose, chat, workspace, isDM, otherParticipant, isDMOnline }) => {
-  if (!isOpen) return null;
+// ─── Chat Details Bottom Sheet (with admin controls) ───────────────
+const ChatDetailsSheet = ({
+  isOpen,
+  onClose,
+  chat,
+  workspace,
+  isDM,
+  otherParticipant,
+  isDMOnline,
+  userInfo,
+  isWorkspaceOwner,
+  brandColor,
+  onAddMember,
+  onRemoveMember,
+  onMakeAdmin,
+  onRemoveAdmin,
+  onExitGroup,
+  onDeleteGroup,
+  onRenameGroup,
+}) => {
+  if (!isOpen || !chat) return null;
 
   const participants = chat?.participants || [];
+  const isGroupAdmin = chat.participants?.some(
+    (p) => (p.user?._id === userInfo?._id || p.user === userInfo?._id) && p.role === 'admin'
+  ) || isWorkspaceOwner;
+  const isCreator = chat.createdBy?._id === userInfo?._id;
+  const canManage = isGroupAdmin || isWorkspaceOwner;
+  const canDelete = isCreator || isWorkspaceOwner;
+
   const displayName = isDM ? otherParticipant?.name || 'Unknown' : chat?.name || 'Unnamed Channel';
   const displayAvatar = isDM ? otherParticipant?.profile : null;
   const memberCount = participants.length;
-  const brandColor = workspace?.color || '#0d9488';
 
   return (
     <>
@@ -365,7 +874,7 @@ const ChatDetailsSheet = ({ isOpen, onClose, chat, workspace, isDM, otherPartici
         onClick={onClose}
       />
       <div
-        className={`fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl max-h-[70vh] overflow-y-auto transform transition-transform duration-300 ${
+        className={`fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl max-h-[80vh] overflow-y-auto transform transition-transform duration-300 ${
           isOpen ? 'translate-y-0' : 'translate-y-full'
         }`}
         style={{ boxShadow: '0 -4px 30px rgba(0,0,0,0.15)' }}
@@ -391,8 +900,18 @@ const ChatDetailsSheet = ({ isOpen, onClose, chat, workspace, isDM, otherPartici
                 <FaHashtag size={24} />
               </div>
             )}
-            <div>
-              <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200">{displayName}</h3>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200">{displayName}</h3>
+                {!isDM && canManage && (
+                  <button
+                    onClick={() => onRenameGroup(chat._id, chat.name)}
+                    className="p-1 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white transition"
+                  >
+                    <FaPen className="text-xs" />
+                  </button>
+                )}
+              </div>
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 {isDM
                   ? isDMOnline ? 'Online' : 'Offline'
@@ -400,7 +919,34 @@ const ChatDetailsSheet = ({ isOpen, onClose, chat, workspace, isDM, otherPartici
                 }
               </p>
             </div>
+            {!isDM && canDelete && (
+              <button
+                onClick={() => onDeleteGroup(chat._id)}
+                className="p-2 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition"
+              >
+                <FaTrashAlt className="text-sm" />
+              </button>
+            )}
+            {!isDM && !isCreator && !isWorkspaceOwner && (
+              <button
+                onClick={() => onExitGroup(chat._id)}
+                className="p-2 text-orange-500 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-500/10 rounded-lg transition"
+              >
+                <FaSignOutAlt className="text-sm" />
+              </button>
+            )}
           </div>
+
+          {!isDM && (
+            <div className="mb-4">
+              <button
+                onClick={() => onAddMember(chat._id)}
+                className="flex items-center gap-2 text-sm text-teal-600 dark:text-[#0d9488] hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 px-3 py-1.5 rounded-lg transition"
+              >
+                <FaUserPlus className="text-sm" /> Add Members
+              </button>
+            </div>
+          )}
 
           <div>
             <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
@@ -411,8 +957,14 @@ const ChatDetailsSheet = ({ isOpen, onClose, chat, workspace, isDM, otherPartici
                 const user = p.user || {};
                 const profile = user.profile || null;
                 const name = user.name || 'Unknown Member';
+                const userId = user._id || p._id;
+                const isAdmin = p.role === 'admin';
+                const isCurrentUser = userId === userInfo?._id;
+                const canPromote = canManage && !isCurrentUser && !isAdmin && !isWorkspaceOwner;
+                const canDemote = canManage && !isCurrentUser && isAdmin && !isWorkspaceOwner;
+
                 return (
-                  <li key={user._id || p._id} className="flex items-center gap-3">
+                  <li key={userId} className="flex items-center gap-3 py-1">
                     {profile ? (
                       <img src={profile} alt="" className="w-9 h-9 rounded-full object-cover border border-gray-200 dark:border-gray-700/60" />
                     ) : (
@@ -420,14 +972,53 @@ const ChatDetailsSheet = ({ isOpen, onClose, chat, workspace, isDM, otherPartici
                         {name.charAt(0).toUpperCase()}
                       </div>
                     )}
-                    <div>
+                    <div className="flex-1">
                       <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{name}</span>
-                      {isDM && otherParticipant?._id === user._id && (
+                      {isAdmin && (
+                        <span className="ml-2 text-xs text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 px-2 py-0.5 rounded-full border border-yellow-200 dark:border-yellow-700/40">
+                          <FaCrown className="inline text-[10px] mr-0.5" /> Admin
+                        </span>
+                      )}
+                      {isCurrentUser && (
+                        <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">(You)</span>
+                      )}
+                      {isDM && otherParticipant?._id === userId && (
                         <span className="text-xs text-gray-500 dark:text-gray-500 ml-2">
                           {isDMOnline ? '🟢 online' : '⚫ offline'}
                         </span>
                       )}
                     </div>
+                    {!isDM && canManage && !isCurrentUser && (
+                      <div className="flex gap-1">
+                        {canPromote && (
+                          <button
+                            onClick={() => onMakeAdmin(chat._id, userId)}
+                            className="p-1 text-yellow-500 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 rounded-lg transition"
+                            title="Make admin"
+                          >
+                            <FaCrown className="text-xs" />
+                          </button>
+                        )}
+                        {canDemote && (
+                          <button
+                            onClick={() => onRemoveAdmin(chat._id, userId)}
+                            className="p-1 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition"
+                            title="Remove admin"
+                          >
+                            <FaUserMinus className="text-xs" />
+                          </button>
+                        )}
+                        {canManage && (
+                          <button
+                            onClick={() => onRemoveMember(chat._id, userId)}
+                            className="p-1 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition"
+                            title="Remove member"
+                          >
+                            <FaUserMinus className="text-xs" />
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </li>
                 );
               })}
@@ -453,6 +1044,34 @@ const YourWorkspaceChannelId = () => {
   const [previewImage, setPreviewImage] = useState(null);
   const [showDetailsSheet, setShowDetailsSheet] = useState(false);
 
+  // ── Device detection ──
+  const isMobile = useMediaQuery('(max-width: 768px)');
+
+  // ── Modal states ──
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+    danger: false,
+  });
+  const [promptModal, setPromptModal] = useState({
+    isOpen: false,
+    title: '',
+    label: '',
+    initialValue: '',
+    onConfirm: null,
+    placeholder: '',
+  });
+  const [addMemberModal, setAddMemberModal] = useState({
+    isOpen: false,
+    chatId: null,
+  });
+  const [actionModal, setActionModal] = useState({
+    isOpen: false,
+    message: null,
+  });
+
   // ── Focus input if queried (quick reply) ─────────────────────────
   const inputRef = useRef(null);
   useEffect(() => {
@@ -460,6 +1079,9 @@ const YourWorkspaceChannelId = () => {
       setTimeout(() => inputRef.current?.focus(), 300);
     }
   }, [searchParams]);
+
+  // ── Call mutation ────────────────────────────────────────────────
+  const [initiateCall, { isLoading: isCallInitiating }] = useInitiateCallMutation();
 
   // Voice recording states
   const [isRecording, setIsRecording] = useState(false);
@@ -482,15 +1104,32 @@ const YourWorkspaceChannelId = () => {
 
   // API hooks
   const { data: workspaceData, isLoading: workspaceLoading, error } = useGetWorkspaceQuery(workspaceId);
-  const { data: chatsData, isLoading: chatsLoading } = useGetUserChatsQuery(workspaceId);
+  const { data: chatsData, isLoading: chatsLoading, refetch: refetchChats } = useGetUserChatsQuery(workspaceId);
   const {
     data: messagesData,
     isLoading: messagesLoading,
-    refetch,
+    refetch: refetchMessages,
   } = useGetChatMessagesQuery({ chatId, page: 1, limit: 50 }, { skip: !chatId });
   const [sendMessageApi] = useSendMessageMutation();
   const [deleteMessageApi] = useDeleteMessageMutation();
-  const [initiateCall, { isLoading: isCallInitiating }] = useInitiateCallMutation();
+
+  // ── Message archive/star mutations ──
+  const [archiveMessage] = useArchiveMessageMutation();
+  const [unarchiveMessage] = useUnarchiveMessageMutation();
+  const [starMessage] = useStarMessageMutation();
+  const [unstarMessage] = useUnstarMessageMutation();
+
+  // ── Group management mutations ──
+  const [addParticipant] = useAddParticipantMutation();
+  const [removeParticipant] = useRemoveParticipantMutation();
+  const [makeAdmin] = useMakeGroupAdminMutation();
+  const [removeAdmin] = useRemoveGroupAdminMutation();
+  const [exitGroup] = useExitGroupChatMutation();
+  const [deleteGroup] = useDeleteGroupChatMutation();
+  const [archiveChat] = useArchiveChatMutation();
+  const [unarchiveChat] = useUnarchiveChatMutation();
+
+  const { data: membersData } = useGetMembersQuery(workspaceId);
 
   const chat = chatsData?.chats?.find(c => c._id === chatId);
   const isDM = chat?.type === 'direct';
@@ -500,15 +1139,25 @@ const YourWorkspaceChannelId = () => {
   const displayName = isDM ? otherParticipant?.name || 'Unknown' : chat?.name || 'Unnamed Channel';
   const displayAvatar = isDM ? otherParticipant?.profile : null;
   const isDMOnline = isDM ? otherParticipant?.online || false : false;
-  const backPath = isDM ? `/workspace/${workspaceId}/dms` : `/workspace/${workspaceId}/channels`;
+
+  // ── User role in workspace ──
+  const isWorkspaceOwner = workspaceData?.workspace?.owner?._id === userInfo?._id;
+
+  // ── Lock body scroll while this chat is mounted ─────────────────────
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, []);
 
   // ── Silent polling every 3 seconds ──────────────────────────────────
   useEffect(() => {
     const interval = setInterval(() => {
-      refetch();
+      refetchMessages();
     }, 3000);
     return () => clearInterval(interval);
-  }, [refetch, chatId]);
+  }, [refetchMessages, chatId]);
 
   // ── Scroll state & new‑message button ──────────────────────────────
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -639,7 +1288,194 @@ const YourWorkspaceChannelId = () => {
   const brandColor = workspace.color || '#0d9488';
   const memberCount = chat.participants?.length || 0;
 
-  // ── Call initiation handler ────────────────────────────────────────
+  // ── Message action handlers ──────────────────────────────────────────
+  const handleDeleteMessage = async (messageId) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Message',
+      message: 'Are you sure you want to delete this message?',
+      onConfirm: async () => {
+        try {
+          await deleteMessageApi(messageId).unwrap();
+        } catch (err) {
+          toast.error(err?.data?.message || 'Failed to delete message');
+        }
+      },
+      danger: true,
+    });
+  };
+
+  const handleArchiveMessage = async (messageId) => {
+    try {
+      await archiveMessage(messageId).unwrap();
+      toast.success('Message archived');
+      refetchMessages();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to archive message');
+    }
+  };
+
+  const handleUnarchiveMessage = async (messageId) => {
+    try {
+      await unarchiveMessage(messageId).unwrap();
+      toast.success('Message unarchived');
+      refetchMessages();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to unarchive message');
+    }
+  };
+
+  const handleStarMessage = async (messageId) => {
+    try {
+      await starMessage(messageId).unwrap();
+      toast.success('Message starred');
+      refetchMessages();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to star message');
+    }
+  };
+
+  const handleUnstarMessage = async (messageId) => {
+    try {
+      await unstarMessage(messageId).unwrap();
+      toast.success('Message unstarred');
+      refetchMessages();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to unstar message');
+    }
+  };
+
+  // ── Group management handlers ──────────────────────────────────────
+  const handleAddMember = (chatId) => {
+    setAddMemberModal({ isOpen: true, chatId });
+  };
+
+  const handleRemoveMember = (chatId, userId) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Remove Member',
+      message: 'Are you sure you want to remove this member from the group?',
+      onConfirm: async () => {
+        try {
+          await removeParticipant({ chatId, userId }).unwrap();
+          toast.success('Member removed');
+          refetchChats();
+          refetchMessages();
+        } catch (err) {
+          toast.error(err?.data?.message || 'Failed to remove member');
+        }
+      },
+      danger: true,
+    });
+  };
+
+  const handleMakeAdmin = (chatId, userId) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Make Admin',
+      message: 'Are you sure you want to promote this user to admin?',
+      onConfirm: async () => {
+        try {
+          await makeAdmin({ chatId, userId }).unwrap();
+          toast.success('User promoted to admin');
+          refetchChats();
+        } catch (err) {
+          toast.error(err?.data?.message || 'Failed to promote user');
+        }
+      },
+      danger: false,
+    });
+  };
+
+  const handleRemoveAdmin = (chatId, userId) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Remove Admin',
+      message: 'Are you sure you want to remove admin rights from this user?',
+      onConfirm: async () => {
+        try {
+          await removeAdmin({ chatId, userId }).unwrap();
+          toast.success('Admin rights removed');
+          refetchChats();
+        } catch (err) {
+          toast.error(err?.data?.message || 'Failed to demote user');
+        }
+      },
+      danger: false,
+    });
+  };
+
+  const handleExitGroup = (chatId) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Exit Group',
+      message: 'Are you sure you want to leave this group? You will no longer receive messages.',
+      onConfirm: async () => {
+        try {
+          await exitGroup(chatId).unwrap();
+          toast.success('You left the group');
+          navigate(`/workspace/${workspaceId}/channels`);
+        } catch (err) {
+          toast.error(err?.data?.message || 'Failed to leave group');
+        }
+      },
+      danger: true,
+    });
+  };
+
+  const handleDeleteGroup = (chatId) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Group',
+      message: 'Are you sure you want to permanently delete this group and all its messages? This cannot be undone.',
+      onConfirm: async () => {
+        try {
+          await deleteGroup(chatId).unwrap();
+          toast.success('Group deleted');
+          navigate(`/workspace/${workspaceId}/channels`);
+        } catch (err) {
+          toast.error(err?.data?.message || 'Failed to delete group');
+        }
+      },
+      danger: true,
+    });
+  };
+
+  const handleRenameGroup = (chatId, currentName) => {
+    setPromptModal({
+      isOpen: true,
+      title: 'Rename Group',
+      label: 'New group name',
+      initialValue: currentName,
+      placeholder: 'Enter new name...',
+      onConfirm: async (newName) => {
+        if (!newName.trim()) {
+          toast.error('Name cannot be empty');
+          return;
+        }
+        toast.info('Rename feature coming soon');
+        refetchChats();
+      },
+    });
+  };
+
+  // ── Add Member success ─────────────────────────────────────────────
+  const handleAddMemberSuccess = () => {
+    refetchChats();
+    refetchMessages();
+    setAddMemberModal({ isOpen: false, chatId: null });
+  };
+
+  // ── Long press handler for mobile ──────────────────────────────────
+  const handleLongPress = (message) => {
+    const isOwn = message.sender?._id === userInfo?._id || message.sender === userInfo?._id;
+    // Only show modal if there's at least one action (delete for own, always star/archive)
+    if (isOwn || true) { // star/archive always available
+      setActionModal({ isOpen: true, message });
+    }
+  };
+
+  // ── Call initiation ────────────────────────────────────────────────
   const handleCall = async (type) => {
     if (!workspace || !chat) return;
 
@@ -731,7 +1567,7 @@ const YourWorkspaceChannelId = () => {
     });
   };
 
-  // ── File / image / voice via REST (backend will broadcast) ──────
+  // ── File / image / voice via REST ────────────────────────────────
   const handleFileUpload = (type) => {
     if (type === 'file') fileInputRef.current?.click();
     else if (type === 'image') imageInputRef.current?.click();
@@ -778,16 +1614,6 @@ const YourWorkspaceChannelId = () => {
     setIsLocked(false);
     setSwipeProgress(0);
     stopTimer();
-  };
-
-  // ── Delete message ─────────────────────────────────────────────
-  const handleDeleteMessage = async (messageId) => {
-    if (!window.confirm('Delete this message?')) return;
-    try {
-      await deleteMessageApi(messageId).unwrap();
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to delete message');
-    }
   };
 
   const getSender = (senderId) => {
@@ -901,7 +1727,7 @@ const YourWorkspaceChannelId = () => {
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                navigate(backPath);
+                navigate(`/workspace/${workspaceId}/channels`);
               }}
               className="p-1 lg:hidden flex-shrink-0 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
             >
@@ -974,6 +1800,13 @@ const YourWorkspaceChannelId = () => {
                     brandColor={brandColor}
                     onImageClick={(payload) => setPreviewImage(payload)}
                     onDelete={handleDeleteMessage}
+                    onArchive={handleArchiveMessage}
+                    onUnarchive={handleUnarchiveMessage}
+                    onStar={handleStarMessage}
+                    onUnstar={handleUnstarMessage}
+                    userId={userInfo?._id}
+                    isMobile={isMobile}
+                    onLongPress={handleLongPress}
                   />
                 );
               })
@@ -1095,6 +1928,67 @@ const YourWorkspaceChannelId = () => {
         isDM={isDM}
         otherParticipant={otherParticipant}
         isDMOnline={isDMOnline}
+        userInfo={userInfo}
+        isWorkspaceOwner={isWorkspaceOwner}
+        brandColor={brandColor}
+        onAddMember={handleAddMember}
+        onRemoveMember={handleRemoveMember}
+        onMakeAdmin={handleMakeAdmin}
+        onRemoveAdmin={handleRemoveAdmin}
+        onExitGroup={handleExitGroup}
+        onDeleteGroup={handleDeleteGroup}
+        onRenameGroup={handleRenameGroup}
+      />
+
+      {/* Modals */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })}
+        onConfirm={confirmModal.onConfirm}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        danger={confirmModal.danger}
+      />
+
+      <PromptModal
+        isOpen={promptModal.isOpen}
+        onClose={() => setPromptModal({ ...promptModal, isOpen: false })}
+        onConfirm={(value) => promptModal.onConfirm && promptModal.onConfirm(value)}
+        title={promptModal.title}
+        label={promptModal.label}
+        initialValue={promptModal.initialValue}
+        placeholder={promptModal.placeholder}
+        brandColor={brandColor}
+      />
+
+      <AddParticipantModal
+        isOpen={addMemberModal.isOpen}
+        onClose={() => setAddMemberModal({ isOpen: false, chatId: null })}
+        workspaceId={workspaceId}
+        chatId={addMemberModal.chatId}
+        brandColor={brandColor}
+        existingParticipantIds={
+          addMemberModal.chatId
+            ? chat?.participants.map(p => p.user?._id || p.user) || []
+            : []
+        }
+        onSuccess={handleAddMemberSuccess}
+      />
+
+      {/* Mobile Action Modal */}
+      <MessageActionModal
+        isOpen={actionModal.isOpen}
+        onClose={() => setActionModal({ isOpen: false, message: null })}
+        message={actionModal.message}
+        isOwn={actionModal.message?.sender?._id === userInfo?._id || actionModal.message?.sender === userInfo?._id}
+        isStarred={actionModal.message?.starredBy?.some(id => id === userInfo?._id) || false}
+        isArchived={actionModal.message?.archivedBy?.some(id => id === userInfo?._id) || false}
+        onDelete={handleDeleteMessage}
+        onArchive={handleArchiveMessage}
+        onUnarchive={handleUnarchiveMessage}
+        onStar={handleStarMessage}
+        onUnstar={handleUnstarMessage}
+        brandColor={brandColor}
       />
     </div>
   );
