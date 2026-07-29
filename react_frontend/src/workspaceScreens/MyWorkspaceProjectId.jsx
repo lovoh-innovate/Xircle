@@ -419,7 +419,7 @@ const FolderAccessModal = ({ isOpen, onClose, folder, projectMembers, currentUse
 };
 
 // ─── Task Card ──────────────────────────────────────────────────────────
-const TaskCard = ({ task, onClick, brandColor, isActive, draggable, onDragStart, onDragEnd, onCopyClick, onMoveClick, readOnly }) => {
+const TaskCard = ({ task, onClick, brandColor, isActive, draggable, onDragStart, onDragEnd, onCopyClick, onMoveClick, readOnly, showArchived }) => {
   const progress = task.progress || 0;
   const subTaskCount = task.subTasks?.length || 0;
   const confirmedCount = (task.subTasks || []).filter(st => st.status === 'confirmed').length || 0;
@@ -439,18 +439,18 @@ const TaskCard = ({ task, onClick, brandColor, isActive, draggable, onDragStart,
 
   return (
     <div
-      draggable={draggable && !readOnly}
-      onDragStart={(e) => !readOnly && onDragStart && onDragStart(e, task)}
-      onDragEnd={(e) => !readOnly && onDragEnd && onDragEnd(e, task)}
+      draggable={draggable && !readOnly && !showArchived}
+      onDragStart={(e) => !readOnly && !showArchived && onDragStart && onDragStart(e, task)}
+      onDragEnd={(e) => !readOnly && !showArchived && onDragEnd && onDragEnd(e, task)}
       onClick={() => onClick(task._id)}
       className={`group relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 hover:border-[#0d9488]/50 transition-all duration-300 cursor-pointer overflow-hidden ${
         isActive ? 'border-[#0d9488] shadow-[0_0_20px_rgba(13,148,136,0.15)]' : ''
-      } ${draggable && !readOnly ? 'active:cursor-grabbing' : ''} ${readOnly ? 'opacity-80' : ''}`}
+      } ${draggable && !readOnly && !showArchived ? 'active:cursor-grabbing' : ''} ${readOnly || showArchived ? 'opacity-80' : ''}`}
     >
       <div className="p-4">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            {draggable && !readOnly && (
+            {draggable && !readOnly && !showArchived && (
               <FaGripVertical className="text-gray-300 dark:text-gray-700 text-xs flex-shrink-0 cursor-grab" />
             )}
             <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0" style={{ backgroundColor: brandColor }}>
@@ -462,7 +462,12 @@ const TaskCard = ({ task, onClick, brandColor, isActive, draggable, onDragStart,
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
             <TaskStatusBadge status={task.status} />
-            {!readOnly && (
+            {task.isArchived && (
+              <span className="text-[10px] text-orange-600 dark:text-orange-400 bg-orange-100 dark:bg-orange-900/30 px-2 py-0.5 rounded-full border border-orange-300 dark:border-orange-700/50 flex items-center gap-1">
+                <FaArchive className="text-[8px]" /> Archived
+              </span>
+            )}
+            {!readOnly && !showArchived && (
               <div className="relative" ref={menuRef}>
                 <button
                   onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
@@ -472,18 +477,37 @@ const TaskCard = ({ task, onClick, brandColor, isActive, draggable, onDragStart,
                 </button>
                 {menuOpen && (
                   <div className="absolute right-0 top-full mt-1 bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-800/60 rounded-xl min-w-[150px] z-20 py-1 shadow-lg">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onCopyClick(task); }}
-                      className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-[#0d9488]/10 w-full transition"
-                    >
-                      <FaCopy className="text-xs" /> Copy to...
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onMoveClick(task); }}
-                      className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-[#0d9488]/10 w-full transition"
-                    >
-                      <FaFolder className="text-xs" /> Move to...
-                    </button>
+                    {!task.isArchived ? (
+                      <>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onCopyClick(task); }}
+                          className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-[#0d9488]/10 w-full transition"
+                        >
+                          <FaCopy className="text-xs" /> Copy to...
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onMoveClick(task); }}
+                          className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-[#0d9488]/10 w-full transition"
+                        >
+                          <FaFolder className="text-xs" /> Move to...
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setMenuOpen(false); /* call unarchive */ }}
+                          className="flex items-center gap-2 px-3 py-2 text-sm text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-500/10 w-full transition"
+                        >
+                          <FaUndo className="text-xs" /> Unarchive
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setMenuOpen(false); /* call permanent delete */ }}
+                          className="flex items-center gap-2 px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/10 w-full transition"
+                        >
+                          <FaTrashAlt className="text-xs" /> Delete Permanently
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -495,7 +519,7 @@ const TaskCard = ({ task, onClick, brandColor, isActive, draggable, onDragStart,
           {subTaskCount > 0 && (
             <span className="text-[10px] text-gray-500 dark:text-gray-500">• {confirmedCount}/{subTaskCount} done</span>
           )}
-          {isOverdue && (
+          {isOverdue && !task.isArchived && (
             <span className="text-[10px] text-red-400 flex items-center gap-1"><FaClock className="text-[8px]" /> Overdue</span>
           )}
           {readOnly && (
@@ -780,6 +804,9 @@ const MyWorkspaceProjectId = () => {
   const [newSubTaskDue, setNewSubTaskDue] = useState('');
   const [addingSubTask, setAddingSubTask] = useState(false);
 
+  // ── Archived view toggle ──
+  const [showArchived, setShowArchived] = useState(false);
+
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {}, danger: false });
   const [deleteTaskModal, setDeleteTaskModal] = useState({ isOpen: false, taskName: '', onConfirm: () => {} });
   const [addManagerConfirm, setAddManagerConfirm] = useState({ isOpen: false, managerName: '', managerId: '' });
@@ -811,7 +838,11 @@ const MyWorkspaceProjectId = () => {
   const { data: wData, isLoading: wLoad, error: wErr } = useGetWorkspaceQuery(workspaceId);
   const { data: pData, isLoading: pLoad, error: pErr, refetch: refetchProject } = useGetProjectByIdQuery(projectId);
   const { data: tData, isLoading: tLoad, refetch: refetchTasks } = useGetProjectTasksQuery(
-    { projectId, ...(activeFolderId ? { folderId: activeFolderId } : {}) },
+    { 
+      projectId, 
+      ...(activeFolderId ? { folderId: activeFolderId } : {}),
+      archived: showArchived ? true : undefined,
+    },
     { skip: !projectId }
   );
   const { data: foldersData, refetch: refetchFolders } = useGetProjectFoldersQuery(projectId, { skip: !projectId });
@@ -887,12 +918,8 @@ const MyWorkspaceProjectId = () => {
   });
 
   // ─── Folder visibility and read‑only status ──────────────────────
-  // For managers: all folders are visible and writable.
-  // For non‑managers: visible folders are those with at least one assigned task OR read‑only access.
-  // Read‑only if the folder is visible but the user has no assigned task in it.
   const visibleFolders = useMemo(() => {
     if (canManage) return folders;
-    // Group tasks by folder to see where user has assigned tasks
     const assignedFolderIds = new Set();
     tasks.forEach(task => {
       if (task.assignee?._id === userInfo?._id) {
@@ -900,48 +927,36 @@ const MyWorkspaceProjectId = () => {
         if (fid) assignedFolderIds.add(fid);
       }
     });
-    // Folders that are visible: those where user has at least one assigned task OR is read‑only.
-    // We assume any folder returned by backend is visible.
     return folders.filter(f => {
       if (assignedFolderIds.has(f._id)) return true;
-      // Otherwise, if the folder is in the list, it must be read‑only (backend would have filtered)
       return true;
     });
   }, [canManage, folders, tasks, userInfo]);
 
-  // Determine read-only status for a folder (only relevant for non‑managers)
   const isFolderReadOnly = (folderId) => {
     if (canManage) return false;
-    // If user has any assigned task in this folder, it's writable
     const hasAssigned = tasks.some(t => {
       const fid = t.folder?._id || t.folder;
       return fid === folderId && t.assignee?._id === userInfo?._id;
     });
     if (hasAssigned) return false;
-    // Otherwise, if the folder is visible, it must be read‑only
     return visibleFolders.some(f => f._id === folderId);
   };
 
-  // If current activeFolderId is not in visibleFolders, reset to null
+  // Reset folder selection when toggling archived view
   useEffect(() => {
-    if (!canManage && activeFolderId !== null) {
-      const folderExists = visibleFolders.some(f => f._id === activeFolderId);
-      if (!folderExists) {
-        setActiveFolderId(null);
-      }
+    if (showArchived) {
+      setActiveFolderId(null);
     }
-  }, [canManage, visibleFolders, activeFolderId]);
+  }, [showArchived]);
 
-  // ─── Save folder permissions (using API) ──────────────────────────
+  // ─── Save folder permissions ──────────────────────────────────────
   const handleSaveFolderPermissions = async (folderId, selectedUserIds) => {
-    // Fetch current read‑only users from the folder (we need to get them from foldersData)
     const folder = folders.find(f => f._id === folderId);
     if (!folder) return;
     const currentUsers = folder.readOnlyUsers?.map(id => id.toString()) || [];
-
     const toAdd = selectedUserIds.filter(id => !currentUsers.includes(id));
     const toRemove = currentUsers.filter(id => !selectedUserIds.includes(id));
-
     try {
       if (toAdd.length > 0) {
         await addFolderReadOnly({ folderId, users: toAdd }).unwrap();
@@ -951,7 +966,7 @@ const MyWorkspaceProjectId = () => {
       }
       toast.success('Folder access updated');
       refetchFolders();
-      refetchTasks(); // tasks visibility may change
+      refetchTasks();
     } catch (error) {
       toast.error(error?.data?.message || 'Failed to update folder access');
       throw error;
@@ -1069,12 +1084,38 @@ const MyWorkspaceProjectId = () => {
   };
   const openAssignModal = (task) => { setAssignTaskTarget(task); setShowAssignModal(true); };
 
-  const handleArchiveTask = async (taskId) => { try { await archiveTask(taskId).unwrap(); toast.success('Archived'); refetchTasks(); } catch (e) { toast.error(e?.data?.message || 'Failed'); } };
-  const handleUnarchiveTask = async (taskId) => { try { await restoreTask(taskId).unwrap(); toast.success('Unarchived'); refetchTasks(); } catch (e) { toast.error(e?.data?.message || 'Failed'); } };
-  const handleRestoreTask = async (taskId) => { try { await restoreTask(taskId).unwrap(); toast.success('Restored'); refetchTasks(); } catch (e) { toast.error(e?.data?.message || 'Failed'); } };
+  const handleArchiveTask = async (taskId) => { 
+    try { 
+      await archiveTask(taskId).unwrap(); 
+      toast.success('Archived'); 
+      refetchTasks(); 
+      if (showArchived) setShowArchived(true); // keep archived view
+    } catch (e) { toast.error(e?.data?.message || 'Failed'); } 
+  };
+  const handleUnarchiveTask = async (taskId) => { 
+    try { 
+      await restoreTask(taskId).unwrap(); 
+      toast.success('Restored to active'); 
+      refetchTasks(); 
+      // if we are in archived view, maybe stay or switch? we'll stay.
+    } catch (e) { toast.error(e?.data?.message || 'Failed'); } 
+  };
+  const handleRestoreTask = async (taskId) => { 
+    try { 
+      await restoreTask(taskId).unwrap(); 
+      toast.success('Restored from trash'); 
+      refetchTasks(); 
+    } catch (e) { toast.error(e?.data?.message || 'Failed'); } 
+  };
   const handlePermanentlyDeleteTask = async (taskId) => {
     if (!window.confirm('PERMANENTLY DELETE this task?')) return;
-    try { await permanentlyDeleteTask(taskId).unwrap(); toast.success('Permanently deleted'); refetchTasks(); refetchProject(); } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+    try { 
+      await permanentlyDeleteTask(taskId).unwrap(); 
+      toast.success('Permanently deleted'); 
+      refetchTasks(); 
+      refetchProject(); 
+      if (selectedTaskId === taskId) { setSelectedTaskId(null); setMobileShowDetail(false); }
+    } catch (e) { toast.error(e?.data?.message || 'Failed'); }
   };
 
   const handleCreateFolder = async () => {
@@ -1158,7 +1199,6 @@ const MyWorkspaceProjectId = () => {
 
   // ── Drag & Drop ──────────────────────────────────────────────────────
   const handleDragStart = (e, task) => {
-    // Check if task is in a read-only folder
     const folderId = task.folder?._id || task.folder;
     if (folderId && isFolderReadOnly(folderId)) {
       e.preventDefault();
@@ -1199,7 +1239,6 @@ const MyWorkspaceProjectId = () => {
     setDraggedTaskId(null);
     setIsDraggingSomething(false);
     if (!taskId) return;
-    // Check if target folder is read-only for the user (if non-manager)
     if (!canManage && folderId && isFolderReadOnly(folderId)) {
       toast.error('You do not have write access to this folder.');
       return;
@@ -1215,6 +1254,14 @@ const MyWorkspaceProjectId = () => {
 
   // Determine if active folder is read-only (for detail view actions)
   const isActiveFolderReadOnly = activeFolderId ? isFolderReadOnly(activeFolderId) : false;
+
+  // ── Toggle archived view ──
+  const toggleArchived = () => {
+    setShowArchived(prev => !prev);
+    setActiveFolderId(null);
+    setSelectedTaskId(null);
+    setMobileShowDetail(false);
+  };
 
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
@@ -1258,7 +1305,7 @@ const MyWorkspaceProjectId = () => {
             </div>
             <div className="flex items-center gap-2">
               <button onClick={() => setSearchOpen(true)} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"><FaSearch /></button>
-              {canManage && (
+              {canManage && !showArchived && (
                 <button onClick={() => setShowCreateTask(true)} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"><FaPlus /></button>
               )}
             </div>
@@ -1267,24 +1314,39 @@ const MyWorkspaceProjectId = () => {
           {/* Tabs with hover actions and Access Management */}
           <div className="flex items-center gap-2 px-4 border-t border-gray-200 dark:border-gray-800/30 overflow-x-auto">
             <div
-              onClick={() => { setActiveFolderId(null); setMobileShowDetail(false); setSelectedTaskId(null); }}
-              onDragOver={(e) => handleDragOver(e, null)}
+              onClick={() => { setActiveFolderId(null); setShowArchived(false); setMobileShowDetail(false); setSelectedTaskId(null); }}
+              onDragOver={(e) => !showArchived && handleDragOver(e, null)}
               onDragLeave={handleDragLeave}
-              onDrop={(e) => handleDrop(e, null)}
+              onDrop={(e) => !showArchived && handleDrop(e, null)}
               className={`relative flex-shrink-0 cursor-pointer pb-2 text-sm font-medium transition px-3 py-1.5 rounded-xl ${
-                activeFolderId === null
+                !showArchived && activeFolderId === null
                   ? 'bg-[#0d9488]/10 text-[#0d9488]'
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-              } ${draggedOverTabId === null && isDraggingSomething ? 'ring-2 ring-[#0d9488] ring-offset-2 bg-[#0d9488]/5' : ''}`}
+              } ${!showArchived && draggedOverTabId === null && isDraggingSomething ? 'ring-2 ring-[#0d9488] ring-offset-2 bg-[#0d9488]/5' : ''}`}
             >
               All Tasks
-              {draggedOverTabId === null && isDraggingSomething && (
+              {!showArchived && draggedOverTabId === null && isDraggingSomething && (
                 <span className="absolute -top-2 left-1/2 transform -translate-x-1/2 text-[9px] font-medium text-[#0d9488] bg-white dark:bg-[#0f0f12] px-1.5 py-0.5 rounded shadow">
                   Move here?
                 </span>
               )}
             </div>
-            {visibleFolders.map(folder => {
+
+            {/* Archived Tab */}
+            <div
+              onClick={toggleArchived}
+              className={`relative flex-shrink-0 cursor-pointer pb-2 text-sm font-medium transition px-3 py-1.5 rounded-xl ${
+                showArchived
+                  ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+              }`}
+            >
+              <span className="flex items-center gap-1">
+                <FaArchive className="text-xs" /> Archived
+              </span>
+            </div>
+
+            {!showArchived && visibleFolders.map(folder => {
               const readOnly = isFolderReadOnly(folder._id);
               return (
                 <div
@@ -1295,12 +1357,12 @@ const MyWorkspaceProjectId = () => {
                   onDrop={(e) => handleDrop(e, folder._id)}
                 >
                   <div
-                    onClick={() => { setActiveFolderId(folder._id); setMobileShowDetail(false); setSelectedTaskId(null); }}
+                    onClick={() => { setActiveFolderId(folder._id); setShowArchived(false); setMobileShowDetail(false); setSelectedTaskId(null); }}
                     className={`flex items-center gap-1 cursor-pointer pb-2 text-sm font-medium transition px-3 py-1.5 rounded-xl ${
-                      activeFolderId === folder._id
+                      !showArchived && activeFolderId === folder._id
                         ? 'bg-[#0d9488]/10 text-[#0d9488]'
                         : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                    } ${draggedOverTabId === folder._id && isDraggingSomething ? 'ring-2 ring-[#0d9488] ring-offset-2 bg-[#0d9488]/5' : ''}`}
+                    } ${!showArchived && draggedOverTabId === folder._id && isDraggingSomething ? 'ring-2 ring-[#0d9488] ring-offset-2 bg-[#0d9488]/5' : ''}`}
                   >
                     <span>{folder.name}</span>
                     {readOnly && <FaLock className="text-[10px] text-blue-400" />}
@@ -1329,7 +1391,7 @@ const MyWorkspaceProjectId = () => {
                         </button>
                       </span>
                     )}
-                    {draggedOverTabId === folder._id && isDraggingSomething && (
+                    {!showArchived && draggedOverTabId === folder._id && isDraggingSomething && (
                       <span className="absolute -top-2 left-1/2 transform -translate-x-1/2 text-[9px] font-medium text-[#0d9488] bg-white dark:bg-[#0f0f12] px-1.5 py-0.5 rounded shadow">
                         Move here?
                       </span>
@@ -1338,7 +1400,7 @@ const MyWorkspaceProjectId = () => {
                 </div>
               );
             })}
-            {canManage && (
+            {canManage && !showArchived && (
               <button
                 onClick={() => setShowCreateFolder(true)}
                 className="flex-shrink-0 p-1.5 text-[#0d9488] hover:bg-[#0d9488]/10 rounded-lg transition"
@@ -1361,7 +1423,7 @@ const MyWorkspaceProjectId = () => {
               {tasks.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-20 text-gray-500 dark:text-gray-500">
                   <FaTasks className="text-4xl mb-2 opacity-30" />
-                  <p className="text-sm">No tasks in this view</p>
+                  <p className="text-sm">{showArchived ? 'No archived tasks' : 'No tasks in this view'}</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 gap-3">
@@ -1375,12 +1437,13 @@ const MyWorkspaceProjectId = () => {
                         onClick={handleTaskClick}
                         brandColor={brandColor}
                         isActive={selectedTaskId === task._id}
-                        draggable={!readOnly}
+                        draggable={!readOnly && !showArchived}
                         onDragStart={handleDragStart}
                         onDragEnd={handleDragEnd}
                         onCopyClick={openCopyModal}
                         onMoveClick={openMoveModal}
                         readOnly={readOnly}
+                        showArchived={showArchived}
                       />
                     );
                   })}
@@ -1417,27 +1480,34 @@ const MyWorkspaceProjectId = () => {
                       <TaskStatusBadge status={activeTask.status} />
                       <TaskPriorityBadge priority={activeTask.priority} />
                       {activeTask.assignee && <span className="text-gray-500 dark:text-gray-400 truncate">{activeTask.assignee.name}</span>}
+                      {activeTask.isArchived && (
+                        <span className="text-orange-600 dark:text-orange-400 flex items-center gap-1">
+                          <FaArchive className="text-[10px]" /> Archived
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="relative">
                     <button onClick={() => setShowFolderMenu(!showFolderMenu)} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"><FaEllipsisV className="text-sm" /></button>
                     {showFolderMenu && (
                       <div className="absolute right-0 top-full mt-1 bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-800/60 rounded-xl min-w-[180px] z-20 py-1 shadow-lg">
-                        {canManage && (
+                        {canManage && !activeTask.isArchived && (
                           <>
                             <button onClick={() => { setShowFolderMenu(false); handleSendManualReminder(activeTask); }} className="flex items-center gap-2 px-4 py-2 text-sm text-orange-600 dark:text-orange-400 hover:bg-orange-100 dark:hover:bg-orange-500/10 w-full transition"><FaBell className="text-xs" /> Send Reminder</button>
                             <button onClick={() => { setShowFolderMenu(false); openCopyModal(activeTask); }} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-[#0d9488]/10 w-full transition"><FaCopy className="text-xs" /> Copy Task</button>
                             <button onClick={() => { setShowFolderMenu(false); openMoveModal(activeTask); }} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-[#0d9488]/10 w-full transition"><FaFolder className="text-xs" /> Move Task</button>
-                            {!activeTask.isArchived ? (
-                              <button onClick={() => { setShowFolderMenu(false); handleArchiveTask(activeTask._id); }} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-[#0d9488]/10 w-full transition"><FaArchive className="text-xs" /> Archive</button>
-                            ) : (
-                              <button onClick={() => { setShowFolderMenu(false); handleUnarchiveTask(activeTask._id); }} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-[#0d9488]/10 w-full transition"><FaUndo className="text-xs" /> Unarchive</button>
-                            )}
+                            <button onClick={() => { setShowFolderMenu(false); handleArchiveTask(activeTask._id); }} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-[#0d9488]/10 w-full transition"><FaArchive className="text-xs" /> Archive</button>
                             <button onClick={() => { setShowFolderMenu(false); handleDeleteTask(activeTask); }} className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-100 dark:hover:bg-yellow-500/10 w-full transition"><FaTrashAlt className="text-xs" /> Move to Trash</button>
                           </>
                         )}
+                        {canManage && activeTask.isArchived && (
+                          <>
+                            <button onClick={() => { setShowFolderMenu(false); handleUnarchiveTask(activeTask._id); }} className="flex items-center gap-2 px-4 py-2 text-sm text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-500/10 w-full transition"><FaUndo className="text-xs" /> Unarchive</button>
+                            <button onClick={() => { setShowFolderMenu(false); handlePermanentlyDeleteTask(activeTask._id); }} className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/10 w-full transition"><FaTrashAlt className="text-xs" /> Delete Permanently</button>
+                          </>
+                        )}
                         <button onClick={() => { setShowFolderMenu(false); handleEditTask(activeTask); }} className="flex items-center gap-2 px-4 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/10 w-full transition"><FaEdit className="text-xs" /> Edit</button>
-                        {canManage && !activeTask.assignee && (
+                        {canManage && !activeTask.assignee && !activeTask.isArchived && (
                           <button onClick={() => { setShowFolderMenu(false); openAssignModal(activeTask); }} className="flex items-center gap-2 px-4 py-2 text-sm text-[#0d9488] hover:bg-[#0d9488]/10 w-full transition"><FaUserPlus className="text-xs" /> Assign Task</button>
                         )}
                       </div>
@@ -1460,7 +1530,7 @@ const MyWorkspaceProjectId = () => {
                 <div className="flex-1 overflow-y-auto px-4 py-3 pb-24 md:pb-6">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2"><FaTasks className="text-[#0d9488]" /> Sub‑tasks</h3>
-                    {!isActiveFolderReadOnly && ((activeTask.assignee?._id === userInfo?._id && activeTask.allowAssigneeEditSubtasks) || canManage) && (
+                    {!activeTask.isArchived && !isActiveFolderReadOnly && ((activeTask.assignee?._id === userInfo?._id && activeTask.allowAssigneeEditSubtasks) || canManage) && (
                       <button
                         onClick={() => setAddSubTaskOpen(!addSubTaskOpen)}
                         className="text-xs text-[#0d9488] font-medium flex items-center gap-1 hover:text-[#14b8a6] transition"
@@ -1526,17 +1596,17 @@ const MyWorkspaceProjectId = () => {
                         canManage={canManage}
                         onRefresh={refreshAll}
                         brandColor={brandColor}
-                        readOnly={isActiveFolderReadOnly}
+                        readOnly={isActiveFolderReadOnly || activeTask.isArchived}
                       />
                     ))
                   )}
                 </div>
-                {!isActiveFolderReadOnly && activeTask.assignee?._id === userInfo?._id && activeTask.status === 'ready_for_completion' && (
+                {!activeTask.isArchived && !isActiveFolderReadOnly && activeTask.assignee?._id === userInfo?._id && activeTask.status === 'ready_for_completion' && (
                   <div className="border-t border-gray-200 dark:border-gray-800/40 bg-white dark:bg-[#14141a] px-3 py-2 flex-shrink-0 sticky bottom-0">
                     <button onClick={refreshAll} className="w-full py-2 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 transition hover:opacity-80" style={{ backgroundColor: brandColor }}><FaChartLine className="text-sm" /> Refresh status</button>
                   </div>
                 )}
-                {!isActiveFolderReadOnly && canManage && activeTask.status === 'completed' && activeTask.status !== 'confirmed_completed' && (
+                {!activeTask.isArchived && !isActiveFolderReadOnly && canManage && activeTask.status === 'completed' && activeTask.status !== 'confirmed_completed' && (
                   <div className="border-t border-gray-200 dark:border-gray-800/40 bg-white dark:bg-[#14141a] px-3 py-2 flex-shrink-0 sticky bottom-0">
                     <button onClick={() => handleConfirmCompletion(activeTask._id)} className="w-full py-2 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 transition hover:opacity-80" style={{ backgroundColor: brandColor }}><FaCheckDouble className="text-sm" /> Confirm Completion</button>
                   </div>
