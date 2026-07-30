@@ -1,10 +1,8 @@
 // controllers/messagingController.js
-
 import mongoose from "mongoose";
 import { Message, Chat, TypingIndicator } from "../models/messagingModel.js";
 import Workspace from "../models/workspaceModel.js";
 import User from "../models/userModel.js";
-import { uploadToCloudinary } from "../utils/cloudinary.js";
 import { createAndSendNotification } from './notificationController.js';
 import { getIO } from './socket.js';
 
@@ -32,29 +30,21 @@ const isChatParticipant = async (chatId, userId) => {
 const isChatAdmin = async (chatId, userId) => {
   const chat = await Chat.findById(chatId);
   if (!chat) return false;
-  // If it's a workspace chat, workspace owner is admin
   if (chat.scope === 'workspace') {
     const workspace = await Workspace.findById(chat.workspace);
     if (workspace && workspace.owner.toString() === userId) return true;
   }
-  // Check participant role
   const participant = chat.participants.find(
     (p) => p.user.toString() === userId,
   );
   return participant?.role === "admin";
 };
 
-/**
- * Get the creator/owner of a chat (user who created it).
- */
 const getChatCreator = async (chatId) => {
   const chat = await Chat.findById(chatId);
   return chat?.createdBy?.toString();
 };
 
-/**
- * Check if user is the creator of the chat.
- */
 const isChatCreator = async (chatId, userId) => {
   const chat = await Chat.findById(chatId);
   return chat?.createdBy?.toString() === userId;
@@ -173,15 +163,14 @@ export const createGroupChat = async (req, res) => {
       participants: activeMembers,
       createdBy: userId,
       lastMessageAt: new Date(),
-      isPublic: false, // workspace groups are private by default
+      isPublic: false,
       joinRequests: [],
     });
 
     const populatedChat = await Chat.findById(chat._id)
-      .populate("participants.user", "name email profile")
-      .populate("createdBy", "name email profile");
+      .populate("participants.user", "name email profile username")
+      .populate("createdBy", "name email profile username");
 
-    // Notify all members (except creator)
     const memberIds = activeMembers
       .filter(m => m.user.toString() !== userId)
       .map(m => m.user.toString());
@@ -261,7 +250,7 @@ export const createDirectChat = async (req, res) => {
     if (existingChat) {
       const populatedChat = await Chat.findById(existingChat._id).populate(
         "participants.user",
-        "name email profile",
+        "name email profile username",
       );
       return res.status(200).json({
         success: true,
@@ -291,10 +280,9 @@ export const createDirectChat = async (req, res) => {
 
     const populatedChat = await Chat.findById(chat._id).populate(
       "participants.user",
-      "name email profile",
+      "name email profile username",
     );
 
-    // Notify target user
     console.log(`📢 Notifying target user ${targetUserId} about new direct chat`);
     notifyUsers([targetUserId], {
       title: `New message from ${req.user.name || 'a colleague'}`,
@@ -314,7 +302,7 @@ export const createDirectChat = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CREATE PUBLIC DIRECT CHAT (Outside workspace, by username)
+// CREATE PUBLIC DIRECT CHAT (Outside workspace)
 // POST /api/messages/public/direct
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -322,13 +310,17 @@ export const createPublicDirectChat = async (req, res) => {
   console.log(`🔵 createPublicDirectChat called by user ${req.user.id}`);
   try {
     const userId = req.user.id;
-    const { username } = req.body;
+    const { userId: targetUserId, username } = req.body;
 
-    if (!username?.trim()) {
-      return res.status(400).json({ message: "Username is required." });
+    let targetUser;
+    if (targetUserId) {
+      targetUser = await User.findById(targetUserId);
+    } else if (username?.trim()) {
+      targetUser = await User.findOne({ username: username.trim() });
+    } else {
+      return res.status(400).json({ message: "Provide either userId or username." });
     }
 
-    const targetUser = await User.findOne({ username: username.trim() });
     if (!targetUser) {
       return res.status(404).json({ message: "User not found." });
     }
@@ -337,7 +329,6 @@ export const createPublicDirectChat = async (req, res) => {
       return res.status(400).json({ message: "Cannot chat with yourself." });
     }
 
-    // Check if direct chat already exists between these two users (public scope)
     const existingChat = await Chat.findOne({
       type: "direct",
       scope: "public",
@@ -350,7 +341,7 @@ export const createPublicDirectChat = async (req, res) => {
     if (existingChat) {
       const populatedChat = await Chat.findById(existingChat._id).populate(
         "participants.user",
-        "name email profile",
+        "name email profile username",
       );
       return res.status(200).json({
         success: true,
@@ -360,7 +351,7 @@ export const createPublicDirectChat = async (req, res) => {
     }
 
     const chat = await Chat.create({
-      workspace: null, // no workspace
+      workspace: null,
       type: "direct",
       scope: "public",
       participants: [
@@ -380,10 +371,9 @@ export const createPublicDirectChat = async (req, res) => {
 
     const populatedChat = await Chat.findById(chat._id).populate(
       "participants.user",
-      "name email profile",
+      "name email profile username",
     );
 
-    // Notify target user
     notifyUsers([targetUser._id.toString()], {
       title: `${req.user.name || 'Someone'} started a chat with you`,
       body: `You have a new direct message from ${req.user.name || 'someone'}.`,
@@ -410,13 +400,13 @@ export const createPublicGroupChat = async (req, res) => {
   console.log(`🔵 createPublicGroupChat called by user ${req.user.id}`);
   try {
     const userId = req.user.id;
-    const { name, description, avatar, isPublic = true } = req.body;
+    const { name, description, isPublic = 'true' } = req.body;
+    const avatarFile = req.file;
 
     if (!name?.trim()) {
       return res.status(400).json({ message: "Group name is required." });
     }
 
-    // Check if group name already exists (public scope)
     const existing = await Chat.findOne({
       scope: "public",
       type: "group",
@@ -426,13 +416,15 @@ export const createPublicGroupChat = async (req, res) => {
       return res.status(400).json({ message: "Group name already taken." });
     }
 
+    let avatarUrl = avatarFile ? avatarFile.path : null;
+
     const chat = await Chat.create({
       workspace: null,
       type: "group",
       scope: "public",
       name: name.trim(),
       description: description?.trim() || "",
-      avatar: avatar || null,
+      avatar: avatarUrl,
       participants: [
         {
           user: userId,
@@ -444,13 +436,13 @@ export const createPublicGroupChat = async (req, res) => {
       ],
       createdBy: userId,
       lastMessageAt: new Date(),
-      isPublic: true,
+      isPublic: isPublic === 'true' || isPublic === true,
       joinRequests: [],
     });
 
     const populatedChat = await Chat.findById(chat._id)
-      .populate("participants.user", "name email profile")
-      .populate("createdBy", "name email profile");
+      .populate("participants.user", "name email profile username")
+      .populate("createdBy", "name email profile username");
 
     res.status(201).json({
       success: true,
@@ -459,6 +451,100 @@ export const createPublicGroupChat = async (req, res) => {
     });
   } catch (error) {
     console.error(`❌ createPublicGroupChat error:`, error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UPDATE PUBLIC GROUP (creator only)
+// PUT /api/messages/public/group/:chatId
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const updatePublicGroup = async (req, res) => {
+  console.log(`🔵 updatePublicGroup called by user ${req.user.id} for chat ${req.params.chatId}`);
+  try {
+    const userId = req.user.id;
+    const { chatId } = req.params;
+    const { name, description, isPublic } = req.body;
+    const avatarFile = req.file;
+
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+      return res.status(404).json({ message: "Group not found." });
+    }
+
+    if (chat.scope !== 'public' || chat.type !== 'group') {
+      return res.status(400).json({ message: "Not a public group." });
+    }
+
+    if (chat.createdBy.toString() !== userId) {
+      return res.status(403).json({ message: "Only the creator can update this group." });
+    }
+
+    if (name) chat.name = name.trim();
+    if (description !== undefined) chat.description = description.trim();
+    if (isPublic !== undefined) chat.isPublic = isPublic === 'true' || isPublic === true;
+    if (avatarFile) {
+      chat.avatar = avatarFile.path;
+    }
+
+    await chat.save();
+
+    const updatedChat = await Chat.findById(chatId)
+      .populate("participants.user", "name email profile username")
+      .populate("createdBy", "name email profile username");
+
+    res.status(200).json({
+      success: true,
+      message: "Group updated successfully",
+      chat: updatedChat,
+    });
+  } catch (error) {
+    console.error(`❌ updatePublicGroup error:`, error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE PUBLIC GROUP (creator only)
+// DELETE /api/messages/public/group/:chatId
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const deletePublicGroup = async (req, res) => {
+  console.log(`🔵 deletePublicGroup called by user ${req.user.id} for chat ${req.params.chatId}`);
+  try {
+    const userId = req.user.id;
+    const { chatId } = req.params;
+
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+      return res.status(404).json({ message: "Group not found." });
+    }
+
+    if (chat.scope !== 'public' || chat.type !== 'group') {
+      return res.status(400).json({ message: "Not a public group." });
+    }
+
+    if (chat.createdBy.toString() !== userId) {
+      return res.status(403).json({ message: "Only the creator can delete this group." });
+    }
+
+    await Message.deleteMany({ chat: chatId });
+    await Chat.findByIdAndDelete(chatId);
+
+    const participantIds = chat.participants.map(p => p.user.toString());
+    notifyUsers(participantIds, {
+      title: `Group "${chat.name}" has been deleted`,
+      body: `The public group "${chat.name}" has been permanently deleted by its creator.`,
+      data: {},
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Group deleted successfully.",
+    });
+  } catch (error) {
+    console.error(`❌ deletePublicGroup error:`, error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -476,18 +562,16 @@ export const searchPublicGroups = async (req, res) => {
       scope: "public",
       type: "group",
       isPublic: true,
-      // Exclude groups where user is already a participant
     };
     if (query) {
       filter.name = { $regex: query, $options: "i" };
     }
     const groups = await Chat.find(filter)
-      .populate("participants.user", "name email profile")
-      .populate("createdBy", "name email profile")
-      .select("-joinRequests") // exclude join requests for privacy
+      .populate("participants.user", "name email profile username")
+      .populate("createdBy", "name email profile username")
+      .select("-joinRequests")
       .limit(20);
 
-    // Filter groups where user is not a participant
     const userId = req.user.id;
     const availableGroups = groups.filter(
       (g) => !g.participants.some((p) => p.user._id.toString() === userId)
@@ -523,12 +607,10 @@ export const requestJoinGroup = async (req, res) => {
       return res.status(400).json({ message: "Not a public group." });
     }
 
-    // Check if already a member
     if (chat.participants.some((p) => p.user.toString() === userId)) {
       return res.status(400).json({ message: "You are already a member." });
     }
 
-    // Check if request already pending
     const existingRequest = chat.joinRequests.find(
       (r) => r.user.toString() === userId && r.status === "pending",
     );
@@ -543,7 +625,6 @@ export const requestJoinGroup = async (req, res) => {
     });
     await chat.save();
 
-    // Notify admins of the group
     const adminIds = chat.participants
       .filter((p) => p.role === "admin")
       .map((p) => p.user.toString());
@@ -575,7 +656,7 @@ export const handleJoinRequest = async (req, res) => {
   try {
     const userId = req.user.id;
     const { chatId, requestId } = req.params;
-    const { action } = req.body; // 'accept' or 'reject'
+    const { action } = req.body;
 
     if (!action || !['accept', 'reject'].includes(action)) {
       return res.status(400).json({ message: "Invalid action." });
@@ -591,7 +672,6 @@ export const handleJoinRequest = async (req, res) => {
       return res.status(403).json({ message: "Only admins can handle join requests." });
     }
 
-    // Find the request
     const requestIndex = chat.joinRequests.findIndex(
       (r) => r._id.toString() === requestId && r.status === "pending",
     );
@@ -602,7 +682,6 @@ export const handleJoinRequest = async (req, res) => {
     const request = chat.joinRequests[requestIndex];
 
     if (action === 'accept') {
-      // Add user as member
       chat.participants.push({
         user: request.user,
         role: "member",
@@ -613,14 +692,38 @@ export const handleJoinRequest = async (req, res) => {
       request.status = "accepted";
       await chat.save();
 
-      // Notify the user
+      const systemMessage = await Message.create({
+        workspace: chat.workspace,
+        chat: chat._id,
+        sender: null,
+        content: `${req.user.name || 'Someone'} joined the channel`,
+        messageType: 'system',
+        readBy: [],
+        archivedBy: [],
+        starredBy: [],
+      });
+
+      chat.lastMessage = systemMessage._id;
+      chat.lastMessageAt = new Date();
+      await chat.save();
+
+      const populatedSystem = await Message.findById(systemMessage._id)
+        .populate('sender', 'name email profile username')
+        .populate('mentions', 'name email profile username')
+        .populate('replyTo');
+
+      const io = getIO();
+      if (io) {
+        io.to(`chat:${chat._id}`).emit('new-message', populatedSystem);
+      }
+
       notifyUsers([request.user.toString()], {
         title: `Accepted into "${chat.name}"`,
         body: `Your request to join "${chat.name}" has been accepted.`,
         data: { chatId: chat._id.toString() },
       });
+
     } else {
-      // Reject
       request.status = "rejected";
       await chat.save();
 
@@ -653,7 +756,7 @@ export const getJoinRequests = async (req, res) => {
     const { chatId } = req.params;
 
     const chat = await Chat.findById(chatId)
-      .populate("joinRequests.user", "name email profile");
+      .populate("joinRequests.user", "name email profile username");
     if (!chat) {
       return res.status(404).json({ message: "Group not found." });
     }
@@ -683,9 +786,8 @@ export const getUserChats = async (req, res) => {
   console.log(`🔵 getUserChats called for user ${req.user.id}`);
   try {
     const userId = req.user.id;
-    const { workspaceId, archived } = req.query; // add archived param
+    const { workspaceId, archived } = req.query;
 
-    // Build query
     const query = {
       participants: { $elemMatch: { user: userId } },
     };
@@ -702,7 +804,6 @@ export const getUserChats = async (req, res) => {
       }
     }
 
-    // Filter archived: if archived=true, only return chats where user is in archivedBy; else exclude those
     if (archived === 'true') {
       query['archivedBy'] = { $in: [userId] };
     } else {
@@ -710,9 +811,9 @@ export const getUserChats = async (req, res) => {
     }
 
     const chats = await Chat.find(query)
-      .populate("participants.user", "name email profile")
+      .populate("participants.user", "name email profile username")
       .populate("lastMessage")
-      .populate("createdBy", "name email profile")
+      .populate("createdBy", "name email profile username")
       .sort({ lastMessageAt: -1 });
 
     const chatsWithUnread = await Promise.all(
@@ -764,21 +865,20 @@ export const getChatMessages = async (req, res) => {
       return res.status(403).json({ message: "Access denied." });
     }
 
-    // Exclude messages archived by this user
     const messages = await Message.find({
-  chat: chatId,
-  isDeleted: false,
-  archivedBy: { $ne: userId } // exclude archived messages
-})
-  .populate("sender", "name email profile")
-  .populate("mentions", "name email profile")
-  .populate({
-    path: "replyTo",
-    populate: { path: "sender", select: "name email profile" },
-  })
-  .sort({ createdAt: -1 })
-  .skip((page - 1) * limit)
-  .limit(limit);
+      chat: chatId,
+      isDeleted: false,
+      archivedBy: { $ne: userId }
+    })
+      .populate("sender", "name email profile username")
+      .populate("mentions", "name email profile username")
+      .populate({
+        path: "replyTo",
+        populate: { path: "sender", select: "name email profile username" },
+      })
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit);
 
     await Message.updateMany(
       {
@@ -834,23 +934,18 @@ export const sendMessage = async (req, res) => {
       replyToId,
     } = req.body;
 
-    // 1. Validate participant
-    console.log(`🔍 Checking if user ${userId} is participant in chat ${chatId}`);
     const isParticipant = await isChatParticipant(chatId, userId);
     if (!isParticipant) {
       console.log(`❌ User ${userId} is not a participant`);
       return res.status(403).json({ message: "You are not a participant in this chat." });
     }
-    console.log(`✅ User is participant`);
 
     const chat = await Chat.findById(chatId);
     if (!chat) {
       console.log(`❌ Chat ${chatId} not found`);
       return res.status(404).json({ message: "Chat not found." });
     }
-    console.log(`✅ Chat found: ${chat._id}, type: ${chat.type}, participants: ${chat.participants.length}`);
 
-    // 2. Handle file upload
     let mediaUrl = null;
     let mediaName = null;
     let mediaSize = null;
@@ -872,7 +967,6 @@ export const sendMessage = async (req, res) => {
       console.log(`📝 No file, using messageType: ${messageType}`);
     }
 
-    // 3. Filter valid mentions (participants only)
     console.log(`🔍 Validating mentions: ${mentions}`);
     const validMentions = await Promise.all(
       mentions.map(async (mentionId) => {
@@ -883,7 +977,6 @@ export const sendMessage = async (req, res) => {
     const filteredMentions = validMentions.filter((m) => m !== null);
     console.log(`✅ Valid mentions: ${filteredMentions}`);
 
-    // 4. Create message
     console.log(`📝 Creating message...`);
     const message = await Message.create({
       workspace: chat.workspace,
@@ -898,31 +991,27 @@ export const sendMessage = async (req, res) => {
       mentions: filteredMentions,
       replyTo: replyToId || null,
       readBy: [{ user: userId, readAt: new Date() }],
-      archivedBy: [], // default empty
-      starredBy: [],  // default empty
+      archivedBy: [],
+      starredBy: [],
     });
     console.log(`✅ Message created with ID: ${message._id}`);
 
-    // 5. Update chat last message
     chat.lastMessage = message._id;
     chat.lastMessageAt = new Date();
     await chat.save();
     console.log(`✅ Chat updated with last message`);
 
-    // 6. Populate message
     const populatedMessage = await Message.findById(message._id)
-  .populate("sender", "name email profile")
-  .populate("mentions", "name email profile")
-  .populate({
-    path: "replyTo",
-    populate: { path: "sender", select: "name email profile" },
-  });
+      .populate("sender", "name email profile username")
+      .populate("mentions", "name email profile username")
+      .populate({
+        path: "replyTo",
+        populate: { path: "sender", select: "name email profile username" },
+      });
 
-    // 7. Clear typing indicator
     await TypingIndicator.deleteOne({ chat: chatId, user: userId });
     console.log(`✅ Typing indicator cleared`);
 
-    // 8. Emit socket event
     const io = getIO();
     if (io) {
       io.to(`chat:${chatId}`).emit("new-message", populatedMessage);
@@ -931,14 +1020,12 @@ export const sendMessage = async (req, res) => {
       console.log(`⚠️ Socket.io not available`);
     }
 
-    // ─── 9. NOTIFY ALL PARTICIPANTS (except sender) ──────────────────────
     const senderName = req.user.name || 'Someone';
     const allParticipantIds = chat.participants
       .map(p => p.user.toString())
       .filter(id => id !== userId);
     console.log(`👥 All participants (excluding sender):`, allParticipantIds);
 
-    // Build preview
     let preview = content?.substring(0, 100) || '';
     if (finalMessageType === 'image') preview = '📷 Image';
     else if (finalMessageType === 'video') preview = '🎬 Video';
@@ -947,7 +1034,6 @@ export const sendMessage = async (req, res) => {
     if (!preview) preview = 'Sent a message';
     console.log(`📄 Preview: "${preview}"`);
 
-    // Chat name for notification
     let chatName = chat.name || 'Chat';
     if (chat.type === 'direct') {
       const otherUser = chat.participants.find(p => p.user.toString() !== userId);
@@ -967,7 +1053,6 @@ export const sendMessage = async (req, res) => {
       });
     }
 
-    // ─── 10. NOTIFY MENTIONED USERS (if any) ─────────────────────────────
     if (filteredMentions.length > 0) {
       console.log(`📤 Notifying ${filteredMentions.length} mentioned users`);
       notifyUsers(filteredMentions, {
@@ -980,7 +1065,6 @@ export const sendMessage = async (req, res) => {
       });
     }
 
-    // ─── 11. NOTIFY REPLY-TO USER (if not already notified) ─────────────
     if (replyToId) {
       const replyToMessage = await Message.findById(replyToId);
       if (replyToMessage && replyToMessage.sender.toString() !== userId) {
@@ -1116,7 +1200,7 @@ export const getTypingUsers = async (req, res) => {
     }
 
     const typing = await TypingIndicator.find({ chat: chatId })
-      .populate("user", "name email profile")
+      .populate("user", "name email profile username")
       .where("user")
       .ne(userId);
 
@@ -1135,47 +1219,61 @@ export const getTypingUsers = async (req, res) => {
 // GET /api/messages/search/users
 // ─────────────────────────────────────────────────────────────────────────────
 
+// controllers/messagingController.js
+
 export const searchUsers = async (req, res) => {
   console.log(`🔵 searchUsers called by user ${req.user.id}`);
   try {
     const userId = req.user.id;
     const { workspaceId, query, scope } = req.query;
 
+    // ─── Public scope: search all users by name or username ───
     if (scope === 'public') {
-      // Search all users by username or name
+      if (!query || query.trim().length < 2) {
+        return res.status(200).json({ success: true, users: [] });
+      }
+
+      const trimmedQuery = query.trim();
+
+      // Priority: exact username match first, then partial on both fields
       const users = await User.find({
         $or: [
-          { username: { $regex: query, $options: "i" } },
-          { name: { $regex: query, $options: "i" } },
+          { username: trimmedQuery },                    // exact match
+          { username: { $regex: trimmedQuery, $options: 'i' } },
+          { name: { $regex: trimmedQuery, $options: 'i' } },
         ],
         _id: { $ne: userId },
-      }).select("name email profile username");
+      })
+        .select('name email profile username')
+        .limit(20);
+
       return res.status(200).json({ success: true, users });
     }
 
-    // Workspace scope
+    // ─── Workspace scope ──────────────────────────────────────
     if (!workspaceId) {
-      return res.status(400).json({ message: "Workspace ID is required for workspace search." });
+      return res.status(400).json({ message: 'Workspace ID is required for workspace search.' });
     }
 
     const workspace = await Workspace.findById(workspaceId).populate(
-      "members.user",
-      "name email profile username",
+      'members.user',
+      'name email profile username',
     );
     if (!workspace) {
-      return res.status(404).json({ message: "Workspace not found." });
+      return res.status(404).json({ message: 'Workspace not found.' });
     }
 
     let members = workspace.members
-      .filter((m) => m.status === "active" && m.user._id.toString() !== userId)
+      .filter((m) => m.status === 'active' && m.user._id.toString() !== userId)
       .map((m) => m.user);
 
     if (query) {
+      const q = query.toLowerCase().trim();
       members = members.filter(
         (m) =>
-          m.name.toLowerCase().includes(query.toLowerCase()) ||
-          m.email.toLowerCase().includes(query.toLowerCase()) ||
-          (m.username && m.username.toLowerCase().includes(query.toLowerCase())),
+          m.name.toLowerCase().includes(q) ||
+          m.email.toLowerCase().includes(q) ||
+          (m.username && m.username.toLowerCase().includes(q)),
       );
     }
 
@@ -1184,7 +1282,7 @@ export const searchUsers = async (req, res) => {
       users: members,
     });
   } catch (error) {
-    console.error(`❌ searchUsers error:`, error);
+    console.error('❌ searchUsers error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -1219,7 +1317,6 @@ export const addParticipant = async (req, res) => {
         .json({ message: "Only admins can add participants." });
     }
 
-    // If workspace chat, ensure users are active members
     let workspace = null;
     if (chat.scope === 'workspace' && chat.workspace) {
       workspace = await Workspace.findById(chat.workspace);
@@ -1233,7 +1330,6 @@ export const addParticipant = async (req, res) => {
 
     for (const newUserId of userIds) {
       if (!existingUserIds.includes(newUserId)) {
-        // If workspace chat, check membership
         if (workspace) {
           const isActiveMember = workspace.members.some(
             (m) => m.user.toString() === newUserId && m.status === "active",
@@ -1257,7 +1353,6 @@ export const addParticipant = async (req, res) => {
 
     await chat.save();
 
-    // Notify added users
     notifyUsers(addedUsers, {
       title: `Added to group "${chat.name}"`,
       body: `You have been added to the group chat "${chat.name}".`,
@@ -1266,7 +1361,7 @@ export const addParticipant = async (req, res) => {
 
     const populatedChat = await Chat.findById(chatId).populate(
       "participants.user",
-      "name email profile",
+      "name email profile username",
     );
 
     res.status(200).json({
@@ -1309,7 +1404,6 @@ export const removeParticipant = async (req, res) => {
         .json({ message: "Only admins can remove participants." });
     }
 
-    // Prevent removing creator (or workspace owner)
     const creatorId = chat.createdBy?.toString();
     if (creatorId === targetUserId) {
       return res
@@ -1317,7 +1411,6 @@ export const removeParticipant = async (req, res) => {
         .json({ message: "Cannot remove the group creator." });
     }
 
-    // If workspace chat, prevent removing workspace owner
     if (chat.scope === 'workspace' && chat.workspace) {
       const workspace = await Workspace.findById(chat.workspace);
       if (workspace && workspace.owner.toString() === targetUserId) {
@@ -1401,7 +1494,7 @@ export const makeGroupAdmin = async (req, res) => {
     res.status(200).json({
       success: true,
       message: "User promoted to admin.",
-      chat: await Chat.findById(chatId).populate("participants.user", "name email profile"),
+      chat: await Chat.findById(chatId).populate("participants.user", "name email profile username"),
     });
   } catch (error) {
     console.error(`❌ makeGroupAdmin error:`, error);
@@ -1439,13 +1532,11 @@ export const removeGroupAdmin = async (req, res) => {
       return res.status(403).json({ message: "Only admins can demote users." });
     }
 
-    // Cannot demote creator
     const creatorId = chat.createdBy?.toString();
     if (creatorId === targetUserId) {
       return res.status(403).json({ message: "Cannot demote the group creator." });
     }
 
-    // If workspace chat, cannot demote workspace owner
     if (chat.scope === 'workspace' && chat.workspace) {
       const workspace = await Workspace.findById(chat.workspace);
       if (workspace && workspace.owner.toString() === targetUserId) {
@@ -1476,7 +1567,7 @@ export const removeGroupAdmin = async (req, res) => {
     res.status(200).json({
       success: true,
       message: "Admin rights removed.",
-      chat: await Chat.findById(chatId).populate("participants.user", "name email profile"),
+      chat: await Chat.findById(chatId).populate("participants.user", "name email profile username"),
     });
   } catch (error) {
     console.error(`❌ removeGroupAdmin error:`, error);
@@ -1504,7 +1595,6 @@ export const deleteGroupChat = async (req, res) => {
       return res.status(400).json({ message: "Only group chats can be deleted." });
     }
 
-    // Only creator can delete (or workspace owner if workspace chat)
     const isCreator = chat.createdBy?.toString() === userId;
     let isWorkspaceOwner = false;
     if (chat.scope === 'workspace' && chat.workspace) {
@@ -1518,13 +1608,9 @@ export const deleteGroupChat = async (req, res) => {
       return res.status(403).json({ message: "Only the creator or workspace owner can delete the group chat." });
     }
 
-    // Delete all messages
     await Message.deleteMany({ chat: chatId });
-
-    // Delete the chat
     await Chat.findByIdAndDelete(chatId);
 
-    // Notify all participants that the group was deleted
     const participantIds = chat.participants.map(p => p.user.toString());
     notifyUsers(participantIds, {
       title: `Group "${chat.name}" has been deleted`,
@@ -1603,7 +1689,6 @@ export const archiveChat = async (req, res) => {
       return res.status(403).json({ message: "You are not a participant." });
     }
 
-    // Add user to archivedBy if not already
     if (!(chat.archivedBy || []).some(id => id.toString() === userId)) {
       chat.archivedBy = chat.archivedBy || [];
       chat.archivedBy.push(userId);
@@ -1674,7 +1759,6 @@ export const exitGroupChat = async (req, res) => {
       return res.status(400).json({ message: "Only group chats can be exited." });
     }
 
-    // Check if user is participant
     const participantIndex = chat.participants.findIndex(
       (p) => p.user.toString() === userId,
     );
@@ -1682,16 +1766,12 @@ export const exitGroupChat = async (req, res) => {
       return res.status(400).json({ message: "You are not a member of this group." });
     }
 
-    // Check if user is the creator or workspace owner (cannot exit? Actually they can, but then group might lose admin; we allow it but warn? We'll allow, but if creator exits, group remains with other admins)
-    // But we can prevent creator from exiting if they are the only admin? Let's allow but if they are the only admin, group could become adminless. We'll let them exit and then perhaps no admin remains, but that's okay.
     chat.participants.splice(participantIndex, 1);
     await chat.save();
 
-    // Remove from archivedBy if present
     chat.archivedBy = (chat.archivedBy || []).filter(id => id.toString() !== userId);
     await chat.save();
 
-    // Notify other participants
     const otherParticipantIds = chat.participants.map(p => p.user.toString());
     notifyUsers(otherParticipantIds, {
       title: `${req.user.name} left the group`,
@@ -1772,13 +1852,11 @@ export const archiveMessage = async (req, res) => {
       return res.status(404).json({ message: "Message not found." });
     }
 
-    // Check if user is participant in the chat
     const isParticipant = await isChatParticipant(message.chat, userId);
     if (!isParticipant) {
       return res.status(403).json({ message: "You are not a participant in this chat." });
     }
 
-    // Add user to archivedBy if not already
     if (!(message.archivedBy || []).some(id => id.toString() === userId)) {
       message.archivedBy = message.archivedBy || [];
       message.archivedBy.push(userId);
@@ -1850,7 +1928,6 @@ export const starMessage = async (req, res) => {
       return res.status(403).json({ message: "You are not a participant in this chat." });
     }
 
-    // Add user to starredBy if not already
     if (!(message.starredBy || []).some(id => id.toString() === userId)) {
       message.starredBy = message.starredBy || [];
       message.starredBy.push(userId);
@@ -1897,6 +1974,29 @@ export const unstarMessage = async (req, res) => {
     });
   } catch (error) {
     console.error(`❌ unstarMessage error:`, error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─── GET PENDING JOIN REQUESTS FOR CURRENT USER ──────────────────────
+export const getPendingJoinRequests = async (req, res) => {
+  console.log(`🔵 getPendingJoinRequests called by user ${req.user.id}`);
+  try {
+    const userId = req.user.id;
+    const groups = await Chat.find({
+      scope: 'public',
+      type: 'group',
+      isPublic: true,
+      'joinRequests.user': userId,
+      'joinRequests.status': 'pending',
+    })
+      .populate('participants.user', 'name email profile username')
+      .populate('createdBy', 'name email profile username')
+      .select('-joinRequests');
+
+    res.status(200).json({ success: true, groups });
+  } catch (error) {
+    console.error('❌ getPendingJoinRequests error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

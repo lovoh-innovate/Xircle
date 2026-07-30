@@ -137,7 +137,7 @@ export const initSocket = (server) => {
         if (!isParticipant) return callback({ error: 'You are not a participant in this chat' });
 
         const message = await Message.create({
-          workspace: chat.workspace,
+          workspace: chat.workspace, // may be null for public chats
           chat: chatId,
           sender: socket.userId,
           content: content?.trim() || '',
@@ -186,19 +186,29 @@ export const initSocket = (server) => {
           notifBody = preview;
         }
 
-        // Build the full chat URL
-        const chatLink = `${process.env.CLIENT_URL}/workspace/${chat.workspace}/chat/${chat._id}`;
+        // Build the correct chat URL
+        let chatLink;
+        if (chat.workspace) {
+          // Workspace chat
+          chatLink = `${process.env.CLIENT_URL}/workspace/${chat.workspace}/chat/${chat._id}`;
+        } else {
+          // Public chat (outside workspace)
+          chatLink = `${process.env.CLIENT_URL}/channels/${chat._id}`;
+        }
 
         // Data to be sent with the notification (used by the service worker)
         const notificationData = {
           chatId: chat._id.toString(),
-          workspaceId: chat.workspace.toString(),
-          messageId: message._id.toString(),
           chatType: chatType,
           chatName: chatName,
           senderName: senderName,
           url: chatLink,
+          messageId: message._id.toString(),
         };
+        // Only include workspaceId if it exists
+        if (chat.workspace) {
+          notificationData.workspaceId = chat.workspace.toString();
+        }
 
         const allParticipantIds = chat.participants
           .map(p => p.user.toString())

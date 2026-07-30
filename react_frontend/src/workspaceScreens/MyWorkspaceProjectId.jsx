@@ -85,6 +85,7 @@ import {
   FaGripVertical,
   FaLock,
   FaLockOpen,
+  FaRedo,
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
@@ -340,7 +341,6 @@ const FolderAccessModal = ({ isOpen, onClose, folder, projectMembers, currentUse
 
   useEffect(() => {
     if (isOpen && folder) {
-      // initialAccessUsers is an array of user IDs currently having read‑only access
       setSelectedIds(initialAccessUsers || []);
     }
   }, [isOpen, folder, initialAccessUsers]);
@@ -365,7 +365,6 @@ const FolderAccessModal = ({ isOpen, onClose, folder, projectMembers, currentUse
     }
   };
 
-  // Exclude current user and non‑active members
   const members = projectMembers.filter(m => {
     const id = m.user?._id || m._id;
     return id !== currentUserId && m.status === 'active';
@@ -442,6 +441,8 @@ const TaskCard = ({ task, onClick, brandColor, isActive, draggable, onDragStart,
   }, []);
 
   const displayTitle = formatTaskTitle(task.title);
+  const hasRecurrence = task.recurrenceType && task.recurrenceType !== 'none';
+  const recurrenceLabel = task.recurrenceType === 'daily' ? 'Daily' : task.recurrenceType === 'weekly' ? 'Weekly' : '';
 
   return (
     <div
@@ -465,6 +466,11 @@ const TaskCard = ({ task, onClick, brandColor, isActive, draggable, onDragStart,
             <h4 className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
               {displayTitle}
             </h4>
+            {hasRecurrence && (
+              <span className="flex-shrink-0 text-[10px] text-teal-600 dark:text-[#0d9488] flex items-center gap-0.5" title={`Recurring: ${recurrenceLabel}`}>
+                <FaRedo className="text-[8px]" /> {recurrenceLabel}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
             <TaskStatusBadge status={task.status} />
@@ -548,7 +554,7 @@ const TaskCard = ({ task, onClick, brandColor, isActive, draggable, onDragStart,
   );
 };
 
-// ─── Sub‑task Item ──────────────────────────────────────────────────────
+// ─── Sub‑task Item (with recurrence badge) ────────────────────────────
 const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh, brandColor, readOnly }) => {
   const [markDone] = useMarkSubTaskDoneMutation();
   const [confirmSub] = useConfirmSubTaskMutation();
@@ -567,6 +573,10 @@ const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh,
   const [rejectReason, setRejectReason] = useState('');
 
   const hasDetails = subTask.notes || (subTask.links && subTask.links.length > 0) || (subTask.attachments && subTask.attachments.length > 0) || subTask.feedback || subTask.rejectedBy;
+
+  // ── Recurrence info ──
+  const hasRecurrence = subTask.recurrenceType && subTask.recurrenceType !== 'none';
+  const recurrenceLabel = subTask.recurrenceType === 'daily' ? 'Daily' : subTask.recurrenceType === 'weekly' ? 'Weekly' : '';
 
   const handleMarkDone = () => { if (!readOnly && subTask.status !== 'done' && subTask.status !== 'confirmed') setShowDoneForm(true); };
   const submitDone = async () => {
@@ -637,6 +647,11 @@ const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh,
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm font-medium text-gray-800 dark:text-gray-300">{subTask.title}</span>
               <span className={`text-[10px] font-medium ${st.color}`}>{st.label}</span>
+              {hasRecurrence && (
+                <span className="text-[10px] text-teal-600 dark:text-[#0d9488] flex items-center gap-0.5">
+                  <FaRedo className="text-[8px]" /> {recurrenceLabel}
+                </span>
+              )}
               {subTask.dueDate && new Date(subTask.dueDate) < new Date() && subTask.status !== 'confirmed' && (
                 <span className="text-[10px] text-red-400 flex items-center gap-1"><FaClock className="text-[8px]" /> Overdue</span>
               )}
@@ -808,7 +823,19 @@ const MyWorkspaceProjectId = () => {
   const [newSubTaskTitle, setNewSubTaskTitle] = useState('');
   const [newSubTaskStart, setNewSubTaskStart] = useState('');
   const [newSubTaskDue, setNewSubTaskDue] = useState('');
+  const [newSubTaskRecurrenceType, setNewSubTaskRecurrenceType] = useState('none');
+  const [newSubTaskRecurrenceDays, setNewSubTaskRecurrenceDays] = useState([]);
+  const [newSubTaskRecurrenceEndDate, setNewSubTaskRecurrenceEndDate] = useState('');
   const [addingSubTask, setAddingSubTask] = useState(false);
+  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  const toggleDay = (day) => {
+    if (newSubTaskRecurrenceDays.includes(day)) {
+      setNewSubTaskRecurrenceDays(newSubTaskRecurrenceDays.filter(d => d !== day));
+    } else {
+      setNewSubTaskRecurrenceDays([...newSubTaskRecurrenceDays, day].sort());
+    }
+  };
 
   // ── Archived view toggle ──
   const [showArchived, setShowArchived] = useState(false);
@@ -1103,7 +1130,6 @@ const MyWorkspaceProjectId = () => {
       await restoreTask(taskId).unwrap(); 
       toast.success('Restored to active'); 
       refetchTasks(); 
-      // if we are in archived view, maybe stay or switch? we'll stay.
     } catch (e) { toast.error(e?.data?.message || 'Failed'); } 
   };
   const handleRestoreTask = async (taskId) => { 
@@ -1151,7 +1177,7 @@ const MyWorkspaceProjectId = () => {
     } catch (e) { toast.error(e?.data?.message || 'Failed'); }
   };
 
-  // ── Add Sub‑task handler ──
+  // ── Add Sub‑task handler (now with recurrence) ──
   const handleAddSubTask = async () => {
     if (!newSubTaskTitle.trim()) {
       toast.error('Sub‑task title required');
@@ -1159,18 +1185,26 @@ const MyWorkspaceProjectId = () => {
     }
     setAddingSubTask(true);
     try {
+      const payload = {
+        title: newSubTaskTitle.trim(),
+        startDate: newSubTaskStart || null,
+        dueDate: newSubTaskDue || null,
+        recurrenceType: newSubTaskRecurrenceType,
+        recurrenceDays: newSubTaskRecurrenceType === 'weekly' ? newSubTaskRecurrenceDays : [],
+        recurrenceEndDate: newSubTaskRecurrenceEndDate || null,
+      };
       await addSubTask({
         taskId: activeTask._id,
-        data: {
-          title: newSubTaskTitle.trim(),
-          startDate: newSubTaskStart || null,
-          dueDate: newSubTaskDue || null,
-        },
+        data: payload,
       }).unwrap();
       toast.success('Sub‑task added');
+      // reset form
       setNewSubTaskTitle('');
       setNewSubTaskStart('');
       setNewSubTaskDue('');
+      setNewSubTaskRecurrenceType('none');
+      setNewSubTaskRecurrenceDays([]);
+      setNewSubTaskRecurrenceEndDate('');
       setAddSubTaskOpen(false);
       refetchTasks();
     } catch (err) {
@@ -1485,6 +1519,11 @@ const MyWorkspaceProjectId = () => {
                     <div className="flex items-center gap-1.5 text-xs flex-wrap">
                       <TaskStatusBadge status={activeTask.status} />
                       <TaskPriorityBadge priority={activeTask.priority} />
+                      {activeTask.recurrenceType && activeTask.recurrenceType !== 'none' && (
+                        <span className="flex items-center gap-0.5 text-teal-600 dark:text-[#0d9488]">
+                          <FaRedo className="text-[10px]" /> {activeTask.recurrenceType === 'daily' ? 'Daily' : 'Weekly'}
+                        </span>
+                      )}
                       {activeTask.assignee && <span className="text-gray-500 dark:text-gray-400 truncate">{activeTask.assignee.name}</span>}
                       {activeTask.isArchived && (
                         <span className="text-orange-600 dark:text-orange-400 flex items-center gap-1">
@@ -1546,33 +1585,94 @@ const MyWorkspaceProjectId = () => {
                     )}
                   </div>
 
-                  {/* Inline sub‑task form */}
+                  {/* Inline sub‑task form (with recurrence) */}
                   {addSubTaskOpen && (
-                    <div className="bg-white dark:bg-[#1a1a24] border border-gray-200 dark:border-gray-800/60 rounded-xl p-3 mb-3 w-full">
+                    <div className="bg-white dark:bg-[#1a1a24] border border-gray-200 dark:border-gray-800/60 rounded-xl p-3 mb-3 w-full space-y-2">
                       <input
                         type="text"
                         placeholder="Sub‑task title"
                         value={newSubTaskTitle}
                         onChange={(e) => setNewSubTaskTitle(e.target.value)}
-                        className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-[#0d9488] outline-none mb-2"
+                        className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-[#0d9488] outline-none"
                       />
                       <input
                         type="datetime-local"
                         placeholder="Start date & time"
                         value={newSubTaskStart}
                         onChange={(e) => setNewSubTaskStart(e.target.value)}
-                        className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none mb-2"
+                        className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
                       />
                       <input
                         type="datetime-local"
                         placeholder="Due date & time"
                         value={newSubTaskDue}
                         onChange={(e) => setNewSubTaskDue(e.target.value)}
-                        className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none mb-2"
+                        className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
                       />
+
+                      {/* Recurrence section */}
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Recurrence</label>
+                        <select
+                          value={newSubTaskRecurrenceType}
+                          onChange={(e) => {
+                            setNewSubTaskRecurrenceType(e.target.value);
+                            if (e.target.value !== 'weekly') setNewSubTaskRecurrenceDays([]);
+                          }}
+                          className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
+                        >
+                          <option value="none">None</option>
+                          <option value="daily">Daily</option>
+                          <option value="weekly">Weekly</option>
+                        </select>
+                      </div>
+
+                      {newSubTaskRecurrenceType === 'weekly' && (
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Repeat on</label>
+                          <div className="flex flex-wrap gap-2">
+                            {weekDays.map((day, idx) => (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => toggleDay(idx)}
+                                className={`px-3 py-1 rounded-full text-xs font-medium transition ${
+                                  newSubTaskRecurrenceDays.includes(idx)
+                                    ? 'bg-[#0d9488] text-white'
+                                    : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'
+                                }`}
+                              >
+                                {day}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {(newSubTaskRecurrenceType === 'daily' || newSubTaskRecurrenceType === 'weekly') && (
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">End Date (optional)</label>
+                          <input
+                            type="datetime-local"
+                            value={newSubTaskRecurrenceEndDate}
+                            onChange={(e) => setNewSubTaskRecurrenceEndDate(e.target.value)}
+                            className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
+                          />
+                        </div>
+                      )}
+
                       <div className="flex gap-2">
                         <button
-                          onClick={() => setAddSubTaskOpen(false)}
+                          onClick={() => {
+                            setAddSubTaskOpen(false);
+                            // reset form
+                            setNewSubTaskTitle('');
+                            setNewSubTaskStart('');
+                            setNewSubTaskDue('');
+                            setNewSubTaskRecurrenceType('none');
+                            setNewSubTaskRecurrenceDays([]);
+                            setNewSubTaskRecurrenceEndDate('');
+                          }}
                           className="flex-1 py-1.5 border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
                         >
                           Cancel
@@ -1813,6 +1913,7 @@ const MyWorkspaceProjectId = () => {
 };
 
 // ─── Inline Form Components ──────────────────────────────────────────
+
 const CreateTaskForm = ({ projectId, brandColor, assignableMembers, folders, onSuccess }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -1830,6 +1931,20 @@ const CreateTaskForm = ({ projectId, brandColor, assignableMembers, folders, onS
   const [attachments, setAttachments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [createTask] = useCreateTaskMutation();
+
+  // ── Recurrence states ──
+  const [recurrenceType, setRecurrenceType] = useState('none');
+  const [recurrenceDays, setRecurrenceDays] = useState([]);
+  const [recurrenceEndDate, setRecurrenceEndDate] = useState('');
+  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  const toggleDay = (day) => {
+    if (recurrenceDays.includes(day)) {
+      setRecurrenceDays(recurrenceDays.filter(d => d !== day));
+    } else {
+      setRecurrenceDays([...recurrenceDays, day].sort());
+    }
+  };
 
   const assigneeOpts = [
     { value: '', label: 'Unassigned', icon: <FaUser className="text-gray-400" /> },
@@ -1901,6 +2016,12 @@ const CreateTaskForm = ({ projectId, brandColor, assignableMembers, folders, onS
       fd.append('allowAssigneeEditSubtasks', allowAssigneeEditSubtasks);
       if (folderId) fd.append('folderId', folderId);
       if (dailyReminderTime) fd.append('dailyReminderTime', dailyReminderTime);
+      // Recurrence
+      fd.append('recurrenceType', recurrenceType);
+      if (recurrenceType === 'weekly') {
+        fd.append('recurrenceDays', JSON.stringify(recurrenceDays));
+      }
+      if (recurrenceEndDate) fd.append('recurrenceEndDate', recurrenceEndDate);
       attachments.forEach(file => fd.append('attachments', file));
       await createTask(fd).unwrap();
       toast.success('Task created');
@@ -1958,6 +2079,58 @@ const CreateTaskForm = ({ projectId, brandColor, assignableMembers, folders, onS
           <input type="number" step="0.5" value={bufferTime} onChange={e => setBufferTime(parseFloat(e.target.value) || 0)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
         </div>
       </div>
+
+      {/* ─── Recurrence Section ─── */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Recurrence</label>
+        <select
+          value={recurrenceType}
+          onChange={(e) => {
+            setRecurrenceType(e.target.value);
+            if (e.target.value !== 'weekly') setRecurrenceDays([]);
+          }}
+          className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
+        >
+          <option value="none">None</option>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+        </select>
+      </div>
+
+      {recurrenceType === 'weekly' && (
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Repeat on</label>
+          <div className="flex flex-wrap gap-2">
+            {weekDays.map((day, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => toggleDay(idx)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition ${
+                  recurrenceDays.includes(idx)
+                    ? 'bg-[#0d9488] text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'
+                }`}
+              >
+                {day}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(recurrenceType === 'daily' || recurrenceType === 'weekly') && (
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">End Date (optional)</label>
+          <input
+            type="datetime-local"
+            value={recurrenceEndDate}
+            onChange={(e) => setRecurrenceEndDate(e.target.value)}
+            className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
+          />
+        </div>
+      )}
+
       <div>
         <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Links (one per line)</label>
         <textarea value={links} onChange={e => setLinks(e.target.value)} rows={2} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" placeholder="https://..." />
@@ -2001,6 +2174,22 @@ const EditTaskForm = ({ task, brandColor, assignableMembers, folders, onSuccess 
   const [loading, setLoading] = useState(false);
   const [updateTask] = useUpdateTaskMutation();
 
+  // ── Recurrence states ──
+  const [recurrenceType, setRecurrenceType] = useState(task?.recurrenceType || 'none');
+  const [recurrenceDays, setRecurrenceDays] = useState(task?.recurrenceDays || []);
+  const [recurrenceEndDate, setRecurrenceEndDate] = useState(
+    task?.recurrenceEndDate ? new Date(task.recurrenceEndDate).toISOString().slice(0, 16) : ''
+  );
+  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  const toggleDay = (day) => {
+    if (recurrenceDays.includes(day)) {
+      setRecurrenceDays(recurrenceDays.filter(d => d !== day));
+    } else {
+      setRecurrenceDays([...recurrenceDays, day].sort());
+    }
+  };
+
   const assigneeOpts = [
     { value: '', label: 'Unassigned', icon: <FaUser className="text-gray-400" /> },
     ...assignableMembers.map(m => {
@@ -2012,6 +2201,28 @@ const EditTaskForm = ({ task, brandColor, assignableMembers, folders, onSuccess 
     { value: null, label: 'No Folder', icon: <FaFolder className="text-gray-400" /> },
     ...folders.map(f => ({ value: f._id, label: f.name, icon: <FaFolder className="text-gray-400" /> }))
   ];
+
+  useEffect(() => {
+    if (task) {
+      setTitle(task.title || '');
+      setDescription(task.description || '');
+      setTaskType(task.taskType || 'general');
+      setAssigneeId(task.assignee?._id || task.assignee || '');
+      setPriority(task.priority || 'medium');
+      setStartDate(task.startDate ? new Date(task.startDate).toISOString().slice(0, 16) : '');
+      setDueDate(task.dueDate ? new Date(task.dueDate).toISOString().slice(0, 16) : '');
+      setStatus(task.status || 'pending');
+      setEstimatedHours(task.estimatedHours || '');
+      setBufferTime(task.bufferTime || 0);
+      setAllowAssigneeEditSubtasks(task.allowAssigneeEditSubtasks || false);
+      setLinks((task.links || []).join('\n'));
+      setFolderId(task.folder?._id || null);
+      setDailyReminderTime(task.dailyReminderTime || '');
+      setRecurrenceType(task.recurrenceType || 'none');
+      setRecurrenceDays(task.recurrenceDays || []);
+      setRecurrenceEndDate(task.recurrenceEndDate ? new Date(task.recurrenceEndDate).toISOString().slice(0, 16) : '');
+    }
+  }, [task]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -2032,6 +2243,12 @@ const EditTaskForm = ({ task, brandColor, assignableMembers, folders, onSuccess 
       fd.append('allowAssigneeEditSubtasks', allowAssigneeEditSubtasks);
       if (folderId) fd.append('folderId', folderId);
       if (dailyReminderTime) fd.append('dailyReminderTime', dailyReminderTime);
+      // Recurrence
+      fd.append('recurrenceType', recurrenceType);
+      if (recurrenceType === 'weekly') {
+        fd.append('recurrenceDays', JSON.stringify(recurrenceDays));
+      }
+      if (recurrenceEndDate) fd.append('recurrenceEndDate', recurrenceEndDate);
       attachments.forEach(file => fd.append('attachments', file));
       await updateTask({ taskId: task._id, data: fd }).unwrap();
       toast.success('Task updated');
@@ -2075,6 +2292,58 @@ const EditTaskForm = ({ task, brandColor, assignableMembers, folders, onSuccess 
           <input type="number" step="0.5" value={bufferTime} onChange={e => setBufferTime(parseFloat(e.target.value) || 0)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
         </div>
       </div>
+
+      {/* ─── Recurrence Section ─── */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Recurrence</label>
+        <select
+          value={recurrenceType}
+          onChange={(e) => {
+            setRecurrenceType(e.target.value);
+            if (e.target.value !== 'weekly') setRecurrenceDays([]);
+          }}
+          className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
+        >
+          <option value="none">None</option>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+        </select>
+      </div>
+
+      {recurrenceType === 'weekly' && (
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Repeat on</label>
+          <div className="flex flex-wrap gap-2">
+            {weekDays.map((day, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => toggleDay(idx)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition ${
+                  recurrenceDays.includes(idx)
+                    ? 'bg-[#0d9488] text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'
+                }`}
+              >
+                {day}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(recurrenceType === 'daily' || recurrenceType === 'weekly') && (
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">End Date (optional)</label>
+          <input
+            type="datetime-local"
+            value={recurrenceEndDate}
+            onChange={(e) => setRecurrenceEndDate(e.target.value)}
+            className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
+          />
+        </div>
+      )}
+
       <div>
         <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Links (one per line)</label>
         <textarea value={links} onChange={e => setLinks(e.target.value)} rows={2} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" placeholder="https://..." />

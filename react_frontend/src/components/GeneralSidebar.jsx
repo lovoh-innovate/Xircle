@@ -38,24 +38,69 @@ const GeneralSidebar = () => {
   const personalTasks = personalTasksData?.tasks || [];
   const pendingCount = personalTasksData?.count || 0;
 
-  // ─── Recent Chats (ONLY public chats) ──────────────────
+  // ─── Recent Public Chats (deduplicated) ──────────────────
   const { data: chatsData, isLoading: chatsLoading } = useGetUserChatsQuery({
     archived: false,
   });
   const recentChats = useMemo(() => {
     if (!chatsData?.chats) return [];
-    // 🔥 Filter: keep only public chats (outside workspaces)
-    const publicChats = chatsData.chats.filter((chat) => chat.scope === 'public');
-    return publicChats
-      .sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt))
-      .slice(0, 3);
-  }, [chatsData]);
 
-  const getChatName = (chat) => {
-    if (chat.type === 'group') return chat.name || 'Group';
-    // Direct chat – find the other participant
-    const other = chat.participants?.find((p) => p.user._id !== userInfo?._id);
-    return other?.user?.name || 'Unknown';
+    // 1. Only public scope
+    const publicChats = chatsData.chats.filter((chat) => chat.scope === 'public');
+
+    // 2. Separate direct and group
+    const directChats = publicChats.filter((chat) => chat.type === 'direct');
+    const groupChats = publicChats.filter((chat) => chat.type === 'group');
+
+    // 3. Deduplicate direct chats: keep only the most recent per other user
+    const directMap = new Map();
+    for (const chat of directChats) {
+      const other = chat.participants?.find(
+        (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id
+      );
+      if (!other) continue;
+      const otherId = other.user?._id || other.user;
+      if (!otherId) continue;
+      const key = [userInfo?._id, otherId].sort().join('_');
+      const existing = directMap.get(key);
+      if (
+        !existing ||
+        new Date(chat.lastMessageAt) > new Date(existing.lastMessageAt)
+      ) {
+        directMap.set(key, chat);
+      }
+    }
+    const dedupedDirect = Array.from(directMap.values());
+
+    // 4. Combine with group chats
+    let combined = [...dedupedDirect, ...groupChats];
+
+    // 5. Sort by lastMessageAt descending
+    combined.sort(
+      (a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt)
+    );
+
+    // 6. Keep only the 3 most recent
+    return combined.slice(0, 3);
+  }, [chatsData, userInfo]);
+
+  const getChatDisplay = (chat) => {
+    if (chat.type === 'group') {
+      return {
+        name: chat.name || 'Group',
+        avatar: chat.avatar || null,
+        unreadCount: chat.unreadCount || 0,
+      };
+    }
+    // Direct: find other participant
+    const other = chat.participants?.find(
+      (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id
+    );
+    return {
+      name: other?.user?.name || 'Unknown',
+      avatar: other?.user?.profile || null,
+      unreadCount: chat.unreadCount || 0,
+    };
   };
 
   const getLastMessagePreview = (chat) => {
@@ -89,8 +134,7 @@ const GeneralSidebar = () => {
       <nav className="px-3 py-4 border-b border-white/10">
         <ul className="space-y-1">
           {[
-            { to: '/dashboard', icon: FaHome, label: 'Home' },
-            { to: '/workspaces', icon: FaHashtag, label: 'Workspaces' },
+            { to: '/my-workspaces', icon: FaHome, label: 'Home' },
             { to: '/personal-tasks', icon: FaTasks, label: 'My Tasks' },
             { to: '/chat', icon: FaCommentDots, label: 'Chat' },
             { to: '/channels', icon: FaHashtag, label: 'Channels' },
@@ -152,7 +196,7 @@ const GeneralSidebar = () => {
         )}
       </div>
 
-      {/* ─── Recent Messages (Public chats only) ────────── */}
+      {/* ─── Recent Messages (Public, deduplicated) ── */}
       <div className="px-4 py-3 border-b border-white/10 flex-1 overflow-y-auto">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
@@ -170,33 +214,54 @@ const GeneralSidebar = () => {
           <p className="text-xs text-gray-500">No public chats yet</p>
         ) : (
           <ul className="space-y-2">
-            {recentChats.map((chat) => (
-              <li key={chat._id}>
-                <NavLink
-                  to={`/chat/${chat._id}`}
-                  className="block p-2 rounded-lg hover:bg-white/5 transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-cyan-400/30 to-purple-400/30 flex items-center justify-center text-xs font-bold text-white">
-                      {getChatName(chat).charAt(0).toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-gray-200 truncate">
-                          {getChatName(chat)}
-                        </span>
-                        <span className="text-xs text-gray-400">
-                          {timeAgo(chat.lastMessageAt)}
-                        </span>
+            {recentChats.map((chat) => {
+              const { name, avatar, unreadCount } = getChatDisplay(chat);
+              // Determine correct route
+              const chatPath = chat.type === 'direct' ? `/chats/${chat._id}` : `/channels/${chat._id}`;
+              return (
+                <li key={chat._id}>
+                  <NavLink
+                    to={chatPath}
+                    className="block p-2 rounded-lg hover:bg-white/5 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      {/* Avatar with unread count badge */}
+                      <div className="relative w-7 h-7 flex-shrink-0">
+                        {avatar ? (
+                          <img
+                            src={avatar}
+                            alt={name}
+                            className="w-full h-full rounded-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full rounded-full bg-gradient-to-br from-cyan-400/30 to-purple-400/30 flex items-center justify-center text-xs font-bold text-white">
+                            {name.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        {unreadCount > 0 && (
+                          <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                            {unreadCount > 9 ? '9+' : unreadCount}
+                          </span>
+                        )}
                       </div>
-                      <p className="text-xs text-gray-400 truncate">
-                        {getLastMessagePreview(chat)}
-                      </p>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium text-gray-200 truncate">
+                            {name}
+                          </span>
+                          <span className="text-xs text-gray-400">
+                            {timeAgo(chat.lastMessageAt)}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-400 truncate">
+                          {getLastMessagePreview(chat)}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                </NavLink>
-              </li>
-            ))}
+                  </NavLink>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

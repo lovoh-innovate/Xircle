@@ -50,6 +50,13 @@ import YourWorkspaceProjectId from './screens/YourWorkspaceProjectId.jsx';
 
 import CallScreen from './components/CallScreen.jsx';
 
+//General Screens 
+import GeneralChannels from './screens/GeneralChannels.jsx';
+import GeneralChannelId from './screens/GeneralChannelId.jsx';
+import GeneralChats from './screens/GeneralChats.jsx';
+import GeneralChatId from './screens/GeneralChatId.jsx';
+import PersonalTasks from './screens/PersonalTasks.jsx';
+
 import { useMobilePushNotifications } from './hooks/useMobilePushNotifications.js';
 
 // ── Global navigator ──────────────────────────────────────────────────
@@ -238,6 +245,13 @@ const router = createBrowserRouter([
       { path: 'signup', element: <Signup /> },
       { path: 'forgot-password', element: <ForgotPassword /> },
       { path: 'settings', element: <Settings /> },
+
+      //General routes
+      {path: 'channels', element: <GeneralChannels />},
+      {path: 'channels/:chatId', element: <GeneralChannelId />},
+      {path: 'chat', element: <GeneralChats />},
+      {path: 'chats/:chatId', element: <GeneralChatId />},
+      {path: 'personal-tasks', element: <PersonalTasks />},
 
       { path: 'my-workspaces', element: <MyWorkspaces /> },
       { path: 'workspace/:workspaceId', element: <YourWorkspaceId /> },

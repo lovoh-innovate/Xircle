@@ -1,4 +1,3 @@
-// routes/messagingRoutes.js
 import express from 'express';
 import {
   createGroupChat,
@@ -22,6 +21,7 @@ import {
   requestJoinGroup,
   handleJoinRequest,
   getJoinRequests,
+  getPendingJoinRequests,
   // Group admin
   makeGroupAdmin,
   removeGroupAdmin,
@@ -32,11 +32,14 @@ import {
   archiveChat,
   unarchiveChat,
   exitGroupChat,
-  // ── new message archive/star ──
+  // Message archive/star
   archiveMessage,
   unarchiveMessage,
   starMessage,
   unstarMessage,
+  // 🆕 Public group update/delete
+  updatePublicGroup,
+  deletePublicGroup,
 } from '../controllers/messagingController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import upload from '../middleware/uploadMiddleware.js';
@@ -55,17 +58,23 @@ router.post('/online-status', protect, updateOnlineStatus);
 
 // ─── Public (outside workspace) chat endpoints ──────────────────────
 router.post('/public/direct', protect, createPublicDirectChat);
-router.post('/public/group', protect, createPublicGroupChat);
+router.post('/public/group', protect, upload.single('avatar'), createPublicGroupChat);
 router.get('/public/groups/search', protect, searchPublicGroups);
 router.post('/public/groups/:chatId/join-request', protect, requestJoinGroup);
 router.post('/public/groups/:chatId/join-request/:requestId', protect, handleJoinRequest);
 router.get('/public/groups/:chatId/join-requests', protect, getJoinRequests);
+// ─── Pending join requests ──────────────────────────────────────────
+router.get('/public/groups/pending', protect, getPendingJoinRequests);
+
+// 🆕 Update and delete public groups (creator only)
+router.put('/public/group/:chatId', protect, upload.single('avatar'), updatePublicGroup);
+router.delete('/public/group/:chatId', protect, deletePublicGroup);
 
 // ─── Group admin management ──────────────────────────────────────────
 router.post('/:chatId/make-admin', protect, makeGroupAdmin);
 router.post('/:chatId/remove-admin', protect, removeGroupAdmin);
 
-// ─── Group deletion and member listing ──────────────────────────────
+// ─── Group deletion and member listing (workspace groups) ──────────
 router.delete('/group/:chatId', protect, deleteGroupChat);
 router.get('/group/:chatId/members', protect, getGroupMembers);
 

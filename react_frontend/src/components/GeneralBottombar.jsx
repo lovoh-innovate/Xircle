@@ -50,17 +50,14 @@ const GeneralBottombar = () => {
     }
   };
 
-  // Custom active state for Home: active on /dashboard, /workspaces, or /my-workspace
-  const isHomeActive = () => {
-    const path = location.pathname;
-    return path === '/dashboard' || path === '/workspaces' || path.startsWith('/my-workspace');
-  };
+  // Home active only on /my-workspaces
+  const isHomeActive = () => location.pathname === '/my-workspaces';
 
   return (
     <>
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0f0f12]/80 backdrop-blur-2xl border-t border-white/10 flex items-center justify-around h-16 px-2 z-50">
         <NavLink
-          to="/dashboard"
+          to="/my-workspaces"
           className={() =>
             `flex flex-col items-center justify-center text-xs font-medium transition-all duration-300 ${
               isHomeActive() ? 'text-cyan-400' : 'text-gray-400 hover:text-white'
@@ -70,28 +67,6 @@ const GeneralBottombar = () => {
           <FaHome className="text-xl" />
           <span>Home</span>
         </NavLink>
-
-        <NavLink
-          to="/workspaces"
-          className={({ isActive }) =>
-            `flex flex-col items-center justify-center text-xs font-medium transition-all duration-300 ${
-              isActive ? 'text-cyan-400' : 'text-gray-400 hover:text-white'
-            }`
-          }
-        >
-          <FaHashtag className="text-xl" />
-          <span>Spaces</span>
-        </NavLink>
-
-        <div className="relative -mt-8">
-          <div className="absolute inset-0 rounded-full bg-cyan-400/20 animate-ping" />
-          <button
-            onClick={() => setShowModal(true)}
-            className="relative w-14 h-14 bg-gradient-to-br from-cyan-400 to-purple-500 rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(6,182,212,0.5)] hover:shadow-[0_0_50px_rgba(6,182,212,0.8)] transition-all duration-300 text-white"
-          >
-            <FaPlus className="text-2xl" />
-          </button>
-        </div>
 
         <NavLink
           to="/personal-tasks"
@@ -105,6 +80,16 @@ const GeneralBottombar = () => {
           <span>Tasks</span>
         </NavLink>
 
+        <div className="relative -mt-8">
+          <div className="absolute inset-0 rounded-full bg-cyan-400/20 animate-ping" />
+          <button
+            onClick={() => setShowModal(true)}
+            className="relative w-14 h-14 bg-gradient-to-br from-cyan-400 to-purple-500 rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(6,182,212,0.5)] hover:shadow-[0_0_50px_rgba(6,182,212,0.8)] transition-all duration-300 text-white"
+          >
+            <FaPlus className="text-2xl" />
+          </button>
+        </div>
+
         <NavLink
           to="/chat"
           className={({ isActive }) =>
@@ -114,11 +99,23 @@ const GeneralBottombar = () => {
           }
         >
           <FaCommentDots className="text-xl" />
-          <span>Chat</span>
+          <span>Chats</span>
+        </NavLink>
+
+        <NavLink
+          to="/channels"
+          className={({ isActive }) =>
+            `flex flex-col items-center justify-center text-xs font-medium transition-all duration-300 ${
+              isActive ? 'text-cyan-400' : 'text-gray-400 hover:text-white'
+            }`
+          }
+        >
+          <FaHashtag className="text-xl" />
+          <span>Channels</span>
         </NavLink>
       </div>
 
-      {/* Modal – same as before */}
+      {/* Modal – unchanged */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
           <div className="bg-[#14141a]/90 backdrop-blur-2xl border border-white/10 rounded-3xl max-w-md w-full p-6 shadow-2xl shadow-cyan-500/20">

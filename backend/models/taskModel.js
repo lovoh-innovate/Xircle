@@ -33,10 +33,24 @@ const subTaskSchema = new mongoose.Schema(
     notes: { type: String, default: '' },
     feedback: { type: String, default: '' },
     reminderSent: { type: Boolean, default: false },
-    // Rejection fields
     rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     rejectedAt: { type: Date, default: null },
     rejectionReason: { type: String, default: '' },
+
+    // ─── RECURRENCE FIELDS (for sub‑tasks) ──────────────────────────
+    recurrenceType: {
+      type: String,
+      enum: ['none', 'daily', 'weekly'],
+      default: 'none',
+    },
+    recurrenceDays: {
+      type: [Number], // 0=Sunday, 6=Saturday
+      default: [],
+    },
+    recurrenceEndDate: {
+      type: Date,
+      default: null,
+    },
   },
   { _id: false }
 );
@@ -54,7 +68,6 @@ const taskSchema = new mongoose.Schema(
       ref: 'Workspace',
       required: true,
     },
-    // ── NEW: Folder reference ─────────────────────────────────────
     folder: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Folder',
@@ -149,7 +162,6 @@ const taskSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-    // ── NEW: Daily reminder time & tracking ────────────────────────
     dailyReminderTime: {
       type: String,          // e.g., "09:00" (HH:MM)
       default: null,
@@ -158,7 +170,23 @@ const taskSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
-    // ── NEW: Archive / Trash fields ────────────────────────────────
+
+    // ─── RECURRENCE FIELDS (for the main task) ──────────────────────
+    recurrenceType: {
+      type: String,
+      enum: ['none', 'daily', 'weekly'],
+      default: 'none',
+    },
+    recurrenceDays: {
+      type: [Number], // 0=Sunday, 6=Saturday
+      default: [],
+    },
+    recurrenceEndDate: {
+      type: Date,
+      default: null,
+    },
+
+    // ─── ARCHIVE / TRASH ─────────────────────────────────────────────
     isArchived: {
       type: Boolean,
       default: false,
@@ -170,13 +198,14 @@ const taskSchema = new mongoose.Schema(
     isTrash: {
       type: Boolean,
       default: false,
-      index: true,           // useful for queries filtering out trash
+      index: true,
     },
     trashedAt: {
       type: Date,
       default: null,
     },
-    // ── Existing fields continue ────────────────────────────────────
+
+    // ─── COMPLETION / CONFIRMATION ──────────────────────────────────
     completedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
@@ -205,7 +234,8 @@ const taskSchema = new mongoose.Schema(
     },
     finalLinks: [String],
     finalAttachments: [attachmentSchema],
-    // Legacy fields – kept for backward compatibility
+
+    // ─── LEGACY FIELDS (kept for compatibility) ──────────────────────
     submittedProgress: {
       type: Number,
       default: 0,
@@ -281,7 +311,6 @@ const taskSchema = new mongoose.Schema(
 taskSchema.index({ project: 1, status: 1 });
 taskSchema.index({ assignee: 1, status: 1 });
 taskSchema.index({ dueDate: 1 });
-// New index for efficient trash queries
 taskSchema.index({ isTrash: 1, trashedAt: 1 });
 
 const Task = mongoose.model('Task', taskSchema);

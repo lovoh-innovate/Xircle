@@ -1,3 +1,4 @@
+// models/messagingModel.js
 import mongoose from 'mongoose';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -9,7 +10,8 @@ const messageSchema = new mongoose.Schema(
     workspace: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Workspace',
-      required: true,
+      required: false,      // ✅ change from true to false
+      default: null,        // ✅ add default
       index: true,
     },
     chat: {
@@ -93,7 +95,6 @@ const messageSchema = new mongoose.Schema(
         },
       },
     ],
-    // ── new fields for message archiving and starring ──
     archivedBy: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -112,12 +113,12 @@ const messageSchema = new mongoose.Schema(
   }
 );
 
-// Indexes for better query performance
+// Indexes
 messageSchema.index({ chat: 1, createdAt: -1 });
 messageSchema.index({ workspace: 1, createdAt: -1 });
 messageSchema.index({ sender: 1 });
-messageSchema.index({ archivedBy: 1 });       // for filtering archived messages
-messageSchema.index({ starredBy: 1 });        // for filtering starred messages
+messageSchema.index({ archivedBy: 1 });
+messageSchema.index({ starredBy: 1 });
 
 const Message = mongoose.model('Message', messageSchema);
 
@@ -131,7 +132,6 @@ const chatSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Workspace',
       required: function () {
-        // workspace is required for workspace-scoped chats, not for public chats
         return this.scope === 'workspace';
       },
       index: true,
@@ -208,14 +208,12 @@ const chatSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
-    // ── per-user archiving (replaces the old isArchived boolean) ──
     archivedBy: [
       {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
       },
     ],
-    // ── join requests for public groups ──
     joinRequests: [
       {
         user: {
@@ -240,17 +238,16 @@ const chatSchema = new mongoose.Schema(
   }
 );
 
-// Indexes
 chatSchema.index({ workspace: 1, 'participants.user': 1 });
 chatSchema.index({ workspace: 1, type: 1 });
 chatSchema.index({ lastMessageAt: -1 });
-chatSchema.index({ scope: 1, isPublic: 1 });           // for public group searches
-chatSchema.index({ archivedBy: 1 });                   // for filtering archived chats per user
+chatSchema.index({ scope: 1, isPublic: 1 });
+chatSchema.index({ archivedBy: 1 });
 
 const Chat = mongoose.model('Chat', chatSchema);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TYPING INDICATOR SCHEMA (Temporary storage)
+// TYPING INDICATOR SCHEMA
 // ─────────────────────────────────────────────────────────────────────────────
 
 const typingIndicatorSchema = new mongoose.Schema(
@@ -268,7 +265,7 @@ const typingIndicatorSchema = new mongoose.Schema(
     startedAt: {
       type: Date,
       default: Date.now,
-      expires: 5000, // Auto delete after 5 seconds of inactivity
+      expires: 5000,
     },
   },
   {
