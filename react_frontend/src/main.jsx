@@ -16,12 +16,17 @@ import 'react-toastify/dist/ReactToastify.css';
 import './index.css';
 import store from './store';
 
-// ── Import ThemeProvider and useTheme ──────────────────────────────
+// ── ThemeProvider and useTheme ──────────────────────────────────────
 import { ThemeProvider, useTheme } from './contexts/ThemeContext.jsx';
 
+// ── Refresh Context ──────────────────────────────────────────────────
+import { RefreshProvider, useRefresh } from './contexts/RefreshContext.jsx';
+
+// ── Socket and Call ──────────────────────────────────────────────────
 import { SocketProvider, useSocket } from './components/SocketContext.jsx';
 import IncomingCallModal from './components/IncomingCallModal.jsx';
 
+// ── Screens ──────────────────────────────────────────────────────────
 import Login from './screens/Login.jsx';
 import ForgotPassword from './screens/ForgotPassword.jsx';
 import Signup from './screens/Signup.jsx';
@@ -33,6 +38,7 @@ import MyWorkspaceId from './workspaceScreens/MyWorkspaceId.jsx';
 
 // My workspace sub‑routes
 import MyWorkspaceChannels from './workspaceScreens/MyWorkspaceChannels.jsx';
+import MyWorkspaceChatId from './workspaceScreens/MyWorkspaceChatId.jsx';
 import MyWorkspaceChannelId from './workspaceScreens/MyWorkspaceChannelId.jsx';
 import MyWorkspaceProjects from './workspaceScreens/MyWorkspaceProjects.jsx';
 import MyWorkspaceProjectId from './workspaceScreens/MyWorkspaceProjectId.jsx';
@@ -50,7 +56,7 @@ import YourWorkspaceProjectId from './screens/YourWorkspaceProjectId.jsx';
 
 import CallScreen from './components/CallScreen.jsx';
 
-//General Screens 
+// General Screens 
 import GeneralChannels from './screens/GeneralChannels.jsx';
 import GeneralChannelId from './screens/GeneralChannelId.jsx';
 import GeneralChats from './screens/GeneralChats.jsx';
@@ -87,38 +93,35 @@ const PushNotificationInitializer = () => {
   const { userInfo } = useSelector((state) => state.auth);
   const { permission, subscribe, unsubscribe } = useMobilePushNotifications();
 
-  // Create both channels on app start (Android)
+  // Create channels on app start (Android)
   useEffect(() => {
     if (Capacitor.isNativePlatform()) {
       const createChannels = async () => {
         try {
-          // 1. Default channel for messages & other notifications
-          //    IMPORTANCE 4 (HIGH) enables heads‑up pop‑ups on most devices.
           await PushNotifications.createChannel({
             id: 'default',
             name: 'Default',
-            importance: 4,          // ← fixed: HIGH for pop‑up banners
+            importance: 4,
             visibility: 1,
             sound: 'default',
             vibration: true,
             lights: true,
             description: 'General notifications',
           });
-          console.log('✅ Default channel created (heads‑up enabled)');
+          console.log('✅ Default channel created');
 
-          // 2. Call channel – MAX importance, full‑screen intent, bypass DND
           await PushNotifications.createChannel({
             id: 'call_channel',
             name: 'Incoming Calls',
-            importance: 4,                 // MAX
-            visibility: 1,                // PUBLIC
-            sound: 'ringtone',            // must be in resources
+            importance: 4,
+            visibility: 1,
+            sound: 'ringtone',
             vibration: true,
             lights: true,
-            bypassDnd: true,              // override Do Not Disturb
+            bypassDnd: true,
             description: 'Incoming call notifications',
           });
-          console.log('✅ Call channel created with full‑screen intent');
+          console.log('✅ Call channel created');
         } catch (err) {
           console.warn('Could not create notification channels:', err);
         }
@@ -142,7 +145,7 @@ const PushNotificationInitializer = () => {
   return null;
 };
 
-// ── Helper: build a normalized callData object from raw push data ──────
+// ── Helper: build callData from push ──────────────────────────────────
 const buildCallDataFromPush = (data) => ({
   callId: data.callId,
   roomId: data.roomId,
@@ -155,26 +158,43 @@ const buildCallDataFromPush = (data) => ({
   isInitiator: false,
 });
 
-// ── Root layout ──────────────────────────────────────────────────────
+// ── Root Layout ──────────────────────────────────────────────────────
 const RootLayout = () => {
   const navigate = useNavigate();
-  const { setIncomingCallFromPush } = useSocket();
-  const { isDarkMode } = useTheme(); // 👈 get current theme for toast
+  const { setIncomingCallFromPush, socket } = useSocket(); // get socket instance
+  const { isDarkMode } = useTheme();
+  const { refreshAll } = useRefresh();
 
-  // ── Listen for Capacitor push events (foreground + tap) ───────────
+  // ── Real‑time data updates via WebSocket ──────────────────────────
+  useEffect(() => {
+    if (!socket) return;
+
+    // Listen for data‑changed events from the server.
+    // Adjust the event name to match your backend (e.g., 'data-updated', 'entity-changed', etc.)
+    const handleDataChange = (data) => {
+      console.log('🔄 Real‑time data update received:', data);
+      refreshAll();
+    };
+
+    socket.on('data-changed', handleDataChange);
+
+    return () => {
+      socket.off('data-changed', handleDataChange);
+    };
+  }, [socket, refreshAll]);
+
+  // ── Listen for Capacitor push events ───────────────────────────────
   useEffect(() => {
     const handlePushReceived = (event) => {
       const notification = event.detail;
       const data = notification?.data || {};
 
-      // ── CALL NOTIFICATION (foreground) ──────────────────────────
       if (data.notificationType === 'call' && data.roomId) {
         console.log('📞 Call push received in foreground:', data);
         setIncomingCallFromPush(buildCallDataFromPush(data));
         return;
       }
 
-      // ── MESSAGE NOTIFICATION (foreground) ──────────────────────
       if (notification?.title && notification?.body) {
         toast.info(`${notification.title}: ${notification.body}`, {
           onClick: () => {
@@ -186,23 +206,16 @@ const RootLayout = () => {
       }
     };
 
-    // Fired both by the Capacitor push plugin (background tap) AND by
-    // MainActivity.java's native call notification tap (dispatched from
-    // MyFirebaseMessagingService's full‑screen intent flow).
     const handlePushTapped = (event) => {
       const data = event.detail || {};
       console.log('📱 Push tapped data:', data);
 
-      // Handle call notifications: populate SocketContext BEFORE navigating
-      // so CallScreen has callData available the moment it mounts, instead
-      // of relying on location.state (which a plain URL navigation never sets).
       if (data.notificationType === 'call' && data.roomId) {
         setIncomingCallFromPush(buildCallDataFromPush(data));
         navigate(`/call/${data.roomId}?autoJoin=true`);
         return;
       }
 
-      // Handle chat navigation
       if (data.chatId && data.workspaceId) {
         navigate(`/workspace/${data.workspaceId}/chat/${data.chatId}`);
       } else {
@@ -230,6 +243,28 @@ const RootLayout = () => {
         hideProgressBar={false}
         theme={isDarkMode ? 'dark' : 'light'}
       />
+
+      {/* ── Floating manual refresh button (fallback) ── */}
+      <button
+        onClick={refreshAll}
+        className="fixed bottom-24 right-4 z-50 p-3 bg-teal-600 dark:bg-[#0d9488] text-white rounded-full shadow-lg hover:opacity-80 active:scale-90 transition"
+        aria-label="Refresh all data"
+      >
+        <svg
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2"
+            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+          />
+        </svg>
+      </button>
     </div>
   );
 };
@@ -246,7 +281,7 @@ const router = createBrowserRouter([
       { path: 'forgot-password', element: <ForgotPassword /> },
       { path: 'settings', element: <Settings /> },
 
-      //General routes
+      // General routes
       {path: 'channels', element: <GeneralChannels />},
       {path: 'channels/:chatId', element: <GeneralChannelId />},
       {path: 'chat', element: <GeneralChats />},
@@ -258,7 +293,8 @@ const router = createBrowserRouter([
       { path: 'my-workspace/:workspaceId', element: <MyWorkspaceId /> },
 
       { path: 'my-workspace/:workspaceId/channels', element: <MyWorkspaceChannels /> },
-      { path: 'my-workspace/:workspaceId/chat/:chatId', element: <MyWorkspaceChannelId /> },
+      {path: 'my-workspace/:workspaceId/chat/:chatId', element: <MyWorkspaceChatId />},
+      { path: 'my-workspace/:workspaceId/channels/:chatId', element: <MyWorkspaceChannelId /> },
       { path: 'my-workspace/:workspaceId/projects', element: <MyWorkspaceProjects /> },
       { path: 'my-workspace/:workspaceId/project/:projectId', element: <MyWorkspaceProjectId /> },
       { path: 'my-workspace/:workspaceId/members', element: <MyWorkspaceMembers /> },
@@ -298,10 +334,11 @@ const AppRoot = () => {
 createRoot(document.getElementById('root')).render(
   <Provider store={store}>
     <StrictMode>
-      {/* ✅ ThemeProvider wraps the entire app */}
       <ThemeProvider>
         <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID}>
-          <AppRoot />
+          <RefreshProvider>
+            <AppRoot />
+          </RefreshProvider>
         </GoogleOAuthProvider>
       </ThemeProvider>
     </StrictMode>

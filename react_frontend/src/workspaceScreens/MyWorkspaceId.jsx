@@ -20,9 +20,9 @@ import {
   FaCopy,
   FaTasks,
   FaCheckCircle,
-  FaClock,
   FaSpinner,
   FaCog,
+  FaArrowLeft,
 } from 'react-icons/fa';
 import {
   AreaChart,
@@ -34,7 +34,7 @@ import {
 } from 'recharts';
 import { toast } from 'react-toastify';
 
-// ─── Helper component to fetch task count for a single project ──
+// ─── Helper: fetch task count for a single project ──
 const TaskCounter = memo(({ projectId, onCount, onLoading }) => {
   const { data, isLoading } = useGetProjectTasksQuery({ projectId });
   const mounted = useRef(true);
@@ -61,7 +61,7 @@ const TaskCounter = memo(({ projectId, onCount, onLoading }) => {
   return null;
 });
 
-// ─── main component ──────────────────────────────────────────────────
+// ─── Main component ──────────────────────────────────────────────
 const MyWorkspaceId = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
@@ -73,12 +73,11 @@ const MyWorkspaceId = () => {
   const { data: projectsData, isLoading: projectsLoading } = useGetWorkspaceProjectsQuery({ workspaceId });
   const { data: chatsData } = useGetUserChatsQuery(workspaceId);
 
-  // ── state for aggregating task counts ──────────────────────────
+  // ── Aggregated task counts ──────────────────────────────────
   const [totalTasks, setTotalTasks] = useState(0);
   const [taskCounts, setTaskCounts] = useState({});
   const [loadingTasks, setLoadingTasks] = useState({});
 
-  // ── handle task count updates from TaskCounter (memoized) ────
   const handleTaskCount = useCallback((projectId, count) => {
     setTaskCounts(prev => {
       if (prev[projectId] === count) return prev;
@@ -93,7 +92,6 @@ const MyWorkspaceId = () => {
     });
   }, []);
 
-  // ── recompute total whenever taskCounts changes ──────────────
   useEffect(() => {
     const sum = Object.values(taskCounts).reduce((a, b) => a + b, 0);
     setTotalTasks(sum);
@@ -142,7 +140,7 @@ const MyWorkspaceId = () => {
     ? Math.round(projects.reduce((sum, p) => sum + (p.progress || 0), 0) / projects.length) 
     : 0;
 
-  // ─── prepare chart data ──────────────────────────────────────────
+  // ─── Chart data ──────────────────────────────────────────────
   const chartProjects = [...projects]
     .sort((a, b) => {
       if (a.createdAt && b.createdAt) {
@@ -156,11 +154,11 @@ const MyWorkspaceId = () => {
       progress: p.progress || 0,
     }));
 
-  // ─── metric card ──────────────────────────────────────────────────
+  // ─── Metric Card ─────────────────────────────────────────────
   const MetricCard = ({ icon: Icon, label, value, to, badge, badgeColor }) => (
     <Link
       to={to}
-      className="group relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-4 flex flex-col items-start gap-1 hover:border-teal-500 dark:hover:border-transparent hover:shadow-[0_0_20px_rgba(13,148,136,0.2)] dark:hover:shadow-[0_0_20px_rgba(13,148,136,0.2)] transition-all duration-300 overflow-hidden"
+      className="group relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-4 flex flex-col items-start gap-1 hover:border-teal-500 dark:hover:border-transparent hover:shadow-[0_0_20px_rgba(13,148,136,0.2)] dark:hover:shadow-[0_0_20px_rgba(13,148,136,0.2)] active:scale-[0.97] transition-all duration-300 overflow-hidden"
     >
       <div className="absolute inset-0 bg-gradient-to-br from-teal-500/0 via-teal-500/0 to-transparent dark:group-hover:from-[#0d9488]/10 dark:group-hover:via-[#0d9488]/5 group-hover:from-teal-500/10 group-hover:via-teal-500/5 transition-all duration-500" />
       {badge && (
@@ -188,10 +186,10 @@ const MyWorkspaceId = () => {
     </Link>
   );
 
-  // ─── quick action button ──────────────────────────────────────────
+  // ─── Quick Action ─────────────────────────────────────────────
   const QuickAction = ({ icon: Icon, label, to, onClick }) => {
     const content = (
-      <div className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-xl bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 hover:border-teal-500 dark:hover:border-[#0d9488]/40 hover:shadow-[0_0_15px_rgba(13,148,136,0.15)] dark:hover:shadow-[0_0_15px_rgba(13,148,136,0.15)] transition-all duration-300 group">
+      <div className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-xl bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 hover:border-teal-500 dark:hover:border-[#0d9488]/40 hover:shadow-[0_0_15px_rgba(13,148,136,0.15)] dark:hover:shadow-[0_0_15px_rgba(13,148,136,0.15)] active:scale-[0.96] active:bg-teal-50 dark:active:bg-[#0d9488]/10 transition-all duration-300 group">
         <div className="text-gray-400 dark:text-gray-400 group-hover:text-teal-600 dark:group-hover:text-[#0d9488] transition-colors text-lg">
           <Icon />
         </div>
@@ -204,7 +202,7 @@ const MyWorkspaceId = () => {
     return <button onClick={onClick} className="w-full">{content}</button>;
   };
 
-  // ─── Hero Card (mobile & desktop) ────────────────────────────────
+  // ─── Hero Card ─────────────────────────────────────────────────
   const HeroCard = () => (
     <div className="relative bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl p-5">
       <div className="flex items-center justify-between mb-4">
@@ -224,7 +222,12 @@ const MyWorkspaceId = () => {
             </div>
           )}
           <div className="min-w-0">
-            <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest">Workspace</p>
+            <Link
+              to="/my-workspaces"
+              className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest hover:text-teal-600 dark:hover:text-[#0d9488] active:text-teal-700 dark:active:text-[#14b8a6] transition-colors inline-block"
+            >
+              Workspace
+            </Link>
             <h1 className="text-lg font-bold leading-tight truncate text-gray-800 dark:text-gray-100">
               {workspace.name}
             </h1>
@@ -232,7 +235,7 @@ const MyWorkspaceId = () => {
         </div>
         <Link
           to={`/my-workspace/${workspaceId}/settings`}
-          className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition"
+          className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 active:scale-90 active:bg-gray-200 dark:active:bg-gray-800 transition"
           aria-label="Workspace settings"
         >
           <FaCog className="text-sm" />
@@ -243,7 +246,7 @@ const MyWorkspaceId = () => {
         <div>
           <button
             onClick={() => setHideStats((v) => !v)}
-            className="flex items-center gap-2 text-gray-500 dark:text-gray-500 text-xs mb-1.5 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+            className="flex items-center gap-2 text-gray-500 dark:text-gray-500 text-xs mb-1.5 hover:text-gray-700 dark:hover:text-gray-300 active:text-gray-800 dark:active:text-gray-200 transition-colors"
           >
             <FaUsers className="text-[10px]" />
             Active members
@@ -255,7 +258,7 @@ const MyWorkspaceId = () => {
         </div>
         <button
           onClick={copyInviteCode}
-          className="flex items-center gap-1.5 bg-teal-600 dark:bg-[#0d9488] text-white px-4 py-2.5 rounded-full text-xs sm:text-sm font-semibold hover:bg-teal-700 dark:hover:bg-[#0f9e96] transition flex-shrink-0"
+          className="flex items-center gap-1.5 bg-teal-600 dark:bg-[#0d9488] text-white px-4 py-2.5 rounded-full text-xs sm:text-sm font-semibold hover:bg-teal-700 dark:hover:bg-[#0f9e96] active:scale-95 active:bg-teal-800 dark:active:bg-[#0c857e] transition flex-shrink-0"
         >
           {copySuccess ? <FaCheckCircle className="text-xs" /> : <FaUserPlus className="text-xs" />}
           {copySuccess ? 'Copied' : 'Invite'}
@@ -274,8 +277,8 @@ const MyWorkspaceId = () => {
     </div>
   );
 
-  // ─── Project Item (always fetches tasks) ──────────────────────────
-  const ProjectItem = ({ project }) => {
+  // ─── Project Item (uses aggregated counts) ────────────────────
+  const ProjectItem = ({ project, taskCount, taskLoading }) => {
     const progress = project.progress || 0;
     const statusColor = {
       planning: 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700/40',
@@ -290,20 +293,10 @@ const MyWorkspaceId = () => {
       archived: 'Archived',
     }[project.status] || 'Planning';
 
-    // Always fetch tasks for this project
-    const { data: taskData, isLoading: taskLoading } = useGetProjectTasksQuery(
-      { projectId: project._id }
-    );
-    const tasks = taskData?.tasks || [];
-    const totalTasks = tasks.length;
-    const completedTasks = tasks.filter(
-      (t) => t.status === 'completed' || t.status === 'confirmed_completed'
-    ).length;
-
     return (
       <Link
         to={`/my-workspace/${workspaceId}/project/${project._id}`}
-        className="flex items-center gap-3 px-4 sm:px-5 py-3 hover:bg-teal-50 dark:hover:bg-[#0d9488]/5 transition group border-b border-gray-100 dark:border-gray-800/30 last:border-0"
+        className="flex items-center gap-3 px-4 sm:px-5 py-3 hover:bg-teal-50 dark:hover:bg-[#0d9488]/5 active:bg-teal-100 dark:active:bg-[#0d9488]/10 transition group border-b border-gray-100 dark:border-gray-800/30 last:border-0"
       >
         <div
           className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
@@ -330,11 +323,7 @@ const MyWorkspaceId = () => {
               <>
                 <span className="flex items-center gap-1">
                   <FaTasks className="text-[10px]" />
-                  {totalTasks} tasks
-                </span>
-                <span className="flex items-center gap-1">
-                  <FaCheckCircle className="text-[10px] text-green-500 dark:text-green-400" />
-                  {completedTasks} done
+                  {taskCount ?? 0} tasks
                 </span>
                 <span className="flex-1">
                   <div className="w-full h-1 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
@@ -353,37 +342,50 @@ const MyWorkspaceId = () => {
     );
   };
 
-  // ─── main render ─────────────────────────────────────────────────────
+  // ─── Render ──────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0b0b10] flex flex-col">
-      {/* desktop sidebar */}
+    <div className="min-h-screen bg-gray-50 dark:bg-[#0b0b10] flex flex-col md:flex-row">
+      {/* Desktop Sidebar */}
       <div className="hidden md:block md:w-[260px] md:min-h-screen md:flex-shrink-0 fixed top-0 left-0 z-20">
         <MyWorkspaceSidebar workspace={workspace} chats={chats} />
       </div>
 
-      {/* main content */}
-      <div className="flex-1 md:ml-[260px]">
-        {/* mobile header */}
-        <div className="md:hidden fixed top-0 left-0 right-0 z-10 bg-white/80 dark:bg-[#0b0b10]/80 backdrop-blur-md px-4 pt-4 pb-2 border-b border-gray-200/60 dark:border-gray-800/40">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest">Workspace</span>
+      {/* Main content – uses sticky header on mobile */}
+      <div className="flex-1 flex flex-col md:ml-[260px] h-screen md:h-auto md:min-h-screen">
+        {/* ── Mobile Sticky Header ── */}
+        <header className="md:hidden sticky top-0 z-10 bg-white/80 dark:bg-[#0b0b10]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0 h-14 flex items-center px-4">
+          <div className="flex items-center justify-between w-full">
+            <div className="flex items-center gap-2 min-w-0">
+              <button
+                onClick={() => navigate('/my-workspaces')}
+                className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white active:scale-90 transition"
+                aria-label="Back to workspaces"
+              >
+                <FaArrowLeft className="text-sm" />
+              </button>
+              <Link
+                to="/my-workspaces"
+                className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest hover:text-teal-600 dark:hover:text-[#0d9488] transition-colors"
+              >
+                Workspace
+              </Link>
               <span className="text-gray-300 dark:text-gray-700">/</span>
-              <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate max-w-[150px]">
+              <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate max-w-[120px]">
                 {workspace.name}
               </span>
             </div>
             <button
               onClick={() => setHideStats((v) => !v)}
-              className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition"
+              className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 active:scale-90 active:bg-gray-200 dark:active:bg-gray-800 transition"
             >
               {hideStats ? <FaEyeSlash className="text-xs" /> : <FaEye className="text-xs" />}
             </button>
           </div>
-        </div>
+        </header>
 
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 md:pb-6 mt-16 md:mt-0">
-          {/* Hidden TaskCounter components to fetch all task counts */}
+        {/* ── Scrollable Content ── */}
+        <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-4 pb-24 md:pb-6 md:mt-0 mt-14">
+          {/* TaskCounter aggregators */}
           {projects.map((p) => (
             <TaskCounter
               key={p._id}
@@ -393,12 +395,12 @@ const MyWorkspaceId = () => {
             />
           ))}
 
-          {/* mobile hero card */}
+          {/* Mobile Hero Card (only visible on mobile) */}
           <div className="md:hidden mb-4">
             <HeroCard />
           </div>
 
-          {/* desktop hero bar */}
+          {/* Desktop Hero Bar (hidden on mobile) */}
           <div className="hidden md:flex flex-wrap items-center justify-between gap-3 mb-6">
             <div className="flex items-center gap-3">
               {workspace.logo ? (
@@ -416,6 +418,12 @@ const MyWorkspaceId = () => {
                 </div>
               )}
               <div>
+                <Link
+                  to="/my-workspaces"
+                  className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest hover:text-teal-600 dark:hover:text-[#0d9488] transition-colors inline-block"
+                >
+                  Workspace
+                </Link>
                 <h1 className="text-xl font-bold text-gray-800 dark:text-gray-100 tracking-tight">
                   {workspace.name}
                 </h1>
@@ -457,7 +465,7 @@ const MyWorkspaceId = () => {
             </div>
           </div>
 
-          {/* metrics grid */}
+          {/* Metrics Grid */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
             <div className="col-span-1">
               <MetricCard
@@ -495,9 +503,8 @@ const MyWorkspaceId = () => {
             </div>
           </div>
 
-          {/* chart + quick actions */}
+          {/* Chart + Quick Actions */}
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
-            {/* Trading‑style AreaChart */}
             <div className="lg:col-span-3 bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-4 sm:p-5 relative overflow-hidden group">
               <div className="absolute top-0 right-0 w-32 h-32 bg-teal-500/5 dark:bg-[#0d9488]/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
               <div className="flex items-center justify-between mb-3">
@@ -520,7 +527,7 @@ const MyWorkspaceId = () => {
                 </div>
                 <Link
                   to={`/my-workspace/${workspaceId}/projects`}
-                  className="text-xs font-medium text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] transition flex items-center gap-1"
+                  className="text-xs font-medium text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] active:text-teal-800 dark:active:text-[#0c857e] transition flex items-center gap-1"
                   style={{ color: brandColor }}
                 >
                   <FaChartLine />
@@ -581,7 +588,6 @@ const MyWorkspaceId = () => {
               </div>
             </div>
 
-            {/* quick actions */}
             <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-1 gap-2">
               <QuickAction icon={FaFolder} label="Projects" to={`/my-workspace/${workspaceId}/projects`} />
               <QuickAction icon={FaHashtag} label="Channels" to={`/my-workspace/${workspaceId}/channels`} />
@@ -589,7 +595,7 @@ const MyWorkspaceId = () => {
             </div>
           </div>
 
-          {/* two‑column feed: Projects + Members/About */}
+          {/* Two‑column feed */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
             {/* Projects list */}
             <div className="lg:col-span-2 bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden">
@@ -617,13 +623,18 @@ const MyWorkspaceId = () => {
                   </div>
                 ) : (
                   projects.slice(0, 5).map((project) => (
-                    <ProjectItem key={project._id} project={project} />
+                    <ProjectItem
+                      key={project._id}
+                      project={project}
+                      taskCount={taskCounts[project._id]}
+                      taskLoading={loadingTasks[project._id]}
+                    />
                   ))
                 )}
                 {projects.length > 5 && (
                   <Link
                     to={`/my-workspace/${workspaceId}/projects`}
-                    className="block text-[10px] font-medium uppercase tracking-wider px-4 sm:px-5 py-2.5 hover:bg-teal-50 dark:hover:bg-[#0d9488]/5 transition border-t border-gray-100 dark:border-gray-800/30 text-center text-teal-600 dark:text-[#0d9488]"
+                    className="block text-[10px] font-medium uppercase tracking-wider px-4 sm:px-5 py-2.5 hover:bg-teal-50 dark:hover:bg-[#0d9488]/5 active:bg-teal-100 dark:active:bg-[#0d9488]/10 transition border-t border-gray-100 dark:border-gray-800/30 text-center text-teal-600 dark:text-[#0d9488]"
                     style={{ color: brandColor }}
                   >
                     +{projects.length - 5} more projects
@@ -632,7 +643,7 @@ const MyWorkspaceId = () => {
               </div>
             </div>
 
-            {/* right – members online + about */}
+            {/* Right: Members online + About */}
             <div className="space-y-4">
               <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden">
                 <div className="px-4 sm:px-5 py-3 flex items-center justify-between border-b border-gray-200/60 dark:border-gray-800/40">
@@ -692,7 +703,7 @@ const MyWorkspaceId = () => {
                   {activeMembers.length > 5 && (
                     <Link
                       to={`/my-workspace/${workspaceId}/members`}
-                      className="block text-[10px] font-medium uppercase tracking-wider px-4 sm:px-5 py-2.5 hover:bg-teal-50 dark:hover:bg-[#0d9488]/5 transition border-t border-gray-100 dark:border-gray-800/30 text-center text-teal-600 dark:text-[#0d9488]"
+                      className="block text-[10px] font-medium uppercase tracking-wider px-4 sm:px-5 py-2.5 hover:bg-teal-50 dark:hover:bg-[#0d9488]/5 active:bg-teal-100 dark:active:bg-[#0d9488]/10 transition border-t border-gray-100 dark:border-gray-800/30 text-center text-teal-600 dark:text-[#0d9488]"
                       style={{ color: brandColor }}
                     >
                       +{activeMembers.length - 5} more
@@ -744,7 +755,7 @@ const MyWorkspaceId = () => {
         </main>
       </div>
 
-      {/* bottom bar */}
+      {/* Bottom Bar (mobile only) */}
       <MyWorkspaceBottombar workspace={workspace} />
     </div>
   );

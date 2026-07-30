@@ -51,6 +51,21 @@ const formatTime = (date) => {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
+// ─── FORCE DEDUPLICATION HELPER ────────────────────────────────────────
+const forceUniqueById = (arr, getId = (item) => item?._id) => {
+  if (!Array.isArray(arr)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of arr) {
+    if (!item) continue;
+    const id = getId(item);
+    if (!id || seen.has(String(id))) continue;
+    seen.add(String(id));
+    out.push(item);
+  }
+  return out;
+};
+
 // ─── Search DM Modal ────────────────────────────────────────────────────
 const SearchDMModal = ({ isOpen, onClose, dms, brandColor, workspaceId, userInfo }) => {
   const [query, setQuery] = useState('');
@@ -154,7 +169,7 @@ const NewChatModal = ({ isOpen, onClose, members, brandColor, currentUserId, onS
   const filteredMembers = members
     .filter((m) => {
       const user = m.user || m;
-      return user._id !== currentUserId;
+      return String(user._id) !== String(currentUserId);
     })
     .filter((m) => {
       const user = m.user || m;
@@ -257,13 +272,44 @@ const MyWorkspaceDMs = () => {
   const { data: chatsData, isLoading: chatsLoading, refetch: refetchChats } = useGetUserChatsQuery(workspaceId);
   const [createDirectChat, { isLoading: creatingChat }] = useCreateDirectChatMutation();
 
+  // ─── FORCE: deduplicate raw chats by _id first ─────────────────────────
+  const rawChats = useMemo(() => {
+    const list = chatsData?.chats || [];
+    const unique = forceUniqueById(list, (c) => c?._id);
+    if (unique.length !== list.length) {
+      console.warn(`🛡️ BLOCKED ${list.length - unique.length} duplicate chat _id(s)`);
+    }
+    return unique;
+  }, [chatsData]);
+
+  // ─── NUCLEAR: one entry per participant, keep most recent ────────────
   const dms = useMemo(() => {
-    if (!chatsData?.chats) return [];
-    return chatsData.chats
-      .filter((chat) => chat.type === 'direct')
+    if (!rawChats.length) return [];
+
+    const myId = String(userInfo?._id);
+    const byParticipant = new Map();
+
+    for (const chat of rawChats) {
+      if (chat.type !== 'direct') continue;
+
+      // FIX: String() comparison because API returns ObjectId, Redux stores string
+      const other = chat.participants?.find(
+        (p) => String(p.user?._id || p.user) !== myId
+      );
+
+      const participantId = String(other?.user?._id || other?.user);
+      if (!participantId || participantId === 'undefined') continue;
+
+      const existing = byParticipant.get(participantId);
+      if (!existing || new Date(chat.updatedAt) > new Date(existing.updatedAt)) {
+        byParticipant.set(participantId, chat);
+      }
+    }
+
+    return Array.from(byParticipant.values())
       .map((chat) => {
         const other = chat.participants.find(
-          (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id
+          (p) => String(p.user?._id || p.user) !== myId
         );
         const participant = other?.user || other;
         return {
@@ -276,18 +322,19 @@ const MyWorkspaceDMs = () => {
         };
       })
       .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-  }, [chatsData, userInfo]);
+  }, [rawChats, userInfo]);
 
   const handleStartDM = async (targetUserId) => {
-    if (targetUserId === userInfo?._id) {
+    if (String(targetUserId) === String(userInfo?._id)) {
       toast.info("You can't start a DM with yourself");
       return;
     }
     try {
-      const existingChat = chatsData?.chats?.find(
+      const myId = String(userInfo?._id);
+      const existingChat = rawChats.find(
         (chat) =>
           chat.type === 'direct' &&
-          chat.participants.some((p) => p.user?._id === targetUserId || p.user === targetUserId)
+          chat.participants.some((p) => String(p.user?._id || p.user) === String(targetUserId))
       );
       if (existingChat) {
         navigate(`/my-workspace/${workspaceId}/chat/${existingChat._id}`);
@@ -331,7 +378,7 @@ const MyWorkspaceDMs = () => {
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
       {/* ── Left Sidebar (desktop) ── */}
       <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
-        <MyWorkspaceSidebar workspace={workspace} chats={chatsData?.chats || []} />
+        <MyWorkspaceSidebar workspace={workspace} chats={rawChats} />
       </div>
 
       {/* ── Main Content ── */}

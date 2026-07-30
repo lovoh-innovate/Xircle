@@ -1,11 +1,11 @@
 // src/workspaceScreens/MyWorkspaceChannels.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
 import {
   useGetUserChatsQuery,
-  useLazyGetUserChatsQuery, // <-- import lazy query
+  useLazyGetUserChatsQuery,
   useCreateGroupChatMutation,
   useAddParticipantMutation,
   useArchiveChatMutation,
@@ -71,6 +71,51 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmText 
             {confirmText}
           </button>
         </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Action Sheet (Bottom Sheet) ────────────────────────────────────────
+const ActionSheet = ({ isOpen, onClose, actions, title }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-[#14141a] w-full max-w-md rounded-t-3xl p-4 pb-8 shadow-xl transform transition-transform duration-300 ease-out"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {title && (
+          <div className="text-center text-sm font-medium text-gray-500 dark:text-gray-400 pb-3 border-b border-gray-200 dark:border-gray-800/60 mb-2">
+            {title}
+          </div>
+        )}
+        <div className="space-y-2">
+          {actions.map((action, idx) => (
+            <button
+              key={idx}
+              onClick={() => { action.onPress(); onClose(); }}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+                action.danger
+                  ? 'text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30'
+              }`}
+            >
+              {action.icon}
+              {action.label}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={onClose}
+          className="w-full mt-3 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
+        >
+          Cancel
+        </button>
       </div>
     </div>
   );
@@ -142,7 +187,7 @@ const SearchModal = ({ isOpen, onClose, channels, dms, brandColor, workspaceId, 
               {filteredChannels.map((ch) => (
                 <Link
                   key={ch._id}
-                  to={`/my-workspace/${workspaceId}/chat/${ch._id}`}
+                  to={`/my-workspace/${workspaceId}/channels/${ch._id}`}
                   onClick={onClose}
                   className="flex items-center gap-4 px-4 py-3 bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/40 hover:border-teal-500 dark:hover:border-[#0d9488]/40 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition cursor-pointer group"
                 >
@@ -423,7 +468,7 @@ const CreateChannelModal = ({ isOpen, onClose, workspaceId, brandColor, onSucces
   );
 };
 
-// ─── Channel Dropdown Menu ──────────────────────────────────────────────
+// ─── Channel Dropdown Menu (Desktop only) ──────────────────────────────
 const ChannelMenu = ({
   chat,
   userInfo,
@@ -506,6 +551,189 @@ const ChannelMenu = ({
   );
 };
 
+// ─── Channel Row (handles click + long‑press) ──────────────────────────
+const ChannelRow = ({
+  chat,
+  isArchived,
+  brandColor,
+  workspaceId,
+  userInfo,
+  userRole,
+  lastMsgTime,
+  lastMsgPreview,
+  onArchive,
+  onUnarchive,
+  onExit,
+  onDelete,
+  onAddMember,
+  openActionSheet,
+}) => {
+  const longPressTimer = useRef(null);
+  const isLongPress = useRef(false);
+
+  // Determine the correct route based on chat type
+  const getChatLink = () => {
+    if (chat.type === 'direct') {
+      return `/my-workspace/${workspaceId}/chat/${chat._id}`;
+    } else {
+      return `/my-workspace/${workspaceId}/channels/${chat._id}`;
+    }
+  };
+
+  const handleTouchStart = (e) => {
+    isLongPress.current = false;
+    longPressTimer.current = setTimeout(() => {
+      isLongPress.current = true;
+      const actions = getActions();
+      if (actions.length > 0) {
+        openActionSheet(chat, actions);
+      }
+    }, 500);
+  };
+
+  const handleTouchEnd = (e) => {
+    clearTimeout(longPressTimer.current);
+    if (!isLongPress.current) {
+      // It was a tap, navigate to chat
+      window.__navigate(getChatLink());
+    }
+  };
+
+  const handleTouchMove = () => {
+    clearTimeout(longPressTimer.current);
+  };
+
+  const getActions = () => {
+    const actions = [];
+    const isAdmin = chat.participants?.some(
+      (p) => (p.user?._id === userInfo?._id || p.user === userInfo?._id) && p.role === 'admin'
+    );
+    const isCreator = chat.createdBy?._id === userInfo?._id;
+    const isWorkspaceOwner = userRole === 'Owner';
+    const canManage = isAdmin || isWorkspaceOwner;
+    const canDelete = isCreator || isWorkspaceOwner;
+
+    if (isArchived) {
+      actions.push({
+        label: 'Unarchive',
+        icon: <FaUndo className="text-sm" />,
+        onPress: () => onUnarchive(chat._id),
+        danger: false,
+      });
+    } else {
+      if (canManage) {
+        actions.push({
+          label: 'Add Members',
+          icon: <FaUserPlus className="text-sm" />,
+          onPress: () => onAddMember(chat._id),
+          danger: false,
+        });
+        actions.push({
+          label: 'Archive',
+          icon: <FaArchive className="text-sm" />,
+          onPress: () => onArchive(chat._id),
+          danger: false,
+        });
+      }
+      if (!isAdmin && !isCreator) {
+        actions.push({
+          label: 'Exit Group',
+          icon: <FaSignOutAlt className="text-sm" />,
+          onPress: () => onExit(chat._id),
+          danger: true,
+        });
+      }
+      if (canDelete) {
+        actions.push({
+          label: 'Delete Group',
+          icon: <FaTrashAlt className="text-sm" />,
+          onPress: () => onDelete(chat._id),
+          danger: true,
+        });
+      }
+    }
+    return actions;
+  };
+
+  return (
+    <div
+      className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition group"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchMove={handleTouchMove}
+      onClick={(e) => {
+        if (isLongPress.current) {
+          e.preventDefault();
+          return;
+        }
+      }}
+    >
+      <Link
+        to={getChatLink()}
+        className="flex items-center gap-3 flex-1 min-w-0"
+        onClick={(e) => {
+          if (isLongPress.current) {
+            e.preventDefault();
+            return;
+          }
+        }}
+      >
+        <div
+          className="w-12 h-12 rounded-2xl flex items-center justify-center text-xl flex-shrink-0"
+          style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
+        >
+          <FaUsers className="text-lg" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
+              {chat.name}
+            </span>
+            <span className="text-xs text-gray-500 dark:text-gray-500 flex-shrink-0 ml-2">{lastMsgTime}</span>
+          </div>
+          <div className="flex items-center justify-between mt-0.5">
+            <p className="text-xs text-gray-500 dark:text-gray-400 truncate flex-1">{lastMsgPreview}</p>
+            {!isArchived && chat.unreadCount > 0 && (
+              <span
+                className="text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center ml-2"
+                style={{ backgroundColor: brandColor }}
+              >
+                {chat.unreadCount}
+              </span>
+            )}
+          </div>
+        </div>
+      </Link>
+
+      {/* Desktop controls */}
+      <div className="hidden lg:flex items-center gap-1">
+        {!isArchived && (chat.participants?.some(p => (p.user?._id === userInfo?._id || p.user === userInfo?._id) && p.role === 'admin') || userRole === 'Owner') && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onAddMember(chat._id);
+            }}
+            className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-teal-600 dark:hover:text-[#0d9488] rounded-lg hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 transition"
+            title="Add members"
+          >
+            <FaUserPlus className="text-sm" />
+          </button>
+        )}
+        <ChannelMenu
+          chat={chat}
+          userInfo={userInfo}
+          userRole={userRole}
+          onArchive={onArchive}
+          onUnarchive={onUnarchive}
+          onExit={onExit}
+          onDelete={onDelete}
+          isArchived={isArchived}
+        />
+      </div>
+    </div>
+  );
+};
+
 // ─── Main Component ──────────────────────────────────────────────────────
 const MyWorkspaceChannels = () => {
   const { workspaceId } = useParams();
@@ -517,7 +745,12 @@ const MyWorkspaceChannels = () => {
   const [showAddParticipantModal, setShowAddParticipantModal] = useState(false);
   const [activeTab, setActiveTab] = useState('channels');
 
-  // Confirm modal state
+  const [actionSheet, setActionSheet] = useState({
+    isOpen: false,
+    chat: null,
+    actions: [],
+  });
+
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
     title: '',
@@ -528,24 +761,20 @@ const MyWorkspaceChannels = () => {
 
   const { data: workspaceData, isLoading: workspaceLoading, error } = useGetWorkspaceQuery(workspaceId);
 
-  // ─── Active chats (always fetched) ─────────────────────────────────
   const {
     data: chatsData,
     isLoading: chatsLoading,
     refetch: refetchChats,
   } = useGetUserChatsQuery({ workspaceId, archived: false });
 
-  // ─── Archived chats (lazy – only when tab is 'archived') ───────────
   const [getArchivedChats, { data: archivedData, isLoading: archivedLoading }] = useLazyGetUserChatsQuery();
 
-  // Fetch archived when tab changes to 'archived'
   useEffect(() => {
     if (activeTab === 'archived') {
       getArchivedChats({ workspaceId, archived: true });
     }
   }, [activeTab, workspaceId, getArchivedChats]);
 
-  // Mutations
   const [archiveChat] = useArchiveChatMutation();
   const [unarchiveChat] = useUnarchiveChatMutation();
   const [exitGroupChat] = useExitGroupChatMutation();
@@ -556,7 +785,6 @@ const MyWorkspaceChannels = () => {
   );
   const userRole = userMembership?.role || 'Member';
 
-  // ─── Refresh handlers ─────────────────────────────────────────────────
   const refreshActive = () => refetchChats();
   const refreshArchived = () => {
     if (activeTab === 'archived') {
@@ -576,7 +804,6 @@ const MyWorkspaceChannels = () => {
     setSelectedChatId(null);
   };
 
-  // ─── Action handlers ────────────────────────────────────────────────────
   const handleArchive = (chatId) => {
     setConfirmModal({
       isOpen: true,
@@ -649,6 +876,19 @@ const MyWorkspaceChannels = () => {
     });
   };
 
+  const openActionSheet = (chat, actions) => {
+    setActionSheet({ isOpen: true, chat, actions });
+  };
+
+  const closeActionSheet = () => {
+    setActionSheet({ isOpen: false, chat: null, actions: [] });
+  };
+
+  const handleAddMemberFromAction = (chatId) => {
+    setSelectedChatId(chatId);
+    setShowAddParticipantModal(true);
+  };
+
   if (error) navigate('/my-workspaces');
   if (workspaceLoading || chatsLoading || (activeTab === 'archived' && archivedLoading)) {
     return (
@@ -669,20 +909,12 @@ const MyWorkspaceChannels = () => {
   const archivedGroups = archivedChats.filter((c) => c.type === 'group');
   const archivedDMs = archivedChats.filter((c) => c.type === 'direct');
 
-  const canAddParticipants = (chat) => {
-    const isAdmin = chat.participants?.some(
-      (p) => (p.user?._id === userInfo?._id || p.user === userInfo?._id) && p.role === 'admin'
-    );
-    return isAdmin || userRole === 'Owner';
-  };
-
   const getDMParticipant = (dm) => {
     return dm.participants.find(
       (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id
     )?.user || {};
   };
 
-  // ─── Render channel list ────────────────────────────────────────────────
   const renderChannelList = (channels, dms, isArchived = false) => {
     const hasChannels = channels.length > 0;
     const hasDMs = dms.length > 0;
@@ -715,67 +947,23 @@ const MyWorkspaceChannels = () => {
               const lastMsgTime = formatTime(lastMsg?.createdAt || ch.updatedAt);
 
               return (
-                <div
+                <ChannelRow
                   key={ch._id}
-                  className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition group"
-                >
-                  <Link
-                    to={`/my-workspace/${workspaceId}/chat/${ch._id}`}
-                    className="flex items-center gap-3 flex-1 min-w-0"
-                  >
-                    <div
-                      className="w-12 h-12 rounded-2xl flex items-center justify-center text-xl flex-shrink-0"
-                      style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
-                    >
-                      <FaUsers className="text-lg" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
-                          {ch.name}
-                        </span>
-                        <span className="text-xs text-gray-500 dark:text-gray-500 flex-shrink-0 ml-2">{lastMsgTime}</span>
-                      </div>
-                      <div className="flex items-center justify-between mt-0.5">
-                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate flex-1">{lastMsgPreview}</p>
-                        {!isArchived && ch.unreadCount > 0 && (
-                          <span
-                            className="text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center ml-2"
-                            style={{ backgroundColor: brandColor }}
-                          >
-                            {ch.unreadCount}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </Link>
-
-                  <div className="flex items-center gap-1">
-                    {!isArchived && canAddParticipants(ch) && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedChatId(ch._id);
-                          setShowAddParticipantModal(true);
-                        }}
-                        className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-teal-600 dark:hover:text-[#0d9488] rounded-lg hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 transition"
-                        title="Add members"
-                      >
-                        <FaUserPlus className="text-sm" />
-                      </button>
-                    )}
-                    <ChannelMenu
-                      chat={ch}
-                      userInfo={userInfo}
-                      userRole={userRole}
-                      onArchive={handleArchive}
-                      onUnarchive={handleUnarchive}
-                      onExit={handleExit}
-                      onDelete={handleDelete}
-                      isArchived={isArchived}
-                    />
-                  </div>
-                </div>
+                  chat={ch}
+                  isArchived={isArchived}
+                  brandColor={brandColor}
+                  workspaceId={workspaceId}
+                  userInfo={userInfo}
+                  userRole={userRole}
+                  lastMsgTime={lastMsgTime}
+                  lastMsgPreview={lastMsgPreview}
+                  onArchive={handleArchive}
+                  onUnarchive={handleUnarchive}
+                  onExit={handleExit}
+                  onDelete={handleDelete}
+                  onAddMember={handleAddMemberFromAction}
+                  openActionSheet={openActionSheet}
+                />
               );
             })}
           </div>
@@ -842,7 +1030,7 @@ const MyWorkspaceChannels = () => {
         <MyWorkspaceSidebar workspace={workspace} chats={chats} />
       </div>
 
-      {/* Main content with left and right margins for sidebars */}
+      {/* Main content */}
       <div className="flex-1 lg:ml-64 lg:mr-64 flex flex-col h-screen">
         {/* ── Fixed Header ── */}
         <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
@@ -913,7 +1101,7 @@ const MyWorkspaceChannels = () => {
         <MyWorkspaceBottombar workspace={workspace} />
       </div>
 
-      {/* Right Sidebar (desktop only) – dark/light theme */}
+      {/* Right Sidebar (desktop only) */}
       <div className="hidden lg:block fixed right-0 top-0 bottom-0 w-64 bg-white dark:bg-[#14141a] border-l border-gray-200/60 dark:border-gray-800/60 p-4 overflow-y-auto z-20">
         <div className="flex items-center gap-3 mb-4">
           {workspace.logo ? (
@@ -989,7 +1177,13 @@ const MyWorkspaceChannels = () => {
         onSuccess={handleParticipantsAdded}
       />
 
-      {/* Confirm Modal */}
+      <ActionSheet
+        isOpen={actionSheet.isOpen}
+        onClose={closeActionSheet}
+        actions={actionSheet.actions}
+        title={actionSheet.chat ? `#${actionSheet.chat.name}` : ''}
+      />
+
       <ConfirmModal
         isOpen={confirmModal.isOpen}
         onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })}

@@ -75,8 +75,8 @@ const formatTime = (seconds) => {
 
 const LOCK_THRESHOLD = 80;
 const SEEN_TICK_COLOR = "#34B7F1";
-const SWIPE_REPLY_THRESHOLD = 60; // px to drag right before reply triggers
-const SWIPE_REPLY_MAX = 72; // cap visual drag distance
+const SWIPE_REPLY_THRESHOLD = 60;
+const SWIPE_REPLY_MAX = 72;
 
 // ─── Media Query hook ──────────────────────────────────────────────────
 const useMediaQuery = (query) => {
@@ -119,9 +119,6 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmText 
 };
 
 // ─── Prompt Modal ──────────────────────────────────────────────────
-// NOTE: previously this referenced `brandColor` without it being passed in as a
-// prop at all, which would throw a ReferenceError the moment the modal opened.
-// Fixed by accepting `brandColor` as a prop and passing it in from the parent.
 const PromptModal = ({ isOpen, onClose, onConfirm, title, label, placeholder = "", initialValue = "", confirmText = "Save", brandColor }) => {
   const [value, setValue] = useState(initialValue);
 
@@ -161,7 +158,7 @@ const PromptModal = ({ isOpen, onClose, onConfirm, title, label, placeholder = "
   );
 };
 
-// ─── Add Participant Modal (reused from Channels) ──────────────────
+// ─── Add Participant Modal ──────────────────────────────────────────
 const AddParticipantModal = ({
   isOpen,
   onClose,
@@ -407,7 +404,7 @@ const MessageActionModal = ({
 };
 
 // ─── Message status ticks ────────────────────────────────────────
-const MessageTicks = ({ message, isOwn, isDM }) => {
+const MessageTicks = ({ message, isOwn }) => {
   if (!isOwn) return null;
 
   if (message._pending) {
@@ -507,7 +504,7 @@ const ImagePreviewModal = ({ imageUrl, onClose, senderName, time }) => {
   );
 };
 
-// ─── Quoted reply preview (rendered inside a sent/received message) ──
+// ─── Quoted reply preview ──────────────────────────────────────────
 const QuotedReplyBlock = ({ replyData, isOwn, brandColor, onJump }) => {
   if (!replyData) return null;
   const name = replyData.senderName || "Unknown";
@@ -545,38 +542,11 @@ const QuotedReplyBlock = ({ replyData, isOwn, brandColor, onJump }) => {
   );
 };
 
-// Resolves a message's replyTo reference into displayable data.
-// Handles both a populated object (from backend) and a raw id (looked up locally).
-const resolveReplyPreview = (msg, allMessages) => {
-  const replyTo = msg?.replyTo;
-  if (!replyTo) return null;
-
-  if (typeof replyTo === "object") {
-    return {
-      id: replyTo._id,
-      senderName: replyTo.sender?.name || replyTo.senderName || "Unknown",
-      content: replyTo.content,
-      mediaName: replyTo.mediaName,
-      messageType: replyTo.messageType,
-    };
-  }
-
-  const original = allMessages?.find((m) => m._id === replyTo);
-  if (!original) return null;
-
-  return {
-    id: original._id,
-    senderName: original.sender?.name || "Unknown",
-    content: original.content,
-    mediaName: original.mediaName,
-    messageType: original.messageType,
-  };
-};
-
 // ─── Reply Preview Bar ──────────────────────────────────────────────
-const ReplyPreview = ({ replyTo, onCancel, brandColor }) => {
+const ReplyPreview = ({ replyTo, onCancel, brandColor, resolveSender }) => {
   if (!replyTo) return null;
-  const senderName = replyTo.sender?.name || "Unknown";
+  const sender = resolveSender ? resolveSender(replyTo.sender) : replyTo.sender;
+  const senderName = sender?.name || "Unknown";
   const content = replyTo.content || (replyTo.mediaName ? `📎 ${replyTo.mediaName}` : "Media");
 
   return (
@@ -592,11 +562,10 @@ const ReplyPreview = ({ replyTo, onCancel, brandColor }) => {
   );
 };
 
-// ─── Media Message Component (with archive/star/reply) ────────────────────
+// ─── Media Message Component ────────────────────────────────────────
 const MediaMessage = ({
   message,
   isOwn,
-  isDM,
   senderName,
   senderProfile,
   brandColor,
@@ -612,6 +581,7 @@ const MediaMessage = ({
   onLongPress,
   allMessages,
   onJumpToMessage,
+  resolveSender,
 }) => {
   const time = new Date(message.createdAt).toLocaleTimeString("en-US", {
     hour: "2-digit",
@@ -623,7 +593,6 @@ const MediaMessage = ({
   const longPressTimer = useRef(null);
   const isLongPress = useRef(false);
 
-  // ── Swipe-to-reply (mobile) ──
   const touchStartRef = useRef({ x: 0, y: 0 });
   const [swipeX, setSwipeX] = useState(0);
   const swipeTriggered = useRef(false);
@@ -631,7 +600,33 @@ const MediaMessage = ({
 
   const isArchived = message.archivedBy?.some(id => id === userId) || false;
   const isStarred = message.starredBy?.some(id => id === userId) || false;
-  const replyPreview = resolveReplyPreview(message, allMessages);
+
+  const replyPreview = (() => {
+    const replyTo = message?.replyTo;
+    if (!replyTo) return null;
+
+    if (typeof replyTo === "object") {
+      const resolvedSender = resolveSender ? resolveSender(replyTo.sender) : replyTo.sender;
+      return {
+        id: replyTo._id,
+        senderName: resolvedSender?.name || replyTo.senderName || "Unknown",
+        content: replyTo.content,
+        mediaName: replyTo.mediaName,
+        messageType: replyTo.messageType,
+      };
+    }
+
+    const original = allMessages?.find((m) => m._id === replyTo);
+    if (!original) return null;
+    const resolvedSender = resolveSender ? resolveSender(original.sender) : original.sender;
+    return {
+      id: original._id,
+      senderName: resolvedSender?.name || "Unknown",
+      content: original.content,
+      mediaName: original.mediaName,
+      messageType: original.messageType,
+    };
+  })();
 
   const menuRef = useRef(null);
   useEffect(() => {
@@ -644,7 +639,6 @@ const MediaMessage = ({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // ── Long press + swipe combined touch handling for mobile ──
   const handleTouchStart = (e) => {
     if (!isMobile) return;
     const touch = e.touches[0];
@@ -813,7 +807,6 @@ const MediaMessage = ({
   };
   const swipeIconOpacity = Math.min(swipeX / SWIPE_REPLY_THRESHOLD, 1);
 
-  // Image messages without bubble
   if (message.messageType === "image") {
     return (
       <div
@@ -881,7 +874,7 @@ const MediaMessage = ({
               />
               <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 text-[10px] text-white bg-black/50 px-2 py-0.5 rounded-full">
                 <span>{time}</span>
-                <MessageTicks message={message} isOwn={isOwn} isDM={isDM} />
+                <MessageTicks message={message} isOwn={isOwn} />
               </div>
               {!isMobile && (
                 <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition" ref={menuRef}>
@@ -971,7 +964,6 @@ const MediaMessage = ({
     );
   }
 
-  // Regular messages with bubble
   return (
     <div
       data-message-id={message._id}
@@ -1036,7 +1028,7 @@ const MediaMessage = ({
             className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 ${isOwn ? "flex-row-reverse" : ""}`}
           >
             <span>{time}</span>
-            <MessageTicks message={message} isOwn={isOwn} isDM={isDM} />
+            <MessageTicks message={message} isOwn={isOwn} />
             {!isMobile && (
               <div className="relative ml-2" ref={menuRef}>
                 <button
@@ -1117,15 +1109,12 @@ const MediaMessage = ({
   );
 };
 
-// ─── Chat Details Bottom Sheet (with admin controls) ───────────────
+// ─── Chat Details Bottom Sheet ──────────────────────────────────────
 const ChatDetailsSheet = ({
   isOpen,
   onClose,
   chat,
   workspace,
-  isDM,
-  otherParticipant,
-  isDMOnline,
   userInfo,
   userRole,
   brandColor,
@@ -1148,10 +1137,7 @@ const ChatDetailsSheet = ({
   const canManage = isGroupAdmin || isWorkspaceOwner;
   const canDelete = isCreator || isWorkspaceOwner;
 
-  const displayName = isDM
-    ? otherParticipant?.name || "Unknown"
-    : chat?.name || "Unnamed Channel";
-  const displayAvatar = isDM ? otherParticipant?.profile : null;
+  const displayName = chat?.name || "Unnamed Channel";
   const memberCount = participants.length;
 
   return (
@@ -1168,33 +1154,16 @@ const ChatDetailsSheet = ({
       >
         <div className="p-5">
           <div className="flex items-center gap-4 mb-5">
-            {isDM ? (
-              displayAvatar ? (
-                <img
-                  src={displayAvatar}
-                  alt=""
-                  className="w-14 h-14 rounded-full object-cover border border-gray-200 dark:border-gray-700/60"
-                />
-              ) : (
-                <div
-                  className="w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-xl"
-                  style={{ backgroundColor: brandColor }}
-                >
-                  {displayName.charAt(0).toUpperCase()}
-                </div>
-              )
-            ) : (
-              <div
-                className="w-14 h-14 rounded-full flex items-center justify-center text-white"
-                style={{ backgroundColor: brandColor }}
-              >
-                <FaHashtag size={24} />
-              </div>
-            )}
+            <div
+              className="w-14 h-14 rounded-full flex items-center justify-center text-white"
+              style={{ backgroundColor: brandColor }}
+            >
+              <FaHashtag size={24} />
+            </div>
             <div className="flex-1">
               <div className="flex items-center gap-2">
                 <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200">{displayName}</h3>
-                {!isDM && canManage && (
+                {canManage && (
                   <button
                     onClick={() => onRenameGroup(chat._id, chat.name)}
                     className="p-1 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white transition"
@@ -1204,14 +1173,10 @@ const ChatDetailsSheet = ({
                 )}
               </div>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                {isDM
-                  ? isDMOnline
-                    ? "Online"
-                    : "Offline"
-                  : `${memberCount} member${memberCount !== 1 ? "s" : ""}`}
+                {memberCount} member{memberCount !== 1 ? "s" : ""}
               </p>
             </div>
-            {!isDM && canDelete && (
+            {canDelete && (
               <button
                 onClick={() => onDeleteGroup(chat._id)}
                 className="p-2 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition"
@@ -1219,7 +1184,7 @@ const ChatDetailsSheet = ({
                 <FaTrashAlt className="text-sm" />
               </button>
             )}
-            {!isDM && !isCreator && !isWorkspaceOwner && (
+            {!isCreator && !isWorkspaceOwner && (
               <button
                 onClick={() => onExitGroup(chat._id)}
                 className="p-2 text-orange-500 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-500/10 rounded-lg transition"
@@ -1229,20 +1194,18 @@ const ChatDetailsSheet = ({
             )}
           </div>
 
-          {!isDM && (
-            <div className="mb-4">
-              <button
-                onClick={() => onAddMember(chat._id)}
-                className="flex items-center gap-2 text-sm text-teal-600 dark:text-[#0d9488] hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 px-3 py-1.5 rounded-lg transition"
-              >
-                <FaUserPlus className="text-sm" /> Add Members
-              </button>
-            </div>
-          )}
+          <div className="mb-4">
+            <button
+              onClick={() => onAddMember(chat._id)}
+              className="flex items-center gap-2 text-sm text-teal-600 dark:text-[#0d9488] hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 px-3 py-1.5 rounded-lg transition"
+            >
+              <FaUserPlus className="text-sm" /> Add Members
+            </button>
+          </div>
 
           <div>
             <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
-              {isDM ? "Participant" : `Members (${memberCount})`}
+              Members ({memberCount})
             </h4>
             <ul className="space-y-2">
               {participants.map((p) => {
@@ -1283,13 +1246,8 @@ const ChatDetailsSheet = ({
                       {isCurrentUser && (
                         <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">(You)</span>
                       )}
-                      {isDM && otherParticipant?._id === userId && (
-                        <span className="text-xs text-gray-500 dark:text-gray-500 ml-2">
-                          {isDMOnline ? "🟢 online" : "⚫ offline"}
-                        </span>
-                      )}
                     </div>
-                    {!isDM && canManage && !isCurrentUser && (
+                    {canManage && !isCurrentUser && (
                       <div className="flex gap-1">
                         {canPromote && (
                           <button
@@ -1337,6 +1295,8 @@ const MyWorkspaceChannelId = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { userInfo } = useSelector((state) => state.auth);
+
+  // ─── All hooks must be called unconditionally at the top ──────────
   const [message, setMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const messagesEndRef = useRef(null);
@@ -1345,11 +1305,8 @@ const MyWorkspaceChannelId = () => {
   const imageInputRef = useRef(null);
   const [previewImage, setPreviewImage] = useState(null);
   const [showDetailsSheet, setShowDetailsSheet] = useState(false);
-
-  // ── Device detection ──
   const isMobile = useMediaQuery("(max-width: 768px)");
 
-  // ── Modal states ────────────────────────────────────────────────
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
     title: "",
@@ -1374,25 +1331,16 @@ const MyWorkspaceChannelId = () => {
     message: null,
   });
 
-  // ── Reply & mention state ──────────────────────────────────────────
   const [replyToMessage, setReplyToMessage] = useState(null);
   const [mentionQuery, setMentionQuery] = useState("");
   const [showMentions, setShowMentions] = useState(false);
   const [mentionSuggestions, setMentionSuggestions] = useState([]);
   const [pendingMentions, setPendingMentions] = useState([]);
 
-  // ── Focus input if queried (quick reply) ─────────────────────────
   const inputRef = useRef(null);
-  useEffect(() => {
-    if (searchParams.get("focusInput") === "true") {
-      setTimeout(() => inputRef.current?.focus(), 300);
-    }
-  }, [searchParams]);
 
-  // ── Call mutation ────────────────────────────────────────────────
   const [initiateCall, { isLoading: isCallInitiating }] = useInitiateCallMutation();
 
-  // Voice recording states
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [recordingBlob, setRecordingBlob] = useState(null);
@@ -1407,11 +1355,9 @@ const MyWorkspaceChannelId = () => {
   const touchStartYRef = useRef(0);
   const isRecordingRef = useRef(false);
 
-  // ── Socket & local messages ─────────────────────────────────────────
   const { socket, isConnected } = useSocket();
   const [localMessages, setLocalMessages] = useState([]);
 
-  // API hooks
   const {
     data: workspaceData,
     isLoading: workspaceLoading,
@@ -1430,13 +1376,11 @@ const MyWorkspaceChannelId = () => {
   const [sendMessageApi] = useSendMessageMutation();
   const [deleteMessageApi] = useDeleteMessageMutation();
 
-  // Message archive/star mutations
   const [archiveMessage] = useArchiveMessageMutation();
   const [unarchiveMessage] = useUnarchiveMessageMutation();
   const [starMessage] = useStarMessageMutation();
   const [unstarMessage] = useUnstarMessageMutation();
 
-  // Group management mutations
   const [addParticipant] = useAddParticipantMutation();
   const [removeParticipant] = useRemoveParticipantMutation();
   const [makeAdmin] = useMakeGroupAdminMutation();
@@ -1448,27 +1392,15 @@ const MyWorkspaceChannelId = () => {
 
   const { data: membersData } = useGetMembersQuery(workspaceId);
 
-  const chat = chatsData?.chats?.find((c) => c._id === chatId);
-  const isDM = chat?.type === "direct";
-  const otherParticipant = isDM
-    ? chat?.participants?.find(
-        (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id,
-      )?.user || null
-    : null;
-  const displayName = isDM
-    ? otherParticipant?.name || "Unknown"
-    : chat?.name || "Unnamed Channel";
-  const displayAvatar = isDM ? otherParticipant?.profile : null;
-  const isDMOnline = isDM ? otherParticipant?.online || false : false;
+  // ─── Data-dependent hooks (memoized) ───────────────────────────────
+  // chat and participants are computed with useMemo to avoid recomputation
+  const chat = React.useMemo(() => {
+    if (!chatsData?.chats) return null;
+    return chatsData.chats.find((c) => c._id === chatId) || null;
+  }, [chatsData, chatId]);
 
-  // ── User role in workspace ─────────────────────────────────────────
-  const userMembership = workspaceData?.workspace?.members?.find(
-    (m) => m.user?._id === userInfo?._id || m.user === userInfo?._id
-  );
-  const userRole = userMembership?.role || "Member";
+  const participants = React.useMemo(() => chat?.participants || [], [chat]);
 
-  // ── Build participant map for mentions ──────────────────────────────
-  const participants = chat?.participants || [];
   const usernameMap = React.useMemo(() => {
     const map = new Map();
     participants.forEach((p) => {
@@ -1481,7 +1413,33 @@ const MyWorkspaceChannelId = () => {
     return map;
   }, [participants]);
 
-  // ── Lock body scroll while this chat is mounted ─────────────────────
+  // userMapRef is a ref, but we populate it in a useEffect
+  const userMapRef = useRef(new Map());
+
+  // Resolve sender function depends on userMapRef.current (ref)
+  const resolveSender = useCallback((senderField) => {
+    if (!senderField) return { name: "Unknown", profile: null };
+    if (typeof senderField === "string") {
+      const found = userMapRef.current.get(senderField);
+      return found ? found : { _id: senderField, name: "Unknown", profile: null };
+    }
+    if (senderField.name) return senderField;
+    const found = senderField._id ? userMapRef.current.get(senderField._id) : null;
+    if (found) {
+      return { ...senderField, name: found.name, profile: found.profile ?? senderField.profile };
+    }
+    return { ...senderField, name: senderField.name || "Unknown" };
+  }, []);
+
+  // ─── Effects ──────────────────────────────────────────────────────────
+  // Focus input if query param says so
+  useEffect(() => {
+    if (searchParams.get("focusInput") === "true") {
+      setTimeout(() => inputRef.current?.focus(), 300);
+    }
+  }, [searchParams]);
+
+  // Lock body scroll
   useEffect(() => {
     document.body.style.overflow = 'hidden';
     return () => {
@@ -1489,7 +1447,24 @@ const MyWorkspaceChannelId = () => {
     };
   }, []);
 
-  // ── Silent polling every 3 seconds ──────────────────────────────────
+  // Populate userMapRef when workspace and participants are available
+  useEffect(() => {
+    if (workspaceData?.workspace?.members) {
+      const map = new Map();
+      workspaceData.workspace.members.forEach((m) => {
+        const user = m.user || m;
+        if (user._id) map.set(user._id, user);
+      });
+      participants.forEach((p) => {
+        const user = p.user || {};
+        if (user._id && !map.has(user._id)) map.set(user._id, user);
+      });
+      if (userInfo?._id) map.set(userInfo._id, userInfo);
+      userMapRef.current = map;
+    }
+  }, [workspaceData, participants, userInfo]);
+
+  // Silent polling for messages
   useEffect(() => {
     const interval = setInterval(() => {
       refetchMessages();
@@ -1497,7 +1472,7 @@ const MyWorkspaceChannelId = () => {
     return () => clearInterval(interval);
   }, [refetchMessages, chatId]);
 
-  // ── Scroll state & new‑message button ──────────────────────────────
+  // ─── Scroll handling ────────────────────────────────────────────────
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showScrollDown, setShowScrollDown] = useState(false);
 
@@ -1524,7 +1499,7 @@ const MyWorkspaceChannelId = () => {
     }
   }, [localMessages.length]);
 
-  // ── Jump to (and briefly highlight) a message when a quoted reply is tapped ──
+  // ─── Jump to message ───────────────────────────────────────────────
   const handleJumpToMessage = useCallback((messageId) => {
     if (!messageId) return;
     const container = messagesContainerRef.current;
@@ -1538,7 +1513,7 @@ const MyWorkspaceChannelId = () => {
     }, 1200);
   }, []);
 
-  // ── Join chat room + socket events ─────────────────────────────────
+  // ─── Socket events ──────────────────────────────────────────────────
   useEffect(() => {
     if (!socket || !isConnected || !chatId) return;
 
@@ -1587,7 +1562,7 @@ const MyWorkspaceChannelId = () => {
     };
   }, [socket, isConnected, chatId, userInfo?._id]);
 
-  // ── Merge polled messages ──────────────────────────────────────────
+  // ─── Merge polled messages ──────────────────────────────────────────
   useEffect(() => {
     if (messagesData?.messages) {
       setLocalMessages((prev) => {
@@ -1600,7 +1575,7 @@ const MyWorkspaceChannelId = () => {
     }
   }, [messagesData]);
 
-  // Voice recording cleanup
+  // ─── Recording cleanup ──────────────────────────────────────────────
   useEffect(() => {
     isRecordingRef.current = isRecording;
   }, [isRecording]);
@@ -1626,7 +1601,50 @@ const MyWorkspaceChannelId = () => {
     }
   };
 
-  // ── Mention logic ──────────────────────────────────────────────────
+  // ─── Now we can handle early returns for loading/error ──────────────
+  if (error) {
+    navigate("/my-workspaces");
+    return null;
+  }
+  if (workspaceLoading || chatsLoading || messagesLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
+        <div className="w-8 h-8 border-4 border-teal-500 dark:border-teal-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  const workspace = workspaceData?.workspace;
+  const chats = chatsData?.chats || [];
+  if (!workspace) return null;
+
+  const displayName = chat?.name || "Unnamed Channel";
+  const memberCount = chat?.participants?.length || 0;
+
+  const userMembership = workspaceData?.workspace?.members?.find(
+    (m) => m.user?._id === userInfo?._id || m.user === userInfo?._id
+  );
+  const userRole = userMembership?.role || "Member";
+
+  const brandColor = workspace.color || "#0d9488";
+
+  const groupChats = chats.filter((c) => c.type === "group");
+  const filteredChannels = groupChats.filter((ch) =>
+    ch.name?.toLowerCase().includes(searchQuery.toLowerCase()),
+  );
+
+  const getSender = (senderId) => {
+    const member = workspace.members?.find(
+      (m) => m.user?._id === senderId || m.user === senderId,
+    );
+    return member?.user || null;
+  };
+
+  // ─── Rest of the event handlers (unchanged) ─────────────────────────
+  // ... all handlers from the previous version (handleSendMessage, etc.)
+  // We'll include them again for completeness.
+
+  // ─── Mention logic ──────────────────────────────────────────────────
   const extractMentionsFromText = (text) => {
     const matches = text.match(/@(\w+)/g);
     if (!matches) return [];
@@ -1643,8 +1661,6 @@ const MyWorkspaceChannelId = () => {
     return ids;
   };
 
-  // Handles input change — the "@" mention UI is only ever driven by the user
-  // actually typing "@" themselves (never auto-inserted, e.g. on reply).
   const handleMessageChange = (e) => {
     const value = e.target.value;
     setMessage(value);
@@ -1702,9 +1718,7 @@ const MyWorkspaceChannelId = () => {
     }, 0);
   };
 
-  // ── Reply logic ────────────────────────────────────────────────────
-  // Replying just sets the reply target and focuses the input — it does not
-  // stuff "@SenderName" into the text box.
+  // ─── Reply logic ────────────────────────────────────────────────────
   const handleReply = (msg) => {
     setReplyToMessage(msg);
     setTimeout(() => inputRef.current?.focus(), 100);
@@ -1714,57 +1728,11 @@ const MyWorkspaceChannelId = () => {
     setReplyToMessage(null);
   };
 
-  // ── Long press handler for mobile ──────────────────────────────────
   const handleLongPress = (msg) => {
     setActionModal({ isOpen: true, message: msg });
   };
 
-  // ── Error / Loading ──────────────────────────────────────────────
-  if (error) navigate("/my-workspaces");
-  if (workspaceLoading || chatsLoading || messagesLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
-        <div className="w-8 h-8 border-4 border-teal-500 dark:border-teal-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
-
-  const workspace = workspaceData?.workspace;
-  const chats = chatsData?.chats || [];
-  if (!workspace) return null;
-
-  const brandColor = workspace.color || "#0d9488";
-  const memberCount = chat?.participants?.length || 0;
-
-  // ── Channel / DM lists ──────────────────────────────────────────
-  const groupChats = chats.filter((c) => c.type === "group");
-  const directMessages = chats.filter((c) => c.type === "direct");
-  const filteredChannels = groupChats.filter((ch) =>
-    ch.name?.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
-  const filteredDMs = directMessages.filter((dm) => {
-    const participant = dm.participants.find(
-      (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id,
-    );
-    const name = participant?.user?.name || participant?.name || "Unknown";
-    return name.toLowerCase().includes(searchQuery.toLowerCase());
-  });
-
-  const getDMParticipant = (dmChat) => {
-    const other = dmChat.participants.find(
-      (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id,
-    );
-    return other?.user || other;
-  };
-
-  const getSender = (senderId) => {
-    const member = workspace.members?.find(
-      (m) => m.user?._id === senderId || m.user === senderId,
-    );
-    return member?.user || null;
-  };
-
-  // ── Send text message via socket (optimistic, with mentions + reply) ─
+  // ─── Send message ──────────────────────────────────────────────────
   const handleSendMessage = (e) => {
     e.preventDefault();
     const trimmed = message.trim();
@@ -1833,7 +1801,7 @@ const MyWorkspaceChannelId = () => {
     );
   };
 
-  // ── File / image / voice via REST ───────────────────────────────
+  // ─── File / image / voice handlers ──────────────────────────────────
   const handleFileUpload = (type) => {
     if (type === "file") fileInputRef.current?.click();
     else if (type === "image") imageInputRef.current?.click();
@@ -1899,7 +1867,7 @@ const MyWorkspaceChannelId = () => {
     stopTimer();
   };
 
-  // ── Message actions ──────────────────────────────────────────────
+  // ─── Message actions ──────────────────────────────────────────────
   const handleDeleteMessage = async (messageId) => {
     setConfirmModal({
       isOpen: true,
@@ -1956,7 +1924,7 @@ const MyWorkspaceChannelId = () => {
     }
   };
 
-  // ── Group management actions ─────────────────────────────────────
+  // ─── Group management actions ─────────────────────────────────────
   const handleAddMember = (chatId) => {
     setAddMemberModal({ isOpen: true, chatId });
   };
@@ -2070,36 +2038,25 @@ const MyWorkspaceChannelId = () => {
     });
   };
 
-  // ── Add Participant Modal success ─────────────────────────────────
   const handleAddMemberSuccess = () => {
     refetchChats();
     refetchMessages();
     setAddMemberModal({ isOpen: false, chatId: null });
   };
 
-  // ── Call handler ──────────────────────────────────────────────────
+  // ─── Call handler ──────────────────────────────────────────────────
   const handleCall = async (type) => {
     if (!workspace || !chat) {
       toast.error("Missing workspace or chat data");
       return;
     }
 
-    let participantIds = [];
-    if (isDM) {
-      const otherId = otherParticipant?._id;
-      if (!otherId) {
-        toast.error("No other participant in this DM");
-        return;
-      }
-      participantIds = [otherId];
-    } else {
-      participantIds = chat.participants
-        .filter((p) => {
-          const uid = p.user?._id || p.user;
-          return uid !== userInfo._id && uid !== userInfo?._id;
-        })
-        .map((p) => p.user?._id || p.user);
-    }
+    const participantIds = chat.participants
+      .filter((p) => {
+        const uid = p.user?._id || p.user;
+        return uid !== userInfo._id && uid !== userInfo?._id;
+      })
+      .map((p) => p.user?._id || p.user);
 
     if (participantIds.length === 0) {
       toast.info("No one else to call in this chat.");
@@ -2128,7 +2085,7 @@ const MyWorkspaceChannelId = () => {
     }
   };
 
-  // Mic pointer events (unchanged)
+  // ─── Recording handlers ───────────────────────────────────────────
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -2207,8 +2164,10 @@ const MyWorkspaceChannelId = () => {
     if (isRecordingRef.current) stopRecording();
   };
 
+  // ─── Render ──────────────────────────────────────────────────────
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
+      {/* Preview image modal, sidebar, chat area, details sheet, modals – same as before */}
       {previewImage && (
         <ImagePreviewModal
           imageUrl={previewImage.url}
@@ -2218,12 +2177,11 @@ const MyWorkspaceChannelId = () => {
         />
       )}
 
-      {/* Desktop sidebar */}
       <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
         <MyWorkspaceSidebar workspace={workspace} chats={chats} />
       </div>
 
-      {/* Channel list (desktop) – dark/light themed */}
+      {/* Channel list (desktop) */}
       <div className="hidden lg:flex lg:w-72 lg:flex-col bg-white dark:bg-[#0f0f12] border-r border-gray-200/60 dark:border-gray-800/60 h-full overflow-hidden">
         <div className="p-4 border-b border-gray-200/60 dark:border-gray-800/60 flex-shrink-0">
           <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-300 flex items-center gap-2">
@@ -2236,7 +2194,7 @@ const MyWorkspaceChannelId = () => {
             <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 text-xs" />
             <input
               type="text"
-              placeholder="Search..."
+              placeholder="Search channels..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-8 pr-3 py-1.5 bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500 dark:focus:ring-[#0d9488]"
@@ -2261,44 +2219,16 @@ const MyWorkspaceChannelId = () => {
               )}
             </Link>
           ))}
-          {filteredDMs.map((dm) => {
-            const participant = getDMParticipant(dm);
-            return (
-              <Link
-                key={dm._id}
-                to={`/my-workspace/${workspaceId}/chat/${dm._id}`}
-                className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition ${
-                  dm._id === chatId ? "bg-gray-100 dark:bg-gray-800/60" : "hover:bg-gray-50 dark:hover:bg-gray-800/30"
-                }`}
-              >
-                <div className="w-6 h-6 rounded-full overflow-hidden">
-                  {participant?.profile ? (
-                    <img
-                      src={participant.profile}
-                      alt=""
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div
-                      className="w-full h-full flex items-center justify-center text-white text-[10px] font-bold"
-                      style={{ backgroundColor: brandColor }}
-                    >
-                      {participant?.name?.charAt(0).toUpperCase() || "?"}
-                    </div>
-                  )}
-                </div>
-                <span className="text-sm text-gray-700 dark:text-gray-300 truncate">
-                  {participant?.name || "Unknown"}
-                </span>
-              </Link>
-            );
-          })}
+          {filteredChannels.length === 0 && (
+            <div className="text-center text-gray-500 dark:text-gray-400 text-sm py-4">
+              No channels found
+            </div>
+          )}
         </div>
       </div>
 
       {/* Chat area */}
       <div className="flex-1 flex flex-col bg-white dark:bg-[#0f0f12] h-full overflow-hidden">
-        {/* Header – dark/light glass */}
         <header
           className="fixed lg:sticky top-0 left-0 right-0 lg:left-auto lg:right-auto z-20 flex items-center justify-between px-4 py-3 border-b border-gray-200/60 dark:border-gray-800/60 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl text-gray-800 dark:text-white flex-shrink-0 cursor-pointer"
           style={{
@@ -2318,33 +2248,15 @@ const MyWorkspaceChannelId = () => {
             >
               <FaArrowLeft />
             </button>
-            {isDM ? (
-              displayAvatar ? (
-                <img
-                  src={displayAvatar}
-                  alt=""
-                  className="w-9 h-9 rounded-full object-cover flex-shrink-0 border border-gray-200 dark:border-gray-700/60"
-                />
-              ) : (
-                <div className="w-9 h-9 rounded-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center font-bold text-sm flex-shrink-0">
-                  {displayName.charAt(0).toUpperCase()}
-                </div>
-              )
-            ) : (
-              <div className="w-9 h-9 rounded-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center flex-shrink-0">
-                <FaHashtag className="text-sm" />
-              </div>
-            )}
+            <div className="w-9 h-9 rounded-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center flex-shrink-0">
+              <FaHashtag className="text-sm text-gray-600 dark:text-gray-300" />
+            </div>
             <div className="min-w-0 flex-1">
               <h2 className="font-semibold text-base text-gray-800 dark:text-gray-100 truncate">
                 {displayName}
               </h2>
               <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                {isDM
-                  ? isDMOnline
-                    ? "Online"
-                    : "Offline"
-                  : `${memberCount} members`}
+                {memberCount} member{memberCount !== 1 ? "s" : ""}
               </p>
             </div>
           </div>
@@ -2371,7 +2283,6 @@ const MyWorkspaceChannelId = () => {
           </div>
         </header>
 
-        {/* Messages area */}
         <div className="relative flex-1 overflow-hidden">
           <div
             ref={messagesContainerRef}
@@ -2385,16 +2296,16 @@ const MyWorkspaceChannelId = () => {
               </div>
             ) : (
               localMessages.map((msg) => {
-                const sender = getSender(msg.sender?._id || msg.sender);
+                const sender = resolveSender(msg.sender);
                 const isOwn =
                   msg.sender?._id === userInfo?._id ||
-                  msg.sender === userInfo?._id;
+                  msg.sender === userInfo?._id ||
+                  sender?._id === userInfo?._id;
                 return (
                   <MediaMessage
                     key={msg._id}
                     message={msg}
                     isOwn={isOwn}
-                    isDM={isDM}
                     senderName={sender?.name || "Unknown"}
                     senderProfile={sender?.profile}
                     brandColor={brandColor}
@@ -2410,6 +2321,7 @@ const MyWorkspaceChannelId = () => {
                     onLongPress={handleLongPress}
                     allMessages={localMessages}
                     onJumpToMessage={handleJumpToMessage}
+                    resolveSender={resolveSender}
                   />
                 );
               })
@@ -2427,7 +2339,6 @@ const MyWorkspaceChannelId = () => {
           )}
         </div>
 
-        {/* Input area – dark/light themed */}
         <div
           className="fixed lg:sticky bottom-0 left-0 right-0 lg:left-auto lg:right-auto z-20 border-t border-gray-200/60 dark:border-gray-800/60 bg-white/90 dark:bg-[#0f0f12]/90 backdrop-blur-xl flex-shrink-0"
           style={{
@@ -2437,11 +2348,11 @@ const MyWorkspaceChannelId = () => {
             paddingBottom: 'calc(0.5rem + var(--safe-bottom))',
           }}
         >
-          {/* Reply Preview Bar */}
           <ReplyPreview
             replyTo={replyToMessage}
             onCancel={cancelReply}
             brandColor={brandColor}
+            resolveSender={resolveSender}
           />
 
           {showRecordedPreview && recordingBlob && (
@@ -2531,7 +2442,6 @@ const MyWorkspaceChannelId = () => {
             onSubmit={handleSendMessage}
             className="flex items-center gap-2 relative"
           >
-            {/* Mention Suggestions Dropdown — only shown while actively typing "@" */}
             {showMentions && (
               <div className="absolute bottom-full left-0 right-0 mb-1 bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-xl shadow-lg max-h-48 overflow-y-auto z-40">
                 {mentionSuggestions.length > 0 ? (
@@ -2626,15 +2536,11 @@ const MyWorkspaceChannelId = () => {
         </div>
       </div>
 
-      {/* Chat / Group Details Bottom Sheet */}
       <ChatDetailsSheet
         isOpen={showDetailsSheet}
         onClose={() => setShowDetailsSheet(false)}
         chat={chat}
         workspace={workspace}
-        isDM={isDM}
-        otherParticipant={otherParticipant}
-        isDMOnline={isDMOnline}
         userInfo={userInfo}
         userRole={userRole}
         brandColor={brandColor}
@@ -2647,7 +2553,6 @@ const MyWorkspaceChannelId = () => {
         onRenameGroup={handleRenameGroup}
       />
 
-      {/* Modals */}
       <ConfirmModal
         isOpen={confirmModal.isOpen}
         onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })}
@@ -2682,7 +2587,6 @@ const MyWorkspaceChannelId = () => {
         onSuccess={handleAddMemberSuccess}
       />
 
-      {/* Mobile Action Modal (with Reply) */}
       <MessageActionModal
         isOpen={actionModal.isOpen}
         onClose={() => setActionModal({ isOpen: false, message: null })}

@@ -1,5 +1,5 @@
 // src/components/MyWorkspaceSidebar.jsx
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Link, useParams, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import {
@@ -26,6 +26,21 @@ import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
 import { useGetWorkspaceProjectsQuery } from '../slices/projectApiSlice';
 import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
 import { useTheme } from '../contexts/ThemeContext';
+
+// ─── FORCE DEDUPLICATION HELPER (same as DMs screen) ─────────────────
+const forceUniqueById = (arr, getId = (item) => item?._id) => {
+  if (!Array.isArray(arr)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of arr) {
+    if (!item) continue;
+    const id = getId(item);
+    if (!id || seen.has(String(id))) continue;
+    seen.add(String(id));
+    out.push(item);
+  }
+  return out;
+};
 
 const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   const { workspaceId } = useParams();
@@ -89,7 +104,28 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   const onlineCount = members.filter((m) => m.status === 'active').length || 0;
 
   const channels = chats.filter((chat) => chat.type === 'group') || [];
-  const directMessages = chats.filter((chat) => chat.type === 'direct') || [];
+
+  // ─── NUCLEAR DEDUPLICATION: one DM per participant, keep most recent ──
+  const myId = String(userInfo?._id);
+  const rawDirectMessages = chats.filter((chat) => chat.type === 'direct') || [];
+  const directMessages = useMemo(() => {
+    const uniqueById = forceUniqueById(rawDirectMessages, (c) => c?._id);
+    const byParticipant = new Map();
+
+    for (const chat of uniqueById) {
+      const other = chat.participants?.find(
+        (p) => String(p.user?._id || p.user) !== myId
+      );
+      const participantId = String(other?.user?._id || other?.user);
+      if (!participantId || participantId === 'undefined') continue;
+
+      const existing = byParticipant.get(participantId);
+      if (!existing || new Date(chat.updatedAt) > new Date(existing.updatedAt)) {
+        byParticipant.set(participantId, chat);
+      }
+    }
+    return Array.from(byParticipant.values());
+  }, [rawDirectMessages, myId]);
 
   const isActive = (path) => {
     if (path === `/my-workspace/${workspaceId}`) {
@@ -100,7 +136,7 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
 
   const getDMParticipant = (chat) => {
     const other = chat.participants.find(
-      (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id
+      (p) => String(p.user?._id || p.user) !== myId
     );
     return other?.user || other;
   };
@@ -108,7 +144,7 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   const getDMUnread = (chat) => chat.unreadCount || 0;
 
   const userMembership = members.find(
-    (m) => m.user?._id === userInfo?._id || m.user === userInfo?._id
+    (m) => String(m.user?._id || m.user) === myId
   );
   const userRole = userMembership?.role || 'Member';
 

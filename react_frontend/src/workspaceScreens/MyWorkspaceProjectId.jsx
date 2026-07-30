@@ -99,7 +99,6 @@ const formatDateTime = (date) => {
   return new Date(date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
 
-// Display "(copy)" at front if title ends with " (copy)"
 const formatTaskTitle = (title) => {
   if (title && title.endsWith(' (copy)')) {
     return `(copy) ${title.slice(0, -7)}`;
@@ -207,9 +206,14 @@ const taskTypeOptions = [
   { value: 'improvement', label: 'Improvement' },
 ];
 
-// ─── Modals ──────────────────────────────────────────────────────────
+// ─── Confirm Modal ──────────────────────────────────────────────────
 const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = 'Confirm', cancelText = 'Cancel', danger = false }) => {
   if (!isOpen) return null;
+  useEffect(() => {
+    const handler = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
       <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
@@ -234,9 +238,14 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmText 
   );
 };
 
+// ─── Delete Task Confirm Modal (with type‑to‑confirm) ─────────────
 const DeleteTaskConfirmModal = ({ isOpen, onClose, onConfirm, taskName }) => {
   const [inputValue, setInputValue] = useState('');
   const expectedPhrase = `I want to delete ${taskName}`;
+
+  useEffect(() => {
+    if (!isOpen) setInputValue('');
+  }, [isOpen]);
 
   const handleConfirm = () => {
     if (inputValue === expectedPhrase) {
@@ -267,6 +276,7 @@ const DeleteTaskConfirmModal = ({ isOpen, onClose, onConfirm, taskName }) => {
           onChange={(e) => setInputValue(e.target.value)}
           placeholder="Type the phrase above"
           className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none mb-4"
+          onKeyDown={(e) => e.key === 'Enter' && handleConfirm()}
         />
         <div className="flex gap-3">
           <button onClick={() => { onClose(); setInputValue(''); }} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
@@ -286,7 +296,7 @@ const FolderSelectModal = ({ isOpen, onClose, folders, mode, task, onConfirm, br
     if (isOpen) {
       setSelectedFolderId(null);
     }
-  }, [isOpen, task]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -299,6 +309,9 @@ const FolderSelectModal = ({ isOpen, onClose, folders, mode, task, onConfirm, br
     setSubmitting(true);
     try {
       await onConfirm(task._id, selectedFolderId);
+      onClose();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Operation failed');
     } finally {
       setSubmitting(false);
     }
@@ -357,6 +370,7 @@ const FolderAccessModal = ({ isOpen, onClose, folder, projectMembers, currentUse
     setSubmitting(true);
     try {
       await onSave(folder._id, selectedIds);
+      toast.success('Folder access updated');
       onClose();
     } catch (error) {
       toast.error('Failed to update folder access.');
@@ -554,7 +568,7 @@ const TaskCard = ({ task, onClick, brandColor, isActive, draggable, onDragStart,
   );
 };
 
-// ─── Sub‑task Item (with recurrence badge) ────────────────────────────
+// ─── Sub‑task Item (with custom delete modal) ──────────────────────
 const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh, brandColor, readOnly }) => {
   const [markDone] = useMarkSubTaskDoneMutation();
   const [confirmSub] = useConfirmSubTaskMutation();
@@ -571,10 +585,11 @@ const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh,
   const [isExpanded, setIsExpanded] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  // Custom delete modal state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const hasDetails = subTask.notes || (subTask.links && subTask.links.length > 0) || (subTask.attachments && subTask.attachments.length > 0) || subTask.feedback || subTask.rejectedBy;
 
-  // ── Recurrence info ──
   const hasRecurrence = subTask.recurrenceType && subTask.recurrenceType !== 'none';
   const recurrenceLabel = subTask.recurrenceType === 'daily' ? 'Daily' : subTask.recurrenceType === 'weekly' ? 'Weekly' : '';
 
@@ -622,7 +637,10 @@ const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh,
   };
   const handleDelete = async () => {
     if (readOnly) return;
-    if (!window.confirm('Delete this sub‑task?')) return;
+    setShowDeleteModal(true);
+  };
+  const confirmDelete = async () => {
+    setShowDeleteModal(false);
     setUpdating(true);
     try {
       await deleteSub({ taskId, subTaskIndex: index }).unwrap();
@@ -787,7 +805,7 @@ const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh,
           <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
             <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">Reject Sub‑task</h3>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Reason for rejection (optional):</p>
-            <input type="text" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="Enter reason..." className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none mb-4" />
+            <input type="text" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="Enter reason..." className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none mb-4" onKeyDown={(e) => e.key === 'Enter' && handleRejectConfirm(rejectReason)} />
             <div className="flex gap-3">
               <button onClick={() => setShowRejectModal(false)} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
               <button onClick={() => handleRejectConfirm(rejectReason)} className="flex-1 py-2 bg-[#0d9488] text-white rounded-xl text-sm font-medium transition hover:opacity-80">Confirm Rejection</button>
@@ -795,7 +813,570 @@ const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh,
           </div>
         </div>
       )}
+
+      {/* Custom delete confirmation modal */}
+      <ConfirmModal
+        isOpen={showDeleteModal}
+        onClose={() => setShowDeleteModal(false)}
+        onConfirm={confirmDelete}
+        title="Delete Sub‑task"
+        message={`Are you sure you want to delete "${subTask.title}"? This cannot be undone.`}
+        confirmText="Delete"
+        danger
+      />
     </>
+  );
+};
+
+// ─── Inline Form Components ──────────────────────────────────────────
+
+const CreateTaskForm = ({ projectId, brandColor, assignableMembers, folders, onSuccess, onCancel }) => {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [taskType, setTaskType] = useState('general');
+  const [assigneeId, setAssigneeId] = useState('');
+  const [priority, setPriority] = useState('medium');
+  const [startDate, setStartDate] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [estimatedHours, setEstimatedHours] = useState('');
+  const [bufferTime, setBufferTime] = useState(0);
+  const [links, setLinks] = useState('');
+  const [allowAssigneeEditSubtasks, setAllowAssigneeEditSubtasks] = useState(false);
+  const [folderId, setFolderId] = useState(null);
+  const [dailyReminderTime, setDailyReminderTime] = useState('');
+  const [attachments, setAttachments] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [createTask] = useCreateTaskMutation();
+
+  const [recurrenceType, setRecurrenceType] = useState('none');
+  const [recurrenceDays, setRecurrenceDays] = useState([]);
+  const [recurrenceEndDate, setRecurrenceEndDate] = useState('');
+  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  const toggleDay = (day) => {
+    if (recurrenceDays.includes(day)) {
+      setRecurrenceDays(recurrenceDays.filter(d => d !== day));
+    } else {
+      setRecurrenceDays([...recurrenceDays, day].sort());
+    }
+  };
+
+  const assigneeOpts = [
+    { value: '', label: 'Unassigned', icon: <FaUser className="text-gray-400" /> },
+    ...assignableMembers.map(m => {
+      const u = m.user || m;
+      return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" alt="" /> : <FaUser className="text-gray-400" /> };
+    })
+  ];
+  const folderOpts = [
+    { value: null, label: 'No Folder', icon: <FaFolder className="text-gray-400" /> },
+    ...folders.map(f => ({ value: f._id, label: f.name, icon: <FaFolder className="text-gray-400" /> }))
+  ];
+
+  const setDueDateRelative = (hours) => {
+    const now = new Date();
+    setStartDate(now.toISOString().slice(0, 16));
+    const due = new Date(now.getTime() + hours * 60 * 60 * 1000);
+    setDueDate(due.toISOString().slice(0, 16));
+  };
+  const setDueDateToday = () => {
+    const now = new Date();
+    setStartDate(now.toISOString().slice(0, 16));
+    const endOfDay = new Date(now);
+    endOfDay.setHours(23, 59, 0, 0);
+    setDueDate(endOfDay.toISOString().slice(0, 16));
+  };
+  const setDueDateTomorrow = () => {
+    const now = new Date();
+    setStartDate(now.toISOString().slice(0, 16));
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(23, 59, 0, 0);
+    setDueDate(tomorrow.toISOString().slice(0, 16));
+  };
+  const setDueDateInDays = (days) => {
+    const now = new Date();
+    setStartDate(now.toISOString().slice(0, 16));
+    const target = new Date(now);
+    target.setDate(target.getDate() + days);
+    target.setHours(23, 59, 0, 0);
+    setDueDate(target.toISOString().slice(0, 16));
+  };
+  const setDueDateInMonths = (months) => {
+    const now = new Date();
+    setStartDate(now.toISOString().slice(0, 16));
+    const target = new Date(now);
+    target.setMonth(target.getMonth() + months);
+    target.setHours(23, 59, 0, 0);
+    setDueDate(target.toISOString().slice(0, 16));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!title.trim()) return toast.error('Title required');
+    setLoading(true);
+    try {
+      const fd = new FormData();
+      fd.append('projectId', projectId);
+      fd.append('title', title.trim());
+      fd.append('description', description.trim());
+      fd.append('taskType', taskType);
+      if (assigneeId) fd.append('assigneeId', assigneeId);
+      fd.append('priority', priority);
+      if (startDate) fd.append('startDate', new Date(startDate).toISOString());
+      if (dueDate) fd.append('dueDate', new Date(dueDate).toISOString());
+      if (estimatedHours) fd.append('estimatedHours', estimatedHours);
+      fd.append('bufferTime', bufferTime);
+      fd.append('links', JSON.stringify(links.split('\n').filter(Boolean)));
+      fd.append('allowAssigneeEditSubtasks', allowAssigneeEditSubtasks);
+      if (folderId) fd.append('folderId', folderId);
+      if (dailyReminderTime) fd.append('dailyReminderTime', dailyReminderTime);
+      fd.append('recurrenceType', recurrenceType);
+      if (recurrenceType === 'weekly') {
+        fd.append('recurrenceDays', JSON.stringify(recurrenceDays));
+      }
+      if (recurrenceEndDate) fd.append('recurrenceEndDate', recurrenceEndDate);
+      attachments.forEach(file => fd.append('attachments', file));
+      await createTask(fd).unwrap();
+      toast.success('Task created');
+      onSuccess();
+    } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Title *</label>
+        <input type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" required />
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
+        <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
+      </div>
+      <CustomDropdown label="Task Type" options={taskTypeOptions} value={taskType} onChange={setTaskType} brandColor={brandColor} />
+      <CustomDropdown label="Folder" options={folderOpts} value={folderId} onChange={setFolderId} brandColor={brandColor} />
+      <CustomDropdown label="Assignee" options={assigneeOpts} value={assigneeId} onChange={setAssigneeId} brandColor={brandColor} />
+      <div className="grid grid-cols-2 gap-3">
+        <CustomDropdown label="Priority" options={priorityOptions} value={priority} onChange={setPriority} brandColor={brandColor} />
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Start Date & Time</label>
+          <input type="datetime-local" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
+        </div>
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Due Date & Time</label>
+        <input type="datetime-local" value={dueDate} onChange={e => setDueDate(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Quick set due date</label>
+        <div className="flex flex-wrap gap-1.5">
+          <button type="button" onClick={() => setDueDateRelative(1)} className="px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-800/40 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-700 dark:text-gray-300">in 1 hour</button>
+          <button type="button" onClick={() => setDueDateRelative(10)} className="px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-800/40 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-700 dark:text-gray-300">in 10 hours</button>
+          <button type="button" onClick={setDueDateToday} className="px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-800/40 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-700 dark:text-gray-300">today</button>
+          <button type="button" onClick={setDueDateTomorrow} className="px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-800/40 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-700 dark:text-gray-300">tomorrow</button>
+          <button type="button" onClick={() => setDueDateInDays(7)} className="px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-800/40 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-700 dark:text-gray-300">1 week</button>
+          <button type="button" onClick={() => setDueDateInDays(14)} className="px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-800/40 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-700 dark:text-gray-300">2 weeks</button>
+          <button type="button" onClick={() => setDueDateInMonths(1)} className="px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-800/40 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-700 dark:text-gray-300">1 month</button>
+          <button type="button" onClick={() => setDueDateInMonths(2)} className="px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-800/40 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-700 dark:text-gray-300">2 months</button>
+          <button type="button" onClick={() => setDueDateInMonths(6)} className="px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-800/40 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-700 dark:text-gray-300">6 months</button>
+        </div>
+        <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">Sets start date to now and due date accordingly</p>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Est. Hours</label>
+          <input type="number" step="0.5" value={estimatedHours} onChange={e => setEstimatedHours(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Buffer Time (hours)</label>
+          <input type="number" step="0.5" value={bufferTime} onChange={e => setBufferTime(parseFloat(e.target.value) || 0)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Recurrence</label>
+        <select
+          value={recurrenceType}
+          onChange={(e) => {
+            setRecurrenceType(e.target.value);
+            if (e.target.value !== 'weekly') setRecurrenceDays([]);
+          }}
+          className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
+        >
+          <option value="none">None</option>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+        </select>
+      </div>
+
+      {recurrenceType === 'weekly' && (
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Repeat on</label>
+          <div className="flex flex-wrap gap-2">
+            {weekDays.map((day, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => toggleDay(idx)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition ${
+                  recurrenceDays.includes(idx)
+                    ? 'bg-[#0d9488] text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'
+                }`}
+              >
+                {day}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(recurrenceType === 'daily' || recurrenceType === 'weekly') && (
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">End Date (optional)</label>
+          <input
+            type="datetime-local"
+            value={recurrenceEndDate}
+            onChange={(e) => setRecurrenceEndDate(e.target.value)}
+            className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
+          />
+        </div>
+      )}
+
+      <div>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Links (one per line)</label>
+        <textarea value={links} onChange={e => setLinks(e.target.value)} rows={2} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" placeholder="https://..." />
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Attachments</label>
+        <input type="file" multiple onChange={e => setAttachments([...e.target.files])} className="text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-[#0d9488]/20 file:text-[#0d9488]" />
+      </div>
+      <div className="flex items-center gap-2">
+        <input type="checkbox" id="allowAssigneeEditSubtasks" checked={allowAssigneeEditSubtasks} onChange={e => setAllowAssigneeEditSubtasks(e.target.checked)} className="w-4 h-4 rounded border-gray-300 dark:border-gray-700 text-[#0d9488] focus:ring-[#0d9488]" />
+        <label htmlFor="allowAssigneeEditSubtasks" className="text-xs text-gray-700 dark:text-gray-300">Allow assignee to add/edit sub‑tasks</label>
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Daily Reminder Time</label>
+        <input type="time" value={dailyReminderTime} onChange={e => setDailyReminderTime(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
+      </div>
+      <div className="flex gap-3 pt-2">
+        <button type="button" onClick={onCancel} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
+        <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80" style={{ backgroundColor: brandColor }}>{loading ? 'Creating...' : 'Create Task'}</button>
+      </div>
+    </form>
+  );
+};
+
+const EditTaskForm = ({ task, brandColor, assignableMembers, folders, onSuccess, onCancel }) => {
+  const [title, setTitle] = useState(task?.title || '');
+  const [description, setDescription] = useState(task?.description || '');
+  const [taskType, setTaskType] = useState(task?.taskType || 'general');
+  const [assigneeId, setAssigneeId] = useState(task?.assignee?._id || task?.assignee || '');
+  const [priority, setPriority] = useState(task?.priority || 'medium');
+  const [startDate, setStartDate] = useState(task?.startDate ? new Date(task.startDate).toISOString().slice(0, 16) : '');
+  const [dueDate, setDueDate] = useState(task?.dueDate ? new Date(task.dueDate).toISOString().slice(0, 16) : '');
+  const [status, setStatus] = useState(task?.status || 'pending');
+  const [estimatedHours, setEstimatedHours] = useState(task?.estimatedHours || '');
+  const [bufferTime, setBufferTime] = useState(task?.bufferTime || 0);
+  const [links, setLinks] = useState((task?.links || []).join('\n'));
+  const [allowAssigneeEditSubtasks, setAllowAssigneeEditSubtasks] = useState(task?.allowAssigneeEditSubtasks || false);
+  const [folderId, setFolderId] = useState(task?.folder?._id || null);
+  const [dailyReminderTime, setDailyReminderTime] = useState(task?.dailyReminderTime || '');
+  const [attachments, setAttachments] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [updateTask] = useUpdateTaskMutation();
+
+  const [recurrenceType, setRecurrenceType] = useState(task?.recurrenceType || 'none');
+  const [recurrenceDays, setRecurrenceDays] = useState(task?.recurrenceDays || []);
+  const [recurrenceEndDate, setRecurrenceEndDate] = useState(
+    task?.recurrenceEndDate ? new Date(task.recurrenceEndDate).toISOString().slice(0, 16) : ''
+  );
+  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  const toggleDay = (day) => {
+    if (recurrenceDays.includes(day)) {
+      setRecurrenceDays(recurrenceDays.filter(d => d !== day));
+    } else {
+      setRecurrenceDays([...recurrenceDays, day].sort());
+    }
+  };
+
+  const assigneeOpts = [
+    { value: '', label: 'Unassigned', icon: <FaUser className="text-gray-400" /> },
+    ...assignableMembers.map(m => {
+      const u = m.user || m;
+      return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" alt="" /> : <FaUser className="text-gray-400" /> };
+    })
+  ];
+  const folderOpts = [
+    { value: null, label: 'No Folder', icon: <FaFolder className="text-gray-400" /> },
+    ...folders.map(f => ({ value: f._id, label: f.name, icon: <FaFolder className="text-gray-400" /> }))
+  ];
+
+  useEffect(() => {
+    if (task) {
+      setTitle(task.title || '');
+      setDescription(task.description || '');
+      setTaskType(task.taskType || 'general');
+      setAssigneeId(task.assignee?._id || task.assignee || '');
+      setPriority(task.priority || 'medium');
+      setStartDate(task.startDate ? new Date(task.startDate).toISOString().slice(0, 16) : '');
+      setDueDate(task.dueDate ? new Date(task.dueDate).toISOString().slice(0, 16) : '');
+      setStatus(task.status || 'pending');
+      setEstimatedHours(task.estimatedHours || '');
+      setBufferTime(task.bufferTime || 0);
+      setAllowAssigneeEditSubtasks(task.allowAssigneeEditSubtasks || false);
+      setLinks((task.links || []).join('\n'));
+      setFolderId(task.folder?._id || null);
+      setDailyReminderTime(task.dailyReminderTime || '');
+      setRecurrenceType(task.recurrenceType || 'none');
+      setRecurrenceDays(task.recurrenceDays || []);
+      setRecurrenceEndDate(task.recurrenceEndDate ? new Date(task.recurrenceEndDate).toISOString().slice(0, 16) : '');
+    }
+  }, [task]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const fd = new FormData();
+      fd.append('title', title.trim());
+      fd.append('description', description.trim());
+      fd.append('taskType', taskType);
+      if (assigneeId) fd.append('assigneeId', assigneeId);
+      fd.append('priority', priority);
+      if (startDate) fd.append('startDate', new Date(startDate).toISOString());
+      if (dueDate) fd.append('dueDate', new Date(dueDate).toISOString());
+      fd.append('status', status);
+      if (estimatedHours) fd.append('estimatedHours', estimatedHours);
+      fd.append('bufferTime', bufferTime);
+      fd.append('links', JSON.stringify(links.split('\n').filter(Boolean)));
+      fd.append('allowAssigneeEditSubtasks', allowAssigneeEditSubtasks);
+      if (folderId) fd.append('folderId', folderId);
+      if (dailyReminderTime) fd.append('dailyReminderTime', dailyReminderTime);
+      fd.append('recurrenceType', recurrenceType);
+      if (recurrenceType === 'weekly') {
+        fd.append('recurrenceDays', JSON.stringify(recurrenceDays));
+      }
+      if (recurrenceEndDate) fd.append('recurrenceEndDate', recurrenceEndDate);
+      attachments.forEach(file => fd.append('attachments', file));
+      await updateTask({ taskId: task._id, data: fd }).unwrap();
+      toast.success('Task updated');
+      onSuccess();
+    } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Title *</label>
+        <input type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" required />
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
+        <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
+      </div>
+      <CustomDropdown label="Task Type" options={taskTypeOptions} value={taskType} onChange={setTaskType} brandColor={brandColor} />
+      <CustomDropdown label="Status" options={statusOptions} value={status} onChange={setStatus} brandColor={brandColor} />
+      <CustomDropdown label="Folder" options={folderOpts} value={folderId} onChange={setFolderId} brandColor={brandColor} />
+      <CustomDropdown label="Assignee" options={assigneeOpts} value={assigneeId} onChange={setAssigneeId} brandColor={brandColor} />
+      <div className="grid grid-cols-2 gap-3">
+        <CustomDropdown label="Priority" options={priorityOptions} value={priority} onChange={setPriority} brandColor={brandColor} />
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Start Date & Time</label>
+          <input type="datetime-local" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
+        </div>
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Due Date & Time</label>
+        <input type="datetime-local" value={dueDate} onChange={e => setDueDate(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Est. Hours</label>
+          <input type="number" step="0.5" value={estimatedHours} onChange={e => setEstimatedHours(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Buffer Time (hours)</label>
+          <input type="number" step="0.5" value={bufferTime} onChange={e => setBufferTime(parseFloat(e.target.value) || 0)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Recurrence</label>
+        <select
+          value={recurrenceType}
+          onChange={(e) => {
+            setRecurrenceType(e.target.value);
+            if (e.target.value !== 'weekly') setRecurrenceDays([]);
+          }}
+          className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
+        >
+          <option value="none">None</option>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+        </select>
+      </div>
+
+      {recurrenceType === 'weekly' && (
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Repeat on</label>
+          <div className="flex flex-wrap gap-2">
+            {weekDays.map((day, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => toggleDay(idx)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition ${
+                  recurrenceDays.includes(idx)
+                    ? 'bg-[#0d9488] text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'
+                }`}
+              >
+                {day}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(recurrenceType === 'daily' || recurrenceType === 'weekly') && (
+        <div>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">End Date (optional)</label>
+          <input
+            type="datetime-local"
+            value={recurrenceEndDate}
+            onChange={(e) => setRecurrenceEndDate(e.target.value)}
+            className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
+          />
+        </div>
+      )}
+
+      <div>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Links (one per line)</label>
+        <textarea value={links} onChange={e => setLinks(e.target.value)} rows={2} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" placeholder="https://..." />
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Attachments</label>
+        <input type="file" multiple onChange={e => setAttachments([...e.target.files])} className="text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-[#0d9488]/20 file:text-[#0d9488]" />
+      </div>
+      <div className="flex items-center gap-2">
+        <input type="checkbox" id="allowAssigneeEditSubtasks-edit" checked={allowAssigneeEditSubtasks} onChange={e => setAllowAssigneeEditSubtasks(e.target.checked)} className="w-4 h-4 rounded border-gray-300 dark:border-gray-700 text-[#0d9488] focus:ring-[#0d9488]" />
+        <label htmlFor="allowAssigneeEditSubtasks-edit" className="text-xs text-gray-700 dark:text-gray-300">Allow assignee to add/edit sub‑tasks</label>
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Daily Reminder Time</label>
+        <input type="time" value={dailyReminderTime} onChange={e => setDailyReminderTime(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
+      </div>
+      <div className="flex gap-3 pt-2">
+        <button type="button" onClick={onCancel} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
+        <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80" style={{ backgroundColor: brandColor }}>{loading ? 'Updating...' : 'Update Task'}</button>
+      </div>
+    </form>
+  );
+};
+
+const AddMemberForm = ({ project, workspace, brandColor, onSuccess, onCancel, onAddManager }) => {
+  const [role, setRole] = useState('member');
+  const [memberId, setMemberId] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [addTeamMember] = useAddTeamMemberMutation();
+
+  const projectMemberIds = project.teamMembers?.filter(m => m.status === 'active').map(m => m.user?._id || m._id) || [];
+  const available = workspace.members?.filter(m => m.status === 'active' && !projectMemberIds.includes(m.user?._id || m._id)) || [];
+  const options = available.map(m => {
+    const u = m.user || m;
+    return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" /> : <FaUser className="text-gray-400" /> };
+  });
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!memberId) return toast.error('Select a member');
+    setLoading(true);
+    try {
+      if (role === 'member') {
+        await addTeamMember({ projectId: project._id, userId: memberId }).unwrap();
+        toast.success('Member added');
+        onSuccess();
+      } else {
+        const selected = available.find(m => (m.user?._id || m._id) === memberId);
+        const name = selected?.user?.name || selected?.name || 'Unknown';
+        onAddManager(memberId, name);
+        onSuccess();
+      }
+    } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <div className="mb-3">
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Role</label>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setRole('member')}
+            className={`flex-1 py-1.5 text-sm rounded-lg border transition ${
+              role === 'member'
+                ? 'border-[#0d9488] bg-[#0d9488]/10 text-[#0d9488]'
+                : 'border-gray-300 dark:border-gray-700/60 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30'
+            }`}
+          >
+            Member
+          </button>
+          <button
+            type="button"
+            onClick={() => setRole('manager')}
+            className={`flex-1 py-1.5 text-sm rounded-lg border transition ${
+              role === 'manager'
+                ? 'border-[#0d9488] bg-[#0d9488]/10 text-[#0d9488]'
+                : 'border-gray-300 dark:border-gray-700/60 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30'
+            }`}
+          >
+            Manager
+          </button>
+        </div>
+      </div>
+      <CustomDropdown label="Select Member" options={options} value={memberId} onChange={setMemberId} brandColor={brandColor} />
+      {available.length === 0 && <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">All workspace members already in project</p>}
+      <div className="flex gap-3 mt-4">
+        <button type="button" onClick={onCancel} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
+        <button type="submit" disabled={loading || available.length === 0} className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80" style={{ backgroundColor: brandColor }}>{loading ? 'Adding...' : 'Add'}</button>
+      </div>
+    </form>
+  );
+};
+
+const AssignForm = ({ assignableMembers, onAssign, brandColor, onCancel }) => {
+  const [assigneeId, setAssigneeId] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const assigneeOpts = assignableMembers.map(m => {
+    const u = m.user || m;
+    return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" alt="" /> : <FaUser className="text-gray-400" /> };
+  });
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!assigneeId) return toast.error('Select a member');
+    setLoading(true);
+    try {
+      await onAssign(assigneeId);
+      onCancel();
+    } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <CustomDropdown label="Select Member" options={assigneeOpts} value={assigneeId} onChange={setAssigneeId} brandColor={brandColor} />
+      <div className="flex gap-3 mt-4">
+        <button type="button" onClick={onCancel} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
+        <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80" style={{ backgroundColor: brandColor }}>{loading ? 'Assigning...' : 'Assign'}</button>
+      </div>
+    </form>
   );
 };
 
@@ -893,9 +1474,7 @@ const MyWorkspaceProjectId = () => {
   const [createFolder] = useCreateFolderMutation();
   const [deleteFolder] = useDeleteFolderMutation();
   const [updateFolder] = useUpdateFolderMutation();
-  const [addSubTask] = useAddSubTaskMutation(); // for adding sub‑tasks
-
-  // Folder access mutations
+  const [addSubTask] = useAddSubTaskMutation();
   const [addFolderReadOnly] = useAddFolderReadOnlyMutation();
   const [removeFolderReadOnly] = useRemoveFolderReadOnlyMutation();
 
@@ -909,7 +1488,6 @@ const MyWorkspaceProjectId = () => {
 
   const activeTeam = useMemo(() => (project?.teamMembers || []).filter(m => m.status === 'active'), [project?.teamMembers]);
 
-  // ─── assignableMembers: include owner if not already present ───
   const assignableMembers = useMemo(() => {
     if (!project) return [];
     const mgrs = project.projectManagers || [];
@@ -950,7 +1528,6 @@ const MyWorkspaceProjectId = () => {
     return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" /> : <FaUser className="text-gray-400" /> };
   });
 
-  // ─── Folder visibility and read‑only status ──────────────────────
   const visibleFolders = useMemo(() => {
     if (canManage) return folders;
     const assignedFolderIds = new Set();
@@ -983,7 +1560,6 @@ const MyWorkspaceProjectId = () => {
     }
   }, [showArchived]);
 
-  // ─── Save folder permissions ──────────────────────────────────────
   const handleSaveFolderPermissions = async (folderId, selectedUserIds) => {
     const folder = folders.find(f => f._id === folderId);
     if (!folder) return;
@@ -1122,7 +1698,7 @@ const MyWorkspaceProjectId = () => {
       await archiveTask(taskId).unwrap(); 
       toast.success('Archived'); 
       refetchTasks(); 
-      if (showArchived) setShowArchived(true); // keep archived view
+      if (showArchived) setShowArchived(true); 
     } catch (e) { toast.error(e?.data?.message || 'Failed'); } 
   };
   const handleUnarchiveTask = async (taskId) => { 
@@ -1140,14 +1716,22 @@ const MyWorkspaceProjectId = () => {
     } catch (e) { toast.error(e?.data?.message || 'Failed'); } 
   };
   const handlePermanentlyDeleteTask = async (taskId) => {
-    if (!window.confirm('PERMANENTLY DELETE this task?')) return;
-    try { 
-      await permanentlyDeleteTask(taskId).unwrap(); 
-      toast.success('Permanently deleted'); 
-      refetchTasks(); 
-      refetchProject(); 
-      if (selectedTaskId === taskId) { setSelectedTaskId(null); setMobileShowDetail(false); }
-    } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Permanently Delete Task',
+      message: 'This action cannot be undone. Are you sure?',
+      confirmText: 'Delete Permanently',
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await permanentlyDeleteTask(taskId).unwrap();
+          toast.success('Permanently deleted');
+          refetchTasks();
+          refetchProject();
+          if (selectedTaskId === taskId) { setSelectedTaskId(null); setMobileShowDetail(false); }
+        } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+      }
+    });
   };
 
   const handleCreateFolder = async () => {
@@ -1162,8 +1746,16 @@ const MyWorkspaceProjectId = () => {
   };
 
   const handleDeleteFolder = async (folderId) => {
-    if (!window.confirm('Delete folder and unlink its tasks?')) return;
-    try { await deleteFolder(folderId).unwrap(); toast.success('Folder deleted'); refetchFolders(); refetchTasks(); if (activeFolderId === folderId) setActiveFolderId(null); } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Folder',
+      message: 'Deleting this folder will unlink its tasks. Are you sure?',
+      confirmText: 'Delete',
+      danger: true,
+      onConfirm: async () => {
+        try { await deleteFolder(folderId).unwrap(); toast.success('Folder deleted'); refetchFolders(); refetchTasks(); if (activeFolderId === folderId) setActiveFolderId(null); } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+      }
+    });
   };
 
   const handleRenameFolder = async (folderId) => {
@@ -1177,7 +1769,6 @@ const MyWorkspaceProjectId = () => {
     } catch (e) { toast.error(e?.data?.message || 'Failed'); }
   };
 
-  // ── Add Sub‑task handler (now with recurrence) ──
   const handleAddSubTask = async () => {
     if (!newSubTaskTitle.trim()) {
       toast.error('Sub‑task title required');
@@ -1198,7 +1789,6 @@ const MyWorkspaceProjectId = () => {
         data: payload,
       }).unwrap();
       toast.success('Sub‑task added');
-      // reset form
       setNewSubTaskTitle('');
       setNewSubTaskStart('');
       setNewSubTaskDue('');
@@ -1216,7 +1806,6 @@ const MyWorkspaceProjectId = () => {
 
   const refreshAll = () => { refetchTasks(); refetchProject(); };
 
-  // ── 3-dot menu: Copy / Move via modal ──────────────────────────────
   const openCopyModal = (task) => setFolderActionModal({ isOpen: true, mode: 'copy', task });
   const openMoveModal = (task) => setFolderActionModal({ isOpen: true, mode: 'move', task });
   const closeFolderActionModal = () => setFolderActionModal({ isOpen: false, mode: 'copy', task: null });
@@ -1237,7 +1826,6 @@ const MyWorkspaceProjectId = () => {
     }
   };
 
-  // ── Drag & Drop ──────────────────────────────────────────────────────
   const handleDragStart = (e, task) => {
     const folderId = task.folder?._id || task.folder;
     if (folderId && isFolderReadOnly(folderId)) {
@@ -1292,10 +1880,8 @@ const MyWorkspaceProjectId = () => {
     }
   };
 
-  // Determine if active folder is read-only (for detail view actions)
   const isActiveFolderReadOnly = activeFolderId ? isFolderReadOnly(activeFolderId) : false;
 
-  // ── Toggle archived view ──
   const toggleArchived = () => {
     setShowArchived(prev => !prev);
     setActiveFolderId(null);
@@ -1303,6 +1889,7 @@ const MyWorkspaceProjectId = () => {
     setMobileShowDetail(false);
   };
 
+  // ─── Render ──────────────────────────────────────────────────────
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
       <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
@@ -1351,7 +1938,7 @@ const MyWorkspaceProjectId = () => {
             </div>
           </div>
 
-          {/* Tabs with hover actions and Access Management */}
+          {/* Tabs */}
           <div className="flex items-center gap-2 px-4 border-t border-gray-200 dark:border-gray-800/30 overflow-x-auto">
             <div
               onClick={() => { setActiveFolderId(null); setShowArchived(false); setMobileShowDetail(false); setSelectedTaskId(null); }}
@@ -1585,7 +2172,6 @@ const MyWorkspaceProjectId = () => {
                     )}
                   </div>
 
-                  {/* Inline sub‑task form (with recurrence) */}
                   {addSubTaskOpen && (
                     <div className="bg-white dark:bg-[#1a1a24] border border-gray-200 dark:border-gray-800/60 rounded-xl p-3 mb-3 w-full space-y-2">
                       <input
@@ -1594,6 +2180,7 @@ const MyWorkspaceProjectId = () => {
                         value={newSubTaskTitle}
                         onChange={(e) => setNewSubTaskTitle(e.target.value)}
                         className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-[#0d9488] outline-none"
+                        onKeyDown={(e) => e.key === 'Enter' && handleAddSubTask()}
                       />
                       <input
                         type="datetime-local"
@@ -1609,8 +2196,6 @@ const MyWorkspaceProjectId = () => {
                         onChange={(e) => setNewSubTaskDue(e.target.value)}
                         className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
                       />
-
-                      {/* Recurrence section */}
                       <div>
                         <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Recurrence</label>
                         <select
@@ -1626,7 +2211,6 @@ const MyWorkspaceProjectId = () => {
                           <option value="weekly">Weekly</option>
                         </select>
                       </div>
-
                       {newSubTaskRecurrenceType === 'weekly' && (
                         <div>
                           <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Repeat on</label>
@@ -1648,7 +2232,6 @@ const MyWorkspaceProjectId = () => {
                           </div>
                         </div>
                       )}
-
                       {(newSubTaskRecurrenceType === 'daily' || newSubTaskRecurrenceType === 'weekly') && (
                         <div>
                           <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">End Date (optional)</label>
@@ -1660,12 +2243,10 @@ const MyWorkspaceProjectId = () => {
                           />
                         </div>
                       )}
-
                       <div className="flex gap-2">
                         <button
                           onClick={() => {
                             setAddSubTaskOpen(false);
-                            // reset form
                             setNewSubTaskTitle('');
                             setNewSubTaskStart('');
                             setNewSubTaskDue('');
@@ -1747,6 +2328,7 @@ const MyWorkspaceProjectId = () => {
               assignableMembers={assignableMembers}
               folders={folders}
               onSuccess={() => { setShowCreateTask(false); refreshAll(); }}
+              onCancel={() => setShowCreateTask(false)}
             />
           </div>
         </div>
@@ -1759,7 +2341,14 @@ const MyWorkspaceProjectId = () => {
               <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200"><FaEdit className="inline mr-1 text-[#0d9488]" /> Edit Task</h2>
               <button onClick={() => setShowEditTask(false)} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"><FaTimes /></button>
             </div>
-            <EditTaskForm task={selectedTask} brandColor={brandColor} assignableMembers={assignableMembers} folders={folders} onSuccess={() => { setShowEditTask(false); refreshAll(); }} />
+            <EditTaskForm
+              task={selectedTask}
+              brandColor={brandColor}
+              assignableMembers={assignableMembers}
+              folders={folders}
+              onSuccess={() => { setShowEditTask(false); refreshAll(); }}
+              onCancel={() => setShowEditTask(false)}
+            />
           </div>
         </div>
       )}
@@ -1776,6 +2365,7 @@ const MyWorkspaceProjectId = () => {
               workspace={workspace}
               brandColor={brandColor}
               onSuccess={() => { setShowAddMember(false); refetchProject(); }}
+              onCancel={() => setShowAddMember(false)}
               onAddManager={handleAddManager}
             />
           </div>
@@ -1789,7 +2379,12 @@ const MyWorkspaceProjectId = () => {
               <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200"><FaUserPlus className="inline mr-1 text-[#0d9488]" /> Assign Task</h2>
               <button onClick={() => setShowAssignModal(false)} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"><FaTimes /></button>
             </div>
-            <AssignForm assignableMembers={assignableMembers} onAssign={handleAssignTask} brandColor={brandColor} />
+            <AssignForm
+              assignableMembers={assignableMembers}
+              onAssign={handleAssignTask}
+              brandColor={brandColor}
+              onCancel={() => setShowAssignModal(false)}
+            />
           </div>
         </div>
       )}
@@ -1834,6 +2429,7 @@ const MyWorkspaceProjectId = () => {
               onChange={(e) => setNewFolderName(e.target.value)}
               placeholder="Folder name"
               className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none mb-4"
+              onKeyDown={(e) => e.key === 'Enter' && handleCreateFolder()}
             />
             <div className="flex gap-3">
               <button onClick={() => setShowCreateFolder(false)} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
@@ -1856,6 +2452,7 @@ const MyWorkspaceProjectId = () => {
               onChange={(e) => setRenameFolderName(e.target.value)}
               placeholder="New folder name"
               className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none mb-4"
+              onKeyDown={(e) => e.key === 'Enter' && handleRenameFolder(showRenameFolder)}
             />
             <div className="flex gap-3">
               <button onClick={() => setShowRenameFolder(null)} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
@@ -1865,7 +2462,6 @@ const MyWorkspaceProjectId = () => {
         </div>
       )}
 
-      {/* Folder Access Modal */}
       <FolderAccessModal
         isOpen={folderAccessModal.isOpen}
         onClose={() => setFolderAccessModal({ isOpen: false, folder: null })}
@@ -1884,6 +2480,7 @@ const MyWorkspaceProjectId = () => {
         title={confirmModal.title}
         message={confirmModal.message}
         danger={confirmModal.danger}
+        confirmText={confirmModal.confirmText || 'Confirm'}
       />
       <DeleteTaskConfirmModal
         isOpen={deleteTaskModal.isOpen}
@@ -1909,563 +2506,6 @@ const MyWorkspaceProjectId = () => {
         brandColor={brandColor}
       />
     </div>
-  );
-};
-
-// ─── Inline Form Components ──────────────────────────────────────────
-
-const CreateTaskForm = ({ projectId, brandColor, assignableMembers, folders, onSuccess }) => {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [taskType, setTaskType] = useState('general');
-  const [assigneeId, setAssigneeId] = useState('');
-  const [priority, setPriority] = useState('medium');
-  const [startDate, setStartDate] = useState('');
-  const [dueDate, setDueDate] = useState('');
-  const [estimatedHours, setEstimatedHours] = useState('');
-  const [bufferTime, setBufferTime] = useState(0);
-  const [links, setLinks] = useState('');
-  const [allowAssigneeEditSubtasks, setAllowAssigneeEditSubtasks] = useState(false);
-  const [folderId, setFolderId] = useState(null);
-  const [dailyReminderTime, setDailyReminderTime] = useState('');
-  const [attachments, setAttachments] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [createTask] = useCreateTaskMutation();
-
-  // ── Recurrence states ──
-  const [recurrenceType, setRecurrenceType] = useState('none');
-  const [recurrenceDays, setRecurrenceDays] = useState([]);
-  const [recurrenceEndDate, setRecurrenceEndDate] = useState('');
-  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-  const toggleDay = (day) => {
-    if (recurrenceDays.includes(day)) {
-      setRecurrenceDays(recurrenceDays.filter(d => d !== day));
-    } else {
-      setRecurrenceDays([...recurrenceDays, day].sort());
-    }
-  };
-
-  const assigneeOpts = [
-    { value: '', label: 'Unassigned', icon: <FaUser className="text-gray-400" /> },
-    ...assignableMembers.map(m => {
-      const u = m.user || m;
-      return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" alt="" /> : <FaUser className="text-gray-400" /> };
-    })
-  ];
-  const folderOpts = [
-    { value: null, label: 'No Folder', icon: <FaFolder className="text-gray-400" /> },
-    ...folders.map(f => ({ value: f._id, label: f.name, icon: <FaFolder className="text-gray-400" /> }))
-  ];
-
-  const setDueDateRelative = (hours) => {
-    const now = new Date();
-    setStartDate(now.toISOString().slice(0, 16));
-    const due = new Date(now.getTime() + hours * 60 * 60 * 1000);
-    setDueDate(due.toISOString().slice(0, 16));
-  };
-  const setDueDateToday = () => {
-    const now = new Date();
-    setStartDate(now.toISOString().slice(0, 16));
-    const endOfDay = new Date(now);
-    endOfDay.setHours(23, 59, 0, 0);
-    setDueDate(endOfDay.toISOString().slice(0, 16));
-  };
-  const setDueDateTomorrow = () => {
-    const now = new Date();
-    setStartDate(now.toISOString().slice(0, 16));
-    const tomorrow = new Date(now);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(23, 59, 0, 0);
-    setDueDate(tomorrow.toISOString().slice(0, 16));
-  };
-  const setDueDateInDays = (days) => {
-    const now = new Date();
-    setStartDate(now.toISOString().slice(0, 16));
-    const target = new Date(now);
-    target.setDate(target.getDate() + days);
-    target.setHours(23, 59, 0, 0);
-    setDueDate(target.toISOString().slice(0, 16));
-  };
-  const setDueDateInMonths = (months) => {
-    const now = new Date();
-    setStartDate(now.toISOString().slice(0, 16));
-    const target = new Date(now);
-    target.setMonth(target.getMonth() + months);
-    target.setHours(23, 59, 0, 0);
-    setDueDate(target.toISOString().slice(0, 16));
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!title.trim()) return toast.error('Title required');
-    setLoading(true);
-    try {
-      const fd = new FormData();
-      fd.append('projectId', projectId);
-      fd.append('title', title.trim());
-      fd.append('description', description.trim());
-      fd.append('taskType', taskType);
-      if (assigneeId) fd.append('assigneeId', assigneeId);
-      fd.append('priority', priority);
-      if (startDate) fd.append('startDate', new Date(startDate).toISOString());
-      if (dueDate) fd.append('dueDate', new Date(dueDate).toISOString());
-      if (estimatedHours) fd.append('estimatedHours', estimatedHours);
-      fd.append('bufferTime', bufferTime);
-      fd.append('links', JSON.stringify(links.split('\n').filter(Boolean)));
-      fd.append('allowAssigneeEditSubtasks', allowAssigneeEditSubtasks);
-      if (folderId) fd.append('folderId', folderId);
-      if (dailyReminderTime) fd.append('dailyReminderTime', dailyReminderTime);
-      // Recurrence
-      fd.append('recurrenceType', recurrenceType);
-      if (recurrenceType === 'weekly') {
-        fd.append('recurrenceDays', JSON.stringify(recurrenceDays));
-      }
-      if (recurrenceEndDate) fd.append('recurrenceEndDate', recurrenceEndDate);
-      attachments.forEach(file => fd.append('attachments', file));
-      await createTask(fd).unwrap();
-      toast.success('Task created');
-      onSuccess();
-    } catch (e) { toast.error(e?.data?.message || 'Failed'); }
-    finally { setLoading(false); }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Title *</label>
-        <input type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" required />
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
-        <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
-      </div>
-      <CustomDropdown label="Task Type" options={taskTypeOptions} value={taskType} onChange={setTaskType} brandColor={brandColor} />
-      <CustomDropdown label="Folder" options={folderOpts} value={folderId} onChange={setFolderId} brandColor={brandColor} />
-      <CustomDropdown label="Assignee" options={assigneeOpts} value={assigneeId} onChange={setAssigneeId} brandColor={brandColor} />
-      <div className="grid grid-cols-2 gap-3">
-        <CustomDropdown label="Priority" options={priorityOptions} value={priority} onChange={setPriority} brandColor={brandColor} />
-        <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Start Date & Time</label>
-          <input type="datetime-local" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
-        </div>
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Due Date & Time</label>
-        <input type="datetime-local" value={dueDate} onChange={e => setDueDate(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Quick set due date</label>
-        <div className="flex flex-wrap gap-1.5">
-          <button type="button" onClick={() => setDueDateRelative(1)} className="px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-800/40 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-700 dark:text-gray-300">in 1 hour</button>
-          <button type="button" onClick={() => setDueDateRelative(10)} className="px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-800/40 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-700 dark:text-gray-300">in 10 hours</button>
-          <button type="button" onClick={setDueDateToday} className="px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-800/40 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-700 dark:text-gray-300">today</button>
-          <button type="button" onClick={setDueDateTomorrow} className="px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-800/40 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-700 dark:text-gray-300">tomorrow</button>
-          <button type="button" onClick={() => setDueDateInDays(7)} className="px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-800/40 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-700 dark:text-gray-300">1 week</button>
-          <button type="button" onClick={() => setDueDateInDays(14)} className="px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-800/40 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-700 dark:text-gray-300">2 weeks</button>
-          <button type="button" onClick={() => setDueDateInMonths(1)} className="px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-800/40 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-700 dark:text-gray-300">1 month</button>
-          <button type="button" onClick={() => setDueDateInMonths(2)} className="px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-800/40 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-700 dark:text-gray-300">2 months</button>
-          <button type="button" onClick={() => setDueDateInMonths(6)} className="px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-800/40 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-700 dark:text-gray-300">6 months</button>
-        </div>
-        <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">Sets start date to now and due date accordingly</p>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Est. Hours</label>
-          <input type="number" step="0.5" value={estimatedHours} onChange={e => setEstimatedHours(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Buffer Time (hours)</label>
-          <input type="number" step="0.5" value={bufferTime} onChange={e => setBufferTime(parseFloat(e.target.value) || 0)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
-        </div>
-      </div>
-
-      {/* ─── Recurrence Section ─── */}
-      <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Recurrence</label>
-        <select
-          value={recurrenceType}
-          onChange={(e) => {
-            setRecurrenceType(e.target.value);
-            if (e.target.value !== 'weekly') setRecurrenceDays([]);
-          }}
-          className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
-        >
-          <option value="none">None</option>
-          <option value="daily">Daily</option>
-          <option value="weekly">Weekly</option>
-        </select>
-      </div>
-
-      {recurrenceType === 'weekly' && (
-        <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Repeat on</label>
-          <div className="flex flex-wrap gap-2">
-            {weekDays.map((day, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => toggleDay(idx)}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition ${
-                  recurrenceDays.includes(idx)
-                    ? 'bg-[#0d9488] text-white'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'
-                }`}
-              >
-                {day}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {(recurrenceType === 'daily' || recurrenceType === 'weekly') && (
-        <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">End Date (optional)</label>
-          <input
-            type="datetime-local"
-            value={recurrenceEndDate}
-            onChange={(e) => setRecurrenceEndDate(e.target.value)}
-            className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
-          />
-        </div>
-      )}
-
-      <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Links (one per line)</label>
-        <textarea value={links} onChange={e => setLinks(e.target.value)} rows={2} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" placeholder="https://..." />
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Attachments</label>
-        <input type="file" multiple onChange={e => setAttachments([...e.target.files])} className="text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-[#0d9488]/20 file:text-[#0d9488]" />
-      </div>
-      <div className="flex items-center gap-2">
-        <input type="checkbox" id="allowAssigneeEditSubtasks" checked={allowAssigneeEditSubtasks} onChange={e => setAllowAssigneeEditSubtasks(e.target.checked)} className="w-4 h-4 rounded border-gray-300 dark:border-gray-700 text-[#0d9488] focus:ring-[#0d9488]" />
-        <label htmlFor="allowAssigneeEditSubtasks" className="text-xs text-gray-700 dark:text-gray-300">Allow assignee to add/edit sub‑tasks</label>
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Daily Reminder Time</label>
-        <input type="time" value={dailyReminderTime} onChange={e => setDailyReminderTime(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
-      </div>
-      <div className="flex gap-3 pt-2">
-        <button type="button" onClick={() => {}} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
-        <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80" style={{ backgroundColor: brandColor }}>{loading ? 'Creating...' : 'Create Task'}</button>
-      </div>
-    </form>
-  );
-};
-
-const EditTaskForm = ({ task, brandColor, assignableMembers, folders, onSuccess }) => {
-  const [title, setTitle] = useState(task?.title || '');
-  const [description, setDescription] = useState(task?.description || '');
-  const [taskType, setTaskType] = useState(task?.taskType || 'general');
-  const [assigneeId, setAssigneeId] = useState(task?.assignee?._id || '');
-  const [priority, setPriority] = useState(task?.priority || 'medium');
-  const [startDate, setStartDate] = useState(task?.startDate ? new Date(task.startDate).toISOString().slice(0, 16) : '');
-  const [dueDate, setDueDate] = useState(task?.dueDate ? new Date(task.dueDate).toISOString().slice(0, 16) : '');
-  const [status, setStatus] = useState(task?.status || 'pending');
-  const [estimatedHours, setEstimatedHours] = useState(task?.estimatedHours || '');
-  const [bufferTime, setBufferTime] = useState(task?.bufferTime || 0);
-  const [links, setLinks] = useState((task?.links || []).join('\n'));
-  const [allowAssigneeEditSubtasks, setAllowAssigneeEditSubtasks] = useState(task?.allowAssigneeEditSubtasks || false);
-  const [folderId, setFolderId] = useState(task?.folder?._id || null);
-  const [dailyReminderTime, setDailyReminderTime] = useState(task?.dailyReminderTime || '');
-  const [attachments, setAttachments] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [updateTask] = useUpdateTaskMutation();
-
-  // ── Recurrence states ──
-  const [recurrenceType, setRecurrenceType] = useState(task?.recurrenceType || 'none');
-  const [recurrenceDays, setRecurrenceDays] = useState(task?.recurrenceDays || []);
-  const [recurrenceEndDate, setRecurrenceEndDate] = useState(
-    task?.recurrenceEndDate ? new Date(task.recurrenceEndDate).toISOString().slice(0, 16) : ''
-  );
-  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-  const toggleDay = (day) => {
-    if (recurrenceDays.includes(day)) {
-      setRecurrenceDays(recurrenceDays.filter(d => d !== day));
-    } else {
-      setRecurrenceDays([...recurrenceDays, day].sort());
-    }
-  };
-
-  const assigneeOpts = [
-    { value: '', label: 'Unassigned', icon: <FaUser className="text-gray-400" /> },
-    ...assignableMembers.map(m => {
-      const u = m.user || m;
-      return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" alt="" /> : <FaUser className="text-gray-400" /> };
-    })
-  ];
-  const folderOpts = [
-    { value: null, label: 'No Folder', icon: <FaFolder className="text-gray-400" /> },
-    ...folders.map(f => ({ value: f._id, label: f.name, icon: <FaFolder className="text-gray-400" /> }))
-  ];
-
-  useEffect(() => {
-    if (task) {
-      setTitle(task.title || '');
-      setDescription(task.description || '');
-      setTaskType(task.taskType || 'general');
-      setAssigneeId(task.assignee?._id || task.assignee || '');
-      setPriority(task.priority || 'medium');
-      setStartDate(task.startDate ? new Date(task.startDate).toISOString().slice(0, 16) : '');
-      setDueDate(task.dueDate ? new Date(task.dueDate).toISOString().slice(0, 16) : '');
-      setStatus(task.status || 'pending');
-      setEstimatedHours(task.estimatedHours || '');
-      setBufferTime(task.bufferTime || 0);
-      setAllowAssigneeEditSubtasks(task.allowAssigneeEditSubtasks || false);
-      setLinks((task.links || []).join('\n'));
-      setFolderId(task.folder?._id || null);
-      setDailyReminderTime(task.dailyReminderTime || '');
-      setRecurrenceType(task.recurrenceType || 'none');
-      setRecurrenceDays(task.recurrenceDays || []);
-      setRecurrenceEndDate(task.recurrenceEndDate ? new Date(task.recurrenceEndDate).toISOString().slice(0, 16) : '');
-    }
-  }, [task]);
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      const fd = new FormData();
-      fd.append('title', title.trim());
-      fd.append('description', description.trim());
-      fd.append('taskType', taskType);
-      if (assigneeId) fd.append('assigneeId', assigneeId);
-      fd.append('priority', priority);
-      if (startDate) fd.append('startDate', new Date(startDate).toISOString());
-      if (dueDate) fd.append('dueDate', new Date(dueDate).toISOString());
-      fd.append('status', status);
-      if (estimatedHours) fd.append('estimatedHours', estimatedHours);
-      fd.append('bufferTime', bufferTime);
-      fd.append('links', JSON.stringify(links.split('\n').filter(Boolean)));
-      fd.append('allowAssigneeEditSubtasks', allowAssigneeEditSubtasks);
-      if (folderId) fd.append('folderId', folderId);
-      if (dailyReminderTime) fd.append('dailyReminderTime', dailyReminderTime);
-      // Recurrence
-      fd.append('recurrenceType', recurrenceType);
-      if (recurrenceType === 'weekly') {
-        fd.append('recurrenceDays', JSON.stringify(recurrenceDays));
-      }
-      if (recurrenceEndDate) fd.append('recurrenceEndDate', recurrenceEndDate);
-      attachments.forEach(file => fd.append('attachments', file));
-      await updateTask({ taskId: task._id, data: fd }).unwrap();
-      toast.success('Task updated');
-      onSuccess();
-    } catch (e) { toast.error(e?.data?.message || 'Failed'); }
-    finally { setLoading(false); }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Title *</label>
-        <input type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" required />
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
-        <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
-      </div>
-      <CustomDropdown label="Task Type" options={taskTypeOptions} value={taskType} onChange={setTaskType} brandColor={brandColor} />
-      <CustomDropdown label="Status" options={statusOptions} value={status} onChange={setStatus} brandColor={brandColor} />
-      <CustomDropdown label="Folder" options={folderOpts} value={folderId} onChange={setFolderId} brandColor={brandColor} />
-      <CustomDropdown label="Assignee" options={assigneeOpts} value={assigneeId} onChange={setAssigneeId} brandColor={brandColor} />
-      <div className="grid grid-cols-2 gap-3">
-        <CustomDropdown label="Priority" options={priorityOptions} value={priority} onChange={setPriority} brandColor={brandColor} />
-        <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Start Date & Time</label>
-          <input type="datetime-local" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
-        </div>
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Due Date & Time</label>
-        <input type="datetime-local" value={dueDate} onChange={e => setDueDate(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Est. Hours</label>
-          <input type="number" step="0.5" value={estimatedHours} onChange={e => setEstimatedHours(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Buffer Time (hours)</label>
-          <input type="number" step="0.5" value={bufferTime} onChange={e => setBufferTime(parseFloat(e.target.value) || 0)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
-        </div>
-      </div>
-
-      {/* ─── Recurrence Section ─── */}
-      <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Recurrence</label>
-        <select
-          value={recurrenceType}
-          onChange={(e) => {
-            setRecurrenceType(e.target.value);
-            if (e.target.value !== 'weekly') setRecurrenceDays([]);
-          }}
-          className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
-        >
-          <option value="none">None</option>
-          <option value="daily">Daily</option>
-          <option value="weekly">Weekly</option>
-        </select>
-      </div>
-
-      {recurrenceType === 'weekly' && (
-        <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Repeat on</label>
-          <div className="flex flex-wrap gap-2">
-            {weekDays.map((day, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => toggleDay(idx)}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition ${
-                  recurrenceDays.includes(idx)
-                    ? 'bg-[#0d9488] text-white'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'
-                }`}
-              >
-                {day}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {(recurrenceType === 'daily' || recurrenceType === 'weekly') && (
-        <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">End Date (optional)</label>
-          <input
-            type="datetime-local"
-            value={recurrenceEndDate}
-            onChange={(e) => setRecurrenceEndDate(e.target.value)}
-            className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
-          />
-        </div>
-      )}
-
-      <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Links (one per line)</label>
-        <textarea value={links} onChange={e => setLinks(e.target.value)} rows={2} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" placeholder="https://..." />
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Attachments</label>
-        <input type="file" multiple onChange={e => setAttachments([...e.target.files])} className="text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-[#0d9488]/20 file:text-[#0d9488]" />
-      </div>
-      <div className="flex items-center gap-2">
-        <input type="checkbox" id="allowAssigneeEditSubtasks-edit" checked={allowAssigneeEditSubtasks} onChange={e => setAllowAssigneeEditSubtasks(e.target.checked)} className="w-4 h-4 rounded border-gray-300 dark:border-gray-700 text-[#0d9488] focus:ring-[#0d9488]" />
-        <label htmlFor="allowAssigneeEditSubtasks-edit" className="text-xs text-gray-700 dark:text-gray-300">Allow assignee to add/edit sub‑tasks</label>
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Daily Reminder Time</label>
-        <input type="time" value={dailyReminderTime} onChange={e => setDailyReminderTime(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
-      </div>
-      <div className="flex gap-3 pt-2">
-        <button type="button" onClick={() => {}} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
-        <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80" style={{ backgroundColor: brandColor }}>{loading ? 'Updating...' : 'Update Task'}</button>
-      </div>
-    </form>
-  );
-};
-
-const AddMemberForm = ({ project, workspace, brandColor, onSuccess, onAddManager }) => {
-  const [role, setRole] = useState('member');
-  const [memberId, setMemberId] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [addTeamMember] = useAddTeamMemberMutation();
-
-  const projectMemberIds = project.teamMembers?.filter(m => m.status === 'active').map(m => m.user?._id || m._id) || [];
-  const available = workspace.members?.filter(m => m.status === 'active' && !projectMemberIds.includes(m.user?._id || m._id)) || [];
-  const options = available.map(m => {
-    const u = m.user || m;
-    return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" /> : <FaUser className="text-gray-400" /> };
-  });
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!memberId) return toast.error('Select a member');
-    setLoading(true);
-    try {
-      if (role === 'member') {
-        await addTeamMember({ projectId: project._id, userId: memberId }).unwrap();
-        toast.success('Member added');
-        onSuccess();
-      } else {
-        const selected = available.find(m => (m.user?._id || m._id) === memberId);
-        const name = selected?.user?.name || selected?.name || 'Unknown';
-        onAddManager(memberId, name);
-        onSuccess();
-      }
-    } catch (e) { toast.error(e?.data?.message || 'Failed'); }
-    finally { setLoading(false); }
-  };
-
-  return (
-    <form onSubmit={handleSubmit}>
-      <div className="mb-3">
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Role</label>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => setRole('member')}
-            className={`flex-1 py-1.5 text-sm rounded-lg border transition ${
-              role === 'member'
-                ? 'border-[#0d9488] bg-[#0d9488]/10 text-[#0d9488]'
-                : 'border-gray-300 dark:border-gray-700/60 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30'
-            }`}
-          >
-            Member
-          </button>
-          <button
-            type="button"
-            onClick={() => setRole('manager')}
-            className={`flex-1 py-1.5 text-sm rounded-lg border transition ${
-              role === 'manager'
-                ? 'border-[#0d9488] bg-[#0d9488]/10 text-[#0d9488]'
-                : 'border-gray-300 dark:border-gray-700/60 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30'
-            }`}
-          >
-            Manager
-          </button>
-        </div>
-      </div>
-      <CustomDropdown label="Select Member" options={options} value={memberId} onChange={setMemberId} brandColor={brandColor} />
-      {available.length === 0 && <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">All workspace members already in project</p>}
-      <div className="flex gap-3 mt-4">
-        <button type="button" onClick={onSuccess} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
-        <button type="submit" disabled={loading || available.length === 0} className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80" style={{ backgroundColor: brandColor }}>{loading ? 'Adding...' : 'Add'}</button>
-      </div>
-    </form>
-  );
-};
-
-const AssignForm = ({ assignableMembers, onAssign, brandColor }) => {
-  const [assigneeId, setAssigneeId] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const assigneeOpts = assignableMembers.map(m => {
-    const u = m.user || m;
-    return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" alt="" /> : <FaUser className="text-gray-400" /> };
-  });
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!assigneeId) return toast.error('Select a member');
-    setLoading(true);
-    try {
-      await onAssign(assigneeId);
-    } catch (e) { toast.error(e?.data?.message || 'Failed'); }
-    finally { setLoading(false); }
-  };
-
-  return (
-    <form onSubmit={handleSubmit}>
-      <CustomDropdown label="Select Member" options={assigneeOpts} value={assigneeId} onChange={setAssigneeId} brandColor={brandColor} />
-      <div className="flex gap-3 mt-4">
-        <button type="button" onClick={() => {}} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
-        <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80" style={{ backgroundColor: brandColor }}>{loading ? 'Assigning...' : 'Assign'}</button>
-      </div>
-    </form>
   );
 };
 

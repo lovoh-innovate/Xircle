@@ -337,7 +337,7 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
   );
 };
 
-// ─── Project Card (with custom confirmation modal) ──────────────────────
+// ─── Project Card ──────────────────────────────────────────────────────
 const ProjectCard = ({
   project,
   brandColor,
@@ -409,8 +409,6 @@ const ProjectCard = ({
   // Handlers for actions (no window.confirm)
   const handleArchive = (e) => { stopProp(e); setShowMenu(false); onArchive(project._id); };
   const handleUnarchive = (e) => { stopProp(e); setShowMenu(false); onUnarchive(project._id); };
-
-  // Instead of calling onDelete directly, open custom modal
   const handleMoveToTrash = (e) => {
     stopProp(e);
     setShowMenu(false);
@@ -423,7 +421,6 @@ const ProjectCard = ({
   };
   const handleRestore = (e) => { stopProp(e); setShowMenu(false); onRestore(project._id); };
 
-  // Confirm action callback
   const confirmAction = () => {
     if (confirmModal.action === 'trash') {
       onDelete(project._id);
@@ -432,11 +429,16 @@ const ProjectCard = ({
     }
     setConfirmModal({ isOpen: false, action: null });
   };
-
   const cancelAction = () => setConfirmModal({ isOpen: false, action: null });
 
+  // Handle card click – navigate to project
+  const handleCardClick = () => {
+    // Only navigate if not trashed? Actually trashed projects can be opened? We'll allow it.
+    window.__navigate(`/my-workspace/${workspaceId}/project/${project._id}`);
+  };
+
   return (
-    <div className="group relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 hover:border-[#0d9488]/50 transition-all duration-500 hover:shadow-[0_8px_40px_rgba(13,148,136,0.15)] overflow-hidden">
+    <>
       {/* Custom confirmation modal */}
       <ConfirmModal
         isOpen={confirmModal.isOpen}
@@ -452,138 +454,141 @@ const ProjectCard = ({
         confirmColor={confirmModal.action === 'trash' ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-red-600 hover:bg-red-700'}
       />
 
-      <div className="absolute inset-0 bg-gradient-to-br from-[#0d9488]/0 via-[#0d9488]/0 to-transparent group-hover:from-[#0d9488]/10 group-hover:via-[#0d9488]/5 transition-all duration-700" />
-      <div className="relative h-20 md:h-28 bg-gray-100 dark:bg-[#1a1a24] overflow-hidden">
-        {project.coverImage ? (
-          <img src={project.coverImage} alt={project.name} className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: `${brandColor}15` }}>
-            <FaFolder className="text-2xl md:text-3xl" style={{ color: brandColor }} />
-          </div>
-        )}
-        <span className={`absolute top-2 right-2 text-[10px] font-medium px-2.5 py-1 rounded-full backdrop-blur-sm border ${statusColor[displayStatus]} bg-white/60 dark:bg-black/30 border-gray-200 dark:border-gray-700/50`}>
-          {statusLabels[displayStatus] || 'Planning'}
-        </span>
-
-        {/* Top-left controls: three-dot menu + Move to Trash button */}
-        <div className="absolute top-2 left-2 flex items-center gap-1.5">
-          <button
-            ref={buttonRef}
-            onClick={(e) => { stopProp(e); setShowMenu(!showMenu); }}
-            className="p-1.5 bg-white/60 dark:bg-black/40 backdrop-blur-sm rounded-lg text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-black/60 transition"
-          >
-            <FaEllipsisV className="text-xs" />
-          </button>
-
-          {/* Move to Trash icon button (always visible except trashed) */}
-          {!isTrashed && (
-            <button
-              onClick={(e) => { stopProp(e); handleMoveToTrash(e); }}
-              className="p-1.5 bg-white/60 dark:bg-black/40 backdrop-blur-sm rounded-lg text-yellow-600 dark:text-yellow-400 hover:text-yellow-700 dark:hover:text-yellow-300 hover:bg-yellow-500/20 transition"
-              title="Move to Trash"
-            >
-              <FaTrashAlt className="text-xs" />
-            </button>
-          )}
-
-          {showMenu && (
-            <div ref={menuRef} className="absolute left-0 top-full mt-1 bg-white dark:bg-[#1e1e26] rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.8)] border border-gray-200 dark:border-gray-800/60 min-w-[180px] z-20 py-1">
-              {isTrashed ? (
-                <>
-                  <button onClick={handleRestore} className="flex items-center gap-2 px-4 py-2 text-sm text-[#0d9488] hover:bg-[#0d9488]/10 transition w-full">
-                    <FaTrashRestore className="text-xs" /> Restore
-                  </button>
-                  <button onClick={handlePermanentDelete} className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-500/10 transition w-full">
-                    <FaTrashAlt className="text-xs" /> Delete Permanently
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button onClick={(e) => { stopProp(e); setShowMenu(false); onEdit(project._id); }} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-[#0d9488]/10 hover:text-gray-900 dark:hover:text-white transition w-full">
-                    <FaEdit className="text-xs text-[#0d9488]" /> Edit
-                  </button>
-                  {isArchivedForMe ? (
-                    <button onClick={handleUnarchive} className="flex items-center gap-2 px-4 py-2 text-sm text-[#0d9488] hover:bg-[#0d9488]/10 transition w-full">
-                      <FaUndo className="text-xs" /> Unarchive
-                    </button>
-                  ) : (
-                    <button onClick={handleArchive} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-[#0d9488]/10 transition w-full">
-                      <FaArchive className="text-xs" /> Archive for me
-                    </button>
-                  )}
-                </>
-              )}
+      {/* Card container – clickable */}
+      <div
+        onClick={handleCardClick}
+        className="group relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 hover:border-[#0d9488]/50 transition-all duration-500 hover:shadow-[0_8px_40px_rgba(13,148,136,0.15)] active:scale-[0.98] cursor-pointer overflow-hidden"
+      >
+        <div className="absolute inset-0 bg-gradient-to-br from-[#0d9488]/0 via-[#0d9488]/0 to-transparent group-hover:from-[#0d9488]/10 group-hover:via-[#0d9488]/5 transition-all duration-700 pointer-events-none" />
+        <div className="relative h-20 md:h-28 bg-gray-100 dark:bg-[#1a1a24] overflow-hidden">
+          {project.coverImage ? (
+            <img src={project.coverImage} alt={project.name} className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: `${brandColor}15` }}>
+              <FaFolder className="text-2xl md:text-3xl" style={{ color: brandColor }} />
             </div>
           )}
-        </div>
-      </div>
+          <span className={`absolute top-2 right-2 text-[10px] font-medium px-2.5 py-1 rounded-full backdrop-blur-sm border ${statusColor[displayStatus]} bg-white/60 dark:bg-black/30 border-gray-200 dark:border-gray-700/50 pointer-events-none`}>
+            {statusLabels[displayStatus] || 'Planning'}
+          </span>
 
-      <Link
-        to={`/my-workspace/${workspaceId}/project/${project._id}`}
-        className="block p-3 md:p-4"
-        onClick={(e) => { if (showMenu) e.preventDefault(); }}
-      >
-        <h3 className="text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">
-          {project.name}
-        </h3>
-        {project.description && (
-          <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-1 md:line-clamp-2 mt-0.5 md:mt-1">
-            {project.description}
-          </p>
-        )}
-        <div className="flex items-center mt-2 md:mt-3 gap-1">
-          <div className="flex -space-x-2">
-            {(project.teamMembers || []).slice(0, 4).map((member, idx) => (
-              <div
-                key={idx}
-                className="w-5 h-5 md:w-6 md:h-6 rounded-full border border-gray-300 dark:border-gray-800 bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-[7px] md:text-[8px] font-bold text-white"
-                style={{ backgroundColor: member?.profile ? 'transparent' : brandColor }}
+          {/* Top-left controls: three-dot menu + Move to Trash button */}
+          <div className="absolute top-2 left-2 flex items-center gap-1.5">
+            <button
+              ref={buttonRef}
+              onClick={(e) => { stopProp(e); setShowMenu(!showMenu); }}
+              className="p-1.5 bg-white/60 dark:bg-black/40 backdrop-blur-sm rounded-lg text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-black/60 transition"
+            >
+              <FaEllipsisV className="text-xs" />
+            </button>
+
+            {/* Move to Trash icon button (always visible except trashed) */}
+            {!isTrashed && (
+              <button
+                onClick={(e) => { stopProp(e); handleMoveToTrash(e); }}
+                className="p-1.5 bg-white/60 dark:bg-black/40 backdrop-blur-sm rounded-lg text-yellow-600 dark:text-yellow-400 hover:text-yellow-700 dark:hover:text-yellow-300 hover:bg-yellow-500/20 transition"
+                title="Move to Trash"
               >
-                {member?.profile ? (
-                  <img src={member.profile} alt="" className="w-full h-full rounded-full object-cover" />
+                <FaTrashAlt className="text-xs" />
+              </button>
+            )}
+
+            {showMenu && (
+              <div ref={menuRef} className="absolute left-0 top-full mt-1 bg-white dark:bg-[#1e1e26] rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.8)] border border-gray-200 dark:border-gray-800/60 min-w-[180px] z-20 py-1">
+                {isTrashed ? (
+                  <>
+                    <button onClick={handleRestore} className="flex items-center gap-2 px-4 py-2 text-sm text-[#0d9488] hover:bg-[#0d9488]/10 transition w-full">
+                      <FaTrashRestore className="text-xs" /> Restore
+                    </button>
+                    <button onClick={handlePermanentDelete} className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-500/10 transition w-full">
+                      <FaTrashAlt className="text-xs" /> Delete Permanently
+                    </button>
+                  </>
                 ) : (
-                  (member?.name?.charAt(0) || '?').toUpperCase()
+                  <>
+                    <button onClick={(e) => { stopProp(e); setShowMenu(false); onEdit(project._id); }} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-[#0d9488]/10 hover:text-gray-900 dark:hover:text-white transition w-full">
+                      <FaEdit className="text-xs text-[#0d9488]" /> Edit
+                    </button>
+                    {isArchivedForMe ? (
+                      <button onClick={handleUnarchive} className="flex items-center gap-2 px-4 py-2 text-sm text-[#0d9488] hover:bg-[#0d9488]/10 transition w-full">
+                        <FaUndo className="text-xs" /> Unarchive
+                      </button>
+                    ) : (
+                      <button onClick={handleArchive} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-[#0d9488]/10 transition w-full">
+                        <FaArchive className="text-xs" /> Archive for me
+                      </button>
+                    )}
+                  </>
                 )}
-              </div>
-            ))}
-            {(project.teamMembers || []).length > 4 && (
-              <div className="w-5 h-5 md:w-6 md:h-6 rounded-full border border-gray-300 dark:border-gray-800 bg-gray-200 dark:bg-[#1e1e26] flex items-center justify-center text-[7px] md:text-[8px] text-gray-600 dark:text-gray-400">
-                +{(project.teamMembers || []).length - 4}
               </div>
             )}
           </div>
-          <span className="text-[9px] md:text-[10px] text-gray-500 dark:text-gray-500 ml-1">
-            {(project.teamMembers || []).length} members
-          </span>
         </div>
-        {!isTrashed && (
-          <>
-            <div className="mt-2 md:mt-3 relative">
-              <div className="flex justify-between text-[9px] md:text-[10px] text-gray-500 dark:text-gray-500 mb-0.5 md:mb-1">
-                <span>Progress</span>
-                <span className="font-mono">{progress}%</span>
-              </div>
-              <div className="w-full h-1 md:h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
+
+        {/* Content – no Link, everything is handled by the container's onClick */}
+        <div className="p-3 md:p-4">
+          <h3 className="text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">
+            {project.name}
+          </h3>
+          {project.description && (
+            <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-1 md:line-clamp-2 mt-0.5 md:mt-1">
+              {project.description}
+            </p>
+          )}
+          <div className="flex items-center mt-2 md:mt-3 gap-1">
+            <div className="flex -space-x-2">
+              {(project.teamMembers || []).slice(0, 4).map((member, idx) => (
                 <div
-                  className="h-full rounded-full transition-all duration-1000 ease-out"
-                  style={{ width: `${progress}%`, backgroundColor: brandColor, boxShadow: `0 0 12px ${brandColor}88` }}
-                />
+                  key={idx}
+                  className="w-5 h-5 md:w-6 md:h-6 rounded-full border border-gray-300 dark:border-gray-800 bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-[7px] md:text-[8px] font-bold text-white"
+                  style={{ backgroundColor: member?.profile ? 'transparent' : brandColor }}
+                >
+                  {member?.profile ? (
+                    <img src={member.profile} alt="" className="w-full h-full rounded-full object-cover" />
+                  ) : (
+                    (member?.name?.charAt(0) || '?').toUpperCase()
+                  )}
+                </div>
+              ))}
+              {(project.teamMembers || []).length > 4 && (
+                <div className="w-5 h-5 md:w-6 md:h-6 rounded-full border border-gray-300 dark:border-gray-800 bg-gray-200 dark:bg-[#1e1e26] flex items-center justify-center text-[7px] md:text-[8px] text-gray-600 dark:text-gray-400">
+                  +{(project.teamMembers || []).length - 4}
+                </div>
+              )}
+            </div>
+            <span className="text-[9px] md:text-[10px] text-gray-500 dark:text-gray-500 ml-1">
+              {(project.teamMembers || []).length} members
+            </span>
+          </div>
+          {!isTrashed && (
+            <>
+              <div className="mt-2 md:mt-3 relative">
+                <div className="flex justify-between text-[9px] md:text-[10px] text-gray-500 dark:text-gray-500 mb-0.5 md:mb-1">
+                  <span>Progress</span>
+                  <span className="font-mono">{progress}%</span>
+                </div>
+                <div className="w-full h-1 md:h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-1000 ease-out"
+                    style={{ width: `${progress}%`, backgroundColor: brandColor, boxShadow: `0 0 12px ${brandColor}88` }}
+                  />
+                </div>
               </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 md:gap-3 mt-2 md:mt-3 text-[9px] md:text-[10px] text-gray-500 dark:text-gray-500">
-              <span className="flex items-center gap-1">
-                <FaTasks className="text-[8px] md:text-[10px] text-[#0d9488]" />
-                {taskLoading ? <FaSpinner className="animate-spin text-[10px]" /> : totalTasks}
-              </span>
-              <span className="flex items-center gap-1">
-                <FaCheckCircle className="text-[8px] md:text-[10px] text-green-500 dark:text-green-400" />
-                {taskLoading ? '...' : completedTasks}
-              </span>
-            </div>
-          </>
-        )}
-      </Link>
-    </div>
+              <div className="flex flex-wrap items-center gap-2 md:gap-3 mt-2 md:mt-3 text-[9px] md:text-[10px] text-gray-500 dark:text-gray-500 pointer-events-none">
+                <span className="flex items-center gap-1">
+                  <FaTasks className="text-[8px] md:text-[10px] text-[#0d9488]" />
+                  {taskLoading ? <FaSpinner className="animate-spin text-[10px]" /> : totalTasks}
+                </span>
+                <span className="flex items-center gap-1">
+                  <FaCheckCircle className="text-[8px] md:text-[10px] text-green-500 dark:text-green-400" />
+                  {taskLoading ? '...' : completedTasks}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </>
   );
 };
 
@@ -899,7 +904,7 @@ const MyWorkspaceProjects = () => {
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
                   {filteredProjects.map((project) => (
                     <ProjectCard
                       key={project._id}
