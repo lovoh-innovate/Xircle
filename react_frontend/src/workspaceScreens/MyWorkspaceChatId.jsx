@@ -46,6 +46,7 @@ import {
   FaRegStar,
   FaArchive,
   FaUndo,
+  FaFile,
 } from "react-icons/fa";
 import { toast } from "react-toastify";
 
@@ -71,6 +72,87 @@ const useMediaQuery = (query) => {
     return () => media.removeEventListener("change", listener);
   }, [matches, query]);
   return matches;
+};
+
+// ─── Attachment Preview Modal ──────────────────────────────────────────
+const AttachmentPreviewModal = ({ 
+  isOpen, 
+  onClose, 
+  previewData, 
+  onSend, 
+  onRemove,
+  brandColor 
+}) => {
+  if (!isOpen || !previewData) return null;
+
+  const { file, preview, type, name } = previewData;
+  const isImage = type === 'image';
+  const isVideo = type === 'video';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 dark:bg-black/70 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] rounded-2xl max-w-lg w-full max-h-[90vh] overflow-hidden shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800/60">
+          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+            {isImage ? 'Image Preview' : isVideo ? 'Video Preview' : 'File Preview'}
+          </h3>
+          <button 
+            onClick={onRemove}
+            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition"
+          >
+            <FaTimes className="text-sm" />
+          </button>
+        </div>
+
+        {/* Preview Content */}
+        <div className="p-4 flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10] max-h-[60vh] overflow-auto">
+          {isImage && (
+            <img 
+              src={preview} 
+              alt="Preview" 
+              className="max-w-full max-h-[50vh] object-contain rounded-lg"
+            />
+          )}
+          {isVideo && (
+            <video 
+              src={preview} 
+              controls 
+              className="max-w-full max-h-[50vh] rounded-lg"
+            />
+          )}
+          {!isImage && !isVideo && (
+            <div className="flex flex-col items-center gap-3 py-8">
+              <div className="w-16 h-16 bg-gray-200 dark:bg-gray-800 rounded-xl flex items-center justify-center">
+                <FaFile className="text-3xl text-gray-500 dark:text-gray-400" />
+              </div>
+              <p className="text-sm text-gray-600 dark:text-gray-300">{name || 'File'}</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">
+                {file ? `${(file.size / 1024).toFixed(1)} KB` : ''}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-3 p-4 border-t border-gray-200 dark:border-gray-800/60">
+          <button 
+            onClick={onRemove}
+            className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+          >
+            Cancel
+          </button>
+          <button 
+            onClick={() => onSend(previewData)}
+            className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80"
+            style={{ backgroundColor: brandColor }}
+          >
+            Send
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 // ─── Confirm Modal ──────────────────────────────────────────────────
@@ -585,7 +667,11 @@ const MediaMessage = ({
             style={isOwn ? { backgroundColor: brandColor } : {}}
           >
             {replyPreview && <QuotedReplyBlock replyData={replyPreview} isOwn={isOwn} brandColor={brandColor} onJump={onJumpToMessage} />}
-            {message.content && <p className="mb-2">{message.content}</p>}
+            {message.content && (
+              <p className="mb-2 whitespace-pre-wrap break-words">
+                {message.content}
+              </p>
+            )}
             {renderMediaContent()}
           </div>
           <div className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 ${isOwn ? "flex-row-reverse" : ""}`}>
@@ -653,6 +739,10 @@ const MyWorkspaceChatId = () => {
   const [replyToMessage, setReplyToMessage] = useState(null);
   const [localMessages, setLocalMessages] = useState([]);
   const isMobile = useMediaQuery("(max-width: 768px)");
+
+  // ─── NEW: Attachment preview state ────────────────────────────────
+  const [attachmentPreview, setAttachmentPreview] = useState(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
@@ -866,6 +956,14 @@ const MyWorkspaceChatId = () => {
     }
   }, [localMessages.length, isAtBottom]);
 
+  // Auto-resize textarea
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.style.height = "auto";
+      inputRef.current.style.height = inputRef.current.scrollHeight + "px";
+    }
+  }, [message]);
+
   // Recording cleanup
   useEffect(() => {
     isRecordingRef.current = isRecording;
@@ -887,6 +985,74 @@ const MyWorkspaceChatId = () => {
       clearInterval(recordingTimerRef.current);
       recordingTimerRef.current = null;
     }
+  };
+
+  // ─── NEW: Handle paste event ──────────────────────────────────────
+  const handlePaste = useCallback((e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            setAttachmentPreview({
+              file: file,
+              preview: event.target.result,
+              type: 'image',
+              name: file.name || 'image.png',
+            });
+            setIsPreviewOpen(true);
+          };
+          reader.readAsDataURL(file);
+        }
+        return;
+      }
+    }
+
+    // Handle text paste from screenshot/copy
+    const text = e.clipboardData?.getData('text');
+    if (text) {
+      // Don't prevent default - let it go into textarea
+      // But if text is an image URL, handle it
+      const urlPattern = /\.(jpg|jpeg|png|gif|webp|svg)$/i;
+      if (urlPattern.test(text.trim())) {
+        e.preventDefault();
+        // Could add image URL preview here if needed
+        // For now, just let it be pasted as text
+      }
+    }
+  }, []);
+
+  // ─── NEW: Send attachment from preview ────────────────────────────
+  const handleSendAttachment = async (previewData) => {
+    const { file, type } = previewData;
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('media', file);
+    formData.append('messageType', type === 'image' ? 'image' : 'file');
+    if (replyToMessage) {
+      formData.append('replyToId', replyToMessage._id);
+    }
+
+    try {
+      await sendMessageApi({ chatId, data: formData }).unwrap();
+      toast.success(`${type === 'image' ? 'Image' : 'File'} sent!`);
+      setReplyToMessage(null);
+      setIsPreviewOpen(false);
+      setAttachmentPreview(null);
+    } catch (err) {
+      toast.error(err?.data?.message || `Failed to send ${type}`);
+    }
+  };
+
+  const handleRemoveAttachment = () => {
+    setIsPreviewOpen(false);
+    setAttachmentPreview(null);
   };
 
   // ─── Early returns (after all hooks) ─────────────────────────────
@@ -940,6 +1106,12 @@ const MyWorkspaceChatId = () => {
     setMessage("");
     const replyToId = replyToMessage?._id || null;
     setReplyToMessage(null);
+    
+    // Reset textarea height
+    if (inputRef.current) {
+      inputRef.current.style.height = "auto";
+    }
+    
     socket.emit(
       "send-message",
       {
@@ -969,22 +1141,24 @@ const MyWorkspaceChatId = () => {
     else imageInputRef.current?.click();
   };
 
+  // ─── Modified: Show preview before sending file ──────────────────
   const handleFileChange = async (e, type) => {
     const file = e.target.files[0];
     if (!file) return;
-    const formData = new FormData();
-    formData.append("media", file);
-    formData.append("messageType", type === "image" ? "image" : "file");
-    if (replyToMessage) formData.append("replyToId", replyToMessage._id);
-    try {
-      await sendMessageApi({ chatId, data: formData }).unwrap();
-      toast.success(`${type === "image" ? "Image" : "File"} sent!`);
-      setReplyToMessage(null);
-    } catch (err) {
-      toast.error(err?.data?.message || `Failed to send ${type}`);
-    } finally {
-      e.target.value = "";
-    }
+    
+    // Show preview before sending
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setAttachmentPreview({
+        file: file,
+        preview: event.target.result,
+        type: type === 'image' ? 'image' : 'file',
+        name: file.name,
+      });
+      setIsPreviewOpen(true);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const startRecording = async () => {
@@ -1202,6 +1376,16 @@ const MyWorkspaceChatId = () => {
         />
       )}
 
+      {/* ─── NEW: Attachment Preview Modal ────────────────────────── */}
+      <AttachmentPreviewModal
+        isOpen={isPreviewOpen}
+        onClose={handleRemoveAttachment}
+        previewData={attachmentPreview}
+        onSend={handleSendAttachment}
+        onRemove={handleRemoveAttachment}
+        brandColor={brandColor}
+      />
+
       {/* Desktop sidebar */}
       <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
         <MyWorkspaceSidebar workspace={workspace} chats={chats} />
@@ -1257,6 +1441,7 @@ const MyWorkspaceChatId = () => {
               <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
                 <FaComment className="text-4xl mb-2 opacity-30" />
                 <p className="text-sm">No messages yet</p>
+                <p className="text-xs mt-1 opacity-60">Paste images or screenshots here</p>
               </div>
             ) : (
               localMessages.map((msg) => {
@@ -1300,8 +1485,8 @@ const MyWorkspaceChatId = () => {
           )}
         </div>
 
-        {/* Input area */}
-        <div className="fixed lg:sticky bottom-0 left-0 right-0 lg:left-auto lg:right-auto z-20 border-t border-gray-200/60 dark:border-gray-800/60 bg-white/90 dark:bg-[#0f0f12]/90 backdrop-blur-xl flex-shrink-0">
+        {/* Input area - with padding and multi-line support */}
+        <div className="fixed lg:sticky bottom-0 left-0 right-0 lg:left-auto lg:right-auto z-20 border-t border-gray-200/60 dark:border-gray-800/60 bg-white/90 dark:bg-[#0f0f12]/90 backdrop-blur-xl flex-shrink-0 px-3 sm:px-4">
           <ReplyPreview
             replyTo={replyToMessage}
             onCancel={cancelReply}
@@ -1360,25 +1545,36 @@ const MyWorkspaceChatId = () => {
               </div>
             </div>
           )}
-          <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-            <button type="button" onClick={() => handleFileUpload("file")} className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition flex-shrink-0">
+          <form onSubmit={handleSendMessage} className="flex items-end gap-2 py-2">
+            <button type="button" onClick={() => handleFileUpload("file")} className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition flex-shrink-0 mb-1">
               <FaPaperclip className="text-sm" />
             </button>
-            <button type="button" onClick={() => handleFileUpload("image")} className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition flex-shrink-0">
+            <button type="button" onClick={() => handleFileUpload("image")} className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition flex-shrink-0 mb-1">
               <FaImage className="text-sm" />
             </button>
             <input type="file" ref={fileInputRef} onChange={(e) => handleFileChange(e, "file")} className="hidden" />
             <input type="file" ref={imageInputRef} onChange={(e) => handleFileChange(e, "image")} className="hidden" accept="image/*,video/*" />
-            <input
+            <textarea
               ref={inputRef}
-              type="text"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              placeholder="Type a message..."
-              className="flex-1 min-w-0 px-4 py-2 border border-gray-300 dark:border-gray-700/60 rounded-full bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500 dark:focus:ring-[#0d9488]"
+              onPaste={handlePaste}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSendMessage(e);
+                }
+              }}
+              placeholder="Type a message or paste image..."
+              rows={1}
+              className="flex-1 min-w-0 px-4 py-2 border border-gray-300 dark:border-gray-700/60 rounded-2xl bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500 dark:focus:ring-[#0d9488] resize-none max-h-32 overflow-y-auto"
+              style={{ 
+                minHeight: "42px",
+                lineHeight: "1.5"
+              }}
             />
             {message.trim() ? (
-              <button type="submit" disabled={!isConnected} className="p-2 rounded-full text-white disabled:opacity-50 flex-shrink-0 transition hover:opacity-80" style={{ backgroundColor: brandColor }}>
+              <button type="submit" disabled={!isConnected} className="p-2 rounded-full text-white disabled:opacity-50 flex-shrink-0 transition hover:opacity-80 mb-1" style={{ backgroundColor: brandColor }}>
                 <FaPaperPlane className="text-sm" />
               </button>
             ) : (
@@ -1388,7 +1584,7 @@ const MyWorkspaceChatId = () => {
                 onPointerMove={handleMicPointerMove}
                 onPointerUp={handleMicPointerUp}
                 onPointerCancel={handleMicPointerUp}
-                className="p-2 rounded-full text-white flex-shrink-0 transition hover:opacity-80"
+                className="p-2 rounded-full text-white flex-shrink-0 transition hover:opacity-80 mb-1"
                 style={{ backgroundColor: brandColor }}
               >
                 <FaMicrophone className="text-sm" />

@@ -22,6 +22,7 @@ import {
   FaCheckCircle,
   FaClock,
   FaSpinner,
+  FaArrowLeft,
 } from 'react-icons/fa';
 import {
   AreaChart,
@@ -206,26 +207,19 @@ const YourWorkspaceId = () => {
     <div className="relative bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl p-5 mb-4">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3 min-w-0">
-          {workspace.logo ? (
-            <img
-              src={workspace.logo}
-              alt={workspace.name}
-              className="w-12 h-12 rounded-xl object-cover border border-gray-200 dark:border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)] flex-shrink-0"
-            />
-          ) : (
-            <div
-              className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-lg border border-gray-200 dark:border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)] flex-shrink-0"
-              style={{ backgroundColor: brandColor }}
-            >
-              {workspace.initials || workspace.name.charAt(0).toUpperCase()}
-            </div>
-          )}
-          <div className="min-w-0">
-            <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest">Workspace</p>
+          {/* ─── Clickable Workspace label ─────────────────────────── */}
+          <button
+            onClick={() => navigate('/my-workspaces')}
+            className="flex flex-col items-start hover:opacity-80 transition-opacity"
+          >
+            <span className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1.5">
+              <FaArrowLeft className="text-[8px]" />
+              Workspace
+            </span>
             <h1 className="text-lg font-bold leading-tight truncate text-gray-800 dark:text-gray-100">
               {workspace.name}
             </h1>
-          </div>
+          </button>
         </div>
         <button
           onClick={() => setHideStats((v) => !v)}
@@ -369,13 +363,20 @@ const YourWorkspaceId = () => {
         {/* mobile header */}
         <div className="md:hidden fixed top-0 left-0 right-0 z-10 bg-white/80 dark:bg-[#0b0b10]/80 backdrop-blur-md px-4 pt-4 pb-2 border-b border-gray-200/60 dark:border-gray-800/40">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest">Workspace</span>
+            {/* ─── Clickable Workspace label in mobile header ─────── */}
+            <button
+              onClick={() => navigate('/my-workspaces')}
+              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+            >
+              <span className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1.5">
+                <FaArrowLeft className="text-[8px]" />
+                Workspace
+              </span>
               <span className="text-gray-300 dark:text-gray-700">/</span>
               <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate max-w-[150px]">
                 {workspace.name}
               </span>
-            </div>
+            </button>
             <button
               onClick={() => setHideStats((v) => !v)}
               className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition"
@@ -403,7 +404,11 @@ const YourWorkspaceId = () => {
 
           {/* desktop hero bar */}
           <div className="hidden md:flex flex-wrap items-center justify-between gap-3 mb-6">
-            <div className="flex items-center gap-3">
+            {/* ─── Clickable Workspace label in desktop header ───── */}
+            <button
+              onClick={() => navigate('/my-workspaces')}
+              className="flex items-center gap-3 hover:opacity-80 transition-opacity"
+            >
               {workspace.logo ? (
                 <img
                   src={workspace.logo}
@@ -419,28 +424,15 @@ const YourWorkspaceId = () => {
                 </div>
               )}
               <div>
+                <span className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1.5">
+                  <FaArrowLeft className="text-[8px]" />
+                  Workspace
+                </span>
                 <h1 className="text-xl font-bold text-gray-800 dark:text-gray-100 tracking-tight">
                   {workspace.name}
                 </h1>
-                <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-500">
-                  <span className="flex items-center gap-1">
-                    <FaCircle className="text-[6px] text-green-500 dark:text-green-400" />
-                    {onlineCount} online
-                  </span>
-                  <span className="w-px h-3 bg-gray-300 dark:bg-gray-700" />
-                  <span>
-                    {hideStats ? '••••' : `${activeMembers.length} members`}
-                  </span>
-                  <span className="w-px h-3 bg-gray-300 dark:bg-gray-700" />
-                  <button
-                    onClick={() => setHideStats((v) => !v)}
-                    className="text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-300 transition"
-                  >
-                    {hideStats ? <FaEyeSlash className="text-[10px]" /> : <FaEye className="text-[10px]" />}
-                  </button>
-                </div>
               </div>
-            </div>
+            </button>
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-mono text-gray-500 dark:text-gray-600 bg-gray-100 dark:bg-[#14141a] px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-800/60 flex items-center gap-2">
                 {hideStats ? '••••••••' : workspace.inviteCode}
@@ -457,6 +449,22 @@ const YourWorkspaceId = () => {
                   <span className="text-[10px] text-green-500 dark:text-green-400 animate-pulse">Copied!</span>
                 )}
               </span>
+              <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-500">
+                <span className="flex items-center gap-1">
+                  <FaCircle className="text-[6px] text-green-500 dark:text-green-400" />
+                  {onlineCount} online
+                </span>
+                <span className="w-px h-3 bg-gray-300 dark:bg-gray-700" />
+                <span>
+                  {hideStats ? '••••' : `${activeMembers.length} members`}
+                </span>
+                <button
+                  onClick={() => setHideStats((v) => !v)}
+                  className="text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-300 transition"
+                >
+                  {hideStats ? <FaEyeSlash className="text-[10px]" /> : <FaEye className="text-[10px]" />}
+                </button>
+              </div>
             </div>
           </div>
 

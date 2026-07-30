@@ -245,7 +245,7 @@ const RootLayout = () => {
       />
 
       {/* ── Floating manual refresh button (fallback) ── */}
-      <button
+      {/* <button
         onClick={refreshAll}
         className="fixed bottom-24 right-4 z-50 p-3 bg-teal-600 dark:bg-[#0d9488] text-white rounded-full shadow-lg hover:opacity-80 active:scale-90 transition"
         aria-label="Refresh all data"
@@ -264,7 +264,7 @@ const RootLayout = () => {
             d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
           />
         </svg>
-      </button>
+      </button> */}
     </div>
   );
 };

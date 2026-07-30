@@ -1,41 +1,37 @@
-// src/workspaceScreens/YourWorkspaceProjects.jsx
-import React, { useState, useEffect } from 'react';
+// src/workspaceScreens/MyWorkspaceProjects.jsx
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
 import {
   useGetWorkspaceProjectsQuery,
   useDeleteProjectMutation,
+  useCreateProjectMutation,
   useArchiveProjectMutation,
   useUnarchiveProjectMutation,
   useRestoreProjectMutation,
   usePermanentlyDeleteProjectMutation,
 } from '../slices/projectApiSlice';
 import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
-import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
-import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
+import MyWorkspaceSidebar from '../workspaceComponents/MyWorkspaceSidebar';
+import MyWorkspaceBottombar from '../workspaceComponents/MyWorkspaceBottombar';
 import {
-  FaArrowLeft,
+  FaPlus,
   FaFolder,
   FaUsers,
-  FaTasks,
   FaSearch,
-  FaChartLine,
-  FaCalendarAlt,
-  FaUserCheck,
-  FaLink,
-  FaFileAlt,
-  FaEllipsisV,
-  FaEdit,
+  FaTasks,
   FaTrashAlt,
+  FaEdit,
+  FaEllipsisV,
   FaTimes,
-  FaPlus,
+  FaArrowLeft,
+  FaSpinner,
+  FaCheckCircle,
+  FaClock,
   FaRocket,
   FaFilter,
   FaChevronDown,
-  FaClock,
-  FaCheckCircle,
-  FaSpinner,
   FaChartPie,
   FaArchive,
   FaUndo,
@@ -43,899 +39,137 @@ import {
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
-// ─── Filter Drawer (mobile) ─────────────────────────────────────────────
-const FilterDrawer = ({ isOpen, onClose, filters, setFilters }) => {
+// Helper: treat progress >= 100 as completed
+const isProjectCompleted = (p) => p.status === 'completed' || (p.progress || 0) >= 100;
+
+// ─── Confirm Modal ──────────────────────────────────────────────────────
+const ConfirmModal = ({
+  isOpen,
+  onConfirm,
+  onCancel,
+  title,
+  message,
+  confirmLabel = 'Confirm',
+  confirmColor = 'bg-red-600 hover:bg-red-700',
+}) => {
   if (!isOpen) return null;
-  const statuses = ['all', 'planning', 'in-progress', 'completed', 'archived'];
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-sm w-full p-6 shadow-xl">
+        <h3 className="text-lg font-bold text-gray-800 dark:text-gray-200 mb-2">{title}</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{message}</p>
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className={`flex-1 py-2 text-white rounded-xl text-sm font-medium transition ${confirmColor}`}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Filter Drawer (mobile) ─────────────────────────────────────────────
+const FilterDrawer = ({ isOpen, onClose, filters, setFilters, view, setView, isOwner }) => {
+  if (!isOpen) return null;
+  const statuses = view === 'active'
+    ? ['all', 'planning', 'in-progress', 'completed']
+    : [];
 
   return (
     <div className="fixed inset-0 z-40 bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm flex justify-end">
-      <div className="w-72 max-w-full h-full bg-white dark:bg-[#14141a] border-l border-gray-200/60 dark:border-gray-800/60 p-6 overflow-y-auto animate-slide-in-right">
+      <div className="w-72 max-w-full h-full bg-white dark:bg-[#14141a] border-l border-gray-200 dark:border-gray-800/60 p-6 overflow-y-auto animate-slide-in-right">
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-lg font-bold text-gray-800 dark:text-gray-200">Filters</h3>
-          <button onClick={onClose} className="text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white transition">
+          <button onClick={onClose} className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white">
             <FaTimes />
           </button>
         </div>
-        <div className="space-y-4">
-          <div>
-            <label className="text-xs text-gray-500 dark:text-gray-500 uppercase tracking-wider">Status</label>
-            <div className="mt-2 space-y-1">
-              {statuses.map((status) => (
-                <button
-                  key={status}
-                  onClick={() => setFilters({ ...filters, status })}
-                  className={`w-full text-left px-3 py-2 rounded-xl text-sm transition ${
-                    filters.status === status
-                      ? 'bg-teal-50 dark:bg-[#0d9488]/20 text-teal-600 dark:text-[#0d9488] border border-teal-200 dark:border-[#0d9488]/30'
-                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30'
-                  }`}
-                >
-                  {status === 'all' ? 'All Projects' : status.charAt(0).toUpperCase() + status.slice(1)}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 dark:text-gray-500 uppercase tracking-wider">Sort By</label>
-            <select
-              value={filters.sort}
-              onChange={(e) => setFilters({ ...filters, sort: e.target.value })}
-              className="w-full bg-gray-50 dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-800/60 rounded-xl px-3 py-2 text-sm text-gray-800 dark:text-gray-200 outline-none focus:border-teal-500 dark:focus:border-[#0d9488]/50 mt-2"
-            >
-              <option value="newest">Newest</option>
-              <option value="oldest">Oldest</option>
-              <option value="progress">Progress</option>
-              <option value="name">Name</option>
-            </select>
-          </div>
-          <button
-            onClick={() => setFilters({ status: 'all', sort: 'newest' })}
-            className="w-full py-2 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
-          >
-            Reset Filters
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
 
-// ─── Project Card ──────────────────────────────────────────────────────
-const ProjectCard = ({
-  project,
-  brandColor,
-  workspaceId,
-  isOwner,
-  isManager,
-  onDelete,
-  onEdit,
-  onArchive,
-  onUnarchive,
-  onRestore,
-  onPermanentDelete,
-}) => {
-  const [showMenu, setShowMenu] = useState(false);
-  const progress = project.progress || 0;
-  const statusLabels = {
-    planning: 'Planning',
-    'in-progress': 'In Progress',
-    completed: 'Completed',
-    archived: 'Archived',
-  };
-  const statusColor = {
-    planning: 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700/40',
-    'in-progress': 'text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-700/40',
-    completed: 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700/40',
-    archived: 'text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700/40',
-  };
-  const canManage = isOwner || isManager;
-  const isArchivedForMe = project.isArchivedForMe || false;
-
-  // ── fetch tasks for this project ──────────────────────────────
-  const { data: taskData, isLoading: taskLoading } = useGetProjectTasksQuery(
-    { projectId: project._id }
-  );
-  const tasks = taskData?.tasks || [];
-  const totalTasks = tasks.length;
-  const completedTasks = tasks.filter(
-    (t) => t.status === 'completed' || t.status === 'confirmed_completed'
-  ).length;
-
-  const handleDelete = () => {
-    if (window.confirm(`Delete project "${project.name}"? This moves it to trash.`)) {
-      onDelete && onDelete(project._id);
-    }
-  };
-
-  const handlePermanentDelete = () => {
-    if (window.confirm(`Permanently delete "${project.name}"? This cannot be undone.`)) {
-      onPermanentDelete && onPermanentDelete(project._id);
-    }
-  };
-
-  const handleRestore = () => {
-    if (window.confirm(`Restore "${project.name}" from trash?`)) {
-      onRestore && onRestore(project._id);
-    }
-  };
-
-  const stopProp = (e) => e.stopPropagation();
-
-  const handleArchiveClick = (e) => {
-    e.stopPropagation();
-    if (isArchivedForMe) {
-      onUnarchive && onUnarchive(project._id);
-    } else {
-      onArchive && onArchive(project._id);
-    }
-  };
-
-  return (
-    <div className="group relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/40 hover:border-teal-500 dark:hover:border-[#0d9488]/50 transition-all duration-500 hover:shadow-[0_8px_40px_rgba(13,148,136,0.15)] dark:hover:shadow-[0_8px_40px_rgba(13,148,136,0.15)] overflow-hidden">
-      {/* Animated gradient overlay on hover */}
-      <div className="absolute inset-0 bg-gradient-to-br from-teal-500/0 via-teal-500/0 to-transparent dark:group-hover:from-[#0d9488]/10 dark:group-hover:via-[#0d9488]/5 group-hover:from-teal-500/10 group-hover:via-teal-500/5 transition-all duration-700" />
-
-      {/* Cover Image – smaller on mobile */}
-      <div className="relative h-20 md:h-28 bg-gray-100 dark:bg-[#1a1a24] overflow-hidden">
-        {project.coverImage ? (
-          <img src={project.coverImage} alt={project.name} className="w-full h-full object-cover" />
-        ) : (
-          <div
-            className="w-full h-full flex items-center justify-center"
-            style={{ backgroundColor: `${brandColor}15` }}
-          >
-            <FaFolder className="text-2xl md:text-3xl" style={{ color: brandColor }} />
-          </div>
-        )}
-        {/* Status badge on cover */}
-        <span
-          className={`absolute top-2 right-2 text-[10px] font-medium px-2.5 py-1 rounded-full backdrop-blur-sm border ${statusColor[project.status] || 'text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700/40'} bg-black/30 border-gray-700/50`}
-        >
-          {statusLabels[project.status] || 'Planning'}
-          {isArchivedForMe && ' (Archived)'}
-        </span>
-
-        {/* Archive/Unarchive button - always visible for members */}
-        <button
-          onClick={handleArchiveClick}
-          className="absolute bottom-2 right-2 p-1.5 bg-black/40 backdrop-blur-sm rounded-lg text-gray-300 hover:text-white hover:bg-black/60 transition z-10"
-          title={isArchivedForMe ? 'Unarchive' : 'Archive'}
-        >
-          {isArchivedForMe ? (
-            <FaUndo className="text-xs text-teal-400" />
-          ) : (
-            <FaArchive className="text-xs text-gray-300" />
-          )}
-        </button>
-
-        {/* Menu button (dropdown) – only for managers/owner */}
-        {(canManage || isOwner) && (
-          <div className="absolute top-2 left-2">
+        {/* View tabs */}
+        <div className="mb-4">
+          <label className="text-xs text-gray-500 dark:text-gray-500 uppercase tracking-wider">View</label>
+          <div className="mt-1 flex gap-1">
             <button
-              onClick={(e) => {
-                stopProp(e);
-                setShowMenu(!showMenu);
-              }}
-              className="p-1.5 bg-black/40 backdrop-blur-sm rounded-lg text-gray-300 hover:text-white hover:bg-black/60 transition"
+              onClick={() => setView('active')}
+              className={`flex-1 py-1.5 text-xs rounded-lg ${view === 'active' ? 'bg-[#0d9488]/20 text-[#0d9488] border border-[#0d9488]/30' : 'text-gray-500 bg-gray-100 dark:bg-[#1a1a24] border border-gray-300 dark:border-gray-800/40'}`}
             >
-              <FaEllipsisV className="text-xs" />
+              All
             </button>
-            {showMenu && (
-              <div className="absolute left-0 top-full mt-1 bg-white dark:bg-[#1e1e26] rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.8)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.8)] border border-gray-200 dark:border-gray-800/60 min-w-[150px] z-20 py-1">
-                {/* Edit – only for managers/owner */}
-                {(canManage || isOwner) && (
-                  <button
-                    onClick={(e) => {
-                      stopProp(e);
-                      setShowMenu(false);
-                      onEdit && onEdit(project._id);
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 hover:text-gray-900 dark:hover:text-white transition w-full"
-                  >
-                    <FaEdit className="text-xs text-teal-600 dark:text-[#0d9488]" /> Edit
-                  </button>
-                )}
-
-                {/* Archive/Unarchive – for any member (already on card, but keep for consistency) */}
-                {!isArchivedForMe ? (
-                  <button
-                    onClick={(e) => {
-                      stopProp(e);
-                      setShowMenu(false);
-                      onArchive && onArchive(project._id);
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 w-full transition"
-                  >
-                    <FaArchive className="text-xs text-gray-500" /> Archive
-                  </button>
-                ) : (
-                  <button
-                    onClick={(e) => {
-                      stopProp(e);
-                      setShowMenu(false);
-                      onUnarchive && onUnarchive(project._id);
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 w-full transition"
-                  >
-                    <FaUndo className="text-xs text-teal-500" /> Unarchive
-                  </button>
-                )}
-
-                {/* Trash actions – only workspace owner */}
-                {isOwner && (
-                  <>
-                    {project.isTrash ? (
-                      <>
-                        <button
-                          onClick={(e) => {
-                            stopProp(e);
-                            setShowMenu(false);
-                            handleRestore();
-                          }}
-                          className="flex items-center gap-2 px-4 py-2 text-sm text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-500/10 w-full transition"
-                        >
-                          <FaTrashRestore className="text-xs" /> Restore
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            stopProp(e);
-                            setShowMenu(false);
-                            handlePermanentDelete();
-                          }}
-                          className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 w-full transition"
-                        >
-                          <FaTrashAlt className="text-xs" /> Delete Permanently
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        onClick={(e) => {
-                          stopProp(e);
-                          setShowMenu(false);
-                          handleDelete();
-                        }}
-                        className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 w-full transition"
-                      >
-                        <FaTrashAlt className="text-xs" /> Move to Trash
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Card Body – smaller padding on mobile */}
-      <Link
-        to={`/workspace/${workspaceId}/project/${project._id}`}
-        className="block p-3 md:p-4"
-        onClick={(e) => {
-          if (showMenu) e.preventDefault();
-        }}
-      >
-        <h3 className="text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">
-          {project.name}
-        </h3>
-        {project.description && (
-          <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1 md:line-clamp-2 mt-0.5 md:mt-1">
-            {project.description}
-          </p>
-        )}
-
-        {/* Team avatars */}
-        <div className="flex items-center mt-2 md:mt-3 gap-1">
-          <div className="flex -space-x-2">
-            {(project.teamMembers || []).slice(0, 4).map((member, idx) => (
-              <div
-                key={idx}
-                className="w-5 h-5 md:w-6 md:h-6 rounded-full border border-gray-300 dark:border-gray-800 bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-[7px] md:text-[8px] font-bold text-white"
-                style={{
-                  backgroundColor: member?.profile ? 'transparent' : brandColor,
-                }}
+            <button
+              onClick={() => setView('archived')}
+              className={`flex-1 py-1.5 text-xs rounded-lg ${view === 'archived' ? 'bg-[#0d9488]/20 text-[#0d9488] border border-[#0d9488]/30' : 'text-gray-500 bg-gray-100 dark:bg-[#1a1a24] border border-gray-300 dark:border-gray-800/40'}`}
+            >
+              Archived
+            </button>
+            {isOwner && (
+              <button
+                onClick={() => setView('trash')}
+                className={`flex-1 py-1.5 text-xs rounded-lg ${view === 'trash' ? 'bg-[#0d9488]/20 text-[#0d9488] border border-[#0d9488]/30' : 'text-gray-500 bg-gray-100 dark:bg-[#1a1a24] border border-gray-300 dark:border-gray-800/40'}`}
               >
-                {member?.profile ? (
-                  <img src={member.profile} alt="" className="w-full h-full rounded-full object-cover" />
-                ) : (
-                  (member?.name?.charAt(0) || '?').toUpperCase()
-                )}
-              </div>
-            ))}
-            {(project.teamMembers || []).length > 4 && (
-              <div className="w-5 h-5 md:w-6 md:h-6 rounded-full border border-gray-300 dark:border-gray-800 bg-gray-100 dark:bg-[#1e1e26] flex items-center justify-center text-[7px] md:text-[8px] text-gray-500 dark:text-gray-400">
-                +{(project.teamMembers || []).length - 4}
-              </div>
+                Trash
+              </button>
             )}
           </div>
-          <span className="text-[9px] md:text-[10px] text-gray-500 dark:text-gray-500 ml-1">
-            {(project.teamMembers || []).length} members
-          </span>
         </div>
 
-        {/* Progress bar */}
-        <div className="mt-2 md:mt-3 relative">
-          <div className="flex justify-between text-[9px] md:text-[10px] text-gray-500 dark:text-gray-500 mb-0.5 md:mb-1">
-            <span>Progress</span>
-            <span className="font-mono">{progress}%</span>
+        {/* Status filter – only for active view */}
+        {view === 'active' && statuses.length > 0 && (
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs text-gray-500 dark:text-gray-500 uppercase tracking-wider">Status</label>
+              <div className="mt-2 space-y-1">
+                {statuses.map((status) => (
+                  <button
+                    key={status}
+                    onClick={() => setFilters({ ...filters, status })}
+                    className={`w-full text-left px-3 py-2 rounded-xl text-sm transition ${
+                      filters.status === status
+                        ? 'bg-[#0d9488]/20 text-[#0d9488] border border-[#0d9488]/30'
+                        : 'text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30'
+                    }`}
+                  >
+                    {status === 'all' ? 'All Projects' : status.charAt(0).toUpperCase() + status.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 dark:text-gray-500 uppercase tracking-wider">Sort By</label>
+              <select
+                value={filters.sort}
+                onChange={(e) => setFilters({ ...filters, sort: e.target.value })}
+                className="w-full bg-white dark:bg-[#1e1e26] border border-gray-300 dark:border-gray-800/60 rounded-xl px-3 py-2 text-sm text-gray-800 dark:text-gray-200 outline-none focus:border-[#0d9488]/50 mt-2"
+              >
+                <option value="newest">Newest</option>
+                <option value="oldest">Oldest</option>
+                <option value="progress">Progress</option>
+                <option value="name">Name</option>
+              </select>
+            </div>
           </div>
-          <div className="w-full h-1 md:h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all duration-1000 ease-out"
-              style={{
-                width: `${progress}%`,
-                backgroundColor: brandColor,
-                boxShadow: `0 0 12px ${brandColor}88`,
-              }}
-            />
-          </div>
-        </div>
+        )}
 
-        {/* Meta info – now showing real task counts */}
-        <div className="flex flex-wrap items-center gap-2 md:gap-3 mt-2 md:mt-3 text-[9px] md:text-[10px] text-gray-500 dark:text-gray-500">
-          <span className="flex items-center gap-1">
-            <FaCalendarAlt className="text-[8px] md:text-[10px] text-teal-600 dark:text-[#0d9488]" />
-            {project.startDate ? new Date(project.startDate).toLocaleDateString() : 'N/A'}
-          </span>
-          {taskLoading ? (
-            <span className="flex items-center gap-1">
-              <FaSpinner className="animate-spin text-[10px] text-teal-600 dark:text-[#0d9488]" />
-            </span>
-          ) : (
-            <span className="flex items-center gap-1">
-              <FaTasks className="text-[8px] md:text-[10px] text-teal-600 dark:text-[#0d9488]" />
-              {totalTasks} tasks
-            </span>
-          )}
-          {project.links?.length > 0 && (
-            <span className="flex items-center gap-1 text-blue-500 dark:text-blue-400">
-              <FaLink className="text-[8px] md:text-[10px]" />
-              {project.links.length}
-            </span>
-          )}
-        </div>
-      </Link>
+        <button
+          onClick={() => setFilters({ status: 'all', sort: 'newest' })}
+          className="w-full mt-4 py-2 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white transition"
+        >
+          Reset Filters
+        </button>
+      </div>
     </div>
   );
 };
 
-// ─── Main Component ──────────────────────────────────────────────────────
-const YourWorkspaceProjects = () => {
-  const { workspaceId } = useParams();
-  const navigate = useNavigate();
-  const { userInfo } = useSelector((state) => state.auth);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
-  const [filters, setFilters] = useState({ status: 'all', sort: 'newest', search: '' });
-
-  const {
-    data: workspaceData,
-    isLoading: workspaceLoading,
-    error: workspaceError,
-  } = useGetWorkspaceQuery(workspaceId);
-
-  // ── Fetch projects ──────────────────────────────────────────────
-  // NOTE: "archived" here means "archived for me" (a per-user flag), which is
-  // NOT the same thing as the project's lifecycle `status` field. So we only
-  // forward real status values (planning/in-progress/completed) to the API,
-  // and handle the archived view entirely on the client using isArchivedForMe.
-  const apiStatus =
-    filters.status !== 'all' && filters.status !== 'archived' ? filters.status : undefined;
-
-  const {
-    data: projectsData,
-    isLoading: projectsLoading,
-    error: projectsError,
-    refetch: refetchProjects,
-  } = useGetWorkspaceProjectsQuery(
-    { workspaceId, status: apiStatus },
-    { skip: !workspaceId }
-  );
-
-  const [deleteProject] = useDeleteProjectMutation();
-  const [archiveProject] = useArchiveProjectMutation();
-  const [unarchiveProject] = useUnarchiveProjectMutation();
-  const [restoreProject] = useRestoreProjectMutation();
-  const [permanentlyDeleteProject] = usePermanentlyDeleteProjectMutation();
-
-  const workspace = workspaceData?.workspace;
-  const projects = projectsData?.projects || [];
-  const brandColor = workspace?.color || '#0d9488';
-  const isOwner =
-    workspace?.owner?._id === userInfo?._id || workspace?.owner === userInfo?._id;
-
-  // ─── Handlers ──────────────────────────────────────────────────────
-  const handleArchive = async (projectId) => {
-    try {
-      await archiveProject(projectId).unwrap();
-      toast.success('Project archived for you.');
-      refetchProjects();
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to archive');
-    }
-  };
-
-  const handleUnarchive = async (projectId) => {
-    try {
-      await unarchiveProject(projectId).unwrap();
-      toast.success('Project unarchived.');
-      refetchProjects();
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to unarchive');
-    }
-  };
-
-  const handleDelete = async (projectId) => {
-    try {
-      await deleteProject(projectId).unwrap();
-      toast.success('Project moved to trash.');
-      refetchProjects();
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to delete');
-    }
-  };
-
-  const handleRestore = async (projectId) => {
-    try {
-      await restoreProject(projectId).unwrap();
-      toast.success('Project restored from trash.');
-      refetchProjects();
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to restore');
-    }
-  };
-
-  const handlePermanentDelete = async (projectId) => {
-    try {
-      await permanentlyDeleteProject(projectId).unwrap();
-      toast.success('Project permanently deleted.');
-      refetchProjects();
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to permanently delete');
-    }
-  };
-
-  const handleEditProject = (projectId) => {
-    navigate(`/workspace/${workspaceId}/projects/edit/${projectId}`);
-  };
-
-  // ─── Filtering (local) ────────────────────────────────────────────
-  // Archived-for-me projects are only ever shown in the "Archived" tab, and
-  // are hidden from every other tab (All / Planning / In Progress / Completed).
-  const filteredProjects = projects.filter((p) => {
-    if (filters.status === 'archived') {
-      if (!p.isArchivedForMe) return false;
-    } else {
-      if (p.isArchivedForMe) return false;
-    }
-
-    if (filters.search) {
-      const q = filters.search.toLowerCase();
-      const matches =
-        p.name.toLowerCase().includes(q) ||
-        (p.description && p.description.toLowerCase().includes(q));
-      if (!matches) return false;
-    }
-
-    return true;
-  });
-
-  // ─── Stats: computed from non-archived-for-me projects only ────────
-  // (archived projects shouldn't skew the "live" workspace overview)
-  const visibleProjects = projects.filter((p) => !p.isArchivedForMe);
-  const totalProjects = visibleProjects.length;
-  const completedProjects = visibleProjects.filter((p) => p.status === 'completed').length;
-  const inProgressProjects = visibleProjects.filter((p) => p.status === 'in-progress').length;
-  const planningProjects = visibleProjects.filter((p) => p.status === 'planning').length;
-
-  // Completion rate = average of each project's own progress percentage,
-  // not just a count of fully-completed projects. So 4 projects sitting at
-  // 100%, 100%, 100%, 0% correctly shows 75%, not 75% by coincidence of count
-  // but by the actual weighted percentage across all projects.
-  const overallProgress =
-    totalProjects > 0
-      ? Math.round(
-          visibleProjects.reduce((sum, p) => sum + (p.progress || 0), 0) / totalProjects
-        )
-      : 0;
-
-  // Active projects (top 3 by progress)
-  const activeProjects = [...visibleProjects]
-    .filter((p) => p.status !== 'completed')
-    .sort((a, b) => (b.progress || 0) - (a.progress || 0))
-    .slice(0, 3);
-
-  // Recent activity (simulated)
-  const recentActivity = visibleProjects
-    .slice(0, 5)
-    .map((p) => ({
-      id: p._id,
-      projectName: p.name,
-      action: p.updatedAt
-        ? `updated progress to ${p.progress || 0}%`
-        : 'created',
-      time: p.updatedAt || p.createdAt,
-    }))
-    .sort((a, b) => new Date(b.time) - new Date(a.time))
-    .slice(0, 5);
-
-  if (workspaceError || projectsError) {
-    navigate(`/workspace/${workspaceId}`);
-    return null;
-  }
-
-  if (workspaceLoading || projectsLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
-        <div className="text-center">
-          <div
-            className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin mx-auto"
-            style={{ borderColor: brandColor, borderTopColor: 'transparent' }}
-          />
-          <p className="mt-3 text-gray-500 dark:text-gray-500 text-sm">Loading projects...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!workspace) return null;
-
-  return (
-    <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
-      {/* Desktop Sidebar */}
-      <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
-        <YourWorkspaceSidebar workspace={workspace} chats={[]} />
-      </div>
-
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Header */}
-        <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
-          <div className="flex items-center justify-between px-4 h-14 lg:h-16">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => navigate(`/workspace/${workspaceId}`)}
-                className="p-1 lg:hidden text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
-              >
-                <FaArrowLeft />
-              </button>
-              <h1 className="text-lg font-bold text-gray-800 dark:text-gray-100 tracking-tight">Projects</h1>
-              <span className="text-xs font-normal text-gray-500 dark:text-gray-500 bg-gray-100 dark:bg-[#1a1a24] px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-800/40">
-                {filters.status === 'archived' ? filteredProjects.length : totalProjects}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              {/* Search (desktop) */}
-              <div className="hidden md:flex items-center bg-gray-100 dark:bg-[#1a1a24] border border-gray-200 dark:border-gray-800/60 rounded-full px-3 py-1.5 gap-2 focus-within:border-teal-500 dark:focus-within:border-[#0d9488]/50 transition">
-                <FaSearch className="text-gray-400 dark:text-gray-500 text-xs" />
-                <input
-                  type="text"
-                  placeholder="Search projects..."
-                  className="bg-transparent outline-none text-sm text-gray-800 dark:text-gray-200 w-32 lg:w-48"
-                  value={filters.search || ''}
-                  onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-                />
-                {filters.search && (
-                  <button
-                    onClick={() => setFilters({ ...filters, search: '' })}
-                    className="text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-                  >
-                    <FaTimes className="text-xs" />
-                  </button>
-                )}
-              </div>
-              {/* Filter toggle (desktop) */}
-              <button
-                onClick={() => setFilterDrawerOpen(true)}
-                className="hidden md:flex items-center gap-1.5 bg-gray-100 dark:bg-[#1a1a24] border border-gray-200 dark:border-gray-800/60 rounded-full px-3 py-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:border-gray-300 dark:hover:border-gray-600 transition"
-              >
-                <FaFilter className="text-[10px]" />
-                Filter
-                <FaChevronDown className="text-[8px] ml-1" />
-              </button>
-              {/* Mobile search + filter */}
-              <button
-                onClick={() => setSearchOpen(true)}
-                className="md:hidden p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
-              >
-                <FaSearch className="text-sm" />
-              </button>
-              <button
-                onClick={() => setFilterDrawerOpen(true)}
-                className="md:hidden p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
-              >
-                <FaFilter className="text-sm" />
-              </button>
-            </div>
-          </div>
-          {/* Filter chips (desktop) */}
-          <div className="hidden md:flex items-center gap-2 px-4 pb-2 overflow-x-auto">
-            {['all', 'planning', 'in-progress', 'completed', 'archived'].map((status) => (
-              <button
-                key={status}
-                onClick={() => setFilters({ ...filters, status })}
-                className={`text-xs px-3 py-1 rounded-full transition whitespace-nowrap ${
-                  filters.status === status
-                    ? 'bg-teal-50 dark:bg-[#0d9488]/20 text-teal-600 dark:text-[#0d9488] border border-teal-200 dark:border-[#0d9488]/30'
-                    : 'text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 border border-transparent hover:border-gray-300 dark:hover:border-gray-700'
-                }`}
-              >
-                {status === 'all' ? 'All' : status.charAt(0).toUpperCase() + status.slice(1)}
-              </button>
-            ))}
-          </div>
-        </header>
-
-        {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-5 pb-28 md:pb-6">
-          {/* ─── MOBILE STATS CARD ───────────────────────────── */}
-          <div className="md:hidden mb-4">
-            <div className="relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/40 p-4 overflow-hidden">
-              <div className="absolute top-0 right-0 w-24 h-24 bg-teal-500/5 dark:bg-[#0d9488]/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
-              <div className="relative flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
-                  <FaChartPie className="text-teal-600 dark:text-[#0d9488]" />
-                  Overview
-                </h3>
-                <span className="text-xs text-gray-500 dark:text-gray-500">
-                  {overallProgress}% complete
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-gray-50 dark:bg-[#1a1a24] rounded-xl p-3 border border-gray-200 dark:border-gray-800/30">
-                  <p className="text-2xl font-bold text-gray-800 dark:text-gray-100">{totalProjects}</p>
-                  <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1">
-                    <FaFolder className="text-[10px] text-teal-600 dark:text-[#0d9488]" /> Total
-                  </p>
-                </div>
-                <div className="bg-gray-50 dark:bg-[#1a1a24] rounded-xl p-3 border border-blue-200 dark:border-blue-500/20">
-                  <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{planningProjects}</p>
-                  <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1">
-                    <FaClock className="text-[10px] text-blue-600 dark:text-blue-400" /> Planning
-                  </p>
-                </div>
-                <div className="bg-gray-50 dark:bg-[#1a1a24] rounded-xl p-3 border border-yellow-200 dark:border-yellow-500/20">
-                  <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{inProgressProjects}</p>
-                  <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1">
-                    <FaSpinner className="text-[10px] text-yellow-600 dark:text-yellow-400" /> In Progress
-                  </p>
-                </div>
-                <div className="bg-gray-50 dark:bg-[#1a1a24] rounded-xl p-3 border border-green-200 dark:border-green-500/20">
-                  <p className="text-2xl font-bold text-green-600 dark:text-green-400">{completedProjects}</p>
-                  <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1">
-                    <FaCheckCircle className="text-[10px] text-green-600 dark:text-green-400" /> Completed
-                  </p>
-                </div>
-              </div>
-              <div className="mt-3">
-                <div className="flex justify-between text-[10px] text-gray-500 dark:text-gray-500 mb-1">
-                  <span>Overall progress</span>
-                  <span className="font-mono">{overallProgress}%</span>
-                </div>
-                <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-700"
-                    style={{ width: `${overallProgress}%`, backgroundColor: brandColor }}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* ─── DESKTOP STATS GRID ──────────────────────────── */}
-          <div className="hidden md:grid md:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-            <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/40 p-4 backdrop-blur-sm hover:border-teal-500 dark:hover:border-[#0d9488]/30 transition group">
-              <p className="text-2xl font-bold text-gray-800 dark:text-gray-100 group-hover:text-teal-600 dark:group-hover:text-[#0d9488] transition">
-                {totalProjects}
-              </p>
-              <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">Total</p>
-            </div>
-            <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/40 p-4 hover:border-blue-500 dark:hover:border-blue-500/30 transition group">
-              <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 group-hover:text-blue-700 dark:group-hover:text-blue-300 transition">
-                {planningProjects}
-              </p>
-              <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">Planning</p>
-            </div>
-            <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/40 p-4 hover:border-yellow-500 dark:hover:border-yellow-500/30 transition group">
-              <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400 group-hover:text-yellow-700 dark:group-hover:text-yellow-300 transition">
-                {inProgressProjects}
-              </p>
-              <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">In Progress</p>
-            </div>
-            <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/40 p-4 hover:border-green-500 dark:hover:border-green-500/30 transition group">
-              <p className="text-2xl font-bold text-green-600 dark:text-green-400 group-hover:text-green-700 dark:group-hover:text-green-300 transition">
-                {completedProjects}
-              </p>
-              <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">Completed</p>
-            </div>
-          </div>
-
-          {/* Two‑column layout: projects + insights */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Projects Grid (2/3) */}
-            <div className="lg:col-span-2">
-              {filteredProjects.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 text-gray-500 dark:text-gray-500">
-                  <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 flex items-center justify-center mb-4">
-                    {filters.status === 'archived' ? (
-                      <FaArchive className="text-3xl text-gray-300 dark:text-gray-700" />
-                    ) : (
-                      <FaFolder className="text-3xl text-gray-300 dark:text-gray-700" />
-                    )}
-                  </div>
-                  <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300">
-                    {filters.status === 'archived' ? 'No archived projects' : 'No projects match'}
-                  </h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-600 mt-1">
-                    {filters.status === 'archived'
-                      ? 'Projects you archive will show up here'
-                      : 'Try adjusting your filters'}
-                  </p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {filteredProjects.map((project) => {
-                    const isManager = project.projectManagers?.some(
-                      (pm) => pm._id === userInfo?._id
-                    );
-                    return (
-                      <ProjectCard
-                        key={project._id}
-                        project={project}
-                        brandColor={brandColor}
-                        workspaceId={workspaceId}
-                        isOwner={isOwner}
-                        isManager={isManager}
-                        onDelete={handleDelete}
-                        onEdit={handleEditProject}
-                        onArchive={handleArchive}
-                        onUnarchive={handleUnarchive}
-                        onRestore={handleRestore}
-                        onPermanentDelete={handlePermanentDelete}
-                      />
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Insights Panel (1/3) – hidden on mobile, visible on lg */}
-            <div className="hidden lg:block space-y-5">
-              {/* Active Projects */}
-              <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/40 p-4">
-                <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-2">
-                  <FaRocket className="text-teal-600 dark:text-[#0d9488]" />
-                  Active Projects
-                </h4>
-                <div className="mt-3 space-y-3">
-                  {activeProjects.length === 0 ? (
-                    <p className="text-xs text-gray-500 dark:text-gray-500">No active projects</p>
-                  ) : (
-                    activeProjects.map((p) => (
-                      <Link
-                        key={p._id}
-                        to={`/workspace/${workspaceId}/project/${p._id}`}
-                        className="flex items-center justify-between group"
-                      >
-                        <span className="text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">
-                          {p.name}
-                        </span>
-                        <div className="flex items-center gap-2">
-                          <div className="w-12 h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
-                            <div
-                              className="h-full rounded-full transition-all"
-                              style={{ width: `${p.progress || 0}%`, backgroundColor: brandColor }}
-                            />
-                          </div>
-                          <span className="text-xs font-mono text-gray-500 dark:text-gray-500">
-                            {p.progress || 0}%
-                          </span>
-                        </div>
-                      </Link>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              {/* Recent Activity */}
-              <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/40 p-4">
-                <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-2">
-                  <FaClock className="text-teal-600 dark:text-[#0d9488]" />
-                  Recent Activity
-                </h4>
-                <div className="mt-3 space-y-2">
-                  {recentActivity.length === 0 ? (
-                    <p className="text-xs text-gray-500 dark:text-gray-500">No recent activity</p>
-                  ) : (
-                    recentActivity.map((act) => (
-                      <div key={act.id} className="flex items-start gap-2 text-xs">
-                        <div className="w-1.5 h-1.5 rounded-full bg-teal-500 dark:bg-[#0d9488] mt-1.5 flex-shrink-0" />
-                        <div>
-                          <span className="text-gray-700 dark:text-gray-300">{act.projectName}</span>
-                          <span className="text-gray-500 dark:text-gray-500"> {act.action}</span>
-                          <span className="text-gray-400 dark:text-gray-600 block">
-                            {new Date(act.time).toLocaleDateString()}
-                          </span>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              {/* Completion Rate */}
-              <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/40 p-4">
-                <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-2">
-                  <FaCheckCircle className="text-teal-600 dark:text-[#0d9488]" />
-                  Completion Rate
-                </h4>
-                <div className="mt-3 flex items-center gap-4">
-                  <div className="relative w-16 h-16">
-                    <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
-                      <circle
-                        cx="18"
-                        cy="18"
-                        r="16"
-                        fill="none"
-                        className="stroke-gray-200 dark:stroke-gray-800/60"
-                        strokeWidth="3"
-                      />
-                      <circle
-                        cx="18"
-                        cy="18"
-                        r="16"
-                        fill="none"
-                        className="stroke-teal-500 dark:stroke-[#0d9488] transition-all duration-1000"
-                        strokeWidth="3"
-                        strokeDasharray="100"
-                        strokeDashoffset={100 - overallProgress}
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                    <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-gray-700 dark:text-gray-300">
-                      {overallProgress}%
-                    </span>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-700 dark:text-gray-300">
-                      Average progress across {totalProjects} project{totalProjects === 1 ? '' : 's'}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-500">
-                      {completedProjects} fully completed
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Bottom Navigation (mobile) */}
-      <YourWorkspaceBottombar workspace={workspace} />
-
-      {/* Mobile Search Modal */}
-      <SearchProjectsModal
-        isOpen={searchOpen}
-        onClose={() => setSearchOpen(false)}
-        projects={visibleProjects}
-        brandColor={brandColor}
-        workspaceId={workspaceId}
-      />
-
-      {/* Filter Drawer (mobile) */}
-      <FilterDrawer
-        isOpen={filterDrawerOpen}
-        onClose={() => setFilterDrawerOpen(false)}
-        filters={filters}
-        setFilters={setFilters}
-      />
-    </div>
-  );
-};
-
-// ─── Search Projects Modal ──────────────────────────────────────────────
+// ─── Search Projects Modal (unchanged) ──────────────────────────────────
 const SearchProjectsModal = ({ isOpen, onClose, projects, brandColor, workspaceId }) => {
   const [query, setQuery] = useState('');
   const navigate = useNavigate();
@@ -948,12 +182,12 @@ const SearchProjectsModal = ({ isOpen, onClose, projects, brandColor, workspaceI
   );
 
   return (
-    <div className="fixed inset-0 z-50 bg-white dark:bg-[#0b0b10]/90 backdrop-blur-xl flex flex-col">
+    <div className="fixed inset-0 z-50 bg-white/90 dark:bg-[#0b0b10]/90 backdrop-blur-xl flex flex-col">
       <div className="flex items-center gap-3 px-4 h-16 border-b border-gray-200/60 dark:border-gray-800/60 bg-gray-50 dark:bg-[#14141a]/80">
         <button onClick={onClose} className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition">
           <FaArrowLeft />
         </button>
-        <div className="flex-1 bg-gray-100 dark:bg-[#1e1e26] rounded-2xl px-4 py-2 flex items-center gap-3 border border-gray-200 dark:border-gray-800/40 focus-within:border-teal-500 dark:focus-within:border-[#0d9488]/50 transition">
+        <div className="flex-1 bg-gray-100 dark:bg-[#1e1e26] rounded-2xl px-4 py-2 flex items-center gap-3 border border-gray-300 dark:border-gray-800/40 focus-within:border-[#0d9488]/50 transition">
           <FaSearch className="text-gray-400 dark:text-gray-500 text-xs" />
           <input
             type="text"
@@ -989,9 +223,9 @@ const SearchProjectsModal = ({ isOpen, onClose, projects, brandColor, workspaceI
                 key={project._id}
                 onClick={() => {
                   onClose();
-                  navigate(`/workspace/${workspaceId}/project/${project._id}`);
+                  navigate(`/my-workspace/${workspaceId}/project/${project._id}`);
                 }}
-                className="flex items-center gap-4 px-4 py-3 bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/40 hover:border-teal-500 dark:hover:border-[#0d9488]/40 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition cursor-pointer group"
+                className="flex items-center gap-4 px-4 py-3 bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 hover:border-[#0d9488]/40 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition cursor-pointer group"
               >
                 <div
                   className="w-10 h-10 rounded-xl flex items-center justify-center"
@@ -1016,4 +250,759 @@ const SearchProjectsModal = ({ isOpen, onClose, projects, brandColor, workspaceI
   );
 };
 
-export default YourWorkspaceProjects;
+// ─── Create Project Modal (unchanged) ───────────────────────────────────
+const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [createProject] = useCreateProjectMutation();
+  const brandColor = workspace?.color || '#0d9488';
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      toast.error('Project name is required');
+      return;
+    }
+    setLoading(true);
+    try {
+      const fd = new FormData();
+      fd.append('workspaceId', workspace._id);
+      fd.append('name', name.trim());
+      fd.append('description', description.trim());
+      await createProject({ workspaceId: workspace._id, data: fd }).unwrap();
+      toast.success('Project created!');
+      onCreated && onCreated();
+      onClose();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to create project');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">
+            <FaPlus className="inline mr-2 text-[#0d9488]" /> New Project
+          </h2>
+          <button onClick={onClose} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition">
+            <FaTimes />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Project Name *</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Description</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
+            />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80"
+              style={{ backgroundColor: brandColor }}
+            >
+              {loading ? 'Creating...' : 'Create Project'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ─── Project Card ──────────────────────────────────────────────────────
+const ProjectCard = ({
+  project,
+  brandColor,
+  workspaceId,
+  isOwner,
+  onDelete,            // soft‑delete (move to trash)
+  onPermanentDelete,
+  onRestore,
+  onArchive,
+  onUnarchive,
+  onEdit,
+}) => {
+  const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef(null);
+  const buttonRef = useRef(null);
+
+  // Custom confirmation modal state
+  const [confirmModal, setConfirmModal] = useState({ isOpen: false, action: null }); // 'trash' | 'permDelete'
+
+  // Close menu on outside click
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(event.target) &&
+        buttonRef.current &&
+        !buttonRef.current.contains(event.target)
+      ) {
+        setShowMenu(false);
+      }
+    };
+    if (showMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showMenu]);
+
+  const progress = project.progress || 0;
+  const completed = isProjectCompleted(project);
+  const statusLabels = {
+    planning: 'Planning',
+    'in-progress': 'In Progress',
+    completed: 'Completed',
+    archived: 'Archived',
+  };
+  const statusColor = {
+    planning: 'text-blue-600 dark:text-blue-400',
+    'in-progress': 'text-yellow-600 dark:text-yellow-400',
+    completed: 'text-green-600 dark:text-green-400',
+    archived: 'text-gray-500 dark:text-gray-400',
+  };
+  const displayStatus = completed ? 'completed' : project.status;
+
+  const { data: taskData, isLoading: taskLoading } = useGetProjectTasksQuery(
+    { projectId: project._id },
+    { skip: project.isTrash }
+  );
+  const tasks = taskData?.tasks || [];
+  const totalTasks = tasks.length;
+  const completedTasks = tasks.filter(
+    (t) => t.status === 'completed' || t.status === 'confirmed_completed'
+  ).length;
+
+  const stopProp = (e) => e.stopPropagation();
+
+  const isArchivedForMe = project.isArchivedForMe;
+  const isTrashed = project.isTrash;
+
+  // Handlers for actions (no window.confirm)
+  const handleArchive = (e) => { stopProp(e); setShowMenu(false); onArchive(project._id); };
+  const handleUnarchive = (e) => { stopProp(e); setShowMenu(false); onUnarchive(project._id); };
+  const handleMoveToTrash = (e) => {
+    stopProp(e);
+    setShowMenu(false);
+    setConfirmModal({ isOpen: true, action: 'trash' });
+  };
+  const handlePermanentDelete = (e) => {
+    stopProp(e);
+    setShowMenu(false);
+    setConfirmModal({ isOpen: true, action: 'permDelete' });
+  };
+  const handleRestore = (e) => { stopProp(e); setShowMenu(false); onRestore(project._id); };
+
+  const confirmAction = () => {
+    if (confirmModal.action === 'trash') {
+      onDelete(project._id);
+    } else if (confirmModal.action === 'permDelete') {
+      onPermanentDelete(project._id);
+    }
+    setConfirmModal({ isOpen: false, action: null });
+  };
+  const cancelAction = () => setConfirmModal({ isOpen: false, action: null });
+
+  return (
+    <>
+      {/* Custom confirmation modal */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onConfirm={confirmAction}
+        onCancel={cancelAction}
+        title={confirmModal.action === 'trash' ? 'Move to Trash' : 'Delete Permanently'}
+        message={
+          confirmModal.action === 'trash'
+            ? `Are you sure you want to move "${project.name}" to trash? It can be restored within 30 days.`
+            : `Are you sure you want to PERMANENTLY DELETE "${project.name}"? This cannot be undone.`
+        }
+        confirmLabel={confirmModal.action === 'trash' ? 'Move to Trash' : 'Delete Permanently'}
+        confirmColor={confirmModal.action === 'trash' ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-red-600 hover:bg-red-700'}
+      />
+
+      {/* Card container – clickable via Link */}
+      <Link
+        to={`/my-workspace/${workspaceId}/project/${project._id}`}
+        className="group relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 hover:border-[#0d9488]/50 transition-all duration-500 hover:shadow-[0_8px_40px_rgba(13,148,136,0.15)] active:scale-[0.98] block overflow-hidden"
+        onClick={(e) => {
+          // Prevent navigation if clicking on interactive elements
+          if (e.target.closest('button')) {
+            e.preventDefault();
+          }
+        }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-br from-[#0d9488]/0 via-[#0d9488]/0 to-transparent group-hover:from-[#0d9488]/10 group-hover:via-[#0d9488]/5 transition-all duration-700 pointer-events-none" />
+        <div className="relative h-20 md:h-28 bg-gray-100 dark:bg-[#1a1a24] overflow-hidden">
+          {project.coverImage ? (
+            <img src={project.coverImage} alt={project.name} className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: `${brandColor}15` }}>
+              <FaFolder className="text-2xl md:text-3xl" style={{ color: brandColor }} />
+            </div>
+          )}
+          <span className={`absolute top-2 right-2 text-[10px] font-medium px-2.5 py-1 rounded-full backdrop-blur-sm border ${statusColor[displayStatus]} bg-white/60 dark:bg-black/30 border-gray-200 dark:border-gray-700/50 pointer-events-none`}>
+            {statusLabels[displayStatus] || 'Planning'}
+          </span>
+
+          {/* Top-left controls: three-dot menu + Move to Trash button */}
+          <div className="absolute top-2 left-2 flex items-center gap-1.5">
+            <button
+              ref={buttonRef}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(!showMenu); }}
+              className="p-1.5 bg-white/60 dark:bg-black/40 backdrop-blur-sm rounded-lg text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-black/60 transition"
+            >
+              <FaEllipsisV className="text-xs" />
+            </button>
+
+            {/* Move to Trash icon button (always visible except trashed) */}
+            {!isTrashed && (
+              <button
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleMoveToTrash(e); }}
+                className="p-1.5 bg-white/60 dark:bg-black/40 backdrop-blur-sm rounded-lg text-yellow-600 dark:text-yellow-400 hover:text-yellow-700 dark:hover:text-yellow-300 hover:bg-yellow-500/20 transition"
+                title="Move to Trash"
+              >
+                <FaTrashAlt className="text-xs" />
+              </button>
+            )}
+
+            {showMenu && (
+              <div ref={menuRef} className="absolute left-0 top-full mt-1 bg-white dark:bg-[#1e1e26] rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.8)] border border-gray-200 dark:border-gray-800/60 min-w-[180px] z-20 py-1">
+                {isTrashed ? (
+                  <>
+                    <button onClick={handleRestore} className="flex items-center gap-2 px-4 py-2 text-sm text-[#0d9488] hover:bg-[#0d9488]/10 transition w-full">
+                      <FaTrashRestore className="text-xs" /> Restore
+                    </button>
+                    <button onClick={handlePermanentDelete} className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-500/10 transition w-full">
+                      <FaTrashAlt className="text-xs" /> Delete Permanently
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(false); onEdit(project._id); }} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-[#0d9488]/10 hover:text-gray-900 dark:hover:text-white transition w-full">
+                      <FaEdit className="text-xs text-[#0d9488]" /> Edit
+                    </button>
+                    {isArchivedForMe ? (
+                      <button onClick={handleUnarchive} className="flex items-center gap-2 px-4 py-2 text-sm text-[#0d9488] hover:bg-[#0d9488]/10 transition w-full">
+                        <FaUndo className="text-xs" /> Unarchive
+                      </button>
+                    ) : (
+                      <button onClick={handleArchive} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-[#0d9488]/10 transition w-full">
+                        <FaArchive className="text-xs" /> Archive for me
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Content – inside Link */}
+        <div className="p-3 md:p-4">
+          <h3 className="text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">
+            {project.name}
+          </h3>
+          {project.description && (
+            <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-1 md:line-clamp-2 mt-0.5 md:mt-1">
+              {project.description}
+            </p>
+          )}
+          <div className="flex items-center mt-2 md:mt-3 gap-1">
+            <div className="flex -space-x-2">
+              {(project.teamMembers || []).slice(0, 4).map((member, idx) => (
+                <div
+                  key={idx}
+                  className="w-5 h-5 md:w-6 md:h-6 rounded-full border border-gray-300 dark:border-gray-800 bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-[7px] md:text-[8px] font-bold text-white"
+                  style={{ backgroundColor: member?.profile ? 'transparent' : brandColor }}
+                >
+                  {member?.profile ? (
+                    <img src={member.profile} alt="" className="w-full h-full rounded-full object-cover" />
+                  ) : (
+                    (member?.name?.charAt(0) || '?').toUpperCase()
+                  )}
+                </div>
+              ))}
+              {(project.teamMembers || []).length > 4 && (
+                <div className="w-5 h-5 md:w-6 md:h-6 rounded-full border border-gray-300 dark:border-gray-800 bg-gray-200 dark:bg-[#1e1e26] flex items-center justify-center text-[7px] md:text-[8px] text-gray-600 dark:text-gray-400">
+                  +{(project.teamMembers || []).length - 4}
+                </div>
+              )}
+            </div>
+            <span className="text-[9px] md:text-[10px] text-gray-500 dark:text-gray-500 ml-1">
+              {(project.teamMembers || []).length} members
+            </span>
+          </div>
+          {!isTrashed && (
+            <>
+              <div className="mt-2 md:mt-3 relative">
+                <div className="flex justify-between text-[9px] md:text-[10px] text-gray-500 dark:text-gray-500 mb-0.5 md:mb-1">
+                  <span>Progress</span>
+                  <span className="font-mono">{progress}%</span>
+                </div>
+                <div className="w-full h-1 md:h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-1000 ease-out"
+                    style={{ width: `${progress}%`, backgroundColor: brandColor, boxShadow: `0 0 12px ${brandColor}88` }}
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 md:gap-3 mt-2 md:mt-3 text-[9px] md:text-[10px] text-gray-500 dark:text-gray-500 pointer-events-none">
+                <span className="flex items-center gap-1">
+                  <FaTasks className="text-[8px] md:text-[10px] text-[#0d9488]" />
+                  {taskLoading ? <FaSpinner className="animate-spin text-[10px]" /> : totalTasks}
+                </span>
+                <span className="flex items-center gap-1">
+                  <FaCheckCircle className="text-[8px] md:text-[10px] text-green-500 dark:text-green-400" />
+                  {taskLoading ? '...' : completedTasks}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+      </Link>
+    </>
+  );
+};
+
+// ─── Main Component ─────────────────────────────────────────────────────
+const MyWorkspaceProjects = () => {
+  const { workspaceId } = useParams();
+  const navigate = useNavigate();
+  const { userInfo } = useSelector((state) => state.auth);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [filters, setFilters] = useState({ status: 'all', sort: 'newest', search: '' });
+  const [view, setView] = useState('active');
+  const [optimisticArchivedIds, setOptimisticArchivedIds] = useState([]);
+
+  const { data: workspaceData, isLoading: workspaceLoading, error: workspaceError } = useGetWorkspaceQuery(workspaceId);
+
+  const queryArgs = {
+    workspaceId,
+    archived: view === 'archived' ? 'true' : undefined,
+    trash: view === 'trash' ? 'true' : undefined,
+  };
+  const { data: projectsData, isLoading: projectsLoading, refetch: refetchProjects } = useGetWorkspaceProjectsQuery(queryArgs);
+
+  const [deleteProject] = useDeleteProjectMutation();
+  const [permanentlyDeleteProject] = usePermanentlyDeleteProjectMutation();
+  const [restoreProject] = useRestoreProjectMutation();
+  const [archiveProject] = useArchiveProjectMutation();
+  const [unarchiveProject] = useUnarchiveProjectMutation();
+
+  const workspace = workspaceData?.workspace;
+  const projects = projectsData?.projects || [];
+  const brandColor = workspace?.color || '#0d9488';
+
+  const ownerId = workspace?.owner?._id || workspace?.owner;
+  const isOwner = !!ownerId && !!userInfo?._id && String(ownerId) === String(userInfo._id);
+
+  useEffect(() => {
+    if (!projectsLoading && optimisticArchivedIds.length > 0) {
+      setOptimisticArchivedIds([]);
+    }
+  }, [projectsLoading, optimisticArchivedIds]);
+
+  if (workspaceError) { navigate('/my-workspaces'); return null; }
+  if (workspaceLoading || projectsLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin mx-auto" style={{ borderColor: brandColor, borderTopColor: 'transparent' }} />
+          <p className="mt-3 text-gray-500 dark:text-gray-500 text-sm">Loading projects...</p>
+        </div>
+      </div>
+    );
+  }
+  if (!workspace) return null;
+
+  const displayedProjects = view === 'active'
+    ? projects.filter(p => !optimisticArchivedIds.includes(p._id) && !p.isArchivedForMe)
+    : projects;
+
+  const activeProjectsList = displayedProjects.filter(p => !p.isTrash);
+  const totalProjects = activeProjectsList.length;
+  const completedProjects = activeProjectsList.filter(isProjectCompleted).length;
+  const inProgressProjects = activeProjectsList.filter(p => !isProjectCompleted(p) && p.status === 'in-progress').length;
+  const planningProjects = activeProjectsList.filter(p => !isProjectCompleted(p) && p.status === 'planning').length;
+  const overallProgress = totalProjects > 0 ? Math.round((completedProjects / totalProjects) * 100) : 0;
+
+  const filteredProjects = displayedProjects
+    .filter((p) => {
+      if (view !== 'active') return true;
+      if (filters.status !== 'all') {
+        if (filters.status === 'completed' ? !isProjectCompleted(p) : p.status !== filters.status) {
+          return false;
+        }
+      }
+      if (filters.search) {
+        const q = filters.search.toLowerCase();
+        return p.name.toLowerCase().includes(q) || (p.description && p.description.toLowerCase().includes(q));
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (filters.sort === 'newest') return new Date(b.createdAt) - new Date(a.createdAt);
+      if (filters.sort === 'oldest') return new Date(a.createdAt) - new Date(b.createdAt);
+      if (filters.sort === 'progress') return (b.progress || 0) - (a.progress || 0);
+      if (filters.sort === 'name') return a.name.localeCompare(b.name);
+      return 0;
+    });
+
+  const activeProjects = [...activeProjectsList]
+    .filter(p => !isProjectCompleted(p))
+    .sort((a, b) => (b.progress || 0) - (a.progress || 0))
+    .slice(0, 3);
+
+  const recentActivity = projects.slice(0, 5).map(p => ({
+    id: p._id,
+    projectName: p.name,
+    action: p.updatedAt ? 'updated' : 'created',
+    time: p.updatedAt || p.createdAt,
+  })).sort((a, b) => new Date(b.time) - new Date(a.time));
+
+  const handleDeleteProject = async (projectId) => {
+    try {
+      await deleteProject(projectId).unwrap();
+      toast.success('Project moved to trash.');
+      refetchProjects();
+    } catch (err) { toast.error(err?.data?.message || 'Failed to move project'); }
+  };
+  const handlePermanentDelete = async (projectId) => {
+    try {
+      await permanentlyDeleteProject(projectId).unwrap();
+      toast.success('Project permanently deleted.');
+      refetchProjects();
+    } catch (err) { toast.error(err?.data?.message || 'Failed to delete project'); }
+  };
+  const handleRestore = async (projectId) => {
+    try {
+      await restoreProject(projectId).unwrap();
+      toast.success('Project restored.');
+      refetchProjects();
+    } catch (err) { toast.error(err?.data?.message || 'Failed to restore project'); }
+  };
+  const handleArchive = async (projectId) => {
+    if (view === 'active') {
+      setOptimisticArchivedIds(prev => [...prev, projectId]);
+    }
+    try {
+      await archiveProject(projectId).unwrap();
+      toast.success('Project archived.');
+      refetchProjects();
+    } catch (err) {
+      setOptimisticArchivedIds(prev => prev.filter(id => id !== projectId));
+      toast.error(err?.data?.message || 'Failed to archive project');
+    }
+  };
+  const handleUnarchive = async (projectId) => {
+    try {
+      await unarchiveProject(projectId).unwrap();
+      toast.success('Project unarchived.');
+      refetchProjects();
+    } catch (err) { toast.error(err?.data?.message || 'Failed to unarchive project'); }
+  };
+
+  return (
+    <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
+      <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
+        <MyWorkspaceSidebar workspace={workspace} chats={[]} />
+      </div>
+
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800/40 flex-shrink-0">
+          <div className="flex items-center justify-between px-4 h-14 lg:h-16">
+            <div className="flex items-center gap-3">
+              <button onClick={() => navigate(`/my-workspace/${workspaceId}`)} className="p-1 lg:hidden text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition">
+                <FaArrowLeft />
+              </button>
+              <h1 className="text-lg font-bold text-gray-800 dark:text-gray-100 tracking-tight">Projects</h1>
+              <span className="text-xs font-normal text-gray-500 dark:text-gray-500 bg-gray-100 dark:bg-[#1a1a24] px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-800/40">
+                {projects.length}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="hidden md:flex items-center bg-gray-100 dark:bg-[#1a1a24] border border-gray-300 dark:border-gray-800/60 rounded-full px-3 py-1.5 gap-2 focus-within:border-[#0d9488]/50 transition">
+                <FaSearch className="text-gray-400 dark:text-gray-500 text-xs" />
+                <input
+                  type="text"
+                  placeholder="Search projects..."
+                  className="bg-transparent outline-none text-sm text-gray-800 dark:text-gray-200 w-32 lg:w-48"
+                  value={filters.search || ''}
+                  onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                />
+                {filters.search && (
+                  <button onClick={() => setFilters({ ...filters, search: '' })} className="text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+                    <FaTimes className="text-xs" />
+                  </button>
+                )}
+              </div>
+              <button onClick={() => setFilterDrawerOpen(true)} className="hidden md:flex items-center gap-1.5 bg-gray-100 dark:bg-[#1a1a24] border border-gray-300 dark:border-gray-800/60 rounded-full px-3 py-1.5 text-xs text-gray-700 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:border-gray-400 dark:hover:border-gray-600 transition">
+                <FaFilter className="text-[10px]" /> Filter <FaChevronDown className="text-[8px] ml-1" />
+              </button>
+              <button onClick={() => setSearchOpen(true)} className="md:hidden p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition">
+                <FaSearch className="text-sm" />
+              </button>
+              <button onClick={() => setFilterDrawerOpen(true)} className="md:hidden p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition">
+                <FaFilter className="text-sm" />
+              </button>
+              {isOwner && (
+                <button onClick={() => setShowCreateModal(true)} className="bg-[#0d9488] hover:bg-[#0f9e96] text-white text-sm font-medium px-3 py-1.5 rounded-xl transition flex items-center gap-1.5">
+                  <FaPlus className="text-xs" /> <span className="hidden sm:inline">New</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* View tabs + status chips */}
+          <div className="flex items-center justify-between px-4 pb-2">
+            <div className="flex gap-1">
+              {['active', 'archived', ...(isOwner ? ['trash'] : [])].map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setView(tab)}
+                  className={`text-xs px-3 py-1 rounded-full transition ${
+                    view === tab ? 'bg-[#0d9488]/20 text-[#0d9488] border border-[#0d9488]/30' : 'text-gray-600 dark:text-gray-500 hover:text-gray-800 dark:hover:text-gray-300'
+                  }`}
+                >
+                  {tab === 'active' ? 'All' : tab === 'archived' ? 'Archived' : 'Trash'}
+                </button>
+              ))}
+            </div>
+            {view === 'active' && (
+              <div className="hidden md:flex items-center gap-2 overflow-x-auto">
+                {['all', 'planning', 'in-progress', 'completed'].map((status) => (
+                  <button
+                    key={status}
+                    onClick={() => setFilters({ ...filters, status })}
+                    className={`text-xs px-3 py-1 rounded-full transition whitespace-nowrap ${
+                      filters.status === status ? 'bg-[#0d9488]/20 text-[#0d9488] border border-[#0d9488]/30' : 'text-gray-600 dark:text-gray-500 hover:text-gray-800 dark:hover:text-gray-300 border border-transparent hover:border-gray-300 dark:hover:border-gray-700'
+                    }`}
+                  >
+                    {status === 'all' ? 'All' : status.charAt(0).toUpperCase() + status.slice(1)}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </header>
+
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-5 pb-28 md:pb-6">
+          {/* Mobile Stats */}
+          {view === 'active' && (
+            <div className="md:hidden mb-4">
+              <div className="relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 p-4 overflow-hidden">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-[#0d9488]/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
+                <div className="relative flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
+                    <FaChartPie className="text-[#0d9488]" /> Overview
+                  </h3>
+                  <span className="text-xs text-gray-500 dark:text-gray-500">
+                    {completedProjects}/{totalProjects} done
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-gray-100 dark:bg-[#1a1a24] rounded-xl p-3 border border-gray-200 dark:border-gray-800/30">
+                    <p className="text-2xl font-bold text-gray-800 dark:text-gray-100">{totalProjects}</p>
+                    <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1">
+                      <FaFolder className="text-[10px] text-[#0d9488]" /> Total
+                    </p>
+                  </div>
+                  <div className="bg-gray-100 dark:bg-[#1a1a24] rounded-xl p-3 border border-blue-200 dark:border-blue-500/20">
+                    <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{planningProjects}</p>
+                    <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1">
+                      <FaClock className="text-[10px] text-blue-600 dark:text-blue-400" /> Planning
+                    </p>
+                  </div>
+                  <div className="bg-gray-100 dark:bg-[#1a1a24] rounded-xl p-3 border border-yellow-200 dark:border-yellow-500/20">
+                    <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{inProgressProjects}</p>
+                    <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1">
+                      <FaSpinner className="text-[10px] text-yellow-600 dark:text-yellow-400" /> In Progress
+                    </p>
+                  </div>
+                  <div className="bg-gray-100 dark:bg-[#1a1a24] rounded-xl p-3 border border-green-200 dark:border-green-500/20">
+                    <p className="text-2xl font-bold text-green-600 dark:text-green-400">{completedProjects}</p>
+                    <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1">
+                      <FaCheckCircle className="text-[10px] text-green-600 dark:text-green-400" /> Completed
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <div className="flex justify-between text-[10px] text-gray-500 dark:text-gray-500 mb-1">
+                    <span>Overall progress</span>
+                    <span className="font-mono">{overallProgress}%</span>
+                  </div>
+                  <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full transition-all duration-700" style={{ width: `${overallProgress}%`, backgroundColor: brandColor }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Desktop Stats */}
+          {view === 'active' && (
+            <div className="hidden md:grid md:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+              <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 p-4 backdrop-blur-sm hover:border-[#0d9488]/30 transition group">
+                <p className="text-2xl font-bold text-gray-800 dark:text-gray-100 group-hover:text-[#0d9488] transition">{totalProjects}</p>
+                <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">Total</p>
+              </div>
+              <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 p-4 hover:border-blue-400 dark:hover:border-blue-500/30 transition group">
+                <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 group-hover:text-blue-500 dark:group-hover:text-blue-300 transition">{planningProjects}</p>
+                <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">Planning</p>
+              </div>
+              <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 p-4 hover:border-yellow-400 dark:hover:border-yellow-500/30 transition group">
+                <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400 group-hover:text-yellow-500 dark:group-hover:text-yellow-300 transition">{inProgressProjects}</p>
+                <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">In Progress</p>
+              </div>
+              <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 p-4 hover:border-green-400 dark:hover:border-green-500/30 transition group">
+                <p className="text-2xl font-bold text-green-600 dark:text-green-400 group-hover:text-green-500 dark:group-hover:text-green-300 transition">{completedProjects}</p>
+                <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">Completed</p>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2">
+              {filteredProjects.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-gray-500 dark:text-gray-500">
+                  <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 flex items-center justify-center mb-4">
+                    <FaFolder className="text-3xl text-gray-400 dark:text-gray-700" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300">No projects</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-600 mt-1">
+                    {view === 'trash' ? 'Trash is empty' : view === 'archived' ? 'No archived projects' : 'No projects match your filters'}
+                  </p>
+                </div>
+              ) : (
+                /* ===== CHANGE: 2 columns on mobile ===== */
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {filteredProjects.map((project) => (
+                    <ProjectCard
+                      key={project._id}
+                      project={project}
+                      brandColor={brandColor}
+                      workspaceId={workspaceId}
+                      isOwner={isOwner}
+                      onDelete={handleDeleteProject}
+                      onPermanentDelete={handlePermanentDelete}
+                      onRestore={handleRestore}
+                      onArchive={handleArchive}
+                      onUnarchive={handleUnarchive}
+                      onEdit={(id) => navigate(`/my-workspace/${workspaceId}/projects/edit/${id}`)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {view === 'active' && (
+              <div className="hidden lg:block space-y-5">
+                <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 p-4">
+                  <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                    <FaRocket className="text-[#0d9488]" /> Active Projects
+                  </h4>
+                  <div className="mt-3 space-y-3">
+                    {activeProjects.length === 0 ? (
+                      <p className="text-xs text-gray-500 dark:text-gray-500">No active projects</p>
+                    ) : (
+                      activeProjects.map((p) => (
+                        <Link key={p._id} to={`/my-workspace/${workspaceId}/project/${p._id}`} className="flex items-center justify-between group">
+                          <span className="text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">{p.name}</span>
+                          <div className="flex items-center gap-2">
+                            <div className="w-12 h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full transition-all" style={{ width: `${p.progress || 0}%`, backgroundColor: brandColor }} />
+                            </div>
+                            <span className="text-xs font-mono text-gray-500 dark:text-gray-500">{p.progress || 0}%</span>
+                          </div>
+                        </Link>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 p-4">
+                  <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                    <FaClock className="text-[#0d9488]" /> Recent Activity
+                  </h4>
+                  <div className="mt-3 space-y-2">
+                    {recentActivity.length === 0 ? (
+                      <p className="text-xs text-gray-500 dark:text-gray-500">No recent activity</p>
+                    ) : (
+                      recentActivity.map((act) => (
+                        <div key={act.id} className="flex items-start gap-2 text-xs">
+                          <div className="w-1.5 h-1.5 rounded-full bg-[#0d9488] mt-1.5 flex-shrink-0" />
+                          <div>
+                            <span className="text-gray-800 dark:text-gray-300">{act.projectName}</span>
+                            <span className="text-gray-500 dark:text-gray-500"> {act.action}</span>
+                            <span className="text-gray-500 dark:text-gray-600 block">{new Date(act.time).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 p-4">
+                  <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                    <FaCheckCircle className="text-[#0d9488]" /> Completion Rate
+                  </h4>
+                  <div className="mt-3 flex items-center gap-4">
+                    <div className="relative w-16 h-16">
+                      <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
+                        <circle cx="18" cy="18" r="16" fill="none" className="stroke-gray-200 dark:stroke-gray-800/60" strokeWidth="3" />
+                        <circle cx="18" cy="18" r="16" fill="none" className="stroke-[#0d9488] transition-all duration-1000" strokeWidth="3" strokeDasharray="100" strokeDashoffset={100 - overallProgress} strokeLinecap="round" />
+                      </svg>
+                      <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-gray-800 dark:text-gray-300">{overallProgress}%</span>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-800 dark:text-gray-300">{completedProjects} of {totalProjects} completed</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-500">{totalProjects - completedProjects} remaining</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <MyWorkspaceBottombar workspace={workspace} />
+
+      <SearchProjectsModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} projects={projects} brandColor={brandColor} workspaceId={workspaceId} />
+      <FilterDrawer isOpen={filterDrawerOpen} onClose={() => setFilterDrawerOpen(false)} filters={filters} setFilters={setFilters} view={view} setView={setView} isOwner={isOwner} />
+      {isOwner && <CreateProjectModal workspace={workspace} isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} onCreated={() => refetchProjects()} />}
+    </div>
+  );
+};
+
+export default MyWorkspaceProjects;

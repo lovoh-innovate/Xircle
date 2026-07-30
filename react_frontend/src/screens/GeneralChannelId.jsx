@@ -54,6 +54,7 @@ import {
   FaEdit,
   FaImage as FaImageIcon,
   FaTrashAlt as FaTrashIcon,
+  FaPlus,
 } from 'react-icons/fa';
 import GeneralSidebar from '../components/GeneralSidebar';
 
@@ -186,6 +187,58 @@ const QuotedReplyBlock = ({ replyData, isOwn, onJump }) => {
       </p>
       <p className={`truncate ${isOwn ? 'text-white/70' : 'text-gray-500 dark:text-gray-400'}`}>{text}</p>
     </button>
+  );
+};
+
+// ─── Media Preview Component ──────────────────────────────────────
+const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor }) => {
+  const [preview, setPreview] = useState(null);
+  const [type, setType] = useState(null);
+
+  useEffect(() => {
+    if (mediaFile) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPreview(reader.result);
+        setType(mediaFile.type.startsWith('image/') ? 'image' : 'file');
+      };
+      reader.readAsDataURL(mediaFile);
+    }
+  }, [mediaFile]);
+
+  if (!mediaFile || !preview) return null;
+
+  return (
+    <div className="flex items-center gap-3 p-3 mb-2 bg-gray-50 dark:bg-gray-800/30 rounded-xl border border-gray-200 dark:border-gray-700/60">
+      <div className="relative flex-shrink-0">
+        {type === 'image' ? (
+          <img src={preview} alt="Preview" className="w-16 h-16 rounded-lg object-cover" />
+        ) : (
+          <div className="w-16 h-16 rounded-lg bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-2xl">
+            📄
+          </div>
+        )}
+        <button
+          onClick={onRemove}
+          className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition text-xs"
+        >
+          <FaTimes />
+        </button>
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{mediaFile.name}</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          {(mediaFile.size / 1024).toFixed(1)} KB
+        </p>
+      </div>
+      <button
+        onClick={() => onSend(mediaFile)}
+        className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition text-sm font-medium flex-shrink-0"
+        style={{ backgroundColor: brandColor || '#0d9488' }}
+      >
+        <FaPaperPlane className="inline mr-1 text-xs" /> Send
+      </button>
+    </div>
   );
 };
 
@@ -531,7 +584,11 @@ const MediaMessage = ({
             style={isOwn ? { backgroundColor: '#0d9488' } : {}}
           >
             {replyPreview && <QuotedReplyBlock replyData={replyPreview} isOwn={isOwn} onJump={onJumpToMessage} />}
-            {message.content && <p className="mb-2">{message.content}</p>}
+            {message.content && (
+              <p className="mb-2 whitespace-pre-wrap break-words">
+                {message.content}
+              </p>
+            )}
             {renderMediaContent()}
           </div>
           <div className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 ${isOwn ? 'flex-row-reverse' : ''}`}>
@@ -1031,6 +1088,7 @@ const GeneralChannelId = () => {
   const [localMessages, setLocalMessages] = useState([]);
   const [showDetails, setShowDetails] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [pendingMedia, setPendingMedia] = useState(null);
   const isMobile = useMediaQuery('(max-width: 768px)');
   const isDesktop = !isMobile;
 
@@ -1038,7 +1096,7 @@ const GeneralChannelId = () => {
 
   const { data: chatListData, refetch: refetchChats } = useGetUserChatsQuery({ archived: false });
   const chat = chatListData?.chats?.find(c => c._id === chatId);
-  // This component is only for public group channels; if it's not a group, redirect.
+  
   useEffect(() => {
     if (chat && (chat.type !== 'group' || chat.scope !== 'public')) {
       navigate('/channels');
@@ -1081,7 +1139,7 @@ const GeneralChannelId = () => {
     return { ...senderField, name: senderField.name || 'Unknown' };
   }, []);
 
-  // ─── Fetch join requests (admin only) for notification dot ──
+  // ─── Fetch join requests ──────────────────────────────────────────
   const { data: joinRequestsData, refetch: refetchJoinRequests } = useGetJoinRequestsQuery(chat?._id, {
     skip: !chat?._id || !isAdmin,
   });
@@ -1113,6 +1171,7 @@ const GeneralChannelId = () => {
     userMapRef.current = new Map();
     setIsAtBottom(true);
     setShowScrollDown(false);
+    setPendingMedia(null);
   }, [chatId]);
 
   // ─── Scroll / bottom detection ─────────────────────────────────
@@ -1140,6 +1199,14 @@ const GeneralChannelId = () => {
       setShowScrollDown(true);
     }
   }, [localMessages.length]);
+
+  // ─── Auto-resize textarea ──────────────────────────────────────────
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+      inputRef.current.style.height = inputRef.current.scrollHeight + 'px';
+    }
+  }, [message]);
 
   // ─── Message handling ──────────────────────────────────────────
   const mergeMessagesIntoState = useCallback((incomingList) => {
@@ -1222,6 +1289,24 @@ const GeneralChannelId = () => {
     return () => clearInterval(interval);
   }, [chatId, refetchMessages, refetchChats, refetchJoinRequests, isAdmin]);
 
+  // ─── Handle media send ──────────────────────────────────────────
+  const handleSendMedia = async (file) => {
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('media', file);
+    formData.append('messageType', file.type.startsWith('image/') ? 'image' : 'file');
+    if (replyToMessage) formData.append('replyToId', replyToMessage._id);
+    
+    try {
+      await sendMessageApi({ chatId, data: formData }).unwrap();
+      toast.success(`${file.type.startsWith('image/') ? 'Image' : 'File'} sent!`);
+      setReplyToMessage(null);
+      setPendingMedia(null);
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to send media');
+    }
+  };
+
   // ─── Send message ──────────────────────────────────────────────
   const handleSendMessage = (e) => {
     e.preventDefault();
@@ -1245,6 +1330,12 @@ const GeneralChannelId = () => {
     setMessage('');
     const replyToId = replyToMessage?._id || null;
     setReplyToMessage(null);
+    
+    // Reset textarea height
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+    }
+    
     socket.emit('send-message', {
       chatId,
       content: trimmed,
@@ -1261,27 +1352,35 @@ const GeneralChannelId = () => {
     });
   };
 
-  // ─── File / image ──────────────────────────────────────────────
+  // ─── File / image handlers ──────────────────────────────────────
   const handleFileUpload = (type) => {
     if (type === 'file') fileInputRef.current?.click();
     else imageInputRef.current?.click();
   };
 
-  const handleFileChange = async (e, type) => {
+  const handleFileChange = (e, type) => {
     const file = e.target.files[0];
     if (!file) return;
-    const formData = new FormData();
-    formData.append('media', file);
-    formData.append('messageType', type === 'image' ? 'image' : 'file');
-    if (replyToMessage) formData.append('replyToId', replyToMessage._id);
-    try {
-      await sendMessageApi({ chatId, data: formData }).unwrap();
-      toast.success(`${type === 'image' ? 'Image' : 'File'} sent!`);
-      setReplyToMessage(null);
-    } catch (err) {
-      toast.error(err?.data?.message || `Failed to send ${type}`);
-    } finally {
-      e.target.value = '';
+    setPendingMedia(file);
+    e.target.value = '';
+  };
+
+  // ─── Handle paste ──────────────────────────────────────────────────
+  const handlePaste = (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) {
+          setPendingMedia(file);
+          toast.info('Image pasted! Click send to upload.');
+          e.preventDefault();
+          break;
+        }
+      }
     }
   };
 
@@ -1468,6 +1567,7 @@ const GeneralChannelId = () => {
   }, []);
   const handleEditChannel = () => setShowEditModal(true);
   const handleEditSuccess = () => { refetchChats(); };
+  const clearPendingMedia = () => setPendingMedia(null);
 
   // ─── Render messages with dividers ────────────────────────────
   const renderMessagesWithDividers = () => {
@@ -1567,9 +1667,19 @@ const GeneralChannelId = () => {
             </div>
 
             {/* Input area */}
-            <div className="fixed lg:sticky bottom-0 left-0 right-0 lg:left-auto lg:right-auto z-20 border-t border-gray-200/60 dark:border-gray-800/60 bg-white/90 dark:bg-[#0f0f12]/90 backdrop-blur-xl flex-shrink-0">
-              <div className="px-3 py-2">
+            <div className="fixed lg:sticky bottom-0 left-0 right-0 lg:left-auto lg:right-auto z-20 border-t border-gray-200/60 dark:border-gray-800/60 bg-white/90 dark:bg-[#0f0f12]/90 backdrop-blur-xl flex-shrink-0 px-3 sm:px-4">
+              <div className="py-2">
                 <ReplyPreview replyTo={replyToMessage} onCancel={cancelReply} resolveSender={resolveSender} />
+
+                {/* Media Preview */}
+                {pendingMedia && (
+                  <MediaPreview
+                    mediaFile={pendingMedia}
+                    onRemove={clearPendingMedia}
+                    onSend={handleSendMedia}
+                    brandColor="#0d9488"
+                  />
+                )}
 
                 {showRecordedPreview && recordingBlob && (
                   <div className="flex items-center justify-between px-3 py-2 mb-2 bg-green-50 dark:bg-green-900/30 rounded-lg border border-green-200 dark:border-green-700/40">
@@ -1614,16 +1724,31 @@ const GeneralChannelId = () => {
                   </div>
                 )}
 
-                <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-                  <button type="button" onClick={() => handleFileUpload('file')} className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition flex-shrink-0"><FaPaperclip className="text-sm" /></button>
-                  <button type="button" onClick={() => handleFileUpload('image')} className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition flex-shrink-0"><FaImage className="text-sm" /></button>
+                <form onSubmit={handleSendMessage} className="flex items-end gap-2">
+                  <button type="button" onClick={() => handleFileUpload('file')} className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition flex-shrink-0 mb-1"><FaPaperclip className="text-sm" /></button>
+                  <button type="button" onClick={() => handleFileUpload('image')} className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition flex-shrink-0 mb-1"><FaImage className="text-sm" /></button>
                   <input type="file" ref={fileInputRef} onChange={(e) => handleFileChange(e, 'file')} className="hidden" />
                   <input type="file" ref={imageInputRef} onChange={(e) => handleFileChange(e, 'image')} className="hidden" accept="image/*,video/*" />
-                  <input ref={inputRef} type="text" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Type a message..." className="flex-1 min-w-0 px-4 py-2 border border-gray-300 dark:border-gray-700/60 rounded-full bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500" />
+                  <textarea 
+                    ref={inputRef} 
+                    value={message} 
+                    onChange={(e) => setMessage(e.target.value)} 
+                    onPaste={handlePaste}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendMessage(e);
+                      }
+                    }}
+                    placeholder="Type a message... (paste images)"
+                    rows={1}
+                    className="flex-1 min-w-0 px-4 py-2 border border-gray-300 dark:border-gray-700/60 rounded-2xl bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500 resize-none max-h-32 overflow-y-auto"
+                    style={{ minHeight: '42px', lineHeight: '1.5' }}
+                  />
                   {message.trim() ? (
-                    <button type="submit" disabled={!isConnected} className="p-2 rounded-full text-white disabled:opacity-50 flex-shrink-0 transition hover:opacity-80" style={{ backgroundColor: '#0d9488' }}><FaPaperPlane className="text-sm" /></button>
+                    <button type="submit" disabled={!isConnected} className="p-2 rounded-full text-white disabled:opacity-50 flex-shrink-0 transition hover:opacity-80 mb-1" style={{ backgroundColor: '#0d9488' }}><FaPaperPlane className="text-sm" /></button>
                   ) : (
-                    <button type="button" onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerUp} className="p-2 rounded-full text-white flex-shrink-0 transition hover:opacity-80" style={{ backgroundColor: '#0d9488' }}><FaMicrophone className="text-sm" /></button>
+                    <button type="button" onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerUp} className="p-2 rounded-full text-white flex-shrink-0 transition hover:opacity-80 mb-1" style={{ backgroundColor: '#0d9488' }}><FaMicrophone className="text-sm" /></button>
                   )}
                 </form>
               </div>
