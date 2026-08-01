@@ -1,6 +1,7 @@
 import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Provider, useSelector } from 'react-redux';
+import { PersistGate } from 'redux-persist/integration/react';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import {
   createBrowserRouter,
@@ -14,7 +15,10 @@ import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
 import './index.css';
-import store from './store';
+import store, { persistor } from './store';
+
+import PrivateRoute from './components/PrivateRoute.jsx';
+import Welcome from './screens/Welcome.jsx';
 
 // ── ThemeProvider and useTheme ──────────────────────────────────────
 import { ThemeProvider, useTheme } from './contexts/ThemeContext.jsx';
@@ -35,6 +39,8 @@ import MyWorkspaces from './screens/MyWorkspaces.jsx';
 import Profile from './screens/Profile.jsx';
 import YourWorkspaceId from './screens/YourWorkspaceId.jsx';
 import MyWorkspaceId from './workspaceScreens/MyWorkspaceId.jsx';
+
+import AllTasks from './screens/AllTasks.jsx';
 
 // My workspace sub‑routes
 import MyWorkspaceChannels from './workspaceScreens/MyWorkspaceChannels.jsx';
@@ -169,8 +175,6 @@ const RootLayout = () => {
   useEffect(() => {
     if (!socket) return;
 
-    // Listen for data‑changed events from the server.
-    // Adjust the event name to match your backend (e.g., 'data-updated', 'entity-changed', etc.)
     const handleDataChange = (data) => {
       console.log('🔄 Real‑time data update received:', data);
       refreshAll();
@@ -243,28 +247,6 @@ const RootLayout = () => {
         hideProgressBar={false}
         theme={isDarkMode ? 'dark' : 'light'}
       />
-
-      {/* ── Floating manual refresh button (fallback) ── */}
-      {/* <button
-        onClick={refreshAll}
-        className="fixed bottom-24 right-4 z-50 p-3 bg-teal-600 dark:bg-[#0d9488] text-white rounded-full shadow-lg hover:opacity-80 active:scale-90 transition"
-        aria-label="Refresh all data"
-      >
-        <svg
-          className="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="2"
-            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-          />
-        </svg>
-      </button> */}
     </div>
   );
 };
@@ -275,46 +257,65 @@ const router = createBrowserRouter([
     path: '/',
     element: <RootLayout />,
     children: [
-      { index: true, element: <Login /> },
+      // ── Public routes (no auth required) ──
+      { index: true, element: <Welcome /> },        // now the landing page
       { path: 'login', element: <Login /> },
       { path: 'signup', element: <Signup /> },
       { path: 'forgot-password', element: <ForgotPassword /> },
-      { path: 'settings', element: <Settings /> },
 
-      // General routes
-      {path: 'channels', element: <GeneralChannels />},
-      {path: 'channels/:chatId', element: <GeneralChannelId />},
-      {path: 'chat', element: <GeneralChats />},
-      {path: 'chats/:chatId', element: <GeneralChatId />},
-      {path: 'personal-tasks', element: <PersonalTasks />},
+      // ── Protected routes (auth required) ──
+      {
+        element: <PrivateRoute />,
+        children: [
+          { path: 'settings', element: <Settings /> },
+          { path: 'my-workspaces', element: <MyWorkspaces /> },
+          { path: 'workspace/:workspaceId', element: <YourWorkspaceId /> },
+          { path: 'my-workspace/:workspaceId', element: <MyWorkspaceId /> },
 
-      { path: 'my-workspaces', element: <MyWorkspaces /> },
-      { path: 'workspace/:workspaceId', element: <YourWorkspaceId /> },
-      { path: 'my-workspace/:workspaceId', element: <MyWorkspaceId /> },
+          { path: 'my-workspace/:workspaceId/channels', element: <MyWorkspaceChannels /> },
+          { path: 'my-workspace/:workspaceId/chat/:chatId', element: <MyWorkspaceChatId /> },
+          { path: 'my-workspace/:workspaceId/channels/:chatId', element: <MyWorkspaceChannelId /> },
+          { path: 'my-workspace/:workspaceId/projects', element: <MyWorkspaceProjects /> },
+          { path: 'my-workspace/:workspaceId/project/:projectId', element: <MyWorkspaceProjectId /> },
+          { path: 'my-workspace/:workspaceId/members', element: <MyWorkspaceMembers /> },
+          { path: 'my-workspace/:workspaceId/dms', element: <MyWorkspaceDMs /> },
+          { path: 'my-workspace/:workspaceId/settings', element: <MyWorkspaceSettings /> },
+          { path: 'my-workspace/:workspaceId/projects/create', element: <MyWorkspaceCreateProject /> },
+          { path: 'my-workspace/:workspaceId/projects/edit/:projectId', element: <MyWorkspaceUpdateProject /> },
+          { path: 'my-workspace/:workspaceId/tasks', element: <AllTasks /> },
 
-      { path: 'my-workspace/:workspaceId/channels', element: <MyWorkspaceChannels /> },
-      {path: 'my-workspace/:workspaceId/chat/:chatId', element: <MyWorkspaceChatId />},
-      { path: 'my-workspace/:workspaceId/channels/:chatId', element: <MyWorkspaceChannelId /> },
-      { path: 'my-workspace/:workspaceId/projects', element: <MyWorkspaceProjects /> },
-      { path: 'my-workspace/:workspaceId/project/:projectId', element: <MyWorkspaceProjectId /> },
-      { path: 'my-workspace/:workspaceId/members', element: <MyWorkspaceMembers /> },
-      { path: 'my-workspace/:workspaceId/dms', element: <MyWorkspaceDMs /> },
-      { path: 'my-workspace/:workspaceId/settings', element: <MyWorkspaceSettings /> },
-      { path: 'my-workspace/:workspaceId/projects/create', element: <MyWorkspaceCreateProject /> },
-      { path: 'my-workspace/:workspaceId/projects/edit/:projectId', element: <MyWorkspaceUpdateProject /> },
+          { path: 'workspace/:workspaceId/channels', element: <YourWorkspaceChannels /> },
+          { path: 'workspace/:workspaceId/chat/:chatId', element: <YourWorkspaceChannelId /> },
+          { path: 'workspace/:workspaceId/dms', element: <YourWorkspaceDMs /> },
+          { path: 'workspace/:workspaceId/projects', element: <YourWorkspaceProjects /> },
+          { path: 'workspace/:workspaceId/project/:projectId', element: <YourWorkspaceProjectId /> },
+          { path: 'workspace/:workspaceId/tasks', element: <AllTasks /> },
 
-      { path: 'workspace/:workspaceId/channels', element: <YourWorkspaceChannels /> },
-      { path: 'workspace/:workspaceId/chat/:chatId', element: <YourWorkspaceChannelId /> },
-      { path: 'workspace/:workspaceId/dms', element: <YourWorkspaceDMs /> },
-      { path: 'workspace/:workspaceId/projects', element: <YourWorkspaceProjects /> },
-      { path: 'workspace/:workspaceId/project/:projectId', element: <YourWorkspaceProjectId /> },
+          { path: 'profile', element: <Profile /> },
 
-      { path: 'profile', element: <Profile /> },
+          // General routes
+          { path: 'channels', element: <GeneralChannels /> },
+          { path: 'channels/:chatId', element: <GeneralChannelId /> },
+          { path: 'chat', element: <GeneralChats /> },
+          { path: 'chats/:chatId', element: <GeneralChatId /> },
+          { path: 'personal-tasks', element: <PersonalTasks /> },
 
-      { path: 'call/:roomId', element: <CallScreen /> },
+          { path: 'call/:roomId', element: <CallScreen /> },
+        ],
+      },
     ],
   },
 ]);
+
+// ─── Loading screen while persisting data ──────────────────────────
+const PersistLoadingScreen = () => (
+  <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
+    <div className="flex flex-col items-center gap-4">
+      <div className="w-12 h-12 border-4 border-t-teal-600 dark:border-t-[#0d9488] border-gray-200 dark:border-gray-800 rounded-full animate-spin" />
+      <p className="text-gray-500 dark:text-gray-400 text-sm">Loading your workspace...</p>
+    </div>
+  </div>
+);
 
 // ── AppRoot ───────────────────────────────────────────────────────────
 const AppRoot = () => {
@@ -330,14 +331,16 @@ const AppRoot = () => {
   );
 };
 
-// ── Render ────────────────────────────────────────────────────────────
+// ─── Main render with PersistGate ──────────────────────────────────
 createRoot(document.getElementById('root')).render(
   <Provider store={store}>
     <StrictMode>
       <ThemeProvider>
         <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID}>
           <RefreshProvider>
-            <AppRoot />
+            <PersistGate loading={<PersistLoadingScreen />} persistor={persistor}>
+              <AppRoot />
+            </PersistGate>
           </RefreshProvider>
         </GoogleOAuthProvider>
       </ThemeProvider>

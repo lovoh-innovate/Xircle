@@ -30,6 +30,9 @@ import {
   useSendManualReminderMutation,
   useGetTaskFeedbackQuery,
   useAssignTaskMutation,
+  // ─── NEW reorder mutations ───
+  useReorderTasksMutation,
+  useReorderSubTasksMutation,
 } from '../slices/taskApiSlice';
 import {
   useGetProjectFoldersQuery,
@@ -87,6 +90,7 @@ import {
   FaUserLock,
   FaUserEdit,
   FaRedo,
+  FaGripVertical, // for drag handle
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
@@ -309,8 +313,20 @@ const RejectReasonModal = ({ isOpen, onClose, onConfirm }) => {
   );
 };
 
-// ─── Task Card ──────────────────────────────────────────────────────────
-const TaskCard = ({ task, onClick, brandColor, isActive }) => {
+// ─── Task Card (with reorder drag support) ──────────────────────────
+const TaskCard = ({
+  task,
+  onClick,
+  brandColor,
+  isActive,
+  draggable,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDrop,
+  onDragLeave,
+  dragOver,
+}) => {
   const progress = task.progress || 0;
   const subTaskCount = task.subTasks?.length || 0;
   const confirmedCount = (task.subTasks || []).filter(st => st.status === 'confirmed').length || 0;
@@ -319,20 +335,36 @@ const TaskCard = ({ task, onClick, brandColor, isActive }) => {
   const assignee = task.assignee;
   const folderName = task.folder?.name;
 
-  // Recurrence info
   const hasRecurrence = task.recurrenceType && task.recurrenceType !== 'none';
   const recurrenceLabel = task.recurrenceType === 'daily' ? 'Daily' : task.recurrenceType === 'weekly' ? 'Weekly' : '';
 
   return (
     <div
+      draggable={draggable}
+      onDragStart={(e) => draggable && onDragStart && onDragStart(e, task)}
+      onDragEnd={(e) => draggable && onDragEnd && onDragEnd(e, task)}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (draggable && onDragOver) onDragOver(e, task);
+      }}
+      onDrop={(e) => {
+        if (draggable && onDrop) onDrop(e, task);
+      }}
+      onDragLeave={(e) => {
+        if (draggable && onDragLeave) onDragLeave(e);
+      }}
       onClick={() => onClick(task._id)}
-      className={`group relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/40 hover:border-teal-500 dark:hover:border-[#0d9488]/50 transition-all duration-300 cursor-pointer overflow-hidden ${
-        isActive ? 'border-teal-500 dark:border-[#0d9488] shadow-[0_0_20px_rgba(13,148,136,0.15)] dark:shadow-[0_0_20px_rgba(13,148,136,0.15)]' : ''
-      }`}
+      className={`group relative bg-white dark:bg-[#14141a] rounded-2xl border transition-all duration-300 cursor-pointer overflow-hidden ${
+        isActive ? 'border-teal-500 dark:border-[#0d9488] shadow-[0_0_20px_rgba(13,148,136,0.15)]' : 'border-gray-200/60 dark:border-gray-800/40 hover:border-teal-500 dark:hover:border-[#0d9488]/50'
+      } ${draggable ? 'active:cursor-grabbing' : ''} ${dragOver ? 'border-teal-500 dark:border-[#0d9488] bg-teal-50/50 dark:bg-[#0d9488]/5' : ''}`}
     >
       <div className="p-4">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
+            {draggable && (
+              <FaGripVertical className="text-gray-300 dark:text-gray-700 text-xs flex-shrink-0 cursor-grab" />
+            )}
             <div
               className="w-8 h-8 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
               style={{ backgroundColor: brandColor }}
@@ -485,8 +517,23 @@ const SearchModal = ({ isOpen, onClose, items, type, brandColor, onSelect }) => 
   );
 };
 
-// ─── Sub‑task Item ──────────────────────────────────────────────────────
-const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh, brandColor }) => {
+// ─── Sub‑task Item (with reorder drag support) ──────────────────────
+const SubTaskItem = ({
+  subTask,
+  index,
+  taskId,
+  isAssignee,
+  canManage,
+  onRefresh,
+  brandColor,
+  draggable,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDrop,
+  onDragLeave,
+  dragOver,
+}) => {
   const [markDone] = useMarkSubTaskDoneMutation();
   const [confirmSub] = useConfirmSubTaskMutation();
   const [rejectSub] = useRejectSubTaskMutation();
@@ -562,7 +609,6 @@ const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh,
     setConfirmFeedback('');
   };
 
-  // ── Reject handler with modal ──
   const handleRejectClick = () => {
     setShowRejectModal(true);
   };
@@ -597,10 +643,31 @@ const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh,
 
   return (
     <>
-      <div className="flex flex-col py-2 border-b border-gray-100 dark:border-gray-800/20 last:border-0">
+      <div
+        draggable={draggable}
+        onDragStart={(e) => draggable && onDragStart && onDragStart(e, index)}
+        onDragEnd={(e) => draggable && onDragEnd && onDragEnd(e, index)}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          if (draggable && onDragOver) onDragOver(e, index);
+        }}
+        onDrop={(e) => {
+          if (draggable && onDrop) onDrop(e, index);
+        }}
+        onDragLeave={(e) => {
+          if (draggable && onDragLeave) onDragLeave(e);
+        }}
+        className={`flex flex-col py-2 border-b border-gray-100 dark:border-gray-800/20 last:border-0 transition-colors ${
+          dragOver ? 'bg-teal-50/50 dark:bg-[#0d9488]/5 border-teal-500 dark:border-[#0d9488]' : ''
+        }`}
+      >
         <div className="flex items-start gap-2 flex-wrap">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
+              {draggable && (
+                <FaGripVertical className="text-gray-300 dark:text-gray-700 text-xs flex-shrink-0 cursor-grab" />
+              )}
               <span className="text-sm font-medium text-gray-800 dark:text-gray-300">{subTask.title}</span>
               <span className={`text-[10px] font-medium ${st.color}`}>{st.label}</span>
               {subTask.dueDate && new Date(subTask.dueDate) < new Date() && subTask.status !== 'confirmed' && (
@@ -845,7 +912,7 @@ const AssignTaskModal = ({ isOpen, onClose, task, assignableMembers, brandColor,
   );
 };
 
-// ─── Task Detail View ──────────────────────────────────────────────────
+// ─── Task Detail View (with subtask reorder props) ──────────────────
 const TaskDetailView = ({
   task,
   brandColor,
@@ -860,6 +927,13 @@ const TaskDetailView = ({
   onSendReminder,
   onConfirmCompletion,
   onAssignTask,
+  // ─── Sub-task reorder handlers ───
+  subDragStart,
+  subDragEnd,
+  subDragOver,
+  subDrop,
+  subDragLeave,
+  subDragOverIndex,
 }) => {
   const isAssignee = task.assignee?._id === userInfo?._id;
   const [showMenu, setShowMenu] = useState(false);
@@ -900,6 +974,10 @@ const TaskDetailView = ({
   const total = task.subTasks?.length || 0;
   const confirmed = (task.subTasks || []).filter(st => st.status === 'confirmed').length || 0;
 
+  // Determine if sub-tasks can be reordered
+  const canReorderSub = canManage || (isAssignee && task.allowAssigneeEditSubtasks);
+  const isReadOnly = task.isArchived || task.isTrash || false;
+
   return (
     <div className="flex flex-col h-full bg-gray-50 dark:bg-[#0f0f12]">
       {/* Header */}
@@ -930,20 +1008,22 @@ const TaskDetailView = ({
         </button>
         {showMenu && (
           <div className="absolute right-4 top-12 bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-800/60 rounded-xl min-w-[150px] z-20 py-1 shadow-lg">
-            {canManage && (
+            {canManage && !isReadOnly && (
               <button onClick={() => { setShowMenu(false); onSendReminder(task); }} className="flex items-center gap-2 px-4 py-2 text-sm text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-500/10 w-full transition">
                 <FaBell className="text-xs" /> Send Reminder
               </button>
             )}
-            <button onClick={() => { setShowMenu(false); onEdit(task); }} className="flex items-center gap-2 px-4 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10 w-full transition">
-              <FaEdit className="text-xs" /> Edit
-            </button>
-            {canManage && (
+            {!isReadOnly && (
+              <button onClick={() => { setShowMenu(false); onEdit(task); }} className="flex items-center gap-2 px-4 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10 w-full transition">
+                <FaEdit className="text-xs" /> Edit
+              </button>
+            )}
+            {canManage && !isReadOnly && (
               <button onClick={() => { setShowMenu(false); onDelete(task); }} className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 w-full transition">
                 <FaTrashAlt className="text-xs" /> Delete
               </button>
             )}
-            {canManage && !task.assignee && (
+            {canManage && !task.assignee && !isReadOnly && (
               <button onClick={() => { setShowMenu(false); onAssignTask(task); }} className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 dark:text-[#0d9488] hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 w-full transition">
                 <FaUserPlus className="text-xs" /> Assign Task
               </button>
@@ -977,11 +1057,11 @@ const TaskDetailView = ({
           <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
             <FaTasks className="text-teal-600 dark:text-[#0d9488]" /> Sub‑tasks
           </h3>
-          {(isAssignee && task.allowAssigneeEditSubtasks) || canManage ? (
+          {!isReadOnly && ((isAssignee && task.allowAssigneeEditSubtasks) || canManage) && (
             <button onClick={() => setAddSubTaskOpen(!addSubTaskOpen)} className="text-xs text-teal-600 dark:text-[#0d9488] font-medium flex items-center gap-1 hover:text-teal-700 dark:hover:text-[#14b8a6] transition">
               <FaPlus className="text-xs" /> Add
             </button>
-          ) : null}
+          )}
         </div>
 
         {addSubTaskOpen && (
@@ -1019,25 +1099,35 @@ const TaskDetailView = ({
         {(task.subTasks || []).length === 0 ? (
           <div className="text-center py-8 text-gray-500 dark:text-gray-500 text-sm">No sub‑tasks yet</div>
         ) : (
-          (task.subTasks || []).map((st, idx) => (
-            <SubTaskItem
-              key={idx}
-              subTask={st}
-              index={idx}
-              taskId={task._id}
-              isAssignee={isAssignee}
-              canManage={canManage}
-              onRefresh={onRefresh}
-              brandColor={brandColor}
-            />
-          ))
+          (task.subTasks || []).map((st, idx) => {
+            const isDragOver = subDragOverIndex === idx;
+            return (
+              <SubTaskItem
+                key={idx}
+                subTask={st}
+                index={idx}
+                taskId={task._id}
+                isAssignee={isAssignee}
+                canManage={canManage}
+                onRefresh={onRefresh}
+                brandColor={brandColor}
+                draggable={canReorderSub && !isReadOnly}
+                onDragStart={subDragStart}
+                onDragEnd={subDragEnd}
+                onDragOver={subDragOver}
+                onDrop={subDrop}
+                onDragLeave={subDragLeave}
+                dragOver={isDragOver}
+              />
+            );
+          })
         )}
 
         <div ref={bottomRef} />
       </div>
 
       {/* Bottom action bar */}
-      {isAssignee && task.status !== 'completed' && task.status !== 'confirmed_completed' && (
+      {!isReadOnly && isAssignee && task.status !== 'completed' && task.status !== 'confirmed_completed' && (
         <div className="border-t border-gray-200/60 dark:border-gray-800/40 bg-white dark:bg-[#14141a] px-3 py-2 flex-shrink-0 sticky bottom-0">
           <button
             onClick={() => onRefresh()}
@@ -1048,7 +1138,7 @@ const TaskDetailView = ({
           </button>
         </div>
       )}
-      {canManage && task.status === 'completed' && task.status !== 'confirmed_completed' && (
+      {!isReadOnly && canManage && task.status === 'completed' && task.status !== 'confirmed_completed' && (
         <div className="border-t border-gray-200/60 dark:border-gray-800/40 bg-white dark:bg-[#14141a] px-3 py-2 flex-shrink-0 sticky bottom-0">
           <button
             onClick={onConfirmCompletion}
@@ -1910,6 +2000,26 @@ const YourWorkspaceProjectId = () => {
     { skip: !selectedTaskId }
   );
 
+  // ── NEW: optimistic local tasks state ──
+  const [localTasks, setLocalTasks] = useState([]);
+  useEffect(() => {
+    setLocalTasks(tData?.tasks || []);
+  }, [tData]);
+  const tasks = localTasks;
+
+  // ── Reorder mutations ──
+  const [reorderTasks] = useReorderTasksMutation();
+  const [reorderSubTasks] = useReorderSubTasksMutation();
+
+  // ── Drag state for task reordering ──
+  const [draggedTaskId, setDraggedTaskId] = useState(null);
+  const [dragOverTaskId, setDragOverTaskId] = useState(null);
+  const [isDraggingTask, setIsDraggingTask] = useState(false);
+
+  // ── Drag state for subtask reordering ──
+  const [draggedSubIdx, setDraggedSubIdx] = useState(null);
+  const [dragOverSubIdx, setDragOverSubIdx] = useState(null);
+
   // ── Project archive/trash mutations ──
   const [archiveProject] = useArchiveProjectMutation();
   const [unarchiveProject] = useUnarchiveProjectMutation();
@@ -1927,7 +2037,6 @@ const YourWorkspaceProjectId = () => {
   const workspace = wData?.workspace;
   const project = pData?.project;
   const folders = foldersData?.folders || [];
-  const tasks = tData?.tasks || [];
 
   const activeTeam = useMemo(() => (project?.teamMembers || []).filter(m => m.status === 'active'), [project?.teamMembers]);
   const assignableMembers = useMemo(() => {
@@ -2232,17 +2341,156 @@ const YourWorkspaceProjectId = () => {
     setMobileShowDetail(false);
   };
 
-  // ── Render ──
+  // ─── Task reordering handlers ──────────────────────────────────────
+  const canReorderTasks = canManage && !isTrash && !isArchivedForMe;
+
+  const handleTaskDragStart = (e, task) => {
+    if (!canReorderTasks) {
+      e.preventDefault();
+      toast.error('You do not have permission to reorder tasks.');
+      return;
+    }
+    setDraggedTaskId(task._id);
+    setIsDraggingTask(true);
+    e.dataTransfer.setData('text/plain', task._id);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleTaskDragEnd = () => {
+    setDraggedTaskId(null);
+    setDragOverTaskId(null);
+    setIsDraggingTask(false);
+  };
+
+  const handleTaskDragOver = (e, task) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (draggedTaskId && draggedTaskId !== task._id) {
+      setDragOverTaskId(task._id);
+    }
+  };
+
+  const handleTaskDragLeave = () => {
+    setDragOverTaskId(null);
+  };
+
+  const handleTaskDrop = async (e, targetTask) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const draggedId = e.dataTransfer.getData('text/plain') || draggedTaskId;
+    if (!draggedId || draggedId === targetTask._id) {
+      setDragOverTaskId(null);
+      return;
+    }
+    setDragOverTaskId(null);
+
+    const previousTasks = tasks;
+    const draggedIdx = previousTasks.findIndex(t => t._id === draggedId);
+    const targetIdx = previousTasks.findIndex(t => t._id === targetTask._id);
+    if (draggedIdx === -1 || targetIdx === -1) return;
+
+    const newOrder = [...previousTasks];
+    const [moved] = newOrder.splice(draggedIdx, 1);
+    newOrder.splice(targetIdx, 0, moved);
+    const orderedIds = newOrder.map(t => t._id);
+
+    // Optimistic update
+    setLocalTasks(newOrder);
+    setDraggedTaskId(null);
+    setIsDraggingTask(false);
+
+    try {
+      await reorderTasks({ projectId, orderedTaskIds: orderedIds }).unwrap();
+      refetchTasks(); // reconcile
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to reorder tasks');
+      setLocalTasks(previousTasks);
+    }
+  };
+
+  // ─── Sub‑task reordering handlers ──────────────────────────────────
+  const canReorderSub = (task) => {
+    return !isTrash && !isArchivedForMe && !task.isArchived && (canManage || (task.assignee?._id === userInfo?._id && task.allowAssigneeEditSubtasks));
+  };
+
+  const handleSubDragStart = (e, index) => {
+    if (!activeTask) return;
+    if (!canReorderSub(activeTask)) {
+      e.preventDefault();
+      toast.error('You do not have permission to reorder sub‑tasks.');
+      return;
+    }
+    setDraggedSubIdx(index);
+    e.dataTransfer.setData('text/plain', String(index));
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleSubDragEnd = () => {
+    setDraggedSubIdx(null);
+    setDragOverSubIdx(null);
+  };
+
+  const handleSubDragOver = (e, index) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (draggedSubIdx !== null && draggedSubIdx !== index) {
+      setDragOverSubIdx(index);
+    }
+  };
+
+  const handleSubDragLeave = () => {
+    setDragOverSubIdx(null);
+  };
+
+  const handleSubDrop = async (e, targetIndex) => {
+    e.preventDefault();
+    const raw = e.dataTransfer.getData('text/plain');
+    const draggedIdx = raw !== '' ? parseInt(raw, 10) : draggedSubIdx;
+
+    if (draggedIdx === null || draggedIdx === undefined || Number.isNaN(draggedIdx) || draggedIdx === targetIndex) {
+      setDragOverSubIdx(null);
+      return;
+    }
+    setDragOverSubIdx(null);
+    if (!activeTask) return;
+    const subtasks = activeTask.subTasks || [];
+    if (draggedIdx < 0 || targetIndex < 0 || draggedIdx >= subtasks.length || targetIndex >= subtasks.length) return;
+
+    const previousTasks = tasks;
+    const newSubTasks = [...subtasks];
+    const [movedSub] = newSubTasks.splice(draggedIdx, 1);
+    newSubTasks.splice(targetIndex, 0, movedSub);
+
+    // Build ordered indices for backend
+    const indices = subtasks.map((_, i) => i);
+    const [movedIdx] = indices.splice(draggedIdx, 1);
+    indices.splice(targetIndex, 0, movedIdx);
+    const orderedSubTaskIndices = indices;
+
+    // Optimistic update
+    const optimisticTasks = previousTasks.map(t =>
+      t._id === activeTask._id ? { ...t, subTasks: newSubTasks } : t
+    );
+    setLocalTasks(optimisticTasks);
+    setDraggedSubIdx(null);
+
+    try {
+      await reorderSubTasks({ taskId: activeTask._id, orderedSubTaskIndices }).unwrap();
+      refetchTasks();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to reorder sub‑tasks');
+      setLocalTasks(previousTasks);
+    }
+  };
+
+  // ─── Render ──
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
-      {/* Desktop Sidebar */}
       <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
         <YourWorkspaceSidebar workspace={workspace} chats={[]} />
       </div>
 
-      {/* Main Content */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Header */}
         <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
           <div className="flex items-center justify-between px-4 h-14 lg:h-16">
             <div className="flex items-center gap-3 min-w-0">
@@ -2290,7 +2538,6 @@ const YourWorkspaceProjectId = () => {
               {canManage && !isTrash && !isArchivedForMe && (
                 <button onClick={() => activeTab === 'tasks' ? setShowCreateTask(true) : setShowAddMember(true)} className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"><FaPlus /></button>
               )}
-              {/* ─── Three-dot menu for project actions ─── */}
               <div className="relative">
                 <button
                   onClick={() => setProjectMenuOpen(!projectMenuOpen)}
@@ -2300,50 +2547,32 @@ const YourWorkspaceProjectId = () => {
                 </button>
                 {projectMenuOpen && (
                   <div className="absolute right-0 top-full mt-1 bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-800/60 rounded-xl min-w-[180px] z-20 py-1 shadow-lg">
-                    {/* Archive / Unarchive – for all members */}
                     {!isTrash && (
                       isArchivedForMe ? (
-                        <button
-                          onClick={handleUnarchiveProject}
-                          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 w-full transition"
-                        >
+                        <button onClick={handleUnarchiveProject} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 w-full transition">
                           <FaUndo className="text-xs text-teal-500 dark:text-[#0d9488]" /> Unarchive
                         </button>
                       ) : (
-                        <button
-                          onClick={handleArchiveProject}
-                          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 w-full transition"
-                        >
+                        <button onClick={handleArchiveProject} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 w-full transition">
                           <FaArchive className="text-xs text-gray-500" /> Archive
                         </button>
                       )
                     )}
-
-                    {/* ─── Trash actions – workspace owner only ─── */}
                     {isOwner && (
                       <>
                         <div className="border-t border-gray-200 dark:border-gray-700/60 my-1" />
                         {isTrash ? (
                           <>
-                            <button
-                              onClick={handleRestoreProject}
-                              className="flex items-center gap-2 px-4 py-2 text-sm text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-500/10 w-full transition"
-                            >
+                            <button onClick={handleRestoreProject} className="flex items-center gap-2 px-4 py-2 text-sm text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-500/10 w-full transition">
                               <FaTrashRestore className="text-xs" /> Restore
                             </button>
-                            <button
-                              onClick={handlePermanentDeleteProject}
-                              className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 w-full transition"
-                            >
+                            <button onClick={handlePermanentDeleteProject} className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 w-full transition">
                               <FaTrashAlt className="text-xs" /> Delete Permanently
                             </button>
                           </>
                         ) : (
                           !isArchivedForMe && (
-                            <button
-                              onClick={handleMoveToTrash}
-                              className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 w-full transition"
-                            >
+                            <button onClick={handleMoveToTrash} className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 w-full transition">
                               <FaTrashAlt className="text-xs" /> Move to Trash
                             </button>
                           )
@@ -2355,7 +2584,6 @@ const YourWorkspaceProjectId = () => {
               </div>
             </div>
           </div>
-          {/* Tabs */}
           <div className="flex gap-6 px-4 border-t border-gray-200/60 dark:border-gray-800/30">
             <button
               onClick={() => { setActiveTab('tasks'); setMobileShowDetail(false); setSelectedTaskId(null); }}
@@ -2380,11 +2608,8 @@ const YourWorkspaceProjectId = () => {
           </div>
         </header>
 
-        {/* Content Area */}
         <div className="flex-1 flex overflow-hidden">
-          {/* Left Panel – List */}
           <div className={`${mobileShowDetail ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-2/5 lg:w-1/3 border-r border-gray-200/60 dark:border-gray-800/40 bg-white dark:bg-[#0f0f12] h-full`}>
-            {/* Folders Sidebar (only in tasks tab) */}
             {activeTab === 'tasks' && (
               <div className="border-b border-gray-200/60 dark:border-gray-800/30 px-3 py-2 bg-gray-50 dark:bg-[#14141a]/60">
                 <div className="flex items-center justify-between mb-1">
@@ -2421,22 +2646,13 @@ const YourWorkspaceProjectId = () => {
                       </button>
                       {canManage && !isTrash && !isArchivedForMe && (
                         <div className="hidden group-hover:flex items-center gap-0.5 ml-0.5">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleEditFolder(f); }}
-                            className="p-0.5 text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 transition"
-                          >
+                          <button onClick={(e) => { e.stopPropagation(); handleEditFolder(f); }} className="p-0.5 text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 transition">
                             <FaEdit className="text-[8px]" />
                           </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleManageReadOnly(f); }}
-                            className="p-0.5 text-gray-400 dark:text-gray-500 hover:text-teal-500 dark:hover:text-teal-400 transition"
-                          >
+                          <button onClick={(e) => { e.stopPropagation(); handleManageReadOnly(f); }} className="p-0.5 text-gray-400 dark:text-gray-500 hover:text-teal-500 dark:hover:text-teal-400 transition">
                             <FaUserLock className="text-[8px]" />
                           </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleDeleteFolder(f); }}
-                            className="p-0.5 text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition"
-                          >
+                          <button onClick={(e) => { e.stopPropagation(); handleDeleteFolder(f); }} className="p-0.5 text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition">
                             <FaTrashAlt className="text-[8px]" />
                           </button>
                         </div>
@@ -2463,13 +2679,19 @@ const YourWorkspaceProjectId = () => {
                         onClick={() => handleTaskClick(task._id)}
                         brandColor={brandColor}
                         isActive={selectedTaskId === task._id}
+                        draggable={canReorderTasks && !task.isArchived}
+                        onDragStart={handleTaskDragStart}
+                        onDragEnd={handleTaskDragEnd}
+                        onDragOver={handleTaskDragOver}
+                        onDragLeave={handleTaskDragLeave}
+                        onDrop={handleTaskDrop}
+                        dragOver={dragOverTaskId === task._id}
                       />
                     ))}
                   </div>
                 )
               ) : (
                 <div className="divide-y divide-gray-100 dark:divide-gray-800/30">
-                  {/* Managers */}
                   <div className="py-3">
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase flex items-center gap-1">
@@ -2498,7 +2720,6 @@ const YourWorkspaceProjectId = () => {
                       </div>
                     ))}
                   </div>
-                  {/* Team Members */}
                   <div className="py-3">
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase flex items-center gap-1">
@@ -2536,7 +2757,6 @@ const YourWorkspaceProjectId = () => {
             </div>
           </div>
 
-          {/* Right Panel – Detail */}
           <div className={`${mobileShowDetail ? 'flex' : 'hidden md:flex'} flex-col flex-1 h-full bg-gray-50 dark:bg-[#0f0f12]`}>
             {activeTask ? (
               <TaskDetailView
@@ -2553,6 +2773,13 @@ const YourWorkspaceProjectId = () => {
                 onSendReminder={handleSendManualReminder}
                 onConfirmCompletion={() => handleConfirmCompletion(activeTask._id)}
                 onAssignTask={openAssignModal}
+                // ─── Sub‑task reorder props ───
+                subDragStart={handleSubDragStart}
+                subDragEnd={handleSubDragEnd}
+                subDragOver={handleSubDragOver}
+                subDrop={handleSubDrop}
+                subDragLeave={handleSubDragLeave}
+                subDragOverIndex={dragOverSubIdx}
               />
             ) : (
               <div className="flex-1 flex items-center justify-center text-gray-400 dark:text-gray-500">
@@ -2567,7 +2794,6 @@ const YourWorkspaceProjectId = () => {
         </div>
       </div>
 
-      {/* Bottom Navigation (mobile) */}
       {!mobileShowDetail && <YourWorkspaceBottombar workspace={workspace} />}
 
       {/* Modals */}
@@ -2647,7 +2873,6 @@ const YourWorkspaceProjectId = () => {
         onAssign={handleAssignTask}
       />
 
-      {/* ── Folder Modals ── */}
       <FolderFormModal
         isOpen={showFolderForm}
         onClose={() => { setShowFolderForm(false); setEditingFolder(null); }}
@@ -2665,7 +2890,6 @@ const YourWorkspaceProjectId = () => {
         onSuccess={() => { refetchFolders(); }}
       />
 
-      {/* ── Global Confirm Modals ── */}
       <ConfirmModal
         isOpen={confirmModal.isOpen}
         onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })}

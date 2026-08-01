@@ -1,4 +1,3 @@
-// models/taskModel.js
 import mongoose from 'mongoose';
 
 const attachmentSchema = new mongoose.Schema(
@@ -37,7 +36,7 @@ const subTaskSchema = new mongoose.Schema(
     rejectedAt: { type: Date, default: null },
     rejectionReason: { type: String, default: '' },
 
-    // ─── RECURRENCE FIELDS (for sub‑tasks) ──────────────────────────
+    // ─── RECURRENCE FIELDS ──────────────────────────────────────────
     recurrenceType: {
       type: String,
       enum: ['none', 'daily', 'weekly'],
@@ -51,6 +50,9 @@ const subTaskSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+
+    // ─── ORDER FIELD (NEW) ──────────────────────────────────────────
+    order: { type: Number, default: 0 },
   },
   { _id: false }
 );
@@ -171,7 +173,7 @@ const taskSchema = new mongoose.Schema(
       default: null,
     },
 
-    // ─── RECURRENCE FIELDS (for the main task) ──────────────────────
+    // ─── RECURRENCE FIELDS ──────────────────────────────────────────
     recurrenceType: {
       type: String,
       enum: ['none', 'daily', 'weekly'],
@@ -185,6 +187,9 @@ const taskSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+
+    // ─── ORDER FIELD (NEW) ──────────────────────────────────────────
+    order: { type: Number, default: 0 },
 
     // ─── ARCHIVE / TRASH ─────────────────────────────────────────────
     isArchived: {
@@ -235,7 +240,7 @@ const taskSchema = new mongoose.Schema(
     finalLinks: [String],
     finalAttachments: [attachmentSchema],
 
-    // ─── LEGACY FIELDS (kept for compatibility) ──────────────────────
+    // ─── LEGACY FIELDS ──────────────────────────────────────────────
     submittedProgress: {
       type: Number,
       default: 0,
@@ -312,6 +317,8 @@ taskSchema.index({ project: 1, status: 1 });
 taskSchema.index({ assignee: 1, status: 1 });
 taskSchema.index({ dueDate: 1 });
 taskSchema.index({ isTrash: 1, trashedAt: 1 });
+// Add index for ordering
+taskSchema.index({ project: 1, order: 1 });
 
 const Task = mongoose.model('Task', taskSchema);
 export default Task;

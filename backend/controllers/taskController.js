@@ -1903,3 +1903,61 @@ export const permanentlyDeleteTrashedTasks = async () => {
     await PersonalTask.findByIdAndDelete(ptask._id);
   }
 };
+
+export const reorderTasks = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const { orderedTaskIds } = req.body; // array of task _ids in new order
+    const userId = req.user.id;
+
+    const project = await Project.findById(projectId);
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found' });
+    const workspace = await Workspace.findById(project.workspace);
+    if (!canManageTasks(workspace, project, userId)) {
+      return res.status(403).json({ success: false, message: 'Not authorized' });
+    }
+
+    // Update each task's order
+    const updates = orderedTaskIds.map((id, index) => ({
+      updateOne: { filter: { _id: id, project: projectId }, update: { $set: { order: index } } }
+    }));
+    await Task.bulkWrite(updates);
+
+    res.status(200).json({ success: true, message: 'Tasks reordered' });
+  } catch (error) {
+    console.error('Reorder tasks error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const reorderSubTasks = async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { orderedSubTaskIndices } = req.body; // array of current indices (0‑based)
+    const userId = req.user.id;
+
+    const task = await Task.findOne({ _id: taskId, isDeleted: false });
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
+
+    const project = await Project.findById(task.project);
+    const workspace = await Workspace.findById(project.workspace);
+
+    const isManager = canManageTasks(workspace, project, userId);
+    const isAssignee = task.assignee?.toString() === userId;
+    if (!isManager && !(isAssignee && task.allowAssigneeEditSubtasks)) {
+      return res.status(403).json({ success: false, message: 'Not authorized to reorder sub‑tasks' });
+    }
+
+    // Reorder the subTasks array according to the given indices
+    const newSubTasks = orderedSubTaskIndices.map(i => task.subTasks[i]);
+    task.subTasks = newSubTasks;
+    // Update the order field for each sub‑task (optional, but good for consistency)
+    task.subTasks.forEach((st, idx) => st.order = idx);
+
+    await task.save();
+    res.status(200).json({ success: true, message: 'Sub‑tasks reordered' });
+  } catch (error) {
+    console.error('Reorder sub‑tasks error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};

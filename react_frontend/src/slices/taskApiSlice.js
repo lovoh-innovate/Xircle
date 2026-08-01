@@ -1,4 +1,3 @@
-// features/task/taskApiSlice.js
 import { apiSlice } from './apiSlice';
 
 const TASKS_URL = '/tasks';
@@ -368,6 +367,28 @@ export const taskApiSlice = apiSlice.injectEndpoints({
         'Task', // tasks visibility may change
       ],
     }),
+
+    // ─── Task & Sub‑task reordering (NEW) ────────────────────────
+    reorderTasks: builder.mutation({
+      query: ({ projectId, orderedTaskIds }) => ({
+        url: `${TASKS_URL}/project/${projectId}/reorder`,
+        method: 'PATCH',
+        body: { orderedTaskIds },
+      }),
+      invalidatesTags: ['Task', 'Project'],
+    }),
+
+    reorderSubTasks: builder.mutation({
+      query: ({ taskId, orderedSubTaskIndices }) => ({
+        url: `${TASKS_URL}/${taskId}/subtasks/reorder`,
+        method: 'PATCH',
+        body: { orderedSubTaskIndices },
+      }),
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'Task', id: taskId },
+        'Task',
+      ],
+    }),
   }),
 });
 
@@ -403,4 +424,7 @@ export const {
   useDeleteFolderMutation,
   useAddFolderReadOnlyMutation,
   useRemoveFolderReadOnlyMutation,
+  // NEW
+  useReorderTasksMutation,
+  useReorderSubTasksMutation,
 } = taskApiSlice;

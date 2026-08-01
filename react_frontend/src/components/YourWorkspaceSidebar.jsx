@@ -1,5 +1,5 @@
 // src/components/YourWorkspaceSidebar.jsx
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Link, useParams, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import {
@@ -21,11 +21,27 @@ import {
   FaSun,
   FaMoon,
   FaDesktop,
+  FaCog,
 } from 'react-icons/fa';
 import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
 import { useGetWorkspaceProjectsQuery } from '../slices/projectApiSlice';
 import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
 import { useTheme } from '../contexts/ThemeContext';
+
+// ─── FORCE DEDUPLICATION HELPER ─────────────────────────────────────
+const forceUniqueById = (arr, getId = (item) => item?._id) => {
+  if (!Array.isArray(arr)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of arr) {
+    if (!item) continue;
+    const id = getId(item);
+    if (!id || seen.has(String(id))) continue;
+    seen.add(String(id));
+    out.push(item);
+  }
+  return out;
+};
 
 const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   const { workspaceId } = useParams();
@@ -50,6 +66,7 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
     projects: true,
     channels: true,
     dms: true,
+    admin: true,
   });
 
   const brandColor = workspace?.color || '#4F46E5';
@@ -71,19 +88,46 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
       .toUpperCase();
   };
 
-  // ─── Navigation ───
+  // ─── Navigation ──────────────────────────────────────────────────
   const navOptions = [
     { id: 'home', label: 'Dashboard', icon: FaHome, path: `/workspace/${workspaceId}` },
     { id: 'projects', label: 'Projects', icon: FaFolder, path: `/workspace/${workspaceId}/projects` },
+    // ─── NEW: All Tasks ──────────────────────────────────────────
+    { id: 'all-tasks', label: 'All Tasks', icon: FaTasks, path: `/workspace/${workspaceId}/tasks` },
     { id: 'channels', label: 'Channels', icon: FaComment, path: `/workspace/${workspaceId}/channels` },
     { id: 'dms', label: 'Direct Messages', icon: FaEnvelope, path: `/workspace/${workspaceId}/dms` },
+  ];
+
+  const adminOptions = [
+    { id: 'settings', label: 'Settings', icon: FaCog, path: `/workspace/${workspaceId}/settings` },
   ];
 
   const members = workspace?.members || [];
   const onlineCount = members.filter((m) => m.status === 'active').length || 0;
 
   const channels = chats.filter((chat) => chat.type === 'group') || [];
-  const directMessages = chats.filter((chat) => chat.type === 'direct') || [];
+
+  // ─── NUCLEAR DEDUPLICATION: one DM per participant, keep most recent ──
+  const myId = String(userInfo?._id);
+  const rawDirectMessages = chats.filter((chat) => chat.type === 'direct') || [];
+  const directMessages = useMemo(() => {
+    const uniqueById = forceUniqueById(rawDirectMessages, (c) => c?._id);
+    const byParticipant = new Map();
+
+    for (const chat of uniqueById) {
+      const other = chat.participants?.find(
+        (p) => String(p.user?._id || p.user) !== myId
+      );
+      const participantId = String(other?.user?._id || other?.user);
+      if (!participantId || participantId === 'undefined') continue;
+
+      const existing = byParticipant.get(participantId);
+      if (!existing || new Date(chat.updatedAt) > new Date(existing.updatedAt)) {
+        byParticipant.set(participantId, chat);
+      }
+    }
+    return Array.from(byParticipant.values());
+  }, [rawDirectMessages, myId]);
 
   const isActive = (path) => {
     if (path === `/workspace/${workspaceId}`) {
@@ -94,7 +138,7 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
 
   const getDMParticipant = (chat) => {
     const other = chat.participants.find(
-      (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id
+      (p) => String(p.user?._id || p.user) !== myId
     );
     return other?.user || other;
   };
@@ -102,11 +146,11 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   const getDMUnread = (chat) => chat.unreadCount || 0;
 
   const userMembership = members.find(
-    (m) => m.user?._id === userInfo?._id || m.user === userInfo?._id
+    (m) => String(m.user?._id || m.user) === myId
   );
   const userRole = userMembership?.role || 'Member';
 
-  // ─── Project Item with always‑fetch tasks ──────────────────────
+  // ─── Project Item ──────────────────────────────────────────────
   const ProjectItem = ({ project }) => {
     const progress = project.progress || 0;
     const statusColor =
@@ -169,7 +213,7 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
     );
   };
 
-  // ─── Theme Toggle Button ─────────────────────────────────────────
+  // ─── Theme Toggle ──────────────────────────────────────────────
   const ThemeToggleButton = () => {
     const getIcon = () => {
       if (theme === 'light') return <FaSun className="text-yellow-500" />;
@@ -286,6 +330,15 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
             )}
           </Link>
 
+          {/* ─── All Tasks icon in collapsed mode ─── */}
+          <Link
+            to={`/workspace/${workspaceId}/tasks`}
+            title="All Tasks"
+            className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+          >
+            <FaTasks className="text-lg" />
+          </Link>
+
           <Link
             to={`/workspace/${workspaceId}/channels`}
             title="Channels"
@@ -334,6 +387,15 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
             </button>
             {expandedSections.projects && (
               <div className="mt-1 space-y-0.5">
+                {/* ─── "All Tasks" shortcut inside projects section ── */}
+                <Link
+                  to={`/workspace/${workspaceId}/tasks`}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group text-sm text-gray-700 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+                >
+                  <FaTasks className="text-xs text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300" />
+                  <span className="font-medium">All Tasks</span>
+                </Link>
+
                 {projectsLoading ? (
                   <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-500">
                     Loading projects...
@@ -498,6 +560,43 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
                     +{directMessages.length - 6} more
                   </Link>
                 )}
+              </div>
+            )}
+          </div>
+
+          {/* Admin Section */}
+          <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-800/50">
+            <button
+              onClick={() => toggleSection('admin')}
+              className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider"
+            >
+              {expandedSections.admin ? (
+                <FaChevronDown className="text-[10px]" />
+              ) : (
+                <FaChevronRight className="text-[10px]" />
+              )}
+              <span>Admin</span>
+            </button>
+            {expandedSections.admin && (
+              <div className="mt-1 space-y-0.5">
+                {adminOptions.map((opt) => {
+                  const Icon = opt.icon;
+                  const active = isActive(opt.path);
+                  return (
+                    <Link
+                      key={opt.id}
+                      to={opt.path}
+                      className={`flex items-center gap-3 px-3 py-1.5 rounded-lg transition text-sm ${
+                        active
+                          ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
+                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200'
+                      }`}
+                    >
+                      <Icon className="text-sm" />
+                      <span>{opt.label}</span>
+                    </Link>
+                  );
+                })}
               </div>
             )}
           </div>

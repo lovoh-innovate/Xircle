@@ -1,4 +1,3 @@
-// apiSlice.js
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 
 const baseQuery = fetchBaseQuery({
@@ -30,5 +29,9 @@ export const apiSlice = createApi({
     'Membership',
     'PendingRequests',
   ],
+  // ─── Offline‑first caching settings ──────────────────────────────
+  refetchOnReconnect: true,    // automatically refetch when network comes back
+  refetchOnMount: true,        // refetch when a component mounts (optional, but good for fresh data)
+  keepUnusedDataFor: 60 * 60 * 24, // keep cached data in memory for 24 hours (86400 seconds)
   endpoints: (builder) => ({}),
 });

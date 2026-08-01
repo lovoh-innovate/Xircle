@@ -16,6 +16,7 @@ import {
   FaExclamationCircle,
   FaClock,
 } from 'react-icons/fa';
+import { persistor } from '../store'; // Import the persistor instance
 
 // Logo from public folder
 const LOGO = '/logo.png';
@@ -25,12 +26,31 @@ const GeneralSidebar = () => {
   const dispatch = useDispatch();
   const { userInfo } = useSelector((state) => state.auth);
 
+  // ─── Clean Logout ──────────────────────────────────────────────
   const handleLogout = async () => {
-    dispatch(logout());
-    navigate('/login');
+    try {
+      // 1. Clear Redux state
+      dispatch(logout());
+
+      // 2. Purge persisted store (removes all persisted data)
+      await persistor.purge();
+
+      // 3. Wipe localStorage
+      localStorage.clear();
+
+      // 4. Wipe sessionStorage
+      sessionStorage.clear();
+
+      // 5. Redirect to login
+      navigate('/login');
+    } catch (error) {
+      console.error('Logout failed:', error);
+      // Fallback navigation
+      navigate('/login');
+    }
   };
 
-  // ─── Personal Tasks ──────────────────────────────
+  // ─── Personal Tasks ──────────────────────────────────────────────
   const { data: personalTasksData, isLoading: tasksLoading } = useGetPersonalTasksQuery({
     status: 'pending',
     limit: 3,

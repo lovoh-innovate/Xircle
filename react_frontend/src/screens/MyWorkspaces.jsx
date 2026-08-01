@@ -1,6 +1,6 @@
 // pages/MyWorkspaces.jsx
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import {
   useGetMyWorkspacesQuery,
@@ -20,6 +20,8 @@ import {
   FaRocket,
   FaUserFriends,
   FaSpinner,
+  FaUserCircle,
+  FaChevronRight,
 } from 'react-icons/fa';
 import { motion } from 'framer-motion';
 import JoinedWorkspaces from '../components/JoinedWorkspaces';
@@ -127,7 +129,7 @@ const CreateWorkspaceContent = ({ onClose, onSuccess }) => {
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-bold text-gray-800 dark:text-white">
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white">
           <FaRocket className="inline mr-2 text-teal-500" /> Create Workspace
         </h2>
         <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-white transition">
@@ -141,7 +143,7 @@ const CreateWorkspaceContent = ({ onClose, onSuccess }) => {
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white placeholder-gray-400"
+            className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-900 dark:text-white placeholder-gray-400"
             placeholder="Acme Corp"
             required
           />
@@ -152,7 +154,7 @@ const CreateWorkspaceContent = ({ onClose, onSuccess }) => {
             type="text"
             value={industry}
             onChange={(e) => setIndustry(e.target.value)}
-            className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white placeholder-gray-400"
+            className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-900 dark:text-white placeholder-gray-400"
             placeholder="Technology"
             required
           />
@@ -189,7 +191,7 @@ const CreateWorkspaceContent = ({ onClose, onSuccess }) => {
               </div>
             ) : (
               <label className="flex items-center gap-3 px-4 py-2 border border-dashed border-gray-300 dark:border-gray-600 rounded-xl cursor-pointer hover:border-teal-500 transition bg-gray-50 dark:bg-[#2a2a2a]">
-                <FaImage className="text-gray-400" />
+                <FaImage className="text-gray-400 dark:text-gray-500" />
                 <span className="text-sm text-gray-500 dark:text-gray-400">Upload Logo</span>
                 <input
                   type="file"
@@ -200,14 +202,14 @@ const CreateWorkspaceContent = ({ onClose, onSuccess }) => {
               </label>
             )}
           </div>
-          <p className="text-xs text-gray-400 mt-1">PNG, JPG, or SVG (max 5MB)</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">PNG, JPG, or SVG (max 5MB)</p>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white placeholder-gray-400"
+            className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-900 dark:text-white placeholder-gray-400"
             rows="3"
             placeholder="What's this workspace about?"
           />
@@ -258,7 +260,7 @@ const JoinWorkspaceContent = ({ onClose, onSuccess }) => {
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
           <FaSignInAlt className="text-purple-500" /> Join Workspace
         </h2>
         <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-white transition">
@@ -272,11 +274,11 @@ const JoinWorkspaceContent = ({ onClose, onSuccess }) => {
             type="text"
             value={inviteCode}
             onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-            className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 outline-none text-gray-800 dark:text-white placeholder-gray-400 uppercase"
+            className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 outline-none text-gray-900 dark:text-white placeholder-gray-400 uppercase"
             placeholder="e.g. ABCD1234"
             required
           />
-          <p className="text-xs text-gray-400 mt-1">Ask the workspace owner for the invite code.</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Ask the workspace owner for the invite code.</p>
         </div>
         <div className="flex gap-3 pt-2">
           <button type="button" onClick={onClose} className="flex-1 py-3 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-[#2a2a2a] transition text-gray-700 dark:text-gray-300">
@@ -299,7 +301,7 @@ const JoinWorkspaceContent = ({ onClose, onSuccess }) => {
 const FabOptionsSheet = ({ isOpen, onClose, onCreateWorkspace, onJoinWorkspace }) => (
   <BottomSheet isOpen={isOpen} onClose={onClose}>
     <div className="p-6">
-      <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-4">What would you like to do?</h3>
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">What would you like to do?</h3>
       <button
         onClick={() => {
           onClose();
@@ -328,7 +330,7 @@ const FabOptionsSheet = ({ isOpen, onClose, onCreateWorkspace, onJoinWorkspace }
   </BottomSheet>
 );
 
-// ─── Workspace Card – WhatsApp-style list row ──────────────────────
+// ─── Workspace Card — redesigned ───────────────────────────────────
 const WorkspaceCard = ({ workspace, isOwner, userInfo }) => {
   const memberCount = workspace.members?.length || 0;
   const initials =
@@ -360,8 +362,10 @@ const WorkspaceCard = ({ workspace, isOwner, userInfo }) => {
   return (
     <CardWrapper
       {...cardProps}
-      className={`flex items-center gap-3 px-4 py-3 hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors ${
-        isClickable ? 'cursor-pointer' : 'opacity-60'
+      className={`group flex items-center gap-3.5 px-4 py-4 transition-colors ${
+        isClickable
+          ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-white/[0.04]'
+          : 'opacity-60 cursor-default'
       }`}
     >
       {/* Avatar */}
@@ -369,25 +373,25 @@ const WorkspaceCard = ({ workspace, isOwner, userInfo }) => {
         <img
           src={workspace.logo}
           alt={workspace.name}
-          className="w-12 h-12 rounded-full object-cover flex-shrink-0 border border-gray-200 dark:border-gray-700"
+          className="w-11 h-11 rounded-full object-cover flex-shrink-0 ring-1 ring-gray-200 dark:ring-gray-700"
         />
       ) : (
         <div
-          className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg flex-shrink-0"
+          className="w-11 h-11 rounded-full flex items-center justify-center text-white font-semibold text-[15px] flex-shrink-0 shadow-sm"
           style={{ backgroundColor: workspace.color || '#0d9488' }}
         >
           {initials}
         </div>
       )}
 
-      {/* Text block – exactly two lines */}
+      {/* Text block */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-baseline gap-2">
-          <p className="font-semibold text-gray-800 dark:text-white truncate">
+        <div className="flex items-center gap-2">
+          <p className="font-semibold text-[15px] text-gray-900 dark:text-white truncate">
             {workspace.name}
           </p>
           {isOwner && (
-            <span className="flex-shrink-0 text-xs font-medium text-amber-600 dark:text-amber-400">
+            <span className="flex-shrink-0 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-400/10 px-1.5 py-0.5 rounded">
               Owner
             </span>
           )}
@@ -397,11 +401,15 @@ const WorkspaceCard = ({ workspace, isOwner, userInfo }) => {
         </p>
       </div>
 
-      {/* Floating element – only pending badge allowed */}
-      {isPending && (
+      {/* Right side: pending badge or chevron */}
+      {isPending ? (
         <span className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300">
           <FaClock className="text-[10px]" /> Pending
         </span>
+      ) : (
+        isClickable && (
+          <FaChevronRight className="flex-shrink-0 text-gray-300 dark:text-gray-600 text-xs group-hover:text-gray-400 dark:group-hover:text-gray-500 group-hover:translate-x-0.5 transition-all" />
+        )
       )}
     </CardWrapper>
   );
@@ -410,23 +418,24 @@ const WorkspaceCard = ({ workspace, isOwner, userInfo }) => {
 // ─── Quick Stats ──────────────────────────────────────────────────
 const QuickStats = ({ ownedCount, joinedCount, pendingCount }) => (
   <div className="grid grid-cols-3 gap-3 mb-6">
-    <div className="bg-gray-100 dark:bg-[#2a2a2a] rounded-2xl p-3 text-center">
-      <p className="text-2xl font-bold text-gray-800 dark:text-white">{ownedCount}</p>
-      <p className="text-xs text-gray-500 dark:text-gray-400">Owned</p>
+    <div className="bg-white dark:bg-[#161619] rounded-2xl p-4 text-center border border-gray-100 dark:border-gray-800">
+      <p className="text-2xl font-bold text-gray-900 dark:text-white">{ownedCount}</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Owned</p>
     </div>
-    <div className="bg-gray-100 dark:bg-[#2a2a2a] rounded-2xl p-3 text-center">
-      <p className="text-2xl font-bold text-gray-800 dark:text-white">{joinedCount}</p>
-      <p className="text-xs text-gray-500 dark:text-gray-400">Joined</p>
+    <div className="bg-white dark:bg-[#161619] rounded-2xl p-4 text-center border border-gray-100 dark:border-gray-800">
+      <p className="text-2xl font-bold text-gray-900 dark:text-white">{joinedCount}</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Joined</p>
     </div>
-    <div className="bg-gray-100 dark:bg-[#2a2a2a] rounded-2xl p-3 text-center">
-      <p className="text-2xl font-bold text-gray-800 dark:text-white">{pendingCount}</p>
-      <p className="text-xs text-gray-500 dark:text-gray-400">Pending</p>
+    <div className="bg-white dark:bg-[#161619] rounded-2xl p-4 text-center border border-gray-100 dark:border-gray-800">
+      <p className="text-2xl font-bold text-gray-900 dark:text-white">{pendingCount}</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Pending</p>
     </div>
   </div>
 );
 
 // ─── Main Component ──────────────────────────────────────────────────
 const MyWorkspaces = () => {
+  const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
   const { data, isLoading, refetch } = useGetMyWorkspacesQuery(undefined, {
     pollingInterval: 30000,
@@ -454,14 +463,18 @@ const MyWorkspaces = () => {
         </div>
       );
     }
-    return list.map((ws) => (
-      <WorkspaceCard key={ws._id} workspace={ws} isOwner={isOwner} userInfo={userInfo} />
-    ));
+    return (
+      <div className="divide-y divide-gray-100 dark:divide-white/[0.06]">
+        {list.map((ws) => (
+          <WorkspaceCard key={ws._id} workspace={ws} isOwner={isOwner} userInfo={userInfo} />
+        ))}
+      </div>
+    );
   };
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white dark:bg-[#0f0f12]">
+      <div className="min-h-screen flex items-center justify-center bg-white dark:bg-[#0b0b10]">
         <div className="text-center">
           <div className="w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto" />
           <p className="mt-3 text-gray-500 dark:text-gray-400 text-sm">Loading...</p>
@@ -482,23 +495,31 @@ const MyWorkspaces = () => {
         }
       `}</style>
 
-      <div className="min-h-screen bg-white dark:bg-[#0f0f12] flex flex-col md:flex-row">
+      <div className="min-h-screen bg-gray-50 dark:bg-[#0b0b10] flex flex-col md:flex-row">
         {/* Sidebar – hidden on mobile */}
         <div className="hidden md:block md:w-72 md:flex-shrink-0">
           <GeneralSidebar />
         </div>
 
         <div className="flex-1 flex flex-col min-h-screen relative">
-          {/* Header */}
-          <header className="bg-white dark:bg-[#0f0f12] border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10">
-            <div className="px-4 sm:px-6 h-14 flex items-center justify-between">
-              <h1 className="text-lg font-semibold text-gray-800 dark:text-white">Workspaces</h1>
+          {/* Header – with profile button */}
+          <header className="bg-white dark:bg-[#0f0f12] border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10 px-4 sm:px-6 h-14 flex items-center justify-between">
+            <h1 className="text-lg font-semibold text-gray-900 dark:text-white">Workspaces</h1>
+            <div className="flex items-center gap-3">
               <button
                 onClick={() => setShowJoinModal(true)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400 hover:bg-teal-100 dark:hover:bg-teal-900/50 transition"
+                className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400 hover:bg-teal-100 dark:hover:bg-teal-900/50 transition text-sm font-medium"
               >
                 <FaSignInAlt className="text-sm" />
-                <span className="hidden sm:inline text-sm font-medium">Join</span>
+                <span className="hidden sm:inline">Join</span>
+              </button>
+              {/* Profile button */}
+              <button
+                onClick={() => navigate('/profile')}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-gray-100 dark:bg-gray-800/50 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700/50 transition text-sm font-medium"
+              >
+                <FaUserCircle className="text-lg" />
+                <span className="hidden sm:inline">Profile</span>
               </button>
             </div>
           </header>
@@ -513,21 +534,21 @@ const MyWorkspaces = () => {
             {/* Desktop */}
             <div className="hidden md:grid md:grid-cols-2 gap-6">
               <section>
-                <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200 mb-3 flex items-center gap-2">
                   <FaUserCheck className="text-teal-500" /> Owned
-                  <span className="ml-auto text-sm font-normal text-gray-400">{myWorkspaces.length}</span>
+                  <span className="ml-auto text-sm font-normal text-gray-400 dark:text-gray-500">{myWorkspaces.length}</span>
                 </h2>
-                <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl border border-gray-200 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800 overflow-hidden">
+                <div className="bg-white dark:bg-[#161619] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
                   {renderWorkspaceList(myWorkspaces, true)}
                 </div>
               </section>
 
               <section>
-                <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200 mb-3 flex items-center gap-2">
                   <FaUsers className="text-purple-500" /> Joined
-                  <span className="ml-auto text-sm font-normal text-gray-400">{joinedWorkspaces.length}</span>
+                  <span className="ml-auto text-sm font-normal text-gray-400 dark:text-gray-500">{joinedWorkspaces.length}</span>
                 </h2>
-                <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl border border-gray-200 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800 overflow-hidden">
+                <div className="bg-white dark:bg-[#161619] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
                   {joinedWorkspaces.length > 0 ? (
                     <JoinedWorkspaces />
                   ) : (
@@ -542,12 +563,12 @@ const MyWorkspaces = () => {
 
             {/* Mobile */}
             <div className="md:hidden">
-              <div className="flex bg-gray-100 dark:bg-[#2a2a2a] rounded-xl p-1 mb-4">
+              <div className="flex bg-gray-100 dark:bg-[#1c1c20] rounded-xl p-1 mb-4">
                 <button
                   onClick={() => setActiveTab('owned')}
                   className={`flex-1 py-2 text-sm font-medium rounded-lg transition ${
                     activeTab === 'owned'
-                      ? 'bg-white dark:bg-[#0f0f12] text-gray-800 dark:text-white shadow'
+                      ? 'bg-white dark:bg-[#0f0f12] text-gray-900 dark:text-white shadow-sm'
                       : 'text-gray-500 dark:text-gray-400'
                   }`}
                 >
@@ -557,7 +578,7 @@ const MyWorkspaces = () => {
                   onClick={() => setActiveTab('joined')}
                   className={`flex-1 py-2 text-sm font-medium rounded-lg transition ${
                     activeTab === 'joined'
-                      ? 'bg-white dark:bg-[#0f0f12] text-gray-800 dark:text-white shadow'
+                      ? 'bg-white dark:bg-[#0f0f12] text-gray-900 dark:text-white shadow-sm'
                       : 'text-gray-500 dark:text-gray-400'
                   }`}
                 >
@@ -565,7 +586,7 @@ const MyWorkspaces = () => {
                 </button>
               </div>
 
-              <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl border border-gray-200 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800 overflow-hidden">
+              <div className="bg-white dark:bg-[#161619] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
                 {activeTab === 'owned'
                   ? renderWorkspaceList(myWorkspaces, true)
                   : joinedWorkspaces.length > 0
@@ -584,10 +605,9 @@ const MyWorkspaces = () => {
           <GeneralBottombar />
 
           {/* ─── FLOATING ACTION BUTTON ────────────────────────────────── */}
-          {/* Icon changed from FaPlus to FaRocket – distinct from bottom bar */}
           <button
             onClick={() => setShowFabOptions(true)}
-            className="fixed right-4 sm:right-6 bottom-20 md:bottom-6 z-20 w-14 h-14 bg-teal-600 dark:bg-teal-500 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-teal-700 dark:hover:bg-teal-600 transition active:scale-95"
+            className="fixed right-4 sm:right-6 bottom-20 md:bottom-6 z-20 w-14 h-14 bg-teal-600 dark:bg-teal-500 text-white rounded-full shadow-lg shadow-teal-600/25 flex items-center justify-center hover:bg-teal-700 dark:hover:bg-teal-600 transition active:scale-95"
             aria-label="Create or join workspace"
           >
             <FaRocket className="text-2xl" />

@@ -36,6 +36,9 @@ import {
   usePermanentlyDeleteTaskMutation,
   useAddFolderReadOnlyMutation,
   useRemoveFolderReadOnlyMutation,
+  // NEW: reorder mutations
+  useReorderTasksMutation,
+  useReorderSubTasksMutation,
 } from '../slices/taskApiSlice';
 import MyWorkspaceSidebar from '../workspaceComponents/MyWorkspaceSidebar';
 import MyWorkspaceBottombar from '../workspaceComponents/MyWorkspaceBottombar';
@@ -438,7 +441,11 @@ const FolderAccessModal = ({ isOpen, onClose, folder, projectMembers, currentUse
 };
 
 // ─── Task Card ──────────────────────────────────────────────────────────
-const TaskCard = ({ task, onClick, brandColor, isActive, draggable, onDragStart, onDragEnd, onCopyClick, onMoveClick, readOnly, showArchived }) => {
+const TaskCard = ({
+  task, onClick, brandColor, isActive, draggable, onDragStart, onDragEnd, onCopyClick, onMoveClick, readOnly, showArchived,
+  // reordering (card-to-card, within the list)
+  onDragOver, onDrop, onDragLeave, dragOver,
+}) => {
   const progress = task.progress || 0;
   const subTaskCount = task.subTasks?.length || 0;
   const confirmedCount = (task.subTasks || []).filter(st => st.status === 'confirmed').length || 0;
@@ -463,10 +470,23 @@ const TaskCard = ({ task, onClick, brandColor, isActive, draggable, onDragStart,
       draggable={draggable && !readOnly && !showArchived}
       onDragStart={(e) => !readOnly && !showArchived && onDragStart && onDragStart(e, task)}
       onDragEnd={(e) => !readOnly && !showArchived && onDragEnd && onDragEnd(e, task)}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (onDragOver && !readOnly && !showArchived) onDragOver(e, task);
+      }}
+      onDrop={(e) => {
+        if (onDrop && !readOnly && !showArchived) onDrop(e, task);
+      }}
+      onDragLeave={(e) => {
+        if (onDragLeave) onDragLeave(e);
+      }}
       onClick={() => onClick(task._id)}
-      className={`group relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 hover:border-[#0d9488]/50 transition-all duration-300 cursor-pointer overflow-hidden ${
-        isActive ? 'border-[#0d9488] shadow-[0_0_20px_rgba(13,148,136,0.15)]' : ''
-      } ${draggable && !readOnly && !showArchived ? 'active:cursor-grabbing' : ''} ${readOnly || showArchived ? 'opacity-80' : ''}`}
+      className={`group relative bg-white dark:bg-[#14141a] rounded-2xl border transition-all duration-300 cursor-pointer overflow-hidden ${
+        isActive ? 'border-[#0d9488] shadow-[0_0_20px_rgba(13,148,136,0.15)]' : 'border-gray-200 dark:border-gray-800/40 hover:border-[#0d9488]/50'
+      } ${draggable && !readOnly && !showArchived ? 'active:cursor-grabbing' : ''} ${readOnly || showArchived ? 'opacity-80' : ''} ${
+        dragOver ? 'border-[#0d9488] bg-[#0d9488]/5' : ''
+      }`}
     >
       <div className="p-4">
         <div className="flex items-start justify-between gap-2">
@@ -568,8 +588,12 @@ const TaskCard = ({ task, onClick, brandColor, isActive, draggable, onDragStart,
   );
 };
 
-// ─── Sub‑task Item (with custom delete modal) ──────────────────────
-const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh, brandColor, readOnly }) => {
+// ─── Sub‑task Item (with custom delete modal + reordering) ──────────
+const SubTaskItem = ({
+  subTask, index, taskId, isAssignee, canManage, onRefresh, brandColor, readOnly,
+  // reordering
+  onDragStart, onDragOver, onDrop, onDragLeave, dragOver,
+}) => {
   const [markDone] = useMarkSubTaskDoneMutation();
   const [confirmSub] = useConfirmSubTaskMutation();
   const [rejectSub] = useRejectSubTaskMutation();
@@ -657,12 +681,40 @@ const SubTaskItem = ({ subTask, index, taskId, isAssignee, canManage, onRefresh,
   };
   const st = statusMap[subTask.status] || statusMap.pending;
 
+  const canDrag = !readOnly && (canManage || (isAssignee && subTask.status !== 'confirmed'));
+
   return (
     <>
-      <div className="flex flex-col py-2 border-b border-gray-100 dark:border-gray-800/20 last:border-0">
+      <div
+        draggable={canDrag}
+        onDragStart={(e) => {
+          if (onDragStart && canDrag) {
+            e.dataTransfer.setData('text/plain', String(index));
+            e.dataTransfer.effectAllowed = 'move';
+            onDragStart(e, index);
+          }
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          if (onDragOver) onDragOver(e, index);
+        }}
+        onDrop={(e) => {
+          if (onDrop) onDrop(e, index);
+        }}
+        onDragLeave={(e) => {
+          if (onDragLeave) onDragLeave(e);
+        }}
+        className={`flex flex-col py-2 border-b border-gray-100 dark:border-gray-800/20 last:border-0 transition-colors ${
+          dragOver ? 'bg-[#0d9488]/5 border-[#0d9488]' : ''
+        }`}
+      >
         <div className="flex items-start gap-2 flex-wrap">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
+              {canDrag && (
+                <FaGripVertical className="text-gray-300 dark:text-gray-700 text-xs flex-shrink-0 cursor-grab" />
+              )}
               <span className="text-sm font-medium text-gray-800 dark:text-gray-300">{subTask.title}</span>
               <span className={`text-[10px] font-medium ${st.color}`}>{st.label}</span>
               {hasRecurrence && (
@@ -1437,10 +1489,17 @@ const MyWorkspaceProjectId = () => {
   // Copy / Move via 3-dot menu
   const [folderActionModal, setFolderActionModal] = useState({ isOpen: false, mode: 'copy', task: null });
 
-  // Drag & drop state
+  // ─── Drag & drop state: folder-tab move ──────────────────────────
   const [draggedTaskId, setDraggedTaskId] = useState(null);
   const [draggedOverTabId, setDraggedOverTabId] = useState(null);
   const [isDraggingSomething, setIsDraggingSomething] = useState(false);
+
+  // ─── Drag & drop state: task reordering (card-to-card) ───────────
+  const [dragOverTaskId, setDragOverTaskId] = useState(null);
+
+  // ─── Drag & drop state: sub-task reordering ───────────────────────
+  const [draggedSubIdx, setDraggedSubIdx] = useState(null);
+  const [dragOverSubIdx, setDragOverSubIdx] = useState(null);
 
   // Split pane state
   const [leftWidthPercent, setLeftWidthPercent] = useState(35);
@@ -1481,10 +1540,24 @@ const MyWorkspaceProjectId = () => {
   const [removeTeamMember] = useRemoveTeamMemberMutation();
   const [manageProjectManagers] = useManageProjectManagersMutation();
 
+  // NEW: reorder mutations
+  const [reorderTasks] = useReorderTasksMutation();
+  const [reorderSubTasks] = useReorderSubTasksMutation();
+
   const workspace = wData?.workspace;
   const project = pData?.project;
-  const tasks = tData?.tasks || [];
   const folders = foldersData?.folders || [];
+
+  // ─── Local, optimistic task list ───────────────────────────────
+  // This is the single source of truth the UI renders from. It's kept in
+  // sync with server data whenever a fresh response arrives, but drag/drop
+  // handlers mutate it immediately — before the network call resolves — so
+  // the UI never waits on the backend to reflect a reorder or move.
+  const [localTasks, setLocalTasks] = useState([]);
+  useEffect(() => {
+    setLocalTasks(tData?.tasks || []);
+  }, [tData]);
+  const tasks = localTasks;
 
   const activeTeam = useMemo(() => (project?.teamMembers || []).filter(m => m.status === 'active'), [project?.teamMembers]);
 
@@ -1826,6 +1899,7 @@ const MyWorkspaceProjectId = () => {
     }
   };
 
+  // ─── Folder-tab drag (move task into a folder) — now optimistic ──
   const handleDragStart = (e, task) => {
     const folderId = task.folder?._id || task.folder;
     if (folderId && isFolderReadOnly(folderId)) {
@@ -1871,16 +1945,171 @@ const MyWorkspaceProjectId = () => {
       toast.error('You do not have write access to this folder.');
       return;
     }
+
+    const previousTasks = tasks;
+    // Instant UI update: the moved task disappears from the current view
+    // right away. If moving into a folder that's currently active it'll
+    // reappear once refetchTasks() pulls the real folder contents.
+    setLocalTasks(previousTasks.filter(t => t._id !== taskId));
+
     try {
       await moveTask({ taskId, targetFolderId: folderId }).unwrap();
       toast.success('Task moved');
-      refetchTasks();
+      refetchTasks(); // reconcile with server truth in the background
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to move task');
+      setLocalTasks(previousTasks); // revert
+    }
+  };
+
+  // ─── Task reordering (card-to-card within the list) — optimistic ──
+  const handleTaskDragStart = (e, task) => {
+    const folderId = task.folder?._id || task.folder;
+    if (folderId && isFolderReadOnly(folderId)) {
+      e.preventDefault();
+      toast.error('Cannot reorder a task from a read‑only folder.');
+      return;
+    }
+    if (!canManage) {
+      e.preventDefault();
+      toast.error('You do not have permission to reorder tasks.');
+      return;
+    }
+    handleDragStart(e, task); // reuse the same dataTransfer/drag state as folder-move
+  };
+
+  const handleTaskDragEnd = () => {
+    handleDragEnd();
+    setDragOverTaskId(null);
+  };
+
+  const handleTaskDragOver = (e, task) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (draggedTaskId && draggedTaskId !== task._id) {
+      setDragOverTaskId(task._id);
+    }
+  };
+
+  const handleTaskDragLeave = () => {
+    setDragOverTaskId(null);
+  };
+
+  const handleTaskDrop = async (e, targetTask) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const draggedId = e.dataTransfer.getData('text/plain') || draggedTaskId;
+    if (!draggedId || draggedId === targetTask._id) {
+      setDragOverTaskId(null);
+      return;
+    }
+    setDragOverTaskId(null);
+
+    const previousTasks = tasks;
+    const draggedIdx = previousTasks.findIndex(t => t._id === draggedId);
+    const targetIdx = previousTasks.findIndex(t => t._id === targetTask._id);
+    if (draggedIdx === -1 || targetIdx === -1) return;
+
+    // Build the new order
+    const newOrder = [...previousTasks];
+    const [moved] = newOrder.splice(draggedIdx, 1);
+    newOrder.splice(targetIdx, 0, moved);
+    const orderedIds = newOrder.map(t => t._id);
+
+    // ── Instant UI update: reorder locally before the request resolves ──
+    setLocalTasks(newOrder);
+    setDraggedTaskId(null);
+    setIsDraggingSomething(false);
+
+    // Backend syncs in the background
+    try {
+      await reorderTasks({ projectId, orderedTaskIds: orderedIds }).unwrap();
+      refetchTasks(); // reconcile with server truth
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to reorder tasks');
+      setLocalTasks(previousTasks); // revert
+    }
+  };
+
+  // ─── Sub‑task reordering — optimistic, with correct index tracking ──
+  const handleSubDragStart = (e, index) => {
+    if (!canManage && !(activeTask?.assignee?._id === userInfo?._id && activeTask?.allowAssigneeEditSubtasks)) {
+      e.preventDefault();
+      toast.error('You do not have permission to reorder sub‑tasks.');
+      return;
+    }
+    setDraggedSubIdx(index);
+  };
+
+  const handleSubDragEnd = () => {
+    setDraggedSubIdx(null);
+    setDragOverSubIdx(null);
+  };
+
+  const handleSubDragOver = (e, index) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (draggedSubIdx !== null && draggedSubIdx !== index) {
+      setDragOverSubIdx(index);
+    }
+  };
+
+  const handleSubDragLeave = () => {
+    setDragOverSubIdx(null);
+  };
+
+  const handleSubDrop = async (e, targetIndex) => {
+    e.preventDefault();
+    const raw = e.dataTransfer.getData('text/plain');
+    // Guard against the falsy-zero trap: `parseInt(raw) || draggedSubIdx`
+    // would incorrectly fall back to state when raw === "0".
+    const draggedIdx = raw !== '' ? parseInt(raw, 10) : draggedSubIdx;
+
+    if (draggedIdx === null || draggedIdx === undefined || Number.isNaN(draggedIdx) || draggedIdx === targetIndex) {
+      setDragOverSubIdx(null);
+      return;
+    }
+    setDragOverSubIdx(null);
+
+    if (!activeTask) return;
+    const subtasks = activeTask.subTasks || [];
+    if (draggedIdx < 0 || targetIndex < 0 || draggedIdx >= subtasks.length || targetIndex >= subtasks.length) return;
+
+    const previousTasks = tasks;
+
+    // Build the new sub-task array in its dropped order
+    const newSubTasks = [...subtasks];
+    const [movedSub] = newSubTasks.splice(draggedIdx, 1);
+    newSubTasks.splice(targetIndex, 0, movedSub);
+
+    // Build the ORIGINAL indices in their new order — this is what the
+    // backend needs to know how the list was rearranged. (A naive
+    // `newOrder.map((_, i) => i)` just yields [0,1,2,...] every time and
+    // silently discards the move — that's the bug we're avoiding here.)
+    const indices = subtasks.map((_, i) => i);
+    const [movedIdx] = indices.splice(draggedIdx, 1);
+    indices.splice(targetIndex, 0, movedIdx);
+    const orderedSubTaskIndices = indices;
+
+    // ── Instant UI update: reorder the sub-tasks locally right away ──
+    const optimisticTasks = previousTasks.map(t =>
+      t._id === activeTask._id ? { ...t, subTasks: newSubTasks } : t
+    );
+    setLocalTasks(optimisticTasks);
+    setDraggedSubIdx(null);
+
+    // Backend syncs in the background
+    try {
+      await reorderSubTasks({ taskId: activeTask._id, orderedSubTaskIndices }).unwrap();
+      refetchTasks(); // reconcile with server truth
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to reorder sub‑tasks');
+      setLocalTasks(previousTasks); // revert
     }
   };
 
   const isActiveFolderReadOnly = activeFolderId ? isFolderReadOnly(activeFolderId) : false;
+  const canReorderTasks = canManage && !showArchived;
 
   const toggleArchived = () => {
     setShowArchived(prev => !prev);
@@ -2057,6 +2286,7 @@ const MyWorkspaceProjectId = () => {
                   {tasks.map(task => {
                     const folderId = task.folder?._id || task.folder;
                     const readOnly = !canManage && folderId && isFolderReadOnly(folderId);
+                    const isDragOver = dragOverTaskId === task._id;
                     return (
                       <TaskCard
                         key={task._id}
@@ -2064,13 +2294,17 @@ const MyWorkspaceProjectId = () => {
                         onClick={handleTaskClick}
                         brandColor={brandColor}
                         isActive={selectedTaskId === task._id}
-                        draggable={!readOnly && !showArchived}
-                        onDragStart={handleDragStart}
-                        onDragEnd={handleDragEnd}
+                        draggable={canReorderTasks && !readOnly && !showArchived}
+                        onDragStart={handleTaskDragStart}
+                        onDragEnd={handleTaskDragEnd}
+                        onDragOver={handleTaskDragOver}
+                        onDragLeave={handleTaskDragLeave}
+                        onDrop={handleTaskDrop}
                         onCopyClick={openCopyModal}
                         onMoveClick={openMoveModal}
                         readOnly={readOnly}
                         showArchived={showArchived}
+                        dragOver={isDragOver}
                       />
                     );
                   })}
@@ -2273,19 +2507,29 @@ const MyWorkspaceProjectId = () => {
                   {(activeTask.subTasks || []).length === 0 ? (
                     <div className="text-center py-8 text-gray-500 dark:text-gray-500 text-sm">No sub‑tasks yet</div>
                   ) : (
-                    (activeTask.subTasks || []).map((st, idx) => (
-                      <SubTaskItem
-                        key={idx}
-                        subTask={st}
-                        index={idx}
-                        taskId={activeTask._id}
-                        isAssignee={activeTask.assignee?._id === userInfo?._id}
-                        canManage={canManage}
-                        onRefresh={refreshAll}
-                        brandColor={brandColor}
-                        readOnly={isActiveFolderReadOnly || activeTask.isArchived}
-                      />
-                    ))
+                    (activeTask.subTasks || []).map((st, idx) => {
+                      const canReorderSub = !isActiveFolderReadOnly && !activeTask.isArchived &&
+                        (canManage || (activeTask.assignee?._id === userInfo?._id && activeTask.allowAssigneeEditSubtasks));
+                      const isDragOverSub = dragOverSubIdx === idx;
+                      return (
+                        <SubTaskItem
+                          key={idx}
+                          subTask={st}
+                          index={idx}
+                          taskId={activeTask._id}
+                          isAssignee={activeTask.assignee?._id === userInfo?._id}
+                          canManage={canManage}
+                          onRefresh={refreshAll}
+                          brandColor={brandColor}
+                          readOnly={isActiveFolderReadOnly || activeTask.isArchived}
+                          onDragStart={canReorderSub ? handleSubDragStart : null}
+                          onDragOver={canReorderSub ? handleSubDragOver : null}
+                          onDrop={canReorderSub ? handleSubDrop : null}
+                          onDragLeave={handleSubDragLeave}
+                          dragOver={isDragOverSub}
+                        />
+                      );
+                    })
                   )}
                 </div>
                 {!activeTask.isArchived && !isActiveFolderReadOnly && activeTask.assignee?._id === userInfo?._id && activeTask.status === 'ready_for_completion' && (

@@ -1,4 +1,3 @@
-// routes/taskRoutes.js
 import express from 'express';
 import {
   // Existing
@@ -21,20 +20,25 @@ import {
   getTaskFeedback,
   sendTaskReminders,
   sendManualReminder,
-  // New from previous additions
+  // Copy / Move / Archive / Restore / Permanent delete
   copyTask,
   moveTask,
   archiveTask,
   restoreTask,
   permanentlyDeleteTask,
+  // Folder management
   createFolder,
   updateFolder,
   deleteFolder,
   getProjectFolders,
-  getAllUrgentTasks,
-  // New folder access management
+  // Folder read‑only access
   addFolderReadOnly,
   removeFolderReadOnly,
+  // New reorder endpoints
+  reorderTasks,
+  reorderSubTasks,
+  // Urgent tasks
+  getAllUrgentTasks,
 } from '../controllers/taskController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import upload from '../middleware/uploadMiddleware.js';
@@ -52,9 +56,13 @@ router.get('/project/:projectId/folders', protect, getProjectFolders);
 router.post('/folders', protect, createFolder);               // expects { projectId, name }
 router.put('/folders/:folderId', protect, updateFolder);
 router.delete('/folders/:folderId', protect, deleteFolder);
+
 // ── Folder read‑only access management ──
 router.post('/folders/:folderId/read-only', protect, addFolderReadOnly);   // body: { users: [userId] }
 router.delete('/folders/:folderId/read-only', protect, removeFolderReadOnly); // body: { users: [userId] }
+
+// ── Task reordering (project‑scoped, must be above /:taskId) ──
+router.patch('/project/:projectId/reorder', protect, reorderTasks);
 
 // ── Task CRUD ──
 router.post(
@@ -107,6 +115,9 @@ router.patch(
 router.patch('/:taskId/subtasks/:subTaskIndex/confirm', protect, confirmSubTask);
 router.patch('/:taskId/subtasks/:subTaskIndex/reject', protect, rejectSubTask);
 router.delete('/:taskId/subtasks/:subTaskIndex', protect, deleteSubTask);
+
+// ── Sub‑task reordering (specific to a task) ──
+router.patch('/:taskId/subtasks/reorder', protect, reorderSubTasks);
 
 // ── Main task completion flow ──
 router.patch('/:taskId/complete', protect, markTaskCompleted);

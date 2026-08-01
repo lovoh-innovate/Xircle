@@ -6,6 +6,7 @@ import { useGetMyWorkspacesQuery } from '../slices/workspaceApiSlice';
 import { useLogoutMutation } from '../slices/userApiSlice';
 import { logout } from '../slices/authSlice';
 import { toast } from 'react-toastify';
+import { persistor } from '../store'; // Import persistor for purging
 import {
   FaArrowLeft,
   FaUserCircle,
@@ -37,14 +38,30 @@ const Profile = () => {
   const myWorkspaces = data?.myBusinesses || [];
   const joinedWorkspaces = data?.joinedBusinesses || [];
 
+  // ─── Nuclear Logout ────────────────────────────────────────────────
   const handleLogout = async () => {
     try {
+      // 1. Attempt server logout (optional but good)
       await logoutUser().unwrap();
+    } catch (err) {
+      // Even if server logout fails, we still wipe local data
+      console.warn('Server logout failed, continuing with local cleanup:', err);
+    } finally {
+      // 2. Clear Redux state
       dispatch(logout());
+
+      // 3. Purge persisted store
+      await persistor.purge();
+
+      // 4. Wipe localStorage
+      localStorage.clear();
+
+      // 5. Wipe sessionStorage
+      sessionStorage.clear();
+
+      // 6. Notify and redirect
       toast.success('Logged out successfully');
       navigate('/login');
-    } catch (err) {
-      toast.error(err?.data?.message || 'Logout failed');
     }
   };
 

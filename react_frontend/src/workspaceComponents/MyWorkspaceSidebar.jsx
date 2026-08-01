@@ -27,7 +27,7 @@ import { useGetWorkspaceProjectsQuery } from '../slices/projectApiSlice';
 import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
 import { useTheme } from '../contexts/ThemeContext';
 
-// ─── FORCE DEDUPLICATION HELPER (same as DMs screen) ─────────────────
+// ─── FORCE DEDUPLICATION HELPER ─────────────────────────────────────
 const forceUniqueById = (arr, getId = (item) => item?._id) => {
   if (!Array.isArray(arr)) return [];
   const seen = new Set();
@@ -87,10 +87,12 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
       .toUpperCase();
   };
 
-  // ─── Navigation ───
+  // ─── Navigation ──────────────────────────────────────────────────
   const navOptions = [
     { id: 'home', label: 'Dashboard', icon: FaHome, path: `/my-workspace/${workspaceId}` },
     { id: 'projects', label: 'Projects', icon: FaFolder, path: `/my-workspace/${workspaceId}/projects` },
+    // ─── NEW: All Tasks ──────────────────────────────────────────
+    { id: 'all-tasks', label: 'All Tasks', icon: FaTasks, path: `/my-workspace/${workspaceId}/tasks` },
     { id: 'channels', label: 'Channels', icon: FaComment, path: `/my-workspace/${workspaceId}/channels` },
     { id: 'dms', label: 'Direct Messages', icon: FaEnvelope, path: `/my-workspace/${workspaceId}/dms` },
     { id: 'members', label: 'Members', icon: FaUsers, path: `/my-workspace/${workspaceId}/members` },
@@ -148,7 +150,7 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   );
   const userRole = userMembership?.role || 'Member';
 
-  // ─── Project Item with always‑fetch tasks ──────────────────────
+  // ─── Project Item ──────────────────────────────────────────────
   const ProjectItem = ({ project }) => {
     const progress = project.progress || 0;
     const statusColor =
@@ -159,7 +161,6 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
         archived: 'text-gray-400',
       }[project.status] || 'text-gray-400';
 
-    // Always fetch tasks for this project
     const { data: taskData, isLoading: taskLoading } = useGetProjectTasksQuery(
       { projectId: project._id }
     );
@@ -212,7 +213,7 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
     );
   };
 
-  // ─── Theme Toggle Button ─────────────────────────────────────────
+  // ─── Theme Toggle ──────────────────────────────────────────────
   const ThemeToggleButton = () => {
     const getIcon = () => {
       if (theme === 'light') return <FaSun className="text-yellow-500" />;
@@ -329,6 +330,15 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
             )}
           </Link>
 
+          {/* ─── All Tasks icon in collapsed mode ─── */}
+          <Link
+            to={`/my-workspace/${workspaceId}/tasks`}
+            title="All Tasks"
+            className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+          >
+            <FaTasks className="text-lg" />
+          </Link>
+
           <Link
             to={`/my-workspace/${workspaceId}/channels`}
             title="Channels"
@@ -377,6 +387,15 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
             </button>
             {expandedSections.projects && (
               <div className="mt-1 space-y-0.5">
+                {/* ─── "All Tasks" shortcut inside projects section ── */}
+                <Link
+                  to={`/my-workspace/${workspaceId}/tasks`}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group text-sm text-gray-700 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+                >
+                  <FaTasks className="text-xs text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300" />
+                  <span className="font-medium">All Tasks</span>
+                </Link>
+
                 {projectsLoading ? (
                   <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-500">
                     Loading projects...

@@ -8,15 +8,14 @@ import { toast } from 'react-toastify';
 import {
   FiHome,
   FiMessageCircle,
-  FiUsers,
   FiMenu,
   FiX,
   FiFolder,
-  FiHash,
   FiBell,
   FiUser,
   FiLogOut,
 } from 'react-icons/fi';
+import { FaUsers } from 'react-icons/fa';
 
 const YourWorkspaceBottombar = ({ workspace }) => {
   const { workspaceId } = useParams();
@@ -45,17 +44,17 @@ const YourWorkspaceBottombar = ({ workspace }) => {
     }
   };
 
-  // Bottom navigation – "Chats" now leads to DMs
+  // Bottom navigation
   const navItems = [
     { id: 'home', label: 'Home', icon: FiHome, path: `/workspace/${workspaceId}` },
     { id: 'dms', label: 'Messages', icon: FiMessageCircle, path: `/workspace/${workspaceId}/dms` },
-    { id: 'members', label: 'Members', icon: FiUsers, path: `/workspace/${workspaceId}/members` },
+    { id: 'channels', label: 'Channels', icon: FaUsers, path: `/workspace/${workspaceId}/channels` },
   ];
 
-  // Slide‑out menu – Channels added
+  // Slide‑out menu
   const menuItems = [
     { id: 'projects', label: 'Projects', icon: FiFolder, path: `/workspace/${workspaceId}/projects` },
-    { id: 'channels', label: 'Channels', icon: FiHash, path: `/workspace/${workspaceId}/channels` },
+    { id: 'channels', label: 'Channels', icon: FaUsers, path: `/workspace/${workspaceId}/channels` },
     { id: 'notifications', label: 'Notifications', icon: FiBell, path: `/workspace/${workspaceId}/notifications` },
     { id: 'profile', label: 'Profile', icon: FiUser, path: '/profile' },
     { id: 'logout', label: 'Logout', icon: FiLogOut, action: handleLogout },

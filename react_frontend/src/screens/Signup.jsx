@@ -396,82 +396,89 @@ const Signup = () => {
     );
   };
 
-  // ── Render Page ──
   return (
     <div className="min-h-screen flex bg-gray-50 dark:bg-[#0b0b10] overflow-hidden">
-      {/* Left Side - Fixed Full Height */}
-      <div className="hidden lg:flex lg:w-1/2 h-full relative overflow-hidden">
+      {/* ─── Left Panel – Fixed, Full Height ─── */}
+      <div className="hidden lg:block lg:w-1/2 h-screen sticky top-0 overflow-hidden">
         <div
           className="absolute inset-0 bg-cover bg-center bg-no-repeat"
           style={{
-            backgroundImage: `url(https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=800&auto=format&fit=crop)`,
+            backgroundImage: "url('/hero.jfif')",
             backgroundSize: 'cover',
             backgroundPosition: 'center',
           }}
-        >
-          {/* Overlay – adapts to theme */}
-          <div className="absolute inset-0 bg-gradient-to-br from-teal-700/90 dark:from-[#0b0b10]/95 to-teal-500/80 dark:to-[#0d9488]/60"></div>
-          <div className="absolute inset-0 opacity-20">
-            <div className="absolute top-20 left-10 w-64 h-64 bg-white rounded-full blur-3xl"></div>
-            <div className="absolute bottom-20 right-10 w-80 h-80 bg-teal-300 rounded-full blur-3xl"></div>
+        />
+        {/* Overlay – exactly like Welcome */}
+        <div className="absolute inset-0 bg-gradient-to-br from-teal-700/90 dark:from-[#0b0b10]/95 to-teal-500/80 dark:to-[#0d9488]/60" />
+
+        {/* Decorative blobs */}
+        <div className="absolute inset-0 opacity-20 pointer-events-none">
+          <div className="absolute top-20 left-10 w-64 h-64 bg-white rounded-full blur-3xl" />
+          <div className="absolute bottom-20 right-10 w-80 h-80 bg-teal-300 rounded-full blur-3xl" />
+        </div>
+
+        <div className="relative z-10 flex flex-col justify-between h-full p-12 text-white">
+          {/* Logo – using logo.jpeg */}
+          <div>
+            <img src="/logo.jpeg" alt="Xircle" className="h-12 w-auto object-contain" />
           </div>
-          <div className="relative z-10 flex flex-col justify-between h-full p-12 text-white">
-            <div>
-              <img src="/xircle-logo.png" alt="Xircle" className="h-12 w-auto" />
-            </div>
-            <div className="max-w-lg mx-auto w-full">
-              <div className="bg-white/10 dark:bg-white/5 backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-2xl p-8 shadow-2xl shadow-black/10">
-                <h2 className="text-3xl font-bold mb-4 leading-tight">
-                  {step === 'success'
-                    ? 'Welcome Aboard!'
-                    : step === 'verify'
-                    ? 'Verify Your Email'
-                    : 'Join the Xircle Community'}
-                </h2>
-                <p className="text-white/80 text-base mb-4">
-                  {step === 'success'
-                    ? 'Your account is ready. You’ll be redirected to your workspaces.'
-                    : step === 'verify'
-                    ? 'Enter the OTP sent to your email to activate your account.'
-                    : 'Start collaborating with your team in minutes.'}
-                </p>
-                {step === 'register' && (
-                  <div className="flex flex-col gap-2 text-sm text-white/70">
-                    <div className="flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 bg-white rounded-full"></span>
-                      <span>Free to get started</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 bg-white rounded-full"></span>
-                      <span>All-in-one workspace</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="text-white/60 text-sm">
-              <p>© 2026 Xircle. All rights reserved.</p>
-              <p className="mt-1">
-                A product of{' '}
-                <a
-                  href="https://lovohcreate.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-white hover:underline font-medium"
-                >
-                  LovohCreate
-                </a>
+
+          {/* Centered content */}
+          <div className="max-w-lg mx-auto w-full">
+            <div className="bg-white/10 dark:bg-white/5 backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-2xl p-8 shadow-2xl shadow-black/10">
+              <h2 className="text-3xl font-bold mb-4 leading-tight">
+                {step === 'success'
+                  ? 'Welcome Aboard!'
+                  : step === 'verify'
+                  ? 'Verify Your Email'
+                  : 'Join the Xircle Community'}
+              </h2>
+              <p className="text-white/80 text-base mb-4">
+                {step === 'success'
+                  ? 'Your account is ready. You’ll be redirected to your workspaces.'
+                  : step === 'verify'
+                  ? 'Enter the OTP sent to your email to activate your account.'
+                  : 'Start collaborating with your team in minutes.'}
               </p>
+              {step === 'register' && (
+                <div className="flex flex-col gap-2 text-sm text-white/70">
+                  <div className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 bg-white rounded-full" />
+                    <span>Free to get started</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 bg-white rounded-full" />
+                    <span>All-in-one workspace</span>
+                  </div>
+                </div>
+              )}
             </div>
+          </div>
+
+          {/* Footer */}
+          <div className="text-white/60 text-sm">
+            <p>© 2026 Xircle. All rights reserved.</p>
+            <p className="mt-1">
+              A product of{' '}
+              <a
+                href="https://lovohcreate.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-white hover:underline font-medium"
+              >
+                LovohCreate
+              </a>
+            </p>
           </div>
         </div>
       </div>
 
-      {/* Right Side - Scrollable Form */}
-      <div className="flex-1 h-full overflow-y-auto p-6 sm:p-8 lg:p-12">
+      {/* ─── Right Panel – Scrollable Form ─── */}
+      <div className="flex-1 h-screen overflow-y-auto p-6 sm:p-8 lg:p-12">
         <div className="w-full max-w-md mx-auto">
+          {/* Mobile logo */}
           <div className="lg:hidden text-center mb-8">
-            <img src="/xircle-logo.png" alt="Xircle" className="h-12 w-auto mx-auto" />
+            <img src="/logo.jpeg" alt="Xircle" className="h-12 w-auto mx-auto" />
           </div>
 
           <div className="mb-8">
@@ -509,7 +516,7 @@ const Signup = () => {
               </div>
               <div className="relative mb-6">
                 <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-300 dark:border-gray-700/60"></div>
+                  <div className="w-full border-t border-gray-300 dark:border-gray-700/60" />
                 </div>
                 <div className="relative flex justify-center text-sm">
                   <span className="px-4 bg-white dark:bg-[#0b0b10] text-gray-500 dark:text-gray-500">
