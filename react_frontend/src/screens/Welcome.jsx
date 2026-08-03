@@ -1,17 +1,22 @@
 // screens/Welcome.jsx
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import {
-  FaSignInAlt,
-  FaUserPlus,
-  FaArrowRight,
-  FaCheckCircle,
-  FaDownload,
-  FaTimes,
-  FaShareAlt,
-  FaCheck,
-} from 'react-icons/fa';
+  Download,
+  Smartphone,
+  XCircle,
+  Loader2,
+  AlertCircle,
+  ChevronDown,
+  Zap,
+  Share2,
+  Check,
+  Shield,
+  Crown,
+  TrendingUp,
+  MoveRight,
+} from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useGetAppVersionQuery, getAppDownloadUrl } from '../slices/appApiSlice';
 import { toast } from 'react-toastify';
@@ -21,23 +26,21 @@ const Welcome = () => {
   const { userInfo } = useSelector((state) => state.auth);
   const token = userInfo?.token || null;
 
-  // ─── Detect if running inside Capacitor ──────────────────────────────
-  const isCapacitor = !!window.Capacitor?.isNativePlatform?.();
+  const [showModal, setShowModal] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // ─── Fetch latest app version (only for web) ─────────────────────────
-  const { data: versionData, isLoading: versionLoading } = useGetAppVersionQuery(
+  const { data, isLoading, error, refetch } = useGetAppVersionQuery(
     {
       platform: 'android',
       currentVersion: null,
       token: token || undefined,
     },
-    { skip: isCapacitor }
+    { skip: !!window.Capacitor?.isNativePlatform?.() }
   );
 
-  const [downloading, setDownloading] = useState(false);
-  const [showModal, setShowModal] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const hasDownloaded = useRef(false); // prevent multiple downloads
+  const version = data?.data;
 
   // Redirect authenticated users
   useEffect(() => {
@@ -46,51 +49,36 @@ const Welcome = () => {
     }
   }, [userInfo, navigate]);
 
-  // ─── Open download modal ──────────────────────────────────────────────
   const openDownloadModal = () => {
-    if (!versionData?.data?._id) {
+    if (!version?._id) {
       toast.error('No app version available for download.');
       return;
     }
     setShowModal(true);
-    hasDownloaded.current = false; // reset on open
   };
 
-  // ─── Confirm download ──────────────────────────────────────────────────
   const handleConfirmDownload = () => {
-    if (!versionData?.data?._id) {
+    if (!version?._id) {
       setShowModal(false);
       return;
     }
-    if (hasDownloaded.current) return; // prevent multiple
-
-    hasDownloaded.current = true;
-    setDownloading(true);
-
-    const downloadUrl = getAppDownloadUrl(versionData.data._id, token);
-    // Use a hidden anchor to trigger download without opening new tab
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = `xircle-v${versionData.data.version}.apk`; // filename hint
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
+    setIsDownloading(true);
+    const downloadUrl = getAppDownloadUrl(version._id, token);
+    window.open(downloadUrl, '_blank');
     toast.success('Download started!');
     setTimeout(() => {
       setShowModal(false);
-      setDownloading(false);
+      setIsDownloading(false);
     }, 1000);
   };
 
-  // ─── Share download link ──────────────────────────────────────────────
   const handleShare = async () => {
-    if (!versionData?.data?._id) return;
+    if (!version?._id) return;
     const baseUrl = window.location.origin;
-    const shareUrl = `${baseUrl}/app/download/${versionData.data._id}`;
+    const shareUrl = `${baseUrl}/app/download/${version._id}`;
     const shareData = {
       title: 'Xircle App',
-      text: `Download Xircle v${versionData.data.version} - ${versionData.data.releaseNotes || 'Latest update'}`,
+      text: `Download Xircle v${version.version} - ${version.releaseNotes || 'Latest update'}`,
       url: shareUrl,
     };
     try {
@@ -113,13 +101,6 @@ const Welcome = () => {
     }
   };
 
-  const features = [
-    'Organize projects into clear workspaces',
-    'Assign, track, and close tasks fast',
-    'Stay in sync with your whole team',
-  ];
-
-  // ─── Format file size ──────────────────────────────────────────────────
   const formatFileSize = (bytes) => {
     if (!bytes) return 'Unknown';
     const sizes = ['B', 'KB', 'MB', 'GB'];
@@ -127,354 +108,234 @@ const Welcome = () => {
     return parseFloat((bytes / Math.pow(1024, i)).toFixed(1)) + ' ' + sizes[i];
   };
 
-  // ─── Pattern style (unchanged) ──────────────────────────────────────
-  const iconPattern = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
-      <defs>
-        <g id="check"><path d="M20 40 L35 55 L55 25" stroke="white" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g>
-        <g id="chat"><path d="M15 45 C15 25, 45 25, 45 45 C45 60, 30 60, 20 60 L10 70 L15 55 C10 50, 15 45, 15 45Z" stroke="white" stroke-width="1.5" fill="none"/></g>
-        <g id="folder"><path d="M10 50 L25 35 L45 35 L55 50 L55 70 L10 70 Z" stroke="white" stroke-width="1.5" fill="none"/><path d="M25 35 L25 45" stroke="white" stroke-width="1.5"/></g>
-        <g id="clipboard"><rect x="20" y="35" width="30" height="40" rx="3" stroke="white" stroke-width="1.5" fill="none"/><line x1="25" y1="25" x2="45" y2="25" stroke="white" stroke-width="1.5" stroke-linecap="round"/><line x1="28" y1="35" x2="42" y2="35" stroke="white" stroke-width="1" stroke-linecap="round"/><line x1="28" y1="42" x2="42" y2="42" stroke="white" stroke-width="1" stroke-linecap="round"/><line x1="28" y1="49" x2="42" y2="49" stroke="white" stroke-width="1" stroke-linecap="round"/></g>
-        <g id="users"><circle cx="30" cy="25" r="6" stroke="white" stroke-width="1.5" fill="none"/><path d="M15 45 Q15 35, 30 35 Q45 35, 45 45" stroke="white" stroke-width="1.5" fill="none"/><circle cx="60" cy="25" r="6" stroke="white" stroke-width="1.5" fill="none"/><path d="M45 45 Q45 35, 60 35 Q75 35, 75 45" stroke="white" stroke-width="1.5" fill="none"/></g>
-      </defs>
-      <g transform="translate(10,10) scale(0.2)" opacity="0.08"><use href="#check"/></g>
-      <g transform="translate(55,15) scale(0.2)" opacity="0.08"><use href="#chat"/></g>
-      <g transform="translate(85,10) scale(0.2)" opacity="0.08"><use href="#folder"/></g>
-      <g transform="translate(20,55) scale(0.2)" opacity="0.08"><use href="#clipboard"/></g>
-      <g transform="translate(75,60) scale(0.2)" opacity="0.08"><use href="#users"/></g>
-      <g transform="translate(45,85) scale(0.2)" opacity="0.08"><use href="#check"/></g>
-      <g transform="translate(100,85) scale(0.2)" opacity="0.08"><use href="#chat"/></g>
-      <g transform="translate(10,95) scale(0.2)" opacity="0.08"><use href="#folder"/></g>
-      <g transform="translate(95,25) scale(0.2)" opacity="0.08"><use href="#users"/></g>
-      <g transform="translate(35,40) scale(0.2)" opacity="0.08"><use href="#clipboard"/></g>
-      <g transform="translate(70,35) scale(0.2)" opacity="0.08"><use href="#check"/></g>
-      <g transform="translate(15,75) scale(0.2)" opacity="0.08"><use href="#chat"/></g>
-    </svg>
-  `;
-
-  const encodedPattern = encodeURIComponent(iconPattern);
-  const patternStyle = {
-    backgroundImage: `url("data:image/svg+xml,${encodedPattern}")`,
-    backgroundSize: '120px 120px',
-    backgroundRepeat: 'repeat',
+  const formatDate = (date) => {
+    if (!date) return 'Unknown';
+    return new Date(date).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
   };
 
-  return (
-    <div className="min-h-screen w-full bg-white dark:bg-[#0a0a0f] transition-colors duration-300">
-      {/* ─── MOBILE LAYOUT (< lg) ────────────────────────────────────── */}
-      <div className="lg:hidden relative min-h-screen flex flex-col overflow-hidden">
-        <div className="relative flex-[1.1] min-h-[58vh] flex flex-col items-center justify-center px-6 overflow-hidden">
-          <div
-            className="absolute inset-0 bg-cover bg-center"
-            style={{ backgroundImage: "url('/hero.jfif')" }}
-          />
-          <div className="absolute inset-0 bg-gradient-to-b from-teal-900/60 via-teal-800/70 to-teal-950/90" />
-          <motion.div
-            animate={{ scale: [1, 1.15, 1], rotate: [0, 8, 0] }}
-            transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut' }}
-            className="absolute -top-24 -right-24 w-72 h-72 bg-teal-400/20 rounded-full blur-3xl pointer-events-none"
-          />
-          <motion.div
-            animate={{ scale: [1, 1.1, 1], rotate: [0, -6, 0] }}
-            transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut', delay: 1 }}
-            className="absolute -bottom-20 -left-20 w-64 h-64 bg-teal-300/10 rounded-full blur-3xl pointer-events-none"
-          />
-          <motion.img
-            initial={{ opacity: 0, y: -10, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ duration: 0.6, ease: 'easeOut' }}
-            src="/logo.jpeg"
-            alt="Xircle logo"
-            className="relative z-10 w-20 h-20 rounded-2xl object-cover shadow-xl shadow-black/20 border border-white/20"
-          />
-          <motion.h1
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.15, duration: 0.6 }}
-            className="relative z-10 mt-5 text-3xl font-extrabold text-white tracking-tight"
-          >
-            Xircle
-          </motion.h1>
-          <motion.p
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.25, duration: 0.6 }}
-            className="relative z-10 mt-2 text-teal-100/90 text-sm text-center max-w-[240px]"
-          >
-            Projects and tasks, all in one circle
-          </motion.p>
-        </div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease: 'easeOut', delay: 0.2 }}
-          className="relative z-10 -mt-8 flex-1 bg-white dark:bg-[#14141a] rounded-t-[2.5rem] shadow-[0_-10px_40px_rgba(0,0,0,0.08)] px-7 pt-9 pb-10 flex flex-col"
-          style={patternStyle}
-        >
-          <h2 className="text-2xl font-extrabold text-gray-800 dark:text-white tracking-tight">
-            Welcome
-          </h2>
-          <p className="mt-2 text-gray-500 dark:text-gray-400 text-[15px] leading-relaxed">
-            Manage your work, your way. <br />
-            Where every project finds its flow.
-          </p>
-
-          {/* ─── Download Button (opens modal) ──────────────────────── */}
-          {!isCapacitor && (
-            <div className="mt-4">
-              <motion.button
-                whileTap={{ scale: 0.97 }}
-                onClick={openDownloadModal}
-                disabled={versionLoading}
-                className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white rounded-2xl font-medium text-sm shadow-md transition-colors duration-200 disabled:opacity-50"
-              >
-                <FaDownload />
-                {versionLoading
-                  ? 'Checking...'
-                  : versionData?.data?.version
-                  ? `Download APK v${versionData.data.version}`
-                  : 'Download APK'}
-              </motion.button>
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-2 text-center">
-                Get the Android app
-              </p>
-            </div>
-          )}
-
-          <div className="mt-6 space-y-4">
-            <motion.button
-              whileTap={{ scale: 0.97 }}
-              onClick={() => navigate('/login')}
-              className="w-full flex items-center justify-center gap-2 px-6 py-4 bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-600 text-white rounded-2xl font-semibold text-[15px] shadow-md shadow-teal-600/20 transition-colors duration-200"
-            >
-              <FaSignInAlt />
-              <span>Log In</span>
-            </motion.button>
-
-            <motion.button
-              whileTap={{ scale: 0.97 }}
-              onClick={() => navigate('/signup')}
-              className="w-full flex items-center justify-center gap-2 px-6 py-4 bg-transparent border-2 border-teal-200 dark:border-teal-700/50 text-teal-700 dark:text-teal-300 hover:bg-teal-50 dark:hover:bg-teal-900/20 rounded-2xl font-semibold text-[15px] transition-colors duration-200"
-            >
-              <FaUserPlus />
-              <span>Sign Up</span>
-            </motion.button>
+  // ─── Loading ──────────────────────────────────────────────────────────
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
+        <div className="text-center">
+          <div className="relative">
+            <div className="w-24 h-24 rounded-full border-4 border-teal-500/30 border-t-teal-500 animate-spin mx-auto" />
+            <Smartphone className="w-10 h-10 text-teal-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
           </div>
+          <p className="mt-6 text-gray-400 font-light tracking-wider">LOADING</p>
+        </div>
+      </div>
+    );
+  }
 
-          <p className="mt-auto pt-8 text-center text-xs text-gray-400 dark:text-gray-500">
-            By continuing you agree to Xircle's Terms & Privacy Policy
-          </p>
-        </motion.div>
+  if (error) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center px-4">
+        <div className="text-center max-w-sm">
+          <div className="w-20 h-20 rounded-full bg-red-500/10 flex items-center justify-center mx-auto mb-5 border border-red-500/20">
+            <AlertCircle className="w-10 h-10 text-red-400" />
+          </div>
+          <h3 className="text-lg font-light text-white mb-2">Connection Error</h3>
+          <p className="text-gray-400 text-sm mb-6 font-light">Unable to load app information</p>
+          <button
+            onClick={() => refetch()}
+            className="px-8 py-3 bg-teal-500/10 text-teal-400 border border-teal-500/20 rounded-full hover:bg-teal-500/20 transition text-sm font-light tracking-wider"
+          >
+            RETRY
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Render ──────────────────────────────────────────────────────────
+  return (
+    <div className="min-h-screen bg-[#0a0a0f]">
+      {/* Geometric Background */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-0 left-0 w-full h-full">
+          <div className="absolute top-10 left-10 w-64 h-64 border border-teal-500/5 rounded-full animate-pulse" />
+          <div className="absolute bottom-10 right-10 w-96 h-96 border border-teal-500/5 rounded-full animate-pulse delay-1000" />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] border border-teal-500/5 rotate-45 animate-pulse delay-700" />
+          <div className="absolute top-1/4 right-1/4 w-32 h-32 border border-teal-400/10 rotate-12" />
+          <div className="absolute bottom-1/3 left-1/3 w-48 h-48 border border-teal-400/10 -rotate-12" />
+        </div>
       </div>
 
-      {/* ─── DESKTOP LAYOUT (>= lg) ────────────────────────────────── */}
-      <div className="hidden lg:flex min-h-screen">
-        <div className="relative w-[46%] xl:w-[42%] flex flex-col justify-between overflow-hidden px-14 py-14">
-          {/* Left panel – unchanged */}
-          <div
-            className="absolute inset-0 bg-cover bg-center"
-            style={{ backgroundImage: "url('/hero.jfif')" }}
-          />
-          <div className="absolute inset-0 bg-gradient-to-br from-teal-900/65 via-teal-800/75 to-teal-950/90" />
-          <motion.div
-            animate={{ scale: [1, 1.12, 1], rotate: [0, 6, 0] }}
-            transition={{ duration: 11, repeat: Infinity, ease: 'easeInOut' }}
-            className="absolute -top-32 -right-32 w-[420px] h-[420px] bg-teal-400/20 rounded-full blur-3xl pointer-events-none"
-          />
-          <motion.div
-            animate={{ scale: [1, 1.1, 1], rotate: [0, -8, 0] }}
-            transition={{ duration: 12, repeat: Infinity, ease: 'easeInOut', delay: 1.5 }}
-            className="absolute -bottom-40 -left-24 w-[380px] h-[380px] bg-teal-300/10 rounded-full blur-3xl pointer-events-none"
-          />
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            className="relative z-10 flex items-center gap-3"
-          >
-            <img
-              src="/logo.jpeg"
-              alt="Xircle logo"
-              className="w-11 h-11 rounded-xl object-cover shadow-lg border border-white/20"
-            />
-            <span className="text-white text-xl font-bold tracking-tight">Xircle</span>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2, duration: 0.7 }}
-            className="relative z-10 max-w-md"
-          >
-            <h1 className="text-4xl xl:text-5xl font-extrabold text-white leading-tight tracking-tight">
-              Bring your projects <br /> full circle.
-            </h1>
-            <p className="mt-5 text-teal-100/80 text-lg leading-relaxed">
-              Plan, assign, and track every task with your team — all in one clean, connected workspace.
-            </p>
-
-            <ul className="mt-8 space-y-3">
-              {features.map((f, i) => (
-                <motion.li
-                  key={f}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.35 + i * 0.1, duration: 0.5 }}
-                  className="flex items-center gap-3 text-teal-50/90 text-[15px]"
-                >
-                  <FaCheckCircle className="text-teal-300 shrink-0" />
-                  <span>{f}</span>
-                </motion.li>
-              ))}
-            </ul>
-          </motion.div>
-
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.6, duration: 0.6 }}
-            className="relative z-10 text-teal-100/50 text-sm"
-          >
-            © {new Date().getFullYear()} Xircle. All rights reserved.
-          </motion.p>
-        </div>
-
-        {/* Right panel */}
-        <div
-          className="flex-1 flex items-center justify-center px-10 bg-white dark:bg-[#0a0a0f]"
-          style={patternStyle}
-        >
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, ease: 'easeOut' }}
-            className="w-full max-w-md"
-          >
-            <h2 className="text-3xl font-extrabold text-gray-800 dark:text-white tracking-tight">
-              Welcome back
-            </h2>
-            <p className="mt-3 text-gray-500 dark:text-gray-400 text-[15px] leading-relaxed">
-              Sign in to pick up where you left off, or create an account to get your workspace started.
-            </p>
-
-            {/* ─── Download Button (desktop) ────────────────────────── */}
-            {!isCapacitor && (
-              <div className="mt-6">
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={openDownloadModal}
-                  disabled={versionLoading}
-                  className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white rounded-xl font-medium text-sm shadow-md transition-colors duration-200 disabled:opacity-50"
-                >
-                  <FaDownload />
-                  {versionLoading
-                    ? 'Checking...'
-                    : versionData?.data?.version
-                    ? `Download APK v${versionData.data.version}`
-                    : 'Download APK'}
-                </motion.button>
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 text-center">
-                  Get the Android app
-                </p>
+      {/* Minimal Header */}
+      <header className="relative z-20 bg-[#0a0a0f]/80 backdrop-blur-xl border-b border-white/5 sticky top-0">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-500 to-teal-600 flex items-center justify-center">
+                <Smartphone className="w-5 h-5 text-white" />
               </div>
-            )}
-
-            <div className="mt-6 space-y-4">
-              <motion.button
-                whileHover={{ scale: 1.02, boxShadow: '0 18px 30px -12px rgba(13,148,136,0.35)' }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => navigate('/login')}
-                className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-600 text-white rounded-2xl font-semibold text-[15px] shadow-md transition-colors duration-200 group"
-              >
-                <FaSignInAlt />
-                <span>Log In</span>
-                <FaArrowRight className="text-sm group-hover:translate-x-1 transition-transform" />
-              </motion.button>
-
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => navigate('/signup')}
-                className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-white dark:bg-[#1a1a22] border-2 border-teal-200 dark:border-teal-700/50 text-teal-700 dark:text-teal-300 hover:bg-teal-50 dark:hover:bg-teal-900/20 rounded-2xl font-semibold text-[15px] transition-colors duration-200"
-              >
-                <FaUserPlus />
-                <span>Create an account</span>
-              </motion.button>
+              <span className="text-lg font-light text-white tracking-wider">XIRCLE</span>
             </div>
-
-            <div className="mt-8 flex items-center gap-4">
-              <span className="h-px flex-1 bg-gray-200 dark:bg-gray-700" />
-              <span className="text-xs text-gray-400 dark:text-gray-500">Xircle</span>
-              <span className="h-px flex-1 bg-gray-200 dark:bg-gray-700" />
-            </div>
-
-            <p className="mt-6 text-center text-xs text-gray-400 dark:text-gray-500">
-              By continuing you agree to Xircle's Terms & Privacy Policy
-            </p>
-          </motion.div>
+          </div>
         </div>
+      </header>
+
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 relative z-10">
+        {/* Hero */}
+        {version && (
+          <div className="mb-12">
+            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
+              <div>
+                <div className="flex items-center gap-3 mb-4">
+                  <span className="text-5xl sm:text-6xl font-light text-white tracking-tight">
+                    {version.version}
+                  </span>
+                  {version.isRequired && (
+                    <span className="px-3 py-1 border border-red-500/30 text-red-400 text-xs rounded-full font-light tracking-wider">
+                      REQUIRED
+                    </span>
+                  )}
+                </div>
+
+                {version.releaseNotes && (
+                  <p className="text-gray-400 text-sm font-light max-w-xl leading-relaxed">
+                    {version.releaseNotes}
+                  </p>
+                )}
+
+                <div className="flex flex-wrap items-center gap-6 mt-4 text-xs text-gray-500 font-light">
+                  <span>{formatFileSize(version.fileSize)}</span>
+                  <span>•</span>
+                  <span>{formatDate(version.createdAt)}</span>
+                  <span>•</span>
+                  <span className="flex items-center gap-1">
+                    <Shield className="w-3 h-3" />
+                    Verified
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex gap-3 flex-shrink-0">
+                <button
+                  onClick={openDownloadModal}
+                  className="group px-8 py-3.5 bg-teal-500 text-white rounded-full hover:bg-teal-600 transition flex items-center gap-2 text-sm font-light tracking-wider"
+                >
+                  Download
+                  <MoveRight className="w-4 h-4 group-hover:translate-x-1 transition" />
+                </button>
+                <button
+                  onClick={handleShare}
+                  className="px-4 py-3.5 border border-white/10 text-gray-400 hover:text-white hover:border-white/20 rounded-full transition"
+                >
+                  <Share2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Feature Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-10">
+          {[
+            { label: 'Fast', icon: Zap },
+            { label: 'Secure', icon: Shield },
+            { label: 'Auto', icon: TrendingUp },
+            { label: 'Free', icon: Crown },
+          ].map((item, idx) => {
+            const Icon = item.icon;
+            return (
+              <div
+                key={idx}
+                className="border border-white/5 rounded-2xl p-4 text-center hover:border-white/10 transition"
+              >
+                <Icon className="w-5 h-5 text-teal-400 mx-auto mb-2" />
+                <p className="text-[10px] text-gray-500 font-light tracking-wider">{item.label}</p>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Login / Signup Buttons */}
+        <div className="space-y-4 max-w-sm mx-auto">
+          <button
+            onClick={() => navigate('/login')}
+            className="w-full py-4 bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-600 text-white rounded-2xl font-semibold text-[15px] shadow-md shadow-teal-600/20 transition-colors duration-200"
+          >
+            Log In
+          </button>
+          <button
+            onClick={() => navigate('/signup')}
+            className="w-full py-4 bg-transparent border-2 border-teal-200 dark:border-teal-700/50 text-teal-700 dark:text-teal-300 hover:bg-teal-50 dark:hover:bg-teal-900/20 rounded-2xl font-semibold text-[15px] transition-colors duration-200"
+          >
+            Create an account
+          </button>
+        </div>
+
+        <p className="mt-8 text-center text-xs text-gray-500 font-light">
+          By continuing you agree to Xircle's Terms & Privacy Policy
+        </p>
       </div>
 
       {/* ─── Download Modal ──────────────────────────────────────────── */}
-      {showModal && versionData?.data && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
-          <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-700/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
-            <div className="flex justify-between items-start mb-4">
+      {showModal && version && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-xl flex items-center justify-center z-50 p-4">
+          <div className="bg-[#12121a] border border-white/5 rounded-3xl max-w-md w-full p-6">
+            <div className="flex items-start justify-between mb-6">
               <div>
-                <h3 className="text-xl font-bold text-gray-800 dark:text-white">
-                  Download APK
-                </h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Version {versionData.data.version}
-                </p>
+                <h3 className="text-xl font-light text-white">Download</h3>
+                <p className="text-sm text-gray-500 font-light">v{version.version}</p>
               </div>
               <button
                 onClick={() => {
-                  if (!downloading) setShowModal(false);
+                  if (!isDownloading) {
+                    setShowModal(false);
+                  }
                 }}
-                className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-lg transition"
+                className="text-gray-500 hover:text-gray-300 transition"
               >
-                <FaTimes className="text-lg" />
+                <XCircle className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="bg-gray-50 dark:bg-[#1a1a24] rounded-xl p-4 mb-4 space-y-2">
-              {versionData.data.releaseNotes && (
-                <p className="text-sm text-gray-600 dark:text-gray-300">
-                  {versionData.data.releaseNotes}
-                </p>
-              )}
-              <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
-                <span>Size: {formatFileSize(versionData.data.fileSize)}</span>
-                <span>Platform: Android</span>
+            <div className="border border-white/5 rounded-2xl p-4 mb-6">
+              <div className="flex items-center justify-between text-sm mb-2">
+                <span className="text-gray-500 font-light">Size</span>
+                <span className="text-white font-light">{formatFileSize(version.fileSize)}</span>
               </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-500 font-light">Platform</span>
+                <span className="text-white font-light">Android</span>
+              </div>
+              {version.releaseNotes && (
+                <div className="mt-3 pt-3 border-t border-white/5 text-sm text-gray-400 font-light">
+                  {version.releaseNotes}
+                </div>
+              )}
             </div>
 
             <div className="flex gap-3">
               <button
                 onClick={() => {
-                  if (!downloading) setShowModal(false);
+                  if (!isDownloading) {
+                    setShowModal(false);
+                  }
                 }}
-                className="flex-1 py-2.5 border border-gray-200 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition"
+                disabled={isDownloading}
+                className="flex-1 px-4 py-3 border border-white/5 text-gray-400 rounded-full hover:bg-white/5 transition font-light text-sm"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmDownload}
-                disabled={downloading}
-                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white rounded-xl text-sm font-medium transition disabled:opacity-50 flex items-center justify-center gap-2"
+                disabled={isDownloading}
+                className="flex-1 px-4 py-3 bg-teal-500 text-white rounded-full hover:bg-teal-600 transition flex items-center justify-center gap-2 font-light text-sm"
               >
-                {downloading ? (
-                  <>
-                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Starting...
-                  </>
+                {isDownloading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <>
-                    <FaDownload className="text-sm" />
-                    Download
+                    <Download className="w-4 h-4" />
+                    Confirm
                   </>
                 )}
               </button>
@@ -482,19 +343,14 @@ const Welcome = () => {
 
             <button
               onClick={handleShare}
-              className="w-full mt-3 flex items-center justify-center gap-2 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition py-2"
+              className="w-full mt-4 flex items-center justify-center gap-2 text-xs text-gray-500 hover:text-gray-300 transition font-light py-2"
             >
               {copied ? (
-                <>
-                  <FaCheck className="text-green-500" />
-                  <span>Link copied!</span>
-                </>
+                <Check className="w-3.5 h-3.5" />
               ) : (
-                <>
-                  <FaShareAlt className="text-xs" />
-                  <span>Share download link</span>
-                </>
+                <Share2 className="w-3.5 h-3.5" />
               )}
+              {copied ? 'Link copied' : 'Share download link'}
             </button>
           </div>
         </div>
