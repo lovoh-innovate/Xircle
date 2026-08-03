@@ -144,7 +144,7 @@ export const downloadApp = async (req, res) => {
       return res.status(404).json({ success: false, message: 'File not found on server' });
     }
 
-    const fileName = `nexa-v${appVersion.version}.apk`;
+    const fileName = `xircle-v${appVersion.version}.apk`;
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     res.setHeader('Content-Type', 'application/vnd.android.package-archive');
     res.setHeader('Access-Control-Allow-Origin', '*');
