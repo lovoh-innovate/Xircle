@@ -4,6 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
+    <!-- ===== CACHE CONTROL (development) ===== -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+
     <!-- ===== PRIMARY META ===== -->
     <title>Xircle — Project Management · Color Your Workspace</title>
     <meta
@@ -47,7 +52,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Creepster&family=IBM+Plex+Mono:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Oswald:wght@200..700&family=Raleway:ital,wght@0,100..900;1,100..900&family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Roboto:ital,wght@0,100..900;1,100..900&display=swap"
       rel="stylesheet"
     />
 
@@ -62,12 +67,7 @@
       }
 
       body {
-        font-family:
-          "Inter",
-          "Roboto",
-          system-ui,
-          -apple-system,
-          sans-serif;
+        font-family: "Inter", "Roboto", system-ui, -apple-system, sans-serif;
         background: #f8f9fe;
         color: #1a1a2e;
         -webkit-font-smoothing: antialiased;
@@ -80,7 +80,7 @@
         font-size: 16px;
       }
 
-      /* loading splash — centering lives HERE, not on #root */
+      /* ── splash screen ── */
       .xircle-splash {
         display: flex;
         flex-direction: column;
@@ -118,6 +118,7 @@
         }
       }
 
+      /* hide splash once React renders */
       #root:has(> :not(.xircle-splash)) .xircle-splash {
         display: none;
       }
@@ -125,7 +126,6 @@
   </head>
 
   <body>
-    <!-- ===== REACT MOUNT POINT ===== -->
     <div id="root">
       <!-- splash screen shown while React loads -->
       <div class="xircle-splash" aria-hidden="true">
@@ -134,7 +134,19 @@
       </div>
     </div>
 
-    <!-- ===== REACT ENTRY ===== -->
-    <script type="module" src="/src/main.jsx"></script>
+    <!-- ===== REACT ENTRY with cache‑busting query ===== -->
+    <script type="module" src="/src/main.jsx?t=<?= time() ?>"></script>
+
+    <!-- ===== Service Worker unregister (if stuck) ===== -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function (registrations) {
+          for (let registration of registrations) {
+            registration.unregister();
+            console.log('Service Worker unregistered');
+          }
+        });
+      }
+    </script>
   </body>
 </html>
