@@ -3,13 +3,7 @@ import AppVersion from '../models/appVersionModel.js';
 import User from '../models/userModel.js';
 import jwt from 'jsonwebtoken';
 import { broadcastAppUpdate } from './notificationController.js';
-import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
-
-// ─── Fix __dirname for ES modules ──────────────────────────────────
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import cloudinary from '../utils/cloudinary.js';
 
 // ─── Public endpoints ──────────────────────────────────────────────
 
@@ -112,7 +106,7 @@ export const getAppVersionById = async (req, res) => {
 
 /**
  * GET /api/app/download/:versionId
- * Public – download file & update user version
+ * Public – redirect to Cloudinary file & update user version
  */
 export const downloadApp = async (req, res) => {
   try {
@@ -122,6 +116,10 @@ export const downloadApp = async (req, res) => {
     const appVersion = await AppVersion.findById(versionId);
     if (!appVersion || !appVersion.isActive) {
       return res.status(404).json({ success: false, message: 'App version not found or inactive' });
+    }
+
+    if (!appVersion.fileUrl) {
+      return res.status(404).json({ success: false, message: 'File not found for this version' });
     }
 
     // ── Update user version if token provided ──
@@ -138,29 +136,12 @@ export const downloadApp = async (req, res) => {
       }
     }
 
-    // ── Serve local file ──
-    const filePath = path.join(process.cwd(), 'uploads', 'app-versions', appVersion.fileName);
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ success: false, message: 'File not found on server' });
-    }
+    console.log(`✅ Redirecting to Cloudinary file: ${appVersion.fileUrl}`);
 
-    const fileName = `xircle-v${appVersion.version}.apk`;
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    res.setHeader('Content-Type', 'application/vnd.android.package-archive');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    if (appVersion.fileSize) res.setHeader('Content-Length', appVersion.fileSize);
-
-    // Stream the file
-    const stream = fs.createReadStream(filePath);
-    stream.pipe(res);
-    stream.on('error', (err) => {
-      console.error('Stream error:', err);
-      if (!res.headersSent) {
-        res.status(500).json({ success: false, message: 'Error streaming file' });
-      }
-      res.end();
-    });
-    res.on('finish', () => console.log(`✅ Download complete: ${fileName}`));
+    // ── Redirect straight to the Cloudinary-hosted APK ──
+    // Cloudinary serves the raw bytes directly, so no local disk / cold-start
+    // dependency remains — this is what fixes the .apk.html issue on Render.
+    return res.redirect(appVersion.fileUrl);
   } catch (error) {
     console.error('downloadApp error:', error);
     if (!res.headersSent) {
@@ -236,7 +217,7 @@ export const updateUserAppVersion = async (req, res) => {
 
 /**
  * POST /api/app/admin/upload
- * Any authenticated user – upload new APK/AAB
+ * Any authenticated user – upload new APK/AAB to Cloudinary
  */
 export const uploadApp = async (req, res) => {
   try {
@@ -255,16 +236,19 @@ export const uploadApp = async (req, res) => {
       return res.status(400).json({ success: false, message: `Version ${version} already exists for ${platform}` });
     }
 
-    // ── File URL – local path to be served statically ──
-    const fileUrl = `/uploads/app-versions/${req.file.filename}`;
+    // ── multer-storage-cloudinary gives us the Cloudinary result on req.file ──
+    // req.file.path      → secure_url of the uploaded raw file
+    // req.file.filename  → the public_id Cloudinary assigned (needed to delete later)
+    const fileUrl = req.file.path;
+    const filePublicId = req.file.filename;
 
     const appVersion = new AppVersion({
       version,
       releaseNotes: releaseNotes || '',
       fileUrl,
       fileSize: req.file.size,
-      fileName: req.file.filename,
-      filePublicId: null, // not needed for local storage
+      fileName: req.file.originalname,
+      filePublicId, // used for Cloudinary deletion
       isRequired: isRequired === 'true' || isRequired === true,
       platform,
       uploadedBy: userId,
@@ -288,6 +272,7 @@ export const uploadApp = async (req, res) => {
         version: appVersion.version,
         platform: appVersion.platform,
         fileSize: appVersion.fileSize,
+        fileUrl: appVersion.fileUrl,
         createdAt: appVersion.createdAt,
       },
     });
@@ -336,7 +321,7 @@ export const updateApp = async (req, res) => {
 
 /**
  * DELETE /api/app/admin/delete/:versionId
- * Any authenticated user – delete version and file
+ * Any authenticated user – delete version and Cloudinary file
  */
 export const deleteApp = async (req, res) => {
   try {
@@ -351,12 +336,13 @@ export const deleteApp = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Version not found' });
     }
 
-    // ── Delete local file if exists ──
-    if (appVersion.fileName) {
-      const filePath = path.join(process.cwd(), 'uploads', 'app-versions', appVersion.fileName);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-        console.log(`🗑️ Deleted local file: ${filePath}`);
+    // ── Delete file from Cloudinary if it exists ──
+    if (appVersion.filePublicId) {
+      try {
+        await cloudinary.uploader.destroy(appVersion.filePublicId, { resource_type: 'raw' });
+        console.log(`🗑️ Deleted Cloudinary file: ${appVersion.filePublicId}`);
+      } catch (err) {
+        console.error('⚠️ Failed to delete Cloudinary file:', err.message);
       }
     }
 

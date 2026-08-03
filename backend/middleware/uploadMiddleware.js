@@ -1,15 +1,7 @@
-// middleware/uploadMiddleware.js
 import multer from 'multer';
 import { CloudinaryStorage } from 'multer-storage-cloudinary';
 import cloudinary from '../utils/cloudinary.js';
 import path from 'path';
-import fs from 'fs';
-
-// ─── Ensure upload directory exists ──────────────────────────────────
-const uploadDir = 'uploads/app-versions';
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
 
 // ─── Storage for chat/media files (Cloudinary) ──────────────────────
 const storage = new CloudinaryStorage({
@@ -17,7 +9,7 @@ const storage = new CloudinaryStorage({
   params: async (req, file) => {
     const isAudio = file.mimetype.startsWith('audio/');
     const isVideo = file.mimetype.startsWith('video/');
-    
+
     let resource_type = 'auto';
     if (isAudio || isVideo) {
       resource_type = 'video';
@@ -26,7 +18,7 @@ const storage = new CloudinaryStorage({
     } else {
       resource_type = 'raw';
     }
-    
+
     return {
       folder: 'chat-media',
       resource_type: resource_type,
@@ -34,17 +26,19 @@ const storage = new CloudinaryStorage({
   }
 });
 
-// ─── Storage for app version files (local disk) ─────────────────────
-const appStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    // Use version number + original extension, e.g., "1.2.3.apk"
+// ─── Storage for app version files (Cloudinary – raw/binary) ────────
+const appStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: async (req, file) => {
     const version = req.body.version || Date.now();
-    const ext = path.extname(file.originalname);
-    const baseName = path.basename(file.originalname, ext);
-    cb(null, `app-${version}-${Date.now()}${ext}`);
+    const ext = path.extname(file.originalname).toLowerCase(); // .apk or .aab
+
+    return {
+      folder: 'app-versions',
+      resource_type: 'raw', // APK/AAB are binary, not image/video
+      public_id: `app-${version}-${Date.now()}${ext}`, // keep extension in public_id
+      format: undefined, // let public_id's extension stand, avoid Cloudinary appending its own
+    };
   }
 });
 
