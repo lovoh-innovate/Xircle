@@ -2,9 +2,18 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
-import { FaSignInAlt, FaUserPlus, FaArrowRight, FaCheckCircle, FaDownload } from 'react-icons/fa';
+import {
+  FaSignInAlt,
+  FaUserPlus,
+  FaArrowRight,
+  FaCheckCircle,
+  FaDownload,
+  FaTimes,
+  FaShareAlt,
+  FaCheck,
+} from 'react-icons/fa';
 import { motion } from 'framer-motion';
-import { useGetAppVersionQuery } from '../slices/appApiSlice';
+import { useGetAppVersionQuery, getAppDownloadUrl } from '../slices/appApiSlice';
 import { toast } from 'react-toastify';
 
 const Welcome = () => {
@@ -16,7 +25,7 @@ const Welcome = () => {
   const isCapacitor = !!window.Capacitor?.isNativePlatform?.();
 
   // ─── Fetch latest app version (only for web) ─────────────────────────
-  const { data: versionData, isLoading: versionLoading } = useGetAppVersionQuery(
+  const { data: versionData, isLoading: versionLoading, refetch } = useGetAppVersionQuery(
     {
       platform: 'android',
       currentVersion: null,
@@ -26,6 +35,8 @@ const Welcome = () => {
   );
 
   const [downloading, setDownloading] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Redirect authenticated users
   useEffect(() => {
@@ -34,31 +45,59 @@ const Welcome = () => {
     }
   }, [userInfo, navigate]);
 
-  // ─── Download handler ──────────────────────────────────────────────────
-  const handleDownload = async () => {
+  // ─── Open download modal ──────────────────────────────────────────────
+  const openDownloadModal = () => {
     if (!versionData?.data?._id) {
       toast.error('No app version available for download.');
       return;
     }
+    setShowModal(true);
+  };
 
+  // ─── Confirm download ──────────────────────────────────────────────────
+  const handleConfirmDownload = () => {
+    if (!versionData?.data?._id) {
+      setShowModal(false);
+      return;
+    }
     setDownloading(true);
-    try {
-      const versionId = versionData.data._id;
-      const downloadUrl = `/api/app/download/${versionId}?token=${token || ''}`;
-      
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.download = `xircle-v${versionData.data.version}.apk`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      
-      toast.success('Download started!');
-    } catch (err) {
-      console.error('Download error:', err);
-      toast.error('Failed to download APK. Please try again.');
-    } finally {
+    const downloadUrl = getAppDownloadUrl(versionData.data._id, token);
+    window.open(downloadUrl, '_blank');
+    // Close modal after a moment
+    setTimeout(() => {
+      setShowModal(false);
       setDownloading(false);
+    }, 1000);
+    toast.success('Download started!');
+  };
+
+  // ─── Share download link ──────────────────────────────────────────────
+  const handleShare = async () => {
+    if (!versionData?.data?._id) return;
+    const baseUrl = window.location.origin;
+    const shareUrl = `${baseUrl}/api/app/download/${versionData.data._id}${token ? `?token=${token}` : ''}`;
+    const shareData = {
+      title: 'Xircle App',
+      text: `Download Xircle v${versionData.data.version} - ${versionData.data.releaseNotes || 'Latest update'}`,
+      url: shareUrl,
+    };
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+      } else {
+        await navigator.clipboard.writeText(shareUrl);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 3000);
+      }
+    } catch (error) {
+      if (error.name !== 'AbortError') {
+        console.error('Share failed:', error);
+        try {
+          await navigator.clipboard.writeText(shareUrl);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 3000);
+        } catch {}
+      }
     }
   };
 
@@ -68,35 +107,24 @@ const Welcome = () => {
     'Stay in sync with your whole team',
   ];
 
-  // ─── Very small, subtle icon pattern ──────────────────────────────────
+  // ─── Format file size ──────────────────────────────────────────────────
+  const formatFileSize = (bytes) => {
+    if (!bytes) return 'Unknown';
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return parseFloat((bytes / Math.pow(1024, i)).toFixed(1)) + ' ' + sizes[i];
+  };
+
+  // ─── Pattern style (unchanged) ──────────────────────────────────────
   const iconPattern = `
     <svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
       <defs>
-        <g id="check">
-          <path d="M20 40 L35 55 L55 25" stroke="white" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-        </g>
-        <g id="chat">
-          <path d="M15 45 C15 25, 45 25, 45 45 C45 60, 30 60, 20 60 L10 70 L15 55 C10 50, 15 45, 15 45Z" stroke="white" stroke-width="1.5" fill="none"/>
-        </g>
-        <g id="folder">
-          <path d="M10 50 L25 35 L45 35 L55 50 L55 70 L10 70 Z" stroke="white" stroke-width="1.5" fill="none"/>
-          <path d="M25 35 L25 45" stroke="white" stroke-width="1.5"/>
-        </g>
-        <g id="clipboard">
-          <rect x="20" y="35" width="30" height="40" rx="3" stroke="white" stroke-width="1.5" fill="none"/>
-          <line x1="25" y1="25" x2="45" y2="25" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
-          <line x1="28" y1="35" x2="42" y2="35" stroke="white" stroke-width="1" stroke-linecap="round"/>
-          <line x1="28" y1="42" x2="42" y2="42" stroke="white" stroke-width="1" stroke-linecap="round"/>
-          <line x1="28" y1="49" x2="42" y2="49" stroke="white" stroke-width="1" stroke-linecap="round"/>
-        </g>
-        <g id="users">
-          <circle cx="30" cy="25" r="6" stroke="white" stroke-width="1.5" fill="none"/>
-          <path d="M15 45 Q15 35, 30 35 Q45 35, 45 45" stroke="white" stroke-width="1.5" fill="none"/>
-          <circle cx="60" cy="25" r="6" stroke="white" stroke-width="1.5" fill="none"/>
-          <path d="M45 45 Q45 35, 60 35 Q75 35, 75 45" stroke="white" stroke-width="1.5" fill="none"/>
-        </g>
+        <g id="check"><path d="M20 40 L35 55 L55 25" stroke="white" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g>
+        <g id="chat"><path d="M15 45 C15 25, 45 25, 45 45 C45 60, 30 60, 20 60 L10 70 L15 55 C10 50, 15 45, 15 45Z" stroke="white" stroke-width="1.5" fill="none"/></g>
+        <g id="folder"><path d="M10 50 L25 35 L45 35 L55 50 L55 70 L10 70 Z" stroke="white" stroke-width="1.5" fill="none"/><path d="M25 35 L25 45" stroke="white" stroke-width="1.5"/></g>
+        <g id="clipboard"><rect x="20" y="35" width="30" height="40" rx="3" stroke="white" stroke-width="1.5" fill="none"/><line x1="25" y1="25" x2="45" y2="25" stroke="white" stroke-width="1.5" stroke-linecap="round"/><line x1="28" y1="35" x2="42" y2="35" stroke="white" stroke-width="1" stroke-linecap="round"/><line x1="28" y1="42" x2="42" y2="42" stroke="white" stroke-width="1" stroke-linecap="round"/><line x1="28" y1="49" x2="42" y2="49" stroke="white" stroke-width="1" stroke-linecap="round"/></g>
+        <g id="users"><circle cx="30" cy="25" r="6" stroke="white" stroke-width="1.5" fill="none"/><path d="M15 45 Q15 35, 30 35 Q45 35, 45 45" stroke="white" stroke-width="1.5" fill="none"/><circle cx="60" cy="25" r="6" stroke="white" stroke-width="1.5" fill="none"/><path d="M45 45 Q45 35, 60 35 Q75 35, 75 45" stroke="white" stroke-width="1.5" fill="none"/></g>
       </defs>
-      <!-- Scaled down to 20% → each icon ~10-12px, very low opacity -->
       <g transform="translate(10,10) scale(0.2)" opacity="0.08"><use href="#check"/></g>
       <g transform="translate(55,15) scale(0.2)" opacity="0.08"><use href="#chat"/></g>
       <g transform="translate(85,10) scale(0.2)" opacity="0.08"><use href="#folder"/></g>
@@ -119,6 +147,7 @@ const Welcome = () => {
     backgroundRepeat: 'repeat',
   };
 
+  // ─── Render ──────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen w-full bg-white dark:bg-[#0a0a0f] transition-colors duration-300">
       {/* ─── MOBILE LAYOUT (< lg) ────────────────────────────────────── */}
@@ -180,16 +209,21 @@ const Welcome = () => {
             Where every project finds its flow.
           </p>
 
+          {/* ─── Download Button (opens modal) ──────────────────────── */}
           {!isCapacitor && (
             <div className="mt-4">
               <motion.button
                 whileTap={{ scale: 0.97 }}
-                onClick={handleDownload}
-                disabled={downloading || versionLoading}
+                onClick={openDownloadModal}
+                disabled={versionLoading}
                 className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white rounded-2xl font-medium text-sm shadow-md transition-colors duration-200 disabled:opacity-50"
               >
                 <FaDownload />
-                {downloading ? 'Starting...' : versionLoading ? 'Checking...' : `Download APK v${versionData?.data?.version || ''}`}
+                {versionLoading
+                  ? 'Checking...'
+                  : versionData?.data?.version
+                  ? `Download APK v${versionData.data.version}`
+                  : 'Download APK'}
               </motion.button>
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-2 text-center">
                 Get the Android app
@@ -226,6 +260,7 @@ const Welcome = () => {
       {/* ─── DESKTOP LAYOUT (>= lg) ────────────────────────────────── */}
       <div className="hidden lg:flex min-h-screen">
         <div className="relative w-[46%] xl:w-[42%] flex flex-col justify-between overflow-hidden px-14 py-14">
+          {/* Left panel – unchanged */}
           <div
             className="absolute inset-0 bg-cover bg-center"
             style={{ backgroundImage: "url('/hero.jfif')" }}
@@ -294,6 +329,7 @@ const Welcome = () => {
           </motion.p>
         </div>
 
+        {/* Right panel */}
         <div
           className="flex-1 flex items-center justify-center px-10 bg-white dark:bg-[#0a0a0f]"
           style={patternStyle}
@@ -311,17 +347,22 @@ const Welcome = () => {
               Sign in to pick up where you left off, or create an account to get your workspace started.
             </p>
 
+            {/* ─── Download Button (desktop) ────────────────────────── */}
             {!isCapacitor && (
               <div className="mt-6">
                 <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  onClick={handleDownload}
-                  disabled={downloading || versionLoading}
+                  onClick={openDownloadModal}
+                  disabled={versionLoading}
                   className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white rounded-xl font-medium text-sm shadow-md transition-colors duration-200 disabled:opacity-50"
                 >
                   <FaDownload />
-                  {downloading ? 'Starting...' : versionLoading ? 'Checking...' : `Download APK v${versionData?.data?.version || ''}`}
+                  {versionLoading
+                    ? 'Checking...'
+                    : versionData?.data?.version
+                    ? `Download APK v${versionData.data.version}`
+                    : 'Download APK'}
                 </motion.button>
                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 text-center">
                   Get the Android app
@@ -364,6 +405,85 @@ const Welcome = () => {
           </motion.div>
         </div>
       </div>
+
+      {/* ─── Download Modal ──────────────────────────────────────────── */}
+      {showModal && versionData?.data && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
+          <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-700/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="text-xl font-bold text-gray-800 dark:text-white">
+                  Download APK
+                </h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Version {versionData.data.version}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowModal(false)}
+                className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-lg transition"
+              >
+                <FaTimes className="text-lg" />
+              </button>
+            </div>
+
+            <div className="bg-gray-50 dark:bg-[#1a1a24] rounded-xl p-4 mb-4 space-y-2">
+              {versionData.data.releaseNotes && (
+                <p className="text-sm text-gray-600 dark:text-gray-300">
+                  {versionData.data.releaseNotes}
+                </p>
+              )}
+              <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
+                <span>Size: {formatFileSize(versionData.data.fileSize)}</span>
+                <span>Platform: Android</span>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowModal(false)}
+                className="flex-1 py-2.5 border border-gray-200 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDownload}
+                disabled={downloading}
+                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white rounded-xl text-sm font-medium transition disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {downloading ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Starting...
+                  </>
+                ) : (
+                  <>
+                    <FaDownload className="text-sm" />
+                    Download
+                  </>
+                )}
+              </button>
+            </div>
+
+            <button
+              onClick={handleShare}
+              className="w-full mt-3 flex items-center justify-center gap-2 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition py-2"
+            >
+              {copied ? (
+                <>
+                  <FaCheck className="text-green-500" />
+                  <span>Link copied!</span>
+                </>
+              ) : (
+                <>
+                  <FaShareAlt className="text-xs" />
+                  <span>Share download link</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

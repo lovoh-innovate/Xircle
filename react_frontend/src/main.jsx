@@ -70,8 +70,11 @@ import GeneralChats from './screens/GeneralChats.jsx';
 import GeneralChatId from './screens/GeneralChatId.jsx';
 import PersonalTasks from './screens/PersonalTasks.jsx';
 
+
+import AppDownload from './screens/AppDownload';
 //Admin 
 import UploadApp from './screens/UploadApp.jsx';
+
 
 import { useMobilePushNotifications } from './hooks/useMobilePushNotifications.js';
 
@@ -371,6 +374,7 @@ const router = createBrowserRouter([
 
           { path: 'call/:roomId', element: <CallScreen /> },
 
+          { path: 'app/download/:versionId', element: <AppDownload /> },
           //Admin 
           {path: 'admin/upload', element: <UploadApp />}
         ],
