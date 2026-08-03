@@ -48,7 +48,7 @@ const Welcome = () => {
       
       const a = document.createElement('a');
       a.href = downloadUrl;
-      a.download = `nexa-v${versionData.data.version}.apk`;
+      a.download = `xircle-v${versionData.data.version}.apk`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
