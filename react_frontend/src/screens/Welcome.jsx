@@ -1,5 +1,5 @@
 // screens/Welcome.jsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import {
@@ -25,7 +25,7 @@ const Welcome = () => {
   const isCapacitor = !!window.Capacitor?.isNativePlatform?.();
 
   // ─── Fetch latest app version (only for web) ─────────────────────────
-  const { data: versionData, isLoading: versionLoading, refetch } = useGetAppVersionQuery(
+  const { data: versionData, isLoading: versionLoading } = useGetAppVersionQuery(
     {
       platform: 'android',
       currentVersion: null,
@@ -37,6 +37,7 @@ const Welcome = () => {
   const [downloading, setDownloading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [copied, setCopied] = useState(false);
+  const hasDownloaded = useRef(false); // prevent multiple downloads
 
   // Redirect authenticated users
   useEffect(() => {
@@ -52,6 +53,7 @@ const Welcome = () => {
       return;
     }
     setShowModal(true);
+    hasDownloaded.current = false; // reset on open
   };
 
   // ─── Confirm download ──────────────────────────────────────────────────
@@ -60,22 +62,32 @@ const Welcome = () => {
       setShowModal(false);
       return;
     }
+    if (hasDownloaded.current) return; // prevent multiple
+
+    hasDownloaded.current = true;
     setDownloading(true);
+
     const downloadUrl = getAppDownloadUrl(versionData.data._id, token);
-    window.open(downloadUrl, '_blank');
-    // Close modal after a moment
+    // Use a hidden anchor to trigger download without opening new tab
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = `xircle-v${versionData.data.version}.apk`; // filename hint
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    toast.success('Download started!');
     setTimeout(() => {
       setShowModal(false);
       setDownloading(false);
     }, 1000);
-    toast.success('Download started!');
   };
 
   // ─── Share download link ──────────────────────────────────────────────
   const handleShare = async () => {
     if (!versionData?.data?._id) return;
     const baseUrl = window.location.origin;
-    const shareUrl = `${baseUrl}/api/app/download/${versionData.data._id}${token ? `?token=${token}` : ''}`;
+    const shareUrl = `${baseUrl}/app/download/${versionData.data._id}`;
     const shareData = {
       title: 'Xircle App',
       text: `Download Xircle v${versionData.data.version} - ${versionData.data.releaseNotes || 'Latest update'}`,
@@ -147,7 +159,6 @@ const Welcome = () => {
     backgroundRepeat: 'repeat',
   };
 
-  // ─── Render ──────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen w-full bg-white dark:bg-[#0a0a0f] transition-colors duration-300">
       {/* ─── MOBILE LAYOUT (< lg) ────────────────────────────────────── */}
@@ -420,7 +431,9 @@ const Welcome = () => {
                 </p>
               </div>
               <button
-                onClick={() => setShowModal(false)}
+                onClick={() => {
+                  if (!downloading) setShowModal(false);
+                }}
                 className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-lg transition"
               >
                 <FaTimes className="text-lg" />
@@ -441,7 +454,9 @@ const Welcome = () => {
 
             <div className="flex gap-3">
               <button
-                onClick={() => setShowModal(false)}
+                onClick={() => {
+                  if (!downloading) setShowModal(false);
+                }}
                 className="flex-1 py-2.5 border border-gray-200 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition"
               >
                 Cancel

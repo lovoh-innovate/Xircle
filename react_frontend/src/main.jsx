@@ -334,6 +334,7 @@ const router = createBrowserRouter([
       { path: 'login', element: <Login /> },
       { path: 'signup', element: <Signup /> },
       { path: 'forgot-password', element: <ForgotPassword /> },
+      { path: 'app/download/:versionId', element: <AppDownload /> },
 
       // ── Protected routes (auth required) ──
       {
@@ -374,7 +375,7 @@ const router = createBrowserRouter([
 
           { path: 'call/:roomId', element: <CallScreen /> },
 
-          { path: 'app/download/:versionId', element: <AppDownload /> },
+   
           //Admin 
           {path: 'admin/upload', element: <UploadApp />}
         ],
