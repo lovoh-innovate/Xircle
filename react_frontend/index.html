@@ -4,11 +4,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <!-- ===== CACHE CONTROL (development) ===== -->
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-    <meta http-equiv="Pragma" content="no-cache" />
-    <meta http-equiv="Expires" content="0" />
-
     <!-- ===== PRIMARY META ===== -->
     <title>Xircle — Project Management · Color Your Workspace</title>
     <meta
@@ -134,19 +129,7 @@
       </div>
     </div>
 
-    <!-- ===== REACT ENTRY with cache‑busting query ===== -->
-    <script type="module" src="/src/main.jsx?t=<?= time() ?>"></script>
-
-    <!-- ===== Service Worker unregister (if stuck) ===== -->
-    <script>
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then(function (registrations) {
-          for (let registration of registrations) {
-            registration.unregister();
-            console.log('Service Worker unregistered');
-          }
-        });
-      }
-    </script>
+    <!-- ===== REACT ENTRY ===== -->
+    <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

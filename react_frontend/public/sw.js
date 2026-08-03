@@ -1,46 +1,87 @@
 // public/sw.js
 
 // ─── Versioning ──────────────────────────────────────────────────────────
-const CACHE_VERSION = 'v1';
+// You no longer need to bump this by hand for normal deploys — the
+// network-first HTML strategy below means index.html is never stuck stale.
+// Bump this ONLY if you change this file's own caching logic in a way that
+// needs old caches wiped immediately.
+const CACHE_VERSION = 'v2';
 const CACHE_NAME = `app-cache-${CACHE_VERSION}`;
+
+// Only precache things that rarely/never change. Do NOT put '/' or
+// '/index.html' here — those must always be fetched fresh (see fetch handler).
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
   '/manifest.json',
   '/icon.png',
   '/badge.png',
 ];
 
-// ─── Install event – cache static assets ──────────────────────────────
+// ─── Install event ─────────────────────────────────────────────────────
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('Service Worker: Caching static assets');
+      console.log('Service Worker: caching static assets');
       return cache.addAll(STATIC_ASSETS);
     })
   );
+  // Take over immediately instead of waiting for old SW to finish —
+  // this is what makes updates apply "on their own" without a manual reload dance.
   self.skipWaiting();
 });
 
 // ─── Activate event – clean up old caches ─────────────────────────────
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
+    caches.keys().then((cacheNames) =>
+      Promise.all(
         cacheNames
           .filter((name) => name !== CACHE_NAME)
           .map((name) => caches.delete(name))
-      );
-    })
+      )
+    )
   );
   self.clients.claim();
 });
 
-// ─── Fetch event – serve from cache, fallback to network ──────────────
+// ─── Fetch event ───────────────────────────────────────────────────────
 self.addEventListener('fetch', (event) => {
+  const req = event.request;
+
+  if (req.method !== 'GET') return; // never intercept POST/PUT/etc.
+
+  const isNavigation =
+    req.mode === 'navigate' ||
+    (req.headers.get('accept') || '').includes('text/html');
+
+  // HTML / navigation requests: ALWAYS go to network first.
+  // This is the fix for the stale-index.html-with-dead-asset-hashes problem —
+  // the shell HTML is never served from cache unless the network is unreachable.
+  if (isNavigation) {
+    event.respondWith(
+      fetch(req)
+        .then((networkResponse) => {
+          // keep a fallback copy for offline use, but never rely on it
+          // unless the network genuinely fails
+          const clone = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
+          return networkResponse;
+        })
+        .catch(() => caches.match(req))
+    );
+    return;
+  }
+
+  // Hashed static assets (JS/CSS/images from /assets, fonts, etc.) are
+  // content-hashed by Vite — safe to serve cache-first since a changed
+  // file always has a new URL.
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      return cachedResponse || fetch(event.request);
+    caches.match(req).then((cached) => {
+      if (cached) return cached;
+      return fetch(req).then((networkResponse) => {
+        const clone = networkResponse.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
+        return networkResponse;
+      });
     })
   );
 });
@@ -65,16 +106,15 @@ self.addEventListener('push', (event) => {
     actions: data.actions || [],
   };
 
-  // If it's a call notification, add call-specific behaviour
   if (data.notificationType === 'call') {
-    options.vibrate = [1000, 500, 1000, 500, 1000]; // ring pattern
+    options.vibrate = [1000, 500, 1000, 500, 1000];
     options.actions = [
       { action: 'answer', title: 'Answer' },
       { action: 'decline', title: 'Decline' }
     ];
     options.requireInteraction = true;
-    options.tag = 'call'; // group calls together
-    options.silent = false; // ensure sound plays
+    options.tag = 'call';
+    options.silent = false;
   }
 
   event.waitUntil(self.registration.showNotification(title, options));
@@ -102,27 +142,22 @@ self.addEventListener('notificationclick', (event) => {
     );
   };
 
-  // Handle call actions
   if (data.notificationType === 'call') {
     if (action === 'answer') {
       openUrl(`/call/${data.roomId}?autoJoin=true`);
     } else if (action === 'decline') {
-      // Optionally hit API to reject, then go home
       openUrl('/my-workspaces');
     } else {
-      // Default tap (no action) – open call screen with auto-join
       openUrl(`/call/${data.roomId}?autoJoin=true`);
     }
     return;
   }
 
-  // Handle message quick reply action
   if (action === 'reply' && data.chatId && data.workspaceId) {
     openUrl(`/workspace/${data.workspaceId}/chat/${data.chatId}?focusInput=true`);
     return;
   }
 
-  // Default: navigate to the provided URL or home
   const url = data.url || '/my-workspaces';
   openUrl(url);
 });
