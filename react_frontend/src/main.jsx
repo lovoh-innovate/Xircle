@@ -1,4 +1,4 @@
-import { StrictMode, useEffect } from 'react';
+import { StrictMode, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Provider, useSelector } from 'react-redux';
 import { PersistGate } from 'redux-persist/integration/react';
@@ -18,6 +18,7 @@ import './index.css';
 import store, { persistor } from './store';
 
 import PrivateRoute from './components/PrivateRoute.jsx';
+import AppUpdateChecker from './components/AppUpdateChecker.jsx';
 import Welcome from './screens/Welcome.jsx';
 
 // ── ThemeProvider and useTheme ──────────────────────────────────────
@@ -69,7 +70,71 @@ import GeneralChats from './screens/GeneralChats.jsx';
 import GeneralChatId from './screens/GeneralChatId.jsx';
 import PersonalTasks from './screens/PersonalTasks.jsx';
 
+//Admin 
+import UploadApp from './screens/UploadApp.jsx';
+
 import { useMobilePushNotifications } from './hooks/useMobilePushNotifications.js';
+
+// ─── Global Pull‑to‑Refresh Component ──────────────────────────────
+const PullToRefresh = ({ children }) => {
+  const { refreshAll } = useRefresh();
+  const [refreshing, setRefreshing] = useState(false);
+  const startY = useRef(0);
+  const pullDistance = useRef(0);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const handleTouchStart = (e) => {
+      if (window.scrollY === 0) {
+        startY.current = e.touches[0].clientY;
+        pullDistance.current = 0;
+      }
+    };
+
+    const handleTouchMove = (e) => {
+      if (startY.current === 0) return;
+      const delta = e.touches[0].clientY - startY.current;
+      if (delta > 0 && window.scrollY === 0) {
+        pullDistance.current = delta;
+        if (delta > 60) e.preventDefault();
+      }
+    };
+
+    const handleTouchEnd = () => {
+      if (pullDistance.current > 80) {
+        setRefreshing(true);
+        refreshAll();
+        setTimeout(() => setRefreshing(false), 1000);
+      }
+      startY.current = 0;
+      pullDistance.current = 0;
+    };
+
+    el.addEventListener('touchstart', handleTouchStart, { passive: true });
+    el.addEventListener('touchmove', handleTouchMove, { passive: false });
+    el.addEventListener('touchend', handleTouchEnd, { passive: true });
+
+    return () => {
+      el.removeEventListener('touchstart', handleTouchStart);
+      el.removeEventListener('touchmove', handleTouchMove);
+      el.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [refreshAll]);
+
+  return (
+    <div ref={containerRef} className="relative min-h-screen">
+      {refreshing && (
+        <div className="absolute top-0 left-0 right-0 flex justify-center pt-4 z-50 pointer-events-none">
+          <div className="w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-sm shadow-lg p-1" />
+        </div>
+      )}
+      {children}
+    </div>
+  );
+};
 
 // ── Global navigator ──────────────────────────────────────────────────
 const GlobalNavigator = () => {
@@ -167,7 +232,7 @@ const buildCallDataFromPush = (data) => ({
 // ── Root Layout ──────────────────────────────────────────────────────
 const RootLayout = () => {
   const navigate = useNavigate();
-  const { setIncomingCallFromPush, socket } = useSocket(); // get socket instance
+  const { setIncomingCallFromPush, socket } = useSocket();
   const { isDarkMode } = useTheme();
   const { refreshAll } = useRefresh();
 
@@ -239,8 +304,12 @@ const RootLayout = () => {
   return (
     <div className="bg-gray-50 dark:bg-[#0b0b10] min-h-screen w-full transition-colors duration-300">
       <GlobalNavigator />
-      <Outlet />
+      <PullToRefresh>
+        <Outlet />
+      </PullToRefresh>
       <IncomingCallModal />
+      {/* ✅ Global app update checker */}
+      <AppUpdateChecker />
       <ToastContainer
         position="bottom-center"
         autoClose={4000}
@@ -258,7 +327,7 @@ const router = createBrowserRouter([
     element: <RootLayout />,
     children: [
       // ── Public routes (no auth required) ──
-      { index: true, element: <Welcome /> },        // now the landing page
+      { index: true, element: <Welcome /> },
       { path: 'login', element: <Login /> },
       { path: 'signup', element: <Signup /> },
       { path: 'forgot-password', element: <ForgotPassword /> },
@@ -301,6 +370,9 @@ const router = createBrowserRouter([
           { path: 'personal-tasks', element: <PersonalTasks /> },
 
           { path: 'call/:roomId', element: <CallScreen /> },
+
+          //Admin 
+          {path: 'admin/upload', element: <UploadApp />}
         ],
       },
     ],

@@ -708,3 +708,119 @@ export const clearAllNotifications = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// ─── BROADCAST APP UPDATE ──────────────────────────────────────────────
+
+/**
+ * Broadcast an app update notification to all users with push tokens.
+ * @param {Object} versionData - { version, isRequired, releaseNotes, _id }
+ */
+export const broadcastAppUpdate = async (versionData) => {
+  try {
+    // Fetch all users that have at least one active push token
+    const users = await User.find({
+      'pushTokens.isActive': true,
+    }).select('pushTokens');
+
+    if (!users.length) {
+      console.log('📭 No users with active push tokens found');
+      return;
+    }
+
+    // Collect all active FCM tokens (mobile) and web subscriptions separately
+    const fcmTokens = [];
+    const webSubscriptions = [];
+
+    users.forEach((user) => {
+      user.pushTokens.forEach((tokenRecord) => {
+        if (!tokenRecord.isActive) return;
+        if (tokenRecord.deviceType === 'web' && tokenRecord.subscription) {
+          webSubscriptions.push(tokenRecord.subscription);
+        } else if (['ios', 'android'].includes(tokenRecord.deviceType) && tokenRecord.token) {
+          fcmTokens.push(tokenRecord.token);
+        }
+      });
+    });
+
+    // ── FCM (mobile) multicast ────────────────────────────────────────
+    if (fcmTokens.length > 0 && firebaseInitialised) {
+      const payload = {
+        data: {
+          type: 'APP_UPDATE',
+          version: versionData.version || '',
+          isRequired: String(versionData.isRequired || false),
+          versionId: versionData._id || '',
+          releaseNotes: versionData.releaseNotes || '',
+          timestamp: Date.now().toString(),
+        },
+        android: {
+          priority: 'high',
+          ttl: 3600 * 1000, // 1 hour
+        },
+        apns: {
+          headers: {
+            'apns-priority': '10',
+          },
+          payload: {
+            aps: {
+              'content-available': 1,
+              sound: 'default',
+            },
+          },
+        },
+        tokens: fcmTokens,
+      };
+
+      const response = await getMessaging().sendEachForMulticast(payload);
+      console.log(
+        `📨 FCM broadcast: ${response.successCount} succeeded, ${response.failureCount} failed`
+      );
+
+      // Optionally clean up invalid tokens
+      if (response.failureCount > 0) {
+        response.responses.forEach((resp, idx) => {
+          if (!resp.success) {
+            console.error(`❌ FCM failure for token ${fcmTokens[idx]}:`, resp.error);
+            // You could mark the token as inactive here (requires fetching user again)
+          }
+        });
+      }
+    } else if (fcmTokens.length > 0 && !firebaseInitialised) {
+      console.warn('⚠️ Firebase not initialised – skipping FCM broadcast');
+    }
+
+    // ── Web push (send individually) ──────────────────────────────────
+    if (webSubscriptions.length > 0 && process.env.VAPID_PRIVATE_KEY) {
+      const webPayload = JSON.stringify({
+        title: 'App Update Available',
+        body: `Version ${versionData.version} is ready for download.`,
+        icon: '/icon.png',
+        badge: '/badge.png',
+        data: {
+          type: 'APP_UPDATE',
+          version: versionData.version,
+          isRequired: String(versionData.isRequired || false),
+          versionId: versionData._id || '',
+          releaseNotes: versionData.releaseNotes || '',
+          timestamp: Date.now().toString(),
+        },
+      });
+
+      let webSuccess = 0;
+      for (const subscription of webSubscriptions) {
+        try {
+          await webpush.sendNotification(subscription, webPayload);
+          webSuccess++;
+        } catch (err) {
+          console.error('❌ Web push failed:', err.message);
+          // Optionally handle expired subscriptions
+        }
+      }
+      console.log(`📨 Web broadcast: ${webSuccess} succeeded out of ${webSubscriptions.length}`);
+    } else if (webSubscriptions.length > 0 && !process.env.VAPID_PRIVATE_KEY) {
+      console.warn('⚠️ VAPID not configured – skipping web broadcast');
+    }
+  } catch (error) {
+    console.error('❌ broadcastAppUpdate error:', error);
+  }
+};

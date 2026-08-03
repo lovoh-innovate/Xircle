@@ -16,6 +16,7 @@ import projectRoutes from "./routes/projectRoutes.js";
 import callRoutes from "./routes/callRoutes.js";
 import notificationRoutes from './routes/notificationRoutes.js';
 import personalTaskRoutes from './routes/personalTaskRoutes.js';
+import appRoutes from './routes/appRoutes.js';
 
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 import { initSocket } from "./controllers/socket.js";
@@ -73,6 +74,7 @@ app.use("/api/projects", projectRoutes);
 app.use("/api/calls", callRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/personal-tasks', personalTaskRoutes);
+app.use('/api/app', appRoutes);
 
 // ── Error middleware ──
 app.use(notFound);

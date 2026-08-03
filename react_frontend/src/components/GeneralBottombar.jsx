@@ -1,6 +1,7 @@
 // src/components/GeneralBottombar.jsx
 import React, { useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { useSelector } from 'react-redux';
 import {
   FaHome,
   FaTasks,
@@ -8,13 +9,22 @@ import {
   FaHashtag,
   FaPlus,
   FaTimes,
+  FaBars,
+  FaCog,
+  FaUser,
+  FaUpload,
 } from 'react-icons/fa';
 import { useCreatePersonalTaskMutation } from '../slices/personalTaskApiSlice';
 import { toast } from 'react-toastify';
 
 const GeneralBottombar = () => {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { userInfo } = useSelector((state) => state.auth);
+  const isAdmin = userInfo?.role === 'admin' || userInfo?.role === 'super_admin';
+
   const [showModal, setShowModal] = useState(false);
+  const [showDrawer, setShowDrawer] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState('medium');
@@ -53,9 +63,18 @@ const GeneralBottombar = () => {
   // Home active only on /my-workspaces
   const isHomeActive = () => location.pathname === '/my-workspaces';
 
+  // ─── Drawer items ──────────────────────────────────────────────
+  const drawerItems = [
+    { to: '/channels', icon: FaHashtag, label: 'Channels' },
+    ...(isAdmin ? [{ to: '/admin/upload', icon: FaUpload, label: 'Upload App' }] : []),
+    // Add more items here later (e.g. Settings, Profile)
+  ];
+
   return (
     <>
+      {/* ─── Bottom Bar ───────────────────────────────────────────── */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0f0f12]/80 backdrop-blur-2xl border-t border-white/10 flex items-center justify-around h-16 px-2 z-50">
+        {/* Home */}
         <NavLink
           to="/my-workspaces"
           className={() =>
@@ -68,6 +87,7 @@ const GeneralBottombar = () => {
           <span>Home</span>
         </NavLink>
 
+        {/* Tasks */}
         <NavLink
           to="/personal-tasks"
           className={({ isActive }) =>
@@ -80,6 +100,7 @@ const GeneralBottombar = () => {
           <span>Tasks</span>
         </NavLink>
 
+        {/* + Button */}
         <div className="relative -mt-8">
           <div className="absolute inset-0 rounded-full bg-cyan-400/20 animate-ping" />
           <button
@@ -90,6 +111,7 @@ const GeneralBottombar = () => {
           </button>
         </div>
 
+        {/* Chats */}
         <NavLink
           to="/chat"
           className={({ isActive }) =>
@@ -102,20 +124,89 @@ const GeneralBottombar = () => {
           <span>Chats</span>
         </NavLink>
 
-        <NavLink
-          to="/channels"
-          className={({ isActive }) =>
-            `flex flex-col items-center justify-center text-xs font-medium transition-all duration-300 ${
-              isActive ? 'text-cyan-400' : 'text-gray-400 hover:text-white'
-            }`
-          }
+        {/* More (hamburger) */}
+        <button
+          onClick={() => setShowDrawer(true)}
+          className="flex flex-col items-center justify-center text-xs font-medium text-gray-400 hover:text-white transition-all duration-300"
         >
-          <FaHashtag className="text-xl" />
-          <span>Channels</span>
-        </NavLink>
+          <FaBars className="text-xl" />
+          <span>More</span>
+        </button>
       </div>
 
-      {/* Modal – unchanged */}
+      {/* ─── Bottom Drawer ────────────────────────────────────────── */}
+      {showDrawer && (
+        <div
+          className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 backdrop-blur-sm"
+          onClick={(e) => e.target === e.currentTarget && setShowDrawer(false)}
+        >
+          <div className="w-full max-w-md rounded-t-2xl bg-[#14141a]/95 backdrop-blur-2xl border-t border-white/10 shadow-2xl shadow-cyan-500/10 p-4 pb-8 transition-transform duration-300 ease-out">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-sm font-semibold text-gray-300">Menu</h3>
+              <button
+                onClick={() => setShowDrawer(false)}
+                className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-xl transition"
+              >
+                <FaTimes className="text-lg" />
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              {drawerItems.map(({ to, icon: Icon, label }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  onClick={() => setShowDrawer(false)}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${
+                      isActive
+                        ? 'bg-cyan-500/20 text-cyan-400'
+                        : 'text-gray-300 hover:text-white hover:bg-white/5'
+                    }`
+                  }
+                >
+                  <Icon className="text-lg" />
+                  <span>{label}</span>
+                </NavLink>
+              ))}
+            </div>
+
+            {/* Divider + extra links (optional) */}
+            <div className="mt-4 pt-4 border-t border-white/10">
+              <NavLink
+                to="/settings"
+                onClick={() => setShowDrawer(false)}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${
+                    isActive
+                      ? 'bg-cyan-500/20 text-cyan-400'
+                      : 'text-gray-300 hover:text-white hover:bg-white/5'
+                  }`
+                }
+              >
+                <FaCog className="text-lg" />
+                <span>Settings</span>
+              </NavLink>
+              <NavLink
+                to="/profile"
+                onClick={() => setShowDrawer(false)}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${
+                    isActive
+                      ? 'bg-cyan-500/20 text-cyan-400'
+                      : 'text-gray-300 hover:text-white hover:bg-white/5'
+                  }`
+                }
+              >
+                <FaUser className="text-lg" />
+                <span>Profile</span>
+              </NavLink>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Create Task Modal ────────────────────────────────────── */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
           <div className="bg-[#14141a]/90 backdrop-blur-2xl border border-white/10 rounded-3xl max-w-md w-full p-6 shadow-2xl shadow-cyan-500/20">

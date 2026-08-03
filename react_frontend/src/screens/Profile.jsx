@@ -5,8 +5,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useGetMyWorkspacesQuery } from '../slices/workspaceApiSlice';
 import { useLogoutMutation } from '../slices/userApiSlice';
 import { logout } from '../slices/authSlice';
+import { apiSlice } from '../slices/apiSlice'; // 👈 import the base API slice
 import { toast } from 'react-toastify';
-import { persistor } from '../store'; // Import persistor for purging
+import { persistor } from '../store';
 import {
   FaArrowLeft,
   FaUserCircle,
@@ -47,19 +48,22 @@ const Profile = () => {
       // Even if server logout fails, we still wipe local data
       console.warn('Server logout failed, continuing with local cleanup:', err);
     } finally {
-      // 2. Clear Redux state
+      // 2. Clear Redux auth state
       dispatch(logout());
 
       // 3. Purge persisted store
       await persistor.purge();
 
-      // 4. Wipe localStorage
+      // 4. Reset all RTK Query cached data (queries, mutations, etc.)
+      dispatch(apiSlice.util.resetApiState());
+
+      // 5. Wipe localStorage
       localStorage.clear();
 
-      // 5. Wipe sessionStorage
+      // 6. Wipe sessionStorage
       sessionStorage.clear();
 
-      // 6. Notify and redirect
+      // 7. Notify and redirect
       toast.success('Logged out successfully');
       navigate('/login');
     }

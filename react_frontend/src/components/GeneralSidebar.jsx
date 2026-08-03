@@ -3,6 +3,7 @@ import React, { useMemo } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
 import { logout } from '../slices/authSlice';
+import { apiSlice } from '../slices/apiSlice';
 import { useGetPersonalTasksQuery } from '../slices/personalTaskApiSlice';
 import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
 import {
@@ -15,37 +16,29 @@ import {
   FaSignOutAlt,
   FaExclamationCircle,
   FaClock,
+  FaUpload, // 👈 added
 } from 'react-icons/fa';
-import { persistor } from '../store'; // Import the persistor instance
+import { persistor } from '../store';
 
-// Logo from public folder
 const LOGO = '/logo.png';
 
 const GeneralSidebar = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const { userInfo } = useSelector((state) => state.auth);
+  const isAdmin = userInfo?.role === 'admin' || userInfo?.role === 'super_admin';
 
-  // ─── Clean Logout ──────────────────────────────────────────────
+  // ─── Super Clean Logout ──────────────────────────────────────────
   const handleLogout = async () => {
     try {
-      // 1. Clear Redux state
       dispatch(logout());
-
-      // 2. Purge persisted store (removes all persisted data)
       await persistor.purge();
-
-      // 3. Wipe localStorage
+      dispatch(apiSlice.util.resetApiState());
       localStorage.clear();
-
-      // 4. Wipe sessionStorage
       sessionStorage.clear();
-
-      // 5. Redirect to login
       navigate('/login');
     } catch (error) {
       console.error('Logout failed:', error);
-      // Fallback navigation
       navigate('/login');
     }
   };
@@ -65,14 +58,10 @@ const GeneralSidebar = () => {
   const recentChats = useMemo(() => {
     if (!chatsData?.chats) return [];
 
-    // 1. Only public scope
     const publicChats = chatsData.chats.filter((chat) => chat.scope === 'public');
-
-    // 2. Separate direct and group
     const directChats = publicChats.filter((chat) => chat.type === 'direct');
     const groupChats = publicChats.filter((chat) => chat.type === 'group');
 
-    // 3. Deduplicate direct chats: keep only the most recent per other user
     const directMap = new Map();
     for (const chat of directChats) {
       const other = chat.participants?.find(
@@ -92,15 +81,10 @@ const GeneralSidebar = () => {
     }
     const dedupedDirect = Array.from(directMap.values());
 
-    // 4. Combine with group chats
     let combined = [...dedupedDirect, ...groupChats];
-
-    // 5. Sort by lastMessageAt descending
     combined.sort(
       (a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt)
     );
-
-    // 6. Keep only the 3 most recent
     return combined.slice(0, 3);
   }, [chatsData, userInfo]);
 
@@ -112,7 +96,6 @@ const GeneralSidebar = () => {
         unreadCount: chat.unreadCount || 0,
       };
     }
-    // Direct: find other participant
     const other = chat.participants?.find(
       (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id
     );
@@ -178,6 +161,28 @@ const GeneralSidebar = () => {
               </NavLink>
             </li>
           ))}
+
+          {/* ─── Admin: Upload App (visible only to admins) ─────── */}
+          {isAdmin && (
+            <li>
+              <NavLink
+                to="/admin/upload"
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                    isActive
+                      ? 'bg-white/10 text-cyan-300'
+                      : 'text-gray-400 hover:text-white hover:bg-white/5'
+                  }`
+                }
+              >
+                <FaUpload className="text-lg w-6 text-center" />
+                <span>Upload App</span>
+                {({ isActive }) => isActive && (
+                  <span className="ml-auto w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                )}
+              </NavLink>
+            </li>
+          )}
         </ul>
       </nav>
 
@@ -236,7 +241,6 @@ const GeneralSidebar = () => {
           <ul className="space-y-2">
             {recentChats.map((chat) => {
               const { name, avatar, unreadCount } = getChatDisplay(chat);
-              // Determine correct route
               const chatPath = chat.type === 'direct' ? `/chats/${chat._id}` : `/channels/${chat._id}`;
               return (
                 <li key={chat._id}>
@@ -245,7 +249,6 @@ const GeneralSidebar = () => {
                     className="block p-2 rounded-lg hover:bg-white/5 transition-colors"
                   >
                     <div className="flex items-center gap-2">
-                      {/* Avatar with unread count badge */}
                       <div className="relative w-7 h-7 flex-shrink-0">
                         {avatar ? (
                           <img
