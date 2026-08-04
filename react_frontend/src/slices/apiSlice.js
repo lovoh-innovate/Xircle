@@ -16,19 +16,20 @@ const baseQuery = fetchBaseQuery({
 
 export const apiSlice = createApi({
   baseQuery,
-  tagTypes: [
-    'User',
-    'Workspace',
-    'Project',
-    'Task',
-    'Chat',
-    'Message',
-    'Typing',
-    'UserSearch',
-    'Team',
-    'Membership',
-    'PendingRequests',
-  ],
+ tagTypes: [
+  'User',
+  'Workspace',
+  'Project',
+  'Task',
+  'Chat',
+  'Message',
+  'Typing',
+  'UserSearch',
+  'Team',
+  'Membership',
+  'PendingRequests',
+  'AppVersion', // ✅ was missing — this is why upload/delete didn't reflect live
+],
   // ─── Caching / freshness settings ───────────────────────────────
   refetchOnReconnect: true,          // refetch when network comes back
   refetchOnMountOrArgChange: true,   // ✅ correct option name (was `refetchOnMount` — a no-op typo)
