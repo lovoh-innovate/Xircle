@@ -1,3 +1,4 @@
+// middleware/uploadMiddleware.js
 import multer from 'multer';
 import { CloudinaryStorage } from 'multer-storage-cloudinary';
 import cloudinary from '../utils/cloudinary.js';
@@ -26,7 +27,11 @@ const storage = new CloudinaryStorage({
   }
 });
 
-// ─── Storage for app version files (Cloudinary – raw/binary) ────────
+// ─── Storage for app version files (Cloudinary) ─────────────────────
+// NOTE: using resource_type 'video' instead of 'raw' — Cloudinary's free/basic
+// plan caps 'raw' uploads at 10MB, but 'video' allows much larger binaries
+// (100MB+ on free plan). Cloudinary doesn't actually validate the bytes are
+// real video for this resource_type, so APK/AAB files upload fine.
 const appStorage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: async (req, file) => {
@@ -35,9 +40,8 @@ const appStorage = new CloudinaryStorage({
 
     return {
       folder: 'app-versions',
-      resource_type: 'raw', // APK/AAB are binary, not image/video
-      public_id: `app-${version}-${Date.now()}${ext}`, // keep extension in public_id
-      format: undefined, // let public_id's extension stand, avoid Cloudinary appending its own
+      resource_type: 'video',
+      public_id: `app-${version}-${Date.now()}${ext}`,
     };
   }
 });

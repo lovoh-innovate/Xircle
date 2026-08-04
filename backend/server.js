@@ -5,6 +5,8 @@ import mongoose from "mongoose";
 import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
 import cron from "node-cron";
+import path from "path";
+import { fileURLToPath } from "url";
 
 // Routes
 import userRoutes from "./routes/userRoutes.js";
@@ -21,10 +23,13 @@ import appRoutes from './routes/appRoutes.js';
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 import { initSocket } from "./controllers/socket.js";
 
-// Import the reminder function (pure logic, no Express req/res)
 import { checkAndSendReminders } from "./controllers/taskController.js";
 
 dotenv.config();
+
+// ─── Fix __dirname for ES modules ──────────────────────────────────
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
@@ -55,6 +60,9 @@ app.use(cors({
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
 }));
+
+// ─── Serve static files (uploads) ──────────────────────────────────
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // ── Health endpoints ──
 app.get("/api/health", (req, res) => {

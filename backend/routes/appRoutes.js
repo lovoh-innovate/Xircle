@@ -1,7 +1,9 @@
 // routes/appRoutes.js
 import express from 'express';
 import { protect } from '../middleware/authMiddleware.js';
-import { appUpload } from '../middleware/uploadMiddleware.js';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 import {
   getAppVersion,
   getAppVersionById,
@@ -15,30 +17,64 @@ import {
 
 const router = express.Router();
 
-// ─── Public Routes ────────────────────────────────────────────────────
-// GET /api/app/version?platform=android&currentVersion=1.0.0&token=...
+// ─── Ensure upload directory exists ──────────────────────────────────
+const uploadDir = 'uploads/app-versions';
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// ─── Multer disk storage ──────────────────────────────────────────────
+const appStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const version = req.body.version || Date.now();
+    const ext = path.extname(file.originalname);
+    cb(null, `xircle-v${version}-${Date.now()}${ext}`);
+  },
+});
+
+const uploadAppFile = multer({
+  storage: appStorage,
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500MB max
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ext === '.apk' || ext === '.aab') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only APK and AAB files are allowed'), false);
+    }
+  },
+});
+
+// ─── Wrapper to catch multer errors ──────────────────────────────────
+const handleAppUpload = (req, res, next) => {
+  uploadAppFile.single('file')(req, res, (err) => {
+    if (err) {
+      console.error('❌ Multer upload error:', err);
+      return res.status(500).json({
+        success: false,
+        message: 'File upload failed',
+        error: err.message,
+      });
+    }
+    next();
+  });
+};
+
+// ─── Public routes (no authentication required) ─────────────────────
 router.get('/version', getAppVersion);
-
-// GET /api/app/version/:versionId
 router.get('/version/:versionId', getAppVersionById);
-
-// GET /api/app/download/:versionId?token=...
 router.get('/download/:versionId', downloadApp);
-
-// POST /api/app/update-version  (body: { token, version })
 router.post('/update-version', updateUserAppVersion);
 
-// ─── Admin Routes (require authentication) ──────────────────────────
-// POST /api/app/admin/upload  (multipart form-data with field "file")
-router.post('/admin/upload', protect, appUpload.single('file'), uploadApp);
+// ─── Admin routes (authentication required) ─────────────────────────
+router.use(protect);
 
-// PUT /api/app/admin/update/:versionId  (body: { version, releaseNotes, isRequired, isActive })
-router.put('/admin/update/:versionId', protect, updateApp);
-
-// DELETE /api/app/admin/delete/:versionId
-router.delete('/admin/delete/:versionId', protect, deleteApp);
-
-// GET /api/app/admin/versions?platform=android
-router.get('/admin/versions', protect, getAppVersions);
+router.post('/admin/upload', handleAppUpload, uploadApp);
+router.put('/admin/update/:versionId', updateApp);
+router.delete('/admin/delete/:versionId', deleteApp);
+router.get('/admin/versions', getAppVersions);
 
 export default router;
