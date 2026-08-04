@@ -5,7 +5,7 @@
 // network-first HTML strategy below means index.html is never stuck stale.
 // Bump this ONLY if you change this file's own caching logic in a way that
 // needs old caches wiped immediately.
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = 'v4';
 const CACHE_NAME = `app-cache-${CACHE_VERSION}`;
 
 // Only precache things that rarely/never change. Do NOT put '/' or
@@ -49,9 +49,22 @@ self.addEventListener('fetch', (event) => {
 
   if (req.method !== 'GET') return; // never intercept POST/PUT/etc.
 
+  const url = new URL(req.url);
+
   const isNavigation =
     req.mode === 'navigate' ||
     (req.headers.get('accept') || '').includes('text/html');
+
+  // API requests: NEVER cache these, always go straight to network.
+  // This is the fix for the "delete/upload doesn't reflect until I clear
+  // browser data" bug — API GET responses (e.g. /api/app/version) were
+  // previously falling into the cache-first static-asset branch below and
+  // being served from cache forever, regardless of server-side changes.
+  const isApiRequest = url.pathname.startsWith('/api/');
+  if (isApiRequest) {
+    event.respondWith(fetch(req));
+    return;
+  }
 
   // HTML / navigation requests: ALWAYS go to network first.
   // This is the fix for the stale-index.html-with-dead-asset-hashes problem —
