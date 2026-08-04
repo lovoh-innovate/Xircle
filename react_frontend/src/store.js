@@ -32,10 +32,13 @@ const storage = {
 };
 
 // ─── Persist configuration ──────────────────────────────────────────
+// v2: bumped key so existing users' stale persisted state (which used to
+// include the RTK Query cache) gets dropped automatically on next load,
+// instead of everyone needing to manually clear browser data.
 const persistConfig = {
-  key: 'root',
-  storage, // use our custom storage
-  whitelist: ['auth', apiSlice.reducerPath],
+  key: 'root-v2',
+  storage,
+  whitelist: ['auth'], // ✅ only persist auth — never persist apiSlice.reducerPath
 };
 
 // ─── Combine reducers ──────────────────────────────────────────────

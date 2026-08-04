@@ -29,9 +29,9 @@ export const apiSlice = createApi({
     'Membership',
     'PendingRequests',
   ],
-  // ─── Offline‑first caching settings ──────────────────────────────
-  refetchOnReconnect: true,    // automatically refetch when network comes back
-  refetchOnMount: true,        // refetch when a component mounts (optional, but good for fresh data)
-  keepUnusedDataFor: 60 * 60 * 24, // keep cached data in memory for 24 hours (86400 seconds)
+  // ─── Caching / freshness settings ───────────────────────────────
+  refetchOnReconnect: true,          // refetch when network comes back
+  refetchOnMountOrArgChange: true,   // ✅ correct option name (was `refetchOnMount` — a no-op typo)
+  keepUnusedDataFor: 60,             // 60s is plenty; 86400 basically meant "never expire"
   endpoints: (builder) => ({}),
 });
