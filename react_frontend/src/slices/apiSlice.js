@@ -16,23 +16,31 @@ const baseQuery = fetchBaseQuery({
 
 export const apiSlice = createApi({
   baseQuery,
- tagTypes: [
-  'User',
-  'Workspace',
-  'Project',
-  'Task',
-  'Chat',
-  'Message',
-  'Typing',
-  'UserSearch',
-  'Team',
-  'Membership',
-  'PendingRequests',
-  'AppVersion', // ✅ was missing — this is why upload/delete didn't reflect live
-],
-  // ─── Caching / freshness settings ───────────────────────────────
-  refetchOnReconnect: true,          // refetch when network comes back
-  refetchOnMountOrArgChange: true,   // ✅ correct option name (was `refetchOnMount` — a no-op typo)
-  keepUnusedDataFor: 60,             // 60s is plenty; 86400 basically meant "never expire"
+  tagTypes: [
+    'User',
+    'Workspace',
+    'Project',
+    'Task',
+    'Chat',
+    'Message',
+    'Typing',
+    'UserSearch',
+    'Team',
+    'Membership',
+    'PendingRequests',
+    'AppVersion',
+    'PublicGroup',
+    'JoinRequest',
+    'Member',
+    'Notification',
+    'NotificationPreferences',
+    'PersonalFolder',
+    'PersonalTask',
+    'Folder',
+    'Call',
+  ],
+  refetchOnReconnect: true,
+  refetchOnMountOrArgChange: true,
+  keepUnusedDataFor: 60,
   endpoints: (builder) => ({}),
 });

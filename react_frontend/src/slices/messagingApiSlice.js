@@ -323,7 +323,7 @@ getPendingJoinRequests: builder.query({
   query: () => ({
     url: `${MESSAGING_URL}/public/groups/pending`,
   }),
-  providesTags: ['PublicGroup', 'PendingRequest'],
+  providesTags: ['PublicGroup', 'PendingRequests'],
 }),
 
   }),
