@@ -2,6 +2,7 @@
 import { apiSlice } from './apiSlice';
 
 const APP_URL = '/app';
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 // ─── Helper to build download URL ──────────────────────────────────
 export const getAppDownloadUrl = (versionId, token) => {
