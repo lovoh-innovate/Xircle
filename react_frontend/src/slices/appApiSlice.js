@@ -5,7 +5,7 @@ const APP_URL = '/app';
 
 // ─── Helper to build download URL ──────────────────────────────────
 export const getAppDownloadUrl = (versionId, token) => {
-  const url = `${APP_URL}/download/${versionId}`;
+  const url = `${API_BASE}/api${APP_URL}/download/${versionId}`;
   return token ? `${url}?token=${token}` : url;
 };
 
