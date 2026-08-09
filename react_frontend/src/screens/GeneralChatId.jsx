@@ -13,7 +13,7 @@ import {
 } from '../slices/messagingApiSlice';
 import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
 import { useSocket } from '../components/SocketContext.jsx';
-import { toast } from 'react-toastify';
+import { toast } from 'react-hot-toast';
 import {
   FaArrowLeft,
   FaPaperPlane,

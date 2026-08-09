@@ -6,7 +6,7 @@ import { useGetMyWorkspacesQuery } from '../slices/workspaceApiSlice';
 import { useLogoutMutation } from '../slices/userApiSlice';
 import { logout } from '../slices/authSlice';
 import { apiSlice } from '../slices/apiSlice'; // 👈 import the base API slice
-import { toast } from 'react-toastify';
+import { toast } from 'react-hot-toast';
 import { persistor } from '../store';
 import {
   FaArrowLeft,

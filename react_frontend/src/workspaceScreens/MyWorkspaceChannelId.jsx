@@ -64,7 +64,7 @@ import {
   FaReply,
   FaFile,
 } from "react-icons/fa";
-import { toast } from "react-toastify";
+import { toast } from "react-hot-toast";
 import { useSocket } from "../components/SocketContext.jsx";
 
 // ─── Helpers ────────────────────────────────────────────────────────

@@ -14,7 +14,7 @@ import {
   Clock,
   ArrowLeft,
 } from 'lucide-react';
-import { toast } from 'react-toastify';
+import { toast } from 'react-hot-toast';
 import { getAppDownloadUrl } from '../slices/appApiSlice';
 
 const AppDownload = () => {

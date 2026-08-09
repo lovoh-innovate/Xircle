@@ -14,7 +14,7 @@ import {
 } from 'react-icons/fa';
 import { motion } from 'framer-motion';
 import { useGetAppVersionQuery, getAppDownloadUrl } from '../slices/appApiSlice';
-import { toast } from 'react-toastify';
+import { toast } from 'react-hot-toast';
 
 const Welcome = () => {
   const navigate = useNavigate();

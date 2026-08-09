@@ -48,7 +48,7 @@ import {
   FaUndo,
   FaFile,
 } from "react-icons/fa";
-import { toast } from "react-toastify";
+import { toast } from "react-hot-toast";
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 const formatTime = (seconds) => {

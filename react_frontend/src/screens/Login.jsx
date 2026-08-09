@@ -9,7 +9,7 @@ import {
   useResendOTPMutation,
 } from '../slices/userApiSlice';
 import { setCredentials } from '../slices/authSlice';
-import { toast } from 'react-toastify';
+import { toast } from 'react-hot-toast';
 import { FaEnvelope, FaLock, FaEye, FaEyeSlash, FaArrowLeft } from 'react-icons/fa';
 import { GoogleLogin } from '@react-oauth/google';
 

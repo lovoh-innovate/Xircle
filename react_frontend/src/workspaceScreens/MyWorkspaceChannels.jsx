@@ -32,7 +32,7 @@ import {
   FaSignOutAlt,
   FaTrashAlt,
 } from 'react-icons/fa';
-import { toast } from 'react-toastify';
+import { toast } from 'react-hot-toast';
 
 // ─── Helper: format time ──────────────────────────────────────────────
 const formatTime = (date) => {

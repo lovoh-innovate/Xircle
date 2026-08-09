@@ -32,7 +32,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { toast } from 'react-toastify';
+import { toast } from 'react-hot-toast';
 
 // ─── Helper: fetch task count for a single project ──
 const TaskCounter = memo(({ projectId, onCount, onLoading }) => {

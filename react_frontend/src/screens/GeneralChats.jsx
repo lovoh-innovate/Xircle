@@ -7,7 +7,7 @@ import {
   useSearchUsersQuery,
   useCreatePublicDirectChatMutation,
 } from '../slices/messagingApiSlice';
-import { toast } from 'react-toastify';
+import { toast } from 'react-hot-toast';
 import {
   FaComments,
   FaSearch,

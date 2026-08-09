@@ -7,7 +7,7 @@ import {
   useCreateWorkspaceMutation,
 } from '../slices/workspaceApiSlice';
 import { useRequestToJoinMutation } from '../slices/teamApiSlice';
-import { toast } from 'react-toastify';
+import { toast } from 'react-hot-toast';
 import {
   FaPlus,
   FaUsers,

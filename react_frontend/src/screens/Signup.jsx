@@ -9,7 +9,7 @@ import {
   useResendOTPMutation,
 } from '../slices/userApiSlice';
 import { setCredentials } from '../slices/authSlice';
-import { toast } from 'react-toastify';
+import { toast } from 'react-hot-toast';
 import {
   FaUser,
   FaEnvelope,

@@ -8,7 +8,7 @@ import {
   useDeleteAppVersionMutation,
   useUpdateAppVersionMutation,
 } from '../slices/appApiSlice';
-import { toast } from 'react-toastify';
+import { toast } from 'react-hot-toast';
 import {
   FaUpload,
   FaTrash,

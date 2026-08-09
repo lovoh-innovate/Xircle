@@ -29,7 +29,7 @@ import {
   FaEllipsisV,
   FaCircle,
 } from 'react-icons/fa';
-import { toast } from 'react-toastify';
+import { toast } from 'react-hot-toast';
 
 // ─── Helper: get initials ──────────────────────────────────────────────
 const getInitials = (name) => {

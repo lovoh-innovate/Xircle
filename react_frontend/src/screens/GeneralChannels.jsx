@@ -11,7 +11,7 @@ import {
   useDeletePublicGroupMutation,
   useGetPendingJoinRequestsQuery,
 } from '../slices/messagingApiSlice';
-import { toast } from 'react-toastify';
+import { toast } from 'react-hot-toast';
 import {
   FaUsers,
   FaSearch,
