@@ -1,3 +1,4 @@
+// App.jsx
 import { StrictMode, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Provider, useSelector } from 'react-redux';
@@ -11,8 +12,7 @@ import {
 } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
-import { toast, ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
+import { Toaster } from 'react-hot-toast';           // ✅ new import
 
 import './index.css';
 import store, { persistor } from './store';
@@ -70,11 +70,9 @@ import GeneralChats from './screens/GeneralChats.jsx';
 import GeneralChatId from './screens/GeneralChatId.jsx';
 import PersonalTasks from './screens/PersonalTasks.jsx';
 
-
 import AppDownload from './screens/AppDownload';
 //Admin 
 import UploadApp from './screens/UploadApp.jsx';
-
 
 import { useMobilePushNotifications } from './hooks/useMobilePushNotifications.js';
 
@@ -313,11 +311,39 @@ const RootLayout = () => {
       <IncomingCallModal />
       {/* ✅ Global app update checker */}
       <AppUpdateChecker />
-      <ToastContainer
-        position="bottom-center"
-        autoClose={4000}
-        hideProgressBar={false}
-        theme={isDarkMode ? 'dark' : 'light'}
+
+      {/* ========== NEW REACT-HOT-TOAST CONFIGURATION ========== */}
+      <Toaster
+        position="bottom-center"           // same as your previous
+        toastOptions={{
+          duration: 4000,
+          style: {
+            background: '#1e1e2a',
+            color: '#f0f0f0',
+            borderRadius: '16px',
+            padding: '14px 20px',
+            boxShadow: '0 12px 40px rgba(0,0,0,0.6)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            backdropFilter: 'blur(12px)',
+            fontSize: '14px',
+            fontWeight: 500,
+          },
+          success: {
+            iconTheme: { primary: '#0d9488', secondary: '#fff' },
+            style: {
+              borderLeft: '4px solid #0d9488',
+            },
+          },
+          error: {
+            iconTheme: { primary: '#ef4444', secondary: '#fff' },
+            style: {
+              borderLeft: '4px solid #ef4444',
+            },
+          },
+          loading: {
+            iconTheme: { primary: '#f59e0b', secondary: '#fff' },
+          },
+        }}
       />
     </div>
   );
@@ -375,7 +401,6 @@ const router = createBrowserRouter([
 
           { path: 'call/:roomId', element: <CallScreen /> },
 
-   
           //Admin 
           {path: 'admin/upload', element: <UploadApp />}
         ],

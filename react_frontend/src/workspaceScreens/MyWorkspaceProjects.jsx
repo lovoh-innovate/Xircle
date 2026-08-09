@@ -1,5 +1,5 @@
 // src/workspaceScreens/MyWorkspaceProjects.jsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
@@ -37,7 +37,7 @@ import {
   FaUndo,
   FaTrashRestore,
 } from 'react-icons/fa';
-import { toast } from 'react-toastify';
+import { toast } from 'react-hot-toast';
 
 // Helper: treat progress >= 100 as completed
 const isProjectCompleted = (p) => p.status === 'completed' || (p.progress || 0) >= 100;
@@ -169,7 +169,7 @@ const FilterDrawer = ({ isOpen, onClose, filters, setFilters, view, setView, isO
   );
 };
 
-// ─── Search Projects Modal (unchanged) ──────────────────────────────────
+// ─── Search Projects Modal ──────────────────────────────────────────────
 const SearchProjectsModal = ({ isOpen, onClose, projects, brandColor, workspaceId }) => {
   const [query, setQuery] = useState('');
   const navigate = useNavigate();
@@ -250,12 +250,11 @@ const SearchProjectsModal = ({ isOpen, onClose, projects, brandColor, workspaceI
   );
 };
 
-// ─── Create Project Modal (unchanged) ───────────────────────────────────
-const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
+// ─── Create Project Modal (with optimistic update) ─────────────────────
+const CreateProjectModal = ({ workspace, isOpen, onClose, onCreate }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
-  const [createProject] = useCreateProjectMutation();
   const brandColor = workspace?.color || '#0d9488';
 
   const handleSubmit = async (e) => {
@@ -264,21 +263,28 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
       toast.error('Project name is required');
       return;
     }
-    setLoading(true);
-    try {
-      const fd = new FormData();
-      fd.append('workspaceId', workspace._id);
-      fd.append('name', name.trim());
-      fd.append('description', description.trim());
-      await createProject({ workspaceId: workspace._id, data: fd }).unwrap();
-      toast.success('Project created!');
-      onCreated && onCreated();
-      onClose();
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to create project');
-    } finally {
-      setLoading(false);
-    }
+    // Immediately call onCreate with optimistic data
+    const tempId = `temp-${Date.now()}`;
+    const optimisticProject = {
+      _id: tempId,
+      name: name.trim(),
+      description: description.trim(),
+      workspaceId: workspace._id,
+      status: 'planning',
+      progress: 0,
+      isArchivedForMe: false,
+      isTrash: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      teamMembers: [],
+      coverImage: null,
+      // We'll treat this as optimistic; later we'll replace with real data
+    };
+    onCreate(optimisticProject);
+    onClose();
+    // Reset form
+    setName('');
+    setDescription('');
   };
 
   if (!isOpen) return null;
@@ -393,7 +399,7 @@ const ProjectCard = ({
 
   const { data: taskData, isLoading: taskLoading } = useGetProjectTasksQuery(
     { projectId: project._id },
-    { skip: project.isTrash }
+    { skip: project.isTrash || project._id?.startsWith?.('temp-') } // skip if temp or trash
   );
   const tasks = taskData?.tasks || [];
   const totalTasks = tasks.length;
@@ -406,7 +412,7 @@ const ProjectCard = ({
   const isArchivedForMe = project.isArchivedForMe;
   const isTrashed = project.isTrash;
 
-  // Handlers for actions (no window.confirm)
+  // Handlers for actions
   const handleArchive = (e) => { stopProp(e); setShowMenu(false); onArchive(project._id); };
   const handleUnarchive = (e) => { stopProp(e); setShowMenu(false); onUnarchive(project._id); };
   const handleMoveToTrash = (e) => {
@@ -433,8 +439,10 @@ const ProjectCard = ({
 
   // Handle card click – navigate to project
   const handleCardClick = () => {
-    // Only navigate if not trashed? Actually trashed projects can be opened? We'll allow it.
-    window.__navigate(`/my-workspace/${workspaceId}/project/${project._id}`);
+    // Only navigate if not temporary
+    if (!project._id?.startsWith?.('temp-')) {
+      window.__navigate(`/my-workspace/${workspaceId}/project/${project._id}`);
+    }
   };
 
   return (
@@ -457,7 +465,9 @@ const ProjectCard = ({
       {/* Card container – clickable */}
       <div
         onClick={handleCardClick}
-        className="group relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 hover:border-[#0d9488]/50 transition-all duration-500 hover:shadow-[0_8px_40px_rgba(13,148,136,0.15)] active:scale-[0.98] cursor-pointer overflow-hidden"
+        className={`group relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 hover:border-[#0d9488]/50 transition-all duration-500 hover:shadow-[0_8px_40px_rgba(13,148,136,0.15)] active:scale-[0.98] cursor-pointer overflow-hidden ${
+          project._id?.startsWith?.('temp-') ? 'opacity-70' : ''
+        }`}
       >
         <div className="absolute inset-0 bg-gradient-to-br from-[#0d9488]/0 via-[#0d9488]/0 to-transparent group-hover:from-[#0d9488]/10 group-hover:via-[#0d9488]/5 transition-all duration-700 pointer-events-none" />
         <div className="relative h-20 md:h-28 bg-gray-100 dark:bg-[#1a1a24] overflow-hidden">
@@ -483,7 +493,7 @@ const ProjectCard = ({
             </button>
 
             {/* Move to Trash icon button (always visible except trashed) */}
-            {!isTrashed && (
+            {!isTrashed && !project._id?.startsWith?.('temp-') && (
               <button
                 onClick={(e) => { stopProp(e); handleMoveToTrash(e); }}
                 className="p-1.5 bg-white/60 dark:bg-black/40 backdrop-blur-sm rounded-lg text-yellow-600 dark:text-yellow-400 hover:text-yellow-700 dark:hover:text-yellow-300 hover:bg-yellow-500/20 transition"
@@ -525,10 +535,13 @@ const ProjectCard = ({
           </div>
         </div>
 
-        {/* Content – no Link, everything is handled by the container's onClick */}
+        {/* Content */}
         <div className="p-3 md:p-4">
           <h3 className="text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">
             {project.name}
+            {project._id?.startsWith?.('temp-') && (
+              <span className="ml-2 text-[10px] text-gray-400 dark:text-gray-500">(Creating...)</span>
+            )}
           </h3>
           {project.description && (
             <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-1 md:line-clamp-2 mt-0.5 md:mt-1">
@@ -602,10 +615,14 @@ const MyWorkspaceProjects = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [filters, setFilters] = useState({ status: 'all', sort: 'newest', search: '' });
   const [view, setView] = useState('active');
-  const [optimisticArchivedIds, setOptimisticArchivedIds] = useState([]);
 
+  // Local projects state for optimistic updates
+  const [projects, setProjects] = useState([]);
+  // Keep a backup for rollback on error
+  const [backupProjects, setBackupProjects] = useState([]);
+
+  // Fetch workspace and projects
   const { data: workspaceData, isLoading: workspaceLoading, error: workspaceError } = useGetWorkspaceQuery(workspaceId);
-
   const queryArgs = {
     workspaceId,
     archived: view === 'archived' ? 'true' : undefined,
@@ -613,25 +630,29 @@ const MyWorkspaceProjects = () => {
   };
   const { data: projectsData, isLoading: projectsLoading, refetch: refetchProjects } = useGetWorkspaceProjectsQuery(queryArgs);
 
+  // Mutations
+  const [createProject] = useCreateProjectMutation();
   const [deleteProject] = useDeleteProjectMutation();
   const [permanentlyDeleteProject] = usePermanentlyDeleteProjectMutation();
   const [restoreProject] = useRestoreProjectMutation();
   const [archiveProject] = useArchiveProjectMutation();
   const [unarchiveProject] = useUnarchiveProjectMutation();
 
+  // When data is fetched, set local projects (only if not in the middle of an optimistic update)
+  useEffect(() => {
+    if (projectsData?.projects) {
+      setProjects(projectsData.projects);
+      setBackupProjects(projectsData.projects);
+    }
+  }, [projectsData]);
+
   const workspace = workspaceData?.workspace;
-  const projects = projectsData?.projects || [];
   const brandColor = workspace?.color || '#0d9488';
 
   const ownerId = workspace?.owner?._id || workspace?.owner;
   const isOwner = !!ownerId && !!userInfo?._id && String(ownerId) === String(userInfo._id);
 
-  useEffect(() => {
-    if (!projectsLoading && optimisticArchivedIds.length > 0) {
-      setOptimisticArchivedIds([]);
-    }
-  }, [projectsLoading, optimisticArchivedIds]);
-
+  // Handle errors
   if (workspaceError) { navigate('/my-workspaces'); return null; }
   if (workspaceLoading || projectsLoading) {
     return (
@@ -645,9 +666,145 @@ const MyWorkspaceProjects = () => {
   }
   if (!workspace) return null;
 
-  const displayedProjects = view === 'active'
-    ? projects.filter(p => !optimisticArchivedIds.includes(p._id) && !p.isArchivedForMe)
-    : projects;
+  // ─── Optimistic update helpers ──────────────────────────────────────
+  // Save current state before mutation
+  const saveBackup = () => setBackupProjects([...projects]);
+
+  // Rollback to backup
+  const rollback = () => setProjects([...backupProjects]);
+
+  // ─── Create handler ──────────────────────────────────────────────────
+  const handleCreateOptimistic = (optimisticProject) => {
+    saveBackup();
+    // Add optimistic project to the list (at the beginning)
+    setProjects([optimisticProject, ...projects]);
+
+    // Now call the mutation
+    const fd = new FormData();
+    fd.append('workspaceId', workspace._id);
+    fd.append('name', optimisticProject.name);
+    fd.append('description', optimisticProject.description || '');
+
+    createProject({ workspaceId: workspace._id, data: fd })
+      .unwrap()
+      .then((newProject) => {
+        // Replace the temporary project with the real one
+        setProjects((prev) =>
+          prev.map((p) =>
+            p._id === optimisticProject._id ? { ...newProject } : p
+          )
+        );
+        toast.success('Project created!');
+      })
+      .catch((err) => {
+        toast.error(err?.data?.message || 'Failed to create project');
+        // Rollback: remove the temporary project
+        setProjects((prev) => prev.filter((p) => p._id !== optimisticProject._id));
+      });
+  };
+
+  // ─── Delete (move to trash) ──────────────────────────────────────────
+  const handleDeleteProject = (projectId) => {
+    saveBackup();
+    // Optimistically remove the project (it will disappear from active/archived views)
+    // For trash view, we might not want to remove it immediately if we are in trash view.
+    // But we'll just remove from list and if error we rollback.
+    // Since the view may be active/archived, removing is fine.
+    setProjects((prev) => prev.filter((p) => p._id !== projectId));
+
+    deleteProject(projectId)
+      .unwrap()
+      .then(() => {
+        toast.success('Project moved to trash.');
+        // Optionally refetch to sync
+        refetchProjects();
+      })
+      .catch((err) => {
+        toast.error(err?.data?.message || 'Failed to move project');
+        rollback();
+      });
+  };
+
+  // ─── Permanent Delete ──────────────────────────────────────────────
+  const handlePermanentDelete = (projectId) => {
+    saveBackup();
+    setProjects((prev) => prev.filter((p) => p._id !== projectId));
+
+    permanentlyDeleteProject(projectId)
+      .unwrap()
+      .then(() => {
+        toast.success('Project permanently deleted.');
+        refetchProjects();
+      })
+      .catch((err) => {
+        toast.error(err?.data?.message || 'Failed to delete project');
+        rollback();
+      });
+  };
+
+  // ─── Restore ────────────────────────────────────────────────────────
+  const handleRestore = (projectId) => {
+    saveBackup();
+    // In trash view, we remove it; in active/archived we might add? But restore typically moves to active.
+    // Since we are in trash view, we remove it.
+    setProjects((prev) => prev.filter((p) => p._id !== projectId));
+
+    restoreProject(projectId)
+      .unwrap()
+      .then(() => {
+        toast.success('Project restored.');
+        refetchProjects();
+      })
+      .catch((err) => {
+        toast.error(err?.data?.message || 'Failed to restore project');
+        rollback();
+      });
+  };
+
+  // ─── Archive ────────────────────────────────────────────────────────
+  const handleArchive = (projectId) => {
+    saveBackup();
+    // In active view, we remove it; in archived view we might add? But we'll handle by filtering.
+    // We'll just remove from list for simplicity, then if error rollback.
+    setProjects((prev) => prev.filter((p) => p._id !== projectId));
+
+    archiveProject(projectId)
+      .unwrap()
+      .then(() => {
+        toast.success('Project archived.');
+        refetchProjects();
+      })
+      .catch((err) => {
+        toast.error(err?.data?.message || 'Failed to archive project');
+        rollback();
+      });
+  };
+
+  // ─── Unarchive ──────────────────────────────────────────────────────
+  const handleUnarchive = (projectId) => {
+    saveBackup();
+    // In archived view, we remove it.
+    setProjects((prev) => prev.filter((p) => p._id !== projectId));
+
+    unarchiveProject(projectId)
+      .unwrap()
+      .then(() => {
+        toast.success('Project unarchived.');
+        refetchProjects();
+      })
+      .catch((err) => {
+        toast.error(err?.data?.message || 'Failed to unarchive project');
+        rollback();
+      });
+  };
+
+  // ─── Filter and sort projects ────────────────────────────────────────
+  const displayedProjects = projects.filter((p) => {
+    if (view === 'active') return !p.isArchivedForMe && !p.isTrash;
+    if (view === 'archived') return p.isArchivedForMe && !p.isTrash;
+    if (view === 'trash') return p.isTrash;
+    return true;
+  });
 
   const activeProjectsList = displayedProjects.filter(p => !p.isTrash);
   const totalProjects = activeProjectsList.length;
@@ -689,48 +846,6 @@ const MyWorkspaceProjects = () => {
     action: p.updatedAt ? 'updated' : 'created',
     time: p.updatedAt || p.createdAt,
   })).sort((a, b) => new Date(b.time) - new Date(a.time));
-
-  const handleDeleteProject = async (projectId) => {
-    try {
-      await deleteProject(projectId).unwrap();
-      toast.success('Project moved to trash.');
-      refetchProjects();
-    } catch (err) { toast.error(err?.data?.message || 'Failed to move project'); }
-  };
-  const handlePermanentDelete = async (projectId) => {
-    try {
-      await permanentlyDeleteProject(projectId).unwrap();
-      toast.success('Project permanently deleted.');
-      refetchProjects();
-    } catch (err) { toast.error(err?.data?.message || 'Failed to delete project'); }
-  };
-  const handleRestore = async (projectId) => {
-    try {
-      await restoreProject(projectId).unwrap();
-      toast.success('Project restored.');
-      refetchProjects();
-    } catch (err) { toast.error(err?.data?.message || 'Failed to restore project'); }
-  };
-  const handleArchive = async (projectId) => {
-    if (view === 'active') {
-      setOptimisticArchivedIds(prev => [...prev, projectId]);
-    }
-    try {
-      await archiveProject(projectId).unwrap();
-      toast.success('Project archived.');
-      refetchProjects();
-    } catch (err) {
-      setOptimisticArchivedIds(prev => prev.filter(id => id !== projectId));
-      toast.error(err?.data?.message || 'Failed to archive project');
-    }
-  };
-  const handleUnarchive = async (projectId) => {
-    try {
-      await unarchiveProject(projectId).unwrap();
-      toast.success('Project unarchived.');
-      refetchProjects();
-    } catch (err) { toast.error(err?.data?.message || 'Failed to unarchive project'); }
-  };
 
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
@@ -999,7 +1114,14 @@ const MyWorkspaceProjects = () => {
 
       <SearchProjectsModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} projects={projects} brandColor={brandColor} workspaceId={workspaceId} />
       <FilterDrawer isOpen={filterDrawerOpen} onClose={() => setFilterDrawerOpen(false)} filters={filters} setFilters={setFilters} view={view} setView={setView} isOwner={isOwner} />
-      {isOwner && <CreateProjectModal workspace={workspace} isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} onCreated={() => refetchProjects()} />}
+      {isOwner && (
+        <CreateProjectModal
+          workspace={workspace}
+          isOpen={showCreateModal}
+          onClose={() => setShowCreateModal(false)}
+          onCreate={handleCreateOptimistic}
+        />
+      )}
     </div>
   );
 };

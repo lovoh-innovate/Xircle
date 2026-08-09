@@ -1,5 +1,5 @@
 // src/workspaceScreens/AllTasks.jsx
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
@@ -20,8 +20,12 @@ import {
   FaChevronRight,
   FaCheck,
   FaSpinner,
+  FaAngleDown,
+  FaCircle,
+  FaTag,
+  FaUser,
 } from 'react-icons/fa';
-import { toast } from 'react-toastify';
+import toast from 'react-hot-toast'; // ✅ switched to react-hot-toast
 
 // ─── Correct imports ──
 import MyWorkspaceSidebar from '../workspaceComponents/MyWorkspaceSidebar';
@@ -42,7 +46,7 @@ const formatDateTime = (date) => {
 };
 
 // ─── Badges ──────────────────────────────────────────────────────────
-const TaskStatusBadge = ({ status }) => {
+const TaskStatusBadge = React.memo(({ status }) => {
   const map = {
     pending: { label: 'Pending', color: 'bg-gray-200 dark:bg-gray-800/60 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-700' },
     'in-progress': { label: 'In Progress', color: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700/50' },
@@ -52,9 +56,9 @@ const TaskStatusBadge = ({ status }) => {
   };
   const s = map[status] || map.pending;
   return <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2.5 py-0.5 rounded-full border ${s.color}`}>{s.label}</span>;
-};
+});
 
-const TaskPriorityBadge = ({ priority }) => {
+const TaskPriorityBadge = React.memo(({ priority }) => {
   const map = {
     low: { label: 'Low', color: 'text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700/40' },
     medium: { label: 'Medium', color: 'text-yellow-600 dark:text-yellow-400 bg-yellow-100 dark:bg-yellow-900/20 border-yellow-300 dark:border-yellow-700/40' },
@@ -63,43 +67,61 @@ const TaskPriorityBadge = ({ priority }) => {
   };
   const p = map[priority] || map.medium;
   return <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2.5 py-0.5 rounded-full border ${p.color}`}>{p.label}</span>;
-};
+});
 
-// ─── Custom Dropdown ────────────────────────────────────────────────
+// ─── Modern Custom Dropdown ──────────────────────────────────────────
 const CustomDropdown = ({ options, value, onChange, placeholder, label, brandColor }) => {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
   useEffect(() => {
-    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-  const selected = options.find(o => o.value === value);
+
+  const selectedOption = options.find(opt => opt.value === value);
+
   return (
-    <div className="relative" ref={ref}>
+    <div ref={dropdownRef} className="relative">
       {label && <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{label}</label>}
       <button
         type="button"
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 dark:focus:ring-[#0d9488] text-sm bg-white dark:bg-[#1a1a24] text-gray-800 dark:text-gray-200 hover:border-gray-400 dark:hover:border-gray-600 transition"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-100 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700/50 transition-all focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none whitespace-nowrap min-w-[110px]"
       >
-        <span className={selected ? 'text-gray-800 dark:text-gray-200' : 'text-gray-400 dark:text-gray-500'}>
-          {selected ? selected.label : placeholder || 'Select...'}
+        {selectedOption?.icon && <span className="text-[10px] flex-shrink-0">{selectedOption.icon}</span>}
+        <span className="truncate flex-1 text-left">
+          {selectedOption ? selectedOption.label : placeholder}
         </span>
-        <FaChevronDown className={`text-gray-500 dark:text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <FaAngleDown className={`text-[8px] text-gray-400 dark:text-gray-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
-      {open && (
-        <div className="absolute z-10 w-full mt-1 bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700/60 rounded-xl overflow-hidden max-h-60 overflow-y-auto shadow-lg">
-          {options.map(o => (
+
+      {isOpen && (
+        <div className="absolute top-full left-0 mt-1 min-w-full w-max min-w-[140px] bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg py-1 z-50 max-h-48 overflow-y-auto">
+          {options.map((option) => (
             <button
-              key={o.value}
+              key={option.value}
               type="button"
-              onClick={() => { onChange(o.value); setOpen(false); }}
-              className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-[#0d9488]/10 transition text-left text-gray-700 dark:text-gray-300 ${o.value === value ? 'bg-gray-100 dark:bg-[#0d9488]/10' : ''}`}
+              onClick={() => {
+                onChange(option.value);
+                setIsOpen(false);
+              }}
+              className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs transition whitespace-nowrap ${
+                option.value === value
+                  ? 'bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-teal-400'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50'
+              }`}
             >
-              {o.icon && <span className="text-gray-400 dark:text-gray-400">{o.icon}</span>}
-              <span>{o.label}</span>
-              {o.value === value && <FaCheck className="ml-auto text-xs text-teal-600 dark:text-[#0d9488]" />}
+              {option.icon && <span className="text-[10px] flex-shrink-0">{option.icon}</span>}
+              <span>{option.label}</span>
+              {option.value === value && (
+                <FaCheck className="ml-auto text-[10px] text-teal-500 flex-shrink-0" />
+              )}
             </button>
           ))}
         </div>
@@ -109,7 +131,7 @@ const CustomDropdown = ({ options, value, onChange, placeholder, label, brandCol
 };
 
 // ─── Task Card ─────────────────────────────────────────────────────────
-const TaskCard = ({
+const TaskCard = React.memo(({
   task,
   brandColor,
   draggable,
@@ -129,35 +151,48 @@ const TaskCard = ({
   const isOverdue = due && due < new Date() && task.status !== 'completed' && task.status !== 'confirmed_completed';
   const assignee = task.assignee;
 
+  const handleDragStart = (e) => {
+    if (!draggable) {
+      e.preventDefault();
+      return;
+    }
+    e.dataTransfer.setData('text/plain', task._id);
+    e.dataTransfer.effectAllowed = 'move';
+    if (onDragStart) onDragStart(e, task);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (onDragOver) onDragOver(e, task);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    if (onDrop) onDrop(e, task);
+  };
+
   return (
     <div
       draggable={draggable}
-      onDragStart={(e) => draggable && onDragStart && onDragStart(e, task)}
-      onDragEnd={(e) => draggable && onDragEnd && onDragEnd(e, task)}
-      onDragOver={(e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        if (draggable && onDragOver) onDragOver(e, task);
-      }}
-      onDrop={(e) => {
-        if (draggable && onDrop) onDrop(e, task);
-      }}
-      onDragLeave={(e) => {
-        if (draggable && onDragLeave) onDragLeave(e);
-      }}
+      onDragStart={handleDragStart}
+      onDragEnd={onDragEnd}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+      onDragLeave={onDragLeave}
       onClick={() => onClick && onClick(task._id)}
-      className={`group relative bg-white dark:bg-[#14141a] rounded-2xl border transition-all duration-300 cursor-pointer overflow-hidden ${
+      className={`group relative bg-white dark:bg-[#14141a] rounded-xl border transition-all duration-200 cursor-pointer overflow-hidden ${
         dragOver ? 'border-teal-500 dark:border-[#0d9488] bg-teal-50/50 dark:bg-[#0d9488]/5' : 'border-gray-200 dark:border-gray-800/40 hover:border-teal-500 dark:hover:border-[#0d9488]/50'
       } ${draggable ? 'active:cursor-grabbing' : ''}`}
     >
-      <div className="p-4">
+      <div className="p-3 sm:p-4">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             {draggable && (
               <FaGripVertical className="text-gray-300 dark:text-gray-700 text-xs flex-shrink-0 cursor-grab" />
             )}
             <div
-              className="w-8 h-8 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-white font-bold text-xs flex-shrink-0"
               style={{ backgroundColor: brandColor }}
             >
               {task.title.charAt(0).toUpperCase()}
@@ -169,7 +204,7 @@ const TaskCard = ({
           <TaskStatusBadge status={task.status} />
         </div>
 
-        <div className="mt-2 flex items-center gap-2 flex-wrap">
+        <div className="mt-1.5 flex items-center gap-2 flex-wrap">
           <TaskPriorityBadge priority={task.priority} />
           {subTaskCount > 0 && (
             <span className="text-[10px] text-gray-500 dark:text-gray-500">• {confirmedCount}/{subTaskCount} done</span>
@@ -188,9 +223,13 @@ const TaskCard = ({
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">{task.description}</p>
         )}
 
-        <div className="mt-3 flex items-center justify-between">
+        <div className="mt-2.5 flex items-center justify-between">
           <span className="text-xs text-gray-500 dark:text-gray-500">
-            {assignee ? `${assignee.name}` : 'Unassigned'}
+            {assignee ? (
+              <span className="flex items-center gap-1">
+                <FaUser className="text-[9px]" /> {assignee.name}
+              </span>
+            ) : 'Unassigned'}
           </span>
           <span className="text-xs text-gray-500 dark:text-gray-500">{task.dueDate ? formatDateTime(task.dueDate) : 'No due'}</span>
         </div>
@@ -207,10 +246,10 @@ const TaskCard = ({
       </div>
     </div>
   );
-};
+});
 
 // ─── Project Section Component ──────────────────────────────────────
-const ProjectSection = ({
+const ProjectSection = React.memo(({
   project,
   workspaceId,
   brandColor,
@@ -252,7 +291,7 @@ const ProjectSection = ({
     });
   }, [localTasks, filters, searchQuery]);
 
-  const handleDragStart = (e, task) => {
+  const handleDragStart = useCallback((e, task) => {
     if (!canManageProject) {
       e.preventDefault();
       toast.error('You do not have permission to reorder tasks in this project.');
@@ -261,25 +300,25 @@ const ProjectSection = ({
     setDragState({ draggedTaskId: task._id, dragOverTaskId: null });
     e.dataTransfer.setData('text/plain', task._id);
     e.dataTransfer.effectAllowed = 'move';
-  };
+  }, [canManageProject]);
 
-  const handleDragEnd = () => {
+  const handleDragEnd = useCallback(() => {
     setDragState({ draggedTaskId: null, dragOverTaskId: null });
-  };
+  }, []);
 
-  const handleDragOver = (e, task) => {
+  const handleDragOver = useCallback((e, task) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     if (dragState.draggedTaskId && dragState.draggedTaskId !== task._id) {
       setDragState(prev => ({ ...prev, dragOverTaskId: task._id }));
     }
-  };
+  }, [dragState.draggedTaskId]);
 
-  const handleDragLeave = () => {
+  const handleDragLeave = useCallback(() => {
     setDragState(prev => ({ ...prev, dragOverTaskId: null }));
-  };
+  }, []);
 
-  const handleDrop = async (e, targetTask) => {
+  const handleDrop = useCallback(async (e, targetTask) => {
     e.preventDefault();
     const draggedId = e.dataTransfer.getData('text/plain') || dragState.draggedTaskId;
     if (!draggedId || draggedId === targetTask._id) {
@@ -296,6 +335,7 @@ const ProjectSection = ({
     newOrder.splice(targetIdx, 0, moved);
     const orderedIds = newOrder.map(t => t._id);
 
+    // ── Optimistic update ──
     setLocalTasks(newOrder);
     if (onTasksLoaded) onTasksLoaded(project._id, newOrder);
     setDragState({ draggedTaskId: null, dragOverTaskId: null });
@@ -305,13 +345,14 @@ const ProjectSection = ({
       toast.success('Tasks reordered');
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to reorder tasks');
+      // Revert
       const result = await refetch();
       if (result.data?.tasks) {
         setLocalTasks(result.data.tasks);
         if (onTasksLoaded) onTasksLoaded(project._id, result.data.tasks);
       }
     }
-  };
+  }, [dragState.draggedTaskId, localTasks, reorderTasks, project._id, onTasksLoaded, refetch]);
 
   if (isLoading) {
     return (
@@ -387,7 +428,7 @@ const ProjectSection = ({
       </div>
 
       {expanded && (
-        <div className="p-4 space-y-3">
+        <div className="p-3 sm:p-4 space-y-3">
           {!hasDisplayedTasks ? (
             <div className="text-center text-gray-500 dark:text-gray-500 text-sm py-4">
               No tasks match the current filters
@@ -419,7 +460,7 @@ const ProjectSection = ({
       )}
     </div>
   );
-};
+});
 
 // ─── Main Component ──────────────────────────────────────────────────
 const AllTasks = () => {
@@ -448,14 +489,16 @@ const AllTasks = () => {
   const [expandedProjects, setExpandedProjects] = useState({});
 
   const [allTasksMap, setAllTasksMap] = useState({});
-  const handleTasksLoaded = (projectId, tasks) => {
+  const handleTasksLoaded = useCallback((projectId, tasks) => {
     setAllTasksMap(prev => ({ ...prev, [projectId]: tasks }));
-  };
+  }, []);
 
   const isOwner = workspace?.owner?._id === userInfo?._id || workspace?.owner === userInfo?._id;
-  const isProjectManager = (project) =>
-    project.projectManagers?.some(pm => (pm._id || pm)?.toString() === userInfo?._id);
-  const canManageProject = (project) => isOwner || isProjectManager(project);
+  const isProjectManager = useCallback((project) =>
+    project.projectManagers?.some(pm => (pm._id || pm)?.toString() === userInfo?._id),
+    [userInfo]
+  );
+  const canManageProject = useCallback((project) => isOwner || isProjectManager(project), [isOwner, isProjectManager]);
 
   const allTasks = useMemo(() => {
     const flat = [];
@@ -472,36 +515,41 @@ const AllTasks = () => {
     return flat;
   }, [projects, allTasksMap]);
 
-  const toggleProject = (projectId) => {
+  const toggleProject = useCallback((projectId) => {
     setExpandedProjects(prev => ({
       ...prev,
       [projectId]: !prev[projectId],
     }));
-  };
+  }, []);
 
+  // ── Filter options with icons ──
   const statusOptions = [
-    { value: '', label: 'All Statuses' },
-    { value: 'pending', label: 'Pending' },
-    { value: 'in-progress', label: 'In Progress' },
-    { value: 'ready_for_completion', label: 'Ready' },
-    { value: 'completed', label: 'Completed' },
-    { value: 'confirmed_completed', label: 'Confirmed' },
+    { value: '', label: 'All Statuses', icon: <FaTag className="text-[10px] text-gray-400" /> },
+    { value: 'pending', label: 'Pending', icon: <FaClock className="text-[10px] text-gray-400" /> },
+    { value: 'in-progress', label: 'In Progress', icon: <FaSpinner className="text-[10px] text-yellow-400" /> },
+    { value: 'ready_for_completion', label: 'Ready', icon: <FaCheck className="text-[10px] text-blue-400" /> },
+    { value: 'completed', label: 'Completed', icon: <FaCheck className="text-[10px] text-green-500" /> },
+    { value: 'confirmed_completed', label: 'Confirmed', icon: <FaCheck className="text-[10px] text-green-600" /> },
   ];
   const priorityOptions = [
-    { value: '', label: 'All Priorities' },
-    { value: 'low', label: 'Low' },
-    { value: 'medium', label: 'Medium' },
-    { value: 'high', label: 'High' },
-    { value: 'urgent', label: 'Urgent' },
+    { value: '', label: 'All Priorities', icon: <FaTag className="text-[10px] text-gray-400" /> },
+    { value: 'low', label: 'Low', icon: <FaCircle className="text-[10px] text-blue-400" /> },
+    { value: 'medium', label: 'Medium', icon: <FaCircle className="text-[10px] text-yellow-400" /> },
+    { value: 'high', label: 'High', icon: <FaCircle className="text-[10px] text-orange-400" /> },
+    { value: 'urgent', label: 'Urgent', icon: <FaCircle className="text-[10px] text-red-400" /> },
   ];
 
   const assigneeOptions = useMemo(() => {
     const set = new Set();
-    const opts = [{ value: '', label: 'All Assignees' }];
+    const opts = [{ value: '', label: 'All Assignees', icon: <FaUser className="text-[10px] text-gray-400" /> }];
     allTasks.forEach(task => {
       if (task.assignee?._id && !set.has(task.assignee._id)) {
         set.add(task.assignee._id);
-        opts.push({ value: task.assignee._id, label: task.assignee.name || 'Unknown' });
+        opts.push({
+          value: task.assignee._id,
+          label: task.assignee.name || 'Unknown',
+          icon: <FaUser className="text-[10px] text-gray-400" />,
+        });
       }
     });
     return opts;
@@ -526,7 +574,7 @@ const AllTasks = () => {
 
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
-      {/* ─── Sidebar – hidden on mobile, visible on lg+ ─── */}
+      {/* ─── Sidebar ─── */}
       <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
         <Sidebar workspace={workspace} />
       </div>
@@ -592,16 +640,19 @@ const AllTasks = () => {
             />
             {(filters.status || filters.priority || filters.assignee || searchQuery) && (
               <button
-                onClick={() => setFilters({ status: '', priority: '', assignee: '' })}
+                onClick={() => {
+                  setFilters({ status: '', priority: '', assignee: '' });
+                  setSearchQuery('');
+                }}
                 className="text-xs text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] transition"
               >
-                Clear Filters
+                Clear All
               </button>
             )}
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-4 py-4">
+        <div className="flex-1 overflow-y-auto px-4 py-4 pb-24 lg:pb-6">
           {projects.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-500">
               <FaFolder className="text-5xl mb-4 opacity-30" />
@@ -640,7 +691,7 @@ const AllTasks = () => {
         </div>
       </div>
 
-      {/* ─── Bottombar – only visible on mobile ─── */}
+      {/* ─── Bottombar ─── */}
       <div className="lg:hidden">
         <Bottombar workspace={workspace} />
       </div>

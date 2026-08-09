@@ -1,5 +1,5 @@
 // src/workspaceScreens/YourWorkspaceProjectId.jsx
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
@@ -30,7 +30,6 @@ import {
   useSendManualReminderMutation,
   useGetTaskFeedbackQuery,
   useAssignTaskMutation,
-  // ─── NEW reorder mutations ───
   useReorderTasksMutation,
   useReorderSubTasksMutation,
 } from '../slices/taskApiSlice';
@@ -90,9 +89,9 @@ import {
   FaUserLock,
   FaUserEdit,
   FaRedo,
-  FaGripVertical, // for drag handle
+  FaGripVertical,
 } from 'react-icons/fa';
-import { toast } from 'react-toastify';
+import toast from 'react-hot-toast';
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 const formatDate = (date) => {
@@ -115,65 +114,96 @@ const formatTimeAgo = (date) => {
   return `${days}d ago`;
 };
 
-// ─── Custom Dropdown ───────────────────────────────────────────────
-const CustomDropdown = ({ options, value, onChange, placeholder, label, brandColor }) => {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+// ─── Media query hook ────────────────────────────────────────────────
+const useMediaQuery = (query) => {
+  const [matches, setMatches] = useState(false);
   useEffect(() => {
-    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    const media = window.matchMedia(query);
+    if (media.matches !== matches) setMatches(media.matches);
+    const listener = () => setMatches(media.matches);
+    media.addEventListener('change', listener);
+    return () => media.removeEventListener('change', listener);
+  }, [matches, query]);
+  return matches;
+};
+
+// ─── Custom Dropdown (modern style) ───────────────────────────────
+const CustomDropdown = React.memo(({ options, value, onChange, placeholder, label, brandColor }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-  const selected = options.find(o => o.value === value);
+
+  const selectedOption = options.find(o => o.value === value);
+
   return (
-    <div className="relative" ref={ref}>
+    <div ref={dropdownRef} className="relative">
       {label && <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{label}</label>}
       <button
         type="button"
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 dark:focus:ring-[#0d9488] text-sm bg-white dark:bg-[#1a1a24] text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-100 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700/50 transition-all focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none whitespace-nowrap"
       >
-        <span className={selected ? 'text-gray-800 dark:text-gray-200' : 'text-gray-400 dark:text-gray-500'}>
-          {selected ? selected.label : placeholder || 'Select...'}
+        {selectedOption?.icon && <span className="text-[10px] flex-shrink-0">{selectedOption.icon}</span>}
+        <span className="truncate flex-1 text-left">
+          {selectedOption ? selectedOption.label : placeholder}
         </span>
-        <FaAngleDown className={`text-gray-400 dark:text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <FaAngleDown className={`text-[8px] text-gray-400 dark:text-gray-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
-      {open && (
-        <div className="absolute z-10 w-full mt-1 bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700/60 rounded-xl overflow-hidden max-h-60 overflow-y-auto shadow-lg">
-          {options.map(o => (
+
+      {isOpen && (
+        <div className="absolute top-full left-0 mt-1 min-w-full w-max min-w-[140px] bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg py-1 z-50 max-h-48 overflow-y-auto">
+          {options.map((option) => (
             <button
-              key={o.value}
+              key={option.value}
               type="button"
-              onClick={() => { onChange(o.value); setOpen(false); }}
-              className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-[#0d9488]/10 transition text-left text-gray-700 dark:text-gray-300 ${o.value === value ? 'bg-gray-100 dark:bg-[#0d9488]/10' : ''}`}
+              onClick={() => {
+                onChange(option.value);
+                setIsOpen(false);
+              }}
+              className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs transition whitespace-nowrap ${
+                option.value === value
+                  ? 'bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-teal-400'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50'
+              }`}
             >
-              {o.icon && <span className="text-gray-400 dark:text-gray-400">{o.icon}</span>}
-              <span>{o.label}</span>
-              {o.value === value && <FaCheck className="ml-auto text-xs text-teal-600 dark:text-[#0d9488]" />}
+              {option.icon && <span className="text-[10px] flex-shrink-0">{option.icon}</span>}
+              <span>{option.label}</span>
+              {option.value === value && (
+                <FaCheck className="ml-auto text-[10px] text-teal-500 flex-shrink-0" />
+              )}
             </button>
           ))}
         </div>
       )}
     </div>
   );
-};
+});
 
 // ─── Badges ──────────────────────────────────────────────────────────
 const priorityOptions = [
-  { value: 'low', label: 'Low', icon: <FaFlag className="text-blue-400 dark:text-blue-400" /> },
-  { value: 'medium', label: 'Medium', icon: <FaFlag className="text-yellow-400 dark:text-yellow-400" /> },
-  { value: 'high', label: 'High', icon: <FaFire className="text-red-400 dark:text-red-400" /> },
-  { value: 'urgent', label: 'Urgent', icon: <FaFire className="text-red-500 dark:text-red-500" /> },
+  { value: 'low', label: 'Low', icon: <FaFlag className="text-blue-400" /> },
+  { value: 'medium', label: 'Medium', icon: <FaFlag className="text-yellow-400" /> },
+  { value: 'high', label: 'High', icon: <FaFire className="text-red-400" /> },
+  { value: 'urgent', label: 'Urgent', icon: <FaFire className="text-red-500" /> },
 ];
 const statusOptions = [
-  { value: 'pending', label: 'Pending', icon: <FaClock className="text-gray-400 dark:text-gray-400" /> },
-  { value: 'in-progress', label: 'In Progress', icon: <FaSpinner className="text-yellow-400 dark:text-yellow-400" /> },
-  { value: 'ready_for_completion', label: 'Ready', icon: <FaCheckCircle className="text-blue-400 dark:text-blue-400" /> },
-  { value: 'completed', label: 'Completed', icon: <FaCheckCircle className="text-green-400 dark:text-green-400" /> },
-  { value: 'confirmed_completed', label: 'Confirmed', icon: <FaCheckCircle className="text-green-600 dark:text-green-600" /> },
+  { value: 'pending', label: 'Pending', icon: <FaClock className="text-gray-400" /> },
+  { value: 'in-progress', label: 'In Progress', icon: <FaSpinner className="text-yellow-400" /> },
+  { value: 'ready_for_completion', label: 'Ready', icon: <FaCheckCircle className="text-blue-400" /> },
+  { value: 'completed', label: 'Completed', icon: <FaCheckCircle className="text-green-400" /> },
+  { value: 'confirmed_completed', label: 'Confirmed', icon: <FaCheckCircle className="text-green-600" /> },
 ];
 
-const TaskStatusBadge = ({ status }) => {
+const TaskStatusBadge = React.memo(({ status }) => {
   const map = {
     pending: { label: 'Pending', color: 'bg-gray-100 dark:bg-gray-800/60 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-700' },
     'in-progress': { label: 'In Progress', color: 'bg-yellow-50 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-300 border-yellow-200 dark:border-yellow-700/50' },
@@ -183,9 +213,9 @@ const TaskStatusBadge = ({ status }) => {
   };
   const s = map[status] || map.pending;
   return <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2.5 py-0.5 rounded-full border ${s.color}`}>{s.label}</span>;
-};
+});
 
-const TaskPriorityBadge = ({ priority }) => {
+const TaskPriorityBadge = React.memo(({ priority }) => {
   const map = {
     low: { label: 'Low', color: 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700/40' },
     medium: { label: 'Medium', color: 'text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-700/40' },
@@ -194,10 +224,10 @@ const TaskPriorityBadge = ({ priority }) => {
   };
   const p = map[priority] || map.medium;
   return <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2.5 py-0.5 rounded-full border ${p.color}`}>{p.label}</span>;
-};
+});
 
-// ─── Custom Confirm Modal ──────────────────────────────────────────────
-const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = 'Confirm', cancelText = 'Cancel', danger = false }) => {
+// ─── Confirm Modal ──────────────────────────────────────────────────
+const ConfirmModal = React.memo(({ isOpen, onClose, onConfirm, title, message, confirmText = 'Confirm', cancelText = 'Cancel', danger = false }) => {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
@@ -221,10 +251,10 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmText 
       </div>
     </div>
   );
-};
+});
 
 // ─── Delete Task Confirm Modal ────────────────────────────────
-const DeleteTaskConfirmModal = ({ isOpen, onClose, onConfirm, taskName }) => {
+const DeleteTaskConfirmModal = React.memo(({ isOpen, onClose, onConfirm, taskName }) => {
   const [inputValue, setInputValue] = useState('');
   const expectedPhrase = `I want to delete ${taskName}`;
 
@@ -274,10 +304,10 @@ const DeleteTaskConfirmModal = ({ isOpen, onClose, onConfirm, taskName }) => {
       </div>
     </div>
   );
-};
+});
 
 // ─── Reject Reason Modal ────────────────────────────────────────────────
-const RejectReasonModal = ({ isOpen, onClose, onConfirm }) => {
+const RejectReasonModal = React.memo(({ isOpen, onClose, onConfirm }) => {
   const [reason, setReason] = useState('');
 
   const handleConfirm = () => {
@@ -311,10 +341,10 @@ const RejectReasonModal = ({ isOpen, onClose, onConfirm }) => {
       </div>
     </div>
   );
-};
+});
 
-// ─── Task Card (with reorder drag support) ──────────────────────────
-const TaskCard = ({
+// ─── Task Card ─────────────────────────────────────────────────────────
+const TaskCard = React.memo(({
   task,
   onClick,
   brandColor,
@@ -338,22 +368,35 @@ const TaskCard = ({
   const hasRecurrence = task.recurrenceType && task.recurrenceType !== 'none';
   const recurrenceLabel = task.recurrenceType === 'daily' ? 'Daily' : task.recurrenceType === 'weekly' ? 'Weekly' : '';
 
+  const handleDragStart = (e) => {
+    if (!draggable) {
+      e.preventDefault();
+      return;
+    }
+    e.dataTransfer.setData('text/plain', task._id);
+    e.dataTransfer.effectAllowed = 'move';
+    if (onDragStart) onDragStart(e, task);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (onDragOver) onDragOver(e, task);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    if (onDrop) onDrop(e, task);
+  };
+
   return (
     <div
       draggable={draggable}
-      onDragStart={(e) => draggable && onDragStart && onDragStart(e, task)}
-      onDragEnd={(e) => draggable && onDragEnd && onDragEnd(e, task)}
-      onDragOver={(e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        if (draggable && onDragOver) onDragOver(e, task);
-      }}
-      onDrop={(e) => {
-        if (draggable && onDrop) onDrop(e, task);
-      }}
-      onDragLeave={(e) => {
-        if (draggable && onDragLeave) onDragLeave(e);
-      }}
+      onDragStart={handleDragStart}
+      onDragEnd={onDragEnd}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+      onDragLeave={onDragLeave}
       onClick={() => onClick(task._id)}
       className={`group relative bg-white dark:bg-[#14141a] rounded-2xl border transition-all duration-300 cursor-pointer overflow-hidden ${
         isActive ? 'border-teal-500 dark:border-[#0d9488] shadow-[0_0_20px_rgba(13,148,136,0.15)]' : 'border-gray-200/60 dark:border-gray-800/40 hover:border-teal-500 dark:hover:border-[#0d9488]/50'
@@ -423,10 +466,10 @@ const TaskCard = ({
       </div>
     </div>
   );
-};
+});
 
 // ─── Search Modal ──────────────────────────────────────────────────────
-const SearchModal = ({ isOpen, onClose, items, type, brandColor, onSelect }) => {
+const SearchModal = React.memo(({ isOpen, onClose, items, type, brandColor, onSelect }) => {
   const [query, setQuery] = useState('');
   if (!isOpen) return null;
   const filtered = items.filter(item => {
@@ -515,10 +558,10 @@ const SearchModal = ({ isOpen, onClose, items, type, brandColor, onSelect }) => 
       </div>
     </div>
   );
-};
+});
 
-// ─── Sub‑task Item (with reorder drag support) ──────────────────────
-const SubTaskItem = ({
+// ─── Sub‑task Item ────────────────────────────────────────────────────
+const SubTaskItem = React.memo(({
   subTask,
   index,
   taskId,
@@ -543,16 +586,17 @@ const SubTaskItem = ({
   const [doneNotes, setDoneNotes] = useState('');
   const [doneLinks, setDoneLinks] = useState('');
   const [doneFiles, setDoneFiles] = useState([]);
-  const fileInputRef = useRef(null);
 
   const [showConfirmForm, setShowConfirmForm] = useState(false);
   const [confirmFeedback, setConfirmFeedback] = useState('');
 
   const [isExpanded, setIsExpanded] = useState(false);
 
-  // ── Reject modal state ──
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+
+  // ✅ Custom delete confirmation modal state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const hasDetails = subTask.notes ||
     (subTask.links && subTask.links.length > 0) ||
@@ -609,9 +653,7 @@ const SubTaskItem = ({
     setConfirmFeedback('');
   };
 
-  const handleRejectClick = () => {
-    setShowRejectModal(true);
-  };
+  const handleRejectClick = () => setShowRejectModal(true);
 
   const handleRejectConfirm = async (reason) => {
     setUpdating(true);
@@ -623,8 +665,15 @@ const SubTaskItem = ({
     finally { setUpdating(false); }
   };
 
-  const handleDelete = async () => {
-    if (!window.confirm('Delete this sub‑task?')) return;
+  // ✅ Replaced window.confirm with custom modal
+  const handleDelete = () => {
+    if (canManage || isAssignee) {
+      setShowDeleteModal(true);
+    }
+  };
+
+  const confirmDelete = async () => {
+    setShowDeleteModal(false);
     setUpdating(true);
     try {
       await deleteSub({ taskId, subTaskIndex: index }).unwrap();
@@ -635,29 +684,42 @@ const SubTaskItem = ({
   };
 
   const statusMap = {
-    pending: { label: 'Pending', color: 'text-gray-400 dark:text-gray-400' },
-    done: { label: 'Done', color: 'text-blue-500 dark:text-blue-400' },
-    confirmed: { label: 'Confirmed', color: 'text-green-500 dark:text-green-400' },
+    pending: { label: 'Pending', color: 'text-gray-400' },
+    done: { label: 'Done', color: 'text-blue-500' },
+    confirmed: { label: 'Confirmed', color: 'text-green-500' },
   };
   const st = statusMap[subTask.status] || statusMap.pending;
+
+  const handleDragStart = (e) => {
+    if (!draggable) {
+      e.preventDefault();
+      return;
+    }
+    e.dataTransfer.setData('text/plain', String(index));
+    e.dataTransfer.effectAllowed = 'move';
+    if (onDragStart) onDragStart(e, index);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (onDragOver) onDragOver(e, index);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    if (onDrop) onDrop(e, index);
+  };
 
   return (
     <>
       <div
         draggable={draggable}
-        onDragStart={(e) => draggable && onDragStart && onDragStart(e, index)}
-        onDragEnd={(e) => draggable && onDragEnd && onDragEnd(e, index)}
-        onDragOver={(e) => {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = 'move';
-          if (draggable && onDragOver) onDragOver(e, index);
-        }}
-        onDrop={(e) => {
-          if (draggable && onDrop) onDrop(e, index);
-        }}
-        onDragLeave={(e) => {
-          if (draggable && onDragLeave) onDragLeave(e);
-        }}
+        onDragStart={handleDragStart}
+        onDragEnd={onDragEnd}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+        onDragLeave={onDragLeave}
         className={`flex flex-col py-2 border-b border-gray-100 dark:border-gray-800/20 last:border-0 transition-colors ${
           dragOver ? 'bg-teal-50/50 dark:bg-[#0d9488]/5 border-teal-500 dark:border-[#0d9488]' : ''
         }`}
@@ -778,7 +840,6 @@ const SubTaskItem = ({
               <input
                 type="file"
                 multiple
-                ref={fileInputRef}
                 onChange={(e) => setDoneFiles([...e.target.files])}
                 className="text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-teal-50 dark:file:bg-[#0d9488]/20 file:text-teal-600 dark:file:text-[#0d9488]"
               />
@@ -844,26 +905,36 @@ const SubTaskItem = ({
         )}
       </div>
 
-      {/* Reject Reason Modal */}
       <RejectReasonModal
         isOpen={showRejectModal}
         onClose={() => setShowRejectModal(false)}
         onConfirm={(reason) => handleRejectConfirm(reason)}
       />
+
+      {/* ✅ Custom delete confirmation modal */}
+      <ConfirmModal
+        isOpen={showDeleteModal}
+        onClose={() => setShowDeleteModal(false)}
+        onConfirm={confirmDelete}
+        title="Delete Sub‑task"
+        message={`Are you sure you want to delete "${subTask.title}"? This cannot be undone.`}
+        confirmText="Delete"
+        danger
+      />
     </>
   );
-};
+});
 
 // ─── Assign Task Modal ──────────────────────────────────────────────────
-const AssignTaskModal = ({ isOpen, onClose, task, assignableMembers, brandColor, onAssign }) => {
+const AssignTaskModal = React.memo(({ isOpen, onClose, task, assignableMembers, brandColor, onAssign }) => {
   const [assigneeId, setAssigneeId] = useState('');
   const [loading, setLoading] = useState(false);
 
   const assigneeOpts = [
-    { value: '', label: 'Select a member...', icon: <FaUser className="text-gray-400 dark:text-gray-400" /> },
+    { value: '', label: 'Select a member...', icon: <FaUser className="text-gray-400" /> },
     ...assignableMembers.map(m => {
       const u = m.user || m;
-      return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" alt="" /> : <FaUser className="text-gray-400 dark:text-gray-400" /> };
+      return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" alt="" /> : <FaUser className="text-gray-400" /> };
     })
   ];
 
@@ -910,10 +981,10 @@ const AssignTaskModal = ({ isOpen, onClose, task, assignableMembers, brandColor,
       </div>
     </div>
   );
-};
+});
 
-// ─── Task Detail View (with subtask reorder props) ──────────────────
-const TaskDetailView = ({
+// ─── Task Detail View ────────────────────────────────────────────────
+const TaskDetailView = React.memo(({
   task,
   brandColor,
   feedbackData,
@@ -927,7 +998,6 @@ const TaskDetailView = ({
   onSendReminder,
   onConfirmCompletion,
   onAssignTask,
-  // ─── Sub-task reorder handlers ───
   subDragStart,
   subDragEnd,
   subDragOver,
@@ -937,7 +1007,6 @@ const TaskDetailView = ({
 }) => {
   const isAssignee = task.assignee?._id === userInfo?._id;
   const [showMenu, setShowMenu] = useState(false);
-  const bottomRef = useRef(null);
   const [addSubTaskOpen, setAddSubTaskOpen] = useState(false);
   const [newSubTaskTitle, setNewSubTaskTitle] = useState('');
   const [newSubTaskStart, setNewSubTaskStart] = useState('');
@@ -974,7 +1043,6 @@ const TaskDetailView = ({
   const total = task.subTasks?.length || 0;
   const confirmed = (task.subTasks || []).filter(st => st.status === 'confirmed').length || 0;
 
-  // Determine if sub-tasks can be reordered
   const canReorderSub = canManage || (isAssignee && task.allowAssigneeEditSubtasks);
   const isReadOnly = task.isArchived || task.isTrash || false;
 
@@ -1122,8 +1190,6 @@ const TaskDetailView = ({
             );
           })
         )}
-
-        <div ref={bottomRef} />
       </div>
 
       {/* Bottom action bar */}
@@ -1151,12 +1217,10 @@ const TaskDetailView = ({
       )}
     </div>
   );
-};
+});
 
-// ─── Folder Management Modals ─────────────────────────────────────────
-
-// Create/Edit Folder Modal
-const FolderFormModal = ({ isOpen, onClose, onSuccess, folder, brandColor, projectId }) => {
+// ─── Folder Form Modal ──────────────────────────────────────────────
+const FolderFormModal = React.memo(({ isOpen, onClose, onSuccess, folder, brandColor, projectId }) => {
   const [name, setName] = useState(folder?.name || '');
   const [loading, setLoading] = useState(false);
   const [createFolder] = useCreateFolderMutation();
@@ -1219,11 +1283,11 @@ const FolderFormModal = ({ isOpen, onClose, onSuccess, folder, brandColor, proje
       </div>
     </div>
   );
-};
+});
 
-// Manage Folder Read-Only Users Modal
-const FolderReadOnlyModal = ({ isOpen, onClose, folder, project, brandColor, onSuccess }) => {
-  const [users, setUsers] = useState([]); // currently selected to add/remove
+// ─── Folder Read‑Only Modal ─────────────────────────────────────────
+const FolderReadOnlyModal = React.memo(({ isOpen, onClose, folder, project, brandColor, onSuccess }) => {
+  const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [addReadOnly] = useAddFolderReadOnlyMutation();
   const [removeReadOnly] = useRemoveFolderReadOnlyMutation();
@@ -1235,7 +1299,6 @@ const FolderReadOnlyModal = ({ isOpen, onClose, folder, project, brandColor, onS
     return uid && !currentReadOnly.includes(uid.toString());
   });
 
-  // select users to add
   const [selectedUsers, setSelectedUsers] = useState([]);
 
   useEffect(() => {
@@ -1283,7 +1346,6 @@ const FolderReadOnlyModal = ({ isOpen, onClose, folder, project, brandColor, onS
           <button onClick={onClose} className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"><FaTimes /></button>
         </div>
 
-        {/* Current read-only users */}
         <div className="mb-4">
           <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">Current Read-Only Users</h4>
           {currentReadOnly.length === 0 ? (
@@ -1296,7 +1358,7 @@ const FolderReadOnlyModal = ({ isOpen, onClose, folder, project, brandColor, onS
                 return (
                   <div key={uid} className="flex items-center justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-xl px-3 py-2">
                     <div className="flex items-center gap-2">
-                      {user?.profile ? <img src={user.profile} className="w-6 h-6 rounded-full object-cover" alt="" /> : <FaUser className="text-gray-400 dark:text-gray-400" />}
+                      {user?.profile ? <img src={user.profile} className="w-6 h-6 rounded-full object-cover" alt="" /> : <FaUser className="text-gray-400" />}
                       <span className="text-sm text-gray-800 dark:text-gray-200">{user?.name || 'Unknown'}</span>
                     </div>
                     <button
@@ -1313,7 +1375,6 @@ const FolderReadOnlyModal = ({ isOpen, onClose, folder, project, brandColor, onS
           )}
         </div>
 
-        {/* Add users */}
         {available.length > 0 && (
           <div>
             <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">Add Users</h4>
@@ -1356,10 +1417,10 @@ const FolderReadOnlyModal = ({ isOpen, onClose, folder, project, brandColor, onS
       </div>
     </div>
   );
-};
+});
 
-// ─── Create Task Modal (with recurrence) ──────────────────────────
-const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMembers, folders, onSuccess }) => {
+// ─── Create Task Modal ──────────────────────────────────────────────
+const CreateTaskModal = React.memo(({ isOpen, onClose, projectId, brandColor, assignableMembers, folders, onSuccess }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [assigneeId, setAssigneeId] = useState('');
@@ -1389,34 +1450,18 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
     }
   };
 
-  // ── Quick due date presets ──
   const setQuickDueDate = (preset) => {
     const now = new Date();
     let target = new Date(now);
     switch (preset) {
-      case 'in an hour':
-        target.setHours(now.getHours() + 1);
-        break;
-      case 'in 12 hours':
-        target.setHours(now.getHours() + 12);
-        break;
-      case 'today':
-        target.setHours(23, 59, 59);
-        break;
-      case 'in two days':
-        target.setDate(now.getDate() + 2);
-        break;
-      case 'in one week':
-        target.setDate(now.getDate() + 7);
-        break;
-      case 'in two weeks':
-        target.setDate(now.getDate() + 14);
-        break;
-      case 'in one month':
-        target.setMonth(now.getMonth() + 1);
-        break;
-      default:
-        return;
+      case 'in an hour': target.setHours(now.getHours() + 1); break;
+      case 'in 12 hours': target.setHours(now.getHours() + 12); break;
+      case 'today': target.setHours(23, 59, 59); break;
+      case 'in two days': target.setDate(now.getDate() + 2); break;
+      case 'in one week': target.setDate(now.getDate() + 7); break;
+      case 'in two weeks': target.setDate(now.getDate() + 14); break;
+      case 'in one month': target.setMonth(now.getMonth() + 1); break;
+      default: return;
     }
     const year = target.getFullYear();
     const month = String(target.getMonth() + 1).padStart(2, '0');
@@ -1443,16 +1488,16 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
   }, [startDate, dueDate]);
 
   const assigneeOpts = [
-    { value: '', label: 'Unassigned', icon: <FaUser className="text-gray-400 dark:text-gray-400" /> },
+    { value: '', label: 'Unassigned', icon: <FaUser className="text-gray-400" /> },
     ...assignableMembers.map(m => {
       const u = m.user || m;
-      return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" alt="" /> : <FaUser className="text-gray-400 dark:text-gray-400" /> };
+      return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" alt="" /> : <FaUser className="text-gray-400" /> };
     })
   ];
 
   const folderOpts = [
-    { value: '', label: 'No Folder', icon: <FaFolderOpen className="text-gray-400 dark:text-gray-400" /> },
-    ...folders.map(f => ({ value: f._id, label: f.name, icon: <FaFolder className="text-gray-400 dark:text-gray-400" /> })),
+    { value: '', label: 'No Folder', icon: <FaFolderOpen className="text-gray-400" /> },
+    ...folders.map(f => ({ value: f._id, label: f.name, icon: <FaFolder className="text-gray-400" /> })),
   ];
 
   const handleFile = (e) => { setAttachments(prev => [...prev, ...Array.from(e.target.files)]); e.target.value = ''; };
@@ -1475,13 +1520,11 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
       if (startDate) fd.append('startDate', startDate);
       if (dueDate) fd.append('dueDate', dueDate);
       if (folderId) fd.append('folderId', folderId);
-      // Recurrence
       fd.append('recurrenceType', recurrenceType);
       if (recurrenceType === 'weekly') {
         fd.append('recurrenceDays', JSON.stringify(recurrenceDays));
       }
       if (recurrenceEndDate) fd.append('recurrenceEndDate', recurrenceEndDate);
-      // Links & attachments
       linksText.split('\n').map(l => l.trim()).filter(Boolean).forEach(l => fd.append('links', l));
       attachments.forEach(f => fd.append('attachments', f));
       await createTask(fd).unwrap();
@@ -1550,7 +1593,6 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
             <label htmlFor="allowEdit" className="text-xs text-gray-600 dark:text-gray-400">Allow assignee to edit sub‑tasks</label>
           </div>
 
-          {/* ─── Recurrence Section ─── */}
           <div>
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Recurrence</label>
             <select
@@ -1627,10 +1669,10 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
       </div>
     </div>
   );
-};
+});
 
-// ─── Edit Task Modal (with recurrence) ────────────────────────────
-const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, folders, onSuccess }) => {
+// ─── Edit Task Modal ────────────────────────────────────────────────
+const EditTaskModal = React.memo(({ isOpen, onClose, task, brandColor, assignableMembers, folders, onSuccess }) => {
   const [title, setTitle] = useState(task?.title || '');
   const [description, setDescription] = useState(task?.description || '');
   const [assigneeId, setAssigneeId] = useState(task?.assignee?._id || '');
@@ -1704,16 +1746,16 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, f
   }, [startDate, dueDate, task]);
 
   const assigneeOpts = [
-    { value: '', label: 'Unassigned', icon: <FaUser className="text-gray-400 dark:text-gray-400" /> },
+    { value: '', label: 'Unassigned', icon: <FaUser className="text-gray-400" /> },
     ...assignableMembers.map(m => {
       const u = m.user || m;
-      return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" alt="" /> : <FaUser className="text-gray-400 dark:text-gray-400" /> };
+      return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" alt="" /> : <FaUser className="text-gray-400" /> };
     })
   ];
 
   const folderOpts = [
-    { value: '', label: 'No Folder', icon: <FaFolderOpen className="text-gray-400 dark:text-gray-400" /> },
-    ...folders.map(f => ({ value: f._id, label: f.name, icon: <FaFolder className="text-gray-400 dark:text-gray-400" /> })),
+    { value: '', label: 'No Folder', icon: <FaFolderOpen className="text-gray-400" /> },
+    ...folders.map(f => ({ value: f._id, label: f.name, icon: <FaFolder className="text-gray-400" /> })),
   ];
 
   const handleFile = (e) => { setAttachments(prev => [...prev, ...Array.from(e.target.files)]); e.target.value = ''; };
@@ -1736,13 +1778,11 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, f
       if (startDate) fd.append('startDate', startDate);
       if (dueDate) fd.append('dueDate', dueDate);
       if (folderId) fd.append('folderId', folderId);
-      // Recurrence
       fd.append('recurrenceType', recurrenceType);
       if (recurrenceType === 'weekly') {
         fd.append('recurrenceDays', JSON.stringify(recurrenceDays));
       }
       if (recurrenceEndDate) fd.append('recurrenceEndDate', recurrenceEndDate);
-      // Links & attachments
       linksText.split('\n').map(l => l.trim()).filter(Boolean).forEach(l => fd.append('links', l));
       attachments.forEach(f => fd.append('attachments', f));
       await updateTask({ taskId: task._id, data: fd }).unwrap();
@@ -1800,7 +1840,6 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, f
             <label htmlFor="allowEditEdit" className="text-xs text-gray-600 dark:text-gray-400">Allow assignee to edit sub‑tasks</label>
           </div>
 
-          {/* ─── Recurrence Section ─── */}
           <div>
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Recurrence</label>
             <select
@@ -1889,10 +1928,10 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, f
       </div>
     </div>
   );
-};
+});
 
-// ─── Add Member Modal ───────────────────────────────────────────────────
-const AddMemberModal = ({ isOpen, onClose, workspace, project, brandColor, onSuccess }) => {
+// ─── Add Member Modal ────────────────────────────────────────────────
+const AddMemberModal = React.memo(({ isOpen, onClose, workspace, project, brandColor, onSuccess }) => {
   const [memberId, setMemberId] = useState('');
   const [loading, setLoading] = useState(false);
   const [addTeamMember] = useAddTeamMemberMutation();
@@ -1901,7 +1940,7 @@ const AddMemberModal = ({ isOpen, onClose, workspace, project, brandColor, onSuc
   const available = workspace.members?.filter(m => m.status === 'active' && !projectMemberIds.includes(m.user?._id || m._id)) || [];
   const options = available.map(m => {
     const u = m.user || m;
-    return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" /> : <FaUser className="text-gray-400 dark:text-gray-400" /> };
+    return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" /> : <FaUser className="text-gray-400" /> };
   });
 
   const handleSubmit = async (e) => {
@@ -1937,7 +1976,7 @@ const AddMemberModal = ({ isOpen, onClose, workspace, project, brandColor, onSuc
       </div>
     </div>
   );
-};
+});
 
 // ─── Main Component ──────────────────────────────────────────────────
 const YourWorkspaceProjectId = () => {
@@ -1945,31 +1984,26 @@ const YourWorkspaceProjectId = () => {
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
 
+  // ─── All hooks unconditionally first ──────────────────────────────
+
+  // States
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [activeTab, setActiveTab] = useState('tasks');
   const [mobileShowDetail, setMobileShowDetail] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
-
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [showEditTask, setShowEditTask] = useState(false);
   const [selectedTask, setSelectedTask] = useState(null);
   const [showAddMember, setShowAddMember] = useState(false);
   const [showAddManager, setShowAddManager] = useState(false);
-
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assignTaskTarget, setAssignTaskTarget] = useState(null);
-
-  // ── Folder states ──
   const [selectedFolderId, setSelectedFolderId] = useState(null);
   const [showFolderForm, setShowFolderForm] = useState(false);
   const [editingFolder, setEditingFolder] = useState(null);
   const [showReadOnlyModal, setShowReadOnlyModal] = useState(false);
   const [readOnlyFolder, setReadOnlyFolder] = useState(null);
-
-  // ── Project-level archive/trash state ──
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
-
-  // ── Confirmation modals state ──
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
     title: '',
@@ -1988,7 +2022,7 @@ const YourWorkspaceProjectId = () => {
     managerId: '',
   });
 
-  // ── Data fetching ──
+  // Queries
   const { data: wData, isLoading: wLoad, error: wErr } = useGetWorkspaceQuery(workspaceId);
   const { data: pData, isLoading: pLoad, error: pErr, refetch: refetchProject } = useGetProjectByIdQuery(projectId);
   const { data: foldersData, isLoading: foldersLoading, refetch: refetchFolders } = useGetProjectFoldersQuery(projectId);
@@ -2000,40 +2034,29 @@ const YourWorkspaceProjectId = () => {
     { skip: !selectedTaskId }
   );
 
-  // ── NEW: optimistic local tasks state ──
-  const [localTasks, setLocalTasks] = useState([]);
-  useEffect(() => {
-    setLocalTasks(tData?.tasks || []);
-  }, [tData]);
-  const tasks = localTasks;
-
-  // ── Reorder mutations ──
-  const [reorderTasks] = useReorderTasksMutation();
-  const [reorderSubTasks] = useReorderSubTasksMutation();
-
-  // ── Drag state for task reordering ──
-  const [draggedTaskId, setDraggedTaskId] = useState(null);
-  const [dragOverTaskId, setDragOverTaskId] = useState(null);
-  const [isDraggingTask, setIsDraggingTask] = useState(false);
-
-  // ── Drag state for subtask reordering ──
-  const [draggedSubIdx, setDraggedSubIdx] = useState(null);
-  const [dragOverSubIdx, setDragOverSubIdx] = useState(null);
-
-  // ── Project archive/trash mutations ──
+  // Mutations
   const [archiveProject] = useArchiveProjectMutation();
   const [unarchiveProject] = useUnarchiveProjectMutation();
   const [deleteProject] = useDeleteProjectMutation();
   const [restoreProject] = useRestoreProjectMutation();
   const [permanentlyDeleteProject] = usePermanentlyDeleteProjectMutation();
-
   const [deleteTask] = useDeleteTaskMutation();
   const [removeTeamMember] = useRemoveTeamMemberMutation();
   const [manageProjectManagers] = useManageProjectManagersMutation();
   const [sendManualReminder] = useSendManualReminderMutation();
   const [confirmTaskCompletion] = useConfirmTaskCompletionMutation();
   const [assignTask] = useAssignTaskMutation();
+  const [reorderTasks] = useReorderTasksMutation();
+  const [reorderSubTasks] = useReorderSubTasksMutation();
 
+  // Local tasks for optimistic updates
+  const [localTasks, setLocalTasks] = useState([]);
+  useEffect(() => {
+    setLocalTasks(tData?.tasks || []);
+  }, [tData]);
+  const tasks = localTasks;
+
+  // Derived data
   const workspace = wData?.workspace;
   const project = pData?.project;
   const folders = foldersData?.folders || [];
@@ -2053,11 +2076,11 @@ const YourWorkspaceProjectId = () => {
   }, [activeTeam, project?.projectManagers]);
 
   const brandColor = workspace?.color || '#0d9488';
-  const isOwner = workspace?.owner?._id === userInfo?._id || workspace?.owner === userInfo?._id;
-  const isManager = project?.projectManagers?.some(pm => {
+  const isOwner = useMemo(() => workspace?.owner?._id === userInfo?._id || workspace?.owner === userInfo?._id, [workspace, userInfo]);
+  const isManager = useMemo(() => project?.projectManagers?.some(pm => {
     const id = (pm._id || pm)?.toString();
     return id === userInfo?._id;
-  });
+  }), [project, userInfo]);
   const canManage = isOwner || isManager;
 
   const activeTask = useMemo(() => tasks.find(t => t._id === selectedTaskId) || null, [tasks, selectedTaskId]);
@@ -2066,16 +2089,27 @@ const YourWorkspaceProjectId = () => {
   const isArchivedForMe = project?.isArchivedForMe || false;
   const isTrash = project?.isTrash || false;
 
-  if (wErr || pErr) { navigate(`/workspace/${workspaceId}/projects`); return null; }
-  if (wLoad || pLoad || tLoad || foldersLoading) return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
-      <div className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin" style={{ borderTopColor: brandColor }} />
-    </div>
-  );
-  if (!workspace || !project) return null;
+  const availableForManager = useMemo(() => workspace?.members?.filter(m => m.status === 'active' && !projectManagers.some(pm => pm._id === (m.user?._id || m._id))) || [], [workspace, projectManagers]);
+  const managerOptions = useMemo(() => availableForManager.map(m => {
+    const u = m.user || m;
+    return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" /> : <FaUser className="text-gray-400" /> };
+  }), [availableForManager]);
 
-  // ── Project-level handlers ──
-  const handleArchiveProject = async () => {
+  // ── Drag state ──
+  const [draggedTaskId, setDraggedTaskId] = useState(null);
+  const [dragOverTaskId, setDragOverTaskId] = useState(null);
+  const [isDraggingTask, setIsDraggingTask] = useState(false);
+  const [draggedSubIdx, setDraggedSubIdx] = useState(null);
+  const [dragOverSubIdx, setDragOverSubIdx] = useState(null);
+
+  // ── Handlers (useCallback) ──────────────────────────────────────────
+  const refreshAll = useCallback(() => {
+    refetchTasks();
+    refetchProject();
+    refetchFolders();
+  }, [refetchTasks, refetchProject, refetchFolders]);
+
+  const handleArchiveProject = useCallback(async () => {
     try {
       await archiveProject(projectId).unwrap();
       toast.success('Project archived for you.');
@@ -2084,9 +2118,9 @@ const YourWorkspaceProjectId = () => {
       toast.error(err?.data?.message || 'Failed to archive');
     }
     setProjectMenuOpen(false);
-  };
+  }, [archiveProject, projectId, refetchProject]);
 
-  const handleUnarchiveProject = async () => {
+  const handleUnarchiveProject = useCallback(async () => {
     try {
       await unarchiveProject(projectId).unwrap();
       toast.success('Project unarchived.');
@@ -2095,9 +2129,9 @@ const YourWorkspaceProjectId = () => {
       toast.error(err?.data?.message || 'Failed to unarchive');
     }
     setProjectMenuOpen(false);
-  };
+  }, [unarchiveProject, projectId, refetchProject]);
 
-  const handleMoveToTrash = () => {
+  const handleMoveToTrash = useCallback(() => {
     setConfirmModal({
       isOpen: true,
       title: 'Move to Trash',
@@ -2114,9 +2148,9 @@ const YourWorkspaceProjectId = () => {
       danger: false,
     });
     setProjectMenuOpen(false);
-  };
+  }, [deleteProject, projectId, navigate, workspaceId, project?.name]);
 
-  const handleRestoreProject = () => {
+  const handleRestoreProject = useCallback(() => {
     setConfirmModal({
       isOpen: true,
       title: 'Restore Project',
@@ -2133,9 +2167,9 @@ const YourWorkspaceProjectId = () => {
       danger: false,
     });
     setProjectMenuOpen(false);
-  };
+  }, [restoreProject, projectId, refetchProject, project?.name]);
 
-  const handlePermanentDeleteProject = () => {
+  const handlePermanentDeleteProject = useCallback(() => {
     setConfirmModal({
       isOpen: true,
       title: 'Permanently Delete',
@@ -2152,10 +2186,9 @@ const YourWorkspaceProjectId = () => {
       danger: true,
     });
     setProjectMenuOpen(false);
-  };
+  }, [permanentlyDeleteProject, projectId, navigate, workspaceId, project?.name]);
 
-  // ── Task handlers ──
-  const handleDeleteTask = (task) => {
+  const handleDeleteTask = useCallback((task) => {
     setDeleteTaskModal({
       isOpen: true,
       taskName: task.title,
@@ -2174,11 +2207,11 @@ const YourWorkspaceProjectId = () => {
         }
       },
     });
-  };
+  }, [deleteTask, refetchTasks, refetchProject, selectedTaskId]);
 
-  const handleEditTask = (task) => { setSelectedTask(task); setShowEditTask(true); };
-  
-  const handleRemoveMember = async (id) => {
+  const handleEditTask = useCallback((task) => { setSelectedTask(task); setShowEditTask(true); }, []);
+
+  const handleRemoveMember = useCallback(async (id) => {
     if (!id) { toast.error('Invalid member ID'); return; }
     setConfirmModal({
       isOpen: true,
@@ -2195,17 +2228,13 @@ const YourWorkspaceProjectId = () => {
       },
       danger: true,
     });
-  };
+  }, [removeTeamMember, projectId, refetchProject]);
 
-  const handleAddManager = (id, name) => {
-    setAddManagerConfirm({
-      isOpen: true,
-      managerName: name,
-      managerId: id,
-    });
-  };
+  const handleAddManager = useCallback((id, name) => {
+    setAddManagerConfirm({ isOpen: true, managerName: name, managerId: id });
+  }, []);
 
-  const confirmAddManager = async () => {
+  const confirmAddManager = useCallback(async () => {
     try {
       await manageProjectManagers({ projectId, action: 'add', managerId: addManagerConfirm.managerId }).unwrap();
       toast.success('Manager added');
@@ -2214,9 +2243,9 @@ const YourWorkspaceProjectId = () => {
     } catch (e) {
       toast.error(e?.data?.message || 'Failed');
     }
-  };
+  }, [manageProjectManagers, projectId, addManagerConfirm.managerId, refetchProject]);
 
-  const handleRemoveManager = async (id) => {
+  const handleRemoveManager = useCallback(async (id) => {
     setConfirmModal({
       isOpen: true,
       title: 'Remove Manager',
@@ -2232,39 +2261,27 @@ const YourWorkspaceProjectId = () => {
       },
       danger: true,
     });
-  };
+  }, [manageProjectManagers, projectId, refetchProject]);
 
-  const handleTaskClick = (taskId) => { setSelectedTaskId(taskId); setMobileShowDetail(true); };
-  const handleBackToList = () => { setSelectedTaskId(null); setMobileShowDetail(false); };
+  const handleTaskClick = useCallback((taskId) => { setSelectedTaskId(taskId); setMobileShowDetail(true); }, []);
+  const handleBackToList = useCallback(() => { setSelectedTaskId(null); setMobileShowDetail(false); }, []);
 
-  const openSearchModal = () => setSearchModalOpen(true);
-  const closeSearchModal = () => setSearchModalOpen(false);
+  const openSearchModal = useCallback(() => setSearchModalOpen(true), []);
+  const closeSearchModal = useCallback(() => setSearchModalOpen(false), []);
 
   const searchItems = activeTab === 'tasks' ? tasks : activeTeam;
-  const onSearchSelect = (id) => {
+  const onSearchSelect = useCallback((id) => {
     if (activeTab === 'tasks') handleTaskClick(id);
-  };
+  }, [activeTab, handleTaskClick]);
 
-  const availableForManager = workspace.members?.filter(m => m.status === 'active' && !projectManagers.some(pm => pm._id === (m.user?._id || m._id))) || [];
-  const managerOptions = availableForManager.map(m => {
-    const u = m.user || m;
-    return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" /> : <FaUser className="text-gray-400 dark:text-gray-400" /> };
-  });
-
-  const handleSendManualReminder = async (task) => {
+  const handleSendManualReminder = useCallback(async (task) => {
     try {
       await sendManualReminder({ taskId: task._id, message: '' }).unwrap();
       toast.success('Reminder sent to assignee');
     } catch (e) { toast.error(e?.data?.message || 'Failed to send reminder'); }
-  };
+  }, [sendManualReminder]);
 
-  const refreshAll = () => {
-    refetchTasks();
-    refetchProject();
-    refetchFolders();
-  };
-
-  const handleConfirmCompletion = async (taskId) => {
+  const handleConfirmCompletion = useCallback((taskId) => {
     setConfirmModal({
       isOpen: true,
       title: 'Confirm Completion',
@@ -2280,9 +2297,9 @@ const YourWorkspaceProjectId = () => {
       },
       danger: false,
     });
-  };
+  }, [confirmTaskCompletion, refreshAll]);
 
-  const handleAssignTask = async (assigneeId) => {
+  const handleAssignTask = useCallback(async (assigneeId) => {
     try {
       await assignTask({ taskId: assignTaskTarget._id, assigneeId }).unwrap();
       toast.success('Task assigned successfully');
@@ -2292,25 +2309,24 @@ const YourWorkspaceProjectId = () => {
     } catch (err) {
       throw err;
     }
-  };
+  }, [assignTask, assignTaskTarget, refreshAll]);
 
-  const openAssignModal = (task) => {
+  const openAssignModal = useCallback((task) => {
     setAssignTaskTarget(task);
     setShowAssignModal(true);
-  };
+  }, []);
 
-  // ── Folder handlers ──
-  const handleCreateFolder = () => {
+  const handleCreateFolder = useCallback(() => {
     setEditingFolder(null);
     setShowFolderForm(true);
-  };
+  }, []);
 
-  const handleEditFolder = (folder) => {
+  const handleEditFolder = useCallback((folder) => {
     setEditingFolder(folder);
     setShowFolderForm(true);
-  };
+  }, []);
 
-  const handleDeleteFolder = async (folder) => {
+  const handleDeleteFolder = useCallback(async (folder) => {
     setConfirmModal({
       isOpen: true,
       title: 'Delete Folder',
@@ -2328,23 +2344,23 @@ const YourWorkspaceProjectId = () => {
       },
       danger: true,
     });
-  };
+  }, [refetchFolders, refetchTasks, selectedFolderId]);
 
-  const handleManageReadOnly = (folder) => {
+  const handleManageReadOnly = useCallback((folder) => {
     setReadOnlyFolder(folder);
     setShowReadOnlyModal(true);
-  };
+  }, []);
 
-  const handleFolderSelect = (folderId) => {
+  const handleFolderSelect = useCallback((folderId) => {
     setSelectedFolderId(folderId === selectedFolderId ? null : folderId);
     setSelectedTaskId(null);
     setMobileShowDetail(false);
-  };
+  }, [selectedFolderId]);
 
-  // ─── Task reordering handlers ──────────────────────────────────────
+  // ── Task reordering ──
   const canReorderTasks = canManage && !isTrash && !isArchivedForMe;
 
-  const handleTaskDragStart = (e, task) => {
+  const handleTaskDragStart = useCallback((e, task) => {
     if (!canReorderTasks) {
       e.preventDefault();
       toast.error('You do not have permission to reorder tasks.');
@@ -2354,27 +2370,27 @@ const YourWorkspaceProjectId = () => {
     setIsDraggingTask(true);
     e.dataTransfer.setData('text/plain', task._id);
     e.dataTransfer.effectAllowed = 'move';
-  };
+  }, [canReorderTasks]);
 
-  const handleTaskDragEnd = () => {
+  const handleTaskDragEnd = useCallback(() => {
     setDraggedTaskId(null);
     setDragOverTaskId(null);
     setIsDraggingTask(false);
-  };
+  }, []);
 
-  const handleTaskDragOver = (e, task) => {
+  const handleTaskDragOver = useCallback((e, task) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     if (draggedTaskId && draggedTaskId !== task._id) {
       setDragOverTaskId(task._id);
     }
-  };
+  }, [draggedTaskId]);
 
-  const handleTaskDragLeave = () => {
+  const handleTaskDragLeave = useCallback(() => {
     setDragOverTaskId(null);
-  };
+  }, []);
 
-  const handleTaskDrop = async (e, targetTask) => {
+  const handleTaskDrop = useCallback(async (e, targetTask) => {
     e.preventDefault();
     e.stopPropagation();
     const draggedId = e.dataTransfer.getData('text/plain') || draggedTaskId;
@@ -2394,26 +2410,25 @@ const YourWorkspaceProjectId = () => {
     newOrder.splice(targetIdx, 0, moved);
     const orderedIds = newOrder.map(t => t._id);
 
-    // Optimistic update
     setLocalTasks(newOrder);
     setDraggedTaskId(null);
     setIsDraggingTask(false);
 
     try {
       await reorderTasks({ projectId, orderedTaskIds: orderedIds }).unwrap();
-      refetchTasks(); // reconcile
+      refetchTasks();
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to reorder tasks');
       setLocalTasks(previousTasks);
     }
-  };
+  }, [draggedTaskId, tasks, reorderTasks, projectId, refetchTasks]);
 
-  // ─── Sub‑task reordering handlers ──────────────────────────────────
-  const canReorderSub = (task) => {
+  // ── Sub‑task reordering ──
+  const canReorderSub = useCallback((task) => {
     return !isTrash && !isArchivedForMe && !task.isArchived && (canManage || (task.assignee?._id === userInfo?._id && task.allowAssigneeEditSubtasks));
-  };
+  }, [isTrash, isArchivedForMe, canManage, userInfo]);
 
-  const handleSubDragStart = (e, index) => {
+  const handleSubDragStart = useCallback((e, index) => {
     if (!activeTask) return;
     if (!canReorderSub(activeTask)) {
       e.preventDefault();
@@ -2423,26 +2438,26 @@ const YourWorkspaceProjectId = () => {
     setDraggedSubIdx(index);
     e.dataTransfer.setData('text/plain', String(index));
     e.dataTransfer.effectAllowed = 'move';
-  };
+  }, [activeTask, canReorderSub]);
 
-  const handleSubDragEnd = () => {
+  const handleSubDragEnd = useCallback(() => {
     setDraggedSubIdx(null);
     setDragOverSubIdx(null);
-  };
+  }, []);
 
-  const handleSubDragOver = (e, index) => {
+  const handleSubDragOver = useCallback((e, index) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     if (draggedSubIdx !== null && draggedSubIdx !== index) {
       setDragOverSubIdx(index);
     }
-  };
+  }, [draggedSubIdx]);
 
-  const handleSubDragLeave = () => {
+  const handleSubDragLeave = useCallback(() => {
     setDragOverSubIdx(null);
-  };
+  }, []);
 
-  const handleSubDrop = async (e, targetIndex) => {
+  const handleSubDrop = useCallback(async (e, targetIndex) => {
     e.preventDefault();
     const raw = e.dataTransfer.getData('text/plain');
     const draggedIdx = raw !== '' ? parseInt(raw, 10) : draggedSubIdx;
@@ -2461,13 +2476,11 @@ const YourWorkspaceProjectId = () => {
     const [movedSub] = newSubTasks.splice(draggedIdx, 1);
     newSubTasks.splice(targetIndex, 0, movedSub);
 
-    // Build ordered indices for backend
     const indices = subtasks.map((_, i) => i);
     const [movedIdx] = indices.splice(draggedIdx, 1);
     indices.splice(targetIndex, 0, movedIdx);
     const orderedSubTaskIndices = indices;
 
-    // Optimistic update
     const optimisticTasks = previousTasks.map(t =>
       t._id === activeTask._id ? { ...t, subTasks: newSubTasks } : t
     );
@@ -2481,9 +2494,20 @@ const YourWorkspaceProjectId = () => {
       toast.error(err?.data?.message || 'Failed to reorder sub‑tasks');
       setLocalTasks(previousTasks);
     }
-  };
+  }, [draggedSubIdx, activeTask, tasks, reorderSubTasks, refetchTasks]);
 
-  // ─── Render ──
+  // ─── Early returns AFTER all hooks ─────────────────────────────────
+  if (wErr || pErr) { navigate(`/workspace/${workspaceId}/projects`); return null; }
+  if (wLoad || pLoad || tLoad || foldersLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
+        <div className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin" style={{ borderTopColor: brandColor }} />
+      </div>
+    );
+  }
+  if (!workspace || !project) return null;
+
+  // ─── Render ──────────────────────────────────────────────────────
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
       <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
@@ -2773,7 +2797,6 @@ const YourWorkspaceProjectId = () => {
                 onSendReminder={handleSendManualReminder}
                 onConfirmCompletion={() => handleConfirmCompletion(activeTask._id)}
                 onAssignTask={openAssignModal}
-                // ─── Sub‑task reorder props ───
                 subDragStart={handleSubDragStart}
                 subDragEnd={handleSubDragEnd}
                 subDragOver={handleSubDragOver}

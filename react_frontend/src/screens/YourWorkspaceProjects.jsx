@@ -1,5 +1,5 @@
 // src/workspaceScreens/MyWorkspaceProjects.jsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
@@ -37,13 +37,13 @@ import {
   FaUndo,
   FaTrashRestore,
 } from 'react-icons/fa';
-import { toast } from 'react-toastify';
+import toast from 'react-hot-toast'; // ✅ react-hot-toast
 
-// Helper: treat progress >= 100 as completed
+// ─── Helper ──────────────────────────────────────────────────────────
 const isProjectCompleted = (p) => p.status === 'completed' || (p.progress || 0) >= 100;
 
-// ─── Confirm Modal ──────────────────────────────────────────────────────
-const ConfirmModal = ({
+// ─── Confirm Modal ────────────────────────────────────────────────────
+const ConfirmModal = React.memo(({
   isOpen,
   onConfirm,
   onCancel,
@@ -75,14 +75,12 @@ const ConfirmModal = ({
       </div>
     </div>
   );
-};
+});
 
-// ─── Filter Drawer (mobile) ─────────────────────────────────────────────
-const FilterDrawer = ({ isOpen, onClose, filters, setFilters, view, setView, isOwner }) => {
+// ─── Filter Drawer ────────────────────────────────────────────────────
+const FilterDrawer = React.memo(({ isOpen, onClose, filters, setFilters, view, setView, isOwner }) => {
   if (!isOpen) return null;
-  const statuses = view === 'active'
-    ? ['all', 'planning', 'in-progress', 'completed']
-    : [];
+  const statuses = view === 'active' ? ['all', 'planning', 'in-progress', 'completed'] : [];
 
   return (
     <div className="fixed inset-0 z-40 bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm flex justify-end">
@@ -94,7 +92,6 @@ const FilterDrawer = ({ isOpen, onClose, filters, setFilters, view, setView, isO
           </button>
         </div>
 
-        {/* View tabs */}
         <div className="mb-4">
           <label className="text-xs text-gray-500 dark:text-gray-500 uppercase tracking-wider">View</label>
           <div className="mt-1 flex gap-1">
@@ -121,7 +118,6 @@ const FilterDrawer = ({ isOpen, onClose, filters, setFilters, view, setView, isO
           </div>
         </div>
 
-        {/* Status filter – only for active view */}
         {view === 'active' && statuses.length > 0 && (
           <div className="space-y-4">
             <div>
@@ -167,10 +163,10 @@ const FilterDrawer = ({ isOpen, onClose, filters, setFilters, view, setView, isO
       </div>
     </div>
   );
-};
+});
 
-// ─── Search Projects Modal (unchanged) ──────────────────────────────────
-const SearchProjectsModal = ({ isOpen, onClose, projects, brandColor, workspaceId }) => {
+// ─── Search Projects Modal ────────────────────────────────────────────
+const SearchProjectsModal = React.memo(({ isOpen, onClose, projects, brandColor, workspaceId }) => {
   const [query, setQuery] = useState('');
   const navigate = useNavigate();
   if (!isOpen) return null;
@@ -248,17 +244,17 @@ const SearchProjectsModal = ({ isOpen, onClose, projects, brandColor, workspaceI
       </div>
     </div>
   );
-};
+});
 
-// ─── Create Project Modal (unchanged) ───────────────────────────────────
-const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
+// ─── Create Project Modal ─────────────────────────────────────────────
+const CreateProjectModal = React.memo(({ workspace, isOpen, onClose, onCreated }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
   const [createProject] = useCreateProjectMutation();
   const brandColor = workspace?.color || '#0d9488';
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
     if (!name.trim()) {
       toast.error('Project name is required');
@@ -272,14 +268,14 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
       fd.append('description', description.trim());
       await createProject({ workspaceId: workspace._id, data: fd }).unwrap();
       toast.success('Project created!');
-      onCreated && onCreated();
+      if (onCreated) onCreated();
       onClose();
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to create project');
     } finally {
       setLoading(false);
     }
-  };
+  }, [createProject, workspace, name, description, onCreated, onClose]);
 
   if (!isOpen) return null;
 
@@ -335,15 +331,15 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
       </div>
     </div>
   );
-};
+});
 
 // ─── Project Card ──────────────────────────────────────────────────────
-const ProjectCard = ({
+const ProjectCard = React.memo(({
   project,
   brandColor,
   workspaceId,
   isOwner,
-  onDelete,            // soft‑delete (move to trash)
+  onDelete,
   onPermanentDelete,
   onRestore,
   onArchive,
@@ -353,11 +349,8 @@ const ProjectCard = ({
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef(null);
   const buttonRef = useRef(null);
+  const [confirmModal, setConfirmModal] = useState({ isOpen: false, action: null });
 
-  // Custom confirmation modal state
-  const [confirmModal, setConfirmModal] = useState({ isOpen: false, action: null }); // 'trash' | 'permDelete'
-
-  // Close menu on outside click
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (
@@ -406,34 +399,25 @@ const ProjectCard = ({
   const isArchivedForMe = project.isArchivedForMe;
   const isTrashed = project.isTrash;
 
-  // Handlers for actions (no window.confirm)
-  const handleArchive = (e) => { stopProp(e); setShowMenu(false); onArchive(project._id); };
-  const handleUnarchive = (e) => { stopProp(e); setShowMenu(false); onUnarchive(project._id); };
-  const handleMoveToTrash = (e) => {
-    stopProp(e);
-    setShowMenu(false);
-    setConfirmModal({ isOpen: true, action: 'trash' });
-  };
-  const handlePermanentDelete = (e) => {
-    stopProp(e);
-    setShowMenu(false);
-    setConfirmModal({ isOpen: true, action: 'permDelete' });
-  };
-  const handleRestore = (e) => { stopProp(e); setShowMenu(false); onRestore(project._id); };
+  const handleArchive = useCallback((e) => { stopProp(e); setShowMenu(false); onArchive(project._id); }, [project._id, onArchive]);
+  const handleUnarchive = useCallback((e) => { stopProp(e); setShowMenu(false); onUnarchive(project._id); }, [project._id, onUnarchive]);
+  const handleMoveToTrash = useCallback((e) => { stopProp(e); setShowMenu(false); setConfirmModal({ isOpen: true, action: 'trash' }); }, []);
+  const handlePermanentDelete = useCallback((e) => { stopProp(e); setShowMenu(false); setConfirmModal({ isOpen: true, action: 'permDelete' }); }, []);
+  const handleRestore = useCallback((e) => { stopProp(e); setShowMenu(false); onRestore(project._id); }, [project._id, onRestore]);
 
-  const confirmAction = () => {
+  const confirmAction = useCallback(() => {
     if (confirmModal.action === 'trash') {
       onDelete(project._id);
     } else if (confirmModal.action === 'permDelete') {
       onPermanentDelete(project._id);
     }
     setConfirmModal({ isOpen: false, action: null });
-  };
-  const cancelAction = () => setConfirmModal({ isOpen: false, action: null });
+  }, [confirmModal.action, project._id, onDelete, onPermanentDelete]);
+
+  const cancelAction = useCallback(() => setConfirmModal({ isOpen: false, action: null }), []);
 
   return (
     <>
-      {/* Custom confirmation modal */}
       <ConfirmModal
         isOpen={confirmModal.isOpen}
         onConfirm={confirmAction}
@@ -448,15 +432,11 @@ const ProjectCard = ({
         confirmColor={confirmModal.action === 'trash' ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-red-600 hover:bg-red-700'}
       />
 
-      {/* Card container – clickable via Link */}
       <Link
         to={`/my-workspace/${workspaceId}/project/${project._id}`}
         className="group relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 hover:border-[#0d9488]/50 transition-all duration-500 hover:shadow-[0_8px_40px_rgba(13,148,136,0.15)] active:scale-[0.98] block overflow-hidden"
         onClick={(e) => {
-          // Prevent navigation if clicking on interactive elements
-          if (e.target.closest('button')) {
-            e.preventDefault();
-          }
+          if (e.target.closest('button')) e.preventDefault();
         }}
       >
         <div className="absolute inset-0 bg-gradient-to-br from-[#0d9488]/0 via-[#0d9488]/0 to-transparent group-hover:from-[#0d9488]/10 group-hover:via-[#0d9488]/5 transition-all duration-700 pointer-events-none" />
@@ -472,7 +452,6 @@ const ProjectCard = ({
             {statusLabels[displayStatus] || 'Planning'}
           </span>
 
-          {/* Top-left controls: three-dot menu + Move to Trash button */}
           <div className="absolute top-2 left-2 flex items-center gap-1.5">
             <button
               ref={buttonRef}
@@ -482,7 +461,6 @@ const ProjectCard = ({
               <FaEllipsisV className="text-xs" />
             </button>
 
-            {/* Move to Trash icon button (always visible except trashed) */}
             {!isTrashed && (
               <button
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleMoveToTrash(e); }}
@@ -525,7 +503,6 @@ const ProjectCard = ({
           </div>
         </div>
 
-        {/* Content – inside Link */}
         <div className="p-3 md:p-4">
           <h3 className="text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">
             {project.name}
@@ -590,9 +567,9 @@ const ProjectCard = ({
       </Link>
     </>
   );
-};
+});
 
-// ─── Main Component ─────────────────────────────────────────────────────
+// ─── Main Component ────────────────────────────────────────────────────
 const MyWorkspaceProjects = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
@@ -606,11 +583,12 @@ const MyWorkspaceProjects = () => {
 
   const { data: workspaceData, isLoading: workspaceLoading, error: workspaceError } = useGetWorkspaceQuery(workspaceId);
 
-  const queryArgs = {
+  const queryArgs = useMemo(() => ({
     workspaceId,
     archived: view === 'archived' ? 'true' : undefined,
     trash: view === 'trash' ? 'true' : undefined,
-  };
+  }), [workspaceId, view]);
+
   const { data: projectsData, isLoading: projectsLoading, refetch: refetchProjects } = useGetWorkspaceProjectsQuery(queryArgs);
 
   const [deleteProject] = useDeleteProjectMutation();
@@ -624,7 +602,10 @@ const MyWorkspaceProjects = () => {
   const brandColor = workspace?.color || '#0d9488';
 
   const ownerId = workspace?.owner?._id || workspace?.owner;
-  const isOwner = !!ownerId && !!userInfo?._id && String(ownerId) === String(userInfo._id);
+  const isOwner = useMemo(() =>
+    !!ownerId && !!userInfo?._id && String(ownerId) === String(userInfo._id),
+    [ownerId, userInfo]
+  );
 
   useEffect(() => {
     if (!projectsLoading && optimisticArchivedIds.length > 0) {
@@ -649,16 +630,18 @@ const MyWorkspaceProjects = () => {
     ? projects.filter(p => !optimisticArchivedIds.includes(p._id) && !p.isArchivedForMe)
     : projects;
 
-  const activeProjectsList = displayedProjects.filter(p => !p.isTrash);
+  const activeProjectsList = useMemo(() => displayedProjects.filter(p => !p.isTrash), [displayedProjects]);
   const totalProjects = activeProjectsList.length;
-  const completedProjects = activeProjectsList.filter(isProjectCompleted).length;
-  const inProgressProjects = activeProjectsList.filter(p => !isProjectCompleted(p) && p.status === 'in-progress').length;
-  const planningProjects = activeProjectsList.filter(p => !isProjectCompleted(p) && p.status === 'planning').length;
+  const completedProjects = useMemo(() => activeProjectsList.filter(isProjectCompleted).length, [activeProjectsList]);
+  const inProgressProjects = useMemo(() => activeProjectsList.filter(p => !isProjectCompleted(p) && p.status === 'in-progress').length, [activeProjectsList]);
+  const planningProjects = useMemo(() => activeProjectsList.filter(p => !isProjectCompleted(p) && p.status === 'planning').length, [activeProjectsList]);
   const overallProgress = totalProjects > 0 ? Math.round((completedProjects / totalProjects) * 100) : 0;
 
-  const filteredProjects = displayedProjects
-    .filter((p) => {
-      if (view !== 'active') return true;
+  const filteredProjects = useMemo(() => {
+    let result = displayedProjects;
+    if (view !== 'active') return result;
+
+    result = result.filter((p) => {
       if (filters.status !== 'all') {
         if (filters.status === 'completed' ? !isProjectCompleted(p) : p.status !== filters.status) {
           return false;
@@ -669,49 +652,55 @@ const MyWorkspaceProjects = () => {
         return p.name.toLowerCase().includes(q) || (p.description && p.description.toLowerCase().includes(q));
       }
       return true;
-    })
-    .sort((a, b) => {
+    });
+
+    result.sort((a, b) => {
       if (filters.sort === 'newest') return new Date(b.createdAt) - new Date(a.createdAt);
       if (filters.sort === 'oldest') return new Date(a.createdAt) - new Date(b.createdAt);
       if (filters.sort === 'progress') return (b.progress || 0) - (a.progress || 0);
       if (filters.sort === 'name') return a.name.localeCompare(b.name);
       return 0;
     });
+    return result;
+  }, [displayedProjects, view, filters]);
 
-  const activeProjects = [...activeProjectsList]
+  const activeProjects = useMemo(() => [...activeProjectsList]
     .filter(p => !isProjectCompleted(p))
     .sort((a, b) => (b.progress || 0) - (a.progress || 0))
-    .slice(0, 3);
+    .slice(0, 3), [activeProjectsList]);
 
-  const recentActivity = projects.slice(0, 5).map(p => ({
+  const recentActivity = useMemo(() => projects.slice(0, 5).map(p => ({
     id: p._id,
     projectName: p.name,
     action: p.updatedAt ? 'updated' : 'created',
     time: p.updatedAt || p.createdAt,
-  })).sort((a, b) => new Date(b.time) - new Date(a.time));
+  })).sort((a, b) => new Date(b.time) - new Date(a.time)), [projects]);
 
-  const handleDeleteProject = async (projectId) => {
+  const handleDeleteProject = useCallback(async (projectId) => {
     try {
       await deleteProject(projectId).unwrap();
       toast.success('Project moved to trash.');
       refetchProjects();
     } catch (err) { toast.error(err?.data?.message || 'Failed to move project'); }
-  };
-  const handlePermanentDelete = async (projectId) => {
+  }, [deleteProject, refetchProjects]);
+
+  const handlePermanentDelete = useCallback(async (projectId) => {
     try {
       await permanentlyDeleteProject(projectId).unwrap();
       toast.success('Project permanently deleted.');
       refetchProjects();
     } catch (err) { toast.error(err?.data?.message || 'Failed to delete project'); }
-  };
-  const handleRestore = async (projectId) => {
+  }, [permanentlyDeleteProject, refetchProjects]);
+
+  const handleRestore = useCallback(async (projectId) => {
     try {
       await restoreProject(projectId).unwrap();
       toast.success('Project restored.');
       refetchProjects();
     } catch (err) { toast.error(err?.data?.message || 'Failed to restore project'); }
-  };
-  const handleArchive = async (projectId) => {
+  }, [restoreProject, refetchProjects]);
+
+  const handleArchive = useCallback(async (projectId) => {
     if (view === 'active') {
       setOptimisticArchivedIds(prev => [...prev, projectId]);
     }
@@ -723,14 +712,19 @@ const MyWorkspaceProjects = () => {
       setOptimisticArchivedIds(prev => prev.filter(id => id !== projectId));
       toast.error(err?.data?.message || 'Failed to archive project');
     }
-  };
-  const handleUnarchive = async (projectId) => {
+  }, [archiveProject, refetchProjects, view]);
+
+  const handleUnarchive = useCallback(async (projectId) => {
     try {
       await unarchiveProject(projectId).unwrap();
       toast.success('Project unarchived.');
       refetchProjects();
     } catch (err) { toast.error(err?.data?.message || 'Failed to unarchive project'); }
-  };
+  }, [unarchiveProject, refetchProjects]);
+
+  const onEditProject = useCallback((id) => {
+    navigate(`/my-workspace/${workspaceId}/projects/edit/${id}`);
+  }, [navigate, workspaceId]);
 
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
@@ -783,7 +777,6 @@ const MyWorkspaceProjects = () => {
             </div>
           </div>
 
-          {/* View tabs + status chips */}
           <div className="flex items-center justify-between px-4 pb-2">
             <div className="flex gap-1">
               {['active', 'archived', ...(isOwner ? ['trash'] : [])].map((tab) => (
@@ -904,7 +897,6 @@ const MyWorkspaceProjects = () => {
                   </p>
                 </div>
               ) : (
-                /* ===== CHANGE: 2 columns on mobile ===== */
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {filteredProjects.map((project) => (
                     <ProjectCard
@@ -918,7 +910,7 @@ const MyWorkspaceProjects = () => {
                       onRestore={handleRestore}
                       onArchive={handleArchive}
                       onUnarchive={handleUnarchive}
-                      onEdit={(id) => navigate(`/my-workspace/${workspaceId}/projects/edit/${id}`)}
+                      onEdit={onEditProject}
                     />
                   ))}
                 </div>

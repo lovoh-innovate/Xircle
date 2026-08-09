@@ -1,5 +1,5 @@
 // pages/PersonalTasks.jsx
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useSelector } from 'react-redux';
 import {
   useGetPersonalTasksQuery,
@@ -12,8 +12,10 @@ import {
   useCreatePersonalFolderMutation,
   useUpdatePersonalFolderMutation,
   useDeletePersonalFolderMutation,
+  // we'll add a reorder mutation later; for now we assume it exists
+  // useReorderPersonalTasksMutation,
 } from '../slices/personalTaskApiSlice';
-import { toast } from 'react-toastify';
+import toast from 'react-hot-toast'; // ✅ switched to react-hot-toast
 import {
   FaPlus,
   FaSpinner,
@@ -39,6 +41,7 @@ import {
   FaCircle,
   FaTag,
   FaAngleDown,
+  FaGripVertical,
 } from 'react-icons/fa';
 import { motion, AnimatePresence } from 'framer-motion';
 import GeneralSidebar from '../components/GeneralSidebar';
@@ -555,8 +558,20 @@ const FolderModal = ({ isOpen, onClose, folders, onSave, onDelete, isLoading }) 
   );
 };
 
-// ─── Task Card - SLIMMER & CLEANER ─────────────────────────────────────
-const TaskCard = ({ task, onEdit, onArchive, onRestore, onDelete, onStatusToggle }) => {
+// ─── Task Card - with drag handle ───────────────────────────────────
+const TaskCard = React.memo(({
+  task,
+  onEdit,
+  onArchive,
+  onRestore,
+  onDelete,
+  onStatusToggle,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  isDragging,
+}) => {
   const [expanded, setExpanded] = useState(false);
 
   const priorityColors = {
@@ -589,10 +604,22 @@ const TaskCard = ({ task, onEdit, onArchive, onRestore, onDelete, onStatusToggle
   const isOverdue = task.dueDate && new Date(task.dueDate) < new Date() && task.status !== 'completed';
 
   return (
-    <div className="bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-[#1e1e1e] transition-colors">
+    <div
+      draggable
+      onDragStart={(e) => onDragStart(e, task._id)}
+      onDragOver={(e) => onDragOver(e, task._id)}
+      onDrop={(e) => onDrop(e, task._id)}
+      onDragEnd={onDragEnd}
+      className={`bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-[#1e1e1e] transition-colors ${isDragging ? 'opacity-50' : ''}`}
+    >
       <div className="px-3 sm:px-4 py-3">
         <div className="flex items-start gap-3">
-          {/* Status toggle - smaller */}
+          {/* Drag handle */}
+          <div className="cursor-grab active:cursor-grabbing text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 transition p-0.5 mt-0.5">
+            <FaGripVertical className="text-sm" />
+          </div>
+
+          {/* Status toggle */}
           <button
             onClick={() => onStatusToggle(task._id, task.status === 'completed' ? 'pending' : 'completed')}
             className={`mt-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition ${
@@ -605,12 +632,10 @@ const TaskCard = ({ task, onEdit, onArchive, onRestore, onDelete, onStatusToggle
           </button>
 
           <div className="flex-1 min-w-0">
-            {/* Title row */}
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className={`font-medium text-sm text-gray-800 dark:text-white truncate ${task.status === 'completed' ? 'line-through text-gray-400 dark:text-gray-500' : ''}`}>
                 {task.title}
               </h3>
-              {/* Priority dot */}
               <span className={`w-2 h-2 rounded-full flex-shrink-0 ${priorityDots[task.priority] || 'bg-gray-400'}`} />
               {task.recurrenceType && task.recurrenceType !== 'none' && (
                 <span className="flex-shrink-0 text-[10px] text-teal-500 dark:text-teal-400">
@@ -624,7 +649,6 @@ const TaskCard = ({ task, onEdit, onArchive, onRestore, onDelete, onStatusToggle
               )}
             </div>
 
-            {/* Status badge - inline */}
             <div className="flex flex-wrap items-center gap-2 mt-1">
               <span className={`text-[10px] font-medium ${statusColors[task.status] || 'text-gray-500'}`}>
                 {task.status === 'in-progress' ? 'In Progress' : task.status.charAt(0).toUpperCase() + task.status.slice(1)}
@@ -647,7 +671,6 @@ const TaskCard = ({ task, onEdit, onArchive, onRestore, onDelete, onStatusToggle
               </p>
             )}
 
-            {/* Action buttons - compact */}
             <div className="flex items-center gap-0.5 mt-2">
               <button
                 onClick={() => onEdit(task)}
@@ -690,7 +713,6 @@ const TaskCard = ({ task, onEdit, onArchive, onRestore, onDelete, onStatusToggle
           </div>
         </div>
 
-        {/* Expanded content */}
         {expanded && (
           <div className="mt-2 pt-2 border-t border-gray-100 dark:border-gray-800 space-y-1.5">
             {task.dueDate && (
@@ -733,7 +755,7 @@ const TaskCard = ({ task, onEdit, onArchive, onRestore, onDelete, onStatusToggle
       </div>
     </div>
   );
-};
+});
 
 // ─── Main Component ──────────────────────────────────────────────
 const PersonalTasks = () => {
@@ -749,6 +771,7 @@ const PersonalTasks = () => {
   });
   const [sortOrder, setSortOrder] = useState('desc');
 
+  // ─── Query / Mutations ──────────────────────────────────────────────
   const {
     data: tasksData,
     isLoading: tasksLoading,
@@ -780,7 +803,22 @@ const PersonalTasks = () => {
 
   const [confirmDelete, setConfirmDelete] = useState(null);
 
-  const handleCreateTask = async (payload) => {
+  // ─── Local state for optimistic reordering ──────────────────────────
+  const [localTasks, setLocalTasks] = useState([]);
+  const [isReordering, setIsReordering] = useState(false);
+
+  // ─── Drag state ─────────────────────────────────────────────────────
+  const [draggedId, setDraggedId] = useState(null);
+  const [dragOverId, setDragOverId] = useState(null);
+
+  // ─── Update local tasks when server data arrives ──────────────────
+  useEffect(() => {
+    setLocalTasks(tasks);
+  }, [tasks]);
+
+  // ─── Handlers (stabilised with useCallback) ──────────────────────
+
+  const handleCreateTask = useCallback(async (payload) => {
     try {
       await createTask(payload).unwrap();
       toast.success('Task created!');
@@ -789,9 +827,9 @@ const PersonalTasks = () => {
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to create task');
     }
-  };
+  }, [createTask, refetchTasks]);
 
-  const handleUpdateTask = async (payload) => {
+  const handleUpdateTask = useCallback(async (payload) => {
     try {
       await updateTask({ taskId: editingTask._id, data: payload }).unwrap();
       toast.success('Task updated!');
@@ -801,9 +839,9 @@ const PersonalTasks = () => {
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to update task');
     }
-  };
+  }, [updateTask, editingTask, refetchTasks]);
 
-  const handleArchive = async (taskId) => {
+  const handleArchive = useCallback(async (taskId) => {
     try {
       await archiveTask(taskId).unwrap();
       toast.success('Task archived');
@@ -811,9 +849,9 @@ const PersonalTasks = () => {
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to archive');
     }
-  };
+  }, [archiveTask, refetchTasks]);
 
-  const handleRestore = async (taskId) => {
+  const handleRestore = useCallback(async (taskId) => {
     try {
       await restoreTask(taskId).unwrap();
       toast.success('Task restored');
@@ -821,13 +859,13 @@ const PersonalTasks = () => {
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to restore');
     }
-  };
+  }, [restoreTask, refetchTasks]);
 
-  const handleDelete = async (taskId) => {
+  const handleDelete = useCallback((taskId) => {
     setConfirmDelete(taskId);
-  };
+  }, []);
 
-  const confirmDeleteTask = async () => {
+  const confirmDeleteTask = useCallback(async () => {
     try {
       await deleteTask(confirmDelete).unwrap();
       toast.success('Task moved to trash');
@@ -837,9 +875,9 @@ const PersonalTasks = () => {
     } finally {
       setConfirmDelete(null);
     }
-  };
+  }, [deleteTask, confirmDelete, refetchTasks]);
 
-  const handleStatusToggle = async (taskId, newStatus) => {
+  const handleStatusToggle = useCallback(async (taskId, newStatus) => {
     try {
       await updateTask({ taskId, data: { status: newStatus } }).unwrap();
       toast.success(`Task ${newStatus === 'completed' ? 'completed' : 'reopened'}`);
@@ -847,9 +885,9 @@ const PersonalTasks = () => {
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to update status');
     }
-  };
+  }, [updateTask, refetchTasks]);
 
-  const handleSaveFolder = async (data, folderId) => {
+  const handleSaveFolder = useCallback(async (data, folderId) => {
     try {
       if (folderId) {
         await updateFolder({ folderId, data }).unwrap();
@@ -862,9 +900,9 @@ const PersonalTasks = () => {
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to save folder');
     }
-  };
+  }, [updateFolder, createFolder, refetchFolders]);
 
-  const handleDeleteFolder = async (folderId) => {
+  const handleDeleteFolder = useCallback(async (folderId) => {
     try {
       await deleteFolder(folderId).unwrap();
       toast.success('Folder deleted');
@@ -873,43 +911,111 @@ const PersonalTasks = () => {
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to delete folder');
     }
-  };
+  }, [deleteFolder, refetchFolders, refetchTasks]);
 
-  const sortedTasks = useMemo(() => {
-    const sorted = [...tasks];
-    sorted.sort((a, b) => {
+  // ─── Drag‑and‑drop handlers ────────────────────────────────────────
+  const handleDragStart = useCallback((e, taskId) => {
+    setDraggedId(taskId);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', taskId);
+  }, []);
+
+  const handleDragOver = useCallback((e, taskId) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (draggedId && draggedId !== taskId) {
+      setDragOverId(taskId);
+    }
+  }, [draggedId]);
+
+  const handleDragLeave = useCallback(() => {
+    setDragOverId(null);
+  }, []);
+
+  const handleDrop = useCallback(async (e, targetId) => {
+    e.preventDefault();
+    const sourceId = e.dataTransfer.getData('text/plain') || draggedId;
+    setDragOverId(null);
+    setDraggedId(null);
+
+    if (!sourceId || sourceId === targetId) return;
+
+    // ── Find indices ──
+    const sourceIndex = localTasks.findIndex(t => t._id === sourceId);
+    const targetIndex = localTasks.findIndex(t => t._id === targetId);
+    if (sourceIndex === -1 || targetIndex === -1) return;
+
+    // ── Build new order ──
+    const newOrder = [...localTasks];
+    const [moved] = newOrder.splice(sourceIndex, 1);
+    newOrder.splice(targetIndex, 0, moved);
+    const orderedIds = newOrder.map(t => t._id);
+
+    // ── Optimistic UI update ──
+    setLocalTasks(newOrder);
+
+    // ── Persist reorder via backend (assuming an `order` field exists) ──
+    try {
+      // We'll send the new order by updating each task's `order` field
+      // This is a placeholder – ideally you'd have a dedicated reorder endpoint.
+      // For now, we'll loop through the new order and update each task.
+      // In a production app, you'd call a single endpoint like `reorderPersonalTasks`.
+      const updatePromises = orderedIds.map((id, index) =>
+        updateTask({ taskId: id, data: { order: index } }).unwrap()
+      );
+      await Promise.all(updatePromises);
+      toast.success('Tasks reordered');
+      refetchTasks(); // sync with server
+    } catch (err) {
+      toast.error('Failed to reorder tasks');
+      setLocalTasks(tasks); // revert
+    }
+  }, [draggedId, localTasks, tasks, updateTask, refetchTasks]);
+
+  const handleDragEnd = useCallback(() => {
+    setDraggedId(null);
+    setDragOverId(null);
+  }, []);
+
+  // ─── Memoised filtered and sorted tasks ────────────────────────────
+  const displayedTasks = useMemo(() => {
+    let filtered = localTasks.filter(task => {
+      // Filter by folder if not 'all'
+      if (filters.folderId && task.folder?._id !== filters.folderId) return false;
+      if (filters.status && task.status !== filters.status) return false;
+      if (filters.priority && task.priority !== filters.priority) return false;
+      if (filters.archived && !task.isArchived) return false;
+      if (!filters.archived && task.isArchived) return false;
+      return true;
+    });
+
+    // Sort by due date (or by order if available)
+    filtered.sort((a, b) => {
+      const orderA = a.order !== undefined ? a.order : 0;
+      const orderB = b.order !== undefined ? b.order : 0;
+      if (orderA !== orderB) return orderA - orderB;
+      // fallback to due date
       const dateA = a.dueDate ? new Date(a.dueDate) : new Date(8640000000000000);
       const dateB = b.dueDate ? new Date(b.dueDate) : new Date(8640000000000000);
       return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
     });
-    return sorted;
-  }, [tasks, sortOrder]);
+    return filtered;
+  }, [localTasks, filters, sortOrder]);
 
-  const folderOptions = [
-    { value: '', label: 'All Folders', icon: <FaFolder className="text-[10px] text-gray-400 dark:text-gray-500" /> },
-    ...folders.map(f => ({
-      value: f._id,
-      label: f.name,
-      icon: <FaFolderOpen className="text-[10px]" style={{ color: f.color || '#4f46e5' }} />
-    }))
-  ];
+  // ─── Folder tab selection ──────────────────────────────────────────
+  const handleTabClick = useCallback((folderId) => {
+    setFilters(prev => ({ ...prev, folderId, archived: false }));
+  }, []);
 
-  const statusOptions = [
-    { value: '', label: 'All Status', icon: <FaFilter className="text-[10px] text-gray-400 dark:text-gray-500" /> },
-    { value: 'pending', label: 'Pending', icon: <FaClock className="text-[10px] text-gray-400 dark:text-gray-500" /> },
-    { value: 'in-progress', label: 'In Progress', icon: <FaSpinner className="text-[10px] text-blue-400" /> },
-    { value: 'completed', label: 'Completed', icon: <FaCheck className="text-[10px] text-green-500" /> },
-  ];
+  const handleArchivedTabClick = useCallback(() => {
+    setFilters(prev => ({ ...prev, archived: true, folderId: '' }));
+  }, []);
 
-  const priorityOptions = [
-    { value: '', label: 'All Priorities', icon: <FaTag className="text-[10px] text-gray-400 dark:text-gray-500" /> },
-    { value: 'low', label: 'Low', icon: <FaCircle className="text-[10px] text-blue-400" /> },
-    { value: 'medium', label: 'Medium', icon: <FaCircle className="text-[10px] text-yellow-400" /> },
-    { value: 'high', label: 'High', icon: <FaCircle className="text-[10px] text-orange-400" /> },
-    { value: 'urgent', label: 'Urgent', icon: <FaCircle className="text-[10px] text-red-400" /> },
-  ];
+  const handleAllTabClick = useCallback(() => {
+    setFilters(prev => ({ ...prev, folderId: '', archived: false }));
+  }, []);
 
-  if (tasksLoading) {
+  if (tasksLoading || foldersLoading) {
     return (
       <div className="min-h-screen bg-white dark:bg-[#0f0f12] flex flex-col md:flex-row">
         <div className="hidden md:block md:w-72 md:flex-shrink-0">
@@ -951,60 +1057,72 @@ const PersonalTasks = () => {
                 </button>
               </div>
             </div>
-            
-            {/* ─── Custom Filter Dropdowns ─────────────────────────── */}
-            <div className="px-3 pb-2 flex flex-wrap gap-1.5 items-center">
-              <CustomSelect
-                value={filters.folderId}
-                onChange={(val) => setFilters({ ...filters, folderId: val })}
-                options={folderOptions}
-                placeholder="Folder"
-                icon={FaFolder}
-                className="min-w-[90px] max-w-[130px] sm:max-w-none"
-              />
-              
-              <CustomSelect
-                value={filters.status}
-                onChange={(val) => setFilters({ ...filters, status: val })}
-                options={statusOptions}
-                placeholder="Status"
-                icon={FaFilter}
-                className="min-w-[90px] max-w-[120px] sm:max-w-none"
-              />
-              
-              <CustomSelect
-                value={filters.priority}
-                onChange={(val) => setFilters({ ...filters, priority: val })}
-                options={priorityOptions}
-                placeholder="Priority"
-                icon={FaTag}
-                className="min-w-[90px] max-w-[120px] sm:max-w-none"
-              />
-              
-              <button
-                onClick={() => setFilters({ ...filters, archived: !filters.archived })}
-                className={`px-2.5 py-1.5 rounded-xl text-xs font-medium transition flex items-center gap-1.5 ${
-                  filters.archived
-                    ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-700/50'
-                    : 'bg-gray-100 dark:bg-[#2a2a2a] text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
+
+            {/* ─── Folder Tabs (Chrome-style) ───────────────────── */}
+            <div className="px-3 pb-1 flex items-center gap-1 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-700">
+              {/* "All" tab */}
+              <div
+                onClick={handleAllTabClick}
+                className={`flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-t-lg cursor-pointer transition ${
+                  !filters.archived && !filters.folderId
+                    ? 'bg-gray-100 dark:bg-[#2a2a2a] text-teal-600 dark:text-teal-400 border-b-2 border-teal-500'
+                    : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#2a2a2a]'
                 }`}
               >
-                <FaArchive className="text-[10px]" />
-                {filters.archived ? 'Archived' : 'Archive'}
+                All
+              </div>
+
+              {/* Folder tabs */}
+              {folders.map((folder) => (
+                <div
+                  key={folder._id}
+                  onClick={() => handleTabClick(folder._id)}
+                  className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-t-lg cursor-pointer transition ${
+                    filters.folderId === folder._id && !filters.archived
+                      ? 'bg-gray-100 dark:bg-[#2a2a2a] text-teal-600 dark:text-teal-400 border-b-2 border-teal-500'
+                      : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#2a2a2a]'
+                  }`}
+                >
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{ backgroundColor: folder.color || '#4f46e5' }}
+                  />
+                  {folder.name}
+                </div>
+              ))}
+
+              {/* "+" to create folder */}
+              <button
+                onClick={() => setShowFolderModal(true)}
+                className="flex-shrink-0 p-1 text-gray-400 hover:text-teal-500 transition rounded-full hover:bg-gray-100 dark:hover:bg-[#2a2a2a]"
+              >
+                <FaPlus className="text-xs" />
               </button>
+
+              {/* "Archived" tab */}
+              <div
+                onClick={handleArchivedTabClick}
+                className={`flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-t-lg cursor-pointer transition ${
+                  filters.archived
+                    ? 'bg-gray-100 dark:bg-[#2a2a2a] text-purple-600 dark:text-purple-400 border-b-2 border-purple-500'
+                    : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#2a2a2a]'
+                }`}
+              >
+                <FaArchive className="inline mr-1 text-[10px]" /> Archived
+              </div>
             </div>
           </header>
 
           {/* ─── Task List ────────────────────────────────────────── */}
           <main className="flex-1 overflow-y-auto">
-            {sortedTasks.length === 0 ? (
+            {displayedTasks.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500 p-8">
                 <FaTasks className="text-4xl mb-2 opacity-30" />
                 <p className="text-sm font-medium">No tasks found</p>
                 <p className="text-xs">Create a new task to get started.</p>
               </div>
             ) : (
-              sortedTasks.map((task) => (
+              displayedTasks.map((task) => (
                 <TaskCard
                   key={task._id}
                   task={task}
@@ -1016,6 +1134,11 @@ const PersonalTasks = () => {
                   onRestore={handleRestore}
                   onDelete={handleDelete}
                   onStatusToggle={handleStatusToggle}
+                  onDragStart={handleDragStart}
+                  onDragOver={handleDragOver}
+                  onDrop={handleDrop}
+                  onDragEnd={handleDragEnd}
+                  isDragging={draggedId === task._id}
                 />
               ))
             )}
@@ -1023,7 +1146,7 @@ const PersonalTasks = () => {
 
           <GeneralBottombar />
 
-          {/* FAB - smaller */}
+          {/* FAB */}
           <button
             onClick={() => {
               setEditingTask(null);
