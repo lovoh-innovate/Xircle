@@ -21,7 +21,6 @@ import {
   FaSun,
   FaMoon,
   FaDesktop,
-  FaCog,
 } from 'react-icons/fa';
 import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
 import { useGetWorkspaceProjectsQuery } from '../slices/projectApiSlice';
@@ -43,6 +42,16 @@ const forceUniqueById = (arr, getId = (item) => item?._id) => {
   return out;
 };
 
+// ─── Helper: is this chat a workspace-scoped chat for THIS workspace ───
+const belongsToWorkspace = (chat, workspaceId) => {
+  if (!chat) return false;
+  const chatWorkspaceId =
+    typeof chat.workspace === 'object' && chat.workspace !== null
+      ? chat.workspace._id
+      : chat.workspace;
+  return chat.scope === 'workspace' && String(chatWorkspaceId) === String(workspaceId);
+};
+
 const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   const { workspaceId } = useParams();
   const location = useLocation();
@@ -54,7 +63,13 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   const { data: chatsData, isLoading: chatsLoading } = useGetUserChatsQuery(workspaceId, {
     skip: !!propChats,
   });
-  const chats = propChats || chatsData?.chats || [];
+  const rawChats = propChats || chatsData?.chats || [];
+
+  // ── only chats that actually belong to this workspace (never public/outside-workspace) ──
+  const chats = useMemo(
+    () => rawChats.filter((chat) => belongsToWorkspace(chat, workspaceId)),
+    [rawChats, workspaceId]
+  );
 
   // ── fetch projects ──
   const { data: projectsData, isLoading: projectsLoading } = useGetWorkspaceProjectsQuery({
@@ -66,7 +81,6 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
     projects: true,
     channels: true,
     dms: true,
-    admin: true,
   });
 
   const brandColor = workspace?.color || '#4F46E5';
@@ -96,10 +110,6 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
     { id: 'all-tasks', label: 'All Tasks', icon: FaTasks, path: `/workspace/${workspaceId}/tasks` },
     { id: 'channels', label: 'Channels', icon: FaComment, path: `/workspace/${workspaceId}/channels` },
     { id: 'dms', label: 'Direct Messages', icon: FaEnvelope, path: `/workspace/${workspaceId}/dms` },
-  ];
-
-  const adminOptions = [
-    { id: 'settings', label: 'Settings', icon: FaCog, path: `/workspace/${workspaceId}/settings` },
   ];
 
   const members = workspace?.members || [];
@@ -563,43 +573,6 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
               </div>
             )}
           </div>
-
-          {/* Admin Section */}
-          <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-800/50">
-            <button
-              onClick={() => toggleSection('admin')}
-              className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider"
-            >
-              {expandedSections.admin ? (
-                <FaChevronDown className="text-[10px]" />
-              ) : (
-                <FaChevronRight className="text-[10px]" />
-              )}
-              <span>Admin</span>
-            </button>
-            {expandedSections.admin && (
-              <div className="mt-1 space-y-0.5">
-                {adminOptions.map((opt) => {
-                  const Icon = opt.icon;
-                  const active = isActive(opt.path);
-                  return (
-                    <Link
-                      key={opt.id}
-                      to={opt.path}
-                      className={`flex items-center gap-3 px-3 py-1.5 rounded-lg transition text-sm ${
-                        active
-                          ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
-                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200'
-                      }`}
-                    >
-                      <Icon className="text-sm" />
-                      <span>{opt.label}</span>
-                    </Link>
-                  );
-                })}
-              </div>
-            )}
-          </div>
         </div>
       )}
 
@@ -682,4 +655,4 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   );
 };
 
-export default YourWorkspaceSidebar;
+export default YourWorkspaceSidebar;  

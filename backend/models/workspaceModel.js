@@ -1,42 +1,48 @@
 import mongoose from "mongoose";
 
+// ─── Member sub‑schema ──────────────────────────────────────────────
 const memberSchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  role: { type: String, default: "Member" },
-  status: { 
-    type: String, 
-    enum: ["pending", "active", "inactive"], 
-    default: "active" 
+  role: {
+    type: String,
+    enum: ["Owner", "Admin", "Member"],
+    default: "Member",
   },
-  department: { 
-    type: String, 
-    default: "General" 
+  status: {
+    type: String,
+    enum: ["pending", "active", "inactive"],
+    default: "active",
+  },
+  department: {
+    type: String,
+    default: "General",
   },
   joinedAt: { type: Date, default: Date.now },
 });
 
+// ─── Workspace schema ──────────────────────────────────────────────
 const workspaceSchema = new mongoose.Schema(
   {
-    name:        { type: String, required: true, trim: true },
-    industry:    { type: String, required: true, trim: true },
+    name: { type: String, required: true, trim: true },
+    industry: { type: String, required: true, trim: true },
     description: { type: String, default: "" },
-    initials:    { type: String },
-    color:       { type: String, default: "#1a3a6b" },
-    logo:        { type: String, default: "" },
-    size:        { type: String, default: "" },
-    website:     { type: String, default: "" },
-    location:    { type: String, default: "" },
-    phone:       { type: String, default: "" },
-    owner:       { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-    members:     [memberSchema],
+    initials: { type: String },
+    color: { type: String, default: "#1a3a6b" },
+    logo: { type: String, default: "" },
+    size: { type: String, default: "" },
+    website: { type: String, default: "" },
+    location: { type: String, default: "" },
+    phone: { type: String, default: "" },
+    owner: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    members: [memberSchema],
     activeTasks: { type: Number, default: 0 },
-    inviteCode:  { type: String, unique: true },
-    verified:    { type: Boolean, default: false },
+    inviteCode: { type: String, unique: true },
+    verified: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
 
-// ✅ FIXED: No `next` parameter – just use a regular function
+// ─── Auto‑generate initials from name ──────────────────────────────
 workspaceSchema.pre("save", function () {
   if (this.isModified("name") && this.name) {
     const words = this.name.trim().split(/\s+/);
@@ -47,7 +53,7 @@ workspaceSchema.pre("save", function () {
   }
 });
 
-// Index for faster queries
+// ─── Indexes ────────────────────────────────────────────────────────
 workspaceSchema.index({ inviteCode: 1 });
 workspaceSchema.index({ owner: 1 });
 workspaceSchema.index({ "members.user": 1 });

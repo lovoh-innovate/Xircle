@@ -17,6 +17,16 @@ const isWorkspaceOwner = (workspace, userId) =>
     ? workspace.owner._id.toString() === userId
     : workspace.owner?.toString() === userId;
 
+/**
+ * Check if user is workspace owner OR an active admin.
+ */
+const canManageWorkspace = (workspace, userId) => {
+  if (isWorkspaceOwner(workspace, userId)) return true;
+  return workspace.members.some(
+    (m) => m.user.toString() === userId && m.role === 'Admin' && m.status === 'active'
+  );
+};
+
 const isProjectManager = (project, userId) =>
   project.projectManagers.some((pm) => {
     const id = pm._id ? pm._id.toString() : pm?.toString();
@@ -30,8 +40,9 @@ const isProjectMember = (project, userId) =>
     return memberId === userId && tm.status === 'active';
   });
 
+// Updated: workspace owner OR admin OR project manager
 const canManageTasks = (workspace, project, userId) =>
-  isWorkspaceOwner(workspace, userId) || isProjectManager(project, userId);
+  canManageWorkspace(workspace, userId) || isProjectManager(project, userId);
 
 const getVisibleFolderIdsForUser = async (projectId, userId) => {
   const assignedFolders = await Task.distinct('folder', {
@@ -292,7 +303,7 @@ export const createTask = async (req, res) => {
     if (!canManageTasks(workspace, project, userId)) {
       return res.status(403).json({
         success: false,
-        message: 'Only the workspace owner or project managers can create tasks.',
+        message: 'Only the workspace owner, admins, or project managers can create tasks.',
       });
     }
 
@@ -1116,10 +1127,13 @@ export const getProjectTasks = async (req, res) => {
 
     const workspace = await Workspace.findById(project.workspace);
     const isOwner = isWorkspaceOwner(workspace, userId);
+    const isAdmin = workspace.members.some(
+      (m) => m.user.toString() === userId && m.role === 'Admin' && m.status === 'active'
+    );
     const isPM = isProjectManager(project, userId);
     const isMember = isProjectMember(project, userId);
 
-    if (!isOwner && !isPM && !isMember) {
+    if (!isOwner && !isAdmin && !isPM && !isMember) {
       return res.status(403).json({ success: false, message: 'Access denied.' });
     }
 
@@ -1137,7 +1151,7 @@ export const getProjectTasks = async (req, res) => {
     if (taskType) query.taskType = taskType;
     if (folderId) query.folder = folderId;
 
-    if (isOwner || isPM) {
+    if (isOwner || isAdmin || isPM) {
       if (assigneeId) query.assignee = assigneeId;
     } else {
       const visibleFolderIds = await getVisibleFolderIdsForUser(projectId, userId);
@@ -1539,10 +1553,13 @@ export const getProjectFolders = async (req, res) => {
 
     const workspace = await Workspace.findById(project.workspace);
     const isOwner = isWorkspaceOwner(workspace, userId);
+    const isAdmin = workspace.members.some(
+      (m) => m.user.toString() === userId && m.role === 'Admin' && m.status === 'active'
+    );
     const isPM = isProjectManager(project, userId);
 
     let folders;
-    if (isOwner || isPM) {
+    if (isOwner || isAdmin || isPM) {
       folders = await Folder.find({ project: projectId }).sort({ order: 1 });
     } else {
       const visibleFolderIds = await getVisibleFolderIdsForUser(projectId, userId);

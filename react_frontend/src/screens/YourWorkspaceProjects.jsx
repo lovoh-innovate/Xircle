@@ -1,5 +1,5 @@
-// src/workspaceScreens/MyWorkspaceProjects.jsx
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+// src/workspaceScreens/YourWorkspaceProjects.jsx
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
@@ -13,8 +13,8 @@ import {
   usePermanentlyDeleteProjectMutation,
 } from '../slices/projectApiSlice';
 import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
-import MyWorkspaceSidebar from '../workspaceComponents/MyWorkspaceSidebar';
-import MyWorkspaceBottombar from '../workspaceComponents/MyWorkspaceBottombar';
+import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
+import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
 import {
   FaPlus,
   FaFolder,
@@ -37,13 +37,13 @@ import {
   FaUndo,
   FaTrashRestore,
 } from 'react-icons/fa';
-import toast from 'react-hot-toast'; // ✅ react-hot-toast
+import { toast } from 'react-toastify';
 
-// ─── Helper ──────────────────────────────────────────────────────────
+// Helper: treat progress >= 100 as completed
 const isProjectCompleted = (p) => p.status === 'completed' || (p.progress || 0) >= 100;
 
-// ─── Confirm Modal ────────────────────────────────────────────────────
-const ConfirmModal = React.memo(({
+// ─── Confirm Modal ──────────────────────────────────────────────────────
+const ConfirmModal = ({
   isOpen,
   onConfirm,
   onCancel,
@@ -75,12 +75,14 @@ const ConfirmModal = React.memo(({
       </div>
     </div>
   );
-});
+};
 
-// ─── Filter Drawer ────────────────────────────────────────────────────
-const FilterDrawer = React.memo(({ isOpen, onClose, filters, setFilters, view, setView, isOwner }) => {
+// ─── Filter Drawer (mobile) ─────────────────────────────────────────────
+const FilterDrawer = ({ isOpen, onClose, filters, setFilters, view, setView, canManage }) => {
   if (!isOpen) return null;
-  const statuses = view === 'active' ? ['all', 'planning', 'in-progress', 'completed'] : [];
+  const statuses = view === 'active'
+    ? ['all', 'planning', 'in-progress', 'completed']
+    : [];
 
   return (
     <div className="fixed inset-0 z-40 bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm flex justify-end">
@@ -107,7 +109,7 @@ const FilterDrawer = React.memo(({ isOpen, onClose, filters, setFilters, view, s
             >
               Archived
             </button>
-            {isOwner && (
+            {canManage && (
               <button
                 onClick={() => setView('trash')}
                 className={`flex-1 py-1.5 text-xs rounded-lg ${view === 'trash' ? 'bg-[#0d9488]/20 text-[#0d9488] border border-[#0d9488]/30' : 'text-gray-500 bg-gray-100 dark:bg-[#1a1a24] border border-gray-300 dark:border-gray-800/40'}`}
@@ -163,10 +165,10 @@ const FilterDrawer = React.memo(({ isOpen, onClose, filters, setFilters, view, s
       </div>
     </div>
   );
-});
+};
 
-// ─── Search Projects Modal ────────────────────────────────────────────
-const SearchProjectsModal = React.memo(({ isOpen, onClose, projects, brandColor, workspaceId }) => {
+// ─── Search Projects Modal ─────────────────────────────────────────────
+const SearchProjectsModal = ({ isOpen, onClose, projects, brandColor, workspaceId }) => {
   const [query, setQuery] = useState('');
   const navigate = useNavigate();
   if (!isOpen) return null;
@@ -219,7 +221,7 @@ const SearchProjectsModal = React.memo(({ isOpen, onClose, projects, brandColor,
                 key={project._id}
                 onClick={() => {
                   onClose();
-                  navigate(`/my-workspace/${workspaceId}/project/${project._id}`);
+                  navigate(`/workspace/${workspaceId}/project/${project._id}`);
                 }}
                 className="flex items-center gap-4 px-4 py-3 bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 hover:border-[#0d9488]/40 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition cursor-pointer group"
               >
@@ -244,17 +246,17 @@ const SearchProjectsModal = React.memo(({ isOpen, onClose, projects, brandColor,
       </div>
     </div>
   );
-});
+};
 
-// ─── Create Project Modal ─────────────────────────────────────────────
-const CreateProjectModal = React.memo(({ workspace, isOpen, onClose, onCreated }) => {
+// ─── Create Project Modal ──────────────────────────────────────────────
+const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
   const [createProject] = useCreateProjectMutation();
   const brandColor = workspace?.color || '#0d9488';
 
-  const handleSubmit = useCallback(async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!name.trim()) {
       toast.error('Project name is required');
@@ -268,14 +270,14 @@ const CreateProjectModal = React.memo(({ workspace, isOpen, onClose, onCreated }
       fd.append('description', description.trim());
       await createProject({ workspaceId: workspace._id, data: fd }).unwrap();
       toast.success('Project created!');
-      if (onCreated) onCreated();
+      onCreated && onCreated();
       onClose();
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to create project');
     } finally {
       setLoading(false);
     }
-  }, [createProject, workspace, name, description, onCreated, onClose]);
+  };
 
   if (!isOpen) return null;
 
@@ -331,14 +333,14 @@ const CreateProjectModal = React.memo(({ workspace, isOpen, onClose, onCreated }
       </div>
     </div>
   );
-});
+};
 
 // ─── Project Card ──────────────────────────────────────────────────────
-const ProjectCard = React.memo(({
+const ProjectCard = ({
   project,
   brandColor,
   workspaceId,
-  isOwner,
+  canManage,
   onDelete,
   onPermanentDelete,
   onRestore,
@@ -349,6 +351,7 @@ const ProjectCard = React.memo(({
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef(null);
   const buttonRef = useRef(null);
+
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, action: null });
 
   useEffect(() => {
@@ -399,22 +402,29 @@ const ProjectCard = React.memo(({
   const isArchivedForMe = project.isArchivedForMe;
   const isTrashed = project.isTrash;
 
-  const handleArchive = useCallback((e) => { stopProp(e); setShowMenu(false); onArchive(project._id); }, [project._id, onArchive]);
-  const handleUnarchive = useCallback((e) => { stopProp(e); setShowMenu(false); onUnarchive(project._id); }, [project._id, onUnarchive]);
-  const handleMoveToTrash = useCallback((e) => { stopProp(e); setShowMenu(false); setConfirmModal({ isOpen: true, action: 'trash' }); }, []);
-  const handlePermanentDelete = useCallback((e) => { stopProp(e); setShowMenu(false); setConfirmModal({ isOpen: true, action: 'permDelete' }); }, []);
-  const handleRestore = useCallback((e) => { stopProp(e); setShowMenu(false); onRestore(project._id); }, [project._id, onRestore]);
+  const handleArchive = (e) => { stopProp(e); setShowMenu(false); onArchive(project._id); };
+  const handleUnarchive = (e) => { stopProp(e); setShowMenu(false); onUnarchive(project._id); };
+  const handleMoveToTrash = (e) => {
+    stopProp(e);
+    setShowMenu(false);
+    setConfirmModal({ isOpen: true, action: 'trash' });
+  };
+  const handlePermanentDelete = (e) => {
+    stopProp(e);
+    setShowMenu(false);
+    setConfirmModal({ isOpen: true, action: 'permDelete' });
+  };
+  const handleRestore = (e) => { stopProp(e); setShowMenu(false); onRestore(project._id); };
 
-  const confirmAction = useCallback(() => {
+  const confirmAction = () => {
     if (confirmModal.action === 'trash') {
       onDelete(project._id);
     } else if (confirmModal.action === 'permDelete') {
       onPermanentDelete(project._id);
     }
     setConfirmModal({ isOpen: false, action: null });
-  }, [confirmModal.action, project._id, onDelete, onPermanentDelete]);
-
-  const cancelAction = useCallback(() => setConfirmModal({ isOpen: false, action: null }), []);
+  };
+  const cancelAction = () => setConfirmModal({ isOpen: false, action: null });
 
   return (
     <>
@@ -433,10 +443,12 @@ const ProjectCard = React.memo(({
       />
 
       <Link
-        to={`/my-workspace/${workspaceId}/project/${project._id}`}
+        to={`/workspace/${workspaceId}/project/${project._id}`}
         className="group relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 hover:border-[#0d9488]/50 transition-all duration-500 hover:shadow-[0_8px_40px_rgba(13,148,136,0.15)] active:scale-[0.98] block overflow-hidden"
         onClick={(e) => {
-          if (e.target.closest('button')) e.preventDefault();
+          if (e.target.closest('button')) {
+            e.preventDefault();
+          }
         }}
       >
         <div className="absolute inset-0 bg-gradient-to-br from-[#0d9488]/0 via-[#0d9488]/0 to-transparent group-hover:from-[#0d9488]/10 group-hover:via-[#0d9488]/5 transition-all duration-700 pointer-events-none" />
@@ -453,25 +465,29 @@ const ProjectCard = React.memo(({
           </span>
 
           <div className="absolute top-2 left-2 flex items-center gap-1.5">
-            <button
-              ref={buttonRef}
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(!showMenu); }}
-              className="p-1.5 bg-white/60 dark:bg-black/40 backdrop-blur-sm rounded-lg text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-black/60 transition"
-            >
-              <FaEllipsisV className="text-xs" />
-            </button>
+            {canManage && (
+              <>
+                <button
+                  ref={buttonRef}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(!showMenu); }}
+                  className="p-1.5 bg-white/60 dark:bg-black/40 backdrop-blur-sm rounded-lg text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-black/60 transition"
+                >
+                  <FaEllipsisV className="text-xs" />
+                </button>
 
-            {!isTrashed && (
-              <button
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleMoveToTrash(e); }}
-                className="p-1.5 bg-white/60 dark:bg-black/40 backdrop-blur-sm rounded-lg text-yellow-600 dark:text-yellow-400 hover:text-yellow-700 dark:hover:text-yellow-300 hover:bg-yellow-500/20 transition"
-                title="Move to Trash"
-              >
-                <FaTrashAlt className="text-xs" />
-              </button>
+                {!isTrashed && (
+                  <button
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleMoveToTrash(e); }}
+                    className="p-1.5 bg-white/60 dark:bg-black/40 backdrop-blur-sm rounded-lg text-yellow-600 dark:text-yellow-400 hover:text-yellow-700 dark:hover:text-yellow-300 hover:bg-yellow-500/20 transition"
+                    title="Move to Trash"
+                  >
+                    <FaTrashAlt className="text-xs" />
+                  </button>
+                )}
+              </>
             )}
 
-            {showMenu && (
+            {showMenu && canManage && (
               <div ref={menuRef} className="absolute left-0 top-full mt-1 bg-white dark:bg-[#1e1e26] rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.8)] border border-gray-200 dark:border-gray-800/60 min-w-[180px] z-20 py-1">
                 {isTrashed ? (
                   <>
@@ -567,10 +583,10 @@ const ProjectCard = React.memo(({
       </Link>
     </>
   );
-});
+};
 
-// ─── Main Component ────────────────────────────────────────────────────
-const MyWorkspaceProjects = () => {
+// ─── Main Component ─────────────────────────────────────────────────────
+const YourWorkspaceProjects = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
@@ -583,12 +599,11 @@ const MyWorkspaceProjects = () => {
 
   const { data: workspaceData, isLoading: workspaceLoading, error: workspaceError } = useGetWorkspaceQuery(workspaceId);
 
-  const queryArgs = useMemo(() => ({
+  const queryArgs = {
     workspaceId,
     archived: view === 'archived' ? 'true' : undefined,
     trash: view === 'trash' ? 'true' : undefined,
-  }), [workspaceId, view]);
-
+  };
   const { data: projectsData, isLoading: projectsLoading, refetch: refetchProjects } = useGetWorkspaceProjectsQuery(queryArgs);
 
   const [deleteProject] = useDeleteProjectMutation();
@@ -602,10 +617,13 @@ const MyWorkspaceProjects = () => {
   const brandColor = workspace?.color || '#0d9488';
 
   const ownerId = workspace?.owner?._id || workspace?.owner;
-  const isOwner = useMemo(() =>
-    !!ownerId && !!userInfo?._id && String(ownerId) === String(userInfo._id),
-    [ownerId, userInfo]
+  const isOwner = !!ownerId && !!userInfo?._id && String(ownerId) === String(userInfo._id);
+
+  const isAdmin = workspace?.members?.some(
+    (m) => m.user?._id?.toString() === userInfo?._id?.toString() && m.role === 'Admin' && m.status === 'active'
   );
+
+  const canManage = isOwner || isAdmin;
 
   useEffect(() => {
     if (!projectsLoading && optimisticArchivedIds.length > 0) {
@@ -613,7 +631,7 @@ const MyWorkspaceProjects = () => {
     }
   }, [projectsLoading, optimisticArchivedIds]);
 
-  if (workspaceError) { navigate('/my-workspaces'); return null; }
+  if (workspaceError) { navigate('/workspaces'); return null; }
   if (workspaceLoading || projectsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
@@ -630,18 +648,16 @@ const MyWorkspaceProjects = () => {
     ? projects.filter(p => !optimisticArchivedIds.includes(p._id) && !p.isArchivedForMe)
     : projects;
 
-  const activeProjectsList = useMemo(() => displayedProjects.filter(p => !p.isTrash), [displayedProjects]);
+  const activeProjectsList = displayedProjects.filter(p => !p.isTrash);
   const totalProjects = activeProjectsList.length;
-  const completedProjects = useMemo(() => activeProjectsList.filter(isProjectCompleted).length, [activeProjectsList]);
-  const inProgressProjects = useMemo(() => activeProjectsList.filter(p => !isProjectCompleted(p) && p.status === 'in-progress').length, [activeProjectsList]);
-  const planningProjects = useMemo(() => activeProjectsList.filter(p => !isProjectCompleted(p) && p.status === 'planning').length, [activeProjectsList]);
+  const completedProjects = activeProjectsList.filter(isProjectCompleted).length;
+  const inProgressProjects = activeProjectsList.filter(p => !isProjectCompleted(p) && p.status === 'in-progress').length;
+  const planningProjects = activeProjectsList.filter(p => !isProjectCompleted(p) && p.status === 'planning').length;
   const overallProgress = totalProjects > 0 ? Math.round((completedProjects / totalProjects) * 100) : 0;
 
-  const filteredProjects = useMemo(() => {
-    let result = displayedProjects;
-    if (view !== 'active') return result;
-
-    result = result.filter((p) => {
+  const filteredProjects = displayedProjects
+    .filter((p) => {
+      if (view !== 'active') return true;
       if (filters.status !== 'all') {
         if (filters.status === 'completed' ? !isProjectCompleted(p) : p.status !== filters.status) {
           return false;
@@ -652,55 +668,49 @@ const MyWorkspaceProjects = () => {
         return p.name.toLowerCase().includes(q) || (p.description && p.description.toLowerCase().includes(q));
       }
       return true;
-    });
-
-    result.sort((a, b) => {
+    })
+    .sort((a, b) => {
       if (filters.sort === 'newest') return new Date(b.createdAt) - new Date(a.createdAt);
       if (filters.sort === 'oldest') return new Date(a.createdAt) - new Date(b.createdAt);
       if (filters.sort === 'progress') return (b.progress || 0) - (a.progress || 0);
       if (filters.sort === 'name') return a.name.localeCompare(b.name);
       return 0;
     });
-    return result;
-  }, [displayedProjects, view, filters]);
 
-  const activeProjects = useMemo(() => [...activeProjectsList]
+  const activeProjects = [...activeProjectsList]
     .filter(p => !isProjectCompleted(p))
     .sort((a, b) => (b.progress || 0) - (a.progress || 0))
-    .slice(0, 3), [activeProjectsList]);
+    .slice(0, 3);
 
-  const recentActivity = useMemo(() => projects.slice(0, 5).map(p => ({
+  const recentActivity = projects.slice(0, 5).map(p => ({
     id: p._id,
     projectName: p.name,
     action: p.updatedAt ? 'updated' : 'created',
     time: p.updatedAt || p.createdAt,
-  })).sort((a, b) => new Date(b.time) - new Date(a.time)), [projects]);
+  })).sort((a, b) => new Date(b.time) - new Date(a.time));
 
-  const handleDeleteProject = useCallback(async (projectId) => {
+  const handleDeleteProject = async (projectId) => {
     try {
       await deleteProject(projectId).unwrap();
       toast.success('Project moved to trash.');
       refetchProjects();
     } catch (err) { toast.error(err?.data?.message || 'Failed to move project'); }
-  }, [deleteProject, refetchProjects]);
-
-  const handlePermanentDelete = useCallback(async (projectId) => {
+  };
+  const handlePermanentDelete = async (projectId) => {
     try {
       await permanentlyDeleteProject(projectId).unwrap();
       toast.success('Project permanently deleted.');
       refetchProjects();
     } catch (err) { toast.error(err?.data?.message || 'Failed to delete project'); }
-  }, [permanentlyDeleteProject, refetchProjects]);
-
-  const handleRestore = useCallback(async (projectId) => {
+  };
+  const handleRestore = async (projectId) => {
     try {
       await restoreProject(projectId).unwrap();
       toast.success('Project restored.');
       refetchProjects();
     } catch (err) { toast.error(err?.data?.message || 'Failed to restore project'); }
-  }, [restoreProject, refetchProjects]);
-
-  const handleArchive = useCallback(async (projectId) => {
+  };
+  const handleArchive = async (projectId) => {
     if (view === 'active') {
       setOptimisticArchivedIds(prev => [...prev, projectId]);
     }
@@ -712,31 +722,26 @@ const MyWorkspaceProjects = () => {
       setOptimisticArchivedIds(prev => prev.filter(id => id !== projectId));
       toast.error(err?.data?.message || 'Failed to archive project');
     }
-  }, [archiveProject, refetchProjects, view]);
-
-  const handleUnarchive = useCallback(async (projectId) => {
+  };
+  const handleUnarchive = async (projectId) => {
     try {
       await unarchiveProject(projectId).unwrap();
       toast.success('Project unarchived.');
       refetchProjects();
     } catch (err) { toast.error(err?.data?.message || 'Failed to unarchive project'); }
-  }, [unarchiveProject, refetchProjects]);
-
-  const onEditProject = useCallback((id) => {
-    navigate(`/my-workspace/${workspaceId}/projects/edit/${id}`);
-  }, [navigate, workspaceId]);
+  };
 
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
       <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
-        <MyWorkspaceSidebar workspace={workspace} chats={[]} />
+        <YourWorkspaceSidebar workspace={workspace} chats={[]} />
       </div>
 
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800/40 flex-shrink-0">
           <div className="flex items-center justify-between px-4 h-14 lg:h-16">
             <div className="flex items-center gap-3">
-              <button onClick={() => navigate(`/my-workspace/${workspaceId}`)} className="p-1 lg:hidden text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition">
+              <button onClick={() => navigate(`/workspace/${workspaceId}`)} className="p-1 lg:hidden text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition">
                 <FaArrowLeft />
               </button>
               <h1 className="text-lg font-bold text-gray-800 dark:text-gray-100 tracking-tight">Projects</h1>
@@ -769,7 +774,7 @@ const MyWorkspaceProjects = () => {
               <button onClick={() => setFilterDrawerOpen(true)} className="md:hidden p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition">
                 <FaFilter className="text-sm" />
               </button>
-              {isOwner && (
+              {canManage && (
                 <button onClick={() => setShowCreateModal(true)} className="bg-[#0d9488] hover:bg-[#0f9e96] text-white text-sm font-medium px-3 py-1.5 rounded-xl transition flex items-center gap-1.5">
                   <FaPlus className="text-xs" /> <span className="hidden sm:inline">New</span>
                 </button>
@@ -779,7 +784,7 @@ const MyWorkspaceProjects = () => {
 
           <div className="flex items-center justify-between px-4 pb-2">
             <div className="flex gap-1">
-              {['active', 'archived', ...(isOwner ? ['trash'] : [])].map((tab) => (
+              {['active', 'archived', ...(canManage ? ['trash'] : [])].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setView(tab)}
@@ -810,7 +815,6 @@ const MyWorkspaceProjects = () => {
         </header>
 
         <div className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-5 pb-28 md:pb-6">
-          {/* Mobile Stats */}
           {view === 'active' && (
             <div className="md:hidden mb-4">
               <div className="relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 p-4 overflow-hidden">
@@ -862,7 +866,6 @@ const MyWorkspaceProjects = () => {
             </div>
           )}
 
-          {/* Desktop Stats */}
           {view === 'active' && (
             <div className="hidden md:grid md:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
               <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 p-4 backdrop-blur-sm hover:border-[#0d9488]/30 transition group">
@@ -904,13 +907,13 @@ const MyWorkspaceProjects = () => {
                       project={project}
                       brandColor={brandColor}
                       workspaceId={workspaceId}
-                      isOwner={isOwner}
+                      canManage={canManage}
                       onDelete={handleDeleteProject}
                       onPermanentDelete={handlePermanentDelete}
                       onRestore={handleRestore}
                       onArchive={handleArchive}
                       onUnarchive={handleUnarchive}
-                      onEdit={onEditProject}
+                      onEdit={(id) => navigate(`/workspace/${workspaceId}/projects/edit/${id}`)}
                     />
                   ))}
                 </div>
@@ -928,7 +931,7 @@ const MyWorkspaceProjects = () => {
                       <p className="text-xs text-gray-500 dark:text-gray-500">No active projects</p>
                     ) : (
                       activeProjects.map((p) => (
-                        <Link key={p._id} to={`/my-workspace/${workspaceId}/project/${p._id}`} className="flex items-center justify-between group">
+                        <Link key={p._id} to={`/workspace/${workspaceId}/project/${p._id}`} className="flex items-center justify-between group">
                           <span className="text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">{p.name}</span>
                           <div className="flex items-center gap-2">
                             <div className="w-12 h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
@@ -988,13 +991,13 @@ const MyWorkspaceProjects = () => {
         </div>
       </div>
 
-      <MyWorkspaceBottombar workspace={workspace} />
+      <YourWorkspaceBottombar workspace={workspace} />
 
       <SearchProjectsModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} projects={projects} brandColor={brandColor} workspaceId={workspaceId} />
-      <FilterDrawer isOpen={filterDrawerOpen} onClose={() => setFilterDrawerOpen(false)} filters={filters} setFilters={setFilters} view={view} setView={setView} isOwner={isOwner} />
-      {isOwner && <CreateProjectModal workspace={workspace} isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} onCreated={() => refetchProjects()} />}
+      <FilterDrawer isOpen={filterDrawerOpen} onClose={() => setFilterDrawerOpen(false)} filters={filters} setFilters={setFilters} view={view} setView={setView} canManage={canManage} />
+      {canManage && <CreateProjectModal workspace={workspace} isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} onCreated={() => refetchProjects()} />}
     </div>
   );
 };
 
-export default MyWorkspaceProjects;
+export default YourWorkspaceProjects;

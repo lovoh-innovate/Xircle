@@ -4,9 +4,18 @@ import jwt from 'jsonwebtoken';
 import { Message, Chat, TypingIndicator } from '../models/messagingModel.js';
 import Call from '../models/call.js';
 import User from '../models/userModel.js';
+import Workspace from '../models/workspaceModel.js';
 import { createAndSendNotification } from './notificationController.js';
 
 let io;
+
+// ── Check if a user currently has ANY active socket connection ────────
+// Every connected socket joins `user:${userId}` on connect, so a
+// non-empty room means the user is online right now. No DB needed.
+const isSocketUserOnline = (userId) => {
+  const room = io.sockets.adapter.rooms.get(`user:${userId}`);
+  return !!room && room.size > 0;
+};
 
 export const initSocket = (server) => {
   io = new Server(server, {
@@ -86,6 +95,26 @@ export const initSocket = (server) => {
           });
         }
 
+        // ── NEW: broadcast to every workspace this user belongs to ──
+        // This drives the "who's online" indicator on workspace pages,
+        // independent of whether the user has any chat open.
+        try {
+          const workspaces = await Workspace.find({
+            'members.user': socket.userId,
+            'members.status': 'active',
+          }).select('_id');
+
+          for (const ws of workspaces) {
+            io.to(`workspace:${ws._id}`).emit('member-status-changed', {
+              userId: socket.userId,
+              online: isOnline,
+              lastSeen: isOnline ? null : new Date(),
+            });
+          }
+        } catch (wsErr) {
+          console.error('Error broadcasting workspace presence:', wsErr.message);
+        }
+
         console.log(
           `📡 User ${socket.user.name} is now ${isOnline ? 'online' : 'offline'}`
         );
@@ -103,9 +132,25 @@ export const initSocket = (server) => {
     });
 
     // ── Workspace & chat rooms ─────────────────────────────────────
-    socket.on('join-workspace', (workspaceId) => {
+    socket.on('join-workspace', async (workspaceId, callback) => {
       socket.join(`workspace:${workspaceId}`);
       console.log(`📢 User ${socket.user.name} joined workspace: ${workspaceId}`);
+
+      // Send back a snapshot of who's online right now, so the client
+      // doesn't have to wait for the next status-change event to know.
+      try {
+        const workspace = await Workspace.findById(workspaceId).select('members');
+        const online = (workspace?.members || [])
+          .map((m) => m.user.toString())
+          .filter((uid) => isSocketUserOnline(uid));
+
+        if (typeof callback === 'function') {
+          callback({ online });
+        }
+      } catch (err) {
+        console.error('Error building workspace presence snapshot:', err.message);
+        if (typeof callback === 'function') callback({ online: [] });
+      }
     });
 
     socket.on('join-chat', (chatId) => {

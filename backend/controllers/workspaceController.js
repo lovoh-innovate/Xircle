@@ -36,6 +36,29 @@ async function notifyUsers(
   }
 }
 
+/**
+ * Check if a user is the workspace owner.
+ */
+const isOwner = (workspace, userId) =>
+  workspace.owner.toString() === userId.toString();
+
+/**
+ * Check if a user is an admin (role === 'Admin') in the workspace.
+ */
+const isAdmin = (workspace, userId) =>
+  workspace.members.some(
+    (m) =>
+      m.user.toString() === userId.toString() &&
+      m.role === 'Admin' &&
+      m.status === 'active'
+  );
+
+/**
+ * Check if user is owner or admin (has management permissions).
+ */
+const isManager = (workspace, userId) =>
+  isOwner(workspace, userId) || isAdmin(workspace, userId);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // CREATE WORKSPACE
 // POST /api/workspaces
@@ -85,7 +108,7 @@ const createWorkspace = asyncHandler(async (req, res) => {
     members: [
       {
         user: userId,
-        role: 'Owner',
+        role: 'Owner',          // Owner role – full permissions
         status: 'active',
         department: 'Management',
         joinedAt: new Date(),
@@ -99,8 +122,6 @@ const createWorkspace = asyncHandler(async (req, res) => {
   });
 
   await workspace.populate('owner', 'name email profile');
-
-  // No notification needed – only owner present at creation.
 
   res.status(201).json({
     success: true,
@@ -156,8 +177,10 @@ const getWorkspace = asyncHandler(async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UPDATE WORKSPACE (supports logo upload via Cloudinary)
+// UPDATE WORKSPACE (supports logo upload)
 // PUT /api/workspaces/:id
+// ─────────────────────────────────────────────────────────────────────────────
+// Allowed: Owner or Admin (manager)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const updateWorkspace = asyncHandler(async (req, res) => {
@@ -168,9 +191,11 @@ const updateWorkspace = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error('Workspace not found.');
   }
-  if (workspace.owner.toString() !== userId) {
+
+  // Allow Owner or Admin
+  if (!isManager(workspace, userId)) {
     res.status(403);
-    throw new Error('Only the owner can edit this workspace.');
+    throw new Error('Only the owner or an admin can edit this workspace.');
   }
 
   const {
@@ -199,7 +224,8 @@ const updateWorkspace = asyncHandler(async (req, res) => {
   await workspace.save();
   await workspace.populate('owner', 'name email profile');
 
-  // Optionally notify active members about major changes? Omitted for now.
+  // Notify active members about the update? (optional)
+  // For now, we skip to avoid spam.
 
   res.status(200).json({
     success: true,
@@ -208,7 +234,7 @@ const updateWorkspace = asyncHandler(async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DELETE WORKSPACE
+// DELETE WORKSPACE (Owner only)
 // DELETE /api/workspaces/:id
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -220,12 +246,13 @@ const deleteWorkspace = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error('Workspace not found.');
   }
-  if (workspace.owner.toString() !== userId) {
+
+  if (!isOwner(workspace, userId)) {
     res.status(403);
     throw new Error('Only the owner can delete this workspace.');
   }
 
-  // Gather active member IDs (excluding owner) before deletion
+  // Gather active member IDs (excluding owner)
   const activeMemberIds = workspace.members
     .filter(m => m.status === 'active' && m.user.toString() !== userId)
     .map(m => m.user.toString());
@@ -245,7 +272,7 @@ const deleteWorkspace = asyncHandler(async (req, res) => {
       title: `Workspace "${workspaceName}" deleted`,
       body: `The workspace "${workspaceName}" has been permanently removed by the owner.`,
       data: {},
-      emailEventType: 'projectUpdate', // reuse generic update type
+      emailEventType: 'projectUpdate',
       emailHtml: `<p>The workspace <strong>${workspaceName}</strong> has been deleted by its owner.</p>`,
     });
   }
@@ -257,7 +284,7 @@ const deleteWorkspace = asyncHandler(async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LEAVE WORKSPACE
+// LEAVE WORKSPACE (member self‑leave)
 // POST /api/workspaces/:id/leave
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -270,7 +297,7 @@ const leaveWorkspace = asyncHandler(async (req, res) => {
     throw new Error('Workspace not found.');
   }
 
-  if (workspace.owner.toString() === userId) {
+  if (isOwner(workspace, userId)) {
     res.status(400);
     throw new Error('Owner cannot leave. Transfer ownership or delete the workspace.');
   }
@@ -300,7 +327,7 @@ const leaveWorkspace = asyncHandler(async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// REMOVE MEMBER (owner only)
+// REMOVE MEMBER (Owner or Admin)
 // DELETE /api/workspaces/:id/members/:memberId
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -313,13 +340,28 @@ const removeMember = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error('Workspace not found.');
   }
-  if (workspace.owner.toString() !== userId) {
+
+  // Allow Owner or Admin
+  if (!isManager(workspace, userId)) {
     res.status(403);
-    throw new Error('Only the owner can remove members.');
+    throw new Error('Only the owner or an admin can remove members.');
   }
+
+  // Prevent removing owner or yourself
   if (memberId === userId) {
     res.status(400);
-    throw new Error('Owner cannot remove themselves.');
+    throw new Error('You cannot remove yourself. Use the leave endpoint instead.');
+  }
+  if (isOwner(workspace, memberId)) {
+    res.status(400);
+    throw new Error('Cannot remove the workspace owner.');
+  }
+
+  // If the remover is an admin (not owner), they cannot remove another admin.
+  // (Optional: only owner can remove admins)
+  if (isAdmin(workspace, userId) && isAdmin(workspace, memberId)) {
+    res.status(403);
+    throw new Error('Admins cannot remove other admins.');
   }
 
   workspace.members = workspace.members.filter(
@@ -334,7 +376,7 @@ const removeMember = asyncHandler(async (req, res) => {
   // Notify the removed member
   notifyUsers(memberId, {
     title: `Removed from "${workspace.name}"`,
-    body: `You have been removed from the workspace "${workspace.name}" by the owner.`,
+    body: `You have been removed from the workspace "${workspace.name}".`,
     data: { workspaceId: workspace._id.toString() },
     emailEventType: 'teamInvite',
   });
@@ -346,7 +388,73 @@ const removeMember = asyncHandler(async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// REGENERATE INVITE CODE (owner only)
+// UPDATE MEMBER ROLE (Owner only)
+// PATCH /api/workspaces/:id/members/:memberId/role
+// ─────────────────────────────────────────────────────────────────────────────
+// Body: { role: 'Admin' | 'Member' }
+// ─────────────────────────────────────────────────────────────────────────────
+
+const updateMemberRole = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { memberId } = req.params;
+  const { role } = req.body;
+
+  if (!role || !['Admin', 'Member'].includes(role)) {
+    res.status(400);
+    throw new Error('Invalid role. Allowed: Admin, Member');
+  }
+
+  const workspace = await Workspace.findById(req.params.id);
+  if (!workspace) {
+    res.status(404);
+    throw new Error('Workspace not found.');
+  }
+
+  // Only owner can change roles
+  if (!isOwner(workspace, userId)) {
+    res.status(403);
+    throw new Error('Only the owner can change member roles.');
+  }
+
+  const member = workspace.members.find(
+    (m) => m.user.toString() === memberId && m.status === 'active'
+  );
+  if (!member) {
+    res.status(404);
+    throw new Error('Active member not found.');
+  }
+
+  // Prevent changing owner's role
+  if (isOwner(workspace, memberId)) {
+    res.status(400);
+    throw new Error('Cannot change the role of the owner.');
+  }
+
+  member.role = role;
+  await workspace.save();
+
+  const updatedMember = workspace.members.find(
+    (m) => m.user.toString() === memberId
+  );
+  await workspace.populate('members.user', 'name email profile');
+
+  // Notify the member about role change
+  notifyUsers(memberId, {
+    title: `Role updated in "${workspace.name}"`,
+    body: `You have been ${role === 'Admin' ? 'promoted to Admin' : 'demoted to Member'} in the workspace.`,
+    data: { workspaceId: workspace._id.toString(), newRole: role },
+    emailEventType: 'teamInvite',
+  });
+
+  res.status(200).json({
+    success: true,
+    message: `Member role updated to ${role}`,
+    member: updatedMember,
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REGENERATE INVITE CODE (Owner only)
 // PATCH /api/workspaces/:id/invite-code
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -358,7 +466,9 @@ const regenerateInviteCode = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error('Workspace not found.');
   }
-  if (workspace.owner.toString() !== userId) {
+
+  // Only owner can regenerate invite code
+  if (!isOwner(workspace, userId)) {
     res.status(403);
     throw new Error('Only the owner can regenerate the invite code.');
   }
@@ -411,6 +521,7 @@ export {
   deleteWorkspace,
   leaveWorkspace,
   removeMember,
+  updateMemberRole,           // new endpoint
   regenerateInviteCode,
   migrateWorkspaces,
 };

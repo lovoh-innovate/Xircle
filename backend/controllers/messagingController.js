@@ -17,6 +17,13 @@ const isWorkspaceMember = async (workspaceId, userId) => {
   );
 };
 
+const isWorkspaceAdmin = async (workspaceId, userId) => {
+  const workspace = await Workspace.findById(workspaceId);
+  return workspace?.members.some(
+    (m) => m.user.toString() === userId && m.role === 'Admin' && m.status === 'active'
+  );
+};
+
 const isChatParticipant = async (chatId, userId) => {
   const chat = await Chat.findById(chatId);
   return chat?.participants.some((p) => p.user.toString() === userId);
@@ -24,16 +31,20 @@ const isChatParticipant = async (chatId, userId) => {
 
 /**
  * Check if user is admin of a chat.
- * For workspace groups: workspace owner is always admin.
+ * For workspace groups: workspace owner OR workspace admin are admins.
  * For public groups: creator is admin, and admins can be added.
  */
 const isChatAdmin = async (chatId, userId) => {
   const chat = await Chat.findById(chatId);
   if (!chat) return false;
-  if (chat.scope === 'workspace') {
+  // Workspace chat: allow workspace owner and workspace admins
+  if (chat.scope === 'workspace' && chat.workspace) {
     const workspace = await Workspace.findById(chat.workspace);
-    if (workspace && workspace.owner.toString() === userId) return true;
+    if (workspace && (workspace.owner.toString() === userId || await isWorkspaceAdmin(chat.workspace.toString(), userId))) {
+      return true;
+    }
   }
+  // Participant role check
   const participant = chat.participants.find(
     (p) => p.user.toString() === userId,
   );
@@ -117,7 +128,7 @@ export const updateOnlineStatus = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CREATE GROUP CHAT (Workspace – Owner only)
+// CREATE GROUP CHAT (Workspace – Owner or Admin)
 // POST /api/messages/group
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -138,10 +149,15 @@ export const createGroupChat = async (req, res) => {
       return res.status(404).json({ message: "Workspace not found." });
     }
 
-    if (workspace.owner.toString() !== userId) {
+    // Allow workspace owner OR admin
+    const isOwner = workspace.owner.toString() === userId;
+    const isAdmin = workspace.members.some(
+      (m) => m.user.toString() === userId && m.role === 'Admin' && m.status === 'active'
+    );
+    if (!isOwner && !isAdmin) {
       return res
         .status(403)
-        .json({ message: "Only the workspace owner can create group chats." });
+        .json({ message: "Only the workspace owner or admins can create group chats." });
     }
 
     const activeMembers = workspace.members
@@ -178,7 +194,7 @@ export const createGroupChat = async (req, res) => {
       console.log(`📢 Notifying ${memberIds.length} members about new group chat`);
       notifyUsers(memberIds, {
         title: `New group chat "${chat.name}"`,
-        body: `You were added to the group "${chat.name}" by the workspace owner.`,
+        body: `You were added to the group "${chat.name}" by the workspace owner/admin.`,
         data: { chatId: chat._id.toString(), workspaceId },
       });
     }
@@ -1596,16 +1612,22 @@ export const deleteGroupChat = async (req, res) => {
     }
 
     const isCreator = chat.createdBy?.toString() === userId;
-    let isWorkspaceOwner = false;
+    let canDelete = false;
     if (chat.scope === 'workspace' && chat.workspace) {
       const workspace = await Workspace.findById(chat.workspace);
-      if (workspace && workspace.owner.toString() === userId) {
-        isWorkspaceOwner = true;
+      if (workspace) {
+        const isOwner = workspace.owner.toString() === userId;
+        const isAdmin = workspace.members.some(
+          (m) => m.user.toString() === userId && m.role === 'Admin' && m.status === 'active'
+        );
+        if (isOwner || isAdmin) canDelete = true;
       }
     }
 
-    if (!isCreator && !isWorkspaceOwner) {
-      return res.status(403).json({ message: "Only the creator or workspace owner can delete the group chat." });
+    if (!isCreator && !canDelete) {
+      return res.status(403).json({
+        message: "Only the creator, workspace owner, or workspace admin can delete the group chat."
+      });
     }
 
     await Message.deleteMany({ chat: chatId });

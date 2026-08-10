@@ -1,3 +1,4 @@
+// routes/workspaceRoutes.js
 import express from 'express';
 import { protect } from '../middleware/authMiddleware.js';
 import {
@@ -10,6 +11,7 @@ import {
   removeMember,
   regenerateInviteCode,
   migrateWorkspaces,
+  updateMemberRole,          // 👈 new controller function
 } from '../controllers/workspaceController.js';
 
 import multer from 'multer';
@@ -55,6 +57,10 @@ router.delete('/:id', protect, deleteWorkspace);
 router.post('/:id/leave', protect, leaveWorkspace);
 router.delete('/:id/members/:memberId', protect, removeMember);
 router.patch('/:id/invite-code', protect, regenerateInviteCode);
+
+// ─── NEW: Update member role (Owner only) ──────────────────────────────
+router.patch('/:id/members/:memberId/role', protect, updateMemberRole);
+
 router.post('/migrate', protect, migrateWorkspaces);
 
 export default router;

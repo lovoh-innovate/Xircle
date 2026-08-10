@@ -19,6 +19,16 @@ const isWorkspaceOwner = (workspace, userId) =>
     ? workspace.owner._id.toString() === userId
     : workspace.owner?.toString() === userId;
 
+/**
+ * Check if user is workspace owner OR an active admin.
+ */
+const canManageWorkspace = (workspace, userId) => {
+  if (isWorkspaceOwner(workspace, userId)) return true;
+  return workspace.members.some(
+    (m) => m.user.toString() === userId && m.role === 'Admin' && m.status === 'active'
+  );
+};
+
 const isProjectManager = (project, userId) =>
   project.projectManagers.some((pm) => {
     const id = pm._id ? pm._id.toString() : pm?.toString();
@@ -33,7 +43,7 @@ const isProjectMember = (project, userId) =>
   });
 
 const canManageProject = (workspace, project, userId) =>
-  isWorkspaceOwner(workspace, userId) || isProjectManager(project, userId);
+  canManageWorkspace(workspace, userId) || isProjectManager(project, userId);
 
 const parseArrayField = (value) => {
   if (!value) return [];
@@ -71,7 +81,7 @@ async function notifyUsers(userIds, { title, body, data = {}, emailEventType = n
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// CREATE PROJECT  (Workspace owner only)
+// CREATE PROJECT  (workspace owner or admin)
 // POST /api/projects?workspaceId=xxx
 // ─────────────────────────────────────────────────────────────────────
 
@@ -107,10 +117,11 @@ const createProject = async (req, res) => {
     if (!workspace) {
       return res.status(404).json({ success: false, message: 'Workspace not found.' });
     }
-    if (!isWorkspaceOwner(workspace, userId)) {
+    // Allow workspace owner OR admin to create projects
+    if (!canManageWorkspace(workspace, userId)) {
       return res.status(403).json({
         success: false,
-        message: 'Only the workspace owner can create projects.',
+        message: 'Only the workspace owner or admins can create projects.',
       });
     }
 
@@ -175,12 +186,9 @@ const createProject = async (req, res) => {
       dailyReportTime,
       projectType,
       tags,
-      archivedBy: [],            // per‑user archive
+      archivedBy: [],
       isTrash: false,
     });
-
-    // ⛔ REMOVED: automatic creation of team chat
-    // The project chat is no longer created automatically.
 
     // ── Notify all newly added members ────────────────────────
     const allNewMembers = [
@@ -235,10 +243,13 @@ const getWorkspaceProjects = async (req, res) => {
     }
 
     const isOwner = isWorkspaceOwner(workspace, userId);
+    const isAdmin = workspace.members.some(
+      (m) => m.user.toString() === userId && m.role === 'Admin' && m.status === 'active'
+    );
     const isMember = workspace.members.some(
       (m) => m.user.toString() === userId && m.status === 'active'
     );
-    if (!isOwner && !isMember) {
+    if (!isOwner && !isAdmin && !isMember) {
       return res.status(403).json({ success: false, message: 'Access denied.' });
     }
 
@@ -247,13 +258,13 @@ const getWorkspaceProjects = async (req, res) => {
     if (priority) query.priority = priority;
     if (projectType) query.projectType = projectType;
 
-    // Global trash filter – only owner can see trashed projects
-    if (trash === 'true' && isOwner) {
+    // Global trash filter – only owner or admin can see trashed projects
+    if (trash === 'true' && (isOwner || isAdmin)) {
       query.isTrash = true;
     } else if (trash !== 'true') {
       query.isTrash = { $ne: true };
     } else {
-      // non-owner asking for trash – return empty array
+      // non-owner/admin asking for trash – return empty array
       return res.status(200).json({ success: true, projects: [], count: 0 });
     }
 
@@ -261,7 +272,6 @@ const getWorkspaceProjects = async (req, res) => {
     if (archived === 'true') {
       query['archivedBy.user'] = userId;
     } else if (archived !== 'true' && !query.isTrash) {
-      // Exclude projects that the user has archived (unless we're in trash view)
       query.$and = query.$and || [];
       query.$and.push({
         $or: [
@@ -272,8 +282,8 @@ const getWorkspaceProjects = async (req, res) => {
       });
     }
 
-    // Permissions: non-owners only see projects they belong to
-    if (!isOwner) {
+    // Permissions: non-owners/admins only see projects they belong to
+    if (!isOwner && !isAdmin) {
       query.$or = [
         { projectManagers: userId },
         { teamMembers: { $elemMatch: { user: userId, status: 'active' } } },
@@ -306,6 +316,8 @@ const getWorkspaceProjects = async (req, res) => {
         obj.taskStats = stats;
         obj.userRole = isOwner
           ? 'workspaceOwner'
+          : isAdmin
+          ? 'workspaceAdmin'
           : isProjectManager(project, userId)
           ? 'projectManager'
           : 'teamMember';
@@ -346,6 +358,9 @@ const getProjectById = async (req, res) => {
     }
 
     const isOwner = isWorkspaceOwner(workspace, userId);
+    const isAdmin = workspace.members.some(
+      (m) => m.user.toString() === userId && m.role === 'Admin' && m.status === 'active'
+    );
     const isPM = isProjectManager(project, userId);
     const isMember = isProjectMember(project, userId);
     const isTaskAssignee = await Task.exists({
@@ -354,7 +369,7 @@ const getProjectById = async (req, res) => {
       isDeleted: false,
     });
 
-    if (!isOwner && !isPM && !isMember && !isTaskAssignee) {
+    if (!isOwner && !isAdmin && !isPM && !isMember && !isTaskAssignee) {
       return res.status(403).json({ success: false, message: 'Access denied.' });
     }
 
@@ -409,6 +424,8 @@ const getProjectById = async (req, res) => {
     const obj = populated.toObject();
     obj.userRole = isOwner
       ? 'workspaceOwner'
+      : isAdmin
+      ? 'workspaceAdmin'
       : isPM
       ? 'projectManager'
       : isMember
@@ -422,7 +439,7 @@ const getProjectById = async (req, res) => {
       pendingTasks: 0,
       overdueTasks: 0,
     };
-    obj.canManage = isOwner || isPM;
+    obj.canManage = isOwner || isAdmin || isPM;
     obj.isArchivedForMe = populated.archivedBy.some(a => a.user.toString() === userId);
 
     res.status(200).json({ success: true, project: obj });
@@ -433,7 +450,7 @@ const getProjectById = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// UPDATE PROJECT  (Owner / PM)
+// UPDATE PROJECT  (Owner / Admin / PM)
 // PUT /api/projects/:projectId
 // ─────────────────────────────────────────────────────────────────────
 
@@ -451,7 +468,7 @@ const updateProject = async (req, res) => {
     if (!canManageProject(workspace, project, userId)) {
       return res.status(403).json({
         success: false,
-        message: 'Only the workspace owner or project managers can update projects.',
+        message: 'Only the workspace owner, admins, or project managers can update projects.',
       });
     }
 
@@ -539,7 +556,7 @@ const updateProject = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// CONFIRM PROJECT COMPLETION  (Workspace OWNER only)
+// CONFIRM PROJECT COMPLETION  (Workspace OWNER or ADMIN)
 // PATCH /api/projects/:projectId/confirm-completion
 // ─────────────────────────────────────────────────────────────────────
 
@@ -554,10 +571,10 @@ const confirmProjectCompletion = async (req, res) => {
     }
 
     const workspace = await Workspace.findById(project.workspace);
-    if (!isWorkspaceOwner(workspace, userId)) {
+    if (!canManageWorkspace(workspace, userId)) {
       return res.status(403).json({
         success: false,
-        message: 'Only the workspace owner can confirm project completion.',
+        message: 'Only the workspace owner or admins can confirm project completion.',
       });
     }
 
@@ -626,7 +643,7 @@ const confirmProjectCompletion = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// MANAGE PROJECT MANAGERS  (Workspace owner only)
+// MANAGE PROJECT MANAGERS  (Workspace owner OR admin)
 // PATCH /api/projects/:projectId/managers  { action: 'add'|'remove', managerId }
 // ─────────────────────────────────────────────────────────────────────
 
@@ -649,10 +666,10 @@ const manageProjectManagers = async (req, res) => {
     }
 
     const workspace = await Workspace.findById(project.workspace);
-    if (!isWorkspaceOwner(workspace, userId)) {
+    if (!canManageWorkspace(workspace, userId)) {
       return res.status(403).json({
         success: false,
-        message: 'Only the workspace owner can manage project managers.',
+        message: 'Only the workspace owner or admins can manage project managers.',
       });
     }
 
@@ -713,7 +730,7 @@ const manageProjectManagers = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// ADD TEAM MEMBER  (Owner / PM)
+// ADD TEAM MEMBER  (Owner / Admin / PM)
 // POST /api/projects/:projectId/team  { userId, role? }
 // ─────────────────────────────────────────────────────────────────────
 
@@ -736,7 +753,7 @@ const addTeamMember = async (req, res) => {
     if (!canManageProject(workspace, project, userId)) {
       return res.status(403).json({
         success: false,
-        message: 'Only the workspace owner or project managers can add team members.',
+        message: 'Only the workspace owner, admins, or project managers can add team members.',
       });
     }
 
@@ -790,7 +807,7 @@ const addTeamMember = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// REMOVE TEAM MEMBER  (Owner / PM)
+// REMOVE TEAM MEMBER  (Owner / Admin / PM)
 // DELETE /api/projects/:projectId/team/:memberId
 // ─────────────────────────────────────────────────────────────────────
 
@@ -815,7 +832,7 @@ const removeTeamMember = async (req, res) => {
     if (!canManageProject(workspace, project, userId)) {
       return res.status(403).json({
         success: false,
-        message: 'Only the workspace owner or project managers can remove team members.',
+        message: 'Only the workspace owner, admins, or project managers can remove team members.',
       });
     }
 
@@ -865,7 +882,7 @@ const removeTeamMember = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// GET PROJECT TEAM WITH TASKS  (Owner / PM)
+// GET PROJECT TEAM WITH TASKS  (Owner / Admin / PM)
 // GET /api/projects/:projectId/team
 // ─────────────────────────────────────────────────────────────────────
 
@@ -921,7 +938,7 @@ const getProjectTeamWithTasks = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// GET / CREATE DM WITH A TEAM MEMBER  (Owner / PM)
+// GET / CREATE DM WITH A TEAM MEMBER  (Owner / Admin / PM)
 // GET /api/projects/:projectId/dm/:userId
 // ─────────────────────────────────────────────────────────────────────
 
@@ -967,7 +984,7 @@ const getTeamMemberDM = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// PROJECT STATS  (Owner / PM)
+// PROJECT STATS  (Owner / Admin / PM)
 // GET /api/projects/:projectId/stats
 // ─────────────────────────────────────────────────────────────────────
 
@@ -1053,9 +1070,12 @@ const archiveProject = async (req, res) => {
 
     const workspace = await Workspace.findById(project.workspace);
     const isOwner = isWorkspaceOwner(workspace, userId);
+    const isAdmin = workspace.members.some(
+      (m) => m.user.toString() === userId && m.role === 'Admin' && m.status === 'active'
+    );
     const isPM = isProjectManager(project, userId);
     const isMember = isProjectMember(project, userId);
-    if (!isOwner && !isPM && !isMember) {
+    if (!isOwner && !isAdmin && !isPM && !isMember) {
       return res.status(403).json({ success: false, message: 'You are not a member of this project.' });
     }
 
@@ -1082,9 +1102,12 @@ const unarchiveProject = async (req, res) => {
 
     const workspace = await Workspace.findById(project.workspace);
     const isOwner = isWorkspaceOwner(workspace, userId);
+    const isAdmin = workspace.members.some(
+      (m) => m.user.toString() === userId && m.role === 'Admin' && m.status === 'active'
+    );
     const isPM = isProjectManager(project, userId);
     const isMember = isProjectMember(project, userId);
-    if (!isOwner && !isPM && !isMember) {
+    if (!isOwner && !isAdmin && !isPM && !isMember) {
       return res.status(403).json({ success: false, message: 'Not authorized.' });
     }
 
@@ -1099,7 +1122,7 @@ const unarchiveProject = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// DELETE PROJECT – Soft‑delete (workspace owner only)
+// DELETE PROJECT – Soft‑delete (workspace owner OR admin)
 // DELETE /api/projects/:projectId
 // ─────────────────────────────────────────────────────────────────────
 
@@ -1112,8 +1135,11 @@ const deleteProject = async (req, res) => {
     if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
 
     const workspace = await Workspace.findById(project.workspace);
-    if (!isWorkspaceOwner(workspace, userId)) {
-      return res.status(403).json({ success: false, message: 'Only the workspace owner can delete projects.' });
+    if (!canManageWorkspace(workspace, userId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the workspace owner or admins can delete projects.',
+      });
     }
 
     // Move to trash (soft‑delete)
@@ -1140,7 +1166,7 @@ const deleteProject = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// RESTORE PROJECT FROM TRASH (owner only)
+// RESTORE PROJECT FROM TRASH (owner or admin)
 // PATCH /api/projects/:projectId/restore
 // ─────────────────────────────────────────────────────────────────────
 
@@ -1153,8 +1179,11 @@ const restoreProject = async (req, res) => {
     if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
 
     const workspace = await Workspace.findById(project.workspace);
-    if (!isWorkspaceOwner(workspace, userId)) {
-      return res.status(403).json({ success: false, message: 'Only the workspace owner can restore projects.' });
+    if (!canManageWorkspace(workspace, userId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the workspace owner or admins can restore projects.',
+      });
     }
 
     project.isTrash = false;
@@ -1169,7 +1198,7 @@ const restoreProject = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// PERMANENTLY DELETE PROJECT (owner only)
+// PERMANENTLY DELETE PROJECT (owner or admin)
 // DELETE /api/projects/:projectId/permanent
 // ─────────────────────────────────────────────────────────────────────
 
@@ -1182,8 +1211,11 @@ const permanentlyDeleteProject = async (req, res) => {
     if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
 
     const workspace = await Workspace.findById(project.workspace);
-    if (!isWorkspaceOwner(workspace, userId)) {
-      return res.status(403).json({ success: false, message: 'Only the workspace owner can permanently delete projects.' });
+    if (!canManageWorkspace(workspace, userId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the workspace owner or admins can permanently delete projects.',
+      });
     }
 
     // Remove associated data

@@ -6,6 +6,7 @@ import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
 import { useGetWorkspaceProjectsQuery } from '../slices/projectApiSlice';
 import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
 import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
+import { useWorkspacePresence } from '../services/useWorkspacePresence';
 import MyWorkspaceSidebar from '../workspaceComponents/MyWorkspaceSidebar';
 import MyWorkspaceBottombar from '../workspaceComponents/MyWorkspaceBottombar';
 import {
@@ -61,6 +62,9 @@ const TaskCounter = memo(({ projectId, onCount, onLoading }) => {
   return null;
 });
 
+// ─── helper: pull a user id off either a populated user object or a raw id ──
+const getMemberId = (member) => (member?.user?._id || member?.user)?.toString();
+
 // ─── Main component ──────────────────────────────────────────────
 const MyWorkspaceId = () => {
   const { workspaceId } = useParams();
@@ -72,6 +76,9 @@ const MyWorkspaceId = () => {
   const { data, isLoading, error } = useGetWorkspaceQuery(workspaceId);
   const { data: projectsData, isLoading: projectsLoading } = useGetWorkspaceProjectsQuery({ workspaceId });
   const { data: chatsData } = useGetUserChatsQuery(workspaceId);
+
+  // ── real-time online presence for this workspace, driven by sockets ──
+  const onlineUserIds = useWorkspacePresence(workspaceId);
 
   // ── Aggregated task counts ──────────────────────────────────
   const [totalTasks, setTotalTasks] = useState(0);
@@ -131,8 +138,14 @@ const MyWorkspaceId = () => {
   const projects = projectsData?.projects || [];
   if (!workspace) return null;
 
+  // ── membership status ("active" member) vs. real-time online status ──
+  // These used to be conflated (onlineCount === activeMembers.length always).
+  // Now onlineCount reflects who actually has a live socket connection.
   const activeMembers = workspace.members?.filter((m) => m.status === 'active') || [];
-  const onlineCount = activeMembers.filter((m) => m.status === 'active').length || 0;
+  const isMemberOnline = (member) => onlineUserIds.has(getMemberId(member));
+  const onlineCount = activeMembers.filter(isMemberOnline).length;
+  const onlineMembers = activeMembers.filter(isMemberOnline);
+
   const channelCount = chats.filter((c) => c.type === 'group').length || 0;
   const brandColor = workspace.color || '#0d9488';
 
@@ -650,6 +663,9 @@ const MyWorkspaceId = () => {
                   <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
                     <FaUsers className="text-sm" style={{ color: brandColor }} />
                     Online
+                    <span className="text-[10px] font-normal text-gray-400 dark:text-gray-500">
+                      ({onlineCount})
+                    </span>
                   </h2>
                   <Link
                     to={`/my-workspace/${workspaceId}/members`}
@@ -660,53 +676,58 @@ const MyWorkspaceId = () => {
                   </Link>
                 </div>
                 <div className="divide-y divide-gray-100 dark:divide-gray-800/30">
-                  {activeMembers.slice(0, 5).map((member) => {
-                    const memberUser = member.user || member;
-                    const isOwner =
-                      memberUser._id === workspace.owner?._id ||
-                      memberUser._id === workspace.owner;
-                    return (
-                      <div
-                        key={memberUser._id}
-                        className="flex items-center gap-3 px-4 sm:px-5 py-2 hover:bg-teal-50 dark:hover:bg-[#0d9488]/5 transition"
-                      >
-                        {memberUser?.profile ? (
-                          <img
-                            src={memberUser.profile}
-                            alt={memberUser.name}
-                            className="w-7 h-7 rounded-xl object-cover border border-gray-200 dark:border-gray-700/50"
-                          />
-                        ) : (
-                          <div
-                            className="w-7 h-7 rounded-xl flex items-center justify-center text-white text-[10px] font-bold"
-                            style={{ backgroundColor: brandColor }}
-                          >
-                            {memberUser?.name?.charAt(0).toUpperCase() || '?'}
+                  {onlineMembers.length === 0 ? (
+                    <p className="px-4 sm:px-5 py-4 text-xs text-gray-500 dark:text-gray-500">
+                      No one online right now
+                    </p>
+                  ) : (
+                    onlineMembers.slice(0, 5).map((member) => {
+                      const memberUser = member.user || member;
+                      const isOwner =
+                        memberUser._id === workspace.owner?._id ||
+                        memberUser._id === workspace.owner;
+                      return (
+                        <div
+                          key={memberUser._id}
+                          className="flex items-center gap-3 px-4 sm:px-5 py-2 hover:bg-teal-50 dark:hover:bg-[#0d9488]/5 transition"
+                        >
+                          {memberUser?.profile ? (
+                            <img
+                              src={memberUser.profile}
+                              alt={memberUser.name}
+                              className="w-7 h-7 rounded-xl object-cover border border-gray-200 dark:border-gray-700/50"
+                            />
+                          ) : (
+                            <div
+                              className="w-7 h-7 rounded-xl flex items-center justify-center text-white text-[10px] font-bold"
+                              style={{ backgroundColor: brandColor }}
+                            >
+                              {memberUser?.name?.charAt(0).toUpperCase() || '?'}
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-gray-700 dark:text-gray-300 truncate flex items-center gap-1">
+                              {memberUser?.name || 'Unknown'}
+                              {isOwner && (
+                                <span className="text-[10px]" title="Owner">
+                                  👑
+                                </span>
+                              )}
+                            </p>
                           </div>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-gray-700 dark:text-gray-300 truncate flex items-center gap-1">
-                            {memberUser?.name || 'Unknown'}
-                            {isOwner && (
-                              <span className="text-[10px]" title="Owner">
-                                👑
-                              </span>
-                            )}
-                          </p>
-                        </div>
-                        {member.status === 'active' && (
+                          {/* Real-time online dot, driven by useWorkspacePresence */}
                           <span className="w-1.5 h-1.5 rounded-full bg-green-500 dark:bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] flex-shrink-0" />
-                        )}
-                      </div>
-                    );
-                  })}
-                  {activeMembers.length > 5 && (
+                        </div>
+                      );
+                    })
+                  )}
+                  {onlineMembers.length > 5 && (
                     <Link
                       to={`/my-workspace/${workspaceId}/members`}
                       className="block text-[10px] font-medium uppercase tracking-wider px-4 sm:px-5 py-2.5 hover:bg-teal-50 dark:hover:bg-[#0d9488]/5 active:bg-teal-100 dark:active:bg-[#0d9488]/10 transition border-t border-gray-100 dark:border-gray-800/30 text-center text-teal-600 dark:text-[#0d9488]"
                       style={{ color: brandColor }}
                     >
-                      +{activeMembers.length - 5} more
+                      +{onlineMembers.length - 5} more
                     </Link>
                   )}
                 </div>

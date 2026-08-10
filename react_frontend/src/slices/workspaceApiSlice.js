@@ -91,6 +91,20 @@ export const workspaceApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (result, error, id) => [{ type: 'Workspace', id }],
     }),
 
+    // ─── Member Role Management (NEW) ──────────────────────────────
+
+    // Update a member's role (owner only)
+    updateMemberRole: builder.mutation({
+      query: ({ workspaceId, memberId, role }) => ({
+        url: `${WORKSPACES_URL}/${workspaceId}/members/${memberId}/role`,
+        method: 'PATCH',
+        body: { role }, // role: 'Admin' | 'Member'
+      }),
+      invalidatesTags: (result, error, { workspaceId }) => [
+        { type: 'Workspace', id: workspaceId },
+      ],
+    }),
+
     // ─── Migration Utility ──────────────────────────────────────────
 
     // Run migration to update workspace members schema (admin/utility)
@@ -115,4 +129,5 @@ export const {
   useRemoveMemberMutation,
   useRegenerateInviteCodeMutation,
   useMigrateWorkspacesMutation,
+  useUpdateMemberRoleMutation,   // 👈 NEW hook
 } = workspaceApiSlice;

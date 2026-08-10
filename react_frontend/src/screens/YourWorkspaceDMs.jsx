@@ -26,6 +26,16 @@ const getInitials = (name) => {
     .toUpperCase();
 };
 
+// ─── Helper: is this chat a workspace-scoped chat for THIS workspace ───
+const belongsToWorkspace = (chat, workspaceId) => {
+  if (!chat) return false;
+  const chatWorkspaceId =
+    typeof chat.workspace === 'object' && chat.workspace !== null
+      ? chat.workspace._id
+      : chat.workspace;
+  return chat.scope === 'workspace' && String(chatWorkspaceId) === String(workspaceId);
+};
+
 // ─── Search Members Modal ──────────────────────────────────────────────
 const SearchMembersModal = ({ isOpen, onClose, members, brandColor, currentUserId, onStartDM }) => {
   const [query, setQuery] = useState('');
@@ -165,13 +175,19 @@ const YourWorkspaceDMs = () => {
     return user._id !== currentUserId;
   });
 
+  // Only chats that are actually workspace-scoped AND belong to this workspace.
+  // Guards against the API ever returning public/direct chats alongside workspace ones.
+  const workspaceChats = (chatsData?.chats || []).filter((chat) =>
+    belongsToWorkspace(chat, workspaceId)
+  );
+
   const handleStartDM = async (targetUserId) => {
     if (targetUserId === currentUserId) {
       toast.info("You can't message yourself");
       return;
     }
     try {
-      const existingChat = chatsData?.chats?.find(
+      const existingChat = workspaceChats.find(
         (chat) =>
           chat.type === 'direct' &&
           chat.participants.some((p) => p.user?._id === targetUserId || p.user === targetUserId)
@@ -194,7 +210,7 @@ const YourWorkspaceDMs = () => {
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
       {/* Desktop Sidebar */}
       <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
-        <YourWorkspaceSidebar workspace={workspace} chats={chatsData?.chats || []} />
+        <YourWorkspaceSidebar workspace={workspace} chats={workspaceChats} />
       </div>
 
       {/* Main Content */}
