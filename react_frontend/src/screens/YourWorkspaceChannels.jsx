@@ -10,6 +10,7 @@ import {
   useUnarchiveChatMutation,
   useExitGroupChatMutation,
   useDeleteGroupChatMutation,
+  useCreateGroupChatMutation,
 } from '../slices/messagingApiSlice';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
 import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
@@ -24,6 +25,9 @@ import {
   FaSignOutAlt,
   FaTrashAlt,
   FaExclamationTriangle,
+  FaPlus,
+  FaSpinner,
+  FaCheck,
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 
@@ -72,11 +76,125 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmText 
   );
 };
 
+// ─── Create Channel Modal (with member selection) ──────────────────────
+const CreateChannelModal = ({ isOpen, onClose, workspaceId, brandColor, workspaceMembers, onSuccess }) => {
+  const { userInfo } = useSelector((state) => state.auth);
+  const [name, setName] = useState('');
+  const [selectedMembers, setSelectedMembers] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [createGroupChat] = useCreateGroupChatMutation();
+
+  // Filter out current user; they will be added automatically
+  const memberOptions = workspaceMembers
+    .filter(m => (m.user?._id || m._id) !== userInfo?._id)
+    .map(m => ({
+      value: m.user?._id || m._id,
+      label: m.user?.name || m.name || 'Unknown',
+    }));
+
+  const toggleMember = (memberId) => {
+    setSelectedMembers(prev =>
+      prev.includes(memberId)
+        ? prev.filter(id => id !== memberId)
+        : [...prev, memberId]
+    );
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      toast.error('Channel name is required');
+      return;
+    }
+    setLoading(true);
+    try {
+      await createGroupChat({
+        workspaceId,
+        name: name.trim(),
+        memberIds: selectedMembers,
+      }).unwrap();
+      toast.success('Channel created!');
+      onSuccess();
+      onClose();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to create channel');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
+            <FaPlus className="text-teal-600 dark:text-[#0d9488]" /> Create Channel
+          </h2>
+          <button onClick={onClose} className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition">
+            <FaTimes />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Channel Name *</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none"
+              placeholder="e.g. general, design"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">Add Members</label>
+            <div className="max-h-48 overflow-y-auto space-y-1 border border-gray-300 dark:border-gray-700/60 rounded-xl p-2 bg-white dark:bg-[#0b0b10]">
+              {memberOptions.length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-500 text-center py-2">No other members to add</p>
+              ) : (
+                memberOptions.map(opt => (
+                  <label key={opt.value} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/30 cursor-pointer transition">
+                    <input
+                      type="checkbox"
+                      checked={selectedMembers.includes(opt.value)}
+                      onChange={() => toggleMember(opt.value)}
+                      className="accent-teal-600 dark:accent-[#0d9488]"
+                    />
+                    <span className="text-sm text-gray-700 dark:text-gray-300">{opt.label}</span>
+                  </label>
+                ))
+              )}
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">You will be added automatically.</p>
+          </div>
+
+          <div className="flex gap-3">
+            <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80 disabled:opacity-50"
+              style={{ backgroundColor: brandColor }}
+            >
+              {loading ? <FaSpinner className="animate-spin mx-auto" /> : 'Create'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 // ─── Channel Menu Dropdown ──────────────────────────────────────────────
 const ChannelMenu = ({
   chat,
   userInfo,
-  isWorkspaceOwner,
+  canManage,
   onArchive,
   onUnarchive,
   onExit,
@@ -103,8 +221,8 @@ const ChannelMenu = ({
   const isCreator = chat.createdBy?._id === userInfo?._id;
 
   // Permissions
-  const canDelete = isWorkspaceOwner || isAdmin;
-  const canExit = !isCreator && !isWorkspaceOwner;
+  const canDelete = canManage || isAdmin;
+  const canExit = !isCreator && !canManage; // owner/admin can't exit (they can delete)
 
   return (
     <div className="relative flex-shrink-0" ref={menuRef}>
@@ -236,6 +354,7 @@ const YourWorkspaceChannels = () => {
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('channels'); // 'channels' or 'archived'
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
@@ -382,7 +501,12 @@ const YourWorkspaceChannels = () => {
   const displayChannels = activeTab === 'channels' ? allChannels : archivedChannels;
   const isArchivedView = activeTab === 'archived';
 
+  // ─── Permission checks ──────────────────────────────────────────────
   const isWorkspaceOwner = workspace?.owner?._id === userInfo?._id;
+  const isWorkspaceAdmin = workspace.members?.some(
+    (m) => (m.user?._id || m.user) === userInfo?._id && m.role === 'Admin' && m.status === 'active'
+  );
+  const canManage = isWorkspaceOwner || isWorkspaceAdmin;
 
   const activeMembers = workspace.members?.filter(m => m.status === 'active') || [];
   const onlineCount = activeMembers.filter(m => m.status === 'active').length || 0;
@@ -411,12 +535,23 @@ const YourWorkspaceChannels = () => {
                 {allChannels.length}
               </span>
             </div>
-            <button
-              onClick={() => setSearchOpen(true)}
-              className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
-            >
-              <FaSearch className="text-sm" />
-            </button>
+            <div className="flex items-center gap-2">
+              {canManage && (
+                <button
+                  onClick={() => setCreateModalOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white rounded-xl transition hover:opacity-80"
+                  style={{ backgroundColor: brandColor }}
+                >
+                  <FaPlus className="text-xs" /> New
+                </button>
+              )}
+              <button
+                onClick={() => setSearchOpen(true)}
+                className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
+              >
+                <FaSearch className="text-sm" />
+              </button>
+            </div>
           </div>
 
           {/* ── Tabs ── */}
@@ -493,7 +628,7 @@ const YourWorkspaceChannels = () => {
                   <ChannelMenu
                     chat={channel}
                     userInfo={userInfo}
-                    isWorkspaceOwner={isWorkspaceOwner}
+                    canManage={canManage}
                     onArchive={handleArchive}
                     onUnarchive={handleUnarchive}
                     onExit={handleExit}
@@ -535,6 +670,16 @@ const YourWorkspaceChannels = () => {
         channels={allChannels}
         brandColor={brandColor}
         workspaceId={workspaceId}
+      />
+
+      {/* Create Channel Modal (with member selection) */}
+      <CreateChannelModal
+        isOpen={createModalOpen}
+        onClose={() => setCreateModalOpen(false)}
+        workspaceId={workspaceId}
+        brandColor={brandColor}
+        workspaceMembers={workspace.members || []}
+        onSuccess={refreshAll}
       />
 
       {/* Confirm Modal */}

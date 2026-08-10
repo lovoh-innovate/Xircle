@@ -1,9 +1,13 @@
 // src/workspaceScreens/YourWorkspaceDMs.jsx
-import React, { useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
-import { useGetUserChatsQuery, useCreateDirectChatMutation } from '../slices/messagingApiSlice';
+import {
+  useGetUserChatsQuery,
+  useCreateDirectChatMutation,
+} from '../slices/messagingApiSlice';
+import { useSocket } from '../components/SocketContext.jsx';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
 import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
 import {
@@ -11,7 +15,8 @@ import {
   FaSearch,
   FaComment,
   FaTimes,
-  FaCircle,
+  FaPlus,
+  FaSpinner,
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 
@@ -26,7 +31,18 @@ const getInitials = (name) => {
     .toUpperCase();
 };
 
-// ─── Helper: is this chat a workspace-scoped chat for THIS workspace ───
+// ─── Helper: format last message preview ────────────────────────────
+const getLastMessagePreview = (message) => {
+  if (!message) return 'No messages yet';
+  if (message.messageType === 'text') return message.content || 'Message';
+  if (message.messageType === 'image') return '📷 Photo';
+  if (message.messageType === 'audio') return '🎤 Voice note';
+  if (message.messageType === 'video') return '🎬 Video';
+  if (message.messageType === 'file') return `📎 ${message.mediaName || 'File'}`;
+  return 'Message';
+};
+
+// ─── Helper: belongs to workspace ─────────────────────────────────────
 const belongsToWorkspace = (chat, workspaceId) => {
   if (!chat) return false;
   const chatWorkspaceId =
@@ -140,12 +156,152 @@ const YourWorkspaceDMs = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
+  const { socket, isConnected } = useSocket();
   const [searchOpen, setSearchOpen] = useState(false);
+  const [localChats, setLocalChats] = useState([]);
 
-  const { data: workspaceData, isLoading: workspaceLoading, error: workspaceError } = useGetWorkspaceQuery(workspaceId);
-  const { data: chatsData, isLoading: chatsLoading } = useGetUserChatsQuery(workspaceId);
+  // ─── Fetch workspace and chats with polling ──────────────────────────
+  const {
+    data: workspaceData,
+    isLoading: workspaceLoading,
+    error: workspaceError,
+  } = useGetWorkspaceQuery(workspaceId);
+
+  const {
+    data: chatsData,
+    isLoading: chatsLoading,
+    refetch: refetchChats,
+  } = useGetUserChatsQuery(
+    workspaceId,
+    { pollingInterval: 3000, refetchOnFocus: true, refetchOnReconnect: true }
+  );
+
   const [createDirectChat, { isLoading: creatingChat }] = useCreateDirectChatMutation();
 
+  // ─── Populate localChats from fetched data ──────────────────────────
+  useEffect(() => {
+    if (chatsData?.chats) {
+      setLocalChats(chatsData.chats);
+    }
+  }, [chatsData]);
+
+  // ─── Socket listeners for real‑time updates ──────────────────────────
+  useEffect(() => {
+    if (!socket || !isConnected) return;
+
+    const handleNewMessage = (newMsg) => {
+      const chatId = typeof newMsg.chat === 'string' ? newMsg.chat : newMsg.chat?._id;
+      if (!chatId) return;
+
+      setLocalChats((prev) => {
+        const idx = prev.findIndex((c) => c._id === chatId);
+        if (idx === -1) {
+          // New chat – refetch to get it
+          refetchChats();
+          return prev;
+        }
+
+        // Update the chat: bump to top, update lastMessage and lastMessageAt
+        const updatedChat = {
+          ...prev[idx],
+          lastMessage: newMsg,
+          lastMessageAt: newMsg.createdAt || new Date().toISOString(),
+          // Increase unread count if not from current user (optional)
+          unreadCount: (prev[idx].unreadCount || 0) + (newMsg.sender?._id !== userInfo?._id ? 1 : 0),
+        };
+        const newChats = [...prev];
+        newChats.splice(idx, 1);
+        return [updatedChat, ...newChats];
+      });
+    };
+
+    const handleMessageDeleted = () => {
+      refetchChats();
+    };
+
+    const handleUserStatusChange = ({ userId, online, chatId }) => {
+      if (!chatId) return;
+      setLocalChats((prev) =>
+        prev.map((chat) => {
+          if (chat._id !== chatId) return chat;
+          // Update the participant's online status
+          const updatedParticipants = chat.participants.map((p) => {
+            const uid = p.user?._id || p.user;
+            if (uid === userId) {
+              return { ...p, user: { ...p.user, online } };
+            }
+            return p;
+          });
+          return { ...chat, participants: updatedParticipants };
+        })
+      );
+    };
+
+    socket.on('new-message', handleNewMessage);
+    socket.on('message-deleted', handleMessageDeleted);
+    socket.on('user-status-changed', handleUserStatusChange);
+
+    return () => {
+      socket.off('new-message', handleNewMessage);
+      socket.off('message-deleted', handleMessageDeleted);
+      socket.off('user-status-changed', handleUserStatusChange);
+    };
+  }, [socket, isConnected, refetchChats, userInfo?._id]);
+
+  // ─── Filter only workspace DMs ─────────────────────────────────────
+  const workspaceChats = useMemo(() => {
+    const all = localChats.filter((chat) => belongsToWorkspace(chat, workspaceId));
+    // Only direct chats
+    return all.filter((chat) => chat.type === 'direct');
+  }, [localChats, workspaceId]);
+
+  // ─── Compute display data for each DM ──────────────────────────────
+  const dmList = useMemo(() => {
+    return workspaceChats
+      .map((chat) => {
+        const otherParticipant = chat.participants?.find(
+          (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id
+        )?.user || null;
+        if (!otherParticipant) return null;
+        return {
+          chatId: chat._id,
+          otherUser: otherParticipant,
+          online: otherParticipant.online || false,
+          lastMessage: chat.lastMessage,
+          lastMessageAt: chat.lastMessageAt,
+          unreadCount: chat.unreadCount || 0,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
+  }, [workspaceChats, userInfo]);
+
+  // ─── Handle starting a new DM ──────────────────────────────────────
+  const handleStartDM = async (targetUserId) => {
+    if (targetUserId === userInfo?._id) {
+      toast.info("You can't message yourself");
+      return;
+    }
+    try {
+      // Check if a DM already exists
+      const existing = workspaceChats.find(
+        (chat) =>
+          chat.type === 'direct' &&
+          chat.participants.some((p) => p.user?._id === targetUserId || p.user === targetUserId)
+      );
+      if (existing) {
+        navigate(`/workspace/${workspaceId}/chat/${existing._id}`);
+        return;
+      }
+      const result = await createDirectChat({ workspaceId, targetUserId }).unwrap();
+      toast.success('Chat started!');
+      navigate(`/workspace/${workspaceId}/chat/${result.chat._id}`);
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to start chat');
+    }
+  };
+
+  // ─── Error / loading states ────────────────────────────────────────
   if (workspaceError) {
     navigate(`/workspace/${workspaceId}`);
     return null;
@@ -166,45 +322,10 @@ const YourWorkspaceDMs = () => {
   }
 
   const workspace = workspaceData?.workspace;
-  const members = workspace?.members || [];
-  const currentUserId = userInfo?._id;
-  const brandColor = workspace?.color || '#0d9488';
-
-  const filteredMembers = members.filter(m => {
-    const user = m.user || m;
-    return user._id !== currentUserId;
-  });
-
-  // Only chats that are actually workspace-scoped AND belong to this workspace.
-  // Guards against the API ever returning public/direct chats alongside workspace ones.
-  const workspaceChats = (chatsData?.chats || []).filter((chat) =>
-    belongsToWorkspace(chat, workspaceId)
-  );
-
-  const handleStartDM = async (targetUserId) => {
-    if (targetUserId === currentUserId) {
-      toast.info("You can't message yourself");
-      return;
-    }
-    try {
-      const existingChat = workspaceChats.find(
-        (chat) =>
-          chat.type === 'direct' &&
-          chat.participants.some((p) => p.user?._id === targetUserId || p.user === targetUserId)
-      );
-      if (existingChat) {
-        navigate(`/workspace/${workspaceId}/chat/${existingChat._id}`);
-        return;
-      }
-      const result = await createDirectChat({ workspaceId, targetUserId }).unwrap();
-      toast.success('Chat started!');
-      navigate(`/workspace/${workspaceId}/chat/${result.chat._id}`);
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to start chat');
-    }
-  };
-
   if (!workspace) return null;
+
+  const brandColor = workspace.color || '#0d9488';
+  const members = workspace.members || [];
 
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
@@ -215,7 +336,7 @@ const YourWorkspaceDMs = () => {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Fixed Header – glass */}
+        {/* Fixed Header */}
         <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
           <div className="flex items-center justify-between px-4 h-14">
             <div className="flex items-center gap-3">
@@ -225,57 +346,81 @@ const YourWorkspaceDMs = () => {
               >
                 <FaArrowLeft />
               </button>
-              <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Messages</h1>
+              <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Direct Messages</h1>
               <span className="text-xs font-normal text-gray-500 dark:text-gray-500 bg-gray-100 dark:bg-[#1a1a24] px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-800/40">
-                {filteredMembers.length}
+                {dmList.length}
               </span>
             </div>
-            <button
-              onClick={() => setSearchOpen(true)}
-              className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
-            >
-              <FaSearch className="text-sm" />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSearchOpen(true)}
+                className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
+                aria-label="New message"
+              >
+                <FaPlus className="text-sm" />
+              </button>
+            </div>
           </div>
         </header>
 
-        {/* Member List */}
+        {/* DM List */}
         <div className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12] divide-y divide-gray-100 dark:divide-gray-800/30">
-          {filteredMembers.length === 0 ? (
+          {dmList.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-gray-400 dark:text-gray-500">
               <FaComment className="text-4xl mb-2 opacity-30" />
-              <p className="text-sm">No members available to message</p>
+              <p className="text-sm">No direct messages yet</p>
+              <p className="text-xs mt-1 opacity-60">Start a conversation with a member</p>
             </div>
           ) : (
-            filteredMembers.map(member => {
-              const user = member.user || member;
-              const isOnline = member.status === 'active';
+            dmList.map((dm) => {
+              const { otherUser, online, lastMessage, lastMessageAt, chatId, unreadCount } = dm;
+              const lastMessageText = getLastMessagePreview(lastMessage);
+              const lastMessageTime = lastMessageAt
+                ? new Date(lastMessageAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : '';
+
               return (
                 <button
-                  key={user._id}
-                  onClick={() => handleStartDM(user._id)}
+                  key={chatId}
+                  onClick={() => navigate(`/workspace/${workspaceId}/chat/${chatId}`)}
                   className="flex items-center gap-3 w-full px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition group text-left"
                 >
                   <div className="relative flex-shrink-0">
-                    {user.profile ? (
-                      <img src={user.profile} alt={user.name} className="w-12 h-12 rounded-2xl object-cover" />
+                    {otherUser.profile ? (
+                      <img src={otherUser.profile} alt={otherUser.name} className="w-12 h-12 rounded-2xl object-cover" />
                     ) : (
                       <div
                         className="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-bold text-lg"
                         style={{ backgroundColor: brandColor }}
                       >
-                        {getInitials(user.name)}
+                        {getInitials(otherUser.name)}
                       </div>
                     )}
-                    {isOnline && (
+                    {online && (
                       <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white dark:border-[#0f0f12] group-hover:border-gray-50 dark:group-hover:border-[#1a1a24]" />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">
-                      {user.name}
-                    </p>
-                    <p className="text-sm text-gray-500 dark:text-gray-500">{isOnline ? 'Online' : 'Offline'}</p>
+                    <div className="flex items-center justify-between">
+                      <p className="font-semibold text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">
+                        {otherUser.name}
+                      </p>
+                      {lastMessageTime && (
+                        <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0 ml-2">
+                          {lastMessageTime}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between mt-0.5">
+                      <p className="text-sm text-gray-500 dark:text-gray-400 truncate flex-1">
+                        {lastMessageText}
+                      </p>
+                      {unreadCount > 0 && (
+                        <span className="ml-2 bg-teal-500 text-white text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0">
+                          {unreadCount}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </button>
               );
@@ -293,7 +438,7 @@ const YourWorkspaceDMs = () => {
         onClose={() => setSearchOpen(false)}
         members={members}
         brandColor={brandColor}
-        currentUserId={currentUserId}
+        currentUserId={userInfo?._id}
         onStartDM={handleStartDM}
       />
     </div>

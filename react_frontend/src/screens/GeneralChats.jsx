@@ -1,5 +1,5 @@
 // pages/GeneralChats.jsx
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -7,6 +7,7 @@ import {
   useSearchUsersQuery,
   useCreatePublicDirectChatMutation,
 } from '../slices/messagingApiSlice';
+import { useSocket } from '../components/SocketContext.jsx';
 import { toast } from 'react-hot-toast';
 import {
   FaComments,
@@ -58,7 +59,7 @@ const BottomSheet = ({ isOpen, onClose, children }) => {
   );
 };
 
-// ─── New Chat Content (Search Users + Create) ────────────────────
+// ─── New Chat Content ────────────────────────────────────────────
 const NewChatContent = ({ onClose, onSuccess }) => {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
@@ -88,7 +89,7 @@ const NewChatContent = ({ onClose, onSuccess }) => {
       toast.success('Chat started!');
       onSuccess(result.chat._id);
       onClose();
-      navigate(`/chats/${result.chat._id}`);  // 👈 navigate to /chats/:chatId
+      navigate(`/chats/${result.chat._id}`);
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to start chat.');
     } finally {
@@ -206,7 +207,6 @@ const NewChatContent = ({ onClose, onSuccess }) => {
 
 // ─── DM Item ─────────────────────────────────────────────────────
 const DirectChatItem = ({ chat, userId, onNavigate }) => {
-  // Find the other participant
   const otherParticipant = chat.participants?.find(
     (p) => p.user?._id !== userId && p.user !== userId
   );
@@ -282,26 +282,56 @@ const GeneralChats = () => {
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
   const userId = userInfo?._id;
+  const { socket, isConnected } = useSocket();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showNewChat, setShowNewChat] = useState(false);
 
+  // ─── 👇 The ONLY reliable fix: automatic polling ──────────────
   const {
     data: chatsData,
     isLoading: chatsLoading,
     refetch: refetchChats,
-  } = useGetUserChatsQuery({ archived: false });
+  } = useGetUserChatsQuery(
+    { archived: false },
+    {
+      pollingInterval: 3000, // ✅ Refreshes every 3 seconds
+      refetchOnFocus: true,   // ✅ Refetches when window regains focus
+      refetchOnReconnect: true, // ✅ Refetches when network reconnects
+    }
+  );
 
-  // ─── Filter: only public direct chats, deduplicate ──────────
+  // ─── Socket listeners (bonus – they'll make it instant when fixed) ──
+  useEffect(() => {
+    if (!socket || !isConnected) return;
+
+    const handleNewMessage = () => {
+      // Immediate refetch – but even if this fails, polling will catch it
+      refetchChats();
+    };
+
+    const handleMessageDeleted = () => {
+      refetchChats();
+    };
+
+    socket.on('new-message', handleNewMessage);
+    socket.on('message-deleted', handleMessageDeleted);
+
+    return () => {
+      socket.off('new-message', handleNewMessage);
+      socket.off('message-deleted', handleMessageDeleted);
+    };
+  }, [socket, isConnected, refetchChats]);
+
+  // ─── Filter, deduplicate, and sort ─────────────────────────────
   const filteredChats = useMemo(() => {
     if (!chatsData?.chats) return [];
 
-    // 1. Only public scope AND direct type
     let directChats = chatsData.chats.filter(
       (chat) => chat.scope === 'public' && chat.type === 'direct'
     );
 
-    // 2. Deduplicate: keep only the most recent per user pair
+    // Deduplicate per user pair (keep most recent)
     const directMap = new Map();
     for (const chat of directChats) {
       const other = chat.participants?.find(
@@ -321,7 +351,7 @@ const GeneralChats = () => {
     }
     let deduped = Array.from(directMap.values());
 
-    // 3. Apply search filter (by other user's name)
+    // Search filter
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim();
       deduped = deduped.filter((chat) => {
@@ -332,7 +362,7 @@ const GeneralChats = () => {
       });
     }
 
-    // 4. Sort by lastMessageAt descending
+    // Sort by lastMessageAt descending
     deduped.sort(
       (a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt)
     );
@@ -341,7 +371,7 @@ const GeneralChats = () => {
   }, [chatsData, searchQuery, userId]);
 
   const handleNavigate = (chatId) => {
-    navigate(`/chats/${chatId}`);  // 👈 navigate to /chats/:chatId
+    navigate(`/chats/${chatId}`);
   };
 
   const handleNewChatSuccess = () => {

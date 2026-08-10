@@ -65,7 +65,6 @@ const formatTime = (seconds) => {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
 
-const LOCK_THRESHOLD = 80;
 const SEEN_TICK_COLOR = '#34B7F1';
 
 const useMediaQuery = (query) => {
@@ -137,11 +136,12 @@ const AudioWaveform = ({ isOwn, isPlaying }) => (
   </div>
 );
 
-// ─── Message Ticks ──────────────────────────────────────────────────
+// ─── Message Ticks (updated) ─────────────────────────────────────
 const MessageTicks = ({ message, isOwn }) => {
   if (!isOwn) return null;
   if (message._pending) return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
   if (message._failed) return <FaTimes className="text-[10px] text-red-500" />;
+  if (!message._sent) return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
   if (!message._delivered && !message._read) return <FaCheck className="text-[10px] text-gray-400 dark:text-gray-500" />;
   if (message._delivered && !message._read) return (
     <span className="inline-flex items-center -space-x-[5px] text-gray-400 dark:text-gray-500">
@@ -438,6 +438,9 @@ const MediaMessage = ({
   };
   const swipeIconOpacity = Math.min(swipeX / 60, 1);
 
+  // Max width class based on mobile
+  const maxWidthClass = isMobile ? 'max-w-[75%]' : 'max-w-[85%]';
+
   // ─── Image messages ──────────────────────────────────────────────────
   if (message.messageType === 'image') {
     return (
@@ -459,7 +462,7 @@ const MediaMessage = ({
               )}
             </div>
           )}
-          <div className={`max-w-[85%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col`}>
+          <div className={`${maxWidthClass} ${isOwn ? 'items-end' : 'items-start'} flex flex-col`}>
             {!isOwn && (
               <button
                 onClick={(e) => {
@@ -562,7 +565,7 @@ const MediaMessage = ({
             )}
           </div>
         )}
-        <div className={`max-w-[85%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col gap-0.5`}>
+        <div className={`${maxWidthClass} ${isOwn ? 'items-end' : 'items-start'} flex flex-col gap-0.5`}>
           {!isOwn && (
             <button
               onClick={(e) => {
@@ -576,7 +579,7 @@ const MediaMessage = ({
             </button>
           )}
           <div
-            className={`px-4 py-2.5 rounded-2xl text-sm break-words ${
+            className={`px-4 py-2.5 rounded-2xl text-sm break-words w-full ${
               isOwn
                 ? 'text-white'
                 : 'bg-gray-100 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200'
@@ -1208,38 +1211,96 @@ const GeneralChannelId = () => {
     }
   }, [message]);
 
-  // ─── Message handling ──────────────────────────────────────────
+  // ─── Message handling (updated) ──────────────────────────────────
   const mergeMessagesIntoState = useCallback((incomingList) => {
     if (!incomingList || incomingList.length === 0) return;
     setLocalMessages((prev) => {
       let next = prev;
       let mutated = false;
-
       incomingList.forEach((incoming) => {
-        const existingRealIdx = next.findIndex((m) => m._id === incoming._id);
-        if (existingRealIdx > -1) {
+        // 1. Check if the message already exists by _id
+        const existingIdx = next.findIndex((m) => m._id === incoming._id);
+        if (existingIdx > -1) {
           if (!mutated) next = [...next];
           mutated = true;
-          next[existingRealIdx] = { ...next[existingRealIdx], ...incoming, _sent: true };
+          const existing = next[existingIdx];
+          const updated = {
+            ...incoming,
+            _sent: existing._sent || false,
+            _pending: existing._pending || false,
+            _failed: existing._failed || false,
+            _delivered: true,
+            _read: false,
+          };
+          const isOwn = incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
+          if (isOwn) {
+            // For own messages, check if anyone (other than self) has read it – in group chats we can check if readBy length > 1
+            // For simplicity, we'll mark as read if the readBy array has at least one other participant
+            const readByOthers = incoming.readBy?.filter(r => r.user !== userInfo?._id && r.user !== userInfo?._id);
+            if (readByOthers && readByOthers.length > 0) {
+              updated._read = true;
+            }
+          } else {
+            if (incoming.readBy?.some((r) => r.user === userInfo?._id || r.user?._id === userInfo?._id)) {
+              updated._read = true;
+            }
+          }
+          next[existingIdx] = updated;
           return;
         }
 
-        const isOwnMessage = incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
-        if (isOwnMessage) {
-          const tempIdx = next.findIndex((m) => m._temp && m.content === incoming.content);
+        // 2. For own messages, try to replace a temporary optimistic message
+        const isOwn = incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
+        if (isOwn) {
+          const tempIdx = next.findIndex((m) => 
+            m._temp && 
+            m.content === incoming.content && 
+            Math.abs(new Date(m.createdAt) - new Date(incoming.createdAt)) < 5000
+          );
           if (tempIdx > -1) {
             if (!mutated) next = [...next];
             mutated = true;
-            next[tempIdx] = { ...incoming, _temp: false, _pending: false, _failed: false, _sent: true };
+            const realMsg = {
+              ...incoming,
+              _sent: true,
+              _pending: false,
+              _failed: false,
+              _delivered: true,
+              _read: false,
+              _temp: false,
+            };
+            const readByOthers = incoming.readBy?.filter(r => r.user !== userInfo?._id && r.user !== userInfo?._id);
+            if (readByOthers && readByOthers.length > 0) {
+              realMsg._read = true;
+            }
+            next[tempIdx] = realMsg;
             return;
           }
         }
 
+        // 3. Completely new message
+        const msg = {
+          ...incoming,
+          _sent: true,
+          _pending: false,
+          _failed: false,
+          _delivered: true,
+          _read: false,
+        };
+        if (isOwn) {
+          const readByOthers = incoming.readBy?.filter(r => r.user !== userInfo?._id && r.user !== userInfo?._id);
+          if (readByOthers && readByOthers.length > 0) {
+            msg._read = true;
+          }
+        } else {
+          if (incoming.readBy?.some((r) => r.user === userInfo?._id || r.user?._id === userInfo?._id)) {
+            msg._read = true;
+          }
+        }
         if (!mutated) next = [...next];
         mutated = true;
-        next.push({ ...incoming, _sent: true });
+        next.push(msg);
       });
-
       return mutated ? next : prev;
     });
   }, [userInfo?._id]);
@@ -1253,7 +1314,7 @@ const GeneralChannelId = () => {
     }
   }, [messagesData, mergeMessagesIntoState, chatId]);
 
-  // ─── Socket handlers ──────────────────────────────────────────────
+  // ─── Socket handlers (updated with read receipts) ──────────────
   useEffect(() => {
     if (!socket || !isConnected || !chatId) return;
     socket.emit('join-chat', chatId);
@@ -1268,13 +1329,27 @@ const GeneralChannelId = () => {
       setLocalMessages((prev) => prev.filter((m) => m._id !== messageId));
     };
 
+    const handleMessageRead = ({ chatId: readChatId, messageId, readBy }) => {
+      if (readChatId !== chatId) return;
+      setLocalMessages((prev) =>
+        prev.map((msg) => {
+          if (msg._id === messageId) {
+            return { ...msg, _read: true };
+          }
+          return msg;
+        })
+      );
+    };
+
     socket.on('new-message', handleNewMessage);
     socket.on('message-deleted', handleMessageDeleted);
+    socket.on('message-read', handleMessageRead);
 
     return () => {
       socket.emit('leave-chat', chatId);
       socket.off('new-message', handleNewMessage);
       socket.off('message-deleted', handleMessageDeleted);
+      socket.off('message-read', handleMessageRead);
     };
   }, [socket, isConnected, chatId, mergeMessagesIntoState]);
 
@@ -1288,6 +1363,37 @@ const GeneralChannelId = () => {
     }, 3000);
     return () => clearInterval(interval);
   }, [chatId, refetchMessages, refetchChats, refetchJoinRequests, isAdmin]);
+
+  // ─── Mark message as read when visible ───────────────────────────
+  const markMessageAsRead = useCallback((messageId) => {
+    if (!socket || !isConnected) return;
+    const msg = localMessages.find((m) => m._id === messageId);
+    if (!msg || msg._read || msg.sender?._id === userInfo?._id) return;
+    socket.emit('mark-read', { chatId, messageIds: [messageId] });
+  }, [socket, isConnected, chatId, localMessages, userInfo]);
+
+  useEffect(() => {
+    if (!messagesContainerRef.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const messageId = entry.target.dataset.messageId;
+            if (messageId) {
+              const msg = localMessages.find((m) => m._id === messageId);
+              if (msg && !msg._read && msg.sender?._id !== userInfo?._id) {
+                markMessageAsRead(messageId);
+              }
+            }
+          }
+        });
+      },
+      { threshold: 0.5 }
+    );
+    const elements = messagesContainerRef.current.querySelectorAll('[data-message-id]');
+    elements.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [localMessages, markMessageAsRead, userInfo]);
 
   // ─── Handle media send ──────────────────────────────────────────
   const handleSendMedia = async (file) => {
@@ -1319,6 +1425,8 @@ const GeneralChannelId = () => {
       _pending: true,
       _sent: false,
       _failed: false,
+      _delivered: false,
+      _read: false,
       content: trimmed,
       sender: userInfo,
       createdAt: new Date().toISOString(),
@@ -1331,7 +1439,6 @@ const GeneralChannelId = () => {
     const replyToId = replyToMessage?._id || null;
     setReplyToMessage(null);
     
-    // Reset textarea height
     if (inputRef.current) {
       inputRef.current.style.height = 'auto';
     }
@@ -1408,12 +1515,9 @@ const GeneralChannelId = () => {
   const [recordingBlob, setRecordingBlob] = useState(null);
   const [recordingPaused, setRecordingPaused] = useState(false);
   const [showRecordedPreview, setShowRecordedPreview] = useState(false);
-  const [isLocked, setIsLocked] = useState(false);
-  const [swipeProgress, setSwipeProgress] = useState(0);
   const mediaRecorderRef = useRef(null);
   const recordingTimerRef = useRef(null);
   const audioChunksRef = useRef([]);
-  const touchStartYRef = useRef(0);
   const isRecordingRef = useRef(false);
 
   useEffect(() => {
@@ -1452,8 +1556,6 @@ const GeneralChannelId = () => {
         setShowRecordedPreview(true);
         stopTimer();
         setIsRecording(false);
-        setIsLocked(false);
-        setSwipeProgress(0);
         stream.getTracks().forEach(track => track.stop());
       };
       mediaRecorder.start();
@@ -1461,11 +1563,14 @@ const GeneralChannelId = () => {
       setRecordingPaused(false);
       setRecordingTime(0);
       setShowRecordedPreview(false);
-      setIsLocked(false);
-      setSwipeProgress(0);
       startTimer();
     } catch (err) {
-      toast.error('Microphone access denied');
+      console.error('Microphone error:', err);
+      let msg = 'Microphone access denied';
+      if (err.name === 'NotAllowedError') msg = 'Microphone permission denied. Please grant it in system settings.';
+      else if (err.name === 'NotFoundError') msg = 'No microphone found.';
+      else if (err.name === 'NotReadableError') msg = 'Microphone is busy or not available.';
+      toast.error(msg);
     }
   };
 
@@ -1484,17 +1589,19 @@ const GeneralChannelId = () => {
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop();
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+    }
   };
 
   const cancelRecording = () => {
-    if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop();
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+    }
     setRecordingBlob(null);
     setShowRecordedPreview(false);
     setRecordingTime(0);
     setIsRecording(false);
-    setIsLocked(false);
-    setSwipeProgress(0);
     stopTimer();
   };
 
@@ -1518,29 +1625,18 @@ const GeneralChannelId = () => {
     }
   };
 
+  // ─── Mic button handlers ────────────────────────────────────────
   const handleMicPointerDown = (e) => {
     if (message.trim()) return;
     e.currentTarget.setPointerCapture?.(e.pointerId);
-    touchStartYRef.current = e.clientY;
-    setSwipeProgress(0);
     startRecording();
-  };
-
-  const handleMicPointerMove = (e) => {
-    if (!isRecordingRef.current || isLocked) return;
-    const deltaY = touchStartYRef.current - e.clientY;
-    const progress = Math.min(Math.max(deltaY / LOCK_THRESHOLD, 0), 1);
-    setSwipeProgress(progress);
-    if (deltaY >= LOCK_THRESHOLD) {
-      setIsLocked(true);
-      setSwipeProgress(1);
-    }
   };
 
   const handleMicPointerUp = (e) => {
     e.currentTarget.releasePointerCapture?.(e.pointerId);
-    if (isLocked) return;
-    if (isRecordingRef.current) stopRecording();
+    if (isRecording && !recordingPaused) {
+      stopRecording();
+    }
   };
 
   // ─── Message action handlers ──────────────────────────────────
@@ -1696,30 +1792,24 @@ const GeneralChannelId = () => {
                   </div>
                 )}
 
-                {isRecording && !isLocked && (
-                  <div className="relative flex items-center justify-between px-3 py-2 mb-2 bg-red-50 dark:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-700/40">
-                    <span className="text-xs text-red-600 dark:text-red-300 flex items-center gap-2">
-                      <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" /> Recording... {formatTime(recordingTime)}
-                    </span>
-                    <span className="text-[10px] text-gray-500 dark:text-gray-400">Slide up to lock</span>
-                    <div className="absolute right-4 bottom-20 flex flex-col items-center">
-                      <FaLock className="text-xs" style={{ color: swipeProgress > 0.6 ? '#0d9488' : '#9CA3AF' }} />
-                      <FaChevronUp className="text-gray-300 dark:text-gray-500 text-xs" />
-                    </div>
-                  </div>
-                )}
-
-                {isRecording && isLocked && (
+                {isRecording && (
                   <div className="flex items-center justify-between px-3 py-2 mb-2 bg-red-50 dark:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-700/40">
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                      <span className="text-xs text-red-600 dark:text-red-300">{recordingPaused ? 'Paused' : 'Recording...'} {formatTime(recordingTime)}</span>
-                      <FaLock className="text-[10px]" style={{ color: '#0d9488' }} />
+                      <span className="text-xs text-red-600 dark:text-red-300">
+                        {recordingPaused ? 'Paused' : 'Recording...'} {formatTime(recordingTime)}
+                      </span>
                     </div>
                     <div className="flex gap-2">
-                      <button onClick={pauseRecording} className="text-xs text-red-600 dark:text-red-300 hover:text-red-700 dark:hover:text-red-200">{recordingPaused ? 'Resume' : 'Pause'}</button>
-                      <button onClick={cancelRecording} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white"><FaTrashAlt className="text-xs" /></button>
-                      <button onClick={stopRecording} className="bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition"><FaStop className="text-xs" /></button>
+                      <button onClick={pauseRecording} className="text-xs text-red-600 dark:text-red-300 hover:text-red-700 dark:hover:text-red-200">
+                        {recordingPaused ? 'Resume' : 'Pause'}
+                      </button>
+                      <button onClick={cancelRecording} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white">
+                        <FaTrashAlt className="text-xs" />
+                      </button>
+                      <button onClick={stopRecording} className="bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition">
+                        <FaStop className="text-xs" />
+                      </button>
                     </div>
                   </div>
                 )}
@@ -1735,12 +1825,13 @@ const GeneralChannelId = () => {
                     onChange={(e) => setMessage(e.target.value)} 
                     onPaste={handlePaste}
                     onKeyDown={(e) => {
+                      if (isMobile) return;
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
                         handleSendMessage(e);
                       }
                     }}
-                    placeholder="Type a message... (paste images)"
+                    placeholder="Message"
                     rows={1}
                     className="flex-1 min-w-0 px-4 py-2 border border-gray-300 dark:border-gray-700/60 rounded-2xl bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500 resize-none max-h-32 overflow-y-auto"
                     style={{ minHeight: '42px', lineHeight: '1.5' }}
@@ -1748,7 +1839,7 @@ const GeneralChannelId = () => {
                   {message.trim() ? (
                     <button type="submit" disabled={!isConnected} className="p-2 rounded-full text-white disabled:opacity-50 flex-shrink-0 transition hover:opacity-80 mb-1" style={{ backgroundColor: '#0d9488' }}><FaPaperPlane className="text-sm" /></button>
                   ) : (
-                    <button type="button" onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerUp} className="p-2 rounded-full text-white flex-shrink-0 transition hover:opacity-80 mb-1" style={{ backgroundColor: '#0d9488' }}><FaMicrophone className="text-sm" /></button>
+                    <button type="button" onPointerDown={handleMicPointerDown} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerUp} className="p-2 rounded-full text-white flex-shrink-0 transition hover:opacity-80 mb-1" style={{ backgroundColor: '#0d9488' }}><FaMicrophone className="text-sm" /></button>
                   )}
                 </form>
               </div>

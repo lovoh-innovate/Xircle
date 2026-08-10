@@ -132,11 +132,16 @@ export const updateOnlineStatus = async (req, res) => {
 // POST /api/messages/group
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CREATE GROUP CHAT (Workspace – Owner or Admin)
+// POST /api/messages/group
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const createGroupChat = async (req, res) => {
   console.log(`🔵 createGroupChat called by user ${req.user.id}`);
   try {
     const userId = req.user.id;
-    const { workspaceId, name, avatar } = req.body;
+    const { workspaceId, name, avatar, memberIds = [] } = req.body;
 
     if (!workspaceId || !name?.trim()) {
       return res
@@ -160,15 +165,56 @@ export const createGroupChat = async (req, res) => {
         .json({ message: "Only the workspace owner or admins can create group chats." });
     }
 
-    const activeMembers = workspace.members
-      .filter((m) => m.status === "active")
-      .map((m) => ({
-        user: m.user,
-        role: m.user.toString() === userId ? "admin" : "member",
+    // Build participants list: creator (admin) + selected members
+    const participants = [
+      {
+        user: userId,
+        role: 'admin',
         joinedAt: new Date(),
         online: false,
         lastSeen: new Date(),
-      }));
+      },
+    ];
+
+    // Get active workspace member IDs for validation
+    const activeMemberIds = workspace.members
+      .filter(m => m.status === 'active')
+      .map(m => m.user.toString());
+
+    // Add selected members (skip duplicates and the creator)
+    const addedUsers = [];
+    for (const mid of memberIds) {
+      if (activeMemberIds.includes(mid) && mid !== userId) {
+        // Avoid duplicates
+        if (!participants.some(p => p.user.toString() === mid)) {
+          participants.push({
+            user: mid,
+            role: 'member',
+            joinedAt: new Date(),
+            online: false,
+            lastSeen: new Date(),
+          });
+          addedUsers.push(mid);
+        }
+      }
+    }
+
+    // If no memberIds provided, fallback to adding all active members (like before)
+    if (memberIds.length === 0) {
+      for (const member of workspace.members) {
+        const mid = member.user.toString();
+        if (mid !== userId && member.status === 'active') {
+          participants.push({
+            user: mid,
+            role: 'member',
+            joinedAt: new Date(),
+            online: false,
+            lastSeen: new Date(),
+          });
+          addedUsers.push(mid);
+        }
+      }
+    }
 
     const chat = await Chat.create({
       workspace: workspaceId,
@@ -176,7 +222,7 @@ export const createGroupChat = async (req, res) => {
       scope: "workspace",
       name: name.trim(),
       avatar: avatar || null,
-      participants: activeMembers,
+      participants,
       createdBy: userId,
       lastMessageAt: new Date(),
       isPublic: false,
@@ -187,14 +233,12 @@ export const createGroupChat = async (req, res) => {
       .populate("participants.user", "name email profile username")
       .populate("createdBy", "name email profile username");
 
-    const memberIds = activeMembers
-      .filter(m => m.user.toString() !== userId)
-      .map(m => m.user.toString());
-    if (memberIds.length > 0) {
-      console.log(`📢 Notifying ${memberIds.length} members about new group chat`);
-      notifyUsers(memberIds, {
+    // Notify only the users who were actually added
+    if (addedUsers.length > 0) {
+      console.log(`📢 Notifying ${addedUsers.length} members about new group chat`);
+      notifyUsers(addedUsers, {
         title: `New group chat "${chat.name}"`,
-        body: `You were added to the group "${chat.name}" by the workspace owner/admin.`,
+        body: `You were added to the group "${chat.name}" by ${req.user.name || 'the workspace admin'}.`,
         data: { chatId: chat._id.toString(), workspaceId },
       });
     }

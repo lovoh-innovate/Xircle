@@ -33,6 +33,22 @@ export const useCallSocket = (callData) => {
   const [endCall] = useEndCallMutation();
   const [inviteToCall] = useInviteToCallMutation(); // ← new
 
+  // ── Release all media + peer connections (shared by hangUp and
+  // remote call-ended handling, so the mic is never left locked) ──
+  const releaseCallResources = useCallback(() => {
+    Object.values(peerConnections.current).forEach(pc => pc.close());
+    peerConnections.current = {};
+    connectedUsers.current.clear();
+
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => track.stop());
+      localStreamRef.current = null;
+      setLocalStream(null);
+    }
+
+    setRemoteStreams({});
+  }, []);
+
   // ── Get local media ──────────────────────────────────────────────
   const startLocalStream = useCallback(async (videoEnabled = true) => {
     try {
@@ -165,7 +181,10 @@ export const useCallSocket = (callData) => {
       }
     };
 
+    // ── Call ended from the other side (or server) — release media
+    // so the mic/camera isn't left locked at the OS/WebView level. ──
     const handleCallEnded = () => {
+      releaseCallResources();
       setCallStatus('ended');
     };
 
@@ -203,7 +222,7 @@ export const useCallSocket = (callData) => {
       socket.off('participant-left', handleParticipantLeft);
       socket.off('participant-joined', handleParticipantJoined);
     };
-  }, [socket, callData?.roomId, isConnected, createPeerConnection, addRemoteUser]);
+  }, [socket, callData?.roomId, isConnected, createPeerConnection, addRemoteUser, releaseCallResources]);
 
   // ── Call controls ────────────────────────────────────────────────
   const acceptCall = useCallback(async () => {
@@ -224,18 +243,11 @@ export const useCallSocket = (callData) => {
   }, [callData, rejectCall]);
 
   const hangUp = useCallback(async () => {
-    Object.values(peerConnections.current).forEach(pc => pc.close());
-    peerConnections.current = {};
-    connectedUsers.current.clear();
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(track => track.stop());
-      localStreamRef.current = null;
-      setLocalStream(null);
-    }
+    releaseCallResources();
     await endCall(callData.callId);
     socket.emit('leave-call', callData.roomId);
     setCallStatus('ended');
-  }, [callData, endCall, socket]);
+  }, [callData, endCall, socket, releaseCallResources]);
 
   const toggleMute = useCallback(() => {
     if (localStreamRef.current) {
@@ -272,11 +284,9 @@ export const useCallSocket = (callData) => {
   // ── Clean up on unmount ──────────────────────────────────────────
   useEffect(() => {
     return () => {
-      Object.values(peerConnections.current).forEach(pc => pc.close());
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach(track => track.stop());
-      }
+      releaseCallResources();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return {

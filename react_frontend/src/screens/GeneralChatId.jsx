@@ -1,7 +1,7 @@
 // pages/GeneralChatId.jsx
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { useSelector } from 'react-redux';
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { useSelector } from "react-redux";
 import {
   useGetChatMessagesQuery,
   useSendMessageMutation,
@@ -10,10 +10,10 @@ import {
   useUnarchiveMessageMutation,
   useStarMessageMutation,
   useUnstarMessageMutation,
-} from '../slices/messagingApiSlice';
-import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
-import { useSocket } from '../components/SocketContext.jsx';
-import { toast } from 'react-hot-toast';
+} from "../slices/messagingApiSlice";
+import { useGetUserChatsQuery } from "../slices/messagingApiSlice";
+import { useSocket } from "../components/SocketContext.jsx";
+import { toast } from "react-hot-toast";
 import {
   FaArrowLeft,
   FaPaperPlane,
@@ -45,18 +45,20 @@ import {
   FaInfoCircle,
   FaImage as FaImageIcon,
   FaTrashAlt as FaTrashIcon,
-} from 'react-icons/fa';
-import GeneralSidebar from '../components/GeneralSidebar';
+} from "react-icons/fa";
+import GeneralSidebar from "../components/GeneralSidebar";
+
+import { VoiceRecorder } from "capacitor-voice-recorder";
+import { Capacitor } from "@capacitor/core";
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 const formatTime = (seconds) => {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
 };
 
-const LOCK_THRESHOLD = 80;
-const SEEN_TICK_COLOR = '#34B7F1';
+const SEEN_TICK_COLOR = "#34B7F1";
 
 const useMediaQuery = (query) => {
   const [matches, setMatches] = useState(false);
@@ -64,8 +66,8 @@ const useMediaQuery = (query) => {
     const media = window.matchMedia(query);
     if (media.matches !== matches) setMatches(media.matches);
     const listener = () => setMatches(media.matches);
-    media.addEventListener('change', listener);
-    return () => media.removeEventListener('change', listener);
+    media.addEventListener("change", listener);
+    return () => media.removeEventListener("change", listener);
   }, [matches, query]);
   return matches;
 };
@@ -79,26 +81,47 @@ const formatDateDivider = (dateString) => {
   const isToday = date.toDateString() === today.toDateString();
   const isYesterday = date.toDateString() === yesterday.toDateString();
 
-  if (isToday) return 'Today';
-  if (isYesterday) return 'Yesterday';
-  return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  if (isToday) return "Today";
+  if (isYesterday) return "Yesterday";
+  return date.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
 };
 
 // ─── Confirm Modal ──────────────────────────────────────────────────
-const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, danger = false }) => {
+const ConfirmModal = ({
+  isOpen,
+  onClose,
+  onConfirm,
+  title,
+  message,
+  danger = false,
+}) => {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
       <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">{title}</h3>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{message}</p>
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">
+          {title}
+        </h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+          {message}
+        </p>
         <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+          <button
+            onClick={onClose}
+            className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+          >
             Cancel
           </button>
           <button
-            onClick={() => { onConfirm(); onClose(); }}
-            className={`flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80 ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-teal-600 hover:bg-teal-700'}`}
+            onClick={() => {
+              onConfirm();
+              onClose();
+            }}
+            className={`flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80 ${danger ? "bg-red-600 hover:bg-red-700" : "bg-teal-600 hover:bg-teal-700"}`}
           >
             Confirm
           </button>
@@ -109,7 +132,10 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, danger = fal
 };
 
 // ─── Audio waveform ──────────────────────────────────────────────────
-const WAVEFORM_BARS = [6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6, 10];
+const WAVEFORM_BARS = [
+  6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6,
+  10,
+];
 const AudioWaveform = ({ isOwn, isPlaying }) => (
   <div className="flex items-center gap-[2px] h-6 flex-1">
     {WAVEFORM_BARS.map((h, i) => (
@@ -118,7 +144,7 @@ const AudioWaveform = ({ isOwn, isPlaying }) => (
         className="w-[2.5px] rounded-full transition-opacity"
         style={{
           height: `${h * 2}px`,
-          backgroundColor: isOwn ? 'rgba(255,255,255,0.85)' : '#0d9488',
+          backgroundColor: isOwn ? "rgba(255,255,255,0.85)" : "#0d9488",
           opacity: isPlaying ? 1 : 0.55,
         }}
       />
@@ -129,15 +155,24 @@ const AudioWaveform = ({ isOwn, isPlaying }) => (
 // ─── Message Ticks ──────────────────────────────────────────────────
 const MessageTicks = ({ message, isOwn }) => {
   if (!isOwn) return null;
-  if (message._pending) return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
+  if (message._pending)
+    return (
+      <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />
+    );
   if (message._failed) return <FaTimes className="text-[10px] text-red-500" />;
-  if (!message._delivered && !message._read) return <FaCheck className="text-[10px] text-gray-400 dark:text-gray-500" />;
-  if (message._delivered && !message._read) return (
-    <span className="inline-flex items-center -space-x-[5px] text-gray-400 dark:text-gray-500">
-      <FaCheck className="text-[10px]" />
-      <FaCheck className="text-[10px]" />
-    </span>
-  );
+  if (!message._sent)
+    return (
+      <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />
+    );
+  if (!message._delivered && !message._read)
+    return <FaCheck className="text-[10px] text-gray-400 dark:text-gray-500" />;
+  if (message._delivered && !message._read)
+    return (
+      <span className="inline-flex items-center -space-x-[5px] text-gray-400 dark:text-gray-500">
+        <FaCheck className="text-[10px]" />
+        <FaCheck className="text-[10px]" />
+      </span>
+    );
   return (
     <span className="inline-flex items-center -space-x-[5px]">
       <FaCheck className="text-[10px]" style={{ color: SEEN_TICK_COLOR }} />
@@ -149,32 +184,42 @@ const MessageTicks = ({ message, isOwn }) => {
 // ─── Quoted Reply Block ────────────────────────────────────────────
 const QuotedReplyBlock = ({ replyData, isOwn, onJump }) => {
   if (!replyData) return null;
-  const name = replyData.senderName || 'Unknown';
+  const name = replyData.senderName || "Unknown";
   const text = replyData.content
     ? replyData.content
     : replyData.mediaName
-    ? `📎 ${replyData.mediaName}`
-    : replyData.messageType === 'image'
-    ? '📷 Photo'
-    : replyData.messageType === 'audio'
-    ? '🎤 Voice note'
-    : 'Media';
+      ? `📎 ${replyData.mediaName}`
+      : replyData.messageType === "image"
+        ? "📷 Photo"
+        : replyData.messageType === "audio"
+          ? "🎤 Voice note"
+          : "Media";
 
   return (
     <button
       type="button"
-      onClick={(e) => { e.stopPropagation(); onJump && onJump(replyData.id); }}
+      onClick={(e) => {
+        e.stopPropagation();
+        onJump && onJump(replyData.id);
+      }}
       className={`block w-full text-left mb-1.5 px-2.5 py-1.5 rounded-lg border-l-2 text-xs cursor-pointer transition ${
         isOwn
-          ? 'bg-black/10 border-white/60 hover:bg-black/20'
-          : 'bg-black/[0.04] dark:bg-white/[0.06] hover:bg-black/[0.07] dark:hover:bg-white/[0.1]'
+          ? "bg-black/10 border-white/60 hover:bg-black/20"
+          : "bg-black/[0.04] dark:bg-white/[0.06] hover:bg-black/[0.07] dark:hover:bg-white/[0.1]"
       }`}
-      style={!isOwn ? { borderLeftColor: '#0d9488' } : {}}
+      style={!isOwn ? { borderLeftColor: "#0d9488" } : {}}
     >
-      <p className={`font-semibold truncate ${isOwn ? 'text-white/90' : ''}`} style={isOwn ? {} : { color: '#0d9488' }}>
+      <p
+        className={`font-semibold truncate ${isOwn ? "text-white/90" : ""}`}
+        style={isOwn ? {} : { color: "#0d9488" }}
+      >
         {name}
       </p>
-      <p className={`truncate ${isOwn ? 'text-white/70' : 'text-gray-500 dark:text-gray-400'}`}>{text}</p>
+      <p
+        className={`truncate ${isOwn ? "text-white/70" : "text-gray-500 dark:text-gray-400"}`}
+      >
+        {text}
+      </p>
     </button>
   );
 };
@@ -189,7 +234,7 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor }) => {
       const reader = new FileReader();
       reader.onloadend = () => {
         setPreview(reader.result);
-        setType(mediaFile.type.startsWith('image/') ? 'image' : 'file');
+        setType(mediaFile.type.startsWith("image/") ? "image" : "file");
       };
       reader.readAsDataURL(mediaFile);
     }
@@ -200,8 +245,12 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor }) => {
   return (
     <div className="flex items-center gap-3 p-3 mb-2 bg-gray-50 dark:bg-gray-800/30 rounded-xl border border-gray-200 dark:border-gray-700/60">
       <div className="relative flex-shrink-0">
-        {type === 'image' ? (
-          <img src={preview} alt="Preview" className="w-16 h-16 rounded-lg object-cover" />
+        {type === "image" ? (
+          <img
+            src={preview}
+            alt="Preview"
+            className="w-16 h-16 rounded-lg object-cover"
+          />
         ) : (
           <div className="w-16 h-16 rounded-lg bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-2xl">
             📄
@@ -215,7 +264,9 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor }) => {
         </button>
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{mediaFile.name}</p>
+        <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+          {mediaFile.name}
+        </p>
         <p className="text-xs text-gray-500 dark:text-gray-400">
           {(mediaFile.size / 1024).toFixed(1)} KB
         </p>
@@ -223,7 +274,7 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor }) => {
       <button
         onClick={() => onSend(mediaFile)}
         className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition text-sm font-medium flex-shrink-0"
-        style={{ backgroundColor: brandColor || '#0d9488' }}
+        style={{ backgroundColor: brandColor || "#0d9488" }}
       >
         <FaPaperPlane className="inline mr-1 text-xs" /> Send
       </button>
@@ -251,7 +302,10 @@ const MediaMessage = ({
   onJumpToMessage,
   resolveSender,
 }) => {
-  const time = new Date(message.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  const time = new Date(message.createdAt).toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
   const [isPlaying, setIsPlaying] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const audioRef = useRef(null);
@@ -262,17 +316,19 @@ const MediaMessage = ({
   const swipeTriggered = useRef(false);
   const swipeActive = useRef(false);
 
-  const isArchived = message.archivedBy?.some(id => id === userId) || false;
-  const isStarred = message.starredBy?.some(id => id === userId) || false;
+  const isArchived = message.archivedBy?.some((id) => id === userId) || false;
+  const isStarred = message.starredBy?.some((id) => id === userId) || false;
 
   const replyPreview = (() => {
     const replyTo = message?.replyTo;
     if (!replyTo) return null;
-    if (typeof replyTo === 'object') {
-      const rSender = resolveSender ? resolveSender(replyTo.sender) : (replyTo.sender || {});
+    if (typeof replyTo === "object") {
+      const rSender = resolveSender
+        ? resolveSender(replyTo.sender)
+        : replyTo.sender || {};
       return {
         id: replyTo._id,
-        senderName: rSender?.name || replyTo.senderName || 'Unknown',
+        senderName: rSender?.name || replyTo.senderName || "Unknown",
         content: replyTo.content,
         mediaName: replyTo.mediaName,
         messageType: replyTo.messageType,
@@ -280,10 +336,12 @@ const MediaMessage = ({
     }
     const original = allMessages?.find((m) => m._id === replyTo);
     if (!original) return null;
-    const rSender = resolveSender ? resolveSender(original.sender) : (original.sender || {});
+    const rSender = resolveSender
+      ? resolveSender(original.sender)
+      : original.sender || {};
     return {
       id: original._id,
-      senderName: rSender?.name || 'Unknown',
+      senderName: rSender?.name || "Unknown",
       content: original.content,
       mediaName: original.mediaName,
       messageType: original.messageType,
@@ -344,23 +402,26 @@ const MediaMessage = ({
     }
   };
 
-  const toggleMenu = (e) => { e.stopPropagation(); setShowMenu(!showMenu); };
+  const toggleMenu = (e) => {
+    e.stopPropagation();
+    setShowMenu(!showMenu);
+  };
   const closeMenu = () => setShowMenu(false);
   const menuRef = useRef(null);
   useEffect(() => {
     const handler = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) closeMenu();
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
   }, []);
 
   const handleDownload = (e) => {
     e.stopPropagation();
     if (message.mediaUrl) {
-      const link = document.createElement('a');
+      const link = document.createElement("a");
       link.href = message.mediaUrl;
-      link.download = message.mediaName || 'file';
+      link.download = message.mediaName || "file";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -370,27 +431,46 @@ const MediaMessage = ({
   const renderMediaContent = () => {
     if (!message.mediaUrl) return null;
     switch (message.messageType) {
-      case 'image': return null;
-      case 'video':
-        return <video src={message.mediaUrl} controls className="max-w-full rounded-lg max-h-80" />;
-      case 'audio':
+      case "image":
+        return null;
+      case "video":
+        return (
+          <video
+            src={message.mediaUrl}
+            controls
+            className="max-w-full rounded-lg max-h-80"
+          />
+        );
+      case "audio":
         return (
           <div className="flex items-center gap-2.5 min-w-[220px] py-0.5">
             <button
               onClick={() => {
                 if (audioRef.current) {
-                  isPlaying ? audioRef.current.pause() : audioRef.current.play();
+                  isPlaying
+                    ? audioRef.current.pause()
+                    : audioRef.current.play();
                   setIsPlaying(!isPlaying);
                 }
               }}
               className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
-              style={{ backgroundColor: isOwn ? 'rgba(255,255,255,0.2)' : '#0d9488' }}
+              style={{
+                backgroundColor: isOwn ? "rgba(255,255,255,0.2)" : "#0d9488",
+              }}
             >
-              {isPlaying ? <FaPause className="text-xs text-white" /> : <FaPlay className="text-xs text-white ml-0.5" />}
+              {isPlaying ? (
+                <FaPause className="text-xs text-white" />
+              ) : (
+                <FaPlay className="text-xs text-white ml-0.5" />
+              )}
             </button>
             <AudioWaveform isOwn={isOwn} isPlaying={isPlaying} />
-            <span className={`text-[10px] flex-shrink-0 ${isOwn ? 'text-white/70' : 'text-gray-500 dark:text-gray-400'}`}>
-              {message.mediaDuration ? formatTime(message.mediaDuration) : '0:00'}
+            <span
+              className={`text-[10px] flex-shrink-0 ${isOwn ? "text-white/70" : "text-gray-500 dark:text-gray-400"}`}
+            >
+              {message.mediaDuration
+                ? formatTime(message.mediaDuration)
+                : "0:00"}
             </span>
             <audio
               ref={audioRef}
@@ -402,72 +482,125 @@ const MediaMessage = ({
             />
           </div>
         );
-      case 'file':
+      case "file":
         return (
           <div className="flex items-center gap-3 bg-gray-100 dark:bg-gray-800/60 rounded-lg p-3 min-w-[200px]">
-            <div className="w-10 h-10 rounded-lg bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-gray-600 dark:text-gray-300">📄</div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{message.mediaName || 'File'}</div>
-              <div className="text-xs text-gray-500 dark:text-gray-400">{message.mediaSize ? `${(message.mediaSize / 1024).toFixed(1)} KB` : 'File'}</div>
+            <div className="w-10 h-10 rounded-lg bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-gray-600 dark:text-gray-300">
+              📄
             </div>
-            <button onClick={handleDownload} className="text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition">
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+                {message.mediaName || "File"}
+              </div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">
+                {message.mediaSize
+                  ? `${(message.mediaSize / 1024).toFixed(1)} KB`
+                  : "File"}
+              </div>
+            </div>
+            <button
+              onClick={handleDownload}
+              className="text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition"
+            >
               <FaDownload className="text-sm" />
             </button>
           </div>
         );
-      default: return null;
+      default:
+        return null;
     }
   };
 
   const swipeStyle = {
     transform: `translateX(${swipeX}px)`,
-    transition: swipeX === 0 ? 'transform 0.2s ease' : 'none',
+    transition: swipeX === 0 ? "transform 0.2s ease" : "none",
   };
   const swipeIconOpacity = Math.min(swipeX / 60, 1);
 
+  const maxWidthClass = isMobile ? "max-w-[75%]" : "max-w-[85%]";
+
   // ─── Image messages ──────────────────────────────────────────────────
-  if (message.messageType === 'image') {
+  if (message.messageType === "image") {
     return (
-      <div data-message-id={message._id} className="relative" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} onTouchMove={handleTouchMove}>
+      <div
+        data-message-id={message._id}
+        className="relative"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onTouchMove={handleTouchMove}
+      >
         {isMobile && swipeX > 0 && (
-          <div className="absolute left-0 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" style={{ opacity: swipeIconOpacity }}>
+          <div
+            className="absolute left-0 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
+            style={{ opacity: swipeIconOpacity }}
+          >
             <FaReply className="text-sm" />
           </div>
         )}
-        <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`} style={isMobile ? swipeStyle : undefined}>
+        <div
+          className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
+          style={isMobile ? swipeStyle : undefined}
+        >
           {!isOwn && (
             <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
               {senderProfile ? (
-                <img src={senderProfile} alt={senderName} className="w-full h-full object-cover" />
+                <img
+                  src={senderProfile}
+                  alt={senderName}
+                  className="w-full h-full object-cover"
+                />
               ) : (
-                <div className="w-full h-full flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: '#0d9488' }}>
-                  {senderName?.charAt(0).toUpperCase() || '?'}
+                <div
+                  className="w-full h-full flex items-center justify-center text-white text-xs font-bold"
+                  style={{ backgroundColor: "#0d9488" }}
+                >
+                  {senderName?.charAt(0).toUpperCase() || "?"}
                 </div>
               )}
             </div>
           )}
-          <div className={`max-w-[85%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col`}>
-            {!isOwn && <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1 mb-0.5">{senderName}</span>}
+          <div
+            className={`${maxWidthClass} ${isOwn ? "items-end" : "items-start"} flex flex-col`}
+          >
+            {!isOwn && (
+              <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1 mb-0.5">
+                {senderName}
+              </span>
+            )}
             {replyPreview && (
               <div className="w-full mb-1">
-                <QuotedReplyBlock replyData={replyPreview} isOwn={isOwn} onJump={onJumpToMessage} />
+                <QuotedReplyBlock
+                  replyData={replyPreview}
+                  isOwn={isOwn}
+                  onJump={onJumpToMessage}
+                />
               </div>
             )}
             <div
               className="relative rounded-2xl overflow-hidden cursor-pointer group"
               onClick={() => {
                 if (message.mediaUrl) {
-                  onImageClick && onImageClick({ url: message.mediaUrl, senderName: isOwn ? 'You' : senderName, time });
+                  onImageClick &&
+                    onImageClick({
+                      url: message.mediaUrl,
+                      senderName: isOwn ? "You" : senderName,
+                      time,
+                    });
                 } else {
-                  toast.error('Image URL not available');
+                  toast.error("Image URL not available");
                 }
               }}
             >
               {message.mediaUrl ? (
-                <img src={message.mediaUrl} alt={message.mediaName || 'Image'} className="max-w-full max-h-80 object-cover w-full" />
+                <img
+                  src={message.mediaUrl}
+                  alt={message.mediaName || "Image"}
+                  className="max-w-full max-h-80 object-cover w-full"
+                />
               ) : (
                 <div className="w-full h-40 bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-gray-500 dark:text-gray-400">
-                  <FaExclamationTriangle className="text-2xl mr-2" /> Image unavailable
+                  <FaExclamationTriangle className="text-2xl mr-2" /> Image
+                  unavailable
                 </div>
               )}
               <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 text-[10px] text-white bg-black/50 px-2 py-0.5 rounded-full">
@@ -475,35 +608,77 @@ const MediaMessage = ({
                 <MessageTicks message={message} isOwn={isOwn} />
               </div>
               {!isMobile && (
-                <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition" ref={menuRef}>
-                  <button onClick={toggleMenu} className="text-white bg-black/40 p-1 rounded-full hover:bg-black/60">
+                <div
+                  className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition"
+                  ref={menuRef}
+                >
+                  <button
+                    onClick={toggleMenu}
+                    className="text-white bg-black/40 p-1 rounded-full hover:bg-black/60"
+                  >
                     <FaEllipsisV className="text-xs" />
                   </button>
                   {showMenu && (
                     <div className="absolute right-0 top-8 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[160px] z-10 py-1">
-                      <button onClick={() => { closeMenu(); onReply(message); }} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full">
+                      <button
+                        onClick={() => {
+                          closeMenu();
+                          onReply(message);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+                      >
                         <FaReply className="text-xs" /> Reply
                       </button>
                       {isOwn && (
-                        <button onClick={() => { closeMenu(); onDelete(message._id); }} className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full">
+                        <button
+                          onClick={() => {
+                            closeMenu();
+                            onDelete(message._id);
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full"
+                        >
                           <FaTrashAlt className="text-xs" /> Delete
                         </button>
                       )}
                       {isStarred ? (
-                        <button onClick={() => { closeMenu(); onUnstar(message._id); }} className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 rounded-lg transition w-full">
+                        <button
+                          onClick={() => {
+                            closeMenu();
+                            onUnstar(message._id);
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 rounded-lg transition w-full"
+                        >
                           <FaStar className="text-xs" /> Unstar
                         </button>
                       ) : (
-                        <button onClick={() => { closeMenu(); onStar(message._id); }} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full">
+                        <button
+                          onClick={() => {
+                            closeMenu();
+                            onStar(message._id);
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+                        >
                           <FaRegStar className="text-xs" /> Star
                         </button>
                       )}
                       {isArchived ? (
-                        <button onClick={() => { closeMenu(); onUnarchive(message._id); }} className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 rounded-lg transition w-full">
+                        <button
+                          onClick={() => {
+                            closeMenu();
+                            onUnarchive(message._id);
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 rounded-lg transition w-full"
+                        >
                           <FaUndo className="text-xs" /> Unarchive
                         </button>
                       ) : (
-                        <button onClick={() => { closeMenu(); onArchive(message._id); }} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full">
+                        <button
+                          onClick={() => {
+                            closeMenu();
+                            onArchive(message._id);
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+                        >
                           <FaArchive className="text-xs" /> Archive
                         </button>
                       )}
@@ -520,35 +695,66 @@ const MediaMessage = ({
 
   // ─── Text and other messages ──────────────────────────────────────
   return (
-    <div data-message-id={message._id} className="relative" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} onTouchMove={handleTouchMove}>
+    <div
+      data-message-id={message._id}
+      className="relative"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchMove={handleTouchMove}
+    >
       {isMobile && swipeX > 0 && (
-        <div className="absolute left-0 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" style={{ opacity: swipeIconOpacity }}>
+        <div
+          className="absolute left-0 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
+          style={{ opacity: swipeIconOpacity }}
+        >
           <FaReply className="text-sm" />
         </div>
       )}
-      <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`} style={isMobile ? swipeStyle : undefined}>
+      <div
+        className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
+        style={isMobile ? swipeStyle : undefined}
+      >
         {!isOwn && (
           <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
             {senderProfile ? (
-              <img src={senderProfile} alt={senderName} className="w-full h-full object-cover" />
+              <img
+                src={senderProfile}
+                alt={senderName}
+                className="w-full h-full object-cover"
+              />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: '#0d9488' }}>
-                {senderName?.charAt(0).toUpperCase() || '?'}
+              <div
+                className="w-full h-full flex items-center justify-center text-white text-xs font-bold"
+                style={{ backgroundColor: "#0d9488" }}
+              >
+                {senderName?.charAt(0).toUpperCase() || "?"}
               </div>
             )}
           </div>
         )}
-        <div className={`max-w-[85%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col gap-0.5`}>
-          {!isOwn && <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1">{senderName}</span>}
+        <div
+          className={`${maxWidthClass} ${isOwn ? "items-end" : "items-start"} flex flex-col gap-0.5`}
+        >
+          {!isOwn && (
+            <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1">
+              {senderName}
+            </span>
+          )}
           <div
-            className={`px-4 py-2.5 rounded-2xl text-sm break-words ${
+            className={`px-4 py-2.5 rounded-2xl text-sm break-words w-full ${
               isOwn
-                ? 'text-white'
-                : 'bg-gray-100 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200'
+                ? "text-white"
+                : "bg-gray-100 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200"
             }`}
-            style={isOwn ? { backgroundColor: '#0d9488' } : {}}
+            style={isOwn ? { backgroundColor: "#0d9488" } : {}}
           >
-            {replyPreview && <QuotedReplyBlock replyData={replyPreview} isOwn={isOwn} onJump={onJumpToMessage} />}
+            {replyPreview && (
+              <QuotedReplyBlock
+                replyData={replyPreview}
+                isOwn={isOwn}
+                onJump={onJumpToMessage}
+              />
+            )}
             {message.content && (
               <p className="mb-2 whitespace-pre-wrap break-words">
                 {message.content}
@@ -556,39 +762,80 @@ const MediaMessage = ({
             )}
             {renderMediaContent()}
           </div>
-          <div className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 ${isOwn ? 'flex-row-reverse' : ''}`}>
+          <div
+            className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 ${isOwn ? "flex-row-reverse" : ""}`}
+          >
             <span>{time}</span>
             <MessageTicks message={message} isOwn={isOwn} />
             {!isMobile && (
               <div className="relative ml-2" ref={menuRef}>
-                <button onClick={toggleMenu} className="text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition p-0.5">
+                <button
+                  onClick={toggleMenu}
+                  className="text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition p-0.5"
+                >
                   <FaEllipsisV className="text-xs" />
                 </button>
                 {showMenu && (
                   <div className="absolute right-0 bottom-6 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[160px] z-10 py-1">
-                    <button onClick={() => { closeMenu(); onReply(message); }} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full">
+                    <button
+                      onClick={() => {
+                        closeMenu();
+                        onReply(message);
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+                    >
                       <FaReply className="text-xs" /> Reply
                     </button>
                     {isOwn && (
-                      <button onClick={() => { closeMenu(); onDelete(message._id); }} className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full">
+                      <button
+                        onClick={() => {
+                          closeMenu();
+                          onDelete(message._id);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full"
+                      >
                         <FaTrashAlt className="text-xs" /> Delete
                       </button>
                     )}
                     {isStarred ? (
-                      <button onClick={() => { closeMenu(); onUnstar(message._id); }} className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 rounded-lg transition w-full">
+                      <button
+                        onClick={() => {
+                          closeMenu();
+                          onUnstar(message._id);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 rounded-lg transition w-full"
+                      >
                         <FaStar className="text-xs" /> Unstar
                       </button>
                     ) : (
-                      <button onClick={() => { closeMenu(); onStar(message._id); }} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full">
+                      <button
+                        onClick={() => {
+                          closeMenu();
+                          onStar(message._id);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+                      >
                         <FaRegStar className="text-xs" /> Star
                       </button>
                     )}
                     {isArchived ? (
-                      <button onClick={() => { closeMenu(); onUnarchive(message._id); }} className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 rounded-lg transition w-full">
+                      <button
+                        onClick={() => {
+                          closeMenu();
+                          onUnarchive(message._id);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 rounded-lg transition w-full"
+                      >
                         <FaUndo className="text-xs" /> Unarchive
                       </button>
                     ) : (
-                      <button onClick={() => { closeMenu(); onArchive(message._id); }} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full">
+                      <button
+                        onClick={() => {
+                          closeMenu();
+                          onArchive(message._id);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+                      >
                         <FaArchive className="text-xs" /> Archive
                       </button>
                     )}
@@ -606,16 +853,27 @@ const MediaMessage = ({
 // ─── Reply Preview Bar ────────────────────────────────────────────
 const ReplyPreview = ({ replyTo, onCancel, resolveSender }) => {
   if (!replyTo) return null;
-  const resolved = resolveSender ? resolveSender(replyTo.sender) : replyTo.sender;
-  const senderName = resolved?.name || 'Unknown';
-  const content = replyTo.content || (replyTo.mediaName ? `📎 ${replyTo.mediaName}` : 'Media');
+  const resolved = resolveSender
+    ? resolveSender(replyTo.sender)
+    : replyTo.sender;
+  const senderName = resolved?.name || "Unknown";
+  const content =
+    replyTo.content ||
+    (replyTo.mediaName ? `📎 ${replyTo.mediaName}` : "Media");
   return (
     <div className="flex items-center justify-between px-3 py-2 mb-2 bg-gray-100 dark:bg-gray-800/60 rounded-lg border-l-4 border-teal-500">
       <div className="flex-1 min-w-0">
-        <span className="text-xs font-semibold text-teal-600 dark:text-teal-400">Replying to {senderName}</span>
-        <p className="text-sm text-gray-700 dark:text-gray-300 truncate">{content}</p>
+        <span className="text-xs font-semibold text-teal-600 dark:text-teal-400">
+          Replying to {senderName}
+        </span>
+        <p className="text-sm text-gray-700 dark:text-gray-300 truncate">
+          {content}
+        </p>
       </div>
-      <button onClick={onCancel} className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition">
+      <button
+        onClick={onCancel}
+        className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition"
+      >
         <FaTimes className="text-sm" />
       </button>
     </div>
@@ -629,9 +887,9 @@ const ImagePreviewModal = ({ imageUrl, onClose, senderName, time }) => {
 
   const handleDownload = () => {
     if (imageUrl) {
-      const link = document.createElement('a');
+      const link = document.createElement("a");
       link.href = imageUrl;
-      link.download = 'image';
+      link.download = "image";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -644,19 +902,33 @@ const ImagePreviewModal = ({ imageUrl, onClose, senderName, time }) => {
   }, [imageUrl]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col" onClick={onClose}>
-      <div className="flex items-center justify-between px-4 py-3 bg-black/70 text-white flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 bg-black flex flex-col"
+      onClick={onClose}
+    >
+      <div
+        className="flex items-center justify-between px-4 py-3 bg-black/70 text-white flex-shrink-0"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center gap-3 min-w-0">
-          <button onClick={onClose} className="p-1 hover:bg-white/10 rounded-lg transition">
+          <button
+            onClick={onClose}
+            className="p-1 hover:bg-white/10 rounded-lg transition"
+          >
             <FaArrowLeft />
           </button>
           <div className="min-w-0">
-            <p className="text-sm font-medium truncate">{senderName || 'Photo'}</p>
+            <p className="text-sm font-medium truncate">
+              {senderName || "Photo"}
+            </p>
             {time && <p className="text-[11px] text-white/60">{time}</p>}
           </div>
         </div>
         {imageUrl && (
-          <button onClick={handleDownload} className="p-2 hover:bg-white/10 rounded-lg transition">
+          <button
+            onClick={handleDownload}
+            className="p-2 hover:bg-white/10 rounded-lg transition"
+          >
             <FaDownload />
           </button>
         )}
@@ -679,7 +951,10 @@ const ImagePreviewModal = ({ imageUrl, onClose, senderName, time }) => {
             alt="Preview"
             className="max-w-full max-h-full object-contain"
             onLoad={() => setLoading(false)}
-            onError={() => { setLoading(false); setImageError(true); }}
+            onError={() => {
+              setLoading(false);
+              setImageError(true);
+            }}
           />
         )}
       </div>
@@ -704,48 +979,108 @@ const MessageActionModal = ({
 }) => {
   if (!isOpen || !message) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 dark:bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white dark:bg-[#14141a] rounded-t-2xl w-full max-w-lg p-5" onClick={(e) => e.stopPropagation()} style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 dark:bg-black/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-[#14141a] rounded-t-2xl w-full max-w-lg p-5"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxHeight: "70vh", overflowY: "auto" }}
+      >
         <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-200 dark:border-gray-700/60">
           <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-500 dark:text-gray-400">
-            {message.messageType === 'image' ? <FaImage className="text-sm" /> : <FaComment className="text-sm" />}
+            {message.messageType === "image" ? (
+              <FaImage className="text-sm" />
+            ) : (
+              <FaComment className="text-sm" />
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
-              {message.content ? message.content.substring(0, 60) : (message.mediaName || 'Media')}
+              {message.content
+                ? message.content.substring(0, 60)
+                : message.mediaName || "Media"}
             </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">{new Date(message.createdAt).toLocaleString()}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              {new Date(message.createdAt).toLocaleString()}
+            </p>
           </div>
         </div>
         <div className="space-y-1">
-          <button onClick={() => { onReply(message); onClose(); }} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
-            <FaReply className="text-sm" /> <span className="text-sm font-medium">Reply</span>
+          <button
+            onClick={() => {
+              onReply(message);
+              onClose();
+            }}
+            className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+          >
+            <FaReply className="text-sm" />{" "}
+            <span className="text-sm font-medium">Reply</span>
           </button>
           {isOwn && (
-            <button onClick={() => { onDelete(message._id); onClose(); }} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition">
-              <FaTrashAlt className="text-sm" /> <span className="text-sm font-medium">Delete for everyone</span>
+            <button
+              onClick={() => {
+                onDelete(message._id);
+                onClose();
+              }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition"
+            >
+              <FaTrashAlt className="text-sm" />{" "}
+              <span className="text-sm font-medium">Delete for everyone</span>
             </button>
           )}
           {isStarred ? (
-            <button onClick={() => { onUnstar(message._id); onClose(); }} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 transition">
-              <FaStar className="text-sm" /> <span className="text-sm font-medium">Unstar</span>
+            <button
+              onClick={() => {
+                onUnstar(message._id);
+                onClose();
+              }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 transition"
+            >
+              <FaStar className="text-sm" />{" "}
+              <span className="text-sm font-medium">Unstar</span>
             </button>
           ) : (
-            <button onClick={() => { onStar(message._id); onClose(); }} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
-              <FaRegStar className="text-sm" /> <span className="text-sm font-medium">Star</span>
+            <button
+              onClick={() => {
+                onStar(message._id);
+                onClose();
+              }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+            >
+              <FaRegStar className="text-sm" />{" "}
+              <span className="text-sm font-medium">Star</span>
             </button>
           )}
           {isArchived ? (
-            <button onClick={() => { onUnarchive(message._id); onClose(); }} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition">
-              <FaUndo className="text-sm" /> <span className="text-sm font-medium">Unarchive</span>
+            <button
+              onClick={() => {
+                onUnarchive(message._id);
+                onClose();
+              }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition"
+            >
+              <FaUndo className="text-sm" />{" "}
+              <span className="text-sm font-medium">Unarchive</span>
             </button>
           ) : (
-            <button onClick={() => { onArchive(message._id); onClose(); }} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
-              <FaArchive className="text-sm" /> <span className="text-sm font-medium">Archive</span>
+            <button
+              onClick={() => {
+                onArchive(message._id);
+                onClose();
+              }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+            >
+              <FaArchive className="text-sm" />{" "}
+              <span className="text-sm font-medium">Archive</span>
             </button>
           )}
         </div>
-        <button onClick={onClose} className="w-full mt-3 py-3 text-center text-sm font-medium text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700/60 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">
+        <button
+          onClick={onClose}
+          className="w-full mt-3 py-3 text-center text-sm font-medium text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700/60 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/30 transition"
+        >
           Cancel
         </button>
       </div>
@@ -754,37 +1089,60 @@ const MessageActionModal = ({
 };
 
 // ─── Contact Info Panel (DM only) ──────────────────────────────────
-const ContactInfoPanel = ({ user, onClose }) => {
+const ContactInfoPanel = ({ user, onlineStatus, onClose }) => {
   return (
     <div className="h-full bg-white dark:bg-[#14141a] border-l border-gray-200 dark:border-gray-800/60 flex flex-col overflow-y-auto">
       <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800/60">
-        <h3 className="font-semibold text-gray-800 dark:text-gray-200">Contact Info</h3>
-        <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-lg transition"><FaTimes className="text-sm" /></button>
+        <h3 className="font-semibold text-gray-800 dark:text-gray-200">
+          Contact Info
+        </h3>
+        <button
+          onClick={onClose}
+          className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-lg transition"
+        >
+          <FaTimes className="text-sm" />
+        </button>
       </div>
       <div className="flex-1 p-4 space-y-4">
         <div className="flex items-center gap-4">
           {user?.profile ? (
-            <img src={user.profile} alt="" className="w-16 h-16 rounded-full object-cover border border-gray-200 dark:border-gray-700/60" />
+            <img
+              src={user.profile}
+              alt=""
+              className="w-16 h-16 rounded-full object-cover border border-gray-200 dark:border-gray-700/60"
+            />
           ) : (
             <div className="w-16 h-16 rounded-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center text-2xl font-bold text-gray-600 dark:text-gray-300">
-              {user?.name?.charAt(0).toUpperCase() || '?'}
+              {user?.name?.charAt(0).toUpperCase() || "?"}
             </div>
           )}
           <div>
-            <h4 className="text-lg font-bold text-gray-800 dark:text-gray-200">{user?.name || 'Unknown'}</h4>
-            <p className="text-sm text-gray-500 dark:text-gray-400">{user?.online ? '🟢 Online' : '⚫ Offline'}</p>
+            <h4 className="text-lg font-bold text-gray-800 dark:text-gray-200">
+              {user?.name || "Unknown"}
+            </h4>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              {onlineStatus ? "🟢 Online" : "⚫ Offline"}
+            </p>
           </div>
         </div>
         {user?.email && (
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Email</p>
-            <p className="text-sm text-gray-800 dark:text-gray-200">{user.email}</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              Email
+            </p>
+            <p className="text-sm text-gray-800 dark:text-gray-200">
+              {user.email}
+            </p>
           </div>
         )}
         {user?.username && (
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Username</p>
-            <p className="text-sm text-gray-800 dark:text-gray-200">@{user.username}</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              Username
+            </p>
+            <p className="text-sm text-gray-800 dark:text-gray-200">
+              @{user.username}
+            </p>
           </div>
         )}
       </div>
@@ -797,7 +1155,7 @@ const GeneralChatId = () => {
   const { chatId } = useParams();
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState("");
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const inputRef = useRef(null);
@@ -808,24 +1166,37 @@ const GeneralChatId = () => {
   const [localMessages, setLocalMessages] = useState([]);
   const [showDetails, setShowDetails] = useState(false);
   const [pendingMedia, setPendingMedia] = useState(null);
-  const isMobile = useMediaQuery('(max-width: 768px)');
+  const isMobile = useMediaQuery("(max-width: 768px)");
   const isDesktop = !isMobile;
 
   const { socket, isConnected } = useSocket();
 
-  const { data: chatListData, refetch: refetchChats } = useGetUserChatsQuery({ archived: false });
-  const chat = chatListData?.chats?.find(c => c._id === chatId);
-  
+  const { data: chatListData, refetch: refetchChats } = useGetUserChatsQuery({
+    archived: false,
+  });
+  const chat = chatListData?.chats?.find((c) => c._id === chatId);
+
   useEffect(() => {
-    if (chat && (chat.type !== 'direct' || chat.scope !== 'public')) {
-      navigate('/chat');
+    if (chat && (chat.type !== "direct" || chat.scope !== "public")) {
+      navigate("/chat");
     }
   }, [chat, navigate]);
 
-  const otherParticipant = chat?.participants?.find(p => p.user?._id !== userInfo?._id && p.user !== userInfo?._id)?.user || null;
-  const displayName = otherParticipant?.name || 'Unknown';
+  const otherParticipant =
+    chat?.participants?.find(
+      (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id,
+    )?.user || null;
+  const displayName = otherParticipant?.name || "Unknown";
   const displayAvatar = otherParticipant?.profile || null;
-  const isOnline = otherParticipant?.online || false;
+  const [otherUserOnline, setOtherUserOnline] = useState(
+    otherParticipant?.online || false,
+  );
+
+  useEffect(() => {
+    if (otherParticipant) {
+      setOtherUserOnline(otherParticipant.online || false);
+    }
+  }, [otherParticipant]);
 
   // ─── Build user map for sender resolution ──────────────────────────
   const userMapRef = useRef(new Map());
@@ -837,22 +1208,34 @@ const GeneralChatId = () => {
   }, [otherParticipant, userInfo]);
 
   const resolveSender = useCallback((senderField) => {
-    if (!senderField) return { name: 'Unknown', profile: null };
-    if (typeof senderField === 'string') {
+    if (!senderField) return { name: "Unknown", profile: null };
+    if (typeof senderField === "string") {
       const found = userMapRef.current.get(senderField);
-      return found ? found : { _id: senderField, name: 'Unknown', profile: null };
+      return found
+        ? found
+        : { _id: senderField, name: "Unknown", profile: null };
     }
     if (senderField.name) return senderField;
-    const found = senderField._id ? userMapRef.current.get(senderField._id) : null;
+    const found = senderField._id
+      ? userMapRef.current.get(senderField._id)
+      : null;
     if (found) {
-      return { ...senderField, name: found.name, profile: found.profile ?? senderField.profile };
+      return {
+        ...senderField,
+        name: found.name,
+        profile: found.profile ?? senderField.profile,
+      };
     }
-    return { ...senderField, name: senderField.name || 'Unknown' };
+    return { ...senderField, name: senderField.name || "Unknown" };
   }, []);
 
-  const { data: messagesData, isLoading: messagesLoading, refetch: refetchMessages } = useGetChatMessagesQuery(
+  const {
+    data: messagesData,
+    isLoading: messagesLoading,
+    refetch: refetchMessages,
+  } = useGetChatMessagesQuery(
     { chatId, page: 1, limit: 50 },
-    { skip: !chatId }
+    { skip: !chatId },
   );
   const [sendMessageApi] = useSendMessageMutation();
   const [deleteMessageApi] = useDeleteMessageMutation();
@@ -861,8 +1244,17 @@ const GeneralChatId = () => {
   const [starMessage] = useStarMessageMutation();
   const [unstarMessage] = useUnstarMessageMutation();
 
-  const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {}, danger: false });
-  const [actionModal, setActionModal] = useState({ isOpen: false, message: null });
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+    danger: false,
+  });
+  const [actionModal, setActionModal] = useState({
+    isOpen: false,
+    message: null,
+  });
 
   // ─── Reset state when chatId changes ──────────────────────────────
   useEffect(() => {
@@ -886,19 +1278,20 @@ const GeneralChatId = () => {
     const el = messagesContainerRef.current;
     if (!el) return;
     const threshold = 50;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    const atBottom =
+      el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
     setIsAtBottom(atBottom);
     if (atBottom) setShowScrollDown(false);
   };
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     setShowScrollDown(false);
   };
 
   useEffect(() => {
     if (isAtBottom) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     } else {
       setShowScrollDown(true);
     }
@@ -907,50 +1300,145 @@ const GeneralChatId = () => {
   // ─── Auto-resize textarea ──────────────────────────────────────────
   useEffect(() => {
     if (inputRef.current) {
-      inputRef.current.style.height = 'auto';
-      inputRef.current.style.height = inputRef.current.scrollHeight + 'px';
+      inputRef.current.style.height = "auto";
+      inputRef.current.style.height = inputRef.current.scrollHeight + "px";
     }
   }, [message]);
 
   // ─── Message handling ──────────────────────────────────────────
-  const mergeMessagesIntoState = useCallback((incomingList) => {
-    if (!incomingList || incomingList.length === 0) return;
-    setLocalMessages((prev) => {
-      let next = prev;
-      let mutated = false;
-      incomingList.forEach((incoming) => {
-        const existingRealIdx = next.findIndex((m) => m._id === incoming._id);
-        if (existingRealIdx > -1) {
-          if (!mutated) next = [...next];
-          mutated = true;
-          next[existingRealIdx] = { ...next[existingRealIdx], ...incoming, _sent: true };
-          return;
-        }
-        const isOwnMessage = incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
-        if (isOwnMessage) {
-          const tempIdx = next.findIndex((m) => m._temp && m.content === incoming.content);
-          if (tempIdx > -1) {
+  const mergeMessagesIntoState = useCallback(
+    (incomingList) => {
+      if (!incomingList || incomingList.length === 0) return;
+      setLocalMessages((prev) => {
+        let next = prev;
+        let mutated = false;
+        incomingList.forEach((incoming) => {
+          // 1. Check if the message already exists by _id
+          const existingIdx = next.findIndex((m) => m._id === incoming._id);
+          if (existingIdx > -1) {
             if (!mutated) next = [...next];
             mutated = true;
-            next[tempIdx] = { ...incoming, _temp: false, _pending: false, _failed: false, _sent: true };
+            const existing = next[existingIdx];
+            const updated = {
+              ...incoming,
+              _sent: existing._sent || false,
+              _pending: existing._pending || false,
+              _failed: existing._failed || false,
+              _delivered: true,
+              _read: false,
+            };
+            const isOwn =
+              incoming.sender?._id === userInfo?._id ||
+              incoming.sender === userInfo?._id;
+            if (isOwn) {
+              const otherId = otherParticipant?._id;
+              if (
+                otherId &&
+                incoming.readBy?.some(
+                  (r) => r.user === otherId || r.user?._id === otherId,
+                )
+              ) {
+                updated._read = true;
+              }
+            } else {
+              if (
+                incoming.readBy?.some(
+                  (r) =>
+                    r.user === userInfo?._id || r.user?._id === userInfo?._id,
+                )
+              ) {
+                updated._read = true;
+              }
+            }
+            next[existingIdx] = updated;
             return;
           }
-        }
-        if (!mutated) next = [...next];
-        mutated = true;
-        next.push({ ...incoming, _sent: true });
+
+          // 2. For own messages, try to replace a temporary optimistic message
+          const isOwn =
+            incoming.sender?._id === userInfo?._id ||
+            incoming.sender === userInfo?._id;
+          if (isOwn) {
+            // Look for a temp message with same content and created within last 5 seconds
+            const tempIdx = next.findIndex(
+              (m) =>
+                m._temp &&
+                m.content === incoming.content &&
+                Math.abs(new Date(m.createdAt) - new Date(incoming.createdAt)) <
+                  5000,
+            );
+            if (tempIdx > -1) {
+              if (!mutated) next = [...next];
+              mutated = true;
+              // Replace the temp with the real incoming message
+              const realMsg = {
+                ...incoming,
+                _sent: true,
+                _pending: false,
+                _failed: false,
+                _delivered: true,
+                _read: false,
+                _temp: false,
+              };
+              const otherId = otherParticipant?._id;
+              if (
+                otherId &&
+                incoming.readBy?.some(
+                  (r) => r.user === otherId || r.user?._id === otherId,
+                )
+              ) {
+                realMsg._read = true;
+              }
+              next[tempIdx] = realMsg;
+              return;
+            }
+          }
+
+          // 3. It's a completely new message (from the other user or we didn't have a temp)
+          const msg = {
+            ...incoming,
+            _sent: true,
+            _pending: false,
+            _failed: false,
+            _delivered: true,
+            _read: false,
+          };
+          if (isOwn) {
+            const otherId = otherParticipant?._id;
+            if (
+              otherId &&
+              incoming.readBy?.some(
+                (r) => r.user === otherId || r.user?._id === otherId,
+              )
+            ) {
+              msg._read = true;
+            }
+          } else {
+            if (
+              incoming.readBy?.some(
+                (r) =>
+                  r.user === userInfo?._id || r.user?._id === userInfo?._id,
+              )
+            ) {
+              msg._read = true;
+            }
+          }
+          if (!mutated) next = [...next];
+          mutated = true;
+          next.push(msg);
+        });
+        return mutated ? next : prev;
       });
-      return mutated ? next : prev;
-    });
-  }, [userInfo?._id]);
+    },
+    [userInfo?._id, otherParticipant?._id],
+  );
 
   useEffect(() => {
     if (messagesData?.messages && messagesData.messages.length > 0) {
       const firstMsg = messagesData.messages[0];
-      const msgChatId = typeof firstMsg.chat === 'string' ? firstMsg.chat : firstMsg.chat?._id;
-      if (msgChatId && msgChatId !== chatId) {
-        return;
-      }
+      const msgChatId =
+        typeof firstMsg.chat === "string" ? firstMsg.chat : firstMsg.chat?._id;
+      if (msgChatId && msgChatId !== chatId) return;
       mergeMessagesIntoState(messagesData.messages);
     }
   }, [messagesData, mergeMessagesIntoState, chatId]);
@@ -958,10 +1446,11 @@ const GeneralChatId = () => {
   // ─── Socket handlers ──────────────────────────────────────────────
   useEffect(() => {
     if (!socket || !isConnected || !chatId) return;
-    socket.emit('join-chat', chatId);
+    socket.emit("join-chat", chatId);
 
     const handleNewMessage = (incoming) => {
-      const incomingChatId = typeof incoming.chat === 'string' ? incoming.chat : incoming.chat?._id;
+      const incomingChatId =
+        typeof incoming.chat === "string" ? incoming.chat : incoming.chat?._id;
       if (incomingChatId && incomingChatId !== chatId) return;
       mergeMessagesIntoState([incoming]);
     };
@@ -970,15 +1459,48 @@ const GeneralChatId = () => {
       setLocalMessages((prev) => prev.filter((m) => m._id !== messageId));
     };
 
-    socket.on('new-message', handleNewMessage);
-    socket.on('message-deleted', handleMessageDeleted);
+    const handleMessageRead = ({ chatId: readChatId, messageId, readBy }) => {
+      if (readChatId !== chatId) return;
+      setLocalMessages((prev) =>
+        prev.map((msg) => {
+          if (msg._id === messageId) {
+            return { ...msg, _read: true };
+          }
+          return msg;
+        }),
+      );
+    };
+
+    const handleUserStatusChange = ({
+      userId,
+      online,
+      chatId: statusChatId,
+    }) => {
+      if (statusChatId !== chatId) return;
+      if (userId === otherParticipant?._id) {
+        setOtherUserOnline(online);
+      }
+    };
+
+    socket.on("new-message", handleNewMessage);
+    socket.on("message-deleted", handleMessageDeleted);
+    socket.on("message-read", handleMessageRead);
+    socket.on("user-status-changed", handleUserStatusChange);
 
     return () => {
-      socket.emit('leave-chat', chatId);
-      socket.off('new-message', handleNewMessage);
-      socket.off('message-deleted', handleMessageDeleted);
+      socket.emit("leave-chat", chatId);
+      socket.off("new-message", handleNewMessage);
+      socket.off("message-deleted", handleMessageDeleted);
+      socket.off("message-read", handleMessageRead);
+      socket.off("user-status-changed", handleUserStatusChange);
     };
-  }, [socket, isConnected, chatId, mergeMessagesIntoState]);
+  }, [
+    socket,
+    isConnected,
+    chatId,
+    mergeMessagesIntoState,
+    otherParticipant?._id,
+  ]);
 
   // ─── Auto-refresh polling ──────────────────────────────────────
   useEffect(() => {
@@ -990,21 +1512,61 @@ const GeneralChatId = () => {
     return () => clearInterval(interval);
   }, [chatId, refetchMessages, refetchChats]);
 
+  // ─── Mark message as read when visible ───────────────────────────
+  const markMessageAsRead = useCallback(
+    (messageId) => {
+      if (!socket || !isConnected) return;
+      const msg = localMessages.find((m) => m._id === messageId);
+      if (!msg || msg._read || msg.sender?._id === userInfo?._id) return;
+      socket.emit("mark-read", { chatId, messageIds: [messageId] });
+    },
+    [socket, isConnected, chatId, localMessages, userInfo],
+  );
+
+  useEffect(() => {
+    if (!messagesContainerRef.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const messageId = entry.target.dataset.messageId;
+            if (messageId) {
+              const msg = localMessages.find((m) => m._id === messageId);
+              if (msg && !msg._read && msg.sender?._id !== userInfo?._id) {
+                markMessageAsRead(messageId);
+              }
+            }
+          }
+        });
+      },
+      { threshold: 0.5 },
+    );
+    const elements =
+      messagesContainerRef.current.querySelectorAll("[data-message-id]");
+    elements.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [localMessages, markMessageAsRead, userInfo]);
+
   // ─── Handle media send ──────────────────────────────────────────
   const handleSendMedia = async (file) => {
     if (!file) return;
     const formData = new FormData();
-    formData.append('media', file);
-    formData.append('messageType', file.type.startsWith('image/') ? 'image' : 'file');
-    if (replyToMessage) formData.append('replyToId', replyToMessage._id);
-    
+    formData.append("media", file);
+    formData.append(
+      "messageType",
+      file.type.startsWith("image/") ? "image" : "file",
+    );
+    if (replyToMessage) formData.append("replyToId", replyToMessage._id);
+
     try {
       await sendMessageApi({ chatId, data: formData }).unwrap();
-      toast.success(`${file.type.startsWith('image/') ? 'Image' : 'File'} sent!`);
+      toast.success(
+        `${file.type.startsWith("image/") ? "Image" : "File"} sent!`,
+      );
       setReplyToMessage(null);
       setPendingMedia(null);
     } catch (err) {
-      toast.error(err?.data?.message || 'Failed to send media');
+      toast.error(err?.data?.message || "Failed to send media");
     }
   };
 
@@ -1020,42 +1582,64 @@ const GeneralChatId = () => {
       _pending: true,
       _sent: false,
       _failed: false,
+      _delivered: false,
+      _read: false,
       content: trimmed,
       sender: userInfo,
       createdAt: new Date().toISOString(),
-      messageType: 'text',
+      messageType: "text",
       chat: chatId,
-      replyTo: replyToMessage ? { _id: replyToMessage._id, sender: replyToMessage.sender, content: replyToMessage.content, mediaName: replyToMessage.mediaName, messageType: replyToMessage.messageType } : null,
+      replyTo: replyToMessage
+        ? {
+            _id: replyToMessage._id,
+            sender: replyToMessage.sender,
+            content: replyToMessage.content,
+            mediaName: replyToMessage.mediaName,
+            messageType: replyToMessage.messageType,
+          }
+        : null,
     };
     setLocalMessages((prev) => [...prev, optimisticMsg]);
-    setMessage('');
+    setMessage("");
     const replyToId = replyToMessage?._id || null;
     setReplyToMessage(null);
-    
-    // Reset textarea height
+
     if (inputRef.current) {
-      inputRef.current.style.height = 'auto';
+      inputRef.current.style.height = "auto";
     }
-    
-    socket.emit('send-message', {
-      chatId,
-      content: trimmed,
-      messageType: 'text',
-      mentions: [],
-      replyToId,
-    }, (response) => {
-      if (response?.error) {
-        setLocalMessages((prev) => prev.map((m) => m._id === tempId ? { ...m, _pending: false, _failed: true } : m));
-        toast.error(response.error);
-      } else {
-        setLocalMessages((prev) => prev.map((m) => m._id === tempId ? { ...m, _pending: false, _sent: true } : m));
-      }
-    });
+
+    socket.emit(
+      "send-message",
+      {
+        chatId,
+        content: trimmed,
+        messageType: "text",
+        mentions: [],
+        replyToId,
+      },
+      (response) => {
+        if (response?.error) {
+          setLocalMessages((prev) =>
+            prev.map((m) =>
+              m._id === tempId ? { ...m, _pending: false, _failed: true } : m,
+            ),
+          );
+          toast.error(response.error);
+        } else {
+          // The server has accepted the message – mark as sent (still waiting for broadcast to mark delivered)
+          setLocalMessages((prev) =>
+            prev.map((m) =>
+              m._id === tempId ? { ...m, _pending: false, _sent: true } : m,
+            ),
+          );
+        }
+      },
+    );
   };
 
   // ─── File / image ──────────────────────────────────────────────
   const handleFileUpload = (type) => {
-    if (type === 'file') fileInputRef.current?.click();
+    if (type === "file") fileInputRef.current?.click();
     else imageInputRef.current?.click();
   };
 
@@ -1063,21 +1647,21 @@ const GeneralChatId = () => {
     const file = e.target.files[0];
     if (!file) return;
     setPendingMedia(file);
-    e.target.value = '';
+    e.target.value = "";
   };
 
   // ─── Handle paste ──────────────────────────────────────────────────
   const handlePaste = (e) => {
     const items = e.clipboardData?.items;
     if (!items) return;
-    
+
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
-      if (item.type.startsWith('image/')) {
+      if (item.type.startsWith("image/")) {
         const file = item.getAsFile();
         if (file) {
           setPendingMedia(file);
-          toast.info('Image pasted! Click send to upload.');
+          toast.info("Image pasted! Click send to upload.");
           e.preventDefault();
           break;
         }
@@ -1091,12 +1675,9 @@ const GeneralChatId = () => {
   const [recordingBlob, setRecordingBlob] = useState(null);
   const [recordingPaused, setRecordingPaused] = useState(false);
   const [showRecordedPreview, setShowRecordedPreview] = useState(false);
-  const [isLocked, setIsLocked] = useState(false);
-  const [swipeProgress, setSwipeProgress] = useState(0);
   const mediaRecorderRef = useRef(null);
   const recordingTimerRef = useRef(null);
   const audioChunksRef = useRef([]);
-  const touchStartYRef = useRef(0);
   const isRecordingRef = useRef(false);
 
   useEffect(() => {
@@ -1105,14 +1686,18 @@ const GeneralChatId = () => {
 
   useEffect(() => {
     return () => {
-      if (mediaRecorderRef.current && isRecordingRef.current) mediaRecorderRef.current.stop();
+      if (mediaRecorderRef.current && isRecordingRef.current)
+        mediaRecorderRef.current.stop();
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
     };
   }, []);
 
   const startTimer = () => {
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-    recordingTimerRef.current = setInterval(() => setRecordingTime(prev => prev + 1), 1000);
+    recordingTimerRef.current = setInterval(
+      () => setRecordingTime((prev) => prev + 1),
+      1000,
+    );
   };
 
   const stopTimer = () => {
@@ -1124,31 +1709,83 @@ const GeneralChatId = () => {
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (isRecordingRef.current) return;
+
+      if (Capacitor.isNativePlatform()) {
+        const { value: hasPermission } =
+          await VoiceRecorder.hasAudioRecordingPermission();
+        if (!hasPermission) {
+          const { value: granted } =
+            await VoiceRecorder.requestAudioRecordingPermission();
+          if (!granted) {
+            toast.error(
+              "Microphone permission is required to record voice notes.",
+            );
+            return;
+          }
+        }
+      }
+
+      // Force-release any lingering mic stream before requesting a new one
+      if (mediaRecorderRef.current) {
+        try {
+          mediaRecorderRef.current.stream?.getTracks().forEach((t) => t.stop());
+        } catch (_) {}
+        mediaRecorderRef.current = null;
+      }
+
+      const getStream = () =>
+        navigator.mediaDevices.getUserMedia({ audio: true });
+
+      let stream;
+      try {
+        stream = await getStream();
+      } catch (err) {
+        if (err.name === "NotReadableError") {
+          // Mic busy — wait a beat for the OS to release it, then retry once
+          await new Promise((res) => setTimeout(res, 500));
+          stream = await getStream();
+        } else {
+          throw err;
+        }
+      }
+
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
-      mediaRecorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunksRef.current.push(event.data); };
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: "audio/webm",
+        });
         setRecordingBlob(audioBlob);
         setShowRecordedPreview(true);
         stopTimer();
         setIsRecording(false);
-        setIsLocked(false);
-        setSwipeProgress(0);
-        stream.getTracks().forEach(track => track.stop());
+        stream.getTracks().forEach((track) => track.stop());
+        mediaRecorderRef.current = null;
       };
       mediaRecorder.start();
       setIsRecording(true);
       setRecordingPaused(false);
       setRecordingTime(0);
       setShowRecordedPreview(false);
-      setIsLocked(false);
-      setSwipeProgress(0);
       startTimer();
     } catch (err) {
-      toast.error('Microphone access denied');
+      console.error("Microphone error:", err);
+      let msg = "Microphone access denied";
+      if (err.name === "NotAllowedError")
+        msg =
+          "Microphone permission denied. Please grant it in system settings.";
+      else if (err.name === "NotFoundError") msg = "No microphone found.";
+      else if (err.name === "NotReadableError")
+        msg = "Microphone busy — please try again.";
+      else if (err.name === "AbortError")
+        msg = "User canceled the permission prompt.";
+      toast.error(msg);
+      mediaRecorderRef.current = null;
     }
   };
 
@@ -1167,28 +1804,32 @@ const GeneralChatId = () => {
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop();
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+    }
   };
 
   const cancelRecording = () => {
-    if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop();
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+    }
     setRecordingBlob(null);
     setShowRecordedPreview(false);
     setRecordingTime(0);
     setIsRecording(false);
-    setIsLocked(false);
-    setSwipeProgress(0);
     stopTimer();
   };
 
   const sendAudioMessage = async (audioBlob) => {
     const formData = new FormData();
-    const audioFile = new File([audioBlob], 'voice-note.webm', { type: 'audio/webm' });
-    formData.append('media', audioFile);
-    formData.append('messageType', 'audio');
-    formData.append('mediaDuration', recordingTime.toString());
+    const audioFile = new File([audioBlob], "voice-note.webm", {
+      type: "audio/webm",
+    });
+    formData.append("media", audioFile);
+    formData.append("messageType", "audio");
+    formData.append("mediaDuration", recordingTime.toString());
     if (replyToMessage) {
-      formData.append('replyToId', replyToMessage._id);
+      formData.append("replyToId", replyToMessage._id);
     }
     try {
       await sendMessageApi({ chatId, data: formData }).unwrap();
@@ -1197,65 +1838,112 @@ const GeneralChatId = () => {
       setRecordingTime(0);
       setReplyToMessage(null);
     } catch (err) {
-      toast.error(err?.data?.message || 'Failed to send voice note');
+      toast.error(err?.data?.message || "Failed to send voice note");
     }
   };
 
+  // ─── Mic button handlers ────────────────────────────────────────
   const handleMicPointerDown = (e) => {
     if (message.trim()) return;
+    if (isRecording || mediaRecorderRef.current) return;
     e.currentTarget.setPointerCapture?.(e.pointerId);
-    touchStartYRef.current = e.clientY;
-    setSwipeProgress(0);
     startRecording();
-  };
-
-  const handleMicPointerMove = (e) => {
-    if (!isRecordingRef.current || isLocked) return;
-    const deltaY = touchStartYRef.current - e.clientY;
-    const progress = Math.min(Math.max(deltaY / LOCK_THRESHOLD, 0), 1);
-    setSwipeProgress(progress);
-    if (deltaY >= LOCK_THRESHOLD) {
-      setIsLocked(true);
-      setSwipeProgress(1);
-    }
   };
 
   const handleMicPointerUp = (e) => {
     e.currentTarget.releasePointerCapture?.(e.pointerId);
-    if (isLocked) return;
-    if (isRecordingRef.current) stopRecording();
+    if (isRecording && !recordingPaused) {
+      stopRecording();
+    }
   };
 
   // ─── Message action handlers ──────────────────────────────────
   const handleDeleteMessage = async (messageId) => {
-    setConfirmModal({ isOpen: true, title: 'Delete Message', message: 'Are you sure?', onConfirm: async () => {
-      try { await deleteMessageApi(messageId).unwrap(); toast.success('Message deleted'); } catch (err) { toast.error(err?.data?.message); }
-    }, danger: true });
+    setConfirmModal({
+      isOpen: true,
+      title: "Delete Message",
+      message: "Are you sure?",
+      onConfirm: async () => {
+        try {
+          await deleteMessageApi(messageId).unwrap();
+          toast.success("Message deleted");
+        } catch (err) {
+          toast.error(err?.data?.message);
+        }
+      },
+      danger: true,
+    });
   };
-  const handleArchiveMessage = async (messageId) => { try { await archiveMessage(messageId).unwrap(); toast.success('Archived'); refetchMessages(); } catch (err) { toast.error(err?.data?.message); } };
-  const handleUnarchiveMessage = async (messageId) => { try { await unarchiveMessage(messageId).unwrap(); toast.success('Unarchived'); refetchMessages(); } catch (err) { toast.error(err?.data?.message); } };
-  const handleStarMessage = async (messageId) => { try { await starMessage(messageId).unwrap(); toast.success('Starred'); refetchMessages(); } catch (err) { toast.error(err?.data?.message); } };
-  const handleUnstarMessage = async (messageId) => { try { await unstarMessage(messageId).unwrap(); toast.success('Unstarred'); refetchMessages(); } catch (err) { toast.error(err?.data?.message); } };
-  const handleReply = (msg) => { setReplyToMessage(msg); setTimeout(() => inputRef.current?.focus(), 100); };
+  const handleArchiveMessage = async (messageId) => {
+    try {
+      await archiveMessage(messageId).unwrap();
+      toast.success("Archived");
+      refetchMessages();
+    } catch (err) {
+      toast.error(err?.data?.message);
+    }
+  };
+  const handleUnarchiveMessage = async (messageId) => {
+    try {
+      await unarchiveMessage(messageId).unwrap();
+      toast.success("Unarchived");
+      refetchMessages();
+    } catch (err) {
+      toast.error(err?.data?.message);
+    }
+  };
+  const handleStarMessage = async (messageId) => {
+    try {
+      await starMessage(messageId).unwrap();
+      toast.success("Starred");
+      refetchMessages();
+    } catch (err) {
+      toast.error(err?.data?.message);
+    }
+  };
+  const handleUnstarMessage = async (messageId) => {
+    try {
+      await unstarMessage(messageId).unwrap();
+      toast.success("Unstarred");
+      refetchMessages();
+    } catch (err) {
+      toast.error(err?.data?.message);
+    }
+  };
+  const handleReply = (msg) => {
+    setReplyToMessage(msg);
+    setTimeout(() => inputRef.current?.focus(), 100);
+  };
   const cancelReply = () => setReplyToMessage(null);
-  const handleLongPress = (message) => setActionModal({ isOpen: true, message });
+  const handleLongPress = (message) =>
+    setActionModal({ isOpen: true, message });
   const handleJumpToMessage = useCallback((messageId) => {
     const container = messagesContainerRef.current;
     if (!container) return;
     const target = container.querySelector(`[data-message-id="${messageId}"]`);
     if (!target) return;
-    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    target.classList.add('ring-2', 'ring-teal-400', 'rounded-2xl');
-    setTimeout(() => target.classList.remove('ring-2', 'ring-teal-400', 'rounded-2xl'), 1200);
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    target.classList.add("ring-2", "ring-teal-400", "rounded-2xl");
+    setTimeout(
+      () => target.classList.remove("ring-2", "ring-teal-400", "rounded-2xl"),
+      1200,
+    );
   }, []);
   const clearPendingMedia = () => setPendingMedia(null);
 
   // ─── Render messages with dividers ────────────────────────────
   const renderMessagesWithDividers = () => {
     if (localMessages.length === 0) {
-      return <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500"><FaComment className="text-4xl mb-2 opacity-30" /><p className="text-sm">No messages yet</p></div>;
+      return (
+        <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
+          <FaComment className="text-4xl mb-2 opacity-30" />
+          <p className="text-sm">No messages yet</p>
+        </div>
+      );
     }
-    const sorted = [...localMessages].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    const sorted = [...localMessages].sort(
+      (a, b) => new Date(a.createdAt) - new Date(b.createdAt),
+    );
     let lastDate = null;
     const elements = [];
     sorted.forEach((msg) => {
@@ -1263,12 +1951,21 @@ const GeneralChatId = () => {
       const dateKey = msgDate.toDateString();
       if (dateKey !== lastDate) {
         const dividerText = formatDateDivider(msg.createdAt);
-        elements.push(<div key={`divider-${dateKey}`} className="flex justify-center my-3"><div className="bg-gray-200/70 dark:bg-gray-800/50 text-gray-500 dark:text-gray-400 text-xs px-3 py-1 rounded-full">{dividerText}</div></div>);
+        elements.push(
+          <div key={`divider-${dateKey}`} className="flex justify-center my-3">
+            <div className="bg-gray-200/70 dark:bg-gray-800/50 text-gray-500 dark:text-gray-400 text-xs px-3 py-1 rounded-full">
+              {dividerText}
+            </div>
+          </div>,
+        );
         lastDate = dateKey;
       }
       const resolvedSender = resolveSender(msg.sender);
-      const isOwn = resolvedSender._id === userInfo?._id || msg.sender === userInfo?._id || msg.sender?._id === userInfo?._id;
-      const senderName = resolvedSender.name || 'Unknown';
+      const isOwn =
+        resolvedSender._id === userInfo?._id ||
+        msg.sender === userInfo?._id ||
+        msg.sender?._id === userInfo?._id;
+      const senderName = resolvedSender.name || "Unknown";
       const senderProfile = resolvedSender.profile || null;
       elements.push(
         <MediaMessage
@@ -1290,7 +1987,7 @@ const GeneralChatId = () => {
           allMessages={sorted}
           onJumpToMessage={handleJumpToMessage}
           resolveSender={resolveSender}
-        />
+        />,
       );
     });
     return elements;
@@ -1298,31 +1995,67 @@ const GeneralChatId = () => {
 
   // ─── Render ────────────────────────────────────────────────────
   if (!chat) {
-    return <div className="min-h-screen flex items-center justify-center"><FaUser className="text-4xl mb-2 opacity-30" /><p className="text-sm text-gray-500">Chat not found</p></div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <FaUser className="text-4xl mb-2 opacity-30" />
+        <p className="text-sm text-gray-500">Chat not found</p>
+      </div>
+    );
   }
 
   return (
     <>
       <div className="h-dvh bg-white dark:bg-[#0f0f12] flex flex-col lg:flex-row overflow-hidden">
-        <div className="hidden lg:block lg:w-72 lg:h-full flex-shrink-0"><GeneralSidebar /></div>
+        <div className="hidden lg:block lg:w-72 lg:h-full flex-shrink-0">
+          <GeneralSidebar />
+        </div>
         <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-          <div className={`flex-1 flex flex-col h-full overflow-hidden ${isDesktop && showDetails ? 'lg:w-2/3' : 'lg:w-full'}`}>
+          <div
+            className={`flex-1 flex flex-col h-full overflow-hidden ${isDesktop && showDetails ? "lg:w-2/3" : "lg:w-full"}`}
+          >
             {/* Header */}
-            <header className="fixed lg:sticky top-0 left-0 right-0 lg:left-auto lg:right-auto z-20 flex items-center justify-between px-4 py-3 border-b border-gray-200/60 dark:border-gray-800/60 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl text-gray-800 dark:text-white flex-shrink-0 cursor-pointer" onClick={() => setShowDetails(!showDetails)}>
+            <header
+              className="fixed lg:sticky top-0 left-0 right-0 lg:left-auto lg:right-auto z-20 flex items-center justify-between px-4 py-3 border-b border-gray-200/60 dark:border-gray-800/60 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl text-gray-800 dark:text-white flex-shrink-0 cursor-pointer"
+              onClick={() => setShowDetails(!showDetails)}
+            >
               <div className="flex items-center gap-3 min-w-0 flex-1">
-                <button onClick={() => navigate('/chat')} className="p-1 lg:hidden flex-shrink-0 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"><FaArrowLeft /></button>
+                <button
+                  onClick={() => navigate("/chat")}
+                  className="p-1 lg:hidden flex-shrink-0 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
+                >
+                  <FaArrowLeft />
+                </button>
                 {displayAvatar ? (
-                  <img src={displayAvatar} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0 border border-gray-200 dark:border-gray-700/60" />
+                  <img
+                    src={displayAvatar}
+                    alt=""
+                    className="w-9 h-9 rounded-full object-cover flex-shrink-0 border border-gray-200 dark:border-gray-700/60"
+                  />
                 ) : (
-                  <div className="w-9 h-9 rounded-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center font-bold text-sm flex-shrink-0">{displayName.charAt(0).toUpperCase()}</div>
+                  <div className="w-9 h-9 rounded-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center font-bold text-sm flex-shrink-0">
+                    {displayName.charAt(0).toUpperCase()}
+                  </div>
                 )}
                 <div className="min-w-0 flex-1">
-                  <h2 className="font-semibold text-base text-gray-800 dark:text-gray-100 truncate">{displayName}</h2>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{isOnline ? 'Online' : 'Offline'}</p>
+                  <h2 className="font-semibold text-base text-gray-800 dark:text-gray-100 truncate">
+                    {displayName}
+                  </h2>
+                  <p
+                    className={`text-xs truncate ${otherUserOnline ? "text-green-500 dark:text-green-400" : "text-gray-500 dark:text-gray-400"}`}
+                  >
+                    {otherUserOnline ? "Online" : "Offline"}
+                  </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2 flex-shrink-0 relative" onClick={(e) => e.stopPropagation()}>
-                <button onClick={() => setShowDetails(!showDetails)} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition relative" aria-label="Contact info">
+              <div
+                className="flex items-center gap-2 flex-shrink-0 relative"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  onClick={() => setShowDetails(!showDetails)}
+                  className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition relative"
+                  aria-label="Contact info"
+                >
                   <FaInfoCircle className="text-lg" />
                 </button>
               </div>
@@ -1330,12 +2063,19 @@ const GeneralChatId = () => {
 
             {/* Messages */}
             <div className="relative flex-1 overflow-hidden">
-              <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="h-full overflow-y-auto px-4 py-3 space-y-1 pt-20 lg:pt-3 pb-24 lg:pb-3">
+              <div
+                ref={messagesContainerRef}
+                onScroll={handleMessagesScroll}
+                className="h-full overflow-y-auto px-4 py-3 space-y-1 pt-20 lg:pt-3 pb-24 lg:pb-3"
+              >
                 {renderMessagesWithDividers()}
                 <div ref={messagesEndRef} />
               </div>
               {showScrollDown && (
-                <button onClick={scrollToBottom} className="absolute bottom-4 right-4 z-30 w-10 h-10 rounded-full bg-white dark:bg-[#14141a] shadow-lg border border-gray-200 dark:border-gray-700/60 flex items-center justify-center text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-all">
+                <button
+                  onClick={scrollToBottom}
+                  className="absolute bottom-4 right-4 z-30 w-10 h-10 rounded-full bg-white dark:bg-[#14141a] shadow-lg border border-gray-200 dark:border-gray-700/60 flex items-center justify-center text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-all"
+                >
                   <FaChevronDown className="text-sm" />
                 </button>
               )}
@@ -1344,7 +2084,11 @@ const GeneralChatId = () => {
             {/* Input area */}
             <div className="fixed lg:sticky bottom-0 left-0 right-0 lg:left-auto lg:right-auto z-20 border-t border-gray-200/60 dark:border-gray-800/60 bg-white/90 dark:bg-[#0f0f12]/90 backdrop-blur-xl flex-shrink-0 px-3 sm:px-4">
               <div className="py-2">
-                <ReplyPreview replyTo={replyToMessage} onCancel={cancelReply} resolveSender={resolveSender} />
+                <ReplyPreview
+                  replyTo={replyToMessage}
+                  onCancel={cancelReply}
+                  resolveSender={resolveSender}
+                />
 
                 {/* Media Preview */}
                 {pendingMedia && (
@@ -1360,70 +2104,141 @@ const GeneralChatId = () => {
                   <div className="flex items-center justify-between px-3 py-2 mb-2 bg-green-50 dark:bg-green-900/30 rounded-lg border border-green-200 dark:border-green-700/40">
                     <div className="flex items-center gap-2">
                       <FaCheckCircle className="text-green-500 dark:text-green-400" />
-                      <span className="text-sm text-gray-700 dark:text-gray-200">Voice note ready</span>
-                      <span className="text-xs text-gray-500 dark:text-gray-400">{formatTime(recordingTime)}</span>
+                      <span className="text-sm text-gray-700 dark:text-gray-200">
+                        Voice note ready
+                      </span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        {formatTime(recordingTime)}
+                      </span>
                     </div>
                     <div className="flex gap-1">
-                      <button onClick={() => { const audio = new Audio(URL.createObjectURL(recordingBlob)); audio.play(); }} className="p-1 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white"><FaPlay className="text-xs" /></button>
-                      <button onClick={() => sendAudioMessage(recordingBlob)} className="px-3 py-1 bg-green-600 dark:bg-green-700 text-white rounded text-xs hover:bg-green-700 dark:hover:bg-green-800 transition">Send</button>
-                      <button onClick={cancelRecording} className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white"><FaTimes className="text-xs" /></button>
+                      <button
+                        onClick={() => {
+                          const audio = new Audio(
+                            URL.createObjectURL(recordingBlob),
+                          );
+                          audio.play();
+                        }}
+                        className="p-1 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white"
+                      >
+                        <FaPlay className="text-xs" />
+                      </button>
+                      <button
+                        onClick={() => sendAudioMessage(recordingBlob)}
+                        className="px-3 py-1 bg-green-600 dark:bg-green-700 text-white rounded text-xs hover:bg-green-700 dark:hover:bg-green-800 transition"
+                      >
+                        Send
+                      </button>
+                      <button
+                        onClick={cancelRecording}
+                        className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white"
+                      >
+                        <FaTimes className="text-xs" />
+                      </button>
                     </div>
                   </div>
                 )}
 
-                {isRecording && !isLocked && (
-                  <div className="relative flex items-center justify-between px-3 py-2 mb-2 bg-red-50 dark:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-700/40">
-                    <span className="text-xs text-red-600 dark:text-red-300 flex items-center gap-2">
-                      <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" /> Recording... {formatTime(recordingTime)}
-                    </span>
-                    <span className="text-[10px] text-gray-500 dark:text-gray-400">Slide up to lock</span>
-                    <div className="absolute right-4 bottom-20 flex flex-col items-center">
-                      <FaLock className="text-xs" style={{ color: swipeProgress > 0.6 ? '#0d9488' : '#9CA3AF' }} />
-                      <FaChevronUp className="text-gray-300 dark:text-gray-500 text-xs" />
-                    </div>
-                  </div>
-                )}
-
-                {isRecording && isLocked && (
+                {isRecording && (
                   <div className="flex items-center justify-between px-3 py-2 mb-2 bg-red-50 dark:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-700/40">
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                      <span className="text-xs text-red-600 dark:text-red-300">{recordingPaused ? 'Paused' : 'Recording...'} {formatTime(recordingTime)}</span>
-                      <FaLock className="text-[10px]" style={{ color: '#0d9488' }} />
+                      <span className="text-xs text-red-600 dark:text-red-300">
+                        {recordingPaused ? "Paused" : "Recording..."}{" "}
+                        {formatTime(recordingTime)}
+                      </span>
                     </div>
                     <div className="flex gap-2">
-                      <button onClick={pauseRecording} className="text-xs text-red-600 dark:text-red-300 hover:text-red-700 dark:hover:text-red-200">{recordingPaused ? 'Resume' : 'Pause'}</button>
-                      <button onClick={cancelRecording} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white"><FaTrashAlt className="text-xs" /></button>
-                      <button onClick={stopRecording} className="bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition"><FaStop className="text-xs" /></button>
+                      <button
+                        onClick={pauseRecording}
+                        className="text-xs text-red-600 dark:text-red-300 hover:text-red-700 dark:hover:text-red-200"
+                      >
+                        {recordingPaused ? "Resume" : "Pause"}
+                      </button>
+                      <button
+                        onClick={cancelRecording}
+                        className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white"
+                      >
+                        <FaTrashAlt className="text-xs" />
+                      </button>
+                      <button
+                        onClick={stopRecording}
+                        className="bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition"
+                      >
+                        <FaStop className="text-xs" />
+                      </button>
                     </div>
                   </div>
                 )}
 
-                <form onSubmit={handleSendMessage} className="flex items-end gap-2">
-                  <button type="button" onClick={() => handleFileUpload('file')} className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition flex-shrink-0 mb-1"><FaPaperclip className="text-sm" /></button>
-                  <button type="button" onClick={() => handleFileUpload('image')} className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition flex-shrink-0 mb-1"><FaImage className="text-sm" /></button>
-                  <input type="file" ref={fileInputRef} onChange={(e) => handleFileChange(e, 'file')} className="hidden" />
-                  <input type="file" ref={imageInputRef} onChange={(e) => handleFileChange(e, 'image')} className="hidden" accept="image/*,video/*" />
-                  <textarea 
-                    ref={inputRef} 
-                    value={message} 
-                    onChange={(e) => setMessage(e.target.value)} 
+                <form
+                  onSubmit={handleSendMessage}
+                  className="flex items-end gap-2"
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleFileUpload("file")}
+                    className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition flex-shrink-0 mb-1"
+                  >
+                    <FaPaperclip className="text-sm" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleFileUpload("image")}
+                    className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition flex-shrink-0 mb-1"
+                  >
+                    <FaImage className="text-sm" />
+                  </button>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={(e) => handleFileChange(e, "file")}
+                    className="hidden"
+                  />
+                  <input
+                    type="file"
+                    ref={imageInputRef}
+                    onChange={(e) => handleFileChange(e, "image")}
+                    className="hidden"
+                    accept="image/*,video/*"
+                  />
+                  <textarea
+                    ref={inputRef}
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
                     onPaste={handlePaste}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
+                      if (isMobile) return;
+                      if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
                         handleSendMessage(e);
                       }
                     }}
-                    placeholder="Type a message... (paste images)"
+                    placeholder="Message"
                     rows={1}
                     className="flex-1 min-w-0 px-4 py-2 border border-gray-300 dark:border-gray-700/60 rounded-2xl bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500 resize-none max-h-32 overflow-y-auto"
-                    style={{ minHeight: '42px', lineHeight: '1.5' }}
+                    style={{ minHeight: "42px", lineHeight: "1.5" }}
                   />
                   {message.trim() ? (
-                    <button type="submit" disabled={!isConnected} className="p-2 rounded-full text-white disabled:opacity-50 flex-shrink-0 transition hover:opacity-80 mb-1" style={{ backgroundColor: '#0d9488' }}><FaPaperPlane className="text-sm" /></button>
+                    <button
+                      type="submit"
+                      disabled={!isConnected}
+                      className="p-2 rounded-full text-white disabled:opacity-50 flex-shrink-0 transition hover:opacity-80 mb-1"
+                      style={{ backgroundColor: "#0d9488" }}
+                    >
+                      <FaPaperPlane className="text-sm" />
+                    </button>
                   ) : (
-                    <button type="button" onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerUp} className="p-2 rounded-full text-white flex-shrink-0 transition hover:opacity-80 mb-1" style={{ backgroundColor: '#0d9488' }}><FaMicrophone className="text-sm" /></button>
+                    <button
+                      type="button"
+                      onPointerDown={handleMicPointerDown}
+                      onPointerUp={handleMicPointerUp}
+                      onPointerCancel={handleMicPointerUp}
+                      className="p-2 rounded-full text-white flex-shrink-0 transition hover:opacity-80 mb-1"
+                      style={{ backgroundColor: "#0d9488" }}
+                    >
+                      <FaMicrophone className="text-sm" />
+                    </button>
                   )}
                 </form>
               </div>
@@ -1432,7 +2247,11 @@ const GeneralChatId = () => {
 
           {isDesktop && showDetails && (
             <div className="lg:w-80 lg:flex-shrink-0 border-l border-gray-200 dark:border-gray-800/60 h-full overflow-hidden">
-              <ContactInfoPanel user={otherParticipant} onClose={() => setShowDetails(false)} />
+              <ContactInfoPanel
+                user={otherParticipant}
+                onlineStatus={otherUserOnline}
+                onClose={() => setShowDetails(false)}
+              />
             </div>
           )}
         </div>
@@ -1441,16 +2260,54 @@ const GeneralChatId = () => {
       {/* Mobile details overlay */}
       {isMobile && showDetails && (
         <>
-          <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setShowDetails(false)} />
+          <div
+            className="fixed inset-0 z-40 bg-black/40"
+            onClick={() => setShowDetails(false)}
+          />
           <div className="fixed inset-y-0 right-0 z-50 w-80 max-w-[85vw] bg-white dark:bg-[#14141a] shadow-xl border-l border-gray-200 dark:border-gray-800/60 overflow-y-auto transition-transform duration-300 ease-in-out">
-            <ContactInfoPanel user={otherParticipant} onClose={() => setShowDetails(false)} />
+            <ContactInfoPanel
+              user={otherParticipant}
+              onlineStatus={otherUserOnline}
+              onClose={() => setShowDetails(false)}
+            />
           </div>
         </>
       )}
 
-      <ConfirmModal isOpen={confirmModal.isOpen} onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })} onConfirm={confirmModal.onConfirm} title={confirmModal.title} message={confirmModal.message} danger={confirmModal.danger} />
-      {previewImage && <ImagePreviewModal imageUrl={previewImage.url} senderName={previewImage.senderName} time={previewImage.time} onClose={() => setPreviewImage(null)} />}
-      <MessageActionModal isOpen={actionModal.isOpen} onClose={() => setActionModal({ isOpen: false, message: null })} message={actionModal.message} isOwn={actionModal.message?.sender?._id === userInfo?._id} isStarred={actionModal.message?.starredBy?.some(id => id === userInfo?._id)} isArchived={actionModal.message?.archivedBy?.some(id => id === userInfo?._id)} onDelete={handleDeleteMessage} onArchive={handleArchiveMessage} onUnarchive={handleUnarchiveMessage} onStar={handleStarMessage} onUnstar={handleUnstarMessage} onReply={handleReply} />
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })}
+        onConfirm={confirmModal.onConfirm}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        danger={confirmModal.danger}
+      />
+      {previewImage && (
+        <ImagePreviewModal
+          imageUrl={previewImage.url}
+          senderName={previewImage.senderName}
+          time={previewImage.time}
+          onClose={() => setPreviewImage(null)}
+        />
+      )}
+      <MessageActionModal
+        isOpen={actionModal.isOpen}
+        onClose={() => setActionModal({ isOpen: false, message: null })}
+        message={actionModal.message}
+        isOwn={actionModal.message?.sender?._id === userInfo?._id}
+        isStarred={actionModal.message?.starredBy?.some(
+          (id) => id === userInfo?._id,
+        )}
+        isArchived={actionModal.message?.archivedBy?.some(
+          (id) => id === userInfo?._id,
+        )}
+        onDelete={handleDeleteMessage}
+        onArchive={handleArchiveMessage}
+        onUnarchive={handleUnarchiveMessage}
+        onStar={handleStarMessage}
+        onUnstar={handleUnstarMessage}
+        onReply={handleReply}
+      />
     </>
   );
 };

@@ -595,7 +595,6 @@ const SubTaskItem = React.memo(({
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
 
-  // ✅ Custom delete confirmation modal state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const hasDetails = subTask.notes ||
@@ -665,7 +664,6 @@ const SubTaskItem = React.memo(({
     finally { setUpdating(false); }
   };
 
-  // ✅ Replaced window.confirm with custom modal
   const handleDelete = () => {
     if (canManage || isAssignee) {
       setShowDeleteModal(true);
@@ -911,7 +909,6 @@ const SubTaskItem = React.memo(({
         onConfirm={(reason) => handleRejectConfirm(reason)}
       />
 
-      {/* ✅ Custom delete confirmation modal */}
       <ConfirmModal
         isOpen={showDeleteModal}
         onClose={() => setShowDeleteModal(false)}
@@ -2056,10 +2053,44 @@ const YourWorkspaceProjectId = () => {
   }, [tData]);
   const tasks = localTasks;
 
-  // Derived data
+  // ─── Workspace admin detection ──────────────────────────────────────
   const workspace = wData?.workspace;
   const project = pData?.project;
   const folders = foldersData?.folders || [];
+
+  // Determine if current user is workspace owner
+  const isOwner = useMemo(() => {
+    if (!workspace || !userInfo?._id) return false;
+    const ownerId = workspace.owner?._id || workspace.owner;
+    return ownerId?.toString() === userInfo._id.toString();
+  }, [workspace, userInfo]);
+
+  // Determine if current user is workspace admin (role: 'Admin')
+  const isWorkspaceAdmin = useMemo(() => {
+    if (!workspace || !userInfo?._id) return false;
+    return workspace.members?.some(
+      (m) => (m.user?._id || m.user)?.toString() === userInfo._id.toString() && m.role === 'Admin' && m.status === 'active'
+    );
+  }, [workspace, userInfo]);
+
+  // Determine if current user is project manager
+  const isProjectManager = useMemo(() => {
+    if (!project || !userInfo?._id) return false;
+    return project.projectManagers?.some((pm) => {
+      const id = pm._id || pm;
+      return id?.toString() === userInfo._id.toString();
+    });
+  }, [project, userInfo]);
+
+  // Combined management permission: owner OR workspace admin OR project manager
+  const canManage = useMemo(() => isOwner || isWorkspaceAdmin || isProjectManager, [isOwner, isWorkspaceAdmin, isProjectManager]);
+
+  // Active task
+  const activeTask = useMemo(() => tasks.find(t => t._id === selectedTaskId) || null, [tasks, selectedTaskId]);
+  const projectManagers = project?.projectManagers || [];
+  const projectProgress = project?.progress || 0;
+  const isArchivedForMe = project?.isArchivedForMe || false;
+  const isTrash = project?.isTrash || false;
 
   const activeTeam = useMemo(() => (project?.teamMembers || []).filter(m => m.status === 'active'), [project?.teamMembers]);
   const assignableMembers = useMemo(() => {
@@ -2076,20 +2107,16 @@ const YourWorkspaceProjectId = () => {
   }, [activeTeam, project?.projectManagers]);
 
   const brandColor = workspace?.color || '#0d9488';
-  const isOwner = useMemo(() => workspace?.owner?._id === userInfo?._id || workspace?.owner === userInfo?._id, [workspace, userInfo]);
-  const isManager = useMemo(() => project?.projectManagers?.some(pm => {
-    const id = (pm._id || pm)?.toString();
-    return id === userInfo?._id;
-  }), [project, userInfo]);
-  const canManage = isOwner || isManager;
 
-  const activeTask = useMemo(() => tasks.find(t => t._id === selectedTaskId) || null, [tasks, selectedTaskId]);
-  const projectManagers = project?.projectManagers || [];
-  const projectProgress = project?.progress || 0;
-  const isArchivedForMe = project?.isArchivedForMe || false;
-  const isTrash = project?.isTrash || false;
+  // Available members to add as manager
+  const availableForManager = useMemo(() => {
+    if (!workspace) return [];
+    return workspace.members?.filter(m =>
+      m.status === 'active' &&
+      !projectManagers.some(pm => (pm._id || pm) === (m.user?._id || m._id))
+    ) || [];
+  }, [workspace, projectManagers]);
 
-  const availableForManager = useMemo(() => workspace?.members?.filter(m => m.status === 'active' && !projectManagers.some(pm => pm._id === (m.user?._id || m._id))) || [], [workspace, projectManagers]);
   const managerOptions = useMemo(() => availableForManager.map(m => {
     const u = m.user || m;
     return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" /> : <FaUser className="text-gray-400" /> };
@@ -2135,7 +2162,7 @@ const YourWorkspaceProjectId = () => {
     setConfirmModal({
       isOpen: true,
       title: 'Move to Trash',
-      message: `Are you sure you want to move "${project.name}" to trash? This can be restored within 30 days.`,
+      message: `Are you sure you want to move "${project?.name}" to trash? This can be restored within 30 days.`,
       onConfirm: async () => {
         try {
           await deleteProject(projectId).unwrap();
@@ -2154,7 +2181,7 @@ const YourWorkspaceProjectId = () => {
     setConfirmModal({
       isOpen: true,
       title: 'Restore Project',
-      message: `Are you sure you want to restore "${project.name}" from trash?`,
+      message: `Are you sure you want to restore "${project?.name}" from trash?`,
       onConfirm: async () => {
         try {
           await restoreProject(projectId).unwrap();
@@ -2173,7 +2200,7 @@ const YourWorkspaceProjectId = () => {
     setConfirmModal({
       isOpen: true,
       title: 'Permanently Delete',
-      message: `Are you sure you want to permanently delete "${project.name}"? This cannot be undone.`,
+      message: `Are you sure you want to permanently delete "${project?.name}"? This cannot be undone.`,
       onConfirm: async () => {
         try {
           await permanentlyDeleteProject(projectId).unwrap();
@@ -2582,7 +2609,7 @@ const YourWorkspaceProjectId = () => {
                         </button>
                       )
                     )}
-                    {isOwner && (
+                    {canManage && (
                       <>
                         <div className="border-t border-gray-200 dark:border-gray-700/60 my-1" />
                         {isTrash ? (
@@ -2721,7 +2748,7 @@ const YourWorkspaceProjectId = () => {
                       <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase flex items-center gap-1">
                         <FaCrown className="text-yellow-500 dark:text-yellow-400" /> Managers
                       </span>
-                      {isOwner && !isTrash && !isArchivedForMe && (
+                      {canManage && !isTrash && !isArchivedForMe && (
                         <button onClick={() => setShowAddManager(true)} className="text-xs text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] transition font-medium">
                           Add
                         </button>
@@ -2736,7 +2763,7 @@ const YourWorkspaceProjectId = () => {
                           <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{m.name}</p>
                           <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{m.email}</p>
                         </div>
-                        {isOwner && projectManagers.length > 1 && !isTrash && !isArchivedForMe && (
+                        {canManage && projectManagers.length > 1 && !isTrash && !isArchivedForMe && (
                           <button onClick={() => handleRemoveManager(m._id)} className="p-1 text-red-500 dark:text-red-400 opacity-0 group-hover:opacity-100 transition">
                             <FaUserMinus className="text-sm" />
                           </button>

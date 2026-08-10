@@ -28,6 +28,7 @@ import {
   FaCrown,
   FaEllipsisV,
   FaCircle,
+  FaChevronDown,
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 
@@ -42,7 +43,75 @@ const getInitials = (name) => {
     .toUpperCase();
 };
 
-// ─── Search Members Modal ──────────────────────────────────────
+// ─── Custom Dropdown ─────────────────────────────────────────────────────
+const CustomDropdown = ({ options, value, onChange, placeholder, label, brandColor }) => {
+  const [open, setOpen] = useState(false);
+  const ref = React.useRef(null);
+
+  React.useEffect(() => {
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const selected = options.find(o => o.value === value);
+
+  return (
+    <div className="relative" ref={ref}>
+      {label && <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">{label}</label>}
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 dark:focus:ring-[#0d9488] text-sm text-gray-800 dark:text-gray-200 hover:border-gray-400 dark:hover:border-gray-600 transition"
+      >
+        <span className={selected ? 'text-gray-800 dark:text-gray-200' : 'text-gray-400 dark:text-gray-500'}>
+          {selected ? selected.label : placeholder || 'Select...'}
+        </span>
+        <FaChevronDown className={`text-gray-500 dark:text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute z-10 w-full mt-1 bg-white dark:bg-[#1e1e26] border border-gray-300 dark:border-gray-700/60 rounded-xl overflow-hidden max-h-60 overflow-y-auto shadow-lg">
+          {options.map(o => (
+            <button
+              key={String(o.value)}
+              type="button"
+              onClick={() => { onChange(o.value); setOpen(false); }}
+              className={`w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 transition text-left text-gray-700 dark:text-gray-300 ${o.value === value ? 'bg-teal-50 dark:bg-[#0d9488]/10' : ''}`}
+            >
+              <span>{o.label}</span>
+              {o.value === value && <FaCheck className="ml-auto text-xs" style={{ color: brandColor }} />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Confirm Modal ──────────────────────────────────────────────────────
+const ConfirmModal = ({ isOpen, onConfirm, onCancel, title, message, confirmLabel = 'Confirm', confirmColor = 'bg-red-600 hover:bg-red-700' }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-sm w-full p-6 shadow-xl">
+        <h3 className="text-lg font-bold text-gray-800 dark:text-gray-200 mb-2">{title}</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{message}</p>
+        <div className="flex gap-3">
+          <button onClick={onCancel} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+            Cancel
+          </button>
+          <button onClick={onConfirm} className={`flex-1 py-2 text-white rounded-xl text-sm font-medium transition ${confirmColor}`}>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Search Members Modal ──────────────────────────────────────────────
 const SearchMembersModal = ({ isOpen, onClose, members, brandColor, workspaceId, userInfo }) => {
   const [query, setQuery] = useState('');
 
@@ -58,7 +127,6 @@ const SearchMembersModal = ({ isOpen, onClose, members, brandColor, workspaceId,
 
   return (
     <div className="fixed inset-0 z-50 bg-white dark:bg-[#0b0b10]/90 backdrop-blur-xl flex flex-col">
-      {/* Modal Header */}
       <div className="flex items-center gap-3 px-4 h-16 border-b border-gray-200/60 dark:border-gray-800/60 bg-gray-50 dark:bg-[#14141a]/80">
         <button onClick={onClose} className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition">
           <FaArrowLeft />
@@ -80,8 +148,6 @@ const SearchMembersModal = ({ isOpen, onClose, members, brandColor, workspaceId,
           )}
         </div>
       </div>
-
-      {/* Results */}
       <div className="flex-1 overflow-y-auto p-4">
         {!query && (
           <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
@@ -89,13 +155,11 @@ const SearchMembersModal = ({ isOpen, onClose, members, brandColor, workspaceId,
             <p className="text-sm">Search members by name or email</p>
           </div>
         )}
-
         {query && filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
             <p className="text-sm">No members found for "{query}"</p>
           </div>
         )}
-
         {query && filtered.length > 0 && (
           <div className="space-y-1">
             {filtered.map((member) => {
@@ -137,12 +201,18 @@ const SearchMembersModal = ({ isOpen, onClose, members, brandColor, workspaceId,
   );
 };
 
-// ─── Update Member Modal ──────────────────────────────────────
+// ─── Update Member Modal ──────────────────────────────────────────────
 const UpdateMemberModal = ({ isOpen, onClose, member, brandColor, onSuccess }) => {
   const [role, setRole] = useState(member?.role || 'Staff');
   const [department, setDepartment] = useState(member?.department || 'General');
   const [isLoading, setIsLoading] = useState(false);
   const [updateMember] = useUpdateMemberMutation();
+
+  const roleOptions = [
+    { value: 'Admin', label: 'Admin' },
+    { value: 'Member', label: 'Member' },
+    { value: 'Staff', label: 'Staff' },
+  ];
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -179,13 +249,12 @@ const UpdateMemberModal = ({ isOpen, onClose, member, brandColor, onSuccess }) =
         </div>
         <form onSubmit={handleSubmit}>
           <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Role</label>
-            <input
-              type="text"
+            <CustomDropdown
+              label="Role"
+              options={roleOptions}
               value={role}
-              onChange={(e) => setRole(e.target.value)}
-              placeholder="e.g. Developer, Manager"
-              className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 dark:focus:ring-[#0d9488] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500"
+              onChange={setRole}
+              brandColor={brandColor}
             />
           </div>
           <div className="mb-4">
@@ -217,12 +286,18 @@ const UpdateMemberModal = ({ isOpen, onClose, member, brandColor, onSuccess }) =
   );
 };
 
-// ─── Approve Member Modal ────────────────────────────────────
+// ─── Approve Member Modal ──────────────────────────────────────────────
 const ApproveMemberModal = ({ isOpen, onClose, memberId, workspaceId, brandColor, onSuccess }) => {
   const [department, setDepartment] = useState('');
-  const [role, setRole] = useState('Staff');
+  const [role, setRole] = useState('Member');
   const [isLoading, setIsLoading] = useState(false);
   const [approveMember] = useApproveMemberMutation();
+
+  const roleOptions = [
+    { value: 'Admin', label: 'Admin' },
+    { value: 'Member', label: 'Member' },
+    { value: 'Staff', label: 'Staff' },
+  ];
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -236,7 +311,7 @@ const ApproveMemberModal = ({ isOpen, onClose, memberId, workspaceId, brandColor
         workspaceId,
         memberId,
         department: department.trim(),
-        role: role.trim(),
+        role,
       }).unwrap();
       toast.success('Member approved!');
       onSuccess();
@@ -274,15 +349,13 @@ const ApproveMemberModal = ({ isOpen, onClose, memberId, workspaceId, brandColor
             />
           </div>
           <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Role</label>
-            <input
-              type="text"
+            <CustomDropdown
+              label="Role"
+              options={roleOptions}
               value={role}
-              onChange={(e) => setRole(e.target.value)}
-              placeholder="e.g. Developer, Manager"
-              className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 dark:focus:ring-[#0d9488] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500"
+              onChange={setRole}
+              brandColor={brandColor}
             />
-            <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">Default: Staff</p>
           </div>
           <div className="flex gap-3">
             <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800/30 transition text-sm font-medium text-gray-700 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
@@ -315,6 +388,9 @@ const MyWorkspaceMembers = () => {
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [approveMemberId, setApproveMemberId] = useState(null);
 
+  // Confirm modal state
+  const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null, confirmLabel: 'Confirm' });
+
   const { data: workspaceData, isLoading: workspaceLoading, error: workspaceError } = useGetWorkspaceQuery(workspaceId);
   const { data: membersData, isLoading: membersLoading, refetch: refetchMembers } = useGetMembersQuery(workspaceId);
   const { data: pendingData, isLoading: pendingLoading, refetch: refetchPending } = useGetPendingRequestsQuery(workspaceId);
@@ -323,24 +399,43 @@ const MyWorkspaceMembers = () => {
   const [removeMember] = useRemoveMemberMutation();
 
   const handleReject = async (memberId) => {
-    if (!window.confirm('Reject this join request?')) return;
-    try {
-      await rejectMember({ workspaceId, memberId }).unwrap();
-      toast.success('Request rejected');
-      refetchPending();
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to reject');
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Reject Join Request',
+      message: 'Are you sure you want to reject this join request?',
+      confirmLabel: 'Reject',
+      onConfirm: async () => {
+        try {
+          await rejectMember({ workspaceId, memberId }).unwrap();
+          toast.success('Request rejected');
+          refetchPending();
+          setConfirmModal({ isOpen: false });
+        } catch (err) {
+          toast.error(err?.data?.message || 'Failed to reject');
+          setConfirmModal({ isOpen: false });
+        }
+      },
+    });
   };
 
-  const handleRemoveMember = async (memberId) => {
-    try {
-      await removeMember({ workspaceId, memberId }).unwrap();
-      toast.success('Member removed');
-      refetchMembers();
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to remove');
-    }
+  const handleRemoveMember = async (memberId, memberName) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Remove Member',
+      message: `Are you sure you want to remove ${memberName || 'this member'}?`,
+      confirmLabel: 'Remove',
+      onConfirm: async () => {
+        try {
+          await removeMember({ workspaceId, memberId }).unwrap();
+          toast.success('Member removed');
+          refetchMembers();
+          setConfirmModal({ isOpen: false });
+        } catch (err) {
+          toast.error(err?.data?.message || 'Failed to remove');
+          setConfirmModal({ isOpen: false });
+        }
+      },
+    });
   };
 
   const handleApproveClick = (memberId) => {
@@ -378,7 +473,6 @@ const MyWorkspaceMembers = () => {
   const isOwner = workspace?.owner?._id === userInfo?._id || workspace?.owner === userInfo?._id;
   const brandColor = workspace?.color || '#0d9488';
 
-  // ── Member List Component (reused for both active & pending) ──
   const renderMemberList = (list, type = 'active') => {
     if (list.length === 0) {
       return (
@@ -393,10 +487,12 @@ const MyWorkspaceMembers = () => {
       const user = item.user || item;
       const member = item;
       const isPending = type === 'pending';
+      const memberId = user._id || item._id;
+      const isWorkspaceOwner = user._id === workspace?.owner?._id;
 
       return (
         <div
-          key={user._id || item._id}
+          key={memberId}
           className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition-colors border-b border-gray-100 dark:border-gray-800/30 last:border-0"
         >
           {/* Avatar */}
@@ -418,8 +514,8 @@ const MyWorkspaceMembers = () => {
 
           {/* Info */}
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <p className="font-semibold text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="font-semibold text-gray-800 dark:text-gray-200 truncate">
                 {user?.name || 'Unknown'}
               </p>
               {isPending && (
@@ -427,12 +523,12 @@ const MyWorkspaceMembers = () => {
                   Pending
                 </span>
               )}
-              {!isPending && user._id === workspace?.owner?._id && (
+              {!isPending && isWorkspaceOwner && (
                 <span className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-700/40">
                   Owner
                 </span>
               )}
-              {!isPending && member.role && member.role !== 'Staff' && (
+              {!isPending && member.role && (
                 <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full border border-blue-200 dark:border-blue-700/40">
                   {member.role}
                 </span>
@@ -463,7 +559,7 @@ const MyWorkspaceMembers = () => {
             </div>
           )}
 
-          {!isPending && isOwner && user._id !== workspace?.owner?._id && (
+          {!isPending && isOwner && !isWorkspaceOwner && (
             <div className="relative">
               <button
                 onClick={(e) => {
@@ -485,11 +581,7 @@ const MyWorkspaceMembers = () => {
                   <FaEdit className="text-xs text-teal-600 dark:text-[#0d9488]" /> Edit Role/Dept
                 </button>
                 <button
-                  onClick={() => {
-                    if (window.confirm(`Remove ${user?.name || 'this member'}?`)) {
-                      handleRemoveMember(user._id);
-                    }
-                  }}
+                  onClick={() => handleRemoveMember(user._id, user?.name)}
                   className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-700 dark:hover:text-red-300 transition w-full"
                 >
                   <FaTrashAlt className="text-xs" /> Remove
@@ -521,7 +613,7 @@ const MyWorkspaceMembers = () => {
 
       {/* Main content area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Header (fixed on mobile) */}
+        {/* Header */}
         <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
           <div className="flex items-center justify-between px-4 h-14">
             <div className="flex items-center gap-3 min-w-0">
@@ -619,6 +711,17 @@ const MyWorkspaceMembers = () => {
         workspaceId={workspaceId}
         brandColor={brandColor}
         onSuccess={handleApproveSuccess}
+      />
+
+      {/* Confirm Modal */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onConfirm={confirmModal.onConfirm || (() => {})}
+        onCancel={() => setConfirmModal({ isOpen: false })}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        confirmLabel={confirmModal.confirmLabel || 'Confirm'}
+        confirmColor="bg-red-600 hover:bg-red-700"
       />
     </div>
   );

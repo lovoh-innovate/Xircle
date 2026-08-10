@@ -1,10 +1,13 @@
 package com.lovohcreate.xircle;
 
 import android.content.Intent;
+import android.media.AudioManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.WindowManager;
+import android.webkit.PermissionRequest;
+import android.webkit.WebChromeClient;
 
 import com.getcapacitor.BridgeActivity;
 
@@ -23,6 +26,26 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // Grant WebView permission requests (mic/camera) since we already
+        // gate access with our own permission checks at the JS layer.
+        this.bridge.getWebView().setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onPermissionRequest(final PermissionRequest request) {
+                runOnUiThread(() -> {
+                    request.grant(request.getResources());
+                });
+            }
+        });
+
+        // Force-release any stale audio focus this app might be holding
+        // (e.g. leftover from ringtone playback or a dropped call), so the
+        // mic doesn't get stuck reporting "busy" for getUserMedia().
+        AudioManager audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
+        if (audioManager != null) {
+            audioManager.abandonAudioFocus(null);
+        }
+
         handleIntent(getIntent());
     }
 

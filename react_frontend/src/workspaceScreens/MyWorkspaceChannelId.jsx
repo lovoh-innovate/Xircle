@@ -63,6 +63,7 @@ import {
   FaSpinner,
   FaReply,
   FaFile,
+  FaUsers,
 } from "react-icons/fa";
 import { toast } from "react-hot-toast";
 import { useSocket } from "../components/SocketContext.jsx";
@@ -74,7 +75,6 @@ const formatTime = (seconds) => {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 };
 
-const LOCK_THRESHOLD = 80;
 const SEEN_TICK_COLOR = "#34B7F1";
 const SWIPE_REPLY_THRESHOLD = 60;
 const SWIPE_REPLY_MAX = 72;
@@ -497,6 +497,10 @@ const MessageTicks = ({ message, isOwn }) => {
     return <FaTimes className="text-[10px] text-red-500" />;
   }
 
+  if (!message._sent) {
+    return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
+  }
+
   if (!message._delivered && !message._read) {
     return <FaCheck className="text-[10px] text-gray-400 dark:text-gray-500" />;
   }
@@ -889,6 +893,9 @@ const MediaMessage = ({
   };
   const swipeIconOpacity = Math.min(swipeX / SWIPE_REPLY_THRESHOLD, 1);
 
+  // ─── Dynamic max width: 75% on mobile, 85% on desktop ────────────
+  const maxWidthClass = isMobile ? "max-w-[75%]" : "max-w-[85%]";
+
   if (message.messageType === "image") {
     return (
       <div
@@ -926,7 +933,7 @@ const MediaMessage = ({
             </div>
           )}
           <div
-            className={`max-w-[85%] ${isOwn ? "items-end" : "items-start"} flex flex-col`}
+            className={`${maxWidthClass} ${isOwn ? "items-end" : "items-start"} flex flex-col`}
           >
             {!isOwn && (
               <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1 mb-0.5">
@@ -1085,7 +1092,7 @@ const MediaMessage = ({
           </div>
         )}
         <div
-          className={`max-w-[85%] ${isOwn ? "items-end" : "items-start"} flex flex-col gap-0.5`}
+          className={`${maxWidthClass} ${isOwn ? "items-end" : "items-start"} flex flex-col gap-0.5`}
         >
           {!isOwn && (
             <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1">
@@ -1093,7 +1100,7 @@ const MediaMessage = ({
             </span>
           )}
           <div
-            className={`px-4 py-2.5 rounded-2xl text-sm break-words ${
+            className={`px-4 py-2.5 rounded-2xl text-sm break-words w-full ${
               isOwn
                 ? "text-white"
                 : "bg-gray-100 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200"
@@ -1244,7 +1251,7 @@ const ChatDetailsSheet = ({
               className="w-14 h-14 rounded-full flex items-center justify-center text-white"
               style={{ backgroundColor: brandColor }}
             >
-              <FaHashtag size={24} />
+              <FaUsers size={24} />
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-2">
@@ -1393,7 +1400,7 @@ const MyWorkspaceChannelId = () => {
   const [showDetailsSheet, setShowDetailsSheet] = useState(false);
   const isMobile = useMediaQuery("(max-width: 768px)");
 
-  // ─── NEW: Attachment preview state ────────────────────────────────
+  // ─── Attachment preview state ─────────────────────────────────────
   const [attachmentPreview, setAttachmentPreview] = useState(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
@@ -1436,13 +1443,10 @@ const MyWorkspaceChannelId = () => {
   const [recordingBlob, setRecordingBlob] = useState(null);
   const [recordingPaused, setRecordingPaused] = useState(false);
   const [showRecordedPreview, setShowRecordedPreview] = useState(false);
-  const [isLocked, setIsLocked] = useState(false);
-  const [swipeProgress, setSwipeProgress] = useState(0);
 
   const mediaRecorderRef = useRef(null);
   const recordingTimerRef = useRef(null);
   const audioChunksRef = useRef([]);
-  const touchStartYRef = useRef(0);
   const isRecordingRef = useRef(false);
 
   const { socket, isConnected } = useSocket();
@@ -1692,7 +1696,7 @@ const MyWorkspaceChannelId = () => {
     }
   };
 
-  // ─── NEW: Handle paste event ──────────────────────────────────────
+  // ─── Handle paste event ──────────────────────────────────────────
   const handlePaste = useCallback((e) => {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -1717,22 +1721,9 @@ const MyWorkspaceChannelId = () => {
         return;
       }
     }
-
-    // Handle text paste from screenshot/copy
-    const text = e.clipboardData?.getData('text');
-    if (text) {
-      // Don't prevent default - let it go into textarea
-      // But if text is an image URL, handle it
-      const urlPattern = /\.(jpg|jpeg|png|gif|webp|svg)$/i;
-      if (urlPattern.test(text.trim())) {
-        e.preventDefault();
-        // Could add image URL preview here if needed
-        // For now, just let it be pasted as text
-      }
-    }
   }, []);
 
-  // ─── NEW: Send attachment from preview ────────────────────────────
+  // ─── Send attachment from preview ────────────────────────────────
   const handleSendAttachment = async (previewData) => {
     const { file, type } = previewData;
     if (!file) return;
@@ -1903,6 +1894,7 @@ const MyWorkspaceChannelId = () => {
       _pending: true,
       _sent: false,
       _failed: false,
+      _delivered: false,
       _read: false,
       content: trimmed,
       sender: userInfo,
@@ -1927,7 +1919,6 @@ const MyWorkspaceChannelId = () => {
     const mentions = pendingMentions;
     setReplyToMessage(null);
 
-    // Reset textarea height
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
     }
@@ -1974,7 +1965,6 @@ const MyWorkspaceChannelId = () => {
     const file = e.target.files[0];
     if (!file) return;
     
-    // Show preview before sending
     const reader = new FileReader();
     reader.onload = (event) => {
       setAttachmentPreview({
@@ -1987,6 +1977,73 @@ const MyWorkspaceChannelId = () => {
     };
     reader.readAsDataURL(file);
     e.target.value = '';
+  };
+
+  // ─── Voice recording – simplified ──────────────────────────────────
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: "audio/webm",
+        });
+        setRecordingBlob(audioBlob);
+        setShowRecordedPreview(true);
+        stopTimer();
+        setIsRecording(false);
+        stream.getTracks().forEach((track) => track.stop());
+      };
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingPaused(false);
+      setRecordingTime(0);
+      setShowRecordedPreview(false);
+      startTimer();
+    } catch (err) {
+      console.error("Microphone error:", err);
+      let msg = "Microphone access denied";
+      if (err.name === "NotAllowedError") msg = "Microphone permission denied. Please grant it in system settings.";
+      else if (err.name === "NotFoundError") msg = "No microphone found.";
+      else if (err.name === "NotReadableError") msg = "Microphone is busy or not available.";
+      toast.error(msg);
+    }
+  };
+
+  const pauseRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      if (recordingPaused) {
+        mediaRecorderRef.current.resume();
+        setRecordingPaused(false);
+        startTimer();
+      } else {
+        mediaRecorderRef.current.pause();
+        setRecordingPaused(true);
+        stopTimer();
+      }
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+    }
+    setRecordingBlob(null);
+    setShowRecordedPreview(false);
+    setRecordingTime(0);
+    setIsRecording(false);
+    stopTimer();
   };
 
   const sendAudioMessage = async (audioBlob) => {
@@ -2014,16 +2071,18 @@ const MyWorkspaceChannelId = () => {
     }
   };
 
-  const cancelRecording = () => {
-    if (mediaRecorderRef.current && isRecording)
-      mediaRecorderRef.current.stop();
-    setRecordingBlob(null);
-    setShowRecordedPreview(false);
-    setRecordingTime(0);
-    setIsRecording(false);
-    setIsLocked(false);
-    setSwipeProgress(0);
-    stopTimer();
+  // ─── Mic button handlers (press and hold) ────────────────────────
+  const handleMicPointerDown = (e) => {
+    if (message.trim()) return;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    startRecording();
+  };
+
+  const handleMicPointerUp = (e) => {
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+    if (isRecording && !recordingPaused) {
+      stopRecording();
+    }
   };
 
   // ─── Message actions ──────────────────────────────────────────────
@@ -2244,85 +2303,6 @@ const MyWorkspaceChannelId = () => {
     }
   };
 
-  // ─── Recording handlers ───────────────────────────────────────────
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) audioChunksRef.current.push(event.data);
-      };
-      mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, {
-          type: "audio/webm",
-        });
-        setRecordingBlob(audioBlob);
-        setShowRecordedPreview(true);
-        stopTimer();
-        setIsRecording(false);
-        setIsLocked(false);
-        setSwipeProgress(0);
-        stream.getTracks().forEach((track) => track.stop());
-      };
-      mediaRecorder.start();
-      setIsRecording(true);
-      setRecordingPaused(false);
-      setRecordingTime(0);
-      setShowRecordedPreview(false);
-      setIsLocked(false);
-      setSwipeProgress(0);
-      startTimer();
-    } catch (err) {
-      toast.error("Microphone access denied");
-    }
-  };
-
-  const pauseRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      if (recordingPaused) {
-        mediaRecorderRef.current.resume();
-        setRecordingPaused(false);
-        startTimer();
-      } else {
-        mediaRecorderRef.current.pause();
-        setRecordingPaused(true);
-        stopTimer();
-      }
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording)
-      mediaRecorderRef.current.stop();
-  };
-
-  const handleMicPointerDown = (e) => {
-    if (message.trim()) return;
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-    touchStartYRef.current = e.clientY;
-    setSwipeProgress(0);
-    startRecording();
-  };
-
-  const handleMicPointerMove = (e) => {
-    if (!isRecordingRef.current || isLocked) return;
-    const deltaY = touchStartYRef.current - e.clientY;
-    const progress = Math.min(Math.max(deltaY / LOCK_THRESHOLD, 0), 1);
-    setSwipeProgress(progress);
-    if (deltaY >= LOCK_THRESHOLD) {
-      setIsLocked(true);
-      setSwipeProgress(1);
-    }
-  };
-
-  const handleMicPointerUp = (e) => {
-    e.currentTarget.releasePointerCapture?.(e.pointerId);
-    if (isLocked) return;
-    if (isRecordingRef.current) stopRecording();
-  };
-
   // ─── Render ──────────────────────────────────────────────────────
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
@@ -2335,7 +2315,6 @@ const MyWorkspaceChannelId = () => {
         />
       )}
 
-      {/* ─── NEW: Attachment Preview Modal ────────────────────────── */}
       <AttachmentPreviewModal
         isOpen={isPreviewOpen}
         onClose={handleRemoveAttachment}
@@ -2353,7 +2332,7 @@ const MyWorkspaceChannelId = () => {
       <div className="hidden lg:flex lg:w-72 lg:flex-col bg-white dark:bg-[#0f0f12] border-r border-gray-200/60 dark:border-gray-800/60 h-full overflow-hidden">
         <div className="p-4 border-b border-gray-200/60 dark:border-gray-800/60 flex-shrink-0">
           <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-300 flex items-center gap-2">
-            <FaHashtag className="text-sm" style={{ color: brandColor }} />
+            <FaUsers className="text-sm" style={{ color: brandColor }} />
             Channels
           </h2>
         </div>
@@ -2378,7 +2357,7 @@ const MyWorkspaceChannelId = () => {
                 channel._id === chatId ? "bg-gray-100 dark:bg-gray-800/60" : "hover:bg-gray-50 dark:hover:bg-gray-800/30"
               }`}
             >
-              <FaHashtag className="text-xs text-gray-400 dark:text-gray-500" />
+              <FaUsers className="text-xs text-gray-400 dark:text-gray-500" />
               <span className="text-sm text-gray-700 dark:text-gray-300 truncate">{channel.name}</span>
               {channel.unreadCount > 0 && (
                 <span className="ml-auto text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center" style={{ backgroundColor: brandColor }}>
@@ -2417,7 +2396,7 @@ const MyWorkspaceChannelId = () => {
               <FaArrowLeft />
             </button>
             <div className="w-9 h-9 rounded-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center flex-shrink-0">
-              <FaHashtag className="text-sm text-gray-600 dark:text-gray-300" />
+              <FaUsers className="text-sm text-gray-600 dark:text-gray-300" />
             </div>
             <div className="min-w-0 flex-1">
               <h2 className="font-semibold text-base text-gray-800 dark:text-gray-100 truncate">
@@ -2554,28 +2533,7 @@ const MyWorkspaceChannelId = () => {
             </div>
           )}
 
-          {isRecording && !isLocked && (
-            <div className="relative flex items-center justify-between px-3 py-2 mb-2 bg-red-50 dark:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-700/40">
-              <span className="text-xs text-red-600 dark:text-red-300 flex items-center gap-2">
-                <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />{" "}
-                Recording... {formatTime(recordingTime)}
-              </span>
-              <span className="text-[10px] text-gray-500 dark:text-gray-400">
-                Slide up to lock
-              </span>
-              <div className="absolute right-4 bottom-20 flex flex-col items-center">
-                <FaLock
-                  className="text-xs"
-                  style={{
-                    color: swipeProgress > 0.6 ? brandColor : "#9CA3AF",
-                  }}
-                />
-                <FaChevronUp className="text-gray-300 dark:text-gray-500 text-xs" />
-              </div>
-            </div>
-          )}
-
-          {isRecording && isLocked && (
+          {isRecording && (
             <div className="flex items-center justify-between px-3 py-2 mb-2 bg-red-50 dark:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-700/40">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
@@ -2583,7 +2541,6 @@ const MyWorkspaceChannelId = () => {
                   {recordingPaused ? "Paused" : "Recording..."}{" "}
                   {formatTime(recordingTime)}
                 </span>
-                <FaLock className="text-[10px]" style={{ color: brandColor }} />
               </div>
               <div className="flex gap-2">
                 <button
@@ -2674,12 +2631,15 @@ const MyWorkspaceChannelId = () => {
               onChange={handleMessageChange}
               onPaste={handlePaste}
               onKeyDown={(e) => {
+                // On mobile, allow Enter to insert a newline (do not send)
+                if (isMobile) return;
+                // On desktop, Send on Enter (Shift+Enter for newline)
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   handleSendMessage(e);
                 }
               }}
-              placeholder="Type a message or paste image..."
+              placeholder="Message"
               rows={1}
               className="flex-1 min-w-0 px-4 py-2 border border-gray-300 dark:border-gray-700/60 rounded-2xl bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500 dark:focus:ring-[#0d9488] resize-none max-h-32 overflow-y-auto"
               style={{ 
@@ -2701,7 +2661,6 @@ const MyWorkspaceChannelId = () => {
               <button
                 type="button"
                 onPointerDown={handleMicPointerDown}
-                onPointerMove={handleMicPointerMove}
                 onPointerUp={handleMicPointerUp}
                 onPointerCancel={handleMicPointerUp}
                 className="p-2 rounded-full text-white flex-shrink-0 transition hover:opacity-80 mb-1"

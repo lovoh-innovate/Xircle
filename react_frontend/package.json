@@ -19,6 +19,7 @@
     "@react-oauth/google": "^0.13.5",
     "@reduxjs/toolkit": "^2.12.0",
     "@tailwindcss/vite": "^4.3.2",
+    "capacitor-voice-recorder": "^7.0.6",
     "framer-motion": "^12.43.0",
     "lucide-react": "^1.28.0",
     "react": "^19.2.7",
