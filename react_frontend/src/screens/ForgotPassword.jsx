@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useForgotPasswordMutation, useResetPasswordMutation } from '../slices/userApiSlice';
-import { toast } from 'react-hot-toastify';
+import { toast } from 'react-hot-toast';
 import { FaEnvelope, FaLock, FaArrowLeft, FaCheckCircle } from 'react-icons/fa';
 
 const ForgotPassword = () => {

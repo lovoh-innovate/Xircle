@@ -277,7 +277,7 @@ const MyWorkspaceSettings = () => {
               </form>
             </div>
 
-            {/* Branding Card */}
+            {/* ─── Branding Card (with improved color input) ─── */}
             <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/60 p-5">
               <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2 mb-4">
                 <FaPalette className="text-[#0d9488]" /> Branding
@@ -286,7 +286,8 @@ const MyWorkspaceSettings = () => {
                 <div>
                   <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Brand Color</label>
                   <div className="flex items-center gap-3">
-                    <div className="relative w-14 h-14 rounded-xl border-2 border-gray-300 dark:border-gray-700/60 overflow-hidden">
+                    {/* Color picker + preview */}
+                    <div className="relative w-14 h-14 rounded-xl border-2 border-gray-300 dark:border-gray-700/60 overflow-hidden flex-shrink-0">
                       <input
                         type="color"
                         value={color}
@@ -295,8 +296,26 @@ const MyWorkspaceSettings = () => {
                       />
                       <div className="w-full h-full" style={{ backgroundColor: color }} />
                     </div>
-                    <span className="text-sm font-mono text-gray-500 dark:text-gray-500">{color}</span>
+                    {/* Editable text input – accepts hex with or without #, and other CSS colors */}
+                    <input
+                      type="text"
+                      value={color}
+                      onChange={(e) => {
+                        let val = e.target.value.trim();
+                        // Remove leading # for detection, then check if it's a valid hex
+                        const hex = val.replace(/^#/, '');
+                        if (/^[0-9a-fA-F]{6}$/.test(hex) || /^[0-9a-fA-F]{3}$/.test(hex)) {
+                          // It's a valid hex (3 or 6 chars) → ensure it has a #
+                          val = '#' + hex;
+                        }
+                        // else keep as typed (allows rgb, hsl, named colors)
+                        setColor(val);
+                      }}
+                      className="flex-1 px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 font-mono focus:outline-none focus:ring-1 focus:ring-[#0d9488]"
+                      placeholder="#0d9488"
+                    />
                   </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">Any valid CSS color (hex, rgb, hsl, name)</p>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Workspace Logo</label>

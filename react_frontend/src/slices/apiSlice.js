@@ -41,6 +41,6 @@ export const apiSlice = createApi({
   ],
   refetchOnReconnect: true,
   refetchOnMountOrArgChange: true,
-  keepUnusedDataFor: 60,
+  keepUnusedDataFor: 604800, // 7 days in seconds
   endpoints: (builder) => ({}),
 });

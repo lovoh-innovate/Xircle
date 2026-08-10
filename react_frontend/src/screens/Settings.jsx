@@ -26,7 +26,8 @@ import {
   FaMoon,
   FaDesktop,
 } from 'react-icons/fa';
-import { toast, ToastContainer } from 'react-hot-toast';
+import { toast } from 'react-hot-toast';
+import {ToastContainer} from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
