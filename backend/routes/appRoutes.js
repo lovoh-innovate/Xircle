@@ -2,8 +2,9 @@
 import express from 'express';
 import { protect } from '../middleware/authMiddleware.js';
 import multer from 'multer';
+import multerS3 from 'multer-s3';
 import path from 'path';
-import fs from 'fs';
+import { r2Client, R2_BUCKET_NAME } from '../config/r2.js';
 import {
   getAppVersion,
   getAppVersionById,
@@ -17,21 +18,15 @@ import {
 
 const router = express.Router();
 
-// ─── Ensure upload directory exists ──────────────────────────────────
-const uploadDir = 'uploads/app-versions';
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-// ─── Multer disk storage ──────────────────────────────────────────────
-const appStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
+// ─── Multer S3 (R2) storage ──────────────────────────────────────────
+const appStorage = multerS3({
+  s3: r2Client,
+  bucket: R2_BUCKET_NAME,
+  contentType: multerS3.AUTO_CONTENT_TYPE,
+  key: (req, file, cb) => {
     const version = req.body.version || Date.now();
     const ext = path.extname(file.originalname);
-    cb(null, `xircle-v${version}-${Date.now()}${ext}`);
+    cb(null, `app-versions/xircle-v${version}-${Date.now()}${ext}`);
   },
 });
 
@@ -52,7 +47,7 @@ const uploadAppFile = multer({
 const handleAppUpload = (req, res, next) => {
   uploadAppFile.single('file')(req, res, (err) => {
     if (err) {
-      console.error('❌ Multer upload error:', err);
+      console.error('❌ Multer/R2 upload error:', err);
       return res.status(500).json({
         success: false,
         message: 'File upload failed',

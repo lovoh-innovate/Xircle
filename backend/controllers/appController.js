@@ -3,8 +3,8 @@ import AppVersion from '../models/appVersionModel.js';
 import User from '../models/userModel.js';
 import jwt from 'jsonwebtoken';
 import { broadcastAppUpdate } from './notificationController.js';
-import path from 'path';
-import fs from 'fs';
+import { r2Client, R2_BUCKET_NAME, R2_PUBLIC_URL } from '../config/r2.js';
+import { GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 
 // ─── Public endpoints ──────────────────────────────────────────────
 
@@ -107,7 +107,7 @@ export const getAppVersionById = async (req, res) => {
 
 /**
  * GET /api/app/download/:versionId
- * Public – serve local file and update user version
+ * Public – stream file from R2 and update user version
  */
 export const downloadApp = async (req, res) => {
   try {
@@ -137,28 +137,34 @@ export const downloadApp = async (req, res) => {
       }
     }
 
-    // ── Serve local file ──
-    const filePath = path.join(process.cwd(), 'uploads', 'app-versions', appVersion.fileName);
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ success: false, message: 'File not found on server' });
-    }
-
+    // ── Stream from R2 ──
     const fileName = `xircle-v${appVersion.version}.apk`;
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    res.setHeader('Content-Type', 'application/vnd.android.package-archive');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    if (appVersion.fileSize) res.setHeader('Content-Length', appVersion.fileSize);
 
-    const stream = fs.createReadStream(filePath);
-    stream.pipe(res);
-    stream.on('error', (err) => {
-      console.error('Stream error:', err);
-      if (!res.headersSent) {
-        res.status(500).json({ success: false, message: 'Error streaming file' });
-      }
-      res.end();
-    });
-    res.on('finish', () => console.log(`✅ Download complete: ${fileName}`));
+    try {
+      const command = new GetObjectCommand({
+        Bucket: R2_BUCKET_NAME,
+        Key: appVersion.fileName, // R2 object key, stored at upload time
+      });
+      const r2Response = await r2Client.send(command);
+
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      if (appVersion.fileSize) res.setHeader('Content-Length', appVersion.fileSize);
+
+      r2Response.Body.pipe(res);
+      r2Response.Body.on('error', (err) => {
+        console.error('R2 stream error:', err);
+        if (!res.headersSent) {
+          res.status(500).json({ success: false, message: 'Error streaming file' });
+        }
+        res.end();
+      });
+      res.on('finish', () => console.log(`✅ Download complete: ${fileName}`));
+    } catch (err) {
+      console.error('R2 fetch error:', err);
+      return res.status(404).json({ success: false, message: 'File not found on R2' });
+    }
   } catch (error) {
     console.error('downloadApp error:', error);
     if (!res.headersSent) {
@@ -234,7 +240,7 @@ export const updateUserAppVersion = async (req, res) => {
 
 /**
  * POST /api/app/admin/upload
- * Any authenticated user – upload new APK/AAB (local storage)
+ * Any authenticated user – upload new APK/AAB (R2 storage via multer-s3)
  */
 export const uploadApp = async (req, res) => {
   try {
@@ -253,16 +259,16 @@ export const uploadApp = async (req, res) => {
       return res.status(400).json({ success: false, message: `Version ${version} already exists for ${platform}` });
     }
 
-    // ── Local file path ──
-    const fileUrl = `/uploads/app-versions/${req.file.filename}`;
+    // ── req.file.key comes from multer-s3, req.file.location is the full URL ──
+    const fileUrl = `${R2_PUBLIC_URL}/${req.file.key}`;
 
     const appVersion = new AppVersion({
       version,
       releaseNotes: releaseNotes || '',
       fileUrl,
       fileSize: req.file.size,
-      fileName: req.file.filename,
-      filePublicId: null,
+      fileName: req.file.key, // R2 object key, used for download/delete
+      filePublicId: req.file.key,
       isRequired: isRequired === 'true' || isRequired === true,
       platform,
       uploadedBy: userId,
@@ -335,7 +341,7 @@ export const updateApp = async (req, res) => {
 
 /**
  * DELETE /api/app/admin/delete/:versionId
- * Any authenticated user – delete version and local file
+ * Any authenticated user – delete version and R2 object
  */
 export const deleteApp = async (req, res) => {
   try {
@@ -350,12 +356,17 @@ export const deleteApp = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Version not found' });
     }
 
-    // ── Delete local file if exists ──
+    // ── Delete object from R2 if exists ──
     if (appVersion.fileName) {
-      const filePath = path.join(process.cwd(), 'uploads', 'app-versions', appVersion.fileName);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-        console.log(`🗑️ Deleted local file: ${filePath}`);
+      try {
+        await r2Client.send(new DeleteObjectCommand({
+          Bucket: R2_BUCKET_NAME,
+          Key: appVersion.fileName,
+        }));
+        console.log(`🗑️ Deleted R2 object: ${appVersion.fileName}`);
+      } catch (err) {
+        console.error('R2 delete error:', err);
+        // continue — don't block DB deletion on R2 failure
       }
     }
 
