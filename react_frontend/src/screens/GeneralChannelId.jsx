@@ -55,8 +55,16 @@ import {
   FaImage as FaImageIcon,
   FaTrashAlt as FaTrashIcon,
   FaPlus,
+  FaCamera, // <-- added for custom modal
 } from 'react-icons/fa';
 import GeneralSidebar from '../components/GeneralSidebar';
+
+// ─── Capacitor Imports ──────────────────────────────────────────────
+import { Capacitor } from '@capacitor/core';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { FilePicker } from '@capawesome/capacitor-file-picker';
+import { VoiceRecorder } from 'capacitor-voice-recorder';
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 const formatTime = (seconds) => {
@@ -113,6 +121,48 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, danger = fal
             Confirm
           </button>
         </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Media Picker Modal (custom bottom sheet) ──────────────────────
+const MediaPickerModal = ({ isOpen, onClose, onTakePhoto, onChooseFromGallery }) => {
+  if (!isOpen) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 dark:bg-black/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-[#14141a] rounded-t-2xl w-full max-w-lg p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">
+          Choose Media
+        </h3>
+        <div className="space-y-2">
+          <button
+            onClick={onTakePhoto}
+            className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+          >
+            <FaCamera className="text-sm" />
+            <span className="text-sm font-medium">Take Photo</span>
+          </button>
+          <button
+            onClick={onChooseFromGallery}
+            className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+          >
+            <FaImage className="text-sm" />
+            <span className="text-sm font-medium">Choose from Gallery</span>
+          </button>
+        </div>
+        <button
+          onClick={onClose}
+          className="w-full mt-3 py-3 text-center text-sm font-medium text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700/60 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/30 transition"
+        >
+          Cancel
+        </button>
       </div>
     </div>
   );
@@ -190,19 +240,17 @@ const QuotedReplyBlock = ({ replyData, isOwn, onJump }) => {
   );
 };
 
-// ─── Media Preview Component ──────────────────────────────────────
+// ─── Media Preview Component (updated to use URL.createObjectURL) ──
 const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor }) => {
   const [preview, setPreview] = useState(null);
   const [type, setType] = useState(null);
 
   useEffect(() => {
     if (mediaFile) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPreview(reader.result);
-        setType(mediaFile.type.startsWith('image/') ? 'image' : 'file');
-      };
-      reader.readAsDataURL(mediaFile);
+      const url = URL.createObjectURL(mediaFile);
+      setPreview(url);
+      setType(mediaFile.type.startsWith('image/') ? 'image' : 'file');
+      return () => URL.revokeObjectURL(url);
     }
   }, [mediaFile]);
 
@@ -1075,6 +1123,18 @@ const ChannelDetailsPanel = ({ chat, userInfo, onClose, onEdit, onOpenDM }) => {
   );
 };
 
+// ─── Helper: base64 to File ─────────────────────────────────────────
+const base64ToFile = (base64Data, fileName, mimeType) => {
+  const byteCharacters = atob(base64Data);
+  const byteNumbers = new Array(byteCharacters.length);
+  for (let i = 0; i < byteCharacters.length; i++) {
+    byteNumbers[i] = byteCharacters.charCodeAt(i);
+  }
+  const byteArray = new Uint8Array(byteNumbers);
+  const blob = new Blob([byteArray], { type: mimeType });
+  return new File([blob], fileName, { type: mimeType });
+};
+
 // ─── Main Component (Group Channel) ──────────────────────────────────
 const GeneralChannelId = () => {
   const { chatId } = useParams();
@@ -1092,6 +1152,7 @@ const GeneralChannelId = () => {
   const [showDetails, setShowDetails] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [pendingMedia, setPendingMedia] = useState(null);
+  const [showMediaPicker, setShowMediaPicker] = useState(false); // <-- new state
   const isMobile = useMediaQuery('(max-width: 768px)');
   const isDesktop = !isMobile;
 
@@ -1175,6 +1236,7 @@ const GeneralChannelId = () => {
     setIsAtBottom(true);
     setShowScrollDown(false);
     setPendingMedia(null);
+    setShowMediaPicker(false);
   }, [chatId]);
 
   // ─── Scroll / bottom detection ─────────────────────────────────
@@ -1234,8 +1296,6 @@ const GeneralChannelId = () => {
           };
           const isOwn = incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
           if (isOwn) {
-            // For own messages, check if anyone (other than self) has read it – in group chats we can check if readBy length > 1
-            // For simplicity, we'll mark as read if the readBy array has at least one other participant
             const readByOthers = incoming.readBy?.filter(r => r.user !== userInfo?._id && r.user !== userInfo?._id);
             if (readByOthers && readByOthers.length > 0) {
               updated._read = true;
@@ -1459,18 +1519,113 @@ const GeneralChannelId = () => {
     });
   };
 
-  // ─── File / image handlers ──────────────────────────────────────
-  const handleFileUpload = (type) => {
-    if (type === 'file') fileInputRef.current?.click();
-    else imageInputRef.current?.click();
-  };
+  // ─── File / image: Native plugins with custom modal for images ──
+  // Native image picker (Camera / Gallery) - called from custom modal
+  const handleTakePhoto = useCallback(async () => {
+    setShowMediaPicker(false);
+    try {
+      const photo = await Camera.getPhoto({
+        quality: 80,
+        resultType: CameraResultType.Base64,
+        source: CameraSource.Camera,
+      });
+      if (photo?.base64String) {
+        const mimeType = `image/${photo.format || 'jpeg'}`;
+        const fileName = `photo-${Date.now()}.${photo.format || 'jpg'}`;
+        setPendingMedia(base64ToFile(photo.base64String, fileName, mimeType));
+      }
+    } catch (err) {
+      const msg = (err?.message || '').toLowerCase();
+      if (!msg.includes('cancel')) {
+        console.error('Camera error:', err);
+        toast.error('Failed to take photo');
+      }
+    }
+  }, []);
 
-  const handleFileChange = (e, type) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  const handleChooseFromGallery = useCallback(async () => {
+    setShowMediaPicker(false);
+    try {
+      const photo = await Camera.getPhoto({
+        quality: 80,
+        resultType: CameraResultType.Base64,
+        source: CameraSource.Photos,
+      });
+      if (photo?.base64String) {
+        const mimeType = `image/${photo.format || 'jpeg'}`;
+        const fileName = `photo-${Date.now()}.${photo.format || 'jpg'}`;
+        setPendingMedia(base64ToFile(photo.base64String, fileName, mimeType));
+      }
+    } catch (err) {
+      const msg = (err?.message || '').toLowerCase();
+      if (!msg.includes('cancel')) {
+        console.error('Gallery error:', err);
+        toast.error('Failed to pick from gallery');
+      }
+    }
+  }, []);
+
+  // Native file picker (documents, PDF, etc.)
+  const handlePickFile = useCallback(async () => {
+    try {
+      const result = await FilePicker.pickFiles({ readData: true });
+      const picked = result?.files?.[0];
+      if (!picked) return;
+      const mimeType = picked.mimeType || 'application/octet-stream';
+      const fileName = picked.name || `file-${Date.now()}`;
+
+      let file;
+      if (picked.data) {
+        file = base64ToFile(picked.data, fileName, mimeType);
+      } else if (picked.path) {
+        const readResult = await Filesystem.readFile({ path: picked.path });
+        file = base64ToFile(readResult.data, fileName, mimeType);
+      } else {
+        toast.error('Could not read selected file');
+        return;
+      }
+      setPendingMedia(file);
+    } catch (err) {
+      const msg = (err?.message || '').toLowerCase();
+      if (!msg.includes('cancel')) {
+        console.error('File picker error:', err);
+        toast.error('Failed to pick file');
+      }
+    }
+  }, []);
+
+  // Entry point for file/image upload
+  const handleFileUpload = useCallback(
+    (type) => {
+      if (Capacitor.isNativePlatform()) {
+        if (type === 'image') {
+          setShowMediaPicker(true); // show custom modal
+        } else {
+          handlePickFile(); // files use native picker directly
+        }
+        return;
+      }
+      // Web fallback: hidden <input type="file">
+      if (type === 'file') {
+        fileInputRef.current?.click();
+      } else {
+        imageInputRef.current?.click();
+      }
+    },
+    [handlePickFile],
+  );
+
+  // Web-only file change handler (hidden inputs)
+  const handleFileChange = useCallback((e) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      toast.error('No file selected');
+      return;
+    }
     setPendingMedia(file);
+    toast.success(`${file.name} loaded`);
     e.target.value = '';
-  };
+  }, []);
 
   // ─── Handle paste ──────────────────────────────────────────────────
   const handlePaste = (e) => {
@@ -1509,7 +1664,7 @@ const GeneralChannelId = () => {
     }
   }, [createDirectChat, navigate]);
 
-  // ─── Voice recording ──────────────────────────────────────────
+  // ─── Voice recording (using Capacitor VoiceRecorder on native) ──
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [recordingBlob, setRecordingBlob] = useState(null);
@@ -1519,6 +1674,7 @@ const GeneralChannelId = () => {
   const recordingTimerRef = useRef(null);
   const audioChunksRef = useRef([]);
   const isRecordingRef = useRef(false);
+  const isNative = Capacitor.isNativePlatform();
 
   useEffect(() => {
     isRecordingRef.current = isRecording;
@@ -1526,10 +1682,16 @@ const GeneralChannelId = () => {
 
   useEffect(() => {
     return () => {
-      if (mediaRecorderRef.current && isRecordingRef.current) mediaRecorderRef.current.stop();
+      if (mediaRecorderRef.current && isRecordingRef.current) {
+        if (isNative) {
+          VoiceRecorder.stopRecording().catch(() => {});
+        } else {
+          mediaRecorderRef.current.stop();
+        }
+      }
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
     };
-  }, []);
+  }, [isNative]);
 
   const startTimer = () => {
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
@@ -1543,7 +1705,83 @@ const GeneralChannelId = () => {
     }
   };
 
-  const startRecording = async () => {
+  // ─── Native recording using VoiceRecorder ──────────────────────
+  const startNativeRecording = async () => {
+    try {
+      const { value: hasPermission } =
+        await VoiceRecorder.hasAudioRecordingPermission();
+      if (!hasPermission) {
+        const { value: granted } =
+          await VoiceRecorder.requestAudioRecordingPermission();
+        if (!granted) {
+          toast.error('Microphone permission is required.');
+          return;
+        }
+      }
+      await VoiceRecorder.startRecording();
+      setIsRecording(true);
+      setRecordingPaused(false);
+      setRecordingTime(0);
+      setShowRecordedPreview(false);
+      startTimer();
+    } catch (err) {
+      console.error('Native recording error:', err);
+      toast.error('Failed to start recording: ' + (err.message || ''));
+      setIsRecording(false);
+    }
+  };
+
+  const pauseNativeRecording = async () => {
+    try {
+      if (recordingPaused) {
+        await VoiceRecorder.resumeRecording();
+        setRecordingPaused(false);
+        startTimer();
+      } else {
+        await VoiceRecorder.pauseRecording();
+        setRecordingPaused(true);
+        stopTimer();
+      }
+    } catch (err) {
+      toast.error('Failed to pause/resume recording');
+    }
+  };
+
+  const stopNativeRecording = async () => {
+    try {
+      const result = await VoiceRecorder.stopRecording();
+      const base64 = result.value.recordDataBase64;
+      const byteCharacters = atob(base64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const audioBlob = new Blob([byteArray], { type: 'audio/m4a' });
+      setRecordingBlob(audioBlob);
+      setShowRecordedPreview(true);
+      stopTimer();
+      setIsRecording(false);
+    } catch (err) {
+      console.error('Stop recording error:', err);
+      toast.error('Failed to stop recording');
+      setIsRecording(false);
+    }
+  };
+
+  const cancelNativeRecording = async () => {
+    try {
+      await VoiceRecorder.stopRecording();
+    } catch (_) {}
+    setRecordingBlob(null);
+    setShowRecordedPreview(false);
+    setRecordingTime(0);
+    setIsRecording(false);
+    stopTimer();
+  };
+
+  // ─── Web recording using MediaRecorder ─────────────────────────
+  const startWebRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
@@ -1557,6 +1795,7 @@ const GeneralChannelId = () => {
         stopTimer();
         setIsRecording(false);
         stream.getTracks().forEach(track => track.stop());
+        mediaRecorderRef.current = null;
       };
       mediaRecorder.start();
       setIsRecording(true);
@@ -1565,16 +1804,18 @@ const GeneralChannelId = () => {
       setShowRecordedPreview(false);
       startTimer();
     } catch (err) {
-      console.error('Microphone error:', err);
+      console.error('Web recording error:', err);
       let msg = 'Microphone access denied';
       if (err.name === 'NotAllowedError') msg = 'Microphone permission denied. Please grant it in system settings.';
       else if (err.name === 'NotFoundError') msg = 'No microphone found.';
-      else if (err.name === 'NotReadableError') msg = 'Microphone is busy or not available.';
+      else if (err.name === 'NotReadableError') msg = 'Microphone busy — please try again.';
+      else if (err.name === 'AbortError') msg = 'User canceled the permission prompt.';
       toast.error(msg);
+      mediaRecorderRef.current = null;
     }
   };
 
-  const pauseRecording = () => {
+  const pauseWebRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
       if (recordingPaused) {
         mediaRecorderRef.current.resume();
@@ -1588,13 +1829,13 @@ const GeneralChannelId = () => {
     }
   };
 
-  const stopRecording = () => {
+  const stopWebRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
     }
   };
 
-  const cancelRecording = () => {
+  const cancelWebRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
     }
@@ -1605,9 +1846,48 @@ const GeneralChannelId = () => {
     stopTimer();
   };
 
+  // ─── Unified recording handlers ──────────────────────────────────
+  const startRecording = () => {
+    if (isRecording) return;
+    if (isNative) {
+      startNativeRecording();
+    } else {
+      startWebRecording();
+    }
+  };
+
+  const pauseRecording = () => {
+    if (isNative) {
+      pauseNativeRecording();
+    } else {
+      pauseWebRecording();
+    }
+  };
+
+  const stopRecording = () => {
+    if (isNative) {
+      stopNativeRecording();
+    } else {
+      stopWebRecording();
+    }
+  };
+
+  const cancelRecording = () => {
+    if (isNative) {
+      cancelNativeRecording();
+    } else {
+      cancelWebRecording();
+    }
+  };
+
+  // ─── Send audio message ─────────────────────────────────────────
   const sendAudioMessage = async (audioBlob) => {
     const formData = new FormData();
-    const audioFile = new File([audioBlob], 'voice-note.webm', { type: 'audio/webm' });
+    const mimeType = isNative ? 'audio/m4a' : 'audio/webm';
+    const extension = isNative ? 'm4a' : 'webm';
+    const audioFile = new File([audioBlob], `voice-note.${extension}`, {
+      type: mimeType,
+    });
     formData.append('media', audioFile);
     formData.append('messageType', 'audio');
     formData.append('mediaDuration', recordingTime.toString());
@@ -1616,6 +1896,7 @@ const GeneralChannelId = () => {
     }
     try {
       await sendMessageApi({ chatId, data: formData }).unwrap();
+      toast.success('Voice note sent!');
       setRecordingBlob(null);
       setShowRecordedPreview(false);
       setRecordingTime(0);
@@ -1628,6 +1909,7 @@ const GeneralChannelId = () => {
   // ─── Mic button handlers ────────────────────────────────────────
   const handleMicPointerDown = (e) => {
     if (message.trim()) return;
+    if (isRecording || mediaRecorderRef.current) return;
     e.currentTarget.setPointerCapture?.(e.pointerId);
     startRecording();
   };
@@ -1817,8 +2099,8 @@ const GeneralChannelId = () => {
                 <form onSubmit={handleSendMessage} className="flex items-end gap-2">
                   <button type="button" onClick={() => handleFileUpload('file')} className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition flex-shrink-0 mb-1"><FaPaperclip className="text-sm" /></button>
                   <button type="button" onClick={() => handleFileUpload('image')} className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition flex-shrink-0 mb-1"><FaImage className="text-sm" /></button>
-                  <input type="file" ref={fileInputRef} onChange={(e) => handleFileChange(e, 'file')} className="hidden" />
-                  <input type="file" ref={imageInputRef} onChange={(e) => handleFileChange(e, 'image')} className="hidden" accept="image/*,video/*" />
+                  <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
+                  <input type="file" ref={imageInputRef} onChange={handleFileChange} className="hidden" accept="image/*,video/*" />
                   <textarea 
                     ref={inputRef} 
                     value={message} 
@@ -1868,6 +2150,14 @@ const GeneralChannelId = () => {
       <ConfirmModal isOpen={confirmModal.isOpen} onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })} onConfirm={confirmModal.onConfirm} title={confirmModal.title} message={confirmModal.message} danger={confirmModal.danger} />
       {previewImage && <ImagePreviewModal imageUrl={previewImage.url} senderName={previewImage.senderName} time={previewImage.time} onClose={() => setPreviewImage(null)} />}
       <MessageActionModal isOpen={actionModal.isOpen} onClose={() => setActionModal({ isOpen: false, message: null })} message={actionModal.message} isOwn={actionModal.message?.sender?._id === userInfo?._id} isStarred={actionModal.message?.starredBy?.some(id => id === userInfo?._id)} isArchived={actionModal.message?.archivedBy?.some(id => id === userInfo?._id)} onDelete={handleDeleteMessage} onArchive={handleArchiveMessage} onUnarchive={handleUnarchiveMessage} onStar={handleStarMessage} onUnstar={handleUnstarMessage} onReply={handleReply} />
+
+      {/* Custom Media Picker Modal */}
+      <MediaPickerModal
+        isOpen={showMediaPicker}
+        onClose={() => setShowMediaPicker(false)}
+        onTakePhoto={handleTakePhoto}
+        onChooseFromGallery={handleChooseFromGallery}
+      />
     </>
   );
 };

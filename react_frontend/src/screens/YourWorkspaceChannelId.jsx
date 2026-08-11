@@ -62,9 +62,29 @@ import {
   FaReply,
   FaFile,
   FaUsers,
+  FaCamera, // <-- added
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 import { useSocket } from '../components/SocketContext.jsx';
+
+// ─── Capacitor Imports ──────────────────────────────────────────────
+import { Capacitor } from '@capacitor/core';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { FilePicker } from '@capawesome/capacitor-file-picker';
+import { VoiceRecorder } from 'capacitor-voice-recorder';
+
+// ─── Helper: base64 to File ─────────────────────────────────────────
+const base64ToFile = (base64Data, fileName, mimeType) => {
+  const byteCharacters = atob(base64Data);
+  const byteNumbers = new Array(byteCharacters.length);
+  for (let i = 0; i < byteCharacters.length; i++) {
+    byteNumbers[i] = byteCharacters.charCodeAt(i);
+  }
+  const byteArray = new Uint8Array(byteNumbers);
+  const blob = new Blob([byteArray], { type: mimeType });
+  return new File([blob], fileName, { type: mimeType });
+};
 
 // ─── Helper: Format time ──────────────────────────────────────────────
 const formatTime = (seconds) => {
@@ -88,6 +108,48 @@ const useMediaQuery = (query) => {
     return () => media.removeEventListener('change', listener);
   }, [matches, query]);
   return matches;
+};
+
+// ─── Media Picker Modal (custom bottom sheet) ──────────────────────
+const MediaPickerModal = ({ isOpen, onClose, onTakePhoto, onChooseFromGallery, brandColor }) => {
+  if (!isOpen) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 dark:bg-black/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-[#14141a] rounded-t-2xl w-full max-w-lg p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">
+          Choose Media
+        </h3>
+        <div className="space-y-2">
+          <button
+            onClick={onTakePhoto}
+            className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+          >
+            <FaCamera className="text-sm" />
+            <span className="text-sm font-medium">Take Photo</span>
+          </button>
+          <button
+            onClick={onChooseFromGallery}
+            className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+          >
+            <FaImage className="text-sm" />
+            <span className="text-sm font-medium">Choose from Gallery</span>
+          </button>
+        </div>
+        <button
+          onClick={onClose}
+          className="w-full mt-3 py-3 text-center text-sm font-medium text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700/60 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/30 transition"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
 };
 
 // ─── Image Preview Modal for attachments ──────────────────────────────
@@ -1317,6 +1379,7 @@ const YourWorkspaceChannelId = () => {
 
   const [attachmentPreview, setAttachmentPreview] = useState(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [showMediaPicker, setShowMediaPicker] = useState(false); // <-- new state
 
   const isMobile = useMediaQuery('(max-width: 768px)');
 
@@ -1364,6 +1427,7 @@ const YourWorkspaceChannelId = () => {
   const recordingTimerRef = useRef(null);
   const audioChunksRef = useRef([]);
   const isRecordingRef = useRef(false);
+  const isNative = Capacitor.isNativePlatform(); // <-- check native
 
   const { socket, isConnected } = useSocket();
   const [localMessages, setLocalMessages] = useState([]);
@@ -1522,7 +1586,6 @@ const YourWorkspaceChannelId = () => {
 
     socket.emit('join-chat', chatId);
 
-    // ─── FIXED: Merge function that computes _read from readBy ────
     const mergeMessages = (incomingList) => {
       if (!incomingList || incomingList.length === 0) return;
       setLocalMessages((prev) => {
@@ -1532,7 +1595,6 @@ const YourWorkspaceChannelId = () => {
         incomingList.forEach((incoming) => {
           const isOwn = incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
 
-          // Check if message already exists by _id
           const existingIdx = next.findIndex(m => m._id === incoming._id);
           if (existingIdx > -1) {
             if (!mutated) next = [...next];
@@ -1546,15 +1608,12 @@ const YourWorkspaceChannelId = () => {
               _delivered: true,
               _read: false,
             };
-            // Compute _read from readBy
             if (isOwn) {
-              // For own messages, check if other participants have read it (we only care if at least one other read it)
               const otherIds = participants.map(p => p.user?._id || p.user).filter(id => id !== userInfo?._id);
               if (otherIds.some(id => incoming.readBy?.some(r => r.user === id || r.user?._id === id))) {
                 updated._read = true;
               }
             } else {
-              // For incoming messages, check if current user read it
               if (incoming.readBy?.some(r => r.user === userInfo?._id || r.user?._id === userInfo?._id)) {
                 updated._read = true;
               }
@@ -1563,7 +1622,6 @@ const YourWorkspaceChannelId = () => {
             return;
           }
 
-          // For own messages, try to replace a temp message
           if (isOwn) {
             const tempIdx = next.findIndex(
               m => m._temp && m.content === incoming.content && Math.abs(new Date(m.createdAt) - new Date(incoming.createdAt)) < 5000
@@ -1589,7 +1647,6 @@ const YourWorkspaceChannelId = () => {
             }
           }
 
-          // Completely new message
           const msg = {
             ...incoming,
             _sent: true,
@@ -1653,7 +1710,6 @@ const YourWorkspaceChannelId = () => {
         const existingIds = new Set(prev.map(m => m._id));
         const newMessages = messagesData.messages.filter(m => !existingIds.has(m._id));
         if (newMessages.length === 0) return prev;
-        // We need to compute _read for these too – use same logic as above
         const merged = newMessages.map(msg => {
           const isOwn = msg.sender?._id === userInfo?._id || msg.sender === userInfo?._id;
           const obj = {
@@ -1681,17 +1737,23 @@ const YourWorkspaceChannelId = () => {
     }
   }, [messagesData, userInfo?._id, participants]);
 
-  // ─── Voice recording handlers ──────────────────────────────────────
+  // ─── Native / Web voice recording ──────────────────────────────────
   useEffect(() => {
     isRecordingRef.current = isRecording;
   }, [isRecording]);
 
   useEffect(() => {
     return () => {
-      if (mediaRecorderRef.current && isRecordingRef.current) mediaRecorderRef.current.stop();
+      if (mediaRecorderRef.current && isRecordingRef.current) {
+        if (isNative) {
+          VoiceRecorder.stopRecording().catch(() => {});
+        } else {
+          mediaRecorderRef.current.stop();
+        }
+      }
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
     };
-  }, []);
+  }, [isNative]);
 
   const startTimer = () => {
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
@@ -1705,7 +1767,81 @@ const YourWorkspaceChannelId = () => {
     }
   };
 
-  const startRecording = async () => {
+  // Native recording using VoiceRecorder
+  const startNativeRecording = async () => {
+    try {
+      const { value: hasPermission } = await VoiceRecorder.hasAudioRecordingPermission();
+      if (!hasPermission) {
+        const { value: granted } = await VoiceRecorder.requestAudioRecordingPermission();
+        if (!granted) {
+          toast.error('Microphone permission is required.');
+          return;
+        }
+      }
+      await VoiceRecorder.startRecording();
+      setIsRecording(true);
+      setRecordingPaused(false);
+      setRecordingTime(0);
+      setShowRecordedPreview(false);
+      startTimer();
+    } catch (err) {
+      console.error('Native recording error:', err);
+      toast.error('Failed to start recording: ' + (err.message || ''));
+      setIsRecording(false);
+    }
+  };
+
+  const pauseNativeRecording = async () => {
+    try {
+      if (recordingPaused) {
+        await VoiceRecorder.resumeRecording();
+        setRecordingPaused(false);
+        startTimer();
+      } else {
+        await VoiceRecorder.pauseRecording();
+        setRecordingPaused(true);
+        stopTimer();
+      }
+    } catch (err) {
+      toast.error('Failed to pause/resume recording');
+    }
+  };
+
+  const stopNativeRecording = async () => {
+    try {
+      const result = await VoiceRecorder.stopRecording();
+      const base64 = result.value.recordDataBase64;
+      const byteCharacters = atob(base64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const audioBlob = new Blob([byteArray], { type: 'audio/m4a' });
+      setRecordingBlob(audioBlob);
+      setShowRecordedPreview(true);
+      stopTimer();
+      setIsRecording(false);
+    } catch (err) {
+      console.error('Stop recording error:', err);
+      toast.error('Failed to stop recording');
+      setIsRecording(false);
+    }
+  };
+
+  const cancelNativeRecording = async () => {
+    try {
+      await VoiceRecorder.stopRecording();
+    } catch (_) {}
+    setRecordingBlob(null);
+    setShowRecordedPreview(false);
+    setRecordingTime(0);
+    setIsRecording(false);
+    stopTimer();
+  };
+
+  // Web recording using MediaRecorder
+  const startWebRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
@@ -1721,6 +1857,7 @@ const YourWorkspaceChannelId = () => {
         stopTimer();
         setIsRecording(false);
         stream.getTracks().forEach(track => track.stop());
+        mediaRecorderRef.current = null;
       };
       mediaRecorder.start();
       setIsRecording(true);
@@ -1729,33 +1866,18 @@ const YourWorkspaceChannelId = () => {
       setShowRecordedPreview(false);
       startTimer();
     } catch (err) {
-      console.error('Microphone error:', err);
+      console.error('Web recording error:', err);
       let msg = 'Microphone access denied';
       if (err.name === 'NotAllowedError') msg = 'Microphone permission denied. Please grant it in system settings.';
       else if (err.name === 'NotFoundError') msg = 'No microphone found.';
-      else if (err.name === 'NotReadableError') msg = 'Microphone is busy or not available.';
+      else if (err.name === 'NotReadableError') msg = 'Microphone busy — please try again.';
+      else if (err.name === 'AbortError') msg = 'User canceled the permission prompt.';
       toast.error(msg);
+      mediaRecorderRef.current = null;
     }
   };
 
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-    }
-  };
-
-  const cancelRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-    }
-    setRecordingBlob(null);
-    setShowRecordedPreview(false);
-    setRecordingTime(0);
-    setIsRecording(false);
-    stopTimer();
-  };
-
-  const pauseRecording = () => {
+  const pauseWebRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
       if (recordingPaused) {
         mediaRecorderRef.current.resume();
@@ -1769,9 +1891,64 @@ const YourWorkspaceChannelId = () => {
     }
   };
 
+  const stopWebRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
+  const cancelWebRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+    }
+    setRecordingBlob(null);
+    setShowRecordedPreview(false);
+    setRecordingTime(0);
+    setIsRecording(false);
+    stopTimer();
+  };
+
+  // Unified recording handlers
+  const startRecording = () => {
+    if (isRecording) return;
+    if (isNative) {
+      startNativeRecording();
+    } else {
+      startWebRecording();
+    }
+  };
+
+  const pauseRecording = () => {
+    if (isNative) {
+      pauseNativeRecording();
+    } else {
+      pauseWebRecording();
+    }
+  };
+
+  const stopRecording = () => {
+    if (isNative) {
+      stopNativeRecording();
+    } else {
+      stopWebRecording();
+    }
+  };
+
+  const cancelRecording = () => {
+    if (isNative) {
+      cancelNativeRecording();
+    } else {
+      cancelWebRecording();
+    }
+  };
+
   const sendAudioMessage = async (audioBlob) => {
     const formData = new FormData();
-    const audioFile = new File([audioBlob], 'voice-note.webm', { type: 'audio/webm' });
+    const mimeType = isNative ? 'audio/m4a' : 'audio/webm';
+    const extension = isNative ? 'm4a' : 'webm';
+    const audioFile = new File([audioBlob], `voice-note.${extension}`, {
+      type: mimeType,
+    });
     formData.append('media', audioFile);
     formData.append('messageType', 'audio');
     formData.append('mediaDuration', recordingTime.toString());
@@ -1783,6 +1960,7 @@ const YourWorkspaceChannelId = () => {
     }
     try {
       await sendMessageApi({ chatId, data: formData }).unwrap();
+      toast.success('Voice note sent!');
       setRecordingBlob(null);
       setShowRecordedPreview(false);
       setRecordingTime(0);
@@ -1875,6 +2053,160 @@ const YourWorkspaceChannelId = () => {
     setReplyToMessage(null);
   };
 
+  // ─── Native / Web file & image pickers ────────────────────────────
+
+  // Native image picker (Camera / Gallery) - called from custom modal
+  const handleTakePhoto = useCallback(async () => {
+    setShowMediaPicker(false);
+    try {
+      const photo = await Camera.getPhoto({
+        quality: 80,
+        resultType: CameraResultType.Base64,
+        source: CameraSource.Camera,
+      });
+      if (photo?.base64String) {
+        const mimeType = `image/${photo.format || 'jpeg'}`;
+        const fileName = `photo-${Date.now()}.${photo.format || 'jpg'}`;
+        const file = base64ToFile(photo.base64String, fileName, mimeType);
+        // Show preview
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          setAttachmentPreview({
+            file: file,
+            preview: event.target.result,
+            type: 'image',
+            name: fileName,
+          });
+          setIsPreviewOpen(true);
+        };
+        reader.readAsDataURL(file);
+      }
+    } catch (err) {
+      const msg = (err?.message || '').toLowerCase();
+      if (!msg.includes('cancel')) {
+        console.error('Camera error:', err);
+        toast.error('Failed to take photo');
+      }
+    }
+  }, []);
+
+  const handleChooseFromGallery = useCallback(async () => {
+    setShowMediaPicker(false);
+    try {
+      const photo = await Camera.getPhoto({
+        quality: 80,
+        resultType: CameraResultType.Base64,
+        source: CameraSource.Photos,
+      });
+      if (photo?.base64String) {
+        const mimeType = `image/${photo.format || 'jpeg'}`;
+        const fileName = `photo-${Date.now()}.${photo.format || 'jpg'}`;
+        const file = base64ToFile(photo.base64String, fileName, mimeType);
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          setAttachmentPreview({
+            file: file,
+            preview: event.target.result,
+            type: 'image',
+            name: fileName,
+          });
+          setIsPreviewOpen(true);
+        };
+        reader.readAsDataURL(file);
+      }
+    } catch (err) {
+      const msg = (err?.message || '').toLowerCase();
+      if (!msg.includes('cancel')) {
+        console.error('Gallery error:', err);
+        toast.error('Failed to pick from gallery');
+      }
+    }
+  }, []);
+
+  // Native file picker (documents, PDF, etc.)
+  const handlePickFile = useCallback(async () => {
+    try {
+      const result = await FilePicker.pickFiles({ readData: true });
+      const picked = result?.files?.[0];
+      if (!picked) return;
+      const mimeType = picked.mimeType || 'application/octet-stream';
+      const fileName = picked.name || `file-${Date.now()}`;
+
+      let file;
+      if (picked.data) {
+        file = base64ToFile(picked.data, fileName, mimeType);
+      } else if (picked.path) {
+        const readResult = await Filesystem.readFile({ path: picked.path });
+        file = base64ToFile(readResult.data, fileName, mimeType);
+      } else {
+        toast.error('Could not read selected file');
+        return;
+      }
+      // Show preview for file (non-image)
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setAttachmentPreview({
+          file: file,
+          preview: event.target.result,
+          type: 'file',
+          name: fileName,
+        });
+        setIsPreviewOpen(true);
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      const msg = (err?.message || '').toLowerCase();
+      if (!msg.includes('cancel')) {
+        console.error('File picker error:', err);
+        toast.error('Failed to pick file');
+      }
+    }
+  }, []);
+
+  // Entry point for file/image upload
+  const handleFileUpload = useCallback(
+    (type) => {
+      if (isNative) {
+        if (type === 'image') {
+          setShowMediaPicker(true); // show custom modal
+        } else {
+          handlePickFile(); // files use native picker directly
+        }
+        return;
+      }
+      // Web fallback: hidden <input type="file">
+      if (type === 'file') {
+        fileInputRef.current?.click();
+      } else {
+        imageInputRef.current?.click();
+      }
+    },
+    [handlePickFile],
+  );
+
+  // Web-only file change handler (hidden inputs)
+  const handleFileChange = useCallback((e) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      toast.error('No file selected');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const type = file.type.startsWith('image/') ? 'image' : 'file';
+      setAttachmentPreview({
+        file: file,
+        preview: event.target.result,
+        type: type,
+        name: file.name,
+      });
+      setIsPreviewOpen(true);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }, []);
+
+  // ─── Handle paste ──────────────────────────────────────────────────
   const handlePaste = useCallback((e) => {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -2336,30 +2668,6 @@ const YourWorkspaceChannelId = () => {
     });
   };
 
-  // ─── File / image uploads ──────────────────────────────────────────
-  const handleFileUpload = (type) => {
-    if (type === 'file') fileInputRef.current?.click();
-    else if (type === 'image') imageInputRef.current?.click();
-  };
-
-  const handleFileChange = async (e, type) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      setAttachmentPreview({
-        file: file,
-        preview: event.target.result,
-        type: type === 'image' ? 'image' : 'file',
-        name: file.name,
-      });
-      setIsPreviewOpen(true);
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
-  };
-
   // ─── Render ───────────────────────────────────────────────────────────
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
@@ -2623,8 +2931,8 @@ const YourWorkspaceChannelId = () => {
             >
               <FaImage className="text-sm" />
             </button>
-            <input type="file" ref={fileInputRef} onChange={(e) => handleFileChange(e, 'file')} className="hidden" />
-            <input type="file" ref={imageInputRef} onChange={(e) => handleFileChange(e, 'image')} className="hidden" accept="image/*,video/*" />
+            <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
+            <input type="file" ref={imageInputRef} onChange={handleFileChange} className="hidden" accept="image/*,video/*" />
 
             <textarea
               ref={inputRef}
@@ -2632,9 +2940,7 @@ const YourWorkspaceChannelId = () => {
               onChange={handleMessageChange}
               onPaste={handlePaste}
               onKeyDown={(e) => {
-                // On mobile, allow Enter to insert a newline (do not send)
                 if (isMobile) return;
-                // On desktop, Send on Enter (Shift+Enter for newline)
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   handleSendMessage(e);
@@ -2663,18 +2969,20 @@ const YourWorkspaceChannelId = () => {
                 type="button"
                 onPointerDown={(e) => {
                   if (message.trim()) return;
+                  if (isRecording || mediaRecorderRef.current) return;
                   e.currentTarget.setPointerCapture?.(e.pointerId);
                   startRecording();
                 }}
                 onPointerUp={(e) => {
                   e.currentTarget.releasePointerCapture?.(e.pointerId);
-                  if (isRecording && !recordingPaused) stopRecording();
+                  if (isRecording && !recordingPaused) {
+                    stopRecording();
+                  }
                 }}
                 onPointerCancel={(e) => {
                   if (isRecording && !recordingPaused) stopRecording();
                 }}
-                disabled={isRecording}
-                className="p-2 rounded-full text-white flex-shrink-0 transition hover:opacity-80 disabled:opacity-50 mb-1"
+                className="p-2 rounded-full text-white flex-shrink-0 transition hover:opacity-80 mb-1"
                 style={{ backgroundColor: brandColor }}
               >
                 <FaMicrophone className="text-sm" />
@@ -2751,6 +3059,15 @@ const YourWorkspaceChannelId = () => {
         onStar={handleStarMessage}
         onUnstar={handleUnstarMessage}
         onReply={handleReply}
+        brandColor={brandColor}
+      />
+
+      {/* Custom Media Picker Modal */}
+      <MediaPickerModal
+        isOpen={showMediaPicker}
+        onClose={() => setShowMediaPicker(false)}
+        onTakePhoto={handleTakePhoto}
+        onChooseFromGallery={handleChooseFromGallery}
         brandColor={brandColor}
       />
     </div>

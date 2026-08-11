@@ -63,7 +63,8 @@ const upload = multer({
       'text/plain', 'text/csv',
       'application/zip', 'application/x-rar-compressed', 'application/x-7z-compressed',
       'video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska', 'video/webm',
-      'audio/mpeg', 'audio/mp4', 'audio/x-m4a', 'audio/wav', 'audio/aac', 'audio/ogg', 'audio/webm', 'audio/amr',
+      'audio/mpeg', 'audio/mp4', 'audio/x-m4a', 'audio/m4a',  // <-- ADDED audio/m4a
+      'audio/wav', 'audio/aac', 'audio/ogg', 'audio/webm', 'audio/amr',
     ];
     if (allowedMimes.includes(file.mimetype)) {
       cb(null, true);
