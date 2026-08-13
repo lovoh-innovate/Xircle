@@ -2,19 +2,14 @@
 import { io } from 'socket.io-client';
 import { Capacitor } from '@capacitor/core';
 
-/**
- * Determine the correct Socket.IO server URL (hardcoded).
- */
 const getSocketUrl = () => {
   const isNative = Capacitor.isNativePlatform();
 
-  // 1. Capacitor (mobile app) – always production
   if (isNative) {
     console.log('📱 Capacitor detected – using production URL');
     return 'https://xircle.onrender.com';
   }
 
-  // 2. Web – check if we're on localhost
   const hostname = window.location.hostname;
   const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
 
@@ -23,7 +18,6 @@ const getSocketUrl = () => {
     return 'http://localhost:8000';
   }
 
-  // 3. Web – production (or staging)
   console.log('🌐 Production web – using https://xircle.onrender.com');
   return 'https://xircle.onrender.com';
 };
@@ -41,10 +35,22 @@ export const connectSocket = (token) => {
     return socket;
   }
 
+  // Clean up any stale/disconnected instance before creating a new one
+  if (socket) {
+    socket.removeAllListeners();
+    socket.disconnect();
+    socket = null;
+  }
+
   socket = io(SOCKET_URL, {
     auth: { token },
     withCredentials: true,
     transports: ['websocket'],
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 500,
+    reconnectionDelayMax: 3000,
+    timeout: 10000,
   });
 
   socket.on('connect', () => {
@@ -53,15 +59,23 @@ export const connectSocket = (token) => {
 
   socket.on('connect_error', (err) => {
     console.error('❌ Socket connection error:', err.message);
-    console.error('Full error object:', err);
   });
 
   socket.on('disconnect', (reason) => {
     console.warn('🔌 Socket disconnected. Reason:', reason);
+    // If Render's server dropped an idle connection, reconnect immediately
+    // instead of waiting on the default backoff timer.
+    if (reason === 'io server disconnect') {
+      socket.connect();
+    }
   });
 
   socket.on('reconnect', (attempt) => {
     console.log('🔄 Reconnected after', attempt, 'attempt(s)');
+  });
+
+  socket.on('reconnect_attempt', (attempt) => {
+    console.log('🔁 Reconnect attempt #', attempt);
   });
 
   socket.on('reconnect_error', (err) => {
@@ -74,6 +88,7 @@ export const connectSocket = (token) => {
 export const disconnectSocket = () => {
   if (socket) {
     console.log('👋 Disconnecting socket...');
+    socket.removeAllListeners();
     socket.disconnect();
     socket = null;
   }

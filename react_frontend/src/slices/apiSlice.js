@@ -40,7 +40,8 @@ export const apiSlice = createApi({
     'Call',
   ],
   refetchOnReconnect: true,
-  refetchOnMountOrArgChange: true,
-  keepUnusedDataFor: 604800, // 7 days in seconds
+  refetchOnMountOrArgChange: 30,   // 👈 was `true`. Now: only refetch if cache older than 30s
+  refetchOnFocus: true,            // 👈 new: silently refetch when app comes back to foreground
+  keepUnusedDataFor: 604800, // 7 days
   endpoints: (builder) => ({}),
 });

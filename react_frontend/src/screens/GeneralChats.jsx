@@ -1,11 +1,12 @@
 // pages/GeneralChats.jsx
-import React, { useState, useMemo, useEffect } from 'react';
-import { useSelector } from 'react-redux';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import {
   useGetUserChatsQuery,
   useSearchUsersQuery,
   useCreatePublicDirectChatMutation,
+  messagingApiSlice,
 } from '../slices/messagingApiSlice';
 import { useSocket } from '../components/SocketContext.jsx';
 import { toast } from 'react-hot-toast';
@@ -280,6 +281,7 @@ const DirectChatItem = ({ chat, userId, onNavigate }) => {
 // ─── Main Component ──────────────────────────────────────────────
 const GeneralChats = () => {
   const navigate = useNavigate();
+  const dispatch = useDispatch();
   const { userInfo } = useSelector((state) => state.auth);
   const userId = userInfo?._id;
   const { socket, isConnected } = useSocket();
@@ -287,41 +289,71 @@ const GeneralChats = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showNewChat, setShowNewChat] = useState(false);
 
-  // ─── 👇 The ONLY reliable fix: automatic polling ──────────────
+  // The query arg MUST match exactly what GeneralChatId.jsx passes
+  // ({ archived: false }) so both pages share the same cache entry.
+  const chatsQueryArg = { archived: false };
+
   const {
     data: chatsData,
     isLoading: chatsLoading,
     refetch: refetchChats,
-  } = useGetUserChatsQuery(
-    { archived: false },
-    {
-      pollingInterval: 3000, // ✅ Refreshes every 3 seconds
-      refetchOnFocus: true,   // ✅ Refetches when window regains focus
-      refetchOnReconnect: true, // ✅ Refetches when network reconnects
-    }
+  } = useGetUserChatsQuery(chatsQueryArg, {
+    // Socket events (below) handle instant updates. This is just a
+    // safety-net fallback in case a socket event is ever missed
+    // (e.g. brief disconnect), so it doesn't need to be aggressive.
+    pollingInterval: 25000,
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
+  });
+
+  // ─── Instant, targeted cache patch — no network round trip ──────
+  const patchChatInCache = useCallback(
+    (chatId, patch) => {
+      dispatch(
+        messagingApiSlice.util.updateQueryData(
+          'getUserChats',
+          chatsQueryArg,
+          (draft) => {
+            if (!draft?.chats) return;
+            const chat = draft.chats.find((c) => c._id === chatId);
+            if (chat) {
+              Object.assign(chat, patch);
+            }
+          }
+        )
+      );
+    },
+    [dispatch]
   );
 
-  // ─── Socket listeners (bonus – they'll make it instant when fixed) ──
+  // ─── Socket listeners ────────────────────────────────────────
   useEffect(() => {
-    if (!socket || !isConnected) return;
+    if (!socket) return;
 
-    const handleNewMessage = () => {
-      // Immediate refetch – but even if this fails, polling will catch it
-      refetchChats();
+    // Fired by the backend on every new message AND every message
+    // deletion, for every participant's personal room — so it reaches
+    // this list even for chats the user hasn't opened.
+    const handleChatListUpdate = ({ chatId, lastMessage, lastMessageAt, unreadCount }) => {
+      if (!chatId) return;
+      patchChatInCache(chatId, {
+        lastMessage: lastMessage ?? null,
+        lastMessageAt: lastMessageAt ?? new Date().toISOString(),
+        ...(typeof unreadCount === 'number' ? { unreadCount } : {}),
+      });
     };
 
-    const handleMessageDeleted = () => {
-      refetchChats();
-    };
-
-    socket.on('new-message', handleNewMessage);
-    socket.on('message-deleted', handleMessageDeleted);
+    socket.on('chat-list-update', handleChatListUpdate);
 
     return () => {
-      socket.off('new-message', handleNewMessage);
-      socket.off('message-deleted', handleMessageDeleted);
+      socket.off('chat-list-update', handleChatListUpdate);
     };
-  }, [socket, isConnected, refetchChats]);
+  }, [socket, patchChatInCache]);
+
+  // If the socket reconnects after being down, do one quiet refetch
+  // to reconcile anything that could have been missed.
+  useEffect(() => {
+    if (isConnected) refetchChats();
+  }, [isConnected, refetchChats]);
 
   // ─── Filter, deduplicate, and sort ─────────────────────────────
   const filteredChats = useMemo(() => {

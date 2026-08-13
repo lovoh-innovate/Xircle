@@ -25,13 +25,17 @@ const Welcome = () => {
   const isCapacitor = !!window.Capacitor?.isNativePlatform?.();
 
   // ─── Fetch latest app version (only for web) ─────────────────────────
+  // Force refetch on mount to always get fresh data from server
   const { data: versionData, isLoading: versionLoading } = useGetAppVersionQuery(
     {
       platform: 'android',
       currentVersion: null,
       token: token || undefined,
     },
-    { skip: isCapacitor }
+    {
+      skip: isCapacitor,
+      refetchOnMountOrArgChange: true, // 👈 always fetch from server
+    }
   );
 
   const [downloading, setDownloading] = useState(false);

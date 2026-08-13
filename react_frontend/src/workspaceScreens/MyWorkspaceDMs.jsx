@@ -1,10 +1,15 @@
 // src/workspaceScreens/MyWorkspaceDMs.jsx
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { useSelector } from 'react-redux';
+import { useSelector, useDispatch } from 'react-redux';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
 import { useGetMembersQuery } from '../slices/teamApiSlice';
-import { useGetUserChatsQuery, useCreateDirectChatMutation } from '../slices/messagingApiSlice';
+import {
+  useGetUserChatsQuery,
+  useCreateDirectChatMutation,
+  messagingApiSlice,
+} from '../slices/messagingApiSlice';
+import { useSocket } from '../components/SocketContext.jsx';
 import MyWorkspaceSidebar from '../workspaceComponents/MyWorkspaceSidebar';
 import MyWorkspaceBottombar from '../workspaceComponents/MyWorkspaceBottombar';
 import {
@@ -49,6 +54,16 @@ const formatTime = (date) => {
     return d.toLocaleDateString('en-US', { weekday: 'short' });
   }
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+};
+
+// ─── Helper: belongs to workspace ─────────────────────────────────────
+const belongsToWorkspace = (chat, workspaceId) => {
+  if (!chat) return false;
+  const chatWorkspaceId =
+    typeof chat.workspace === 'object' && chat.workspace !== null
+      ? chat.workspace._id
+      : chat.workspace;
+  return chat.scope === 'workspace' && String(chatWorkspaceId) === String(workspaceId);
 };
 
 // ─── FORCE DEDUPLICATION HELPER ────────────────────────────────────────
@@ -263,26 +278,94 @@ const NewChatModal = ({ isOpen, onClose, members, brandColor, currentUserId, onS
 const MyWorkspaceDMs = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
+  const dispatch = useDispatch();
   const { userInfo } = useSelector((state) => state.auth);
+  const { socket, isConnected } = useSocket();
   const [searchOpen, setSearchOpen] = useState(false);
   const [showNewChatModal, setShowNewChatModal] = useState(false);
 
-  const { data: workspaceData, isLoading: workspaceLoading, error: workspaceError } = useGetWorkspaceQuery(workspaceId);
+  // ─── Query argument must match exactly what MyWorkspaceChatId uses ──
+  const chatsQueryArg = workspaceId;
+
+  const {
+    data: workspaceData,
+    isLoading: workspaceLoading,
+    error: workspaceError,
+  } = useGetWorkspaceQuery(workspaceId);
+
   const { data: membersData, isLoading: membersLoading } = useGetMembersQuery(workspaceId);
-  const { data: chatsData, isLoading: chatsLoading, refetch: refetchChats } = useGetUserChatsQuery(workspaceId);
+
+  const {
+    data: chatsData,
+    isLoading: chatsLoading,
+    refetch: refetchChats,
+  } = useGetUserChatsQuery(chatsQueryArg, {
+    pollingInterval: 25000,
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
+  });
+
   const [createDirectChat, { isLoading: creatingChat }] = useCreateDirectChatMutation();
+
+  // ─── Instant, targeted cache patch ──────────────────────────────────
+  const patchChatInCache = useCallback(
+    (chatId, patch) => {
+      dispatch(
+        messagingApiSlice.util.updateQueryData(
+          'getUserChats',
+          chatsQueryArg,
+          (draft) => {
+            if (!draft?.chats) return;
+            const chat = draft.chats.find((c) => c._id === chatId);
+            if (chat) {
+              Object.assign(chat, patch);
+            }
+          }
+        )
+      );
+    },
+    [dispatch, chatsQueryArg]
+  );
+
+  // ─── Socket listeners ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (!socket || !isConnected) return;
+
+    const handleChatListUpdate = ({ chatId, lastMessage, lastMessageAt, unreadCount }) => {
+      if (!chatId) return;
+      patchChatInCache(chatId, {
+        lastMessage: lastMessage ?? null,
+        lastMessageAt: lastMessageAt ?? new Date().toISOString(),
+        ...(typeof unreadCount === 'number' ? { unreadCount } : {}),
+      });
+    };
+
+    const handleUserStatusChange = ({ userId, online, chatId }) => {
+      // Optional: we could update online status in cache, but not critical
+    };
+
+    socket.on('chat-list-update', handleChatListUpdate);
+    socket.on('user-status-changed', handleUserStatusChange);
+
+    return () => {
+      socket.off('chat-list-update', handleChatListUpdate);
+      socket.off('user-status-changed', handleUserStatusChange);
+    };
+  }, [socket, isConnected, patchChatInCache]);
+
+  // ─── If socket reconnects, do a quiet refetch ───────────────────────
+  useEffect(() => {
+    if (isConnected) refetchChats();
+  }, [isConnected, refetchChats]);
 
   // ─── FORCE: deduplicate raw chats by _id first ─────────────────────────
   const rawChats = useMemo(() => {
     const list = chatsData?.chats || [];
     const unique = forceUniqueById(list, (c) => c?._id);
-    if (unique.length !== list.length) {
-      console.warn(`🛡️ BLOCKED ${list.length - unique.length} duplicate chat _id(s)`);
-    }
     return unique;
   }, [chatsData]);
 
-  // ─── NUCLEAR: one entry per participant, keep most recent ────────────
+  // ─── Filter workspace DMs and deduplicate per participant ────────────
   const dms = useMemo(() => {
     if (!rawChats.length) return [];
 
@@ -290,9 +373,10 @@ const MyWorkspaceDMs = () => {
     const byParticipant = new Map();
 
     for (const chat of rawChats) {
+      // ─── Only workspace chats and direct type ────────────────────────
+      if (!belongsToWorkspace(chat, workspaceId)) continue;
       if (chat.type !== 'direct') continue;
 
-      // FIX: String() comparison because API returns ObjectId, Redux stores string
       const other = chat.participants?.find(
         (p) => String(p.user?._id || p.user) !== myId
       );
@@ -322,22 +406,24 @@ const MyWorkspaceDMs = () => {
         };
       })
       .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-  }, [rawChats, userInfo]);
+  }, [rawChats, userInfo, workspaceId]);
 
+  // ─── Handle starting a new DM ──────────────────────────────────────
   const handleStartDM = async (targetUserId) => {
     if (String(targetUserId) === String(userInfo?._id)) {
       toast.info("You can't start a DM with yourself");
       return;
     }
     try {
-      const myId = String(userInfo?._id);
-      const existingChat = rawChats.find(
+      // Check existing DM in the current workspace (via rawChats filter)
+      const existing = rawChats.find(
         (chat) =>
           chat.type === 'direct' &&
+          belongsToWorkspace(chat, workspaceId) &&
           chat.participants.some((p) => String(p.user?._id || p.user) === String(targetUserId))
       );
-      if (existingChat) {
-        navigate(`/my-workspace/${workspaceId}/chat/${existingChat._id}`);
+      if (existing) {
+        navigate(`/my-workspace/${workspaceId}/chat/${existing._id}`);
         return;
       }
       const result = await createDirectChat({
@@ -345,12 +431,14 @@ const MyWorkspaceDMs = () => {
         targetUserId,
       }).unwrap();
       toast.success('Direct chat created!');
+      refetchChats();
       navigate(`/my-workspace/${workspaceId}/chat/${result.chat._id}`);
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to start DM');
     }
   };
 
+  // ─── Loading / error states ──────────────────────────────────────────
   if (workspaceLoading || membersLoading || chatsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">

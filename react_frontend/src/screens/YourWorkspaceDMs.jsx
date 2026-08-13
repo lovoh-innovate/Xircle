@@ -1,11 +1,12 @@
 // src/workspaceScreens/YourWorkspaceDMs.jsx
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useSelector } from 'react-redux';
+import { useSelector, useDispatch } from 'react-redux';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
 import {
   useGetUserChatsQuery,
   useCreateDirectChatMutation,
+  messagingApiSlice,
 } from '../slices/messagingApiSlice';
 import { useSocket } from '../components/SocketContext.jsx';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
@@ -155,12 +156,16 @@ const SearchMembersModal = ({ isOpen, onClose, members, brandColor, currentUserI
 const YourWorkspaceDMs = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
+  const dispatch = useDispatch();
   const { userInfo } = useSelector((state) => state.auth);
   const { socket, isConnected } = useSocket();
   const [searchOpen, setSearchOpen] = useState(false);
-  const [localChats, setLocalChats] = useState([]);
 
-  // ─── Fetch workspace and chats with polling ──────────────────────────
+  // ─── Query argument must match exactly what YourWorkspaceChatId uses ──
+  // In YourWorkspaceChatId, useGetUserChatsQuery(workspaceId) is called.
+  // So we use workspaceId as the argument to share cache.
+  const chatsQueryArg = workspaceId;
+
   const {
     data: workspaceData,
     isLoading: workspaceLoading,
@@ -171,91 +176,81 @@ const YourWorkspaceDMs = () => {
     data: chatsData,
     isLoading: chatsLoading,
     refetch: refetchChats,
-  } = useGetUserChatsQuery(
-    workspaceId,
-    { pollingInterval: 3000, refetchOnFocus: true, refetchOnReconnect: true }
-  );
+  } = useGetUserChatsQuery(chatsQueryArg, {
+    // Socket events handle instant updates. This is just a safety-net.
+    pollingInterval: 25000,
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
+  });
 
   const [createDirectChat, { isLoading: creatingChat }] = useCreateDirectChatMutation();
 
-  // ─── Populate localChats from fetched data ──────────────────────────
-  useEffect(() => {
-    if (chatsData?.chats) {
-      setLocalChats(chatsData.chats);
-    }
-  }, [chatsData]);
+  // ─── Instant, targeted cache patch — no network round trip ──────────
+  const patchChatInCache = useCallback(
+    (chatId, patch) => {
+      dispatch(
+        messagingApiSlice.util.updateQueryData(
+          'getUserChats',
+          chatsQueryArg,
+          (draft) => {
+            if (!draft?.chats) return;
+            const chat = draft.chats.find((c) => c._id === chatId);
+            if (chat) {
+              Object.assign(chat, patch);
+            }
+          }
+        )
+      );
+    },
+    [dispatch, chatsQueryArg]
+  );
 
-  // ─── Socket listeners for real‑time updates ──────────────────────────
+  // ─── Socket listeners ──────────────────────────────────────────────────
   useEffect(() => {
     if (!socket || !isConnected) return;
 
-    const handleNewMessage = (newMsg) => {
-      const chatId = typeof newMsg.chat === 'string' ? newMsg.chat : newMsg.chat?._id;
+    // Fired by the backend on every new message AND every message deletion,
+    // for every participant's personal room — so it reaches this list
+    // even for chats the user hasn't opened.
+    const handleChatListUpdate = ({ chatId, lastMessage, lastMessageAt, unreadCount }) => {
       if (!chatId) return;
-
-      setLocalChats((prev) => {
-        const idx = prev.findIndex((c) => c._id === chatId);
-        if (idx === -1) {
-          // New chat – refetch to get it
-          refetchChats();
-          return prev;
-        }
-
-        // Update the chat: bump to top, update lastMessage and lastMessageAt
-        const updatedChat = {
-          ...prev[idx],
-          lastMessage: newMsg,
-          lastMessageAt: newMsg.createdAt || new Date().toISOString(),
-          // Increase unread count if not from current user (optional)
-          unreadCount: (prev[idx].unreadCount || 0) + (newMsg.sender?._id !== userInfo?._id ? 1 : 0),
-        };
-        const newChats = [...prev];
-        newChats.splice(idx, 1);
-        return [updatedChat, ...newChats];
+      patchChatInCache(chatId, {
+        lastMessage: lastMessage ?? null,
+        lastMessageAt: lastMessageAt ?? new Date().toISOString(),
+        ...(typeof unreadCount === 'number' ? { unreadCount } : {}),
       });
     };
 
-    const handleMessageDeleted = () => {
-      refetchChats();
+    // Update online status of participants (optional, but nice)
+    const handleUserStatusChange = ({ userId, online }) => {
+      if (!chatsData?.chats) return;
+      // We could patch each chat that contains this user, but it's not critical.
+      // We'll rely on the next refetch or let the chat detail page handle it.
     };
 
-    const handleUserStatusChange = ({ userId, online, chatId }) => {
-      if (!chatId) return;
-      setLocalChats((prev) =>
-        prev.map((chat) => {
-          if (chat._id !== chatId) return chat;
-          // Update the participant's online status
-          const updatedParticipants = chat.participants.map((p) => {
-            const uid = p.user?._id || p.user;
-            if (uid === userId) {
-              return { ...p, user: { ...p.user, online } };
-            }
-            return p;
-          });
-          return { ...chat, participants: updatedParticipants };
-        })
-      );
-    };
-
-    socket.on('new-message', handleNewMessage);
-    socket.on('message-deleted', handleMessageDeleted);
+    socket.on('chat-list-update', handleChatListUpdate);
     socket.on('user-status-changed', handleUserStatusChange);
 
     return () => {
-      socket.off('new-message', handleNewMessage);
-      socket.off('message-deleted', handleMessageDeleted);
+      socket.off('chat-list-update', handleChatListUpdate);
       socket.off('user-status-changed', handleUserStatusChange);
     };
-  }, [socket, isConnected, refetchChats, userInfo?._id]);
+  }, [socket, isConnected, patchChatInCache, chatsData]);
 
-  // ─── Filter only workspace DMs ─────────────────────────────────────
+  // ─── If socket reconnects, do a quiet refetch ───────────────────────
+  useEffect(() => {
+    if (isConnected) refetchChats();
+  }, [isConnected, refetchChats]);
+
+  // ─── Filter only workspace DMs from cache ────────────────────────────
   const workspaceChats = useMemo(() => {
-    const all = localChats.filter((chat) => belongsToWorkspace(chat, workspaceId));
-    // Only direct chats
-    return all.filter((chat) => chat.type === 'direct');
-  }, [localChats, workspaceId]);
+    if (!chatsData?.chats) return [];
+    return chatsData.chats.filter(
+      (chat) => belongsToWorkspace(chat, workspaceId) && chat.type === 'direct'
+    );
+  }, [chatsData, workspaceId]);
 
-  // ─── Compute display data for each DM ──────────────────────────────
+  // ─── Compute display data for each DM ──────────────────────────────────
   const dmList = useMemo(() => {
     return workspaceChats
       .map((chat) => {
@@ -283,7 +278,7 @@ const YourWorkspaceDMs = () => {
       return;
     }
     try {
-      // Check if a DM already exists
+      // Check if a DM already exists (in the cached data)
       const existing = workspaceChats.find(
         (chat) =>
           chat.type === 'direct' &&
@@ -295,6 +290,8 @@ const YourWorkspaceDMs = () => {
       }
       const result = await createDirectChat({ workspaceId, targetUserId }).unwrap();
       toast.success('Chat started!');
+      // Refetch to populate the new chat in the list (or we could patch, but refetch is fine)
+      refetchChats();
       navigate(`/workspace/${workspaceId}/chat/${result.chat._id}`);
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to start chat');

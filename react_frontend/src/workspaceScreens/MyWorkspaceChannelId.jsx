@@ -64,7 +64,7 @@ import {
   FaReply,
   FaFile,
   FaUsers,
-  FaCamera, // <-- added
+  FaCamera,
 } from "react-icons/fa";
 import { toast } from "react-hot-toast";
 import { useSocket } from "../components/SocketContext.jsx";
@@ -98,6 +98,17 @@ const formatTime = (seconds) => {
 const SEEN_TICK_COLOR = "#34B7F1";
 const SWIPE_REPLY_THRESHOLD = 60;
 const SWIPE_REPLY_MAX = 72;
+
+// ─── Safe date formatter ────────────────────────────────────────────
+const safeFormatTime = (dateString) => {
+  try {
+    const d = new Date(dateString);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+};
 
 // ─── Media Query hook ──────────────────────────────────────────────────
 const useMediaQuery = (query) => {
@@ -172,7 +183,6 @@ const AttachmentPreviewModal = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 dark:bg-black/70 backdrop-blur-sm p-4">
       <div className="bg-white dark:bg-[#14141a] rounded-2xl max-w-lg w-full max-h-[90vh] overflow-hidden shadow-2xl">
-        {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800/60">
           <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
             {isImage ? 'Image Preview' : isVideo ? 'Video Preview' : 'File Preview'}
@@ -185,7 +195,6 @@ const AttachmentPreviewModal = ({
           </button>
         </div>
 
-        {/* Preview Content */}
         <div className="p-4 flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10] max-h-[60vh] overflow-auto">
           {isImage && (
             <img 
@@ -214,7 +223,6 @@ const AttachmentPreviewModal = ({
           )}
         </div>
 
-        {/* Actions */}
         <div className="flex gap-3 p-4 border-t border-gray-200 dark:border-gray-800/60">
           <button 
             onClick={onRemove}
@@ -731,10 +739,60 @@ const MediaMessage = ({
   onJumpToMessage,
   resolveSender,
 }) => {
-  const time = new Date(message.createdAt).toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  // ── Pending state ──
+  if (message._pending) {
+    return (
+      <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
+        {!isOwn && (
+          <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+            <FaUser className="text-gray-400 dark:text-gray-500" />
+          </div>
+        )}
+        <div className="bg-gray-200 dark:bg-gray-700/50 px-4 py-2 rounded-2xl flex items-center gap-2 text-gray-500 dark:text-gray-400">
+          <FaSpinner className="animate-spin text-sm" />
+          <span>Sending...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Failed state ──
+  if (message._failed) {
+    return (
+      <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
+        {!isOwn && (
+          <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+            <FaUser className="text-gray-400 dark:text-gray-500" />
+          </div>
+        )}
+        <div className="bg-red-100 dark:bg-red-900/30 px-4 py-2 rounded-2xl flex items-center gap-2 text-red-600 dark:text-red-400">
+          <FaExclamationTriangle className="text-sm" />
+          <span>Failed to send</span>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Deleted state ──
+  if (message.isDeleted) {
+    return (
+      <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
+        {!isOwn && (
+          <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+            <FaUser className="text-gray-400 dark:text-gray-500" />
+          </div>
+        )}
+        <div className="bg-gray-100 dark:bg-gray-800/40 px-4 py-2 rounded-2xl text-gray-400 dark:text-gray-500 italic text-sm flex items-center gap-1">
+          <span>Message deleted</span>
+          <span className="text-[10px] ml-1 opacity-60">
+            {safeFormatTime(message.createdAt)}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  const time = safeFormatTime(message.createdAt);
   const [isPlaying, setIsPlaying] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const audioRef = useRef(null);
@@ -1028,7 +1086,11 @@ const MediaMessage = ({
                 <MessageTicks message={message} isOwn={isOwn} />
               </div>
               {!isMobile && (
-                <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition" ref={menuRef}>
+                <div
+                  className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition"
+                  ref={menuRef}
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -1039,7 +1101,10 @@ const MediaMessage = ({
                     <FaEllipsisV className="text-xs" />
                   </button>
                   {showMenu && (
-                    <div className="absolute right-0 top-8 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[160px] z-10 py-1">
+                    <div
+                      className="absolute right-0 top-8 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[160px] z-10 py-1"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <button
                         onClick={(e) => { e.stopPropagation(); setShowMenu(false); onReply(message); }}
                         className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
@@ -1195,14 +1260,15 @@ const MediaMessage = ({
                 {showMenu && (
                   <div className="absolute right-0 bottom-6 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[160px] z-10 py-1">
                     <button
-                      onClick={() => { setShowMenu(false); onReply(message); }}
+                      onClick={(e) => { e.stopPropagation(); setShowMenu(false); onReply(message); }}
                       className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
                     >
                       <FaReply className="text-xs" /> Reply
                     </button>
                     {isOwn && (
                       <button
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           setShowMenu(false);
                           onDelete && onDelete(message._id);
                         }}
@@ -1213,7 +1279,8 @@ const MediaMessage = ({
                     )}
                     {isStarred ? (
                       <button
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           setShowMenu(false);
                           onUnstar(message._id);
                         }}
@@ -1223,7 +1290,8 @@ const MediaMessage = ({
                       </button>
                     ) : (
                       <button
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           setShowMenu(false);
                           onStar(message._id);
                         }}
@@ -1234,7 +1302,8 @@ const MediaMessage = ({
                     )}
                     {isArchived ? (
                       <button
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           setShowMenu(false);
                           onUnarchive(message._id);
                         }}
@@ -1244,7 +1313,8 @@ const MediaMessage = ({
                       </button>
                     ) : (
                       <button
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           setShowMenu(false);
                           onArchive(message._id);
                         }}
@@ -1465,7 +1535,7 @@ const MyWorkspaceChannelId = () => {
   // ─── Attachment preview state ─────────────────────────────────────
   const [attachmentPreview, setAttachmentPreview] = useState(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
-  const [showMediaPicker, setShowMediaPicker] = useState(false); // <-- new
+  const [showMediaPicker, setShowMediaPicker] = useState(false);
 
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
@@ -1511,7 +1581,7 @@ const MyWorkspaceChannelId = () => {
   const recordingTimerRef = useRef(null);
   const audioChunksRef = useRef([]);
   const isRecordingRef = useRef(false);
-  const isNative = Capacitor.isNativePlatform(); // <-- check native
+  const isNative = Capacitor.isNativePlatform();
 
   const { socket, isConnected } = useSocket();
   const [localMessages, setLocalMessages] = useState([]);
@@ -1576,14 +1646,24 @@ const MyWorkspaceChannelId = () => {
     if (!senderField) return { name: "Unknown", profile: null };
     if (typeof senderField === "string") {
       const found = userMapRef.current.get(senderField);
-      return found ? found : { _id: senderField, name: "Unknown", profile: null };
+      if (found) {
+        const name = found.name || found.username || found.email || "Unknown";
+        return { ...found, name };
+      }
+      return { _id: senderField, name: "Unknown", profile: null };
     }
     if (senderField.name) return senderField;
     const found = senderField._id ? userMapRef.current.get(senderField._id) : null;
     if (found) {
-      return { ...senderField, name: found.name, profile: found.profile ?? senderField.profile };
+      const name = found.name || found.username || found.email || "Unknown";
+      return {
+        ...senderField,
+        name: found.name || found.username || found.email || "Unknown",
+        profile: found.profile ?? senderField.profile,
+      };
     }
-    return { ...senderField, name: senderField.name || "Unknown" };
+    const name = senderField.username || senderField.email || "Unknown";
+    return { ...senderField, name };
   }, []);
 
   // ─── Effects ──────────────────────────────────────────────────────────
@@ -1700,7 +1780,9 @@ const MyWorkspaceChannelId = () => {
     };
 
     const handleMessageDeleted = ({ messageId }) => {
-      setLocalMessages((prev) => prev.filter((m) => m._id !== messageId));
+      setLocalMessages((prev) =>
+        prev.map((m) => (m._id === messageId ? { ...m, isDeleted: true } : m))
+      );
     };
 
     socket.on("new-message", handleNewMessage);
@@ -1943,6 +2025,7 @@ const MyWorkspaceChannelId = () => {
     }
   };
 
+  // ─── Optimistic sendAudioMessage ──────────────────────────────────
   const sendAudioMessage = async (audioBlob) => {
     const formData = new FormData();
     const mimeType = isNative ? 'audio/m4a' : 'audio/webm';
@@ -1959,14 +2042,57 @@ const MyWorkspaceChannelId = () => {
     if (replyToMessage) {
       formData.append("replyToId", replyToMessage._id);
     }
+
+    const senderWithName = {
+      ...userInfo,
+      name: userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
+    };
+
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const optimisticMsg = {
+      _id: tempId,
+      _tempId: tempId,
+      _temp: true,
+      _pending: true,
+      _sent: false,
+      _failed: false,
+      _delivered: false,
+      _read: false,
+      content: '',
+      sender: senderWithName,
+      createdAt: new Date().toISOString(),
+      messageType: 'audio',
+      chat: chatId,
+      replyTo: replyToMessage ? { _id: replyToMessage._id, sender: replyToMessage.sender, content: replyToMessage.content, mediaName: replyToMessage.mediaName, messageType: replyToMessage.messageType } : null,
+      mediaUrl: URL.createObjectURL(audioBlob),
+      mediaName: 'Voice note',
+      mediaSize: audioBlob.size,
+      mediaDuration: recordingTime,
+    };
+    setLocalMessages(prev => [...prev, optimisticMsg]);
+    setRecordingBlob(null);
+    setShowRecordedPreview(false);
+    setRecordingTime(0);
+    setReplyToMessage(null);
+
     try {
-      await sendMessageApi({ chatId, data: formData }).unwrap();
-      setRecordingBlob(null);
-      setShowRecordedPreview(false);
-      setRecordingTime(0);
-      setReplyToMessage(null);
+      const result = await sendMessageApi({ chatId, data: formData }).unwrap();
+      setLocalMessages(prev => {
+        const tempExists = prev.some(m => m._tempId === tempId);
+        const realExists = prev.some(m => m._id === result._id);
+        let newList = prev;
+        if (tempExists) {
+          newList = newList.filter(m => m._tempId !== tempId);
+        }
+        if (!realExists) {
+          newList = [...newList, { ...result, _pending: false, _sent: true, _delivered: true, _read: false }];
+        }
+        return newList;
+      });
+      toast.success('Voice note sent!');
     } catch (err) {
-      toast.error(err?.data?.message || "Failed to send voice note");
+      setLocalMessages(prev => prev.map(m => m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m));
+      toast.error(err?.data?.message || 'Failed to send voice note');
     }
   };
 
@@ -1997,7 +2123,7 @@ const MyWorkspaceChannelId = () => {
     }
   }, []);
 
-  // ─── Send attachment from preview ────────────────────────────────
+  // ─── Optimistic sendAttachment ────────────────────────────────────
   const handleSendAttachment = async (previewData) => {
     const { file, type } = previewData;
     if (!file) return;
@@ -2012,14 +2138,56 @@ const MyWorkspaceChannelId = () => {
       formData.append('replyToId', replyToMessage._id);
     }
 
+    const senderWithName = {
+      ...userInfo,
+      name: userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
+    };
+
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const messageType = type === 'image' ? 'image' : 'file';
+    const optimisticMsg = {
+      _id: tempId,
+      _tempId: tempId,
+      _temp: true,
+      _pending: true,
+      _sent: false,
+      _failed: false,
+      _delivered: false,
+      _read: false,
+      content: '',
+      sender: senderWithName,
+      createdAt: new Date().toISOString(),
+      messageType: messageType,
+      chat: chatId,
+      replyTo: replyToMessage ? { _id: replyToMessage._id, sender: replyToMessage.sender, content: replyToMessage.content, mediaName: replyToMessage.mediaName, messageType: replyToMessage.messageType } : null,
+      mediaUrl: URL.createObjectURL(file),
+      mediaName: file.name,
+      mediaSize: file.size,
+      mediaDuration: null,
+    };
+    setLocalMessages(prev => [...prev, optimisticMsg]);
+    setReplyToMessage(null);
+    setIsPreviewOpen(false);
+    setAttachmentPreview(null);
+
     try {
-      await sendMessageApi({ chatId, data: formData }).unwrap();
+      const result = await sendMessageApi({ chatId, data: formData }).unwrap();
+      setLocalMessages(prev => {
+        const tempExists = prev.some(m => m._tempId === tempId);
+        const realExists = prev.some(m => m._id === result._id);
+        let newList = prev;
+        if (tempExists) {
+          newList = newList.filter(m => m._tempId !== tempId);
+        }
+        if (!realExists) {
+          newList = [...newList, { ...result, _pending: false, _sent: true, _delivered: true, _read: false }];
+        }
+        return newList;
+      });
       toast.success(`${type === 'image' ? 'Image' : 'File'} sent!`);
-      setReplyToMessage(null);
-      setIsPreviewOpen(false);
-      setAttachmentPreview(null);
     } catch (err) {
-      toast.error(err?.data?.message || `Failed to send ${type}`);
+      setLocalMessages(prev => prev.map(m => m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m));
+      toast.error(err?.data?.message || 'Failed to send media');
     }
   };
 
@@ -2305,11 +2473,16 @@ const MyWorkspaceChannelId = () => {
     setActionModal({ isOpen: true, message: msg });
   };
 
-  // ─── Send message ──────────────────────────────────────────────────
+  // ─── Optimistic send text message ──────────────────────────────────
   const handleSendMessage = (e) => {
     e.preventDefault();
     const trimmed = message.trim();
     if (!trimmed || !socket) return;
+
+    const senderWithName = {
+      ...userInfo,
+      name: userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
+    };
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const optimisticMsg = {
@@ -2321,7 +2494,7 @@ const MyWorkspaceChannelId = () => {
       _delivered: false,
       _read: false,
       content: trimmed,
-      sender: userInfo,
+      sender: senderWithName,
       createdAt: new Date().toISOString(),
       messageType: "text",
       chat: chatId,
@@ -2379,16 +2552,21 @@ const MyWorkspaceChannelId = () => {
     );
   };
 
-  // ─── Message actions ──────────────────────────────────────────────
+  // ─── Message actions (optimistic delete) ──────────────────────────
   const handleDeleteMessage = async (messageId) => {
     setConfirmModal({
       isOpen: true,
       title: "Delete Message",
       message: "Are you sure you want to delete this message?",
       onConfirm: async () => {
+        // Optimistically mark as deleted
+        setLocalMessages(prev => prev.map(m => m._id === messageId ? { ...m, isDeleted: true } : m));
         try {
           await deleteMessageApi(messageId).unwrap();
+          toast.success("Message deleted");
         } catch (err) {
+          // Revert on failure
+          setLocalMessages(prev => prev.map(m => m._id === messageId ? { ...m, isDeleted: false } : m));
           toast.error(err?.data?.message || "Failed to delete message");
         }
       },
@@ -2925,9 +3103,7 @@ const MyWorkspaceChannelId = () => {
               onChange={handleMessageChange}
               onPaste={handlePaste}
               onKeyDown={(e) => {
-                // On mobile, allow Enter to insert a newline (do not send)
                 if (isMobile) return;
-                // On desktop, Send on Enter (Shift+Enter for newline)
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   handleSendMessage(e);

@@ -62,7 +62,7 @@ import {
   FaReply,
   FaFile,
   FaUsers,
-  FaCamera, // <-- added
+  FaCamera,
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 import { useSocket } from '../components/SocketContext.jsx';
@@ -96,6 +96,17 @@ const formatTime = (seconds) => {
 const SEEN_TICK_COLOR = '#34B7F1';
 const SWIPE_REPLY_THRESHOLD = 60;
 const SWIPE_REPLY_MAX = 72;
+
+// ─── Safe date formatter ────────────────────────────────────────────
+const safeFormatTime = (dateString) => {
+  try {
+    const d = new Date(dateString);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+};
 
 // ─── Media Query hook ──────────────────────────────────────────────────
 const useMediaQuery = (query) => {
@@ -723,10 +734,60 @@ const MediaMessage = ({
   onJumpToMessage,
   resolveSender,
 }) => {
-  const time = new Date(message.createdAt).toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  // ── Pending state ──
+  if (message._pending) {
+    return (
+      <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
+        {!isOwn && (
+          <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+            <FaUser className="text-gray-400 dark:text-gray-500" />
+          </div>
+        )}
+        <div className="bg-gray-200 dark:bg-gray-700/50 px-4 py-2 rounded-2xl flex items-center gap-2 text-gray-500 dark:text-gray-400">
+          <FaSpinner className="animate-spin text-sm" />
+          <span>Sending...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Failed state ──
+  if (message._failed) {
+    return (
+      <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
+        {!isOwn && (
+          <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+            <FaUser className="text-gray-400 dark:text-gray-500" />
+          </div>
+        )}
+        <div className="bg-red-100 dark:bg-red-900/30 px-4 py-2 rounded-2xl flex items-center gap-2 text-red-600 dark:text-red-400">
+          <FaExclamationTriangle className="text-sm" />
+          <span>Failed to send</span>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Deleted state ──
+  if (message.isDeleted) {
+    return (
+      <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
+        {!isOwn && (
+          <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+            <FaUser className="text-gray-400 dark:text-gray-500" />
+          </div>
+        )}
+        <div className="bg-gray-100 dark:bg-gray-800/40 px-4 py-2 rounded-2xl text-gray-400 dark:text-gray-500 italic text-sm flex items-center gap-1">
+          <span>Message deleted</span>
+          <span className="text-[10px] ml-1 opacity-60">
+            {safeFormatTime(message.createdAt)}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  const time = safeFormatTime(message.createdAt);
   const [isPlaying, setIsPlaying] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const audioRef = useRef(null);
@@ -964,7 +1025,11 @@ const MediaMessage = ({
                 <MessageTicks message={message} isOwn={isOwn} />
               </div>
               {!isMobile && (
-                <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition" ref={menuRef}>
+                <div
+                  className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition"
+                  ref={menuRef}
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <button
                     onClick={toggleMenu}
                     className="text-white bg-black/40 p-1 rounded-full hover:bg-black/60"
@@ -972,7 +1037,10 @@ const MediaMessage = ({
                     <FaEllipsisV className="text-xs" />
                   </button>
                   {showMenu && (
-                    <div className="absolute right-0 top-8 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[160px] z-10 py-1">
+                    <div
+                      className="absolute right-0 top-8 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[160px] z-10 py-1"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <button
                         onClick={(e) => { e.stopPropagation(); closeMenu(); onReply(message); }}
                         className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
@@ -1091,14 +1159,14 @@ const MediaMessage = ({
                 {showMenu && (
                   <div className="absolute right-0 bottom-6 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[160px] z-10 py-1">
                     <button
-                      onClick={() => { closeMenu(); onReply(message); }}
+                      onClick={(e) => { e.stopPropagation(); closeMenu(); onReply(message); }}
                       className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
                     >
                       <FaReply className="text-xs" /> Reply
                     </button>
                     {isOwn && (
                       <button
-                        onClick={() => { closeMenu(); onDelete(message); }}
+                        onClick={(e) => { e.stopPropagation(); closeMenu(); onDelete(message); }}
                         className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full"
                       >
                         <FaTrashAlt className="text-xs" /> Delete
@@ -1106,14 +1174,14 @@ const MediaMessage = ({
                     )}
                     {isStarred ? (
                       <button
-                        onClick={() => { closeMenu(); onUnstar(message); }}
+                        onClick={(e) => { e.stopPropagation(); closeMenu(); onUnstar(message); }}
                         className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 rounded-lg transition w-full"
                       >
                         <FaStar className="text-xs" /> Unstar
                       </button>
                     ) : (
                       <button
-                        onClick={() => { closeMenu(); onStar(message); }}
+                        onClick={(e) => { e.stopPropagation(); closeMenu(); onStar(message); }}
                         className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
                       >
                         <FaRegStar className="text-xs" /> Star
@@ -1121,14 +1189,14 @@ const MediaMessage = ({
                     )}
                     {isArchived ? (
                       <button
-                        onClick={() => { closeMenu(); onUnarchive(message); }}
+                        onClick={(e) => { e.stopPropagation(); closeMenu(); onUnarchive(message); }}
                         className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 rounded-lg transition w-full"
                       >
                         <FaUndo className="text-xs" /> Unarchive
                       </button>
                     ) : (
                       <button
-                        onClick={() => { closeMenu(); onArchive(message); }}
+                        onClick={(e) => { e.stopPropagation(); closeMenu(); onArchive(message); }}
                         className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
                       >
                         <FaArchive className="text-xs" /> Archive
@@ -1379,7 +1447,7 @@ const YourWorkspaceChannelId = () => {
 
   const [attachmentPreview, setAttachmentPreview] = useState(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
-  const [showMediaPicker, setShowMediaPicker] = useState(false); // <-- new state
+  const [showMediaPicker, setShowMediaPicker] = useState(false);
 
   const isMobile = useMediaQuery('(max-width: 768px)');
 
@@ -1427,7 +1495,7 @@ const YourWorkspaceChannelId = () => {
   const recordingTimerRef = useRef(null);
   const audioChunksRef = useRef([]);
   const isRecordingRef = useRef(false);
-  const isNative = Capacitor.isNativePlatform(); // <-- check native
+  const isNative = Capacitor.isNativePlatform();
 
   const { socket, isConnected } = useSocket();
   const [localMessages, setLocalMessages] = useState([]);
@@ -1492,14 +1560,24 @@ const YourWorkspaceChannelId = () => {
     if (!senderField) return { name: 'Unknown', profile: null };
     if (typeof senderField === 'string') {
       const found = userMapRef.current.get(senderField);
-      return found ? found : { _id: senderField, name: 'Unknown', profile: null };
+      if (found) {
+        const name = found.name || found.username || found.email || 'Unknown';
+        return { ...found, name };
+      }
+      return { _id: senderField, name: 'Unknown', profile: null };
     }
     if (senderField.name) return senderField;
     const found = senderField._id ? userMapRef.current.get(senderField._id) : null;
     if (found) {
-      return { ...senderField, name: found.name, profile: found.profile ?? senderField.profile };
+      const name = found.name || found.username || found.email || 'Unknown';
+      return {
+        ...senderField,
+        name: found.name || found.username || found.email || 'Unknown',
+        profile: found.profile ?? senderField.profile,
+      };
     }
-    return { ...senderField, name: senderField.name || 'Unknown' };
+    const name = senderField.username || senderField.email || 'Unknown';
+    return { ...senderField, name };
   }, []);
 
   useEffect(() => {
@@ -1681,7 +1759,9 @@ const YourWorkspaceChannelId = () => {
     };
 
     const handleMessageDeleted = ({ messageId }) => {
-      setLocalMessages((prev) => prev.filter((m) => m._id !== messageId));
+      setLocalMessages((prev) =>
+        prev.map((m) => (m._id === messageId ? { ...m, isDeleted: true } : m))
+      );
     };
 
     const handleMessageRead = ({ chatId: readChatId, messageId, readBy }) => {
@@ -1942,6 +2022,7 @@ const YourWorkspaceChannelId = () => {
     }
   };
 
+  // ─── Optimistic sendAudioMessage ──────────────────────────────────
   const sendAudioMessage = async (audioBlob) => {
     const formData = new FormData();
     const mimeType = isNative ? 'audio/m4a' : 'audio/webm';
@@ -1958,14 +2039,56 @@ const YourWorkspaceChannelId = () => {
     if (replyToMessage) {
       formData.append('replyToId', replyToMessage._id);
     }
+
+    const senderWithName = {
+      ...userInfo,
+      name: userInfo?.name || userInfo?.username || userInfo?.email || 'Unknown',
+    };
+
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const optimisticMsg = {
+      _id: tempId,
+      _tempId: tempId,
+      _temp: true,
+      _pending: true,
+      _sent: false,
+      _failed: false,
+      _delivered: false,
+      _read: false,
+      content: '',
+      sender: senderWithName,
+      createdAt: new Date().toISOString(),
+      messageType: 'audio',
+      chat: chatId,
+      replyTo: replyToMessage ? { _id: replyToMessage._id, sender: replyToMessage.sender, content: replyToMessage.content, mediaName: replyToMessage.mediaName, messageType: replyToMessage.messageType } : null,
+      mediaUrl: URL.createObjectURL(audioBlob),
+      mediaName: 'Voice note',
+      mediaSize: audioBlob.size,
+      mediaDuration: recordingTime,
+    };
+    setLocalMessages(prev => [...prev, optimisticMsg]);
+    setRecordingBlob(null);
+    setShowRecordedPreview(false);
+    setRecordingTime(0);
+    setReplyToMessage(null);
+
     try {
-      await sendMessageApi({ chatId, data: formData }).unwrap();
+      const result = await sendMessageApi({ chatId, data: formData }).unwrap();
+      setLocalMessages(prev => {
+        const tempExists = prev.some(m => m._tempId === tempId);
+        const realExists = prev.some(m => m._id === result._id);
+        let newList = prev;
+        if (tempExists) {
+          newList = newList.filter(m => m._tempId !== tempId);
+        }
+        if (!realExists) {
+          newList = [...newList, { ...result, _pending: false, _sent: true, _delivered: true, _read: false }];
+        }
+        return newList;
+      });
       toast.success('Voice note sent!');
-      setRecordingBlob(null);
-      setShowRecordedPreview(false);
-      setRecordingTime(0);
-      setReplyToMessage(null);
     } catch (err) {
+      setLocalMessages(prev => prev.map(m => m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m));
       toast.error(err?.data?.message || 'Failed to send voice note');
     }
   };
@@ -2068,7 +2191,6 @@ const YourWorkspaceChannelId = () => {
         const mimeType = `image/${photo.format || 'jpeg'}`;
         const fileName = `photo-${Date.now()}.${photo.format || 'jpg'}`;
         const file = base64ToFile(photo.base64String, fileName, mimeType);
-        // Show preview
         const reader = new FileReader();
         reader.onload = (event) => {
           setAttachmentPreview({
@@ -2142,7 +2264,6 @@ const YourWorkspaceChannelId = () => {
         toast.error('Could not read selected file');
         return;
       }
-      // Show preview for file (non-image)
       const reader = new FileReader();
       reader.onload = (event) => {
         setAttachmentPreview({
@@ -2168,13 +2289,12 @@ const YourWorkspaceChannelId = () => {
     (type) => {
       if (isNative) {
         if (type === 'image') {
-          setShowMediaPicker(true); // show custom modal
+          setShowMediaPicker(true);
         } else {
-          handlePickFile(); // files use native picker directly
+          handlePickFile();
         }
         return;
       }
-      // Web fallback: hidden <input type="file">
       if (type === 'file') {
         fileInputRef.current?.click();
       } else {
@@ -2241,6 +2361,7 @@ const YourWorkspaceChannelId = () => {
     }
   }, []);
 
+  // ─── Optimistic sendAttachment ────────────────────────────────────
   const handleSendAttachment = async (previewData) => {
     const { file, type } = previewData;
     if (!file) return;
@@ -2255,14 +2376,56 @@ const YourWorkspaceChannelId = () => {
       formData.append('replyToId', replyToMessage._id);
     }
 
+    const senderWithName = {
+      ...userInfo,
+      name: userInfo?.name || userInfo?.username || userInfo?.email || 'Unknown',
+    };
+
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const messageType = type === 'image' ? 'image' : 'file';
+    const optimisticMsg = {
+      _id: tempId,
+      _tempId: tempId,
+      _temp: true,
+      _pending: true,
+      _sent: false,
+      _failed: false,
+      _delivered: false,
+      _read: false,
+      content: '',
+      sender: senderWithName,
+      createdAt: new Date().toISOString(),
+      messageType: messageType,
+      chat: chatId,
+      replyTo: replyToMessage ? { _id: replyToMessage._id, sender: replyToMessage.sender, content: replyToMessage.content, mediaName: replyToMessage.mediaName, messageType: replyToMessage.messageType } : null,
+      mediaUrl: URL.createObjectURL(file),
+      mediaName: file.name,
+      mediaSize: file.size,
+      mediaDuration: null,
+    };
+    setLocalMessages(prev => [...prev, optimisticMsg]);
+    setReplyToMessage(null);
+    setIsPreviewOpen(false);
+    setAttachmentPreview(null);
+
     try {
-      await sendMessageApi({ chatId, data: formData }).unwrap();
+      const result = await sendMessageApi({ chatId, data: formData }).unwrap();
+      setLocalMessages(prev => {
+        const tempExists = prev.some(m => m._tempId === tempId);
+        const realExists = prev.some(m => m._id === result._id);
+        let newList = prev;
+        if (tempExists) {
+          newList = newList.filter(m => m._tempId !== tempId);
+        }
+        if (!realExists) {
+          newList = [...newList, { ...result, _pending: false, _sent: true, _delivered: true, _read: false }];
+        }
+        return newList;
+      });
       toast.success(`${type === 'image' ? 'Image' : 'File'} sent!`);
-      setReplyToMessage(null);
-      setIsPreviewOpen(false);
-      setAttachmentPreview(null);
     } catch (err) {
-      toast.error(err?.data?.message || `Failed to send ${type}`);
+      setLocalMessages(prev => prev.map(m => m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m));
+      toast.error(err?.data?.message || 'Failed to send media');
     }
   };
 
@@ -2271,20 +2434,17 @@ const YourWorkspaceChannelId = () => {
     setAttachmentPreview(null);
   };
 
-  // ─── Message action handlers ──────────────────────────────────────
+  // ─── Message action handlers (optimistic delete) ────────────────
   const handleDeleteMessage = useCallback((msg) => {
     const msgId = msg._id;
-    setLocalMessages(prev => prev.filter(m => m._id !== msgId));
+    // Optimistically mark as deleted
+    setLocalMessages(prev => prev.map(m => m._id === msgId ? { ...m, isDeleted: true } : m));
 
     deleteMessageApi(msgId)
       .unwrap()
       .catch(err => {
-        setLocalMessages(prev => {
-          if (!prev.some(m => m._id === msgId)) {
-            return [...prev, msg];
-          }
-          return prev;
-        });
+        // Revert on failure
+        setLocalMessages(prev => prev.map(m => m._id === msgId ? { ...m, isDeleted: false } : m));
         toast.error(err?.data?.message || 'Failed to delete message');
       });
   }, [deleteMessageApi]);
@@ -2601,11 +2761,16 @@ const YourWorkspaceChannelId = () => {
     }
   };
 
-  // ─── Send message ────────────────────────────────────────────────────
+  // ─── Optimistic send text message ──────────────────────────────────
   const handleSendMessage = (e) => {
     e.preventDefault();
     const trimmed = message.trim();
     if (!trimmed || !socket) return;
+
+    const senderWithName = {
+      ...userInfo,
+      name: userInfo?.name || userInfo?.username || userInfo?.email || 'Unknown',
+    };
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const optimisticMsg = {
@@ -2617,7 +2782,7 @@ const YourWorkspaceChannelId = () => {
       _delivered: false,
       _read: false,
       content: trimmed,
-      sender: userInfo,
+      sender: senderWithName,
       createdAt: new Date().toISOString(),
       messageType: 'text',
       chat: chatId,
