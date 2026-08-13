@@ -362,10 +362,7 @@ const MediaMessage = ({
   resolveSender,
 }) => {
   // ── For text messages: skip pending/failed blocks ────────────────
-  // We want text to always render normally (with clock tick) and never show spinner or red cross.
-  if (message.messageType === "text") {
-    // Continue to normal rendering (skip the pending/failed returns below)
-  } else {
+  if (message.messageType !== "text") {
     // ── Pending state (only for media) ──
     if (message._pending) {
       return (
@@ -457,7 +454,7 @@ const MediaMessage = ({
     };
   })();
 
-  // Touch handlers for swipe reply (unchanged)
+  // Touch handlers for swipe reply
   const handleTouchStart = (e) => {
     if (!isMobile) return;
     const touch = e.touches[0];
@@ -1272,10 +1269,9 @@ const GeneralChatId = () => {
   // ─── ONLINE STATUS: initialise as null (unknown) ────────────────
   const [otherUserOnline, setOtherUserOnline] = useState(null);
 
-  // Update when the chat data changes (but we'll also request presence)
   useEffect(() => {
     if (otherParticipant) {
-      // Don't set from chat data – we'll ask the server
+      // We'll request presence below
     }
   }, [otherParticipant]);
 
@@ -1324,13 +1320,13 @@ const GeneralChatId = () => {
   }, []);
 
   const {
-    data: messagesData,
-    isLoading: messagesLoading,
-    refetch: refetchMessages,
-  } = useGetChatMessagesQuery(
-    { chatId, page: 1, limit: 50 },
-    { skip: !chatId },
-  );
+  data: messagesData,
+  isLoading: messagesLoading,
+  refetch: refetchMessages,
+} = useGetChatMessagesQuery(
+  { chatId, page: 1, limit: 50 },
+  { skip: !chatId, refetchOnMountOrArgChange: true }, // 👈 add this
+);
   const [sendMessageApi] = useSendMessageMutation();
   const [deleteMessageApi] = useDeleteMessageMutation();
   const [archiveMessage] = useArchiveMessageMutation();
@@ -1351,20 +1347,22 @@ const GeneralChatId = () => {
   });
 
   // ─── Reset state when chatId changes ──────────────────────────────
-  useEffect(() => {
-    setLocalMessages([]);
-    setReplyToMessage(null);
-    setPreviewImage(null);
-    setShowDetails(false);
-    setActionModal({ isOpen: false, message: null });
-    setConfirmModal((prev) => ({ ...prev, isOpen: false }));
-    userMapRef.current = new Map();
-    setIsAtBottom(true);
-    setShowScrollDown(false);
-    setPendingMedia(null);
-    setShowMediaPicker(false);
-    setOtherUserOnline(null); // reset online status
-  }, [chatId]);
+ useEffect(() => {
+  setLocalMessages([]);
+  setReplyToMessage(null);
+  setPreviewImage(null);
+  setShowDetails(false);
+  setActionModal({ isOpen: false, message: null });
+  setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+  userMapRef.current = new Map();
+  setIsAtBottom(true);
+  setShowScrollDown(false);
+  setPendingMedia(null);
+  setShowMediaPicker(false);
+  setOtherUserOnline(null);
+
+  if (chatId) refetchMessages(); // 👈 add this — forces a fresh server fetch
+}, [chatId, refetchMessages]);
 
   // ─── Scroll / bottom detection ─────────────────────────────────
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -1408,10 +1406,12 @@ const GeneralChatId = () => {
         let next = prev;
         let mutated = false;
         incomingList.forEach((incoming) => {
+          // 1. Check if this message already exists by real _id
           const existingIdx = next.findIndex((m) => m._id === incoming._id);
           if (existingIdx > -1) {
             if (!mutated) next = [...next];
             mutated = true;
+            // Update the existing message with server data, preserving client flags
             const existing = next[existingIdx];
             const updated = {
               ...incoming,
@@ -1421,6 +1421,7 @@ const GeneralChatId = () => {
               _delivered: true,
               _read: false,
             };
+            // Determine read status based on who has read it
             const isOwn =
               incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
             if (isOwn) {
@@ -1444,9 +1445,11 @@ const GeneralChatId = () => {
             return;
           }
 
+          // 2. Check if this is a temporary message (sent by us, not yet replaced)
           const isOwn =
             incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
           if (isOwn) {
+            // Find a temporary message with the same content and similar timestamp
             const tempIdx = next.findIndex(
               (m) =>
                 m._temp &&
@@ -1456,6 +1459,7 @@ const GeneralChatId = () => {
             if (tempIdx > -1) {
               if (!mutated) next = [...next];
               mutated = true;
+              // Replace the temporary with the real message
               const realMsg = {
                 ...incoming,
                 _sent: true,
@@ -1465,6 +1469,7 @@ const GeneralChatId = () => {
                 _read: false,
                 _temp: false,
               };
+              // Check if already read by the other participant
               const otherId = otherParticipant?._id;
               if (
                 otherId &&
@@ -1477,6 +1482,7 @@ const GeneralChatId = () => {
             }
           }
 
+          // 3. It's a new message from someone else or our own that we didn't optimistically add
           const msg = {
             ...incoming,
             _sent: true,
@@ -1665,23 +1671,11 @@ const GeneralChatId = () => {
 
     try {
       const result = await sendMessageApi({ chatId, data: formData }).unwrap();
-      setLocalMessages((prev) => {
-        const tempExists = prev.some((m) => m._tempId === tempId);
-        const realExists = prev.some((m) => m._id === result._id);
-        let newList = prev;
-        if (tempExists) {
-          newList = newList.filter((m) => m._tempId !== tempId);
-        }
-        if (!realExists) {
-          newList = [
-            ...newList,
-            { ...result, _pending: false, _sent: true, _delivered: true, _read: false },
-          ];
-        }
-        return newList;
-      });
+      // The server will broadcast 'new-message' – we rely on that to replace the temporary.
+      // We don't update state here; the new-message handler will do it.
       toast.success(`${messageType === "image" ? "Image" : "File"} sent!`);
     } catch (err) {
+      // On error, mark the temporary as failed (red cross) and show error
       setLocalMessages((prev) =>
         prev.map((m) => (m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m)),
       );
@@ -1701,12 +1695,12 @@ const GeneralChatId = () => {
     };
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    // For text: no pending spinner, just set _sent: false -> clock
+    // For text: no pending spinner, just set _sent: false → clock
     const optimisticMsg = {
       _id: tempId,
       _temp: true,
-      _pending: false, // <-- no spinner
-      _sent: false, // <-- clock will appear
+      _pending: false, // no spinner
+      _sent: false, // clock will show
       _failed: false,
       _delivered: false,
       _read: false,
@@ -1745,19 +1739,11 @@ const GeneralChatId = () => {
       },
       (response) => {
         if (response?.error) {
-          // Keep clock (don't mark failed) – just show toast
+          // Error: remove the temporary message and show toast
+          setLocalMessages((prev) => prev.filter((m) => m._id !== tempId));
           toast.error(response.error);
-          // Optionally we could set _failed: true but we don't want red cross for text
-          // We'll keep _sent: false so clock remains
-          // Maybe add a subtle error indication? We'll keep it simple: clock stays.
-        } else {
-          // Success: mark as sent (ticks will appear)
-          setLocalMessages((prev) =>
-            prev.map((m) =>
-              m._id === tempId ? { ...m, _pending: false, _sent: true, _failed: false } : m,
-            ),
-          );
         }
+        // On success: do nothing – the 'new-message' event will replace the temporary.
       },
     );
   };
@@ -2155,21 +2141,7 @@ const GeneralChatId = () => {
 
     try {
       const result = await sendMessageApi({ chatId, data: formData }).unwrap();
-      setLocalMessages((prev) => {
-        const tempExists = prev.some((m) => m._tempId === tempId);
-        const realExists = prev.some((m) => m._id === result._id);
-        let newList = prev;
-        if (tempExists) {
-          newList = newList.filter((m) => m._tempId !== tempId);
-        }
-        if (!realExists) {
-          newList = [
-            ...newList,
-            { ...result, _pending: false, _sent: true, _delivered: true, _read: false },
-          ];
-        }
-        return newList;
-      });
+      // Rely on 'new-message' event to replace temporary
       toast.success("Voice note sent!");
     } catch (err) {
       setLocalMessages((prev) =>
@@ -2388,7 +2360,7 @@ const GeneralChatId = () => {
                         ? "text-green-500 dark:text-green-400"
                         : otherUserOnline === false
                         ? "text-gray-500 dark:text-gray-400"
-                        : "text-gray-400 dark:text-gray-500" // hidden when unknown
+                        : "text-gray-400 dark:text-gray-500"
                     }`}
                   >
                     {otherUserOnline === true
