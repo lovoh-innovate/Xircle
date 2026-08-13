@@ -90,7 +90,6 @@ const formatDateDivider = (dateString) => {
   });
 };
 
-// ─── Safe date formatter ────────────────────────────────────────────
 const safeFormatTime = (dateString) => {
   try {
     const d = new Date(dateString);
@@ -117,9 +116,7 @@ const ConfirmModal = ({
         <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">
           {title}
         </h3>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
-          {message}
-        </p>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{message}</p>
         <div className="flex gap-3">
           <button
             onClick={onClose}
@@ -132,7 +129,9 @@ const ConfirmModal = ({
               onConfirm();
               onClose();
             }}
-            className={`flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80 ${danger ? "bg-red-600 hover:bg-red-700" : "bg-teal-600 hover:bg-teal-700"}`}
+            className={`flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80 ${
+              danger ? "bg-red-600 hover:bg-red-700" : "bg-teal-600 hover:bg-teal-700"
+            }`}
           >
             Confirm
           </button>
@@ -142,7 +141,7 @@ const ConfirmModal = ({
   );
 };
 
-// ─── Media Picker Modal (custom bottom sheet) ──────────────────────
+// ─── Media Picker Modal ────────────────────────────────────────────
 const MediaPickerModal = ({ isOpen, onClose, onTakePhoto, onChooseFromGallery }) => {
   if (!isOpen) return null;
   return (
@@ -186,8 +185,7 @@ const MediaPickerModal = ({ isOpen, onClose, onTakePhoto, onChooseFromGallery })
 
 // ─── Audio waveform ──────────────────────────────────────────────────
 const WAVEFORM_BARS = [
-  6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6,
-  10,
+  6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6, 10,
 ];
 const AudioWaveform = ({ isOwn, isPlaying }) => (
   <div className="flex items-center gap-[2px] h-6 flex-1">
@@ -208,24 +206,38 @@ const AudioWaveform = ({ isOwn, isPlaying }) => (
 // ─── Message Ticks ──────────────────────────────────────────────────
 const MessageTicks = ({ message, isOwn }) => {
   if (!isOwn) return null;
-  if (message._pending)
-    return (
-      <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />
-    );
-  if (message._failed) return <FaTimes className="text-[10px] text-red-500" />;
-  if (!message._sent)
-    return (
-      <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />
-    );
-  if (!message._delivered && !message._read)
+
+  // ── TEXT MESSAGES: always show clock until sent, no failed icon ──
+  if (message.messageType === "text") {
+    if (!message._sent) {
+      return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
+    }
+    // if sent, fall through to normal ticks
+  }
+
+  // ── MEDIA MESSAGES: keep existing pending/failed logic ──────────
+  if (message._pending) {
+    return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
+  }
+  if (message._failed) {
+    return <FaTimes className="text-[10px] text-red-500" />;
+  }
+  if (!message._sent) {
+    return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
+  }
+
+  // ── Sent → delivered / read ──────────────────────────────────────
+  if (!message._delivered && !message._read) {
     return <FaCheck className="text-[10px] text-gray-400 dark:text-gray-500" />;
-  if (message._delivered && !message._read)
+  }
+  if (message._delivered && !message._read) {
     return (
       <span className="inline-flex items-center -space-x-[5px] text-gray-400 dark:text-gray-500">
         <FaCheck className="text-[10px]" />
         <FaCheck className="text-[10px]" />
       </span>
     );
+  }
   return (
     <span className="inline-flex items-center -space-x-[5px]">
       <FaCheck className="text-[10px]" style={{ color: SEEN_TICK_COLOR }} />
@@ -241,12 +253,12 @@ const QuotedReplyBlock = ({ replyData, isOwn, onJump }) => {
   const text = replyData.content
     ? replyData.content
     : replyData.mediaName
-      ? `📎 ${replyData.mediaName}`
-      : replyData.messageType === "image"
-        ? "📷 Photo"
-        : replyData.messageType === "audio"
-          ? "🎤 Voice note"
-          : "Media";
+    ? `📎 ${replyData.mediaName}`
+    : replyData.messageType === "image"
+    ? "📷 Photo"
+    : replyData.messageType === "audio"
+    ? "🎤 Voice note"
+    : "Media";
 
   return (
     <button
@@ -297,11 +309,7 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor }) => {
     <div className="flex items-center gap-3 p-3 mb-2 bg-gray-50 dark:bg-gray-800/30 rounded-xl border border-gray-200 dark:border-gray-700/60">
       <div className="relative flex-shrink-0">
         {type === "image" ? (
-          <img
-            src={preview}
-            alt="Preview"
-            className="w-16 h-16 rounded-lg object-cover"
-          />
+          <img src={preview} alt="Preview" className="w-16 h-16 rounded-lg object-cover" />
         ) : (
           <div className="w-16 h-16 rounded-lg bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-2xl">
             📄
@@ -353,41 +361,47 @@ const MediaMessage = ({
   onJumpToMessage,
   resolveSender,
 }) => {
-  // ── Pending state ──
-  if (message._pending) {
-    return (
-      <div className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}>
-        {!isOwn && (
-          <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
-            <FaUser className="text-gray-400 dark:text-gray-500" />
+  // ── For text messages: skip pending/failed blocks ────────────────
+  // We want text to always render normally (with clock tick) and never show spinner or red cross.
+  if (message.messageType === "text") {
+    // Continue to normal rendering (skip the pending/failed returns below)
+  } else {
+    // ── Pending state (only for media) ──
+    if (message._pending) {
+      return (
+        <div className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}>
+          {!isOwn && (
+            <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+              <FaUser className="text-gray-400 dark:text-gray-500" />
+            </div>
+          )}
+          <div className="bg-gray-200 dark:bg-gray-700/50 px-4 py-2 rounded-2xl flex items-center gap-2 text-gray-500 dark:text-gray-400">
+            <FaSpinner className="animate-spin text-sm" />
+            <span>Sending...</span>
           </div>
-        )}
-        <div className="bg-gray-200 dark:bg-gray-700/50 px-4 py-2 rounded-2xl flex items-center gap-2 text-gray-500 dark:text-gray-400">
-          <FaSpinner className="animate-spin text-sm" />
-          <span>Sending...</span>
         </div>
-      </div>
-    );
+      );
+    }
+
+    // ── Failed state (only for media) ──
+    if (message._failed) {
+      return (
+        <div className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}>
+          {!isOwn && (
+            <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+              <FaUser className="text-gray-400 dark:text-gray-500" />
+            </div>
+          )}
+          <div className="bg-red-100 dark:bg-red-900/30 px-4 py-2 rounded-2xl flex items-center gap-2 text-red-600 dark:text-red-400">
+            <FaExclamationTriangle className="text-sm" />
+            <span>Failed to send</span>
+          </div>
+        </div>
+      );
+    }
   }
 
-  // ── Failed state ──
-  if (message._failed) {
-    return (
-      <div className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}>
-        {!isOwn && (
-          <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
-            <FaUser className="text-gray-400 dark:text-gray-500" />
-          </div>
-        )}
-        <div className="bg-red-100 dark:bg-red-900/30 px-4 py-2 rounded-2xl flex items-center gap-2 text-red-600 dark:text-red-400">
-          <FaExclamationTriangle className="text-sm" />
-          <span>Failed to send</span>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Deleted state ──
+  // ── Deleted state (same for all) ──
   if (message.isDeleted) {
     return (
       <div className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}>
@@ -398,9 +412,7 @@ const MediaMessage = ({
         )}
         <div className="bg-gray-100 dark:bg-gray-800/40 px-4 py-2 rounded-2xl text-gray-400 dark:text-gray-500 italic text-sm flex items-center gap-1">
           <span>Message deleted</span>
-          <span className="text-[10px] ml-1 opacity-60">
-            {safeFormatTime(message.createdAt)}
-          </span>
+          <span className="text-[10px] ml-1 opacity-60">{safeFormatTime(message.createdAt)}</span>
         </div>
       </div>
     );
@@ -424,9 +436,7 @@ const MediaMessage = ({
     const replyTo = message?.replyTo;
     if (!replyTo) return null;
     if (typeof replyTo === "object") {
-      const rSender = resolveSender
-        ? resolveSender(replyTo.sender)
-        : replyTo.sender || {};
+      const rSender = resolveSender ? resolveSender(replyTo.sender) : replyTo.sender || {};
       return {
         id: replyTo._id,
         senderName: rSender?.name || replyTo.senderName || "Unknown",
@@ -437,9 +447,7 @@ const MediaMessage = ({
     }
     const original = allMessages?.find((m) => m._id === replyTo);
     if (!original) return null;
-    const rSender = resolveSender
-      ? resolveSender(original.sender)
-      : original.sender || {};
+    const rSender = resolveSender ? resolveSender(original.sender) : original.sender || {};
     return {
       id: original._id,
       senderName: rSender?.name || "Unknown",
@@ -449,7 +457,7 @@ const MediaMessage = ({
     };
   })();
 
-  // Touch handlers for swipe reply
+  // Touch handlers for swipe reply (unchanged)
   const handleTouchStart = (e) => {
     if (!isMobile) return;
     const touch = e.touches[0];
@@ -535,22 +543,14 @@ const MediaMessage = ({
       case "image":
         return null;
       case "video":
-        return (
-          <video
-            src={message.mediaUrl}
-            controls
-            className="max-w-full rounded-lg max-h-80"
-          />
-        );
+        return <video src={message.mediaUrl} controls className="max-w-full rounded-lg max-h-80" />;
       case "audio":
         return (
           <div className="flex items-center gap-2.5 min-w-[220px] py-0.5">
             <button
               onClick={() => {
                 if (audioRef.current) {
-                  isPlaying
-                    ? audioRef.current.pause()
-                    : audioRef.current.play();
+                  isPlaying ? audioRef.current.pause() : audioRef.current.play();
                   setIsPlaying(!isPlaying);
                 }
               }}
@@ -567,11 +567,11 @@ const MediaMessage = ({
             </button>
             <AudioWaveform isOwn={isOwn} isPlaying={isPlaying} />
             <span
-              className={`text-[10px] flex-shrink-0 ${isOwn ? "text-white/70" : "text-gray-500 dark:text-gray-400"}`}
+              className={`text-[10px] flex-shrink-0 ${
+                isOwn ? "text-white/70" : "text-gray-500 dark:text-gray-400"
+              }`}
             >
-              {message.mediaDuration
-                ? formatTime(message.mediaDuration)
-                : "0:00"}
+              {message.mediaDuration ? formatTime(message.mediaDuration) : "0:00"}
             </span>
             <audio
               ref={audioRef}
@@ -594,9 +594,7 @@ const MediaMessage = ({
                 {message.mediaName || "File"}
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400">
-                {message.mediaSize
-                  ? `${(message.mediaSize / 1024).toFixed(1)} KB`
-                  : "File"}
+                {message.mediaSize ? `${(message.mediaSize / 1024).toFixed(1)} KB` : "File"}
               </div>
             </div>
             <button
@@ -617,7 +615,6 @@ const MediaMessage = ({
     transition: swipeX === 0 ? "transform 0.2s ease" : "none",
   };
   const swipeIconOpacity = Math.min(swipeX / 60, 1);
-
   const maxWidthClass = isMobile ? "max-w-[75%]" : "max-w-[85%]";
 
   // ─── Image messages ──────────────────────────────────────────────────
@@ -645,11 +642,7 @@ const MediaMessage = ({
           {!isOwn && (
             <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
               {senderProfile ? (
-                <img
-                  src={senderProfile}
-                  alt={senderName}
-                  className="w-full h-full object-cover"
-                />
+                <img src={senderProfile} alt={senderName} className="w-full h-full object-cover" />
               ) : (
                 <div
                   className="w-full h-full flex items-center justify-center text-white text-xs font-bold"
@@ -670,19 +663,12 @@ const MediaMessage = ({
             )}
             {replyPreview && (
               <div className="w-full mb-1">
-                <QuotedReplyBlock
-                  replyData={replyPreview}
-                  isOwn={isOwn}
-                  onJump={onJumpToMessage}
-                />
+                <QuotedReplyBlock replyData={replyPreview} isOwn={isOwn} onJump={onJumpToMessage} />
               </div>
             )}
-            {/* Image container with click for preview */}
             <div
               className="relative rounded-2xl overflow-hidden cursor-pointer group"
               onClick={(e) => {
-                // Only open preview if click is directly on the image container, not on menu or child buttons
-                // The menu toggle button and its children have stopPropagation, so this will work.
                 if (message.mediaUrl) {
                   onImageClick &&
                     onImageClick({
@@ -703,15 +689,13 @@ const MediaMessage = ({
                 />
               ) : (
                 <div className="w-full h-40 bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-gray-500 dark:text-gray-400">
-                  <FaExclamationTriangle className="text-2xl mr-2" /> Image
-                  unavailable
+                  <FaExclamationTriangle className="text-2xl mr-2" /> Image unavailable
                 </div>
               )}
               <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 text-[10px] text-white bg-black/50 px-2 py-0.5 rounded-full">
                 <span>{time}</span>
                 <MessageTicks message={message} isOwn={isOwn} />
               </div>
-              {/* Menu button – stop propagation to avoid opening preview */}
               {!isMobile && (
                 <div
                   className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition"
@@ -832,11 +816,7 @@ const MediaMessage = ({
         {!isOwn && (
           <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
             {senderProfile ? (
-              <img
-                src={senderProfile}
-                alt={senderName}
-                className="w-full h-full object-cover"
-              />
+              <img src={senderProfile} alt={senderName} className="w-full h-full object-cover" />
             ) : (
               <div
                 className="w-full h-full flex items-center justify-center text-white text-xs font-bold"
@@ -864,21 +844,17 @@ const MediaMessage = ({
             style={isOwn ? { backgroundColor: "#0d9488" } : {}}
           >
             {replyPreview && (
-              <QuotedReplyBlock
-                replyData={replyPreview}
-                isOwn={isOwn}
-                onJump={onJumpToMessage}
-              />
+              <QuotedReplyBlock replyData={replyPreview} isOwn={isOwn} onJump={onJumpToMessage} />
             )}
             {message.content && (
-              <p className="mb-2 whitespace-pre-wrap break-words">
-                {message.content}
-              </p>
+              <p className="mb-2 whitespace-pre-wrap break-words">{message.content}</p>
             )}
             {renderMediaContent()}
           </div>
           <div
-            className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 ${isOwn ? "flex-row-reverse" : ""}`}
+            className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 ${
+              isOwn ? "flex-row-reverse" : ""
+            }`}
           >
             <span>{time}</span>
             <MessageTicks message={message} isOwn={isOwn} />
@@ -974,22 +950,16 @@ const MediaMessage = ({
 // ─── Reply Preview Bar ────────────────────────────────────────────
 const ReplyPreview = ({ replyTo, onCancel, resolveSender }) => {
   if (!replyTo) return null;
-  const resolved = resolveSender
-    ? resolveSender(replyTo.sender)
-    : replyTo.sender;
+  const resolved = resolveSender ? resolveSender(replyTo.sender) : replyTo.sender;
   const senderName = resolved?.name || "Unknown";
-  const content =
-    replyTo.content ||
-    (replyTo.mediaName ? `📎 ${replyTo.mediaName}` : "Media");
+  const content = replyTo.content || (replyTo.mediaName ? `📎 ${replyTo.mediaName}` : "Media");
   return (
     <div className="flex items-center justify-between px-3 py-2 mb-2 bg-gray-100 dark:bg-gray-800/60 rounded-lg border-l-4 border-teal-500">
       <div className="flex-1 min-w-0">
         <span className="text-xs font-semibold text-teal-600 dark:text-teal-400">
           Replying to {senderName}
         </span>
-        <p className="text-sm text-gray-700 dark:text-gray-300 truncate">
-          {content}
-        </p>
+        <p className="text-sm text-gray-700 dark:text-gray-300 truncate">{content}</p>
       </div>
       <button
         onClick={onCancel}
@@ -1023,25 +993,17 @@ const ImagePreviewModal = ({ imageUrl, onClose, senderName, time }) => {
   }, [imageUrl]);
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black flex flex-col"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 bg-black flex flex-col" onClick={onClose}>
       <div
         className="flex items-center justify-between px-4 py-3 bg-black/70 text-white flex-shrink-0"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 min-w-0">
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-white/10 rounded-lg transition"
-          >
+          <button onClick={onClose} className="p-1 hover:bg-white/10 rounded-lg transition">
             <FaArrowLeft />
           </button>
           <div className="min-w-0">
-            <p className="text-sm font-medium truncate">
-              {senderName || "Photo"}
-            </p>
+            <p className="text-sm font-medium truncate">{senderName || "Photo"}</p>
             {time && <p className="text-[11px] text-white/60">{time}</p>}
           </div>
         </div>
@@ -1119,9 +1081,7 @@ const MessageActionModal = ({
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
-              {message.content
-                ? message.content.substring(0, 60)
-                : message.mediaName || "Media"}
+              {message.content ? message.content.substring(0, 60) : message.mediaName || "Media"}
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {new Date(message.createdAt).toLocaleString()}
@@ -1136,8 +1096,7 @@ const MessageActionModal = ({
             }}
             className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
           >
-            <FaReply className="text-sm" />{" "}
-            <span className="text-sm font-medium">Reply</span>
+            <FaReply className="text-sm" /> <span className="text-sm font-medium">Reply</span>
           </button>
           {isOwn && (
             <button
@@ -1159,8 +1118,7 @@ const MessageActionModal = ({
               }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 transition"
             >
-              <FaStar className="text-sm" />{" "}
-              <span className="text-sm font-medium">Unstar</span>
+              <FaStar className="text-sm" /> <span className="text-sm font-medium">Unstar</span>
             </button>
           ) : (
             <button
@@ -1170,8 +1128,7 @@ const MessageActionModal = ({
               }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
             >
-              <FaRegStar className="text-sm" />{" "}
-              <span className="text-sm font-medium">Star</span>
+              <FaRegStar className="text-sm" /> <span className="text-sm font-medium">Star</span>
             </button>
           )}
           {isArchived ? (
@@ -1182,8 +1139,7 @@ const MessageActionModal = ({
               }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition"
             >
-              <FaUndo className="text-sm" />{" "}
-              <span className="text-sm font-medium">Unarchive</span>
+              <FaUndo className="text-sm" /> <span className="text-sm font-medium">Unarchive</span>
             </button>
           ) : (
             <button
@@ -1193,8 +1149,7 @@ const MessageActionModal = ({
               }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
             >
-              <FaArchive className="text-sm" />{" "}
-              <span className="text-sm font-medium">Archive</span>
+              <FaArchive className="text-sm" /> <span className="text-sm font-medium">Archive</span>
             </button>
           )}
         </div>
@@ -1214,9 +1169,7 @@ const ContactInfoPanel = ({ user, onlineStatus, onClose }) => {
   return (
     <div className="h-full bg-white dark:bg-[#14141a] border-l border-gray-200 dark:border-gray-800/60 flex flex-col overflow-y-auto">
       <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800/60">
-        <h3 className="font-semibold text-gray-800 dark:text-gray-200">
-          Contact Info
-        </h3>
+        <h3 className="font-semibold text-gray-800 dark:text-gray-200">Contact Info</h3>
         <button
           onClick={onClose}
           className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-lg transition"
@@ -1248,22 +1201,14 @@ const ContactInfoPanel = ({ user, onlineStatus, onClose }) => {
         </div>
         {user?.email && (
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
-              Email
-            </p>
-            <p className="text-sm text-gray-800 dark:text-gray-200">
-              {user.email}
-            </p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Email</p>
+            <p className="text-sm text-gray-800 dark:text-gray-200">{user.email}</p>
           </div>
         )}
         {user?.username && (
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
-              Username
-            </p>
-            <p className="text-sm text-gray-800 dark:text-gray-200">
-              @{user.username}
-            </p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Username</p>
+            <p className="text-sm text-gray-800 dark:text-gray-200">@{user.username}</p>
           </div>
         )}
       </div>
@@ -1323,15 +1268,26 @@ const GeneralChatId = () => {
     )?.user || null;
   const displayName = otherParticipant?.name || "Unknown";
   const displayAvatar = otherParticipant?.profile || null;
-  const [otherUserOnline, setOtherUserOnline] = useState(
-    otherParticipant?.online || false,
-  );
 
+  // ─── ONLINE STATUS: initialise as null (unknown) ────────────────
+  const [otherUserOnline, setOtherUserOnline] = useState(null);
+
+  // Update when the chat data changes (but we'll also request presence)
   useEffect(() => {
     if (otherParticipant) {
-      setOtherUserOnline(otherParticipant.online || false);
+      // Don't set from chat data – we'll ask the server
     }
   }, [otherParticipant]);
+
+  // ─── Request presence when socket connects and we have a participant ──
+  useEffect(() => {
+    if (!socket || !isConnected || !otherParticipant?._id) return;
+    socket.emit("request-presence", { userId: otherParticipant._id }, (response) => {
+      if (response && typeof response.online === "boolean") {
+        setOtherUserOnline(response.online);
+      }
+    });
+  }, [socket, isConnected, otherParticipant?._id]);
 
   // ─── Build user map for sender resolution ──────────────────────────
   const userMapRef = useRef(new Map());
@@ -1354,9 +1310,7 @@ const GeneralChatId = () => {
       return { _id: senderField, name: "Unknown", profile: null };
     }
     if (senderField.name) return senderField;
-    const found = senderField._id
-      ? userMapRef.current.get(senderField._id)
-      : null;
+    const found = senderField._id ? userMapRef.current.get(senderField._id) : null;
     if (found) {
       const name = found.name || found.username || found.email || "Unknown";
       return {
@@ -1409,6 +1363,7 @@ const GeneralChatId = () => {
     setShowScrollDown(false);
     setPendingMedia(null);
     setShowMediaPicker(false);
+    setOtherUserOnline(null); // reset online status
   }, [chatId]);
 
   // ─── Scroll / bottom detection ─────────────────────────────────
@@ -1419,8 +1374,7 @@ const GeneralChatId = () => {
     const el = messagesContainerRef.current;
     if (!el) return;
     const threshold = 50;
-    const atBottom =
-      el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
     setIsAtBottom(atBottom);
     if (atBottom) setShowScrollDown(false);
   };
@@ -1468,23 +1422,19 @@ const GeneralChatId = () => {
               _read: false,
             };
             const isOwn =
-              incoming.sender?._id === userInfo?._id ||
-              incoming.sender === userInfo?._id;
+              incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
             if (isOwn) {
               const otherId = otherParticipant?._id;
               if (
                 otherId &&
-                incoming.readBy?.some(
-                  (r) => r.user === otherId || r.user?._id === otherId,
-                )
+                incoming.readBy?.some((r) => r.user === otherId || r.user?._id === otherId)
               ) {
                 updated._read = true;
               }
             } else {
               if (
                 incoming.readBy?.some(
-                  (r) =>
-                    r.user === userInfo?._id || r.user?._id === userInfo?._id,
+                  (r) => r.user === userInfo?._id || r.user?._id === userInfo?._id,
                 )
               ) {
                 updated._read = true;
@@ -1495,15 +1445,13 @@ const GeneralChatId = () => {
           }
 
           const isOwn =
-            incoming.sender?._id === userInfo?._id ||
-            incoming.sender === userInfo?._id;
+            incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
           if (isOwn) {
             const tempIdx = next.findIndex(
               (m) =>
                 m._temp &&
                 m.content === incoming.content &&
-                Math.abs(new Date(m.createdAt) - new Date(incoming.createdAt)) <
-                  5000,
+                Math.abs(new Date(m.createdAt) - new Date(incoming.createdAt)) < 5000,
             );
             if (tempIdx > -1) {
               if (!mutated) next = [...next];
@@ -1520,9 +1468,7 @@ const GeneralChatId = () => {
               const otherId = otherParticipant?._id;
               if (
                 otherId &&
-                incoming.readBy?.some(
-                  (r) => r.user === otherId || r.user?._id === otherId,
-                )
+                incoming.readBy?.some((r) => r.user === otherId || r.user?._id === otherId)
               ) {
                 realMsg._read = true;
               }
@@ -1543,17 +1489,14 @@ const GeneralChatId = () => {
             const otherId = otherParticipant?._id;
             if (
               otherId &&
-              incoming.readBy?.some(
-                (r) => r.user === otherId || r.user?._id === otherId,
-              )
+              incoming.readBy?.some((r) => r.user === otherId || r.user?._id === otherId)
             ) {
               msg._read = true;
             }
           } else {
             if (
               incoming.readBy?.some(
-                (r) =>
-                  r.user === userInfo?._id || r.user?._id === userInfo?._id,
+                (r) => r.user === userInfo?._id || r.user?._id === userInfo?._id,
               )
             ) {
               msg._read = true;
@@ -1572,8 +1515,7 @@ const GeneralChatId = () => {
   useEffect(() => {
     if (messagesData?.messages && messagesData.messages.length > 0) {
       const firstMsg = messagesData.messages[0];
-      const msgChatId =
-        typeof firstMsg.chat === "string" ? firstMsg.chat : firstMsg.chat?._id;
+      const msgChatId = typeof firstMsg.chat === "string" ? firstMsg.chat : firstMsg.chat?._id;
       if (msgChatId && msgChatId !== chatId) return;
       mergeMessagesIntoState(messagesData.messages);
     }
@@ -1593,7 +1535,7 @@ const GeneralChatId = () => {
 
     const handleMessageDeleted = ({ messageId }) => {
       setLocalMessages((prev) =>
-        prev.map((m) => (m._id === messageId ? { ...m, isDeleted: true } : m))
+        prev.map((m) => (m._id === messageId ? { ...m, isDeleted: true } : m)),
       );
     };
 
@@ -1609,11 +1551,7 @@ const GeneralChatId = () => {
       );
     };
 
-    const handleUserStatusChange = ({
-      userId,
-      online,
-      chatId: statusChatId,
-    }) => {
+    const handleUserStatusChange = ({ userId, online, chatId: statusChatId }) => {
       if (statusChatId !== chatId) return;
       if (userId === otherParticipant?._id) {
         setOtherUserOnline(online);
@@ -1632,13 +1570,7 @@ const GeneralChatId = () => {
       socket.off("message-read", handleMessageRead);
       socket.off("user-status-changed", handleUserStatusChange);
     };
-  }, [
-    socket,
-    isConnected,
-    chatId,
-    mergeMessagesIntoState,
-    otherParticipant?._id,
-  ]);
+  }, [socket, isConnected, chatId, mergeMessagesIntoState, otherParticipant?._id]);
 
   // ─── Auto-refresh polling ──────────────────────────────────────
   useEffect(() => {
@@ -1679,8 +1611,7 @@ const GeneralChatId = () => {
       },
       { threshold: 0.5 },
     );
-    const elements =
-      messagesContainerRef.current.querySelectorAll("[data-message-id]");
+    const elements = messagesContainerRef.current.querySelectorAll("[data-message-id]");
     elements.forEach((el) => observer.observe(el));
     return () => observer.disconnect();
   }, [localMessages, markMessageAsRead, userInfo]);
@@ -1694,7 +1625,6 @@ const GeneralChatId = () => {
     formData.append("messageType", messageType);
     if (replyToMessage) formData.append("replyToId", replyToMessage._id);
 
-    // Ensure sender has a name
     const senderWithName = {
       ...userInfo,
       name: userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
@@ -1715,38 +1645,51 @@ const GeneralChatId = () => {
       createdAt: new Date().toISOString(),
       messageType: messageType,
       chat: chatId,
-      replyTo: replyToMessage ? { _id: replyToMessage._id, sender: replyToMessage.sender, content: replyToMessage.content, mediaName: replyToMessage.mediaName, messageType: replyToMessage.messageType } : null,
+      replyTo: replyToMessage
+        ? {
+            _id: replyToMessage._id,
+            sender: replyToMessage.sender,
+            content: replyToMessage.content,
+            mediaName: replyToMessage.mediaName,
+            messageType: replyToMessage.messageType,
+          }
+        : null,
       mediaUrl: URL.createObjectURL(file),
       mediaName: file.name,
       mediaSize: file.size,
       mediaDuration: null,
     };
-    setLocalMessages(prev => [...prev, optimisticMsg]);
+    setLocalMessages((prev) => [...prev, optimisticMsg]);
     setReplyToMessage(null);
     setPendingMedia(null);
 
     try {
       const result = await sendMessageApi({ chatId, data: formData }).unwrap();
-      setLocalMessages(prev => {
-        const tempExists = prev.some(m => m._tempId === tempId);
-        const realExists = prev.some(m => m._id === result._id);
+      setLocalMessages((prev) => {
+        const tempExists = prev.some((m) => m._tempId === tempId);
+        const realExists = prev.some((m) => m._id === result._id);
         let newList = prev;
         if (tempExists) {
-          newList = newList.filter(m => m._tempId !== tempId);
+          newList = newList.filter((m) => m._tempId !== tempId);
         }
         if (!realExists) {
-          newList = [...newList, { ...result, _pending: false, _sent: true, _delivered: true, _read: false }];
+          newList = [
+            ...newList,
+            { ...result, _pending: false, _sent: true, _delivered: true, _read: false },
+          ];
         }
         return newList;
       });
       toast.success(`${messageType === "image" ? "Image" : "File"} sent!`);
     } catch (err) {
-      setLocalMessages(prev => prev.map(m => m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m));
+      setLocalMessages((prev) =>
+        prev.map((m) => (m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m)),
+      );
       toast.error(err?.data?.message || "Failed to send media");
     }
   };
 
-  // ─── Send message ──────────────────────────────────────────────
+  // ─── Send message (text) ──────────────────────────────────────
   const handleSendMessage = (e) => {
     e.preventDefault();
     const trimmed = message.trim();
@@ -1758,11 +1701,12 @@ const GeneralChatId = () => {
     };
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // For text: no pending spinner, just set _sent: false -> clock
     const optimisticMsg = {
       _id: tempId,
       _temp: true,
-      _pending: true,
-      _sent: false,
+      _pending: false, // <-- no spinner
+      _sent: false, // <-- clock will appear
       _failed: false,
       _delivered: false,
       _read: false,
@@ -1801,16 +1745,16 @@ const GeneralChatId = () => {
       },
       (response) => {
         if (response?.error) {
-          setLocalMessages((prev) =>
-            prev.map((m) =>
-              m._id === tempId ? { ...m, _pending: false, _failed: true } : m,
-            ),
-          );
+          // Keep clock (don't mark failed) – just show toast
           toast.error(response.error);
+          // Optionally we could set _failed: true but we don't want red cross for text
+          // We'll keep _sent: false so clock remains
+          // Maybe add a subtle error indication? We'll keep it simple: clock stays.
         } else {
+          // Success: mark as sent (ticks will appear)
           setLocalMessages((prev) =>
             prev.map((m) =>
-              m._id === tempId ? { ...m, _pending: false, _sent: true } : m,
+              m._id === tempId ? { ...m, _pending: false, _sent: true, _failed: false } : m,
             ),
           );
         }
@@ -1971,10 +1915,7 @@ const GeneralChatId = () => {
 
   const startTimer = () => {
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-    recordingTimerRef.current = setInterval(
-      () => setRecordingTime((prev) => prev + 1),
-      1000,
-    );
+    recordingTimerRef.current = setInterval(() => setRecordingTime((prev) => prev + 1), 1000);
   };
 
   const stopTimer = () => {
@@ -1987,11 +1928,9 @@ const GeneralChatId = () => {
   // Native recording
   const startNativeRecording = async () => {
     try {
-      const { value: hasPermission } =
-        await VoiceRecorder.hasAudioRecordingPermission();
+      const { value: hasPermission } = await VoiceRecorder.hasAudioRecordingPermission();
       if (!hasPermission) {
-        const { value: granted } =
-          await VoiceRecorder.requestAudioRecordingPermission();
+        const { value: granted } = await VoiceRecorder.requestAudioRecordingPermission();
         if (!granted) {
           toast.error("Microphone permission is required.");
           return;
@@ -2070,9 +2009,7 @@ const GeneralChatId = () => {
         if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, {
-          type: "audio/webm",
-        });
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
         setRecordingBlob(audioBlob);
         setShowRecordedPreview(true);
         stopTimer();
@@ -2090,13 +2027,10 @@ const GeneralChatId = () => {
       console.error("Web recording error:", err);
       let msg = "Microphone access denied";
       if (err.name === "NotAllowedError")
-        msg =
-          "Microphone permission denied. Please grant it in system settings.";
+        msg = "Microphone permission denied. Please grant it in system settings.";
       else if (err.name === "NotFoundError") msg = "No microphone found.";
-      else if (err.name === "NotReadableError")
-        msg = "Microphone busy — please try again.";
-      else if (err.name === "AbortError")
-        msg = "User canceled the permission prompt.";
+      else if (err.name === "NotReadableError") msg = "Microphone busy — please try again.";
+      else if (err.name === "AbortError") msg = "User canceled the permission prompt.";
       toast.error(msg);
       mediaRecorderRef.current = null;
     }
@@ -2171,9 +2105,7 @@ const GeneralChatId = () => {
     const formData = new FormData();
     const mimeType = isNative ? "audio/m4a" : "audio/webm";
     const extension = isNative ? "m4a" : "webm";
-    const audioFile = new File([audioBlob], `voice-note.${extension}`, {
-      type: mimeType,
-    });
+    const audioFile = new File([audioBlob], `voice-note.${extension}`, { type: mimeType });
     formData.append("media", audioFile);
     formData.append("messageType", "audio");
     formData.append("mediaDuration", recordingTime.toString());
@@ -2201,13 +2133,21 @@ const GeneralChatId = () => {
       createdAt: new Date().toISOString(),
       messageType: "audio",
       chat: chatId,
-      replyTo: replyToMessage ? { _id: replyToMessage._id, sender: replyToMessage.sender, content: replyToMessage.content, mediaName: replyToMessage.mediaName, messageType: replyToMessage.messageType } : null,
+      replyTo: replyToMessage
+        ? {
+            _id: replyToMessage._id,
+            sender: replyToMessage.sender,
+            content: replyToMessage.content,
+            mediaName: replyToMessage.mediaName,
+            messageType: replyToMessage.messageType,
+          }
+        : null,
       mediaUrl: URL.createObjectURL(audioBlob),
       mediaName: "Voice note",
       mediaSize: audioBlob.size,
       mediaDuration: recordingTime,
     };
-    setLocalMessages(prev => [...prev, optimisticMsg]);
+    setLocalMessages((prev) => [...prev, optimisticMsg]);
     setRecordingBlob(null);
     setShowRecordedPreview(false);
     setRecordingTime(0);
@@ -2215,21 +2155,26 @@ const GeneralChatId = () => {
 
     try {
       const result = await sendMessageApi({ chatId, data: formData }).unwrap();
-      setLocalMessages(prev => {
-        const tempExists = prev.some(m => m._tempId === tempId);
-        const realExists = prev.some(m => m._id === result._id);
+      setLocalMessages((prev) => {
+        const tempExists = prev.some((m) => m._tempId === tempId);
+        const realExists = prev.some((m) => m._id === result._id);
         let newList = prev;
         if (tempExists) {
-          newList = newList.filter(m => m._tempId !== tempId);
+          newList = newList.filter((m) => m._tempId !== tempId);
         }
         if (!realExists) {
-          newList = [...newList, { ...result, _pending: false, _sent: true, _delivered: true, _read: false }];
+          newList = [
+            ...newList,
+            { ...result, _pending: false, _sent: true, _delivered: true, _read: false },
+          ];
         }
         return newList;
       });
       toast.success("Voice note sent!");
     } catch (err) {
-      setLocalMessages(prev => prev.map(m => m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m));
+      setLocalMessages((prev) =>
+        prev.map((m) => (m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m)),
+      );
       toast.error(err?.data?.message || "Failed to send voice note");
     }
   };
@@ -2256,12 +2201,16 @@ const GeneralChatId = () => {
       title: "Delete Message",
       message: "Are you sure?",
       onConfirm: async () => {
-        setLocalMessages(prev => prev.map(m => m._id === messageId ? { ...m, isDeleted: true } : m));
+        setLocalMessages((prev) =>
+          prev.map((m) => (m._id === messageId ? { ...m, isDeleted: true } : m)),
+        );
         try {
           await deleteMessageApi(messageId).unwrap();
           toast.success("Message deleted");
         } catch (err) {
-          setLocalMessages(prev => prev.map(m => m._id === messageId ? { ...m, isDeleted: false } : m));
+          setLocalMessages((prev) =>
+            prev.map((m) => (m._id === messageId ? { ...m, isDeleted: false } : m)),
+          );
           toast.error(err?.data?.message);
         }
       },
@@ -2310,8 +2259,7 @@ const GeneralChatId = () => {
     setTimeout(() => inputRef.current?.focus(), 100);
   };
   const cancelReply = () => setReplyToMessage(null);
-  const handleLongPress = (message) =>
-    setActionModal({ isOpen: true, message });
+  const handleLongPress = (message) => setActionModal({ isOpen: true, message });
   const handleJumpToMessage = useCallback((messageId) => {
     const container = messagesContainerRef.current;
     if (!container) return;
@@ -2319,10 +2267,7 @@ const GeneralChatId = () => {
     if (!target) return;
     target.scrollIntoView({ behavior: "smooth", block: "center" });
     target.classList.add("ring-2", "ring-teal-400", "rounded-2xl");
-    setTimeout(
-      () => target.classList.remove("ring-2", "ring-teal-400", "rounded-2xl"),
-      1200,
-    );
+    setTimeout(() => target.classList.remove("ring-2", "ring-teal-400", "rounded-2xl"), 1200);
   }, []);
   const clearPendingMedia = () => setPendingMedia(null);
 
@@ -2406,7 +2351,9 @@ const GeneralChatId = () => {
         </div>
         <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
           <div
-            className={`flex-1 flex flex-col h-full overflow-hidden ${isDesktop && showDetails ? "lg:w-2/3" : "lg:w-full"}`}
+            className={`flex-1 flex flex-col h-full overflow-hidden ${
+              isDesktop && showDetails ? "lg:w-2/3" : "lg:w-full"
+            }`}
           >
             {/* Header */}
             <header
@@ -2436,9 +2383,19 @@ const GeneralChatId = () => {
                     {displayName}
                   </h2>
                   <p
-                    className={`text-xs truncate ${otherUserOnline ? "text-green-500 dark:text-green-400" : "text-gray-500 dark:text-gray-400"}`}
+                    className={`text-xs truncate ${
+                      otherUserOnline === true
+                        ? "text-green-500 dark:text-green-400"
+                        : otherUserOnline === false
+                        ? "text-gray-500 dark:text-gray-400"
+                        : "text-gray-400 dark:text-gray-500" // hidden when unknown
+                    }`}
                   >
-                    {otherUserOnline ? "Online" : "Offline"}
+                    {otherUserOnline === true
+                      ? "Online"
+                      : otherUserOnline === false
+                      ? "Offline"
+                      : ""}
                   </p>
                 </div>
               </div>
@@ -2509,9 +2466,7 @@ const GeneralChatId = () => {
                     <div className="flex gap-1">
                       <button
                         onClick={() => {
-                          const audio = new Audio(
-                            URL.createObjectURL(recordingBlob),
-                          );
+                          const audio = new Audio(URL.createObjectURL(recordingBlob));
                           audio.play();
                         }}
                         className="p-1 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white"
@@ -2539,8 +2494,7 @@ const GeneralChatId = () => {
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
                       <span className="text-xs text-red-600 dark:text-red-300">
-                        {recordingPaused ? "Paused" : "Recording..."}{" "}
-                        {formatTime(recordingTime)}
+                        {recordingPaused ? "Paused" : "Recording..."} {formatTime(recordingTime)}
                       </span>
                     </div>
                     <div className="flex gap-2">
@@ -2566,10 +2520,7 @@ const GeneralChatId = () => {
                   </div>
                 )}
 
-                <form
-                  onSubmit={handleSendMessage}
-                  className="flex items-end gap-2"
-                >
+                <form onSubmit={handleSendMessage} className="flex items-end gap-2">
                   <button
                     type="button"
                     onClick={() => handleFileUpload("file")}
@@ -2655,10 +2606,7 @@ const GeneralChatId = () => {
       {/* Mobile details overlay */}
       {isMobile && showDetails && (
         <>
-          <div
-            className="fixed inset-0 z-40 bg-black/40"
-            onClick={() => setShowDetails(false)}
-          />
+          <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setShowDetails(false)} />
           <div className="fixed inset-y-0 right-0 z-50 w-80 max-w-[85vw] bg-white dark:bg-[#14141a] shadow-xl border-l border-gray-200 dark:border-gray-800/60 overflow-y-auto transition-transform duration-300 ease-in-out">
             <ContactInfoPanel
               user={otherParticipant}
@@ -2690,12 +2638,8 @@ const GeneralChatId = () => {
         onClose={() => setActionModal({ isOpen: false, message: null })}
         message={actionModal.message}
         isOwn={actionModal.message?.sender?._id === userInfo?._id}
-        isStarred={actionModal.message?.starredBy?.some(
-          (id) => id === userInfo?._id,
-        )}
-        isArchived={actionModal.message?.archivedBy?.some(
-          (id) => id === userInfo?._id,
-        )}
+        isStarred={actionModal.message?.starredBy?.some((id) => id === userInfo?._id)}
+        isArchived={actionModal.message?.archivedBy?.some((id) => id === userInfo?._id)}
         onDelete={handleDeleteMessage}
         onArchive={handleArchiveMessage}
         onUnarchive={handleUnarchiveMessage}
@@ -2704,7 +2648,6 @@ const GeneralChatId = () => {
         onReply={handleReply}
       />
 
-      {/* Custom Media Picker Modal */}
       <MediaPickerModal
         isOpen={showMediaPicker}
         onClose={() => setShowMediaPicker(false)}

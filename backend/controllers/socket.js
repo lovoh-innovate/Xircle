@@ -131,6 +131,16 @@ export const initSocket = (server) => {
       await updateUserOnlineStatus(isOnline);
     });
 
+    // ── NEW: Respond with current online status of a requested user ──
+    socket.on('request-presence', async (data, callback) => {
+      const { userId } = data;
+      if (!userId) {
+        return callback && callback({ online: false });
+      }
+      const online = isSocketUserOnline(userId);
+      callback && callback({ online });
+    });
+
     // ── Workspace & chat rooms ─────────────────────────────────────
     socket.on('join-workspace', async (workspaceId, callback) => {
       socket.join(`workspace:${workspaceId}`);
