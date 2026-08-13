@@ -555,26 +555,33 @@ const MessageActionModal = ({
   );
 };
 
-// ─── Message status ticks ────────────────────────────────────────
+// ─── Message status ticks (UPDATED: text messages show clock until sent) ──
 const MessageTicks = ({ message, isOwn }) => {
   if (!isOwn) return null;
 
+  // ── TEXT MESSAGES: always show clock until sent, no failed icon ──
+  if (message.messageType === "text") {
+    if (!message._sent) {
+      return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
+    }
+    // if sent, fall through to normal ticks
+  }
+
+  // ── MEDIA MESSAGES: keep existing pending/failed logic ──────────
   if (message._pending) {
     return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
   }
-
   if (message._failed) {
     return <FaTimes className="text-[10px] text-red-500" />;
   }
-
   if (!message._sent) {
     return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
   }
 
+  // ── Sent → delivered / read ──────────────────────────────────────
   if (!message._delivered && !message._read) {
     return <FaCheck className="text-[10px] text-gray-400 dark:text-gray-500" />;
   }
-
   if (message._delivered && !message._read) {
     return (
       <span className="inline-flex items-center -space-x-[5px] text-gray-400 dark:text-gray-500">
@@ -583,7 +590,6 @@ const MessageTicks = ({ message, isOwn }) => {
       </span>
     );
   }
-
   return (
     <span className="inline-flex items-center -space-x-[5px]">
       <FaCheck className="text-[10px]" style={{ color: SEEN_TICK_COLOR }} />
@@ -718,7 +724,7 @@ const ReplyPreview = ({ replyTo, onCancel, brandColor, resolveSender }) => {
   );
 };
 
-// ─── Media Message Component ────────────────────────────────────────
+// ─── Media Message Component (UPDATED: skip pending/failed for text) ──
 const MediaMessage = ({
   message,
   isOwn,
@@ -739,38 +745,41 @@ const MediaMessage = ({
   onJumpToMessage,
   resolveSender,
 }) => {
-  // ── Pending state ──
-  if (message._pending) {
-    return (
-      <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
-        {!isOwn && (
-          <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
-            <FaUser className="text-gray-400 dark:text-gray-500" />
+  // ── For text messages: skip pending/failed blocks ────────────────
+  if (message.messageType !== "text") {
+    // ── Pending state (only for media) ──
+    if (message._pending) {
+      return (
+        <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
+          {!isOwn && (
+            <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+              <FaUser className="text-gray-400 dark:text-gray-500" />
+            </div>
+          )}
+          <div className="bg-gray-200 dark:bg-gray-700/50 px-4 py-2 rounded-2xl flex items-center gap-2 text-gray-500 dark:text-gray-400">
+            <FaSpinner className="animate-spin text-sm" />
+            <span>Sending...</span>
           </div>
-        )}
-        <div className="bg-gray-200 dark:bg-gray-700/50 px-4 py-2 rounded-2xl flex items-center gap-2 text-gray-500 dark:text-gray-400">
-          <FaSpinner className="animate-spin text-sm" />
-          <span>Sending...</span>
         </div>
-      </div>
-    );
-  }
+      );
+    }
 
-  // ── Failed state ──
-  if (message._failed) {
-    return (
-      <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
-        {!isOwn && (
-          <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
-            <FaUser className="text-gray-400 dark:text-gray-500" />
+    // ── Failed state (only for media) ──
+    if (message._failed) {
+      return (
+        <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
+          {!isOwn && (
+            <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+              <FaUser className="text-gray-400 dark:text-gray-500" />
+            </div>
+          )}
+          <div className="bg-red-100 dark:bg-red-900/30 px-4 py-2 rounded-2xl flex items-center gap-2 text-red-600 dark:text-red-400">
+            <FaExclamationTriangle className="text-sm" />
+            <span>Failed to send</span>
           </div>
-        )}
-        <div className="bg-red-100 dark:bg-red-900/30 px-4 py-2 rounded-2xl flex items-center gap-2 text-red-600 dark:text-red-400">
-          <FaExclamationTriangle className="text-sm" />
-          <span>Failed to send</span>
         </div>
-      </div>
-    );
+      );
+    }
   }
 
   // ── Deleted state ──
@@ -1599,7 +1608,7 @@ const MyWorkspaceChannelId = () => {
     refetch: refetchMessages,
   } = useGetChatMessagesQuery(
     { chatId, page: 1, limit: 50 },
-    { skip: !chatId },
+    { skip: !chatId, refetchOnMountOrArgChange: true } // 👈 force fresh fetch on mount
   );
   const [sendMessageApi] = useSendMessageMutation();
   const [deleteMessageApi] = useDeleteMessageMutation();
@@ -1696,12 +1705,15 @@ const MyWorkspaceChannelId = () => {
     }
   }, [workspaceData, participants, userInfo]);
 
+  // ─── Polling for messages ──────────────────────────────────────────
   useEffect(() => {
+    if (!chatId) return;
     const interval = setInterval(() => {
       refetchMessages();
+      refetchChats();
     }, 3000);
     return () => clearInterval(interval);
-  }, [refetchMessages, chatId]);
+  }, [chatId, refetchMessages, refetchChats]);
 
   // ─── Scroll handling ────────────────────────────────────────────────
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -1744,39 +1756,116 @@ const MyWorkspaceChannelId = () => {
     }, 1200);
   }, []);
 
-  // ─── Socket events ──────────────────────────────────────────────────
+  // ─── Unified merge function ──────────────────────────────────────
+  const mergeMessagesIntoState = useCallback(
+    (incomingList) => {
+      if (!incomingList || incomingList.length === 0) return;
+      setLocalMessages((prev) => {
+        let next = prev;
+        let mutated = false;
+
+        incomingList.forEach((incoming) => {
+          const isOwn = incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
+
+          // 1. If message already exists by real _id, update it
+          const existingIdx = next.findIndex((m) => m._id === incoming._id);
+          if (existingIdx > -1) {
+            if (!mutated) next = [...next];
+            mutated = true;
+            const existing = next[existingIdx];
+            const updated = {
+              ...incoming,
+              _sent: existing._sent || false,
+              _pending: existing._pending || false,
+              _failed: existing._failed || false,
+              _delivered: true,
+              _read: false,
+            };
+            // Determine read status
+            if (isOwn) {
+              const otherIds = participants.map(p => p.user?._id || p.user).filter(id => id !== userInfo?._id);
+              if (otherIds.some(id => incoming.readBy?.some(r => r.user === id || r.user?._id === id))) {
+                updated._read = true;
+              }
+            } else {
+              if (incoming.readBy?.some(r => r.user === userInfo?._id || r.user?._id === userInfo?._id)) {
+                updated._read = true;
+              }
+            }
+            next[existingIdx] = updated;
+            return;
+          }
+
+          // 2. If this is our own message, try to replace a temporary
+          if (isOwn) {
+            const tempIdx = next.findIndex(
+              (m) =>
+                m._temp &&
+                m.content === incoming.content &&
+                Math.abs(new Date(m.createdAt) - new Date(incoming.createdAt)) < 5000
+            );
+            if (tempIdx > -1) {
+              if (!mutated) next = [...next];
+              mutated = true;
+              const realMsg = {
+                ...incoming,
+                _temp: false,
+                _pending: false,
+                _failed: false,
+                _sent: true,
+                _delivered: true,
+                _read: false,
+              };
+              // Check read status
+              const otherIds = participants.map(p => p.user?._id || p.user).filter(id => id !== userInfo?._id);
+              if (otherIds.some(id => incoming.readBy?.some(r => r.user === id || r.user?._id === id))) {
+                realMsg._read = true;
+              }
+              next[tempIdx] = realMsg;
+              return;
+            }
+          }
+
+          // 3. New message from someone else (or ours that wasn't temp)
+          const msg = {
+            ...incoming,
+            _sent: true,
+            _pending: false,
+            _failed: false,
+            _delivered: true,
+            _read: false,
+          };
+          if (isOwn) {
+            const otherIds = participants.map(p => p.user?._id || p.user).filter(id => id !== userInfo?._id);
+            if (otherIds.some(id => incoming.readBy?.some(r => r.user === id || r.user?._id === id))) {
+              msg._read = true;
+            }
+          } else {
+            if (incoming.readBy?.some(r => r.user === userInfo?._id || r.user?._id === userInfo?._id)) {
+              msg._read = true;
+            }
+          }
+          if (!mutated) next = [...next];
+          mutated = true;
+          next.push(msg);
+        });
+
+        return mutated ? next : prev;
+      });
+    },
+    [userInfo?._id, participants]
+  );
+
+  // ─── Socket events (UPDATED: use mergeMessagesIntoState) ──────────
   useEffect(() => {
     if (!socket || !isConnected || !chatId) return;
 
     socket.emit("join-chat", chatId);
 
     const handleNewMessage = (incoming) => {
-      setLocalMessages((prev) => {
-        if (
-          (incoming.sender?._id === userInfo?._id ||
-            incoming.sender === userInfo?._id) &&
-          incoming.content
-        ) {
-          const tempIdx = prev.findIndex(
-            (m) => m._temp && m.content === incoming.content,
-          );
-          if (tempIdx > -1) {
-            const updated = [...prev];
-            updated[tempIdx] = {
-              ...incoming,
-              _temp: false,
-              _pending: false,
-              _failed: false,
-              _sent: true,
-            };
-            return updated;
-          }
-        }
-        if (!prev.some((m) => m._id === incoming._id)) {
-          return [...prev, { ...incoming, _sent: true }];
-        }
-        return prev;
-      });
+      const incomingChatId = typeof incoming.chat === "string" ? incoming.chat : incoming.chat?._id;
+      if (incomingChatId && incomingChatId !== chatId) return;
+      mergeMessagesIntoState([incoming]);
     };
 
     const handleMessageDeleted = ({ messageId }) => {
@@ -1785,28 +1874,31 @@ const MyWorkspaceChannelId = () => {
       );
     };
 
+    const handleMessageRead = ({ chatId: readChatId, messageId, readBy }) => {
+      if (readChatId !== chatId) return;
+      setLocalMessages((prev) =>
+        prev.map((m) => m._id === messageId ? { ...m, _read: true } : m)
+      );
+    };
+
     socket.on("new-message", handleNewMessage);
     socket.on("message-deleted", handleMessageDeleted);
+    socket.on("message-read", handleMessageRead);
 
     return () => {
       socket.emit("leave-chat", chatId);
       socket.off("new-message", handleNewMessage);
       socket.off("message-deleted", handleMessageDeleted);
+      socket.off("message-read", handleMessageRead);
     };
-  }, [socket, isConnected, chatId, userInfo?._id]);
+  }, [socket, isConnected, chatId, mergeMessagesIntoState]);
 
   // ─── Merge polled messages ──────────────────────────────────────────
   useEffect(() => {
     if (messagesData?.messages) {
-      setLocalMessages((prev) => {
-        const existingIds = new Set(prev.map((m) => m._id));
-        const newMessages = messagesData.messages.filter(
-          (m) => !existingIds.has(m._id),
-        );
-        return [...prev, ...newMessages.map((m) => ({ ...m, _sent: true }))];
-      });
+      mergeMessagesIntoState(messagesData.messages);
     }
-  }, [messagesData]);
+  }, [messagesData, mergeMessagesIntoState]);
 
   // ─── Auto-resize textarea ──────────────────────────────────────────
   useEffect(() => {
@@ -2077,18 +2169,7 @@ const MyWorkspaceChannelId = () => {
 
     try {
       const result = await sendMessageApi({ chatId, data: formData }).unwrap();
-      setLocalMessages(prev => {
-        const tempExists = prev.some(m => m._tempId === tempId);
-        const realExists = prev.some(m => m._id === result._id);
-        let newList = prev;
-        if (tempExists) {
-          newList = newList.filter(m => m._tempId !== tempId);
-        }
-        if (!realExists) {
-          newList = [...newList, { ...result, _pending: false, _sent: true, _delivered: true, _read: false }];
-        }
-        return newList;
-      });
+      // ✅ On success: rely on 'new-message' event – no manual update
       toast.success('Voice note sent!');
     } catch (err) {
       setLocalMessages(prev => prev.map(m => m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m));
@@ -2172,18 +2253,7 @@ const MyWorkspaceChannelId = () => {
 
     try {
       const result = await sendMessageApi({ chatId, data: formData }).unwrap();
-      setLocalMessages(prev => {
-        const tempExists = prev.some(m => m._tempId === tempId);
-        const realExists = prev.some(m => m._id === result._id);
-        let newList = prev;
-        if (tempExists) {
-          newList = newList.filter(m => m._tempId !== tempId);
-        }
-        if (!realExists) {
-          newList = [...newList, { ...result, _pending: false, _sent: true, _delivered: true, _read: false }];
-        }
-        return newList;
-      });
+      // ✅ On success: rely on 'new-message' event – no manual update
       toast.success(`${type === 'image' ? 'Image' : 'File'} sent!`);
     } catch (err) {
       setLocalMessages(prev => prev.map(m => m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m));
@@ -2473,7 +2543,7 @@ const MyWorkspaceChannelId = () => {
     setActionModal({ isOpen: true, message: msg });
   };
 
-  // ─── Optimistic send text message ──────────────────────────────────
+  // ─── Optimistic send text message (UPDATED: no spinner, clock only) ──
   const handleSendMessage = (e) => {
     e.preventDefault();
     const trimmed = message.trim();
@@ -2488,8 +2558,8 @@ const MyWorkspaceChannelId = () => {
     const optimisticMsg = {
       _id: tempId,
       _temp: true,
-      _pending: true,
-      _sent: false,
+      _pending: false, // no spinner
+      _sent: false,    // clock will show
       _failed: false,
       _delivered: false,
       _read: false,
@@ -2535,20 +2605,12 @@ const MyWorkspaceChannelId = () => {
       },
       (response) => {
         if (response?.error) {
-          setLocalMessages((prev) =>
-            prev.map((m) =>
-              m._id === tempId ? { ...m, _pending: false, _failed: true } : m,
-            ),
-          );
+          // On error: remove the temporary message (do not mark failed)
+          setLocalMessages((prev) => prev.filter((m) => m._id !== tempId));
           toast.error(response.error);
-        } else {
-          setLocalMessages((prev) =>
-            prev.map((m) =>
-              m._id === tempId ? { ...m, _pending: false, _sent: true } : m,
-            ),
-          );
         }
-      },
+        // On success: do nothing – the 'new-message' event will replace the temp.
+      }
     );
   };
 
