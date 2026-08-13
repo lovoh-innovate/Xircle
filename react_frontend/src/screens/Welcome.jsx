@@ -11,6 +11,8 @@ import {
   FaTimes,
   FaShareAlt,
   FaCheck,
+  FaExclamationTriangle,
+  FaSpinner,
 } from 'react-icons/fa';
 import { motion } from 'framer-motion';
 import { useGetAppVersionQuery, getAppDownloadUrl } from '../slices/appApiSlice';
@@ -21,12 +23,17 @@ const Welcome = () => {
   const { userInfo } = useSelector((state) => state.auth);
   const token = userInfo?.token || null;
 
-  // ─── Detect if running inside Capacitor ──────────────────────────────
   const isCapacitor = !!window.Capacitor?.isNativePlatform?.();
 
-  // ─── Fetch latest app version (only for web) ─────────────────────────
-  // Force refetch on mount to always get fresh data from server
-  const { data: versionData, isLoading: versionLoading } = useGetAppVersionQuery(
+  // ─── Fetch with a 60‑second cache lifetime ──────────────────────
+  // This gives you a fast initial render (cached data) but still checks
+  // the server if the user returns after 60 seconds.
+  const {
+    data: versionData,
+    isLoading: versionLoading,
+    error: versionError,
+    refetch,
+  } = useGetAppVersionQuery(
     {
       platform: 'android',
       currentVersion: null,
@@ -34,14 +41,14 @@ const Welcome = () => {
     },
     {
       skip: isCapacitor,
-      refetchOnMountOrArgChange: true, // 👈 always fetch from server
+      refetchOnMountOrArgChange: 60, // seconds – set to 0 for always fresh
     }
   );
 
   const [downloading, setDownloading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [copied, setCopied] = useState(false);
-  const hasDownloaded = useRef(false); // prevent multiple downloads
+  const hasDownloaded = useRef(false);
 
   // Redirect authenticated users
   useEffect(() => {
@@ -50,32 +57,29 @@ const Welcome = () => {
     }
   }, [userInfo, navigate]);
 
-  // ─── Open download modal ──────────────────────────────────────────────
+  // ─── Modal handlers ──────────────────────────────────────────────
   const openDownloadModal = () => {
     if (!versionData?.data?._id) {
       toast.error('No app version available for download.');
       return;
     }
     setShowModal(true);
-    hasDownloaded.current = false; // reset on open
+    hasDownloaded.current = false;
   };
 
-  // ─── Confirm download ──────────────────────────────────────────────────
   const handleConfirmDownload = () => {
     if (!versionData?.data?._id) {
       setShowModal(false);
       return;
     }
-    if (hasDownloaded.current) return; // prevent multiple
-
+    if (hasDownloaded.current) return;
     hasDownloaded.current = true;
     setDownloading(true);
 
     const downloadUrl = getAppDownloadUrl(versionData.data._id, token);
-    // Use a hidden anchor to trigger download without opening new tab
     const link = document.createElement('a');
     link.href = downloadUrl;
-    link.download = `xircle-v${versionData.data.version}.apk`; // filename hint
+    link.download = `xircle-v${versionData.data.version}.apk`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -87,7 +91,6 @@ const Welcome = () => {
     }, 1000);
   };
 
-  // ─── Share download link ──────────────────────────────────────────────
   const handleShare = async () => {
     if (!versionData?.data?._id) return;
     const baseUrl = window.location.origin;
@@ -123,7 +126,6 @@ const Welcome = () => {
     'Stay in sync with your whole team',
   ];
 
-  // ─── Format file size ──────────────────────────────────────────────────
   const formatFileSize = (bytes) => {
     if (!bytes) return 'Unknown';
     const sizes = ['B', 'KB', 'MB', 'GB'];
@@ -131,7 +133,7 @@ const Welcome = () => {
     return parseFloat((bytes / Math.pow(1024, i)).toFixed(1)) + ' ' + sizes[i];
   };
 
-  // ─── Pattern style (unchanged) ──────────────────────────────────────
+  // ─── Pattern style ────────────────────────────────────────────────
   const iconPattern = `
     <svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
       <defs>
@@ -155,7 +157,6 @@ const Welcome = () => {
       <g transform="translate(15,75) scale(0.2)" opacity="0.08"><use href="#chat"/></g>
     </svg>
   `;
-
   const encodedPattern = encodeURIComponent(iconPattern);
   const patternStyle = {
     backgroundImage: `url("data:image/svg+xml,${encodedPattern}")`,
@@ -163,9 +164,60 @@ const Welcome = () => {
     backgroundRepeat: 'repeat',
   };
 
+  // ─── Render loading or error state (shared) ─────────────────────
+  const renderDownloadButton = () => {
+    if (isCapacitor) return null;
+
+    if (versionError) {
+      return (
+        <div className="mt-4">
+          <button
+            onClick={() => refetch()}
+            className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-medium text-sm shadow-md transition-colors"
+          >
+            <FaExclamationTriangle />
+            Retry (API error)
+          </button>
+          <p className="text-xs text-red-400 mt-1 text-center">
+            Failed to fetch version. Click to retry.
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="mt-4">
+        <motion.button
+          whileTap={{ scale: 0.97 }}
+          onClick={openDownloadModal}
+          disabled={versionLoading}
+          className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white rounded-2xl font-medium text-sm shadow-md transition-colors duration-200 disabled:opacity-60"
+        >
+          {versionLoading ? (
+            <>
+              <FaSpinner className="animate-spin" />
+              Checking...
+            </>
+          ) : (
+            <>
+              <FaDownload />
+              {versionData?.data?.version
+                ? `Download APK v${versionData.data.version}`
+                : 'Download APK'}
+            </>
+          )}
+        </motion.button>
+        <p className="text-xs text-gray-400 dark:text-gray-500 mt-2 text-center">
+          {versionLoading ? 'Fetching latest version...' : 'Get the Android app'}
+        </p>
+      </div>
+    );
+  };
+
+  // ─── JSX ───────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen w-full bg-white dark:bg-[#0a0a0f] transition-colors duration-300">
-      {/* ─── MOBILE LAYOUT (< lg) ────────────────────────────────────── */}
+      {/* MOBILE */}
       <div className="lg:hidden relative min-h-screen flex flex-col overflow-hidden">
         <div className="relative flex-[1.1] min-h-[58vh] flex flex-col items-center justify-center px-6 overflow-hidden">
           <div
@@ -224,27 +276,7 @@ const Welcome = () => {
             Where every project finds its flow.
           </p>
 
-          {/* ─── Download Button (opens modal) ──────────────────────── */}
-          {!isCapacitor && (
-            <div className="mt-4">
-              <motion.button
-                whileTap={{ scale: 0.97 }}
-                onClick={openDownloadModal}
-                disabled={versionLoading}
-                className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white rounded-2xl font-medium text-sm shadow-md transition-colors duration-200 disabled:opacity-50"
-              >
-                <FaDownload />
-                {versionLoading
-                  ? 'Checking...'
-                  : versionData?.data?.version
-                  ? `Download APK v${versionData.data.version}`
-                  : 'Download APK'}
-              </motion.button>
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-2 text-center">
-                Get the Android app
-              </p>
-            </div>
-          )}
+          {renderDownloadButton()}
 
           <div className="mt-6 space-y-4">
             <motion.button
@@ -272,10 +304,9 @@ const Welcome = () => {
         </motion.div>
       </div>
 
-      {/* ─── DESKTOP LAYOUT (>= lg) ────────────────────────────────── */}
+      {/* DESKTOP */}
       <div className="hidden lg:flex min-h-screen">
         <div className="relative w-[46%] xl:w-[42%] flex flex-col justify-between overflow-hidden px-14 py-14">
-          {/* Left panel – unchanged */}
           <div
             className="absolute inset-0 bg-cover bg-center"
             style={{ backgroundImage: "url('/hero.jfif')" }}
@@ -317,7 +348,6 @@ const Welcome = () => {
             <p className="mt-5 text-teal-100/80 text-lg leading-relaxed">
               Plan, assign, and track every task with your team — all in one clean, connected workspace.
             </p>
-
             <ul className="mt-8 space-y-3">
               {features.map((f, i) => (
                 <motion.li
@@ -344,7 +374,6 @@ const Welcome = () => {
           </motion.p>
         </div>
 
-        {/* Right panel */}
         <div
           className="flex-1 flex items-center justify-center px-10 bg-white dark:bg-[#0a0a0f]"
           style={patternStyle}
@@ -362,28 +391,7 @@ const Welcome = () => {
               Sign in to pick up where you left off, or create an account to get your workspace started.
             </p>
 
-            {/* ─── Download Button (desktop) ────────────────────────── */}
-            {!isCapacitor && (
-              <div className="mt-6">
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={openDownloadModal}
-                  disabled={versionLoading}
-                  className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white rounded-xl font-medium text-sm shadow-md transition-colors duration-200 disabled:opacity-50"
-                >
-                  <FaDownload />
-                  {versionLoading
-                    ? 'Checking...'
-                    : versionData?.data?.version
-                    ? `Download APK v${versionData.data.version}`
-                    : 'Download APK'}
-                </motion.button>
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 text-center">
-                  Get the Android app
-                </p>
-              </div>
-            )}
+            {renderDownloadButton()}
 
             <div className="mt-6 space-y-4">
               <motion.button
@@ -421,7 +429,7 @@ const Welcome = () => {
         </div>
       </div>
 
-      {/* ─── Download Modal ──────────────────────────────────────────── */}
+      {/* DOWNLOAD MODAL */}
       {showModal && versionData?.data && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
           <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-700/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
