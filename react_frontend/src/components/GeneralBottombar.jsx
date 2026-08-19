@@ -15,7 +15,7 @@ import {
   FaUpload,
 } from 'react-icons/fa';
 import { useCreatePersonalTaskMutation } from '../slices/personalTaskApiSlice';
-import { toast } from 'react-toastify';
+import toast from 'react-hot-toast'; // 👈 switched from react-toastify
 
 const GeneralBottombar = () => {
   const location = useLocation();

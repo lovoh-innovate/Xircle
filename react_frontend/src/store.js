@@ -1,5 +1,10 @@
 import { configureStore, combineReducers } from '@reduxjs/toolkit';
-import { persistStore, persistReducer, FLUSH, REHYDRATE, PAUSE, PERSIST, PURGE, REGISTER } from 'redux-persist';
+import {
+  persistStore,
+  persistReducer,
+  createTransform,          // 👈 new import
+  FLUSH, REHYDRATE, PAUSE, PERSIST, PURGE, REGISTER,
+} from 'redux-persist';
 import authReducer from './slices/authSlice.js';
 import { apiSlice } from './slices/apiSlice.js';
 
@@ -31,16 +36,42 @@ const storage = {
   },
 };
 
+// ─── Transform: strip volatile queries before they hit localStorage ──
+// Everything else in the api cache (tasks, projects, chats, etc.)
+// still persists for instant offline-first load, WhatsApp-style.
+// Only the app-update check is excluded, so it ALWAYS hits the
+// network fresh on launch instead of trusting a stale disk cache.
+const apiCacheTransform = createTransform(
+  // called right before writing to storage
+  (inboundState, key) => {
+    if (key !== apiSlice.reducerPath) return inboundState;
+
+    const newQueries = { ...inboundState.queries };
+    Object.keys(newQueries).forEach((queryKey) => {
+      if (
+        queryKey.startsWith('checkAppUpdate') ||
+        queryKey.startsWith('getAppVersion')
+      ) {
+        delete newQueries[queryKey];
+      }
+    });
+
+    return { ...inboundState, queries: newQueries };
+  },
+  // called on rehydration — no changes needed here
+  (outboundState) => outboundState,
+  { whitelist: [apiSlice.reducerPath] }
+);
+
 // ─── Persist configuration ──────────────────────────────────────────
-// Bump the key to drop any previous stale state (if needed).
 const persistConfig = {
-  key: 'root-v3',           // <-- bumped version; change as needed
+  key: 'root-v3',
   storage,
-  // ✅ Persist both auth AND the API cache
   whitelist: [
     'auth',
-    apiSlice.reducerPath,   // 👈 this stores all fetched data (tasks, projects, etc.)
+    apiSlice.reducerPath,
   ],
+  transforms: [apiCacheTransform],   // 👈 wire it in
 };
 
 // ─── Combine reducers ──────────────────────────────────────────────
@@ -49,10 +80,8 @@ const rootReducer = combineReducers({
   [apiSlice.reducerPath]: apiSlice.reducer,
 });
 
-// ─── Persisted reducer ─────────────────────────────────────────────
 const persistedReducer = persistReducer(persistConfig, rootReducer);
 
-// ─── Store creation ────────────────────────────────────────────────
 const store = configureStore({
   reducer: persistedReducer,
   middleware: (getDefaultMiddleware) =>
@@ -64,16 +93,12 @@ const store = configureStore({
   devTools: true,
 });
 
-// ─── Persistor ──────────────────────────────────────────────────────
 export const persistor = persistStore(store);
 
-// ─── Reset helpers ──────────────────────────────────────────────────
 export const resetStoreAction = () => ({ type: 'RESET' });
 
 export const resetStore = async () => {
   await persistor.purge();
-  // Optionally clear all localStorage keys
-  // localStorage.clear();
 };
 
 export const dispatch = store.dispatch;

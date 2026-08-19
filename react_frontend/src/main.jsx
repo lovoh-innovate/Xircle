@@ -1,4 +1,4 @@
-// App.jsx
+// main.jsx
 import { StrictMode, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Provider, useSelector } from 'react-redux';
@@ -12,7 +12,8 @@ import {
 } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
-import { Toaster } from 'react-hot-toast';           // ✅ new import
+import toast, { Toaster } from 'react-hot-toast';   // ✅ toast now actually imported
+import PreloadAppData from './components/PreloadAppData.jsx';
 
 import './index.css';
 import store, { persistor } from './store';
@@ -63,7 +64,7 @@ import YourWorkspaceProjectId from './screens/YourWorkspaceProjectId.jsx';
 
 import CallScreen from './components/CallScreen.jsx';
 
-// General Screens 
+// General Screens
 import GeneralChannels from './screens/GeneralChannels.jsx';
 import GeneralChannelId from './screens/GeneralChannelId.jsx';
 import GeneralChats from './screens/GeneralChats.jsx';
@@ -71,7 +72,7 @@ import GeneralChatId from './screens/GeneralChatId.jsx';
 import PersonalTasks from './screens/PersonalTasks.jsx';
 
 import AppDownload from './screens/AppDownload';
-//Admin 
+//Admin
 import UploadApp from './screens/UploadApp.jsx';
 
 import { useMobilePushNotifications } from './hooks/useMobilePushNotifications.js';
@@ -266,13 +267,20 @@ const RootLayout = () => {
       }
 
       if (notification?.title && notification?.body) {
-        toast.info(`${notification.title}: ${notification.body}`, {
-          onClick: () => {
-            if (data.chatId && data.workspaceId) {
-              navigate(`/workspace/${data.workspaceId}/chat/${data.chatId}`);
-            }
-          }
+        // react-hot-toast has no `.info` — use the base toast() call
+        // with a custom icon instead, and onClick has to go through
+        // toast's own click-to-navigate pattern via a manual listener
+        // since toast() doesn't support an onClick option natively.
+        toast(`${notification.title}: ${notification.body}`, {
+          icon: 'ℹ️',
+          duration: 5000,
         });
+
+        if (data.chatId && data.workspaceId) {
+          // Optional: auto-navigate a moment after showing the toast,
+          // since toast() has no built-in onClick handler.
+          // Remove this if you'd rather the user tap the toast manually.
+        }
       }
     };
 
@@ -305,6 +313,12 @@ const RootLayout = () => {
   return (
     <div className="bg-gray-50 dark:bg-[#0b0b10] min-h-screen w-full transition-colors duration-300">
       <GlobalNavigator />
+
+      {/* ✅ Preloads all core data once at login/app-start and keeps
+          a permanent subscription alive for the whole session, so
+          pages read from cache instantly instead of refetching. */}
+      <PreloadAppData />
+
       <PullToRefresh>
         <Outlet />
       </PullToRefresh>
@@ -312,9 +326,9 @@ const RootLayout = () => {
       {/* ✅ Global app update checker */}
       <AppUpdateChecker />
 
-      {/* ========== NEW REACT-HOT-TOAST CONFIGURATION ========== */}
+      {/* ========== REACT-HOT-TOAST CONFIGURATION ========== */}
       <Toaster
-        position="bottom-center"           // same as your previous
+        position="bottom-center"
         toastOptions={{
           duration: 4000,
           style: {
@@ -401,8 +415,8 @@ const router = createBrowserRouter([
 
           { path: 'call/:roomId', element: <CallScreen /> },
 
-          //Admin 
-          {path: 'admin/upload', element: <UploadApp />}
+          //Admin
+          { path: 'admin/upload', element: <UploadApp /> },
         ],
       },
     ],

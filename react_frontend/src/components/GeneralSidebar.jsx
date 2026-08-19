@@ -4,8 +4,14 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
 import { logout } from '../slices/authSlice';
 import { apiSlice } from '../slices/apiSlice';
-import { useGetPersonalTasksQuery } from '../slices/personalTaskApiSlice';
-import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
+import {
+  useGetPersonalTasksQuery,
+  personalTaskApiSlice,        // 👈 needed for usePrefetch
+} from '../slices/personalTaskApiSlice';
+import {
+  useGetUserChatsQuery,
+  messagingApiSlice,           // 👈 needed for usePrefetch
+} from '../slices/messagingApiSlice';
 import {
   FaHome,
   FaTasks,
@@ -16,7 +22,7 @@ import {
   FaSignOutAlt,
   FaExclamationCircle,
   FaClock,
-  FaUpload, // 👈 added
+  FaUpload,
 } from 'react-icons/fa';
 import { persistor } from '../store';
 
@@ -28,7 +34,6 @@ const GeneralSidebar = () => {
   const { userInfo } = useSelector((state) => state.auth);
   const isAdmin = userInfo?.role === 'admin' || userInfo?.role === 'super_admin';
 
-  // ─── Super Clean Logout ──────────────────────────────────────────
   const handleLogout = async () => {
     try {
       dispatch(logout());
@@ -43,7 +48,6 @@ const GeneralSidebar = () => {
     }
   };
 
-  // ─── Personal Tasks ──────────────────────────────────────────────
   const { data: personalTasksData, isLoading: tasksLoading } = useGetPersonalTasksQuery({
     status: 'pending',
     limit: 3,
@@ -51,10 +55,17 @@ const GeneralSidebar = () => {
   const personalTasks = personalTasksData?.tasks || [];
   const pendingCount = personalTasksData?.count || 0;
 
-  // ─── Recent Public Chats (deduplicated) ──────────────────
   const { data: chatsData, isLoading: chatsLoading } = useGetUserChatsQuery({
     archived: false,
   });
+
+  // ─── Prefetch hooks ────────────────────────────────────────────
+  // Full task list / full chat list use different query args than
+  // the trimmed queries above, so hovering the nav item warms the
+  // exact cache entry the destination page will actually request.
+  const prefetchAllTasks = personalTaskApiSlice.usePrefetch('getPersonalTasks');
+  const prefetchAllChats = messagingApiSlice.usePrefetch('getUserChats');
+
   const recentChats = useMemo(() => {
     if (!chatsData?.chats) return [];
 
@@ -138,13 +149,14 @@ const GeneralSidebar = () => {
         <ul className="space-y-1">
           {[
             { to: '/my-workspaces', icon: FaHome, label: 'Home' },
-            { to: '/personal-tasks', icon: FaTasks, label: 'My Tasks' },
-            { to: '/chat', icon: FaCommentDots, label: 'Chat' },
+            { to: '/personal-tasks', icon: FaTasks, label: 'My Tasks', onHover: prefetchAllTasks },
+            { to: '/chat', icon: FaCommentDots, label: 'Chat', onHover: prefetchAllChats },
             { to: '/channels', icon: FaHashtag, label: 'Channels' },
-          ].map(({ to, icon: Icon, label }) => (
+          ].map(({ to, icon: Icon, label, onHover }) => (
             <li key={to}>
               <NavLink
                 to={to}
+                onMouseEnter={onHover}
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
                     isActive

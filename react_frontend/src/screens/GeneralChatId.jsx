@@ -1248,7 +1248,13 @@ const GeneralChatId = () => {
 
   const { socket, isConnected } = useSocket();
 
-  const { data: chatListData, refetch: refetchChats } = useGetUserChatsQuery({
+  // ✅ track first-load state of the chat list so we don't flash
+  // "Chat not found" before the list has ever resolved
+  const {
+    data: chatListData,
+    isLoading: chatsListLoading,
+    refetch: refetchChats,
+  } = useGetUserChatsQuery({
     archived: false,
   });
   const chat = chatListData?.chats?.find((c) => c._id === chatId);
@@ -1319,14 +1325,17 @@ const GeneralChatId = () => {
     return { ...senderField, name };
   }, []);
 
+  // ✅ refetchOnMountOrArgChange already refetches automatically whenever
+  // chatId changes — no need to also call refetchMessages() manually
+  // in the reset effect below (that was double-fetching).
   const {
-  data: messagesData,
-  isLoading: messagesLoading,
-  refetch: refetchMessages,
-} = useGetChatMessagesQuery(
-  { chatId, page: 1, limit: 50 },
-  { skip: !chatId, refetchOnMountOrArgChange: true }, // 👈 add this
-);
+    data: messagesData,
+    isLoading: messagesLoading,
+    refetch: refetchMessages,
+  } = useGetChatMessagesQuery(
+    { chatId, page: 1, limit: 50 },
+    { skip: !chatId, refetchOnMountOrArgChange: true },
+  );
   const [sendMessageApi] = useSendMessageMutation();
   const [deleteMessageApi] = useDeleteMessageMutation();
   const [archiveMessage] = useArchiveMessageMutation();
@@ -1347,22 +1356,24 @@ const GeneralChatId = () => {
   });
 
   // ─── Reset state when chatId changes ──────────────────────────────
- useEffect(() => {
-  setLocalMessages([]);
-  setReplyToMessage(null);
-  setPreviewImage(null);
-  setShowDetails(false);
-  setActionModal({ isOpen: false, message: null });
-  setConfirmModal((prev) => ({ ...prev, isOpen: false }));
-  userMapRef.current = new Map();
-  setIsAtBottom(true);
-  setShowScrollDown(false);
-  setPendingMedia(null);
-  setShowMediaPicker(false);
-  setOtherUserOnline(null);
-
-  if (chatId) refetchMessages(); // 👈 add this — forces a fresh server fetch
-}, [chatId, refetchMessages]);
+  useEffect(() => {
+    setLocalMessages([]);
+    setReplyToMessage(null);
+    setPreviewImage(null);
+    setShowDetails(false);
+    setActionModal({ isOpen: false, message: null });
+    setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+    userMapRef.current = new Map();
+    setIsAtBottom(true);
+    setShowScrollDown(false);
+    setPendingMedia(null);
+    setShowMediaPicker(false);
+    setOtherUserOnline(null);
+    // ✅ refetchMessages() call removed — refetchOnMountOrArgChange: true
+    // on the query above already handles this. Calling it again here
+    // fired a second, redundant request on every chat switch and widened
+    // the loading window instead of shrinking it.
+  }, [chatId]);
 
   // ─── Scroll / bottom detection ─────────────────────────────────
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -1862,7 +1873,7 @@ const GeneralChatId = () => {
         const file = item.getAsFile();
         if (file) {
           setPendingMedia(file);
-          toast.info("Image pasted! Click send to upload.");
+          toast("Image pasted! Click send to upload.", { icon: "🖼️" });
           e.preventDefault();
           break;
         }
@@ -2246,6 +2257,15 @@ const GeneralChatId = () => {
   // ─── Render messages with dividers ────────────────────────────
   const renderMessagesWithDividers = () => {
     if (localMessages.length === 0) {
+      // ✅ Only show "No messages yet" once we KNOW the thread is empty —
+      // never while the very first fetch for this chat is still in flight.
+      if (messagesLoading) {
+        return (
+          <div className="flex items-center justify-center h-full">
+            <div className="w-6 h-6 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        );
+      }
       return (
         <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
           <FaComment className="text-4xl mb-2 opacity-30" />
@@ -2307,9 +2327,18 @@ const GeneralChatId = () => {
 
   // ─── Render ────────────────────────────────────────────────────
   if (!chat) {
+    // ✅ Still waiting on the first-ever chat list fetch — show a spinner,
+    // never claim "not found" until the list has actually resolved.
+    if (chatsListLoading) {
+      return (
+        <div className="h-dvh flex items-center justify-center bg-white dark:bg-[#0f0f12]">
+          <div className="w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      );
+    }
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <FaUser className="text-4xl mb-2 opacity-30" />
+      <div className="h-dvh flex flex-col items-center justify-center bg-white dark:bg-[#0f0f12] gap-2">
+        <FaUser className="text-4xl mb-2 opacity-30 text-gray-400" />
         <p className="text-sm text-gray-500">Chat not found</p>
       </div>
     );

@@ -1,8 +1,8 @@
 // slices/appApiSlice.js
-import { apiSlice } from './apiSlice';
+import { apiSlice } from "./apiSlice";
 
-const APP_URL = '/app';
-const API_BASE = import.meta.env.VITE_API_URL || '';
+const APP_URL = "/app";
+const API_BASE = import.meta.env.VITE_API_URL || "";
 
 // ─── Helper to build download URL ──────────────────────────────────
 export const getAppDownloadUrl = (versionId, token) => {
@@ -14,19 +14,30 @@ export const appApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     // ─── Public endpoints ────────────────────────────────────────────────
 
+    checkAppUpdate: builder.query({
+      query: ({ platform = "android", currentVersion, token }) => {
+        let url = `${APP_URL}/version?platform=${platform}`;
+        if (currentVersion) url += `&currentVersion=${currentVersion}`;
+        if (token) url += `&token=${token}`;
+        return { url, method: "GET" };
+      },
+      keepUnusedDataFor: 0, // 👈 don't cache this in memory either
+      refetchOnMountOrArgChange: true, // 👈 always hit network on mount
+    }),
+
     // GET /api/app/version?platform=android&currentVersion=1.0.0&token=...
     getAppVersion: builder.query({
-      query: ({ platform = 'android', currentVersion, token }) => ({
+      query: ({ platform = "android", currentVersion, token }) => ({
         url: `${APP_URL}/version`,
         params: { platform, currentVersion, token },
       }),
-      providesTags: ['AppVersion'],
+      providesTags: ["AppVersion"],
     }),
 
     // GET /api/app/version/:versionId
     getAppVersionById: builder.query({
       query: (versionId) => `${APP_URL}/version/${versionId}`,
-      providesTags: (result, error, id) => [{ type: 'AppVersion', id }],
+      providesTags: (result, error, id) => [{ type: "AppVersion", id }],
     }),
 
     // GET /api/app/download/:versionId?token=...
@@ -34,7 +45,7 @@ export const appApiSlice = apiSlice.injectEndpoints({
       query: ({ versionId, token }) => ({
         url: `${APP_URL}/download/${versionId}`,
         params: { token },
-        responseHandler: 'blob',
+        responseHandler: "blob",
       }),
     }),
 
@@ -42,10 +53,10 @@ export const appApiSlice = apiSlice.injectEndpoints({
     updateUserAppVersion: builder.mutation({
       query: ({ token, version }) => ({
         url: `${APP_URL}/update-version`,
-        method: 'POST',
+        method: "POST",
         body: { token, version },
       }),
-      invalidatesTags: ['AppVersion'],
+      invalidatesTags: ["AppVersion"],
     }),
 
     // ─── Admin endpoints ──────────────────────────────────────────────────
@@ -54,22 +65,22 @@ export const appApiSlice = apiSlice.injectEndpoints({
     uploadApp: builder.mutation({
       query: (formData) => ({
         url: `${APP_URL}/admin/upload`,
-        method: 'POST',
+        method: "POST",
         body: formData,
       }),
-      invalidatesTags: ['AppVersion'],
+      invalidatesTags: ["AppVersion"],
     }),
 
     // PUT /api/app/admin/update/:versionId
     updateAppVersion: builder.mutation({
       query: ({ versionId, data }) => ({
         url: `${APP_URL}/admin/update/${versionId}`,
-        method: 'PUT',
+        method: "PUT",
         body: data,
       }),
       invalidatesTags: (result, error, { versionId }) => [
-        { type: 'AppVersion', id: versionId },
-        'AppVersion',
+        { type: "AppVersion", id: versionId },
+        "AppVersion",
       ],
     }),
 
@@ -77,26 +88,27 @@ export const appApiSlice = apiSlice.injectEndpoints({
     deleteAppVersion: builder.mutation({
       query: (versionId) => ({
         url: `${APP_URL}/admin/delete/${versionId}`,
-        method: 'DELETE',
+        method: "DELETE",
       }),
       invalidatesTags: (result, error, versionId) => [
-        { type: 'AppVersion', id: versionId },
-        'AppVersion',
+        { type: "AppVersion", id: versionId },
+        "AppVersion",
       ],
     }),
 
     // GET /api/app/admin/versions?platform=android
     getAppVersions: builder.query({
-      query: ({ platform = 'android' } = {}) => ({
+      query: ({ platform = "android" } = {}) => ({
         url: `${APP_URL}/admin/versions`,
         params: { platform },
       }),
-      providesTags: ['AppVersion'],
+      providesTags: ["AppVersion"],
     }),
   }),
 });
 
 export const {
+  useCheckAppUpdateQuery,
   useGetAppVersionQuery,
   useGetAppVersionByIdQuery,
   useDownloadAppQuery,
