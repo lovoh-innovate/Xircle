@@ -46,11 +46,11 @@ const GeneralBottombar = () => {
 
   return (
     <>
-      {/* ─── Bottom Bar ───────────────────────────────────────────── */}
+      {/* ─── Bottom Bar – Full Width ────────────────────────────── */}
       <div
-        className="md:hidden fixed bottom-4 left-4 right-4 mx-auto max-w-md 
-                   bg-[#14141a]/80 backdrop-blur-2xl 
-                   border border-white/10 rounded-2xl shadow-2xl shadow-cyan-500/10
+        className="md:hidden fixed bottom-0 left-0 right-0 
+                   bg-[#0f0f12]/80 backdrop-blur-2xl 
+                   border-t border-white/10 
                    flex items-center justify-around h-16 px-2 z-50"
       >
         {/* Channels */}
@@ -208,4 +208,4 @@ const GeneralBottombar = () => {
   );
 };
 
-export default GeneralBottombar;
+export default GeneralBottombar;  
