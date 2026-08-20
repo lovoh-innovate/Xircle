@@ -6,27 +6,46 @@ import { logout } from '../slices/authSlice';
 import { apiSlice } from '../slices/apiSlice';
 import {
   useGetPersonalTasksQuery,
-  personalTaskApiSlice,        // 👈 needed for usePrefetch
+  personalTaskApiSlice,
 } from '../slices/personalTaskApiSlice';
 import {
   useGetUserChatsQuery,
-  messagingApiSlice,           // 👈 needed for usePrefetch
+  messagingApiSlice,
 } from '../slices/messagingApiSlice';
 import {
-  FaHome,
-  FaTasks,
-  FaCommentDots,
-  FaHashtag,
+  FiHome,
+  FiCheckSquare,
+  FiUsers,
+  FiUpload,
+} from 'react-icons/fi';
+import {
+  FaExclamationCircle,
+  FaClock,
   FaUserCircle,
   FaCog,
   FaSignOutAlt,
-  FaExclamationCircle,
-  FaClock,
-  FaUpload,
 } from 'react-icons/fa';
 import { persistor } from '../store';
 
 const LOGO = '/logo.png';
+
+// ─── Custom WhatsApp‑style Chat Icon ──────────────────────────────
+const ChatIcon = ({ className }) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.75"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    style={{ width: '1.2rem', height: '1.2rem' }}
+  >
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    <path d="M8 10h8" />
+    <path d="M8 14h6" />
+  </svg>
+);
 
 const GeneralSidebar = () => {
   const navigate = useNavigate();
@@ -59,10 +78,6 @@ const GeneralSidebar = () => {
     archived: false,
   });
 
-  // ─── Prefetch hooks ────────────────────────────────────────────
-  // Full task list / full chat list use different query args than
-  // the trimmed queries above, so hovering the nav item warms the
-  // exact cache entry the destination page will actually request.
   const prefetchAllTasks = personalTaskApiSlice.usePrefetch('getPersonalTasks');
   const prefetchAllChats = messagingApiSlice.usePrefetch('getUserChats');
 
@@ -148,10 +163,10 @@ const GeneralSidebar = () => {
       <nav className="px-3 py-4 border-b border-white/10">
         <ul className="space-y-1">
           {[
-            { to: '/my-workspaces', icon: FaHome, label: 'Home' },
-            { to: '/personal-tasks', icon: FaTasks, label: 'My Tasks', onHover: prefetchAllTasks },
-            { to: '/chat', icon: FaCommentDots, label: 'Chat', onHover: prefetchAllChats },
-            { to: '/channels', icon: FaHashtag, label: 'Channels' },
+            { to: '/my-workspaces', icon: FiHome, label: 'Home' },
+            { to: '/personal-tasks', icon: FiCheckSquare, label: 'My Tasks', onHover: prefetchAllTasks },
+            { to: '/chat', icon: ChatIcon, label: 'Chat', onHover: prefetchAllChats },
+            { to: '/channels', icon: FiUsers, label: 'Channels' },
           ].map(({ to, icon: Icon, label, onHover }) => (
             <li key={to}>
               <NavLink
@@ -174,7 +189,7 @@ const GeneralSidebar = () => {
             </li>
           ))}
 
-          {/* ─── Admin: Upload App (visible only to admins) ─────── */}
+          {/* ─── Admin: Upload App ─────────────────── */}
           {isAdmin && (
             <li>
               <NavLink
@@ -187,7 +202,7 @@ const GeneralSidebar = () => {
                   }`
                 }
               >
-                <FaUpload className="text-lg w-6 text-center" />
+                <FiUpload className="text-lg w-6 text-center" />
                 <span>Upload App</span>
                 {({ isActive }) => isActive && (
                   <span className="ml-auto w-1.5 h-1.5 rounded-full bg-cyan-400" />
@@ -233,7 +248,7 @@ const GeneralSidebar = () => {
         )}
       </div>
 
-      {/* ─── Recent Messages (Public, deduplicated) ── */}
+      {/* ─── Recent Messages ────────────────────────── */}
       <div className="px-4 py-3 border-b border-white/10 flex-1 overflow-y-auto">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
@@ -304,35 +319,47 @@ const GeneralSidebar = () => {
       {/* ─── User Profile ────────────────────────────── */}
       <div className="border-t border-white/10 p-4 sticky bottom-0 bg-inherit">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-cyan-400 to-purple-500 p-[2px]">
-            <div className="w-full h-full rounded-full bg-[#0f0f12] flex items-center justify-center overflow-hidden">
-              {userInfo?.profile ? (
-                <img src={userInfo.profile} alt={userInfo.name} className="w-full h-full object-cover" />
-              ) : (
-                <FaUserCircle className="w-7 h-7 text-gray-400" />
-              )}
+          {/* Clickable profile area */}
+          <div
+            onClick={() => navigate('/profile')}
+            className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer hover:bg-white/5 rounded-lg p-1 transition-colors"
+          >
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-cyan-400 to-purple-500 p-[2px] flex-shrink-0">
+              <div className="w-full h-full rounded-full bg-[#0f0f12] flex items-center justify-center overflow-hidden">
+                {userInfo?.profile ? (
+                  <img src={userInfo.profile} alt={userInfo.name} className="w-full h-full object-cover" />
+                ) : (
+                  <FaUserCircle className="w-7 h-7 text-gray-400" />
+                )}
+              </div>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-200 truncate">
+                {userInfo?.name || 'User'}
+              </p>
+              <p className="text-xs text-gray-400 truncate">
+                {userInfo?.email || ''}
+              </p>
             </div>
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-gray-200 truncate">
-              {userInfo?.name || 'User'}
-            </p>
-            <p className="text-xs text-gray-400 truncate">
-              {userInfo?.email || ''}
-            </p>
+
+          {/* Actions: settings cog + logout */}
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button
+              onClick={() => navigate('/profile')}
+              className="p-2 text-gray-400 hover:text-cyan-400 hover:bg-white/5 rounded-xl transition-colors"
+              title="Settings"
+            >
+              <FaCog className="text-lg" />
+            </button>
+            <button
+              onClick={handleLogout}
+              className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-colors"
+              title="Logout"
+            >
+              <FaSignOutAlt className="text-lg" />
+            </button>
           </div>
-          <button
-            onClick={handleLogout}
-            className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-colors"
-            title="Logout"
-          >
-            <FaSignOutAlt className="text-lg" />
-          </button>
-        </div>
-        <div className="mt-3 flex justify-around">
-          <button className="p-2 text-gray-400 hover:text-cyan-400 hover:bg-white/5 rounded-xl transition-colors">
-            <FaCog className="text-lg" />
-          </button>
         </div>
       </div>
     </aside>
