@@ -113,7 +113,11 @@ const userSchema = new mongoose.Schema(
     resetPasswordOTP: { type: String },
     resetPasswordExpires: { type: Date },
 
-    // ── New fields for notifications ──────────────────────────
+    // ── New fields for email verification ──────────────────────
+    verificationOTP: { type: String },
+    verificationOTPExpires: { type: Date },
+
+    // ── Push tokens & preferences ──────────────────────────────
     pushTokens: { type: [pushTokenSchema], default: [] },
     notificationPreferences: {
       type: notificationPreferencesSchema,
@@ -121,6 +125,17 @@ const userSchema = new mongoose.Schema(
     },
   },
   { timestamps: true }
+);
+
+// ── TTL index to auto‑delete unverified accounts ──────────────
+// Deletes documents where isVerified = false after 10 minutes (600 seconds)
+// Adjust `expireAfterSeconds` to your desired delay.
+userSchema.index(
+  { createdAt: 1 },
+  {
+    expireAfterSeconds: 600,
+    partialFilterExpression: { isVerified: false },
+  }
 );
 
 // ── Password hashing ─────────────────────────────────────────────

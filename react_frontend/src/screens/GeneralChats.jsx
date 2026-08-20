@@ -24,6 +24,12 @@ import { motion } from 'framer-motion';
 import GeneralSidebar from '../components/GeneralSidebar';
 import GeneralBottombar from '../components/GeneralBottombar';
 
+// ─── Shared query arg — MUST match exactly what GeneralChatId.jsx,
+// GeneralSidebar.jsx, and PreloadAppData.jsx all pass to
+// useGetUserChatsQuery, so every screen reads/writes the same cache
+// entry instead of each holding its own stale copy.
+const CHATS_QUERY_ARG = { archived: false };
+
 // ─── Bottom Sheet ──────────────────────────────────────────────────
 const BottomSheet = ({ isOpen, onClose, children }) => {
   const [visible, setVisible] = useState(false);
@@ -61,7 +67,11 @@ const BottomSheet = ({ isOpen, onClose, children }) => {
 };
 
 // ─── New Chat Content ────────────────────────────────────────────
-const NewChatContent = ({ onClose, onSuccess }) => {
+// onChatCreated is called with the FULL new chat object the instant
+// the server confirms creation — the parent uses it to patch the
+// chat straight into the RTK Query cache before we navigate, so
+// GeneralChatId finds it immediately instead of racing a refetch.
+const NewChatContent = ({ onClose, onChatCreated }) => {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUser, setSelectedUser] = useState(null);
@@ -87,8 +97,14 @@ const NewChatContent = ({ onClose, onSuccess }) => {
       const result = await createPublicDirectChat({
         userId: selectedUser._id,
       }).unwrap();
+
       toast.success('Chat started!');
-      onSuccess(result.chat._id);
+
+      // ✅ Patch the cache FIRST, synchronously, before navigating.
+      // No network round trip — the chat is in RTK Query's cache the
+      // instant this line runs, so the next screen finds it instantly.
+      onChatCreated(result.chat);
+
       onClose();
       navigate(`/chats/${result.chat._id}`);
     } catch (err) {
@@ -289,15 +305,11 @@ const GeneralChats = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showNewChat, setShowNewChat] = useState(false);
 
-  // The query arg MUST match exactly what GeneralChatId.jsx passes
-  // ({ archived: false }) so both pages share the same cache entry.
-  const chatsQueryArg = { archived: false };
-
   const {
     data: chatsData,
     isLoading: chatsLoading,
     refetch: refetchChats,
-  } = useGetUserChatsQuery(chatsQueryArg, {
+  } = useGetUserChatsQuery(CHATS_QUERY_ARG, {
     // Socket events (below) handle instant updates. This is just a
     // safety-net fallback in case a socket event is ever missed
     // (e.g. brief disconnect), so it doesn't need to be aggressive.
@@ -312,12 +324,38 @@ const GeneralChats = () => {
       dispatch(
         messagingApiSlice.util.updateQueryData(
           'getUserChats',
-          chatsQueryArg,
+          CHATS_QUERY_ARG,
           (draft) => {
             if (!draft?.chats) return;
             const chat = draft.chats.find((c) => c._id === chatId);
             if (chat) {
               Object.assign(chat, patch);
+            }
+          }
+        )
+      );
+    },
+    [dispatch]
+  );
+
+  // ✅ Insert a brand-new chat into the cache the instant it's created —
+  // this is what makes "New Chat" feel instant instead of racing a
+  // refetch. If it's already in the list (e.g. socket beat us to it),
+  // don't duplicate it.
+  const addChatToCache = useCallback(
+    (newChat) => {
+      dispatch(
+        messagingApiSlice.util.updateQueryData(
+          'getUserChats',
+          CHATS_QUERY_ARG,
+          (draft) => {
+            if (!draft?.chats) {
+              draft.chats = [newChat];
+              return;
+            }
+            const exists = draft.chats.some((c) => c._id === newChat._id);
+            if (!exists) {
+              draft.chats.unshift(newChat);
             }
           }
         )
@@ -406,10 +444,6 @@ const GeneralChats = () => {
     navigate(`/chats/${chatId}`);
   };
 
-  const handleNewChatSuccess = () => {
-    refetchChats();
-  };
-
   const renderEmpty = () => (
     <div className="flex flex-col items-center justify-center h-full py-12 text-gray-400 dark:text-gray-500">
       <FaComments className="text-5xl mb-4 opacity-30" />
@@ -492,7 +526,7 @@ const GeneralChats = () => {
       >
         <NewChatContent
           onClose={() => setShowNewChat(false)}
-          onSuccess={handleNewChatSuccess}
+          onChatCreated={addChatToCache}
         />
       </BottomSheet>
     </>
