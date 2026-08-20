@@ -11,7 +11,7 @@ import {
   useDeletePublicGroupMutation,
   useGetPendingJoinRequestsQuery,
 } from '../slices/messagingApiSlice';
-import { useGetMyWorkspacesQuery } from '../slices/workspaceApiSlice'; // ✅ fixed import
+import { useGetMyWorkspacesQuery } from '../slices/workspaceApiSlice';
 import { toast } from 'react-hot-toast';
 import {
   FaUsers,
@@ -282,7 +282,7 @@ const ChannelCard = ({ channel, status = 'discover', onJoin, onEdit, onDelete, i
   const handleCardClick = () => {
     if (status === 'pending') return;
     if (linkTo) {
-      window.location.href = linkTo; // or use navigate if passed
+      window.location.href = linkTo;
     }
   };
 
@@ -587,20 +587,26 @@ const GeneralChannels = () => {
             </div>
           </header>
 
-          {/* ─── Fixed Tab Bar ──────────────────────────────────── */}
-          <div className="flex bg-gray-50 dark:bg-[#1a1a1a] border-b border-gray-200 dark:border-gray-800 overflow-x-auto no-scrollbar">
+          {/* ─── Mobile‑optimised Tab Bar ──────────────────────────── */}
+          <div className="flex bg-gray-50 dark:bg-[#1a1a1a] border-b border-gray-200 dark:border-gray-800 overflow-hidden">
             {tabs.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
                 onClick={() => setActiveTab(id)}
-                className={`flex-1 py-3 text-sm font-medium transition flex items-center justify-center gap-2 whitespace-nowrap px-3 ${
-                  activeTab === id
-                    ? 'text-teal-600 dark:text-teal-400 border-b-2 border-teal-600 dark:border-teal-400'
-                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-                }`}
+                className={`
+                  flex-1 min-w-0 py-2 px-1 text-[10px] font-medium
+                  transition flex flex-col items-center justify-center gap-0.5
+                  whitespace-nowrap
+                  md:py-3 md:px-3 md:text-sm md:flex-row md:gap-2
+                  ${
+                    activeTab === id
+                      ? 'text-teal-600 dark:text-teal-400 border-b-2 border-teal-600 dark:border-teal-400'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                  }
+                `}
               >
-                <Icon className="text-base" />
-                <span>{label}</span>
+                <Icon className="text-base md:text-lg" />
+                <span className="leading-none">{label}</span>
               </button>
             ))}
           </div>
