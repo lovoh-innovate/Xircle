@@ -219,7 +219,7 @@ const MyWorkspaceId = () => {
   const HeroCard = () => (
     <div className="relative bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl p-5">
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
           {workspace.logo ? (
             <img
               src={workspace.logo}
@@ -234,7 +234,7 @@ const MyWorkspaceId = () => {
               {workspace.initials || workspace.name.charAt(0).toUpperCase()}
             </div>
           )}
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <Link
               to="/my-workspaces"
               className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest hover:text-teal-600 dark:hover:text-[#0d9488] active:text-teal-700 dark:active:text-[#14b8a6] transition-colors inline-block"
@@ -248,7 +248,7 @@ const MyWorkspaceId = () => {
         </div>
         <Link
           to={`/my-workspace/${workspaceId}/settings`}
-          className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 active:scale-90 active:bg-gray-200 dark:active:bg-gray-800 transition"
+          className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 active:scale-90 active:bg-gray-200 dark:active:bg-gray-800 transition flex-shrink-0 ml-2"
           aria-label="Workspace settings"
         >
           <FaCog className="text-sm" />
@@ -322,7 +322,7 @@ const MyWorkspaceId = () => {
             <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
               {project.name}
             </p>
-            <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${statusColor}`}>
+            <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border flex-shrink-0 ${statusColor}`}>
               {statusLabel}
             </span>
           </div>
@@ -368,28 +368,28 @@ const MyWorkspaceId = () => {
         {/* ── Mobile Sticky Header ── */}
         <header className="md:hidden sticky top-0 z-10 bg-white/80 dark:bg-[#0b0b10]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0 h-14 flex items-center px-4">
           <div className="flex items-center justify-between w-full">
-            <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
               <button
                 onClick={() => navigate('/my-workspaces')}
-                className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white active:scale-90 transition"
+                className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white active:scale-90 transition flex-shrink-0"
                 aria-label="Back to workspaces"
               >
                 <FaArrowLeft className="text-sm" />
               </button>
               <Link
                 to="/my-workspaces"
-                className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest hover:text-teal-600 dark:hover:text-[#0d9488] transition-colors"
+                className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest hover:text-teal-600 dark:hover:text-[#0d9488] transition-colors flex-shrink-0"
               >
                 Workspace
               </Link>
-              <span className="text-gray-300 dark:text-gray-700">/</span>
-              <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate max-w-[120px]">
+              <span className="text-gray-300 dark:text-gray-700 flex-shrink-0">/</span>
+              <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate min-w-0">
                 {workspace.name}
               </span>
             </div>
             <button
               onClick={() => setHideStats((v) => !v)}
-              className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 active:scale-90 active:bg-gray-200 dark:active:bg-gray-800 transition"
+              className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 active:scale-90 active:bg-gray-200 dark:active:bg-gray-800 transition flex-shrink-0 ml-2"
             >
               {hideStats ? <FaEyeSlash className="text-xs" /> : <FaEye className="text-xs" />}
             </button>
@@ -415,29 +415,29 @@ const MyWorkspaceId = () => {
 
           {/* Desktop Hero Bar (hidden on mobile) */}
           <div className="hidden md:flex flex-wrap items-center justify-between gap-3 mb-6">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-1 min-w-0">
               {workspace.logo ? (
                 <img
                   src={workspace.logo}
                   alt={workspace.name}
-                  className="w-10 h-10 rounded-xl object-cover border border-gray-200 dark:border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)]"
+                  className="w-10 h-10 rounded-xl object-cover border border-gray-200 dark:border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)] flex-shrink-0"
                 />
               ) : (
                 <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm border border-gray-200 dark:border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)]"
+                  className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm border border-gray-200 dark:border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)] flex-shrink-0"
                   style={{ backgroundColor: brandColor }}
                 >
                   {workspace.initials || workspace.name.charAt(0).toUpperCase()}
                 </div>
               )}
-              <div>
+              <div className="min-w-0 flex-1">
                 <Link
                   to="/my-workspaces"
                   className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest hover:text-teal-600 dark:hover:text-[#0d9488] transition-colors inline-block"
                 >
                   Workspace
                 </Link>
-                <h1 className="text-xl font-bold text-gray-800 dark:text-gray-100 tracking-tight">
+                <h1 className="text-xl font-bold text-gray-800 dark:text-gray-100 tracking-tight truncate">
                   {workspace.name}
                 </h1>
                 <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-500">
@@ -459,7 +459,7 @@ const MyWorkspaceId = () => {
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-shrink-0">
               <span className="text-[10px] font-mono text-gray-500 dark:text-gray-600 bg-gray-100 dark:bg-[#14141a] px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-800/60 flex items-center gap-2">
                 {hideStats ? '••••••••' : workspace.inviteCode}
                 {!hideStats && (
@@ -695,11 +695,11 @@ const MyWorkspaceId = () => {
                             <img
                               src={memberUser.profile}
                               alt={memberUser.name}
-                              className="w-7 h-7 rounded-xl object-cover border border-gray-200 dark:border-gray-700/50"
+                              className="w-7 h-7 rounded-xl object-cover border border-gray-200 dark:border-gray-700/50 flex-shrink-0"
                             />
                           ) : (
                             <div
-                              className="w-7 h-7 rounded-xl flex items-center justify-center text-white text-[10px] font-bold"
+                              className="w-7 h-7 rounded-xl flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0"
                               style={{ backgroundColor: brandColor }}
                             >
                               {memberUser?.name?.charAt(0).toUpperCase() || '?'}

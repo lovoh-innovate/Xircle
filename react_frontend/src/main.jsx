@@ -61,6 +61,7 @@ import YourWorkspaceChannelId from './screens/YourWorkspaceChannelId.jsx';
 import YourWorkspaceDMs from './screens/YourWorkspaceDMs.jsx';
 import YourWorkspaceProjects from './screens/YourWorkspaceProjects.jsx';
 import YourWorkspaceProjectId from './screens/YourWorkspaceProjectId.jsx';
+import YourWorkspaceMembers from './screens/YourWorkspaceMembers.jsx';
 
 import CallScreen from './components/CallScreen.jsx';
 
@@ -441,6 +442,7 @@ const router = createBrowserRouter([
           { path: 'workspace/:workspaceId/dms', element: <YourWorkspaceDMs /> },
           { path: 'workspace/:workspaceId/projects', element: <YourWorkspaceProjects /> },
           { path: 'workspace/:workspaceId/project/:projectId', element: <YourWorkspaceProjectId /> },
+          {path: 'workspace/:workspaceId/members', element: <YourWorkspaceMembers /> },
           { path: 'workspace/:workspaceId/tasks', element: <AllTasks /> },
 
           { path: 'profile', element: <Profile /> },

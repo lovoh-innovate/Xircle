@@ -8,6 +8,7 @@ import {
   useCreatePublicDirectChatMutation,
   messagingApiSlice,
 } from '../slices/messagingApiSlice';
+import { useGetMyWorkspacesQuery } from '../slices/workspaceApiSlice';
 import { useSocket } from '../components/SocketContext.jsx';
 import { toast } from 'react-hot-toast';
 import {
@@ -19,23 +20,47 @@ import {
   FaCheck,
   FaTimes,
   FaUserPlus,
+  FaGlobe,
+  FaBuilding,
 } from 'react-icons/fa';
 import { motion } from 'framer-motion';
 import GeneralSidebar from '../components/GeneralSidebar';
 import GeneralBottombar from '../components/GeneralBottombar';
 
-// ─── Shared query arg — MUST match exactly what GeneralChatId.jsx,
-// GeneralSidebar.jsx, and PreloadAppData.jsx all pass to
-// useGetUserChatsQuery, so every screen reads/writes the same cache
-// entry instead of each holding its own stale copy.
+// ─── Shared query arg ──────────────────────────────────────────────
 const CHATS_QUERY_ARG = { archived: false };
+
+// ─── Helper: deduplicate direct chats by participant pair ──────────
+// (the same user can have two separate direct chats in different
+// workspaces, so we include workspaceId in the dedupe key)
+const deduplicateDirectChats = (chats, userId) => {
+  const directMap = new Map();
+  for (const chat of chats) {
+    const other = chat.participants?.find(
+      (p) => p.user?._id !== userId && p.user !== userId
+    );
+    if (!other) continue;
+    const otherId = other.user?._id || other.user;
+    if (!otherId) continue;
+    const workspaceKey = chat.workspace ? chat.workspace.toString() : 'none';
+    const key = `${workspaceKey}_${[userId, otherId].sort().join('_')}`;
+    const existing = directMap.get(key);
+    if (
+      !existing ||
+      new Date(chat.lastMessageAt) > new Date(existing.lastMessageAt)
+    ) {
+      directMap.set(key, chat);
+    }
+  }
+  return Array.from(directMap.values());
+};
 
 // ─── Bottom Sheet ──────────────────────────────────────────────────
 const BottomSheet = ({ isOpen, onClose, children }) => {
   const [visible, setVisible] = useState(false);
   const [animating, setAnimating] = useState(false);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (isOpen) {
       setVisible(true);
       requestAnimationFrame(() => setAnimating(true));
@@ -67,10 +92,6 @@ const BottomSheet = ({ isOpen, onClose, children }) => {
 };
 
 // ─── New Chat Content ────────────────────────────────────────────
-// onChatCreated is called with the FULL new chat object the instant
-// the server confirms creation — the parent uses it to patch the
-// chat straight into the RTK Query cache before we navigate, so
-// GeneralChatId finds it immediately instead of racing a refetch.
 const NewChatContent = ({ onClose, onChatCreated }) => {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
@@ -99,12 +120,7 @@ const NewChatContent = ({ onClose, onChatCreated }) => {
       }).unwrap();
 
       toast.success('Chat started!');
-
-      // ✅ Patch the cache FIRST, synchronously, before navigating.
-      // No network round trip — the chat is in RTK Query's cache the
-      // instant this line runs, so the next screen finds it instantly.
       onChatCreated(result.chat);
-
       onClose();
       navigate(`/chats/${result.chat._id}`);
     } catch (err) {
@@ -118,7 +134,7 @@ const NewChatContent = ({ onClose, onChatCreated }) => {
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-bold text-gray-800 dark:text-white">
-          <FaUserPlus className="inline mr-2 text-teal-500" /> New Chat
+          <FaUserPlus className="inline mr-2 text-teal-500" /> New Public Chat
         </h2>
         <button
           onClick={onClose}
@@ -223,7 +239,7 @@ const NewChatContent = ({ onClose, onChatCreated }) => {
 };
 
 // ─── DM Item ─────────────────────────────────────────────────────
-const DirectChatItem = ({ chat, userId, onNavigate }) => {
+const DirectChatItem = ({ chat, userId, onNavigate, workspaceName, workspaceId, isOwnWorkspace }) => {
   const otherParticipant = chat.participants?.find(
     (p) => p.user?._id !== userId && p.user !== userId
   );
@@ -251,9 +267,20 @@ const DirectChatItem = ({ chat, userId, onNavigate }) => {
 
   const unreadCount = chat.unreadCount || 0;
 
+  const handleClick = () => {
+    if (chat.scope === 'workspace' && workspaceId) {
+      const route = isOwnWorkspace
+        ? `/my-workspace/${workspaceId}/chat/${chat._id}`
+        : `/workspace/${workspaceId}/chat/${chat._id}`;
+      onNavigate(route);
+    } else {
+      onNavigate(`/chats/${chat._id}`);
+    }
+  };
+
   return (
     <div
-      onClick={() => onNavigate(chat._id)}
+      onClick={handleClick}
       className="flex items-center gap-4 px-4 py-3 hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors cursor-pointer"
     >
       {avatar ? (
@@ -270,9 +297,16 @@ const DirectChatItem = ({ chat, userId, onNavigate }) => {
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between">
-          <p className="font-semibold text-gray-800 dark:text-white truncate">
-            {displayName}
-          </p>
+          <div className="flex items-center gap-2 min-w-0">
+            <p className="font-semibold text-gray-800 dark:text-white truncate">
+              {displayName}
+            </p>
+            {workspaceName && (
+              <span className="flex-shrink-0 text-xs bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-full">
+                {workspaceName}
+              </span>
+            )}
+          </div>
           {lastMessageTime && (
             <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0 ml-2">
               {lastMessageTime}
@@ -294,31 +328,71 @@ const DirectChatItem = ({ chat, userId, onNavigate }) => {
   );
 };
 
+// ─── Workspace Group Section ─────────────────────────────────────
+const WorkspaceGroupSection = ({ workspaceId, workspaceName, chats, userId, onNavigate, isOwnWorkspace }) => {
+  if (chats.length === 0) return null;
+
+  return (
+    <div className="mb-4">
+      <div className="px-4 py-2 bg-gray-50 dark:bg-[#1a1a1a] border-b border-gray-200 dark:border-gray-800 flex items-center gap-2 sticky top-0 z-10">
+        <FaBuilding className="text-teal-500" />
+        <span className="font-semibold text-gray-700 dark:text-gray-300">{workspaceName || 'Workspace'}</span>
+        <span className="text-xs text-gray-400 ml-auto">{chats.length} chat{chats.length > 1 ? 's' : ''}</span>
+      </div>
+      {chats.map((chat) => (
+        <DirectChatItem
+          key={chat._id}
+          chat={chat}
+          userId={userId}
+          onNavigate={onNavigate}
+          workspaceName={workspaceName}
+          workspaceId={workspaceId}
+          isOwnWorkspace={isOwnWorkspace}
+        />
+      ))}
+    </div>
+  );
+};
+
 // ─── Main Component ──────────────────────────────────────────────
 const GeneralChats = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const { userInfo } = useSelector((state) => state.auth);
   const userId = userInfo?._id;
+  const ownedWorkspaces = userInfo?.ownedWorkspaces || []; // array of workspace IDs owned by user
   const { socket, isConnected } = useSocket();
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState('public');
   const [showNewChat, setShowNewChat] = useState(false);
 
+  // ─── Fetch workspaces ──────────────────────────────────────────
+  const { data: workspacesData, isLoading: workspacesLoading } = useGetMyWorkspacesQuery();
+
+  const workspaceNameMap = useMemo(() => {
+    const map = {};
+    if (workspacesData) {
+      const allWorkspaces = [...(workspacesData.myBusinesses || []), ...(workspacesData.joinedBusinesses || [])];
+      for (const ws of allWorkspaces) {
+        map[ws._id] = ws.name;
+      }
+    }
+    return map;
+  }, [workspacesData]);
+
+  // ─── Chat query ────────────────────────────────────────────────
   const {
     data: chatsData,
     isLoading: chatsLoading,
     refetch: refetchChats,
   } = useGetUserChatsQuery(CHATS_QUERY_ARG, {
-    // Socket events (below) handle instant updates. This is just a
-    // safety-net fallback in case a socket event is ever missed
-    // (e.g. brief disconnect), so it doesn't need to be aggressive.
     pollingInterval: 25000,
     refetchOnFocus: true,
     refetchOnReconnect: true,
   });
 
-  // ─── Instant, targeted cache patch — no network round trip ──────
+  // ─── Cache patch helpers ──────────────────────────────────────
   const patchChatInCache = useCallback(
     (chatId, patch) => {
       dispatch(
@@ -338,10 +412,6 @@ const GeneralChats = () => {
     [dispatch]
   );
 
-  // ✅ Insert a brand-new chat into the cache the instant it's created —
-  // this is what makes "New Chat" feel instant instead of racing a
-  // refetch. If it's already in the list (e.g. socket beat us to it),
-  // don't duplicate it.
   const addChatToCache = useCallback(
     (newChat) => {
       dispatch(
@@ -368,9 +438,6 @@ const GeneralChats = () => {
   useEffect(() => {
     if (!socket) return;
 
-    // Fired by the backend on every new message AND every message
-    // deletion, for every participant's personal room — so it reaches
-    // this list even for chats the user hasn't opened.
     const handleChatListUpdate = ({ chatId, lastMessage, lastMessageAt, unreadCount }) => {
       if (!chatId) return;
       patchChatInCache(chatId, {
@@ -387,72 +454,94 @@ const GeneralChats = () => {
     };
   }, [socket, patchChatInCache]);
 
-  // If the socket reconnects after being down, do one quiet refetch
-  // to reconcile anything that could have been missed.
   useEffect(() => {
     if (isConnected) refetchChats();
   }, [isConnected, refetchChats]);
 
-  // ─── Filter, deduplicate, and sort ─────────────────────────────
-  const filteredChats = useMemo(() => {
+  // ─── Filter and deduplicate chats ─────────────────────────────
+  const publicChats = useMemo(() => {
     if (!chatsData?.chats) return [];
-
-    let directChats = chatsData.chats.filter(
+    const raw = chatsData.chats.filter(
       (chat) => chat.scope === 'public' && chat.type === 'direct'
     );
+    return deduplicateDirectChats(raw, userId);
+  }, [chatsData, userId]);
 
-    // Deduplicate per user pair (keep most recent)
-    const directMap = new Map();
-    for (const chat of directChats) {
-      const other = chat.participants?.find(
-        (p) => p.user?._id !== userId && p.user !== userId
-      );
-      if (!other) continue;
-      const otherId = other.user?._id || other.user;
-      if (!otherId) continue;
-      const key = [userId, otherId].sort().join('_');
-      const existing = directMap.get(key);
-      if (
-        !existing ||
-        new Date(chat.lastMessageAt) > new Date(existing.lastMessageAt)
-      ) {
-        directMap.set(key, chat);
-      }
-    }
-    let deduped = Array.from(directMap.values());
-
-    // Search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase().trim();
-      deduped = deduped.filter((chat) => {
-        const other = chat.participants?.find(
-          (p) => p.user?._id !== userId && p.user !== userId
-        );
-        return other?.user?.name?.toLowerCase().includes(query);
-      });
-    }
-
-    // Sort by lastMessageAt descending
-    deduped.sort(
-      (a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt)
+  const workspaceChats = useMemo(() => {
+    if (!chatsData?.chats) return [];
+    const raw = chatsData.chats.filter(
+      (chat) => chat.scope === 'workspace' && chat.type === 'direct'
     );
+    return raw; // will be grouped and deduplicated per group
+  }, [chatsData]);
 
-    return deduped;
-  }, [chatsData, searchQuery, userId]);
+  // ─── Group workspace chats by workspace ──────────────────────
+  const workspaceGroups = useMemo(() => {
+    const groups = {};
+    for (const chat of workspaceChats) {
+      const wsId = chat.workspace?.toString();
+      if (!wsId) continue;
+      if (!groups[wsId]) groups[wsId] = [];
+      groups[wsId].push(chat);
+    }
+    const result = Object.entries(groups).map(([wsId, chats]) => {
+      const deduped = deduplicateDirectChats(chats, userId);
+      const isOwnWorkspace = ownedWorkspaces.includes(wsId);
+      return {
+        workspaceId: wsId,
+        workspaceName: workspaceNameMap[wsId] || `Workspace ${wsId.slice(-4)}`,
+        isOwnWorkspace,
+        chats: deduped.sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt)),
+      };
+    });
+    return result.filter((group) => group.chats.length > 0);
+  }, [workspaceChats, workspaceNameMap, userId, ownedWorkspaces]);
 
-  const handleNavigate = (chatId) => {
-    navigate(`/chats/${chatId}`);
+  // ─── Apply search filter ──────────────────────────────────────
+  const filterBySearch = (chat) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    const other = chat.participants?.find(
+      (p) => p.user?._id !== userId && p.user !== userId
+    );
+    return other?.user?.name?.toLowerCase().includes(q);
   };
 
-  const renderEmpty = () => (
+  const filteredPublic = useMemo(() => {
+    return publicChats
+      .filter(filterBySearch)
+      .sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
+  }, [publicChats, searchQuery]);
+
+  const filteredWorkspaceGroups = useMemo(() => {
+    return workspaceGroups
+      .map((group) => ({
+        ...group,
+        chats: group.chats.filter(filterBySearch),
+      }))
+      .filter((group) => group.chats.length > 0);
+  }, [workspaceGroups, searchQuery]);
+
+  // ─── Handlers ──────────────────────────────────────────────────
+  const handleNavigate = (route) => {
+    navigate(route);
+  };
+
+  const renderEmpty = (message) => (
     <div className="flex flex-col items-center justify-center h-full py-12 text-gray-400 dark:text-gray-500">
       <FaComments className="text-5xl mb-4 opacity-30" />
-      <p className="text-lg font-medium">No private conversations yet</p>
+      <p className="text-lg font-medium">{message}</p>
       <p className="text-sm">Start a new chat by tapping the + button.</p>
     </div>
   );
 
-  if (chatsLoading) {
+  // ─── Tabs configuration ──────────────────────────────────────
+  const tabs = [
+    { id: 'public', label: 'Public', icon: FaGlobe },
+    { id: 'workspace', label: 'Workspace', icon: FaBuilding },
+  ];
+
+  if (chatsLoading || workspacesLoading) {
     return (
       <div className="min-h-screen bg-white dark:bg-[#0f0f12] flex flex-col md:flex-row">
         <div className="hidden md:block md:w-72 md:flex-shrink-0">
@@ -472,11 +561,12 @@ const GeneralChats = () => {
           <GeneralSidebar />
         </div>
 
-        <div className="flex-1 flex flex-col min-h-screen relative">
-          <header className="bg-white dark:bg-[#0f0f12] border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10">
+        <div className="flex-1 flex flex-col h-screen md:h-auto md:min-h-screen relative overflow-hidden">
+          {/* ─── Fixed Header ────────────────────────────────────── */}
+          <header className="bg-white dark:bg-[#0f0f12] border-b border-gray-200 dark:border-gray-800 flex-shrink-0 z-10">
             <div className="px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
-              <h1 className="text-lg font-semibold text-gray-800 dark:text-white">
-                Direct Messages
+              <h1 className="text-lg font-semibold text-gray-800 dark:text-white whitespace-nowrap">
+                Messages
               </h1>
               <div className="flex items-center gap-2">
                 <div className="relative">
@@ -493,18 +583,67 @@ const GeneralChats = () => {
             </div>
           </header>
 
-          <main className="flex-1 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-800">
-            {filteredChats.length === 0 ? (
-              renderEmpty()
-            ) : (
-              filteredChats.map((chat) => (
-                <DirectChatItem
-                  key={chat._id}
-                  chat={chat}
-                  userId={userId}
-                  onNavigate={handleNavigate}
-                />
-              ))
+          {/* ─── Tab Bar ────────────────────────────────────────── */}
+          <div className="flex bg-gray-50 dark:bg-[#1a1a1a] border-b border-gray-200 dark:border-gray-800 flex-shrink-0 overflow-hidden">
+            {tabs.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                onClick={() => setActiveTab(id)}
+                className={`
+                  flex-1 min-w-0 py-2 px-1 text-[10px] font-medium
+                  transition flex flex-col items-center justify-center gap-0.5
+                  whitespace-nowrap
+                  md:py-3 md:px-3 md:text-sm md:flex-row md:gap-2
+                  ${
+                    activeTab === id
+                      ? 'text-teal-600 dark:text-teal-400 border-b-2 border-teal-600 dark:border-teal-400'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                  }
+                `}
+              >
+                <Icon className="text-base md:text-lg" />
+                <span className="leading-none">{label}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* ─── Content ────────────────────────────────────────── */}
+          <main className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12]">
+            {activeTab === 'public' && (
+              <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                {filteredPublic.length === 0 ? (
+                  renderEmpty('No public direct messages yet')
+                ) : (
+                  filteredPublic.map((chat) => (
+                    <DirectChatItem
+                      key={chat._id}
+                      chat={chat}
+                      userId={userId}
+                      onNavigate={handleNavigate}
+                    />
+                  ))
+                )}
+              </div>
+            )}
+
+            {activeTab === 'workspace' && (
+              <div>
+                {filteredWorkspaceGroups.length === 0 ? (
+                  renderEmpty('No workspace direct messages yet')
+                ) : (
+                  filteredWorkspaceGroups.map((group) => (
+                    <WorkspaceGroupSection
+                      key={group.workspaceId}
+                      workspaceId={group.workspaceId}
+                      workspaceName={group.workspaceName}
+                      chats={group.chats}
+                      userId={userId}
+                      onNavigate={handleNavigate}
+                      isOwnWorkspace={group.isOwnWorkspace}
+                    />
+                  ))
+                )}
+              </div>
             )}
           </main>
 
@@ -520,10 +659,7 @@ const GeneralChats = () => {
         </div>
       </div>
 
-      <BottomSheet
-        isOpen={showNewChat}
-        onClose={() => setShowNewChat(false)}
-      >
+      <BottomSheet isOpen={showNewChat} onClose={() => setShowNewChat(false)}>
         <NewChatContent
           onClose={() => setShowNewChat(false)}
           onChatCreated={addChatToCache}
