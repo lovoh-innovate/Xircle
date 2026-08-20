@@ -3,31 +3,29 @@ import React, { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import {
-  FaHome,
-  FaTasks,
-  FaUsers,
-  FaTimes,
-  FaBars,
-  FaCog,
-  FaUser,
-  FaUpload,
-} from 'react-icons/fa';
+  FiHome,
+  FiUsers,
+  FiCheckSquare,
+  FiMenu,
+  FiSettings,
+  FiUser,
+  FiUpload,
+} from 'react-icons/fi';
+import { FaTimes } from 'react-icons/fa';
 
-// ─── Custom Chat Icon (WhatsApp‑style) ──────────────────────────
+// ─── Custom WhatsApp‑style Chat Icon ────────────────────────────
 const ChatIcon = ({ className }) => (
   <svg
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
-    strokeWidth="1.5"
+    strokeWidth="1.75"
     strokeLinecap="round"
     strokeLinejoin="round"
     className={className}
     style={{ width: '1.5rem', height: '1.5rem' }}
   >
-    {/* Bubble */}
     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    {/* Dashes (lines of text) */}
     <path d="M8 10h8" />
     <path d="M8 14h6" />
   </svg>
@@ -43,74 +41,96 @@ const GeneralBottombar = () => {
   const isHomeActive = () => location.pathname === '/my-workspaces';
 
   const drawerItems = [
-    ...(isAdmin ? [{ to: '/admin/upload', icon: FaUpload, label: 'Upload App' }] : []),
+    ...(isAdmin ? [{ to: '/admin/upload', icon: FiUpload, label: 'Upload App' }] : []),
   ];
 
   return (
     <>
       {/* ─── Bottom Bar ───────────────────────────────────────────── */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0f0f12]/80 backdrop-blur-2xl border-t border-white/10 flex items-center justify-around h-16 px-2 z-50">
-        {/* Channels (left) */}
-        <NavLink
-          to="/channels"
-          className={({ isActive }) =>
-            `flex flex-col items-center justify-center text-xs font-medium transition-all duration-300 ${
-              isActive ? 'text-cyan-400' : 'text-gray-400 hover:text-white'
-            }`
-          }
-        >
-          <FaUsers className="text-xl" />
-          <span>Channels</span>
+      <div
+        className="md:hidden fixed bottom-4 left-4 right-4 mx-auto max-w-md 
+                   bg-[#14141a]/80 backdrop-blur-2xl 
+                   border border-white/10 rounded-2xl shadow-2xl shadow-cyan-500/10
+                   flex items-center justify-around h-16 px-2 z-50"
+      >
+        {/* Channels */}
+        <NavLink to="/channels">
+          {({ isActive }) => (
+            <div className="relative flex flex-col items-center justify-center text-xs font-medium transition-all duration-300">
+              <FiUsers
+                className={`text-xl ${isActive ? 'text-cyan-400' : 'text-gray-400 hover:text-white'}`}
+                strokeWidth={1.75}
+              />
+              <span className={`mt-0.5 text-[10px] tracking-wide ${isActive ? 'text-cyan-400' : 'text-gray-400'}`}>
+                Channels
+              </span>
+              {isActive && (
+                <span className="absolute -top-1 w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#06b6d4]" />
+              )}
+            </div>
+          )}
         </NavLink>
 
-        {/* Chat (left) – custom WhatsApp‑style icon */}
-        <NavLink
-          to="/chat"
-          className={({ isActive }) =>
-            `flex flex-col items-center justify-center text-xs font-medium transition-all duration-300 ${
-              isActive ? 'text-cyan-400' : 'text-gray-400 hover:text-white'
-            }`
-          }
-        >
-          <ChatIcon className="text-xl" />
-          <span>Chat</span>
+        {/* Chat */}
+        <NavLink to="/chat">
+          {({ isActive }) => (
+            <div className="relative flex flex-col items-center justify-center text-xs font-medium transition-all duration-300">
+              <ChatIcon
+                className={`text-xl ${isActive ? 'text-cyan-400' : 'text-gray-400 hover:text-white'}`}
+              />
+              <span className={`mt-0.5 text-[10px] tracking-wide ${isActive ? 'text-cyan-400' : 'text-gray-400'}`}>
+                Chat
+              </span>
+              {isActive && (
+                <span className="absolute -top-1 w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#06b6d4]" />
+              )}
+            </div>
+          )}
         </NavLink>
 
-        {/* Home (center – stands out) */}
-        <div className="relative -mt-8">
+        {/* Home – prominent centre */}
+        <div className="relative -mt-6">
           <div className="absolute inset-0 rounded-full bg-cyan-400/20 animate-ping" />
           <NavLink
             to="/my-workspaces"
             className={() =>
-              `relative w-14 h-14 bg-gradient-to-br from-cyan-400 to-purple-500 rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(6,182,212,0.5)] hover:shadow-[0_0_50px_rgba(6,182,212,0.8)] transition-all duration-300 text-white ${
-                isHomeActive() ? 'scale-110' : ''
+              `relative w-14 h-14 bg-gradient-to-br from-cyan-400 to-purple-500 rounded-full 
+               flex items-center justify-center 
+               shadow-[0_0_30px_rgba(6,182,212,0.4)] hover:shadow-[0_0_50px_rgba(6,182,212,0.6)] 
+               transition-all duration-300 text-white ${
+                isHomeActive() ? 'scale-110 shadow-[0_0_40px_rgba(6,182,212,0.6)]' : ''
               }`
             }
           >
-            <FaHome className="text-2xl" />
+            <FiHome className="text-2xl" strokeWidth={2.5} fill="white" />
           </NavLink>
         </div>
 
-        {/* Tasks (right) */}
-        <NavLink
-          to="/personal-tasks"
-          className={({ isActive }) =>
-            `flex flex-col items-center justify-center text-xs font-medium transition-all duration-300 ${
-              isActive ? 'text-cyan-400' : 'text-gray-400 hover:text-white'
-            }`
-          }
-        >
-          <FaTasks className="text-xl" />
-          <span>Tasks</span>
+        {/* Tasks */}
+        <NavLink to="/personal-tasks">
+          {({ isActive }) => (
+            <div className="relative flex flex-col items-center justify-center text-xs font-medium transition-all duration-300">
+              <FiCheckSquare
+                className={`text-xl ${isActive ? 'text-cyan-400' : 'text-gray-400 hover:text-white'}`}
+                strokeWidth={1.75}
+              />
+              <span className={`mt-0.5 text-[10px] tracking-wide ${isActive ? 'text-cyan-400' : 'text-gray-400'}`}>
+                Tasks
+              </span>
+              {isActive && (
+                <span className="absolute -top-1 w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#06b6d4]" />
+              )}
+            </div>
+          )}
         </NavLink>
 
-        {/* More (right) */}
+        {/* More */}
         <button
           onClick={() => setShowDrawer(true)}
           className="flex flex-col items-center justify-center text-xs font-medium text-gray-400 hover:text-white transition-all duration-300"
         >
-          <FaBars className="text-xl" />
-          <span>More</span>
+          <FiMenu className="text-xl" strokeWidth={1.75} />
+          <span className="mt-0.5 text-[10px] tracking-wide">More</span>
         </button>
       </div>
 
@@ -163,7 +183,7 @@ const GeneralBottombar = () => {
                   }`
                 }
               >
-                <FaCog className="text-lg" />
+                <FiSettings className="text-lg" />
                 <span>Settings</span>
               </NavLink>
               <NavLink
@@ -177,7 +197,7 @@ const GeneralBottombar = () => {
                   }`
                 }
               >
-                <FaUser className="text-lg" />
+                <FiUser className="text-lg" />
                 <span>Profile</span>
               </NavLink>
             </div>
