@@ -413,38 +413,37 @@ const YourWorkspaceId = () => {
             <HeroCard />
           </div>
 
-          {/* desktop hero bar */}
+          {/* desktop hero bar – UNTOUCHED, left-aligned as before */}
           <div className="hidden md:flex flex-wrap items-center justify-between gap-3 mb-6">
-            {/* ─── Clickable Workspace label in desktop header ───── */}
             <button
               onClick={() => navigate('/my-workspaces')}
-              className="flex items-center gap-3 hover:opacity-80 transition-opacity flex-1 min-w-0"
+              className="flex items-center gap-3 hover:opacity-80 transition-opacity"
             >
               {workspace.logo ? (
                 <img
                   src={workspace.logo}
                   alt={workspace.name}
-                  className="w-10 h-10 rounded-xl object-cover border border-gray-200 dark:border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)] flex-shrink-0"
+                  className="w-10 h-10 rounded-xl object-cover border border-gray-200 dark:border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)]"
                 />
               ) : (
                 <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm border border-gray-200 dark:border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)] flex-shrink-0"
+                  className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm border border-gray-200 dark:border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)]"
                   style={{ backgroundColor: brandColor }}
                 >
                   {workspace.initials || workspace.name.charAt(0).toUpperCase()}
                 </div>
               )}
-              <div className="min-w-0 flex-1">
+              <div>
                 <span className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1.5">
                   <FaArrowLeft className="text-[8px]" />
                   Workspace
                 </span>
-                <h1 className="text-xl font-bold text-gray-800 dark:text-gray-100 tracking-tight truncate">
+                <h1 className="text-xl font-bold text-gray-800 dark:text-gray-100 tracking-tight">
                   {workspace.name}
                 </h1>
               </div>
             </button>
-            <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="flex items-center gap-2">
               <span className="text-[10px] font-mono text-gray-500 dark:text-gray-600 bg-gray-100 dark:bg-[#14141a] px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-800/60 flex items-center gap-2">
                 {hideStats ? '••••••••' : workspace.inviteCode}
                 {!hideStats && (
@@ -693,11 +692,11 @@ const YourWorkspaceId = () => {
                             <img
                               src={memberUser.profile}
                               alt={memberUser.name}
-                              className="w-7 h-7 rounded-xl object-cover border border-gray-200 dark:border-gray-700/50 flex-shrink-0"
+                              className="w-7 h-7 rounded-xl object-cover border border-gray-200 dark:border-gray-700/50"
                             />
                           ) : (
                             <div
-                              className="w-7 h-7 rounded-xl flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0"
+                              className="w-7 h-7 rounded-xl flex items-center justify-center text-white text-[10px] font-bold"
                               style={{ backgroundColor: brandColor }}
                             >
                               {memberUser?.name?.charAt(0).toUpperCase() || '?'}
