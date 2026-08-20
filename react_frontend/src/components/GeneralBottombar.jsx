@@ -38,8 +38,6 @@ const GeneralBottombar = () => {
 
   const [showDrawer, setShowDrawer] = useState(false);
 
-  const isHomeActive = () => location.pathname === '/my-workspaces';
-
   const drawerItems = [
     ...(isAdmin ? [{ to: '/admin/upload', icon: FiUpload, label: 'Upload App' }] : []),
   ];
@@ -53,7 +51,24 @@ const GeneralBottombar = () => {
                    border-t border-white/10 
                    flex items-center justify-around h-16 px-2 z-50"
       >
-        {/* Channels */}
+        {/* Chat – now first */}
+        <NavLink to="/chat">
+          {({ isActive }) => (
+            <div className="relative flex flex-col items-center justify-center text-xs font-medium transition-all duration-300">
+              <ChatIcon
+                className={`text-xl ${isActive ? 'text-cyan-400' : 'text-gray-400 hover:text-white'}`}
+              />
+              <span className={`mt-0.5 text-[10px] tracking-wide ${isActive ? 'text-cyan-400' : 'text-gray-400'}`}>
+                Chat
+              </span>
+              {isActive && (
+                <span className="absolute -top-1 w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#06b6d4]" />
+              )}
+            </div>
+          )}
+        </NavLink>
+
+        {/* Channels – now second */}
         <NavLink to="/channels">
           {({ isActive }) => (
             <div className="relative flex flex-col items-center justify-center text-xs font-medium transition-all duration-300">
@@ -71,15 +86,16 @@ const GeneralBottombar = () => {
           )}
         </NavLink>
 
-        {/* Chat */}
-        <NavLink to="/chat">
+        {/* Home – normalised, no big circle */}
+        <NavLink to="/my-workspaces">
           {({ isActive }) => (
             <div className="relative flex flex-col items-center justify-center text-xs font-medium transition-all duration-300">
-              <ChatIcon
+              <FiHome
                 className={`text-xl ${isActive ? 'text-cyan-400' : 'text-gray-400 hover:text-white'}`}
+                strokeWidth={1.75}
               />
               <span className={`mt-0.5 text-[10px] tracking-wide ${isActive ? 'text-cyan-400' : 'text-gray-400'}`}>
-                Chat
+                Home
               </span>
               {isActive && (
                 <span className="absolute -top-1 w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#06b6d4]" />
@@ -87,24 +103,6 @@ const GeneralBottombar = () => {
             </div>
           )}
         </NavLink>
-
-        {/* Home – prominent centre */}
-        <div className="relative -mt-6">
-          <div className="absolute inset-0 rounded-full bg-cyan-400/20 animate-ping" />
-          <NavLink
-            to="/my-workspaces"
-            className={() =>
-              `relative w-14 h-14 bg-gradient-to-br from-cyan-400 to-purple-500 rounded-full 
-               flex items-center justify-center 
-               shadow-[0_0_30px_rgba(6,182,212,0.4)] hover:shadow-[0_0_50px_rgba(6,182,212,0.6)] 
-               transition-all duration-300 text-white ${
-                isHomeActive() ? 'scale-110 shadow-[0_0_40px_rgba(6,182,212,0.6)]' : ''
-              }`
-            }
-          >
-            <FiHome className="text-2xl" strokeWidth={2.5} fill="white" />
-          </NavLink>
-        </div>
 
         {/* Tasks */}
         <NavLink to="/personal-tasks">
@@ -208,4 +206,4 @@ const GeneralBottombar = () => {
   );
 };
 
-export default GeneralBottombar;  
+export default GeneralBottombar;
