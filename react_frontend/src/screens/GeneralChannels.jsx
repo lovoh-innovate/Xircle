@@ -1,5 +1,5 @@
 // pages/GeneralChannels.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -11,6 +11,7 @@ import {
   useDeletePublicGroupMutation,
   useGetPendingJoinRequestsQuery,
 } from '../slices/messagingApiSlice';
+import { useGetMyWorkspacesQuery } from '../slices/workspaceApiSlice'; // ✅ fixed import
 import { toast } from 'react-hot-toast';
 import {
   FaUsers,
@@ -28,6 +29,9 @@ import {
   FaEllipsisV,
   FaEdit,
   FaTrash,
+  FaUser,
+  FaBuilding,
+  FaGlobe,
 } from 'react-icons/fa';
 import { motion } from 'framer-motion';
 import GeneralSidebar from '../components/GeneralSidebar';
@@ -235,8 +239,8 @@ const getInitials = (name) => {
   return name.charAt(0).toUpperCase();
 };
 
-// ─── Channel Card (clickable + three-dot menu) ──────────────────
-const ChannelCard = ({ channel, status = 'discover', onJoin, onEdit, onDelete, isCreator = false }) => {
+// ─── Channel Card ────────────────────────────────────────────────
+const ChannelCard = ({ channel, status = 'discover', onJoin, onEdit, onDelete, isCreator = false, linkTo, workspaceName }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const memberCount = channel.participants?.length || 0;
   const name = channel.name || 'Unnamed Channel';
@@ -275,9 +279,18 @@ const ChannelCard = ({ channel, status = 'discover', onJoin, onEdit, onDelete, i
     );
   }
 
+  const handleCardClick = () => {
+    if (status === 'pending') return;
+    if (linkTo) {
+      window.location.href = linkTo; // or use navigate if passed
+    }
+  };
+
   return (
-    <div className="flex items-center gap-4 px-4 py-3 hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors relative">
-      {/* Avatar */}
+    <div
+      className={`flex items-center gap-4 px-4 py-3 hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors relative ${status === 'pending' ? 'opacity-70 cursor-default' : 'cursor-pointer'}`}
+      onClick={handleCardClick}
+    >
       <div className="w-12 h-12 rounded-full bg-gradient-to-br from-cyan-400 to-purple-400 flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
         {channel.avatar ? (
           <img
@@ -290,14 +303,18 @@ const ChannelCard = ({ channel, status = 'discover', onJoin, onEdit, onDelete, i
         )}
       </div>
 
-      {/* Text block – clickable to open chat */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <p className="font-semibold text-gray-800 dark:text-white truncate">
             {name}
           </p>
           {channel.isPublic && (
             <span className="flex-shrink-0 text-xs text-gray-400">🌐</span>
+          )}
+          {workspaceName && (
+            <span className="flex-shrink-0 text-xs bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-full">
+              {workspaceName}
+            </span>
           )}
         </div>
         {description && (
@@ -313,7 +330,6 @@ const ChannelCard = ({ channel, status = 'discover', onJoin, onEdit, onDelete, i
         </div>
       </div>
 
-      {/* Action button + three-dot */}
       <div className="flex-shrink-0 flex items-center gap-2">
         {actionButton}
         {isCreator && (
@@ -347,6 +363,35 @@ const ChannelCard = ({ channel, status = 'discover', onJoin, onEdit, onDelete, i
   );
 };
 
+// ─── Workspace Group Section ─────────────────────────────────────
+const WorkspaceGroupSection = ({ workspaceId, workspaceName, channels, userInfo, navigate }) => {
+  const isOwnWorkspace = userInfo?.ownedWorkspaces?.includes(workspaceId);
+  const baseRoute = isOwnWorkspace
+    ? `/my-workspace/${workspaceId}/channels`
+    : `/workspace/${workspaceId}/chat`;
+
+  const sortedChannels = [...channels].sort((a, b) => a.name?.localeCompare(b.name) || 0);
+
+  return (
+    <div className="mb-4">
+      <div className="px-4 py-2 bg-gray-50 dark:bg-[#1a1a1a] border-b border-gray-200 dark:border-gray-800 flex items-center gap-2 sticky top-0 z-10">
+        <FaBuilding className="text-teal-500" />
+        <span className="font-semibold text-gray-700 dark:text-gray-300">{workspaceName || 'Workspace'}</span>
+        <span className="text-xs text-gray-400 ml-auto">{channels.length} channel{channels.length > 1 ? 's' : ''}</span>
+      </div>
+      {sortedChannels.map((channel) => (
+        <ChannelCard
+          key={channel._id}
+          channel={channel}
+          status="joined"
+          linkTo={`${baseRoute}/${channel._id}`}
+          workspaceName={workspaceName}
+        />
+      ))}
+    </div>
+  );
+};
+
 // ─── Main Component ──────────────────────────────────────────────
 const GeneralChannels = () => {
   const navigate = useNavigate();
@@ -356,45 +401,37 @@ const GeneralChannels = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editChannel, setEditChannel] = useState(null);
 
-  // ─── Pending join requests from backend ──────────────────────
+  // ─── Fetch all workspaces (owned + joined) ────────────────────
+  const { data: workspacesData, isLoading: workspacesLoading } = useGetMyWorkspacesQuery();
+
+  // ─── Build a map: workspaceId → workspaceName ──────────────────
+  const workspaceNameMap = useMemo(() => {
+    const map = {};
+    if (workspacesData) {
+      const allWorkspaces = [...(workspacesData.myBusinesses || []), ...(workspacesData.joinedBusinesses || [])];
+      for (const ws of allWorkspaces) {
+        map[ws._id] = ws.name;
+      }
+    }
+    return map;
+  }, [workspacesData]);
+
+  // ─── Queries for chats ──────────────────────────────────────────
   const {
     data: pendingData,
     isLoading: pendingLoading,
     refetch: refetchPending,
   } = useGetPendingJoinRequestsQuery(undefined, {
-    pollingInterval: 15000, // refresh every 15s to catch admin actions
+    pollingInterval: 15000,
   });
-
   const pendingChannels = pendingData?.groups || [];
 
-  // ─── All user chats ──────────────────────────────────────────
   const {
     data: chatsData,
     isLoading: chatsLoading,
     refetch: refetchChats,
   } = useGetUserChatsQuery({ archived: false });
 
-  // ─── Filtered lists ──────────────────────────────────────────
-  const myChannels = React.useMemo(() => {
-    if (!chatsData?.chats) return [];
-    return chatsData.chats.filter(
-      (chat) => chat.scope === 'public' && chat.type === 'group' && chat.createdBy?._id === userInfo?._id
-    );
-  }, [chatsData, userInfo]);
-
-  const joinedChannels = React.useMemo(() => {
-    if (!chatsData?.chats) return [];
-    return chatsData.chats.filter(
-      (chat) => chat.scope === 'public' && chat.type === 'group' && chat.createdBy?._id !== userInfo?._id
-    );
-  }, [chatsData, userInfo]);
-
-  // ─── Build a Set of pending channel IDs for quick lookup ────
-  const pendingIds = React.useMemo(() => {
-    return new Set(pendingChannels.map(c => c._id));
-  }, [pendingChannels]);
-
-  // ─── Discover public groups ──────────────────────────────────
   const {
     data: discoverData,
     isLoading: discoverLoading,
@@ -403,18 +440,64 @@ const GeneralChannels = () => {
     { query: searchQuery || '' },
     { skip: activeTab !== 'discover' }
   );
-
   const discoverChannels = discoverData?.groups || [];
 
-  // ─── Mutations ──────────────────────────────────────────────
+  // ─── Mutations ─────────────────────────────────────────────────
   const [requestJoin] = useRequestJoinGroupMutation();
   const [deletePublicGroup] = useDeletePublicGroupMutation();
 
+  // ─── Derived Lists ─────────────────────────────────────────────
+  const myChannels = useMemo(() => {
+    if (!chatsData?.chats) return [];
+    return chatsData.chats.filter(
+      (chat) => chat.scope === 'public' && chat.type === 'group' && chat.createdBy?._id === userInfo?._id
+    );
+  }, [chatsData, userInfo]);
+
+  const joinedChannels = useMemo(() => {
+    if (!chatsData?.chats) return [];
+    return chatsData.chats.filter(
+      (chat) => chat.scope === 'public' && chat.type === 'group' && chat.createdBy?._id !== userInfo?._id
+    );
+  }, [chatsData, userInfo]);
+
+  const pendingIds = useMemo(() => new Set(pendingChannels.map(c => c._id)), [pendingChannels]);
+
+  const mergedJoined = useMemo(() => {
+    const pendingMap = pendingChannels.reduce((acc, p) => ({ ...acc, [p._id]: true }), {});
+    const filteredJoined = joinedChannels.filter(c => !pendingMap[c._id]);
+    return [...pendingChannels, ...filteredJoined];
+  }, [pendingChannels, joinedChannels]);
+
+  // ─── Workspace channels (scope: workspace, type: group) ──────
+  const workspaceChats = useMemo(() => {
+    if (!chatsData?.chats) return [];
+    return chatsData.chats.filter(
+      (chat) => chat.scope === 'workspace' && chat.type === 'group'
+    );
+  }, [chatsData]);
+
+  // Group by workspaceId, using the workspaceNameMap for names
+  const workspaceGroups = useMemo(() => {
+    const groups = {};
+    for (const chat of workspaceChats) {
+      const wsId = chat.workspace?.toString();
+      if (!wsId) continue;
+      if (!groups[wsId]) groups[wsId] = [];
+      groups[wsId].push(chat);
+    }
+    return Object.entries(groups).map(([wsId, chats]) => ({
+      workspaceId: wsId,
+      workspaceName: workspaceNameMap[wsId] || `Workspace ${wsId.slice(-4)}`,
+      channels: chats,
+    }));
+  }, [workspaceChats, workspaceNameMap]);
+
+  // ─── Handlers ──────────────────────────────────────────────────
   const handleJoin = async (chatId) => {
     try {
       await requestJoin(chatId).unwrap();
       toast.success('Join request sent! Waiting for approval.');
-      // Refetch all relevant queries to update pending list
       refetchPending();
       refetchDiscover();
       refetchChats();
@@ -449,72 +532,17 @@ const GeneralChannels = () => {
     setActiveTab('my');
   };
 
-  const handleChannelClick = (channelId) => {
-    navigate(`/channels/${channelId}`);
-  };
+  const isLoading = chatsLoading || discoverLoading || pendingLoading || workspacesLoading;
 
-  const renderList = (channels, status, isCreator = false) => {
-    if (channels.length === 0) {
-      let message = 'No channels here.';
-      if (status === 'my') message = "You haven't created any public channels yet.";
-      else if (status === 'joined') message = "You haven't joined any public channels yet.";
-      else if (status === 'pending') message = "You don't have any pending join requests.";
-      else message = searchQuery ? 'No public channels match your search.' : 'No public channels available right now.';
-      return (
-        <div className="flex flex-col items-center justify-center py-12 text-gray-400 dark:text-gray-500">
-          <FaHashtag className="text-4xl mb-2 opacity-30" />
-          <p className="text-sm">{message}</p>
-          {status === 'my' && (
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="mt-3 text-sm text-teal-500 hover:underline"
-            >
-              Create one now →
-            </button>
-          )}
-          {status === 'joined' && (
-            <button
-              onClick={() => setActiveTab('discover')}
-              className="mt-3 text-sm text-teal-500 hover:underline"
-            >
-              Discover channels →
-            </button>
-          )}
-        </div>
-      );
-    }
-    return channels.map((channel) => {
-      // Determine actual status for discover tab: if channel is in pending set, show pending
-      let actualStatus = status;
-      if (status === 'discover' && pendingIds.has(channel._id)) {
-        actualStatus = 'pending';
-      }
-      return (
-        <div
-          key={channel._id}
-          onClick={() => {
-            // Only navigate if not pending (can't click into pending channel)
-            if (actualStatus !== 'pending') {
-              handleChannelClick(channel._id);
-            }
-          }}
-          className={`cursor-pointer ${actualStatus === 'pending' ? 'opacity-70 cursor-default' : ''}`}
-        >
-          <ChannelCard
-            channel={channel}
-            status={actualStatus}
-            onJoin={handleJoin}
-            onEdit={handleEdit}
-            onDelete={handleDelete}
-            isCreator={isCreator}
-          />
-        </div>
-      );
-    });
-  };
+  // ─── Tab configuration ─────────────────────────────────────────
+  const tabs = [
+    { id: 'my', label: 'My', icon: FaUser },
+    { id: 'joined', label: 'Joined', icon: FaCheckCircle },
+    { id: 'workspace', label: 'Workspace', icon: FaBuilding },
+    { id: 'discover', label: 'Discover', icon: FaGlobe },
+  ];
 
-  const isLoading = chatsLoading || discoverLoading || pendingLoading;
-
+  // ─── Render ────────────────────────────────────────────────────
   return (
     <>
       <div className="min-h-screen bg-white dark:bg-[#0f0f12] flex flex-col md:flex-row">
@@ -559,67 +587,106 @@ const GeneralChannels = () => {
             </div>
           </header>
 
-          {/* Tabs – 4 tabs */}
-          <div className="flex bg-gray-50 dark:bg-[#1a1a1a] border-b border-gray-200 dark:border-gray-800 overflow-x-auto">
-            <button
-              onClick={() => setActiveTab('my')}
-              className={`flex-1 py-3 text-sm font-medium transition whitespace-nowrap px-3 ${
-                activeTab === 'my'
-                  ? 'text-teal-600 dark:text-teal-400 border-b-2 border-teal-600 dark:border-teal-400'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-              }`}
-            >
-              My ({myChannels.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('pending')}
-              className={`flex-1 py-3 text-sm font-medium transition whitespace-nowrap px-3 ${
-                activeTab === 'pending'
-                  ? 'text-yellow-600 dark:text-yellow-400 border-b-2 border-yellow-600 dark:border-yellow-400'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-              }`}
-            >
-              Pending ({pendingChannels.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('joined')}
-              className={`flex-1 py-3 text-sm font-medium transition whitespace-nowrap px-3 ${
-                activeTab === 'joined'
-                  ? 'text-teal-600 dark:text-teal-400 border-b-2 border-teal-600 dark:border-teal-400'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-              }`}
-            >
-              Joined ({joinedChannels.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('discover')}
-              className={`flex-1 py-3 text-sm font-medium transition whitespace-nowrap px-3 ${
-                activeTab === 'discover'
-                  ? 'text-teal-600 dark:text-teal-400 border-b-2 border-teal-600 dark:border-teal-400'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-              }`}
-            >
-              Discover ({discoverChannels.length})
-            </button>
+          {/* ─── Fixed Tab Bar ──────────────────────────────────── */}
+          <div className="flex bg-gray-50 dark:bg-[#1a1a1a] border-b border-gray-200 dark:border-gray-800 overflow-x-auto no-scrollbar">
+            {tabs.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                onClick={() => setActiveTab(id)}
+                className={`flex-1 py-3 text-sm font-medium transition flex items-center justify-center gap-2 whitespace-nowrap px-3 ${
+                  activeTab === id
+                    ? 'text-teal-600 dark:text-teal-400 border-b-2 border-teal-600 dark:border-teal-400'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                }`}
+              >
+                <Icon className="text-base" />
+                <span>{label}</span>
+              </button>
+            ))}
           </div>
 
-          {/* List */}
+          {/* ─── Content ────────────────────────────────────────── */}
           <main className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12]">
-            <div className="divide-y divide-gray-100 dark:divide-gray-800">
-              {isLoading ? (
-                <div className="flex justify-center py-8">
-                  <FaSpinner className="animate-spin text-teal-500 text-2xl" />
-                </div>
-              ) : activeTab === 'my' ? (
-                renderList(myChannels, 'my', true)
-              ) : activeTab === 'pending' ? (
-                renderList(pendingChannels, 'pending', false)
-              ) : activeTab === 'joined' ? (
-                renderList(joinedChannels, 'joined')
-              ) : (
-                renderList(discoverChannels, 'discover')
-              )}
-            </div>
+            {isLoading ? (
+              <div className="flex justify-center py-8">
+                <FaSpinner className="animate-spin text-teal-500 text-2xl" />
+              </div>
+            ) : (
+              <>
+                {activeTab === 'my' && (
+                  <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                    {myChannels.map((channel) => (
+                      <ChannelCard
+                        key={channel._id}
+                        channel={channel}
+                        status="my"
+                        onJoin={handleJoin}
+                        onEdit={handleEdit}
+                        onDelete={handleDelete}
+                        isCreator={true}
+                      />
+                    ))}
+                  </div>
+                )}
+                {activeTab === 'joined' && (
+                  <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                    {mergedJoined.map((channel) => {
+                      const status = pendingIds.has(channel._id) ? 'pending' : 'joined';
+                      return (
+                        <ChannelCard
+                          key={channel._id}
+                          channel={channel}
+                          status={status}
+                          onJoin={handleJoin}
+                          onEdit={handleEdit}
+                          onDelete={handleDelete}
+                          isCreator={false}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+                {activeTab === 'workspace' && (
+                  <div>
+                    {workspaceGroups.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-12 text-gray-400 dark:text-gray-500">
+                        <FaBuilding className="text-4xl mb-2 opacity-30" />
+                        <p className="text-sm">No workspace channels found.</p>
+                      </div>
+                    ) : (
+                      workspaceGroups.map((group) => (
+                        <WorkspaceGroupSection
+                          key={group.workspaceId}
+                          workspaceId={group.workspaceId}
+                          workspaceName={group.workspaceName}
+                          channels={group.channels}
+                          userInfo={userInfo}
+                          navigate={navigate}
+                        />
+                      ))
+                    )}
+                  </div>
+                )}
+                {activeTab === 'discover' && (
+                  <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                    {discoverChannels.map((channel) => {
+                      const status = pendingIds.has(channel._id) ? 'pending' : 'discover';
+                      return (
+                        <ChannelCard
+                          key={channel._id}
+                          channel={channel}
+                          status={status}
+                          onJoin={handleJoin}
+                          onEdit={handleEdit}
+                          onDelete={handleDelete}
+                          isCreator={false}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
           </main>
 
           <GeneralBottombar />
