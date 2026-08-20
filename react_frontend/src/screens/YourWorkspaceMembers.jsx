@@ -1,5 +1,5 @@
 // src/workspaceScreens/YourWorkspaceMembers.jsx
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
@@ -10,6 +10,7 @@ import {
   useUpdateMemberMutation,
   useRemoveMemberMutation,
 } from '../slices/teamApiSlice';
+import { useCreateDirectChatMutation } from '../slices/messagingApiSlice';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
 import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
 import {
@@ -26,8 +27,26 @@ import {
   FaSpinner,
   FaEllipsisV,
   FaChevronDown,
+  FaComment,
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
+
+// ─── useMediaQuery hook ──────────────────────────────────────────────
+const useMediaQuery = (query) => {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    if (media.matches !== matches) {
+      setMatches(media.matches);
+    }
+    const listener = () => setMatches(media.matches);
+    media.addEventListener('change', listener);
+    return () => media.removeEventListener('change', listener);
+  }, [query, matches]);
+
+  return matches;
+};
 
 // ─── Helper: get initials ──────────────────────────────────────────────
 const getInitials = (name) => {
@@ -43,9 +62,9 @@ const getInitials = (name) => {
 // ─── Custom Dropdown ─────────────────────────────────────────────────────
 const CustomDropdown = ({ options, value, onChange, placeholder, label, brandColor }) => {
   const [open, setOpen] = useState(false);
-  const ref = React.useRef(null);
+  const ref = useRef(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     const handler = (e) => {
       if (ref.current && !ref.current.contains(e.target)) setOpen(false);
     };
@@ -103,6 +122,89 @@ const ConfirmModal = ({ isOpen, onConfirm, onCancel, title, message, confirmLabe
             {confirmLabel}
           </button>
         </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Member Action Bottom Sheet (mobile) ──────────────────────────────
+const MemberActionSheet = ({ isOpen, onClose, member, canManage, isOwner, isAdmin, onMakeAdmin, onRemoveAdmin, onRemoveMember, onDirectMessage, onEditRole, brandColor }) => {
+  if (!isOpen || !member) return null;
+  const user = member.user || {};
+  const memberName = user.name || 'Unknown';
+  const isSelf = user._id === member.currentUserId;
+  const isWorkspaceOwner = user._id === member.workspaceOwnerId;
+
+  const showMakeAdmin = canManage && member.role !== 'admin' && !isSelf && !isWorkspaceOwner;
+  const showRemoveAdmin = canManage && member.role === 'admin' && !isSelf && !isWorkspaceOwner && !isOwner;
+  const showRemoveMember = canManage && !isSelf && !isWorkspaceOwner;
+  const showEditRole = canManage && !isSelf && !isWorkspaceOwner;
+  const showDirectMessage = !isSelf;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 dark:bg-black/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-[#14141a] rounded-t-2xl w-full max-w-md p-5"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxHeight: '70vh', overflowY: 'auto' }}
+      >
+        <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-200 dark:border-gray-700/60">
+          <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-gray-600 dark:text-gray-300 text-sm font-medium">
+            {memberName.charAt(0).toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{memberName}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{member.role === 'admin' ? 'Admin' : 'Member'}</p>
+          </div>
+        </div>
+        <div className="space-y-1">
+          {showDirectMessage && (
+            <button
+              onClick={() => { onClose(); onDirectMessage(user._id); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+            >
+              <FaComment className="text-sm" /> <span className="text-sm font-medium">Direct Message</span>
+            </button>
+          )}
+          {showEditRole && (
+            <button
+              onClick={() => { onClose(); onEditRole(member); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition"
+            >
+              <FaEdit className="text-sm" /> <span className="text-sm font-medium">Edit Role/Dept</span>
+            </button>
+          )}
+          {showMakeAdmin && (
+            <button
+              onClick={() => { onClose(); onMakeAdmin(user._id); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition"
+            >
+              <FaUserCog className="text-sm" /> <span className="text-sm font-medium">Make Admin</span>
+            </button>
+          )}
+          {showRemoveAdmin && (
+            <button
+              onClick={() => { onClose(); onRemoveAdmin(user._id); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-500/10 transition"
+            >
+              <FaUserCog className="text-sm" /> <span className="text-sm font-medium">Remove Admin</span>
+            </button>
+          )}
+          {showRemoveMember && (
+            <button
+              onClick={() => { onClose(); onRemoveMember(user._id); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition"
+            >
+              <FaTrashAlt className="text-sm" /> <span className="text-sm font-medium">Remove Member</span>
+            </button>
+          )}
+        </div>
+        <button onClick={onClose} className="w-full mt-3 py-3 text-center text-sm font-medium text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700/60 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">
+          Cancel
+        </button>
       </div>
     </div>
   );
@@ -384,6 +486,7 @@ const YourWorkspaceMembers = () => {
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [approveMemberId, setApproveMemberId] = useState(null);
+  const [actionSheetOpen, setActionSheetOpen] = useState(false);
 
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null, confirmLabel: 'Confirm' });
 
@@ -401,6 +504,8 @@ const YourWorkspaceMembers = () => {
   // ─── Mutations ──────────────────────────────────────────────────────
   const [rejectMember] = useRejectMemberMutation();
   const [removeMember] = useRemoveMemberMutation();
+  const [updateMember] = useUpdateMemberMutation();
+  const [createDirectChat] = useCreateDirectChatMutation();
 
   // ─── Determine current user's role ──────────────────────────────────
   const currentUserMembership = workspace?.members?.find(
@@ -473,6 +578,51 @@ const YourWorkspaceMembers = () => {
     setApproveMemberId(null);
   };
 
+  const handleDirectMessage = async (userId) => {
+    if (!userId) return;
+    try {
+      const result = await createDirectChat({ workspaceId, targetUserId: userId }).unwrap();
+      navigate(`/workspace/${workspaceId}/chat/${result.chat._id}`);
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to start direct chat');
+    }
+  };
+
+  const handleMakeAdmin = async (userId) => {
+    try {
+      await updateMember({
+        workspaceId,
+        memberId: userId,
+        role: 'Admin',
+        department: selectedMember?.department || 'General',
+      }).unwrap();
+      toast.success('Member promoted to Admin');
+      refetchPending();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to make admin');
+    }
+  };
+
+  const handleRemoveAdmin = async (userId) => {
+    try {
+      await updateMember({
+        workspaceId,
+        memberId: userId,
+        role: 'Member',
+        department: selectedMember?.department || 'General',
+      }).unwrap();
+      toast.success('Admin rights removed');
+      refetchPending();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to remove admin');
+    }
+  };
+
+  const handleEditRole = (member) => {
+    setSelectedMember({ ...member, workspaceId });
+    setShowUpdateModal(true);
+  };
+
   // ─── Loading state ──────────────────────────────────────────────────
   if (workspaceLoading || pendingLoading) {
     return (
@@ -487,6 +637,173 @@ const YourWorkspaceMembers = () => {
       </div>
     );
   }
+
+  // ─── useMediaQuery for mobile detection ──────────────────────────────
+  const isMobile = useMediaQuery('(max-width: 768px)');
+
+  // ─── MemberItem component ─────────────────────────────────────────────
+  const MemberItem = ({ member, isPending, user, memberId, isWorkspaceOwner, isCurrentUser, canAct }) => {
+    const [menuOpen, setMenuOpen] = useState(false);
+    const menuRef = useRef(null);
+
+    // Close menu when clicking outside
+    useEffect(() => {
+      const handleClickOutside = (event) => {
+        if (menuRef.current && !menuRef.current.contains(event.target)) {
+          setMenuOpen(false);
+        }
+      };
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const memberForAction = {
+      ...member,
+      user,
+      currentUserId: userInfo?._id,
+      workspaceOwnerId: workspace?.owner?._id,
+      role: member.role,
+    };
+
+    const handleRowClick = (e) => {
+      // Only on mobile, and not for pending or self
+      if (!isMobile) return;
+      if (isPending || isCurrentUser) return;
+      setSelectedMember(memberForAction);
+      setActionSheetOpen(true);
+    };
+
+    const toggleMenu = (e) => {
+      e.stopPropagation(); // prevent row click on mobile
+      setMenuOpen(!menuOpen);
+    };
+
+    return (
+      <div
+        className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition-colors border-b border-gray-100 dark:border-gray-800/30 last:border-0 cursor-pointer md:cursor-default"
+        onClick={handleRowClick}
+      >
+        <div className="relative flex-shrink-0">
+          {user?.profile ? (
+            <img src={user.profile} alt={user.name} className="w-10 h-10 rounded-xl object-cover" />
+          ) : (
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm"
+              style={{ backgroundColor: brandColor }}
+            >
+              {getInitials(user?.name)}
+            </div>
+          )}
+          {!isPending && member.status === 'active' && (
+            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white dark:border-[#0f0f12]" />
+          )}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center flex-wrap gap-1">
+            <p className="font-semibold text-sm text-gray-800 dark:text-gray-200 truncate">
+              {user?.name || 'Unknown'}
+              {isCurrentUser && ' (You)'}
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {isPending && (
+                <span className="text-[10px] bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 px-1.5 py-0.5 rounded-full border border-yellow-200 dark:border-yellow-700/40">
+                  Pending
+                </span>
+              )}
+              {!isPending && isWorkspaceOwner && (
+                <span className="text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-700/40">
+                  Owner
+                </span>
+              )}
+              {!isPending && member.role && (
+                <span className="text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-full border border-blue-200 dark:border-blue-700/40">
+                  {member.role}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            <span className="truncate">{user?.email || 'No email'}</span>
+            {member.department && <span className="hidden sm:inline">· {member.department}</span>}
+          </div>
+        </div>
+
+        {!isPending && canAct && (
+          <div className="relative flex-shrink-0 hidden md:block" ref={menuRef}>
+            <button
+              onClick={toggleMenu}
+              className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"
+            >
+              <FaEllipsisV className="text-xs" />
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-8 bg-white dark:bg-[#1e1e26] rounded-xl shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[180px] z-10 py-1.5">
+                <button
+                  onClick={() => {
+                    setSelectedMember({ ...member, user, workspaceId });
+                    setShowUpdateModal(true);
+                    setMenuOpen(false);
+                  }}
+                  className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 hover:text-gray-900 dark:hover:text-white transition w-full"
+                >
+                  <FaEdit className="text-xs text-teal-600 dark:text-[#0d9488]" /> Edit Role/Dept
+                </button>
+                <button
+                  onClick={() => { handleDirectMessage(user._id); setMenuOpen(false); }}
+                  className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition w-full"
+                >
+                  <FaComment className="text-xs" /> Direct Message
+                </button>
+                <button
+                  onClick={() => { handleMakeAdmin(user._id); setMenuOpen(false); }}
+                  className="flex items-center gap-3 px-4 py-2.5 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition w-full"
+                >
+                  <FaUserCog className="text-xs" /> Make Admin
+                </button>
+                <button
+                  onClick={() => { handleRemoveAdmin(user._id); setMenuOpen(false); }}
+                  className="flex items-center gap-3 px-4 py-2.5 text-sm text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-500/10 transition w-full"
+                >
+                  <FaUserCog className="text-xs" /> Remove Admin
+                </button>
+                <button
+                  onClick={() => { handleRemoveMember(user._id, user?.name); setMenuOpen(false); }}
+                  className="flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-700 dark:hover:text-red-300 transition w-full"
+                >
+                  <FaTrashAlt className="text-xs" /> Remove
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!isPending && !isCurrentUser && (
+          <div className="md:hidden flex-shrink-0 text-gray-400 dark:text-gray-500">
+            <FaChevronDown className="text-xs" />
+          </div>
+        )}
+
+        {isPending && isOwner && (
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button
+              onClick={() => handleApproveClick(user._id)}
+              className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-white rounded-full hover:opacity-80 transition"
+              style={{ backgroundColor: brandColor }}
+            >
+              <FaCheck className="text-[9px]" /> <span className="hidden xs:inline">Approve</span>
+            </button>
+            <button
+              onClick={() => handleReject(user._id)}
+              className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 rounded-full transition"
+            >
+              <FaTimes className="text-xs" />
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   // ─── Render member list ─────────────────────────────────────────────
   const renderMemberList = (list, type = 'active') => {
@@ -514,108 +831,16 @@ const YourWorkspaceMembers = () => {
       const canAct = (isOwner || isAdmin) && !isCurrentUser && !isWorkspaceOwner;
 
       return (
-        <div
+        <MemberItem
           key={memberId}
-          className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition-colors border-b border-gray-100 dark:border-gray-800/30 last:border-0"
-        >
-          {/* Avatar - smaller on mobile */}
-          <div className="relative flex-shrink-0">
-            {user?.profile ? (
-              <img src={user.profile} alt={user.name} className="w-10 h-10 rounded-xl object-cover" />
-            ) : (
-              <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm"
-                style={{ backgroundColor: brandColor }}
-              >
-                {getInitials(user?.name)}
-              </div>
-            )}
-            {!isPending && member.status === 'active' && (
-              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white dark:border-[#0f0f12]" />
-            )}
-          </div>
-
-          {/* Info - with proper truncation */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center flex-wrap gap-1">
-              <p className="font-semibold text-sm text-gray-800 dark:text-gray-200 truncate">
-                {user?.name || 'Unknown'}
-                {isCurrentUser && ' (You)'}
-              </p>
-              <div className="flex flex-wrap gap-1">
-                {isPending && (
-                  <span className="text-[10px] bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 px-1.5 py-0.5 rounded-full border border-yellow-200 dark:border-yellow-700/40">
-                    Pending
-                  </span>
-                )}
-                {!isPending && isWorkspaceOwner && (
-                  <span className="text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-700/40">
-                    Owner
-                  </span>
-                )}
-                {!isPending && member.role && (
-                  <span className="text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-full border border-blue-200 dark:border-blue-700/40">
-                    {member.role}
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              <span className="truncate">{user?.email || 'No email'}</span>
-              {member.department && <span className="hidden sm:inline">· {member.department}</span>}
-            </div>
-          </div>
-
-          {/* Actions - mobile friendly */}
-          {isPending && isOwner && (
-            <div className="flex items-center gap-1 flex-shrink-0">
-              <button
-                onClick={() => handleApproveClick(user._id)}
-                className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-white rounded-full hover:opacity-80 transition"
-                style={{ backgroundColor: brandColor }}
-              >
-                <FaCheck className="text-[9px]" /> <span className="hidden xs:inline">Approve</span>
-              </button>
-              <button
-                onClick={() => handleReject(user._id)}
-                className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 rounded-full transition"
-              >
-                <FaTimes className="text-xs" />
-              </button>
-            </div>
-          )}
-
-          {!isPending && canAct && (
-            <div className="relative flex-shrink-0">
-              <button
-                onClick={(e) => {
-                  const menu = e.currentTarget.nextSibling;
-                  menu.classList.toggle('hidden');
-                }}
-                className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"
-              >
-                <FaEllipsisV className="text-xs" />
-              </button>
-              <div className="hidden absolute right-0 top-8 bg-white dark:bg-[#1e1e26] rounded-xl shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[140px] z-10 py-1">
-                <button
-                  onClick={() => {
-                    setSelectedMember({ ...member, workspaceId });
-                    setShowUpdateModal(true);
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 hover:text-gray-900 dark:hover:text-white transition w-full"
-                >
-                  <FaEdit className="text-xs text-teal-600 dark:text-[#0d9488]" /> Edit Role/Dept
-                </button>
-                <button
-                  onClick={() => handleRemoveMember(user._id, user?.name)}
-                  className="flex items-center gap-2 px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-700 dark:hover:text-red-300 transition w-full"
-                >
-                  <FaTrashAlt className="text-xs" /> Remove
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+          member={member}
+          isPending={isPending}
+          user={user}
+          memberId={memberId}
+          isWorkspaceOwner={isWorkspaceOwner}
+          isCurrentUser={isCurrentUser}
+          canAct={canAct}
+        />
       );
     });
   };
@@ -707,7 +932,26 @@ const YourWorkspaceMembers = () => {
 
       <YourWorkspaceBottombar workspace={workspace} />
 
-      {/* ─── Modals ─── */}
+      {/* ─── Member Action Sheet (mobile) ─── */}
+      <MemberActionSheet
+        isOpen={actionSheetOpen}
+        onClose={() => {
+          setActionSheetOpen(false);
+          setSelectedMember(null);
+        }}
+        member={selectedMember}
+        canManage={isOwner || isAdmin}
+        isOwner={isOwner}
+        isAdmin={isAdmin}
+        onMakeAdmin={handleMakeAdmin}
+        onRemoveAdmin={handleRemoveAdmin}
+        onRemoveMember={handleRemoveMember}
+        onDirectMessage={handleDirectMessage}
+        onEditRole={handleEditRole}
+        brandColor={brandColor}
+      />
+
+      {/* ─── Update Member Modal ─── */}
       <UpdateMemberModal
         isOpen={showUpdateModal}
         onClose={() => {
@@ -722,6 +966,7 @@ const YourWorkspaceMembers = () => {
         }}
       />
 
+      {/* ─── Approve Member Modal ─── */}
       <ApproveMemberModal
         isOpen={showApproveModal}
         onClose={() => {
@@ -734,6 +979,7 @@ const YourWorkspaceMembers = () => {
         onSuccess={handleApproveSuccess}
       />
 
+      {/* ─── Confirm Modal ─── */}
       <ConfirmModal
         isOpen={confirmModal.isOpen}
         onConfirm={confirmModal.onConfirm || (() => {})}

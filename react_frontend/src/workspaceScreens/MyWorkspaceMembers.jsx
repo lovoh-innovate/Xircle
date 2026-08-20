@@ -1,5 +1,5 @@
 // src/workspaceScreens/MyWorkspaceMembers.jsx
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
@@ -11,6 +11,7 @@ import {
   useUpdateMemberMutation,
   useRemoveMemberMutation,
 } from '../slices/teamApiSlice';
+import { useCreateDirectChatMutation } from '../slices/messagingApiSlice';
 import MyWorkspaceSidebar from '../workspaceComponents/MyWorkspaceSidebar';
 import MyWorkspaceBottombar from '../workspaceComponents/MyWorkspaceBottombar';
 import {
@@ -25,10 +26,9 @@ import {
   FaSearch,
   FaArrowLeft,
   FaSpinner,
-  FaCrown,
   FaEllipsisV,
-  FaCircle,
   FaChevronDown,
+  FaComment,
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 
@@ -46,9 +46,9 @@ const getInitials = (name) => {
 // ─── Custom Dropdown ─────────────────────────────────────────────────────
 const CustomDropdown = ({ options, value, onChange, placeholder, label, brandColor }) => {
   const [open, setOpen] = useState(false);
-  const ref = React.useRef(null);
+  const ref = useRef(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     const handler = (e) => {
       if (ref.current && !ref.current.contains(e.target)) setOpen(false);
     };
@@ -111,8 +111,91 @@ const ConfirmModal = ({ isOpen, onConfirm, onCancel, title, message, confirmLabe
   );
 };
 
+// ─── Member Action Bottom Sheet (mobile) ──────────────────────────────
+const MemberActionSheet = ({ isOpen, onClose, member, canManage, isOwner, onMakeAdmin, onRemoveAdmin, onRemoveMember, onDirectMessage, onEditRole, brandColor }) => {
+  if (!isOpen || !member) return null;
+  const user = member.user || {};
+  const memberName = user.name || 'Unknown';
+  const isSelf = user._id === member.currentUserId;
+  const isWorkspaceOwner = user._id === member.workspaceOwnerId;
+
+  const showMakeAdmin = canManage && member.role !== 'admin' && !isSelf && !isWorkspaceOwner;
+  const showRemoveAdmin = canManage && member.role === 'admin' && !isSelf && !isWorkspaceOwner;
+  const showRemoveMember = canManage && !isSelf && !isWorkspaceOwner;
+  const showEditRole = canManage && !isSelf && !isWorkspaceOwner;
+  const showDirectMessage = !isSelf;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 dark:bg-black/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-[#14141a] rounded-t-2xl w-full max-w-md p-5"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxHeight: '70vh', overflowY: 'auto' }}
+      >
+        <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-200 dark:border-gray-700/60">
+          <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-gray-600 dark:text-gray-300 text-sm font-medium">
+            {memberName.charAt(0).toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{memberName}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{member.role === 'admin' ? 'Admin' : 'Member'}</p>
+          </div>
+        </div>
+        <div className="space-y-1">
+          {showDirectMessage && (
+            <button
+              onClick={() => { onClose(); onDirectMessage(user._id); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+            >
+              <FaComment className="text-sm" /> <span className="text-sm font-medium">Direct Message</span>
+            </button>
+          )}
+          {showEditRole && (
+            <button
+              onClick={() => { onClose(); onEditRole(member); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition"
+            >
+              <FaEdit className="text-sm" /> <span className="text-sm font-medium">Edit Role/Dept</span>
+            </button>
+          )}
+          {showMakeAdmin && (
+            <button
+              onClick={() => { onClose(); onMakeAdmin(user._id); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition"
+            >
+              <FaUserCog className="text-sm" /> <span className="text-sm font-medium">Make Admin</span>
+            </button>
+          )}
+          {showRemoveAdmin && (
+            <button
+              onClick={() => { onClose(); onRemoveAdmin(user._id); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-500/10 transition"
+            >
+              <FaUserCog className="text-sm" /> <span className="text-sm font-medium">Remove Admin</span>
+            </button>
+          )}
+          {showRemoveMember && (
+            <button
+              onClick={() => { onClose(); onRemoveMember(user._id); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition"
+            >
+              <FaTrashAlt className="text-sm" /> <span className="text-sm font-medium">Remove Member</span>
+            </button>
+          )}
+        </div>
+        <button onClick={onClose} className="w-full mt-3 py-3 text-center text-sm font-medium text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700/60 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+};
+
 // ─── Search Members Modal ──────────────────────────────────────────────
-const SearchMembersModal = ({ isOpen, onClose, members, brandColor, workspaceId, userInfo }) => {
+const SearchMembersModal = ({ isOpen, onClose, members, brandColor }) => {
   const [query, setQuery] = useState('');
 
   if (!isOpen) return null;
@@ -126,12 +209,12 @@ const SearchMembersModal = ({ isOpen, onClose, members, brandColor, workspaceId,
   });
 
   return (
-    <div className="fixed inset-0 z-50 bg-white dark:bg-[#0b0b10]/90 backdrop-blur-xl flex flex-col">
-      <div className="flex items-center gap-3 px-4 h-16 border-b border-gray-200/60 dark:border-gray-800/60 bg-gray-50 dark:bg-[#14141a]/80">
-        <button onClick={onClose} className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition">
-          <FaArrowLeft />
+    <div className="fixed inset-0 z-50 bg-white dark:bg-[#0b0b10] flex flex-col">
+      <div className="flex items-center gap-2 px-3 h-14 border-b border-gray-200/60 dark:border-gray-800/60 bg-gray-50/80 dark:bg-[#14141a]/80 backdrop-blur-sm flex-shrink-0">
+        <button onClick={onClose} className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition">
+          <FaArrowLeft className="text-sm" />
         </button>
-        <div className="flex-1 bg-gray-100 dark:bg-[#1e1e26] rounded-2xl px-4 py-2 flex items-center gap-3 border border-gray-200 dark:border-gray-800/40 focus-within:border-teal-500 dark:focus-within:border-[#0d9488]/50 transition">
+        <div className="flex-1 bg-gray-100 dark:bg-[#1e1e26] rounded-2xl px-3 py-1.5 flex items-center gap-2 border border-gray-200 dark:border-gray-800/40 focus-within:border-teal-500 dark:focus-within:border-[#0d9488]/50 transition">
           <FaSearch className="text-gray-400 dark:text-gray-500 text-xs" />
           <input
             type="text"
@@ -148,7 +231,7 @@ const SearchMembersModal = ({ isOpen, onClose, members, brandColor, workspaceId,
           )}
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto p-3">
         {!query && (
           <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
             <FaSearch className="text-5xl mb-3 opacity-20" />
@@ -161,35 +244,35 @@ const SearchMembersModal = ({ isOpen, onClose, members, brandColor, workspaceId,
           </div>
         )}
         {query && filtered.length > 0 && (
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             {filtered.map((member) => {
               const user = member.user || member;
               const isOnline = member.status === 'active';
               return (
                 <div
                   key={user._id}
-                  className="flex items-center gap-4 px-4 py-3 bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/40 hover:border-teal-500 dark:hover:border-[#0d9488]/40 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition cursor-pointer group"
+                  className="flex items-center gap-3 px-3 py-2.5 bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/40 hover:border-teal-500 dark:hover:border-[#0d9488]/40 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition cursor-pointer group"
                 >
                   <div className="relative flex-shrink-0">
                     {user?.profile ? (
-                      <img src={user.profile} alt={user.name} className="w-12 h-12 rounded-2xl object-cover" />
+                      <img src={user.profile} alt={user.name} className="w-10 h-10 rounded-xl object-cover" />
                     ) : (
                       <div
-                        className="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-bold text-lg"
+                        className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm"
                         style={{ backgroundColor: brandColor }}
                       >
                         {getInitials(user.name)}
                       </div>
                     )}
                     {isOnline && (
-                      <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white dark:border-[#0b0b10]" />
+                      <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white dark:border-[#0b0b10]" />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
+                    <p className="font-medium text-gray-800 dark:text-gray-200 truncate">
                       {user?.name || 'Unknown'}
                     </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-500">{user?.email || 'No email'}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{user?.email || 'No email'}</p>
                   </div>
                 </div>
               );
@@ -387,8 +470,8 @@ const MyWorkspaceMembers = () => {
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [approveMemberId, setApproveMemberId] = useState(null);
+  const [actionSheetOpen, setActionSheetOpen] = useState(false);
 
-  // Confirm modal state
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null, confirmLabel: 'Confirm' });
 
   const { data: workspaceData, isLoading: workspaceLoading, error: workspaceError } = useGetWorkspaceQuery(workspaceId);
@@ -397,6 +480,8 @@ const MyWorkspaceMembers = () => {
 
   const [rejectMember] = useRejectMemberMutation();
   const [removeMember] = useRemoveMemberMutation();
+  const [updateMember] = useUpdateMemberMutation();
+  const [createDirectChat] = useCreateDirectChatMutation();
 
   const handleReject = async (memberId) => {
     setConfirmModal({
@@ -448,6 +533,51 @@ const MyWorkspaceMembers = () => {
     refetchPending();
   };
 
+  const handleDirectMessage = async (userId) => {
+    if (!userId) return;
+    try {
+      const result = await createDirectChat({ workspaceId, targetUserId: userId }).unwrap();
+      navigate(`/workspace/${workspaceId}/chat/${result.chat._id}`);
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to start direct chat');
+    }
+  };
+
+  const handleMakeAdmin = async (userId) => {
+    try {
+      await updateMember({
+        workspaceId,
+        memberId: userId,
+        role: 'Admin',
+        department: selectedMember?.department || 'General',
+      }).unwrap();
+      toast.success('Member promoted to Admin');
+      refetchMembers();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to make admin');
+    }
+  };
+
+  const handleRemoveAdmin = async (userId) => {
+    try {
+      await updateMember({
+        workspaceId,
+        memberId: userId,
+        role: 'Member',
+        department: selectedMember?.department || 'General',
+      }).unwrap();
+      toast.success('Admin rights removed');
+      refetchMembers();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to remove admin');
+    }
+  };
+
+  const handleEditRole = (member) => {
+    setSelectedMember({ ...member, workspaceId });
+    setShowUpdateModal(true);
+  };
+
   if (workspaceLoading || membersLoading || pendingLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
@@ -473,10 +603,172 @@ const MyWorkspaceMembers = () => {
   const isOwner = workspace?.owner?._id === userInfo?._id || workspace?.owner === userInfo?._id;
   const brandColor = workspace?.color || '#0d9488';
 
+  // ─── MemberItem component for each row ──────────────────────────────
+  const MemberItem = ({ member, isPending, user, memberId, isWorkspaceOwner, isCurrentUser, canAct }) => {
+    const [menuOpen, setMenuOpen] = useState(false);
+    const menuRef = useRef(null);
+
+    // Close menu when clicking outside
+    useEffect(() => {
+      const handleClickOutside = (event) => {
+        if (menuRef.current && !menuRef.current.contains(event.target)) {
+          setMenuOpen(false);
+        }
+      };
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const memberForAction = {
+      ...member,
+      user,
+      currentUserId: userInfo?._id,
+      workspaceOwnerId: workspace?.owner?._id,
+      role: member.role,
+    };
+
+    const handleRowClick = () => {
+      if (isPending || isCurrentUser) return;
+      setSelectedMember(memberForAction);
+      setActionSheetOpen(true);
+    };
+
+    const toggleMenu = (e) => {
+      e.stopPropagation();
+      setMenuOpen(!menuOpen);
+    };
+
+    return (
+      <div className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition-colors border-b border-gray-100 dark:border-gray-800/30 last:border-0">
+        <div className="relative flex-shrink-0">
+          {user?.profile ? (
+            <img src={user.profile} alt={user.name} className="w-10 h-10 rounded-xl object-cover" />
+          ) : (
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm"
+              style={{ backgroundColor: brandColor }}
+            >
+              {getInitials(user?.name)}
+            </div>
+          )}
+          {!isPending && member.status === 'active' && (
+            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white dark:border-[#0f0f12]" />
+          )}
+        </div>
+
+        <div
+          className="flex-1 min-w-0 cursor-pointer md:cursor-default"
+          onClick={window.innerWidth < 768 ? handleRowClick : undefined}
+        >
+          <div className="flex items-center flex-wrap gap-1">
+            <p className="font-semibold text-sm text-gray-800 dark:text-gray-200 truncate">
+              {user?.name || 'Unknown'}
+              {isCurrentUser && ' (You)'}
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {isPending && (
+                <span className="text-[10px] bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 px-1.5 py-0.5 rounded-full border border-yellow-200 dark:border-yellow-700/40">
+                  Pending
+                </span>
+              )}
+              {!isPending && isWorkspaceOwner && (
+                <span className="text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-700/40">
+                  Owner
+                </span>
+              )}
+              {!isPending && member.role && (
+                <span className="text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-full border border-blue-200 dark:border-blue-700/40">
+                  {member.role}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            <span className="truncate">{user?.email || 'No email'}</span>
+            {member.department && <span className="hidden sm:inline">· {member.department}</span>}
+          </div>
+        </div>
+
+        {!isPending && canAct && (
+          <div className="relative flex-shrink-0 hidden md:block" ref={menuRef}>
+            <button
+              onClick={toggleMenu}
+              className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"
+            >
+              <FaEllipsisV className="text-xs" />
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-8 bg-white dark:bg-[#1e1e26] rounded-xl shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[180px] z-10 py-1.5">
+                <button
+                  onClick={() => {
+                    setSelectedMember({ ...member, workspaceId });
+                    setShowUpdateModal(true);
+                    setMenuOpen(false);
+                  }}
+                  className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 hover:text-gray-900 dark:hover:text-white transition w-full"
+                >
+                  <FaEdit className="text-xs text-teal-600 dark:text-[#0d9488]" /> Edit Role/Dept
+                </button>
+                <button
+                  onClick={() => { handleDirectMessage(user._id); setMenuOpen(false); }}
+                  className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition w-full"
+                >
+                  <FaComment className="text-xs" /> Direct Message
+                </button>
+                <button
+                  onClick={() => { handleMakeAdmin(user._id); setMenuOpen(false); }}
+                  className="flex items-center gap-3 px-4 py-2.5 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition w-full"
+                >
+                  <FaUserCog className="text-xs" /> Make Admin
+                </button>
+                <button
+                  onClick={() => { handleRemoveAdmin(user._id); setMenuOpen(false); }}
+                  className="flex items-center gap-3 px-4 py-2.5 text-sm text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-500/10 transition w-full"
+                >
+                  <FaUserCog className="text-xs" /> Remove Admin
+                </button>
+                <button
+                  onClick={() => { handleRemoveMember(user._id, user?.name); setMenuOpen(false); }}
+                  className="flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-700 dark:hover:text-red-300 transition w-full"
+                >
+                  <FaTrashAlt className="text-xs" /> Remove
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!isPending && !isCurrentUser && isOwner && (
+          <div className="md:hidden flex-shrink-0 text-gray-400 dark:text-gray-500">
+            <FaChevronDown className="text-xs" />
+          </div>
+        )}
+
+        {isPending && isOwner && (
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button
+              onClick={() => handleApproveClick(user._id)}
+              className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-white rounded-full hover:opacity-80 transition"
+              style={{ backgroundColor: brandColor }}
+            >
+              <FaCheck className="text-[9px]" /> <span className="hidden xs:inline">Approve</span>
+            </button>
+            <button
+              onClick={() => handleReject(user._id)}
+              className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 rounded-full transition"
+            >
+              <FaTimes className="text-xs" />
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderMemberList = (list, type = 'active') => {
     if (list.length === 0) {
       return (
-        <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-500">
+        <div className="flex flex-col items-center justify-center py-12 text-gray-400 dark:text-gray-500">
           <FaUsers className="text-4xl mb-2 opacity-30" />
           <p className="text-sm">{type === 'active' ? 'No members found' : 'No pending requests'}</p>
         </div>
@@ -489,149 +781,60 @@ const MyWorkspaceMembers = () => {
       const isPending = type === 'pending';
       const memberId = user._id || item._id;
       const isWorkspaceOwner = user._id === workspace?.owner?._id;
+      const isCurrentUser = user._id === userInfo?._id;
+
+      const canAct = isOwner && !isCurrentUser && !isWorkspaceOwner;
 
       return (
-        <div
+        <MemberItem
           key={memberId}
-          className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition-colors border-b border-gray-100 dark:border-gray-800/30 last:border-0"
-        >
-          {/* Avatar */}
-          <div className="relative flex-shrink-0">
-            {user?.profile ? (
-              <img src={user.profile} alt={user.name} className="w-12 h-12 rounded-2xl object-cover" />
-            ) : (
-              <div
-                className="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-bold text-lg"
-                style={{ backgroundColor: brandColor }}
-              >
-                {getInitials(user?.name)}
-              </div>
-            )}
-            {!isPending && member.status === 'active' && (
-              <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white dark:border-[#0f0f12]" />
-            )}
-          </div>
-
-          {/* Info */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="font-semibold text-gray-800 dark:text-gray-200 truncate">
-                {user?.name || 'Unknown'}
-              </p>
-              {isPending && (
-                <span className="text-xs bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 px-2 py-0.5 rounded-full border border-yellow-200 dark:border-yellow-700/40">
-                  Pending
-                </span>
-              )}
-              {!isPending && isWorkspaceOwner && (
-                <span className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-700/40">
-                  Owner
-                </span>
-              )}
-              {!isPending && member.role && (
-                <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full border border-blue-200 dark:border-blue-700/40">
-                  {member.role}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-              <span>{user?.email || 'No email'}</span>
-              {member.department && <span>· {member.department}</span>}
-            </div>
-          </div>
-
-          {/* Actions */}
-          {isPending && isOwner && (
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <button
-                onClick={() => handleApproveClick(user._id)}
-                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white rounded-full hover:opacity-80 transition"
-                style={{ backgroundColor: brandColor }}
-              >
-                <FaCheck className="text-xs" /> Approve
-              </button>
-              <button
-                onClick={() => handleReject(user._id)}
-                className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 rounded-full transition"
-              >
-                <FaTimes className="text-xs" />
-              </button>
-            </div>
-          )}
-
-          {!isPending && isOwner && !isWorkspaceOwner && (
-            <div className="relative">
-              <button
-                onClick={(e) => {
-                  const menu = e.currentTarget.nextSibling;
-                  menu.classList.toggle('hidden');
-                }}
-                className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"
-              >
-                <FaEllipsisV className="text-xs" />
-              </button>
-              <div className="hidden absolute right-0 top-10 bg-white dark:bg-[#1e1e26] rounded-xl shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[160px] z-10 py-1">
-                <button
-                  onClick={() => {
-                    setSelectedMember({ ...member, workspaceId });
-                    setShowUpdateModal(true);
-                  }}
-                  className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 hover:text-gray-900 dark:hover:text-white transition w-full"
-                >
-                  <FaEdit className="text-xs text-teal-600 dark:text-[#0d9488]" /> Edit Role/Dept
-                </button>
-                <button
-                  onClick={() => handleRemoveMember(user._id, user?.name)}
-                  className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-700 dark:hover:text-red-300 transition w-full"
-                >
-                  <FaTrashAlt className="text-xs" /> Remove
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+          member={member}
+          isPending={isPending}
+          user={user}
+          memberId={memberId}
+          isWorkspaceOwner={isWorkspaceOwner}
+          isCurrentUser={isCurrentUser}
+          canAct={canAct}
+        />
       );
     });
   };
 
+  // ─── Render ──────────────────────────────────────────────────────────
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
-      {/* ── Search Members Modal ── */}
       <SearchMembersModal
         isOpen={searchOpen}
         onClose={() => setSearchOpen(false)}
         members={members}
         brandColor={brandColor}
-        workspaceId={workspaceId}
-        userInfo={userInfo}
       />
 
-      {/* Desktop Sidebar */}
       <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
         <MyWorkspaceSidebar workspace={workspace} chats={[]} />
       </div>
 
-      {/* Main content area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Header */}
-        <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
-          <div className="flex items-center justify-between px-4 h-14">
-            <div className="flex items-center gap-3 min-w-0">
+        <header className="sticky top-0 z-10 bg-white/95 dark:bg-[#0f0f12]/95 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
+          <div className="flex items-center justify-between px-3 sm:px-4 h-12 sm:h-14">
+            <div className="flex items-center gap-2 min-w-0">
               <button
                 onClick={() => navigate(`/my-workspace/${workspaceId}`)}
-                className="p-1 lg:hidden text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
+                className="p-1.5 lg:hidden text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
               >
-                <FaArrowLeft />
+                <FaArrowLeft className="text-sm" />
               </button>
-              <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Members</h1>
-              <span className="text-xs font-normal text-gray-500 dark:text-gray-500 bg-gray-100 dark:bg-[#1a1a24] px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-800/40">
+              <h1 className="text-base sm:text-lg font-semibold text-gray-800 dark:text-gray-100 truncate">
+                Members
+              </h1>
+              <span className="text-xs font-normal text-gray-500 dark:text-gray-500 bg-gray-100 dark:bg-[#1a1a24] px-1.5 py-0.5 rounded-full border border-gray-200 dark:border-gray-800/40 flex-shrink-0">
                 {members.length}
               </span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 sm:gap-2">
               <button
                 onClick={() => setSearchOpen(true)}
-                className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
+                className="p-2 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
               >
                 <FaSearch className="text-sm" />
               </button>
@@ -641,17 +844,16 @@ const MyWorkspaceMembers = () => {
                   className="text-xs text-white font-medium px-2 py-1 rounded-full flex items-center gap-1"
                   style={{ backgroundColor: brandColor }}
                 >
-                  <FaUserPlus className="text-xs" /> {pendingRequests.length}
+                  <FaUserPlus className="text-[10px]" /> {pendingRequests.length}
                 </button>
               )}
             </div>
           </div>
 
-          {/* Tabs */}
-          <div className="flex gap-6 px-4 border-t border-gray-200/60 dark:border-gray-800/30">
+          <div className="flex gap-4 px-3 sm:px-4 border-t border-gray-200/60 dark:border-gray-800/30">
             <button
               onClick={() => setActiveTab('active')}
-              className={`pb-2 text-sm font-medium transition ${
+              className={`pb-2 text-xs sm:text-sm font-medium transition ${
                 activeTab === 'active'
                   ? 'border-b-2 border-teal-600 dark:border-[#0d9488] text-teal-600 dark:text-[#0d9488]'
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
@@ -662,7 +864,7 @@ const MyWorkspaceMembers = () => {
             {isOwner && (
               <button
                 onClick={() => setActiveTab('pending')}
-                className={`pb-2 text-sm font-medium transition ${
+                className={`pb-2 text-xs sm:text-sm font-medium transition ${
                   activeTab === 'pending'
                     ? 'border-b-2 border-teal-600 dark:border-[#0d9488] text-teal-600 dark:text-[#0d9488]'
                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
@@ -674,17 +876,31 @@ const MyWorkspaceMembers = () => {
           </div>
         </header>
 
-        {/* Member List */}
         <div className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12] divide-y divide-gray-100 dark:divide-gray-800/30">
           {activeTab === 'active' && renderMemberList(members, 'active')}
           {activeTab === 'pending' && isOwner && renderMemberList(pendingRequests, 'pending')}
         </div>
       </div>
 
-      {/* Bottom Navigation (mobile) */}
       <MyWorkspaceBottombar workspace={workspace} />
 
-      {/* Update Member Modal */}
+      <MemberActionSheet
+        isOpen={actionSheetOpen}
+        onClose={() => {
+          setActionSheetOpen(false);
+          setSelectedMember(null);
+        }}
+        member={selectedMember}
+        canManage={isOwner}
+        isOwner={isOwner}
+        onMakeAdmin={handleMakeAdmin}
+        onRemoveAdmin={handleRemoveAdmin}
+        onRemoveMember={handleRemoveMember}
+        onDirectMessage={handleDirectMessage}
+        onEditRole={handleEditRole}
+        brandColor={brandColor}
+      />
+
       <UpdateMemberModal
         isOpen={showUpdateModal}
         onClose={() => {
@@ -700,7 +916,6 @@ const MyWorkspaceMembers = () => {
         }}
       />
 
-      {/* Approve Member Modal */}
       <ApproveMemberModal
         isOpen={showApproveModal}
         onClose={() => {
@@ -713,7 +928,6 @@ const MyWorkspaceMembers = () => {
         onSuccess={handleApproveSuccess}
       />
 
-      {/* Confirm Modal */}
       <ConfirmModal
         isOpen={confirmModal.isOpen}
         onConfirm={confirmModal.onConfirm || (() => {})}
