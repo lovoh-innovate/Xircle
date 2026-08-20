@@ -31,8 +31,6 @@ import GeneralBottombar from '../components/GeneralBottombar';
 const CHATS_QUERY_ARG = { archived: false };
 
 // ─── Helper: deduplicate direct chats by participant pair ──────────
-// (the same user can have two separate direct chats in different
-// workspaces, so we include workspaceId in the dedupe key)
 const deduplicateDirectChats = (chats, userId) => {
   const directMap = new Map();
   for (const chat of chats) {
@@ -281,44 +279,44 @@ const DirectChatItem = ({ chat, userId, onNavigate, workspaceName, workspaceId, 
   return (
     <div
       onClick={handleClick}
-      className="flex items-center gap-4 px-4 py-3 hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors cursor-pointer"
+      className="flex items-center gap-3 px-3 py-2.5 md:gap-4 md:px-4 md:py-3 hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors cursor-pointer"
     >
       {avatar ? (
         <img
           src={avatar}
           alt={displayName}
-          className="w-12 h-12 rounded-full object-cover flex-shrink-0"
+          className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover flex-shrink-0"
         />
       ) : (
-        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-teal-400 to-cyan-400 flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
+        <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-gradient-to-br from-teal-400 to-cyan-400 flex items-center justify-center text-white font-bold text-base md:text-lg flex-shrink-0">
           {displayName.charAt(0).toUpperCase()}
         </div>
       )}
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 min-w-0">
-            <p className="font-semibold text-gray-800 dark:text-white truncate">
+          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+            <p className="font-semibold text-sm md:text-base text-gray-800 dark:text-white truncate max-w-[100px] sm:max-w-[200px]">
               {displayName}
             </p>
             {workspaceName && (
-              <span className="flex-shrink-0 text-xs bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-full">
+              <span className="flex-shrink-0 text-[10px] bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-0.5 rounded-full truncate max-w-[80px]">
                 {workspaceName}
               </span>
             )}
           </div>
           {lastMessageTime && (
-            <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0 ml-2">
+            <span className="text-[10px] md:text-xs text-gray-400 dark:text-gray-500 flex-shrink-0 ml-1.5">
               {lastMessageTime}
             </span>
           )}
         </div>
         <div className="flex items-center justify-between mt-0.5">
-          <p className="text-sm text-gray-500 dark:text-gray-400 truncate flex-1">
+          <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 truncate flex-1">
             {lastMessageText}
           </p>
           {unreadCount > 0 && (
-            <span className="ml-2 bg-teal-500 text-white text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0">
+            <span className="ml-1.5 bg-teal-500 text-white text-[10px] md:text-xs font-medium px-1.5 py-0.5 rounded-full flex-shrink-0">
               {unreadCount}
             </span>
           )}
@@ -334,10 +332,14 @@ const WorkspaceGroupSection = ({ workspaceId, workspaceName, chats, userId, onNa
 
   return (
     <div className="mb-4">
-      <div className="px-4 py-2 bg-gray-50 dark:bg-[#1a1a1a] border-b border-gray-200 dark:border-gray-800 flex items-center gap-2 sticky top-0 z-10">
-        <FaBuilding className="text-teal-500" />
-        <span className="font-semibold text-gray-700 dark:text-gray-300">{workspaceName || 'Workspace'}</span>
-        <span className="text-xs text-gray-400 ml-auto">{chats.length} chat{chats.length > 1 ? 's' : ''}</span>
+      <div className="px-3 md:px-4 py-2 bg-gray-50 dark:bg-[#1a1a1a] border-b border-gray-200 dark:border-gray-800 flex items-center gap-2 sticky top-0 z-10">
+        <FaBuilding className="text-teal-500 flex-shrink-0" />
+        <span className="font-semibold text-gray-700 dark:text-gray-300 truncate flex-1 min-w-0">
+          {workspaceName || 'Workspace'}
+        </span>
+        <span className="text-xs text-gray-400 flex-shrink-0 ml-auto">
+          {chats.length} chat{chats.length > 1 ? 's' : ''}
+        </span>
       </div>
       {chats.map((chat) => (
         <DirectChatItem
@@ -360,14 +362,13 @@ const GeneralChats = () => {
   const dispatch = useDispatch();
   const { userInfo } = useSelector((state) => state.auth);
   const userId = userInfo?._id;
-  const ownedWorkspaces = userInfo?.ownedWorkspaces || []; // array of workspace IDs owned by user
+  const ownedWorkspaces = userInfo?.ownedWorkspaces || [];
   const { socket, isConnected } = useSocket();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('public');
   const [showNewChat, setShowNewChat] = useState(false);
 
-  // ─── Fetch workspaces ──────────────────────────────────────────
   const { data: workspacesData, isLoading: workspacesLoading } = useGetMyWorkspacesQuery();
 
   const workspaceNameMap = useMemo(() => {
@@ -381,7 +382,6 @@ const GeneralChats = () => {
     return map;
   }, [workspacesData]);
 
-  // ─── Chat query ────────────────────────────────────────────────
   const {
     data: chatsData,
     isLoading: chatsLoading,
@@ -392,7 +392,6 @@ const GeneralChats = () => {
     refetchOnReconnect: true,
   });
 
-  // ─── Cache patch helpers ──────────────────────────────────────
   const patchChatInCache = useCallback(
     (chatId, patch) => {
       dispatch(
@@ -434,7 +433,6 @@ const GeneralChats = () => {
     [dispatch]
   );
 
-  // ─── Socket listeners ────────────────────────────────────────
   useEffect(() => {
     if (!socket) return;
 
@@ -458,7 +456,6 @@ const GeneralChats = () => {
     if (isConnected) refetchChats();
   }, [isConnected, refetchChats]);
 
-  // ─── Filter and deduplicate chats ─────────────────────────────
   const publicChats = useMemo(() => {
     if (!chatsData?.chats) return [];
     const raw = chatsData.chats.filter(
@@ -472,10 +469,9 @@ const GeneralChats = () => {
     const raw = chatsData.chats.filter(
       (chat) => chat.scope === 'workspace' && chat.type === 'direct'
     );
-    return raw; // will be grouped and deduplicated per group
+    return raw;
   }, [chatsData]);
 
-  // ─── Group workspace chats by workspace ──────────────────────
   const workspaceGroups = useMemo(() => {
     const groups = {};
     for (const chat of workspaceChats) {
@@ -497,7 +493,6 @@ const GeneralChats = () => {
     return result.filter((group) => group.chats.length > 0);
   }, [workspaceChats, workspaceNameMap, userId, ownedWorkspaces]);
 
-  // ─── Apply search filter ──────────────────────────────────────
   const filterBySearch = (chat) => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase().trim();
@@ -522,7 +517,6 @@ const GeneralChats = () => {
       .filter((group) => group.chats.length > 0);
   }, [workspaceGroups, searchQuery]);
 
-  // ─── Handlers ──────────────────────────────────────────────────
   const handleNavigate = (route) => {
     navigate(route);
   };
@@ -535,7 +529,6 @@ const GeneralChats = () => {
     </div>
   );
 
-  // ─── Tabs configuration ──────────────────────────────────────
   const tabs = [
     { id: 'public', label: 'Public', icon: FaGlobe },
     { id: 'workspace', label: 'Workspace', icon: FaBuilding },
@@ -562,7 +555,6 @@ const GeneralChats = () => {
         </div>
 
         <div className="flex-1 flex flex-col h-screen md:h-auto md:min-h-screen relative overflow-hidden">
-          {/* ─── Fixed Header ────────────────────────────────────── */}
           <header className="bg-white dark:bg-[#0f0f12] border-b border-gray-200 dark:border-gray-800 flex-shrink-0 z-10">
             <div className="px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
               <h1 className="text-lg font-semibold text-gray-800 dark:text-white whitespace-nowrap">
@@ -583,7 +575,6 @@ const GeneralChats = () => {
             </div>
           </header>
 
-          {/* ─── Tab Bar ────────────────────────────────────────── */}
           <div className="flex bg-gray-50 dark:bg-[#1a1a1a] border-b border-gray-200 dark:border-gray-800 flex-shrink-0 overflow-hidden">
             {tabs.map(({ id, label, icon: Icon }) => (
               <button
@@ -607,7 +598,6 @@ const GeneralChats = () => {
             ))}
           </div>
 
-          {/* ─── Content ────────────────────────────────────────── */}
           <main className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12]">
             {activeTab === 'public' && (
               <div className="divide-y divide-gray-100 dark:divide-gray-800">

@@ -425,19 +425,19 @@ const ChannelCard = ({
   let actionButton = null;
   if (status === 'joined') {
     actionButton = (
-      <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400">
+      <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400 flex-shrink-0">
         <FaCheckCircle className="text-xs" /> Joined
       </span>
     );
   } else if (status === 'pending') {
     actionButton = (
-      <span className="inline-flex items-center gap-1 text-xs font-medium text-yellow-600 dark:text-yellow-400">
+      <span className="inline-flex items-center gap-1 text-xs font-medium text-yellow-600 dark:text-yellow-400 flex-shrink-0">
         <FaClock className="text-xs" /> Awaiting approval
       </span>
     );
   } else if (status === 'my') {
     actionButton = (
-      <span className="inline-flex items-center gap-1 text-xs font-medium text-teal-600 dark:text-teal-400">
+      <span className="inline-flex items-center gap-1 text-xs font-medium text-teal-600 dark:text-teal-400 flex-shrink-0">
         <FaCheckCircle className="text-xs" /> Created
       </span>
     );
@@ -448,7 +448,7 @@ const ChannelCard = ({
           e.stopPropagation();
           onJoin(channel._id);
         }}
-        className="inline-flex items-center gap-1 px-3 py-1 text-xs font-medium text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/30 rounded-full hover:bg-teal-100 dark:hover:bg-teal-900/50 transition"
+        className="inline-flex items-center gap-1 px-3 py-1 text-xs font-medium text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/30 rounded-full hover:bg-teal-100 dark:hover:bg-teal-900/50 transition flex-shrink-0"
       >
         <FaUserPlus className="text-xs" /> Join
       </button>
@@ -515,13 +515,13 @@ const ChannelCard = ({
 
   return (
     <div
-      className={`flex items-center gap-4 px-4 py-3 hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors relative ${status === 'pending' ? 'opacity-70 cursor-default' : 'cursor-pointer'}`}
+      className={`flex items-center gap-3 px-3 py-2.5 md:gap-4 md:px-4 md:py-3 hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors relative ${status === 'pending' ? 'opacity-70 cursor-default' : 'cursor-pointer'}`}
       onClick={handleCardClick}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
-      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-cyan-400 to-purple-400 flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
+      <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-gradient-to-br from-cyan-400 to-purple-400 flex items-center justify-center text-white font-bold text-sm md:text-lg flex-shrink-0">
         {channel.avatar ? (
           <img
             src={channel.avatar}
@@ -534,33 +534,33 @@ const ChannelCard = ({
       </div>
 
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="font-semibold text-gray-800 dark:text-white truncate">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <p className="font-semibold text-sm md:text-base text-gray-800 dark:text-white truncate max-w-[120px] sm:max-w-[200px]">
             {name}
           </p>
           {channel.isPublic && (
             <span className="flex-shrink-0 text-xs text-gray-400">🌐</span>
           )}
           {workspaceName && (
-            <span className="flex-shrink-0 text-xs bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-full">
+            <span className="flex-shrink-0 text-[10px] bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-0.5 rounded-full truncate max-w-[80px]">
               {workspaceName}
             </span>
           )}
         </div>
         {description && (
-          <p className="text-sm text-gray-500 dark:text-gray-400 truncate mt-0.5">
+          <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5 max-w-[180px] sm:max-w-full">
             {description}
           </p>
         )}
-        <div className="flex items-center gap-3 text-xs text-gray-400 mt-0.5">
+        <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
           <span className="flex items-center gap-1">
-            <FaUsers className="text-teal-500 dark:text-teal-400 text-xs" />
-            {memberCount} {memberCount === 1 ? 'member' : 'members'}
+            <FaUsers className="text-teal-500 dark:text-teal-400 text-xs flex-shrink-0" />
+            <span className="truncate">{memberCount} {memberCount === 1 ? 'member' : 'members'}</span>
           </span>
         </div>
       </div>
 
-      <div className="flex-shrink-0 flex items-center gap-2">
+      <div className="flex-shrink-0 flex items-center gap-1 md:gap-2">
         {actionButton}
         {isCreator && (
           // Three-dot menu – only visible on desktop (md and up)
@@ -609,10 +609,14 @@ const WorkspaceGroupSection = ({ workspaceId, workspaceName, channels, userInfo,
 
   return (
     <div className="mb-4">
-      <div className="px-4 py-2 bg-gray-50 dark:bg-[#1a1a1a] border-b border-gray-200 dark:border-gray-800 flex items-center gap-2 sticky top-0 z-10">
-        <FaBuilding className="text-teal-500" />
-        <span className="font-semibold text-gray-700 dark:text-gray-300">{workspaceName || 'Workspace'}</span>
-        <span className="text-xs text-gray-400 ml-auto">{filtered.length} channel{filtered.length > 1 ? 's' : ''}</span>
+      <div className="px-3 md:px-4 py-2 bg-gray-50 dark:bg-[#1a1a1a] border-b border-gray-200 dark:border-gray-800 flex items-center gap-2 sticky top-0 z-10">
+        <FaBuilding className="text-teal-500 flex-shrink-0" />
+        <span className="font-semibold text-gray-700 dark:text-gray-300 truncate flex-1 min-w-0">
+          {workspaceName || 'Workspace'}
+        </span>
+        <span className="text-xs text-gray-400 flex-shrink-0 ml-auto">
+          {filtered.length} channel{filtered.length > 1 ? 's' : ''}
+        </span>
       </div>
       {filtered.map((channel) => (
         <ChannelCard
@@ -799,11 +803,11 @@ const GeneralChannels = () => {
 
   // ─── Tab configuration ─────────────────────────────────────────
   const tabs = [
-  { id: 'all', label: 'All', icon: FiRadio },      // 👈 double circle icon
-  { id: 'my', label: 'My', icon: FaUser },
-  { id: 'joined', label: 'Joined', icon: FaCheckCircle },
-  { id: 'workspace', label: 'Workspace', icon: FaBuilding },
-];
+    { id: 'all', label: 'All', icon: FiRadio },
+    { id: 'my', label: 'My', icon: FaUser },
+    { id: 'joined', label: 'Joined', icon: FaCheckCircle },
+    { id: 'workspace', label: 'Workspace', icon: FaBuilding },
+  ];
 
   // ─── Filter by search term ─────────────────────────────────────
   const filterByName = (channel) =>
@@ -820,13 +824,11 @@ const GeneralChannels = () => {
         <div className="flex-1 flex flex-col h-screen md:h-auto md:min-h-screen relative overflow-hidden">
           {/* ─── Fixed Header ──────────────────────────────────────── */}
           <header className="bg-white dark:bg-[#0f0f12] border-b border-gray-200 dark:border-gray-800 flex-shrink-0 z-10">
-            {/* Desktop row: Channels + Search + Discover */}
             <div className="px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
               <div className="flex items-center gap-3 flex-1 min-w-0">
                 <h1 className="text-lg font-semibold text-gray-800 dark:text-white whitespace-nowrap">
                   Channels
                 </h1>
-                {/* Desktop search bar – inline with heading */}
                 <div className="hidden md:flex items-center gap-2 bg-gray-100 dark:bg-[#2a2a2a] rounded-full px-4 py-1.5 flex-1 max-w-xs">
                   <FaSearch className="text-gray-400 text-sm" />
                   <input
@@ -846,7 +848,6 @@ const GeneralChannels = () => {
                 <span className="hidden sm:inline text-sm font-medium">Discover</span>
               </button>
             </div>
-            {/* Mobile search bar – full width underneath */}
             <div className="md:hidden px-4 pb-2">
               <div className="flex items-center gap-2 bg-gray-100 dark:bg-[#2a2a2a] rounded-full px-4 py-2 w-full">
                 <FaSearch className="text-gray-400" />
