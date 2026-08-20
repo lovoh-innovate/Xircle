@@ -62,9 +62,35 @@ const isChatCreator = async (chatId, userId) => {
 };
 
 /**
- * Send push + in‑app notification to multiple users (with full logging).
+ * Build a consistent `data` payload for chat-related notifications so the
+ * frontend can route a tapped notification straight to the right screen.
+ * - notificationType: 'chat' for direct messages, 'channel' for groups
+ * - scope: 'public' or 'workspace', mirrors the Chat document
+ * - chatId / workspaceId: identify exactly where to navigate
  */
-const notifyUsers = async (userIds, title, body, data = {}) => {
+const buildChatNotificationData = (chat, extra = {}) => ({
+  notificationType: chat.type === 'group' ? 'channel' : 'chat',
+  scope: chat.scope,
+  chatId: chat._id.toString(),
+  workspaceId: chat.workspace ? chat.workspace.toString() : null,
+  ...extra,
+});
+
+/**
+ * Send push + in‑app notification to multiple users (with full logging).
+ *
+ * ⚠️ FIXED: this used to be declared as
+ *   (userIds, title, body, data = {})
+ * — four positional params — while every call site in this file passed
+ * (userIds, { title, body, data }) as only TWO arguments. That meant
+ * `title` silently received the whole options object, `body` was always
+ * undefined, and `data` always fell back to the default {} no matter what
+ * was written at the call site. Every notification ever sent through this
+ * function had an empty data payload — chatId/workspaceId never reached
+ * the client, which is why tapping a notification couldn't navigate
+ * anywhere useful. Now the signature matches how it's actually called.
+ */
+const notifyUsers = async (userIds, { title, body, data = {} } = {}) => {
   console.log(`🔔 notifyUsers called with ${userIds?.length || 0} recipients`);
   if (!userIds || userIds.length === 0) {
     console.log(`⚠️ notifyUsers: no recipients, skipping`);
@@ -126,11 +152,6 @@ export const updateOnlineStatus = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
-
-// ─────────────────────────────────────────────────────────────────────────────
-// CREATE GROUP CHAT (Workspace – Owner or Admin)
-// POST /api/messages/group
-// ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CREATE GROUP CHAT (Workspace – Owner or Admin)
@@ -239,7 +260,7 @@ export const createGroupChat = async (req, res) => {
       notifyUsers(addedUsers, {
         title: `New group chat "${chat.name}"`,
         body: `You were added to the group "${chat.name}" by ${req.user.name || 'the workspace admin'}.`,
-        data: { chatId: chat._id.toString(), workspaceId },
+        data: buildChatNotificationData(chat),
       });
     }
 
@@ -347,7 +368,7 @@ export const createDirectChat = async (req, res) => {
     notifyUsers([targetUserId], {
       title: `New message from ${req.user.name || 'a colleague'}`,
       body: `${req.user.name || 'Someone'} started a direct chat with you.`,
-      data: { chatId: chat._id.toString(), workspaceId },
+      data: buildChatNotificationData(chat),
     });
 
     res.status(201).json({
@@ -437,7 +458,7 @@ export const createPublicDirectChat = async (req, res) => {
     notifyUsers([targetUser._id.toString()], {
       title: `${req.user.name || 'Someone'} started a chat with you`,
       body: `You have a new direct message from ${req.user.name || 'someone'}.`,
-      data: { chatId: chat._id.toString() },
+      data: buildChatNotificationData(chat),
     });
 
     res.status(201).json({
@@ -593,10 +614,13 @@ export const deletePublicGroup = async (req, res) => {
     await Chat.findByIdAndDelete(chatId);
 
     const participantIds = chat.participants.map(p => p.user.toString());
+    // System notification — the chat no longer exists, so there's nowhere
+    // to navigate. No chatId in data on purpose; frontend router falls
+    // back to a safe default screen.
     notifyUsers(participantIds, {
       title: `Group "${chat.name}" has been deleted`,
       body: `The public group "${chat.name}" has been permanently deleted by its creator.`,
-      data: {},
+      data: { notificationType: 'system' },
     });
 
     res.status(200).json({
@@ -692,7 +716,7 @@ export const requestJoinGroup = async (req, res) => {
       notifyUsers(adminIds, {
         title: `New join request for "${chat.name}"`,
         body: `${req.user.name} requested to join your group.`,
-        data: { chatId: chat._id.toString() },
+        data: buildChatNotificationData(chat),
       });
     }
 
@@ -780,17 +804,18 @@ export const handleJoinRequest = async (req, res) => {
       notifyUsers([request.user.toString()], {
         title: `Accepted into "${chat.name}"`,
         body: `Your request to join "${chat.name}" has been accepted.`,
-        data: { chatId: chat._id.toString() },
+        data: buildChatNotificationData(chat),
       });
 
     } else {
       request.status = "rejected";
       await chat.save();
 
+      // Rejected — nowhere useful to navigate, so no chatId.
       notifyUsers([request.user.toString()], {
         title: `Join request rejected for "${chat.name}"`,
         body: `Your request to join "${chat.name}" was rejected.`,
-        data: { chatId: chat._id.toString() },
+        data: { notificationType: 'system' },
       });
     }
 
@@ -1105,11 +1130,7 @@ export const sendMessage = async (req, res) => {
       notifyUsers(allParticipantIds, {
         title: `${chat.type === 'group' ? `📢 ${chatName}` : `💬 ${senderName}`}`,
         body: preview,
-        data: {
-          chatId: chat._id.toString(),
-          workspaceId: chat.workspace?.toString() || null,
-          messageId: message._id.toString(),
-        },
+        data: buildChatNotificationData(chat, { messageId: message._id.toString() }),
       });
     }
 
@@ -1118,10 +1139,7 @@ export const sendMessage = async (req, res) => {
       notifyUsers(filteredMentions, {
         title: `${senderName} mentioned you in ${chat.type === 'group' ? chatName : 'a chat'}`,
         body: `${senderName}: ${content?.substring(0, 100) || 'sent a message'}`,
-        data: {
-          chatId: chat._id.toString(),
-          messageId: message._id.toString(),
-        },
+        data: buildChatNotificationData(chat, { messageId: message._id.toString() }),
       });
     }
 
@@ -1133,10 +1151,7 @@ export const sendMessage = async (req, res) => {
           notifyUsers([replyToUserId], {
             title: `${senderName} replied to your message`,
             body: `${senderName}: ${content?.substring(0, 100) || 'sent a reply'}`,
-            data: {
-              chatId: chat._id.toString(),
-              messageId: message._id.toString(),
-            },
+            data: buildChatNotificationData(chat, { messageId: message._id.toString() }),
           });
         }
       }
@@ -1279,8 +1294,6 @@ export const getTypingUsers = async (req, res) => {
 // GET /api/messages/search/users
 // ─────────────────────────────────────────────────────────────────────────────
 
-// controllers/messagingController.js
-
 export const searchUsers = async (req, res) => {
   console.log(`🔵 searchUsers called by user ${req.user.id}`);
   try {
@@ -1416,7 +1429,7 @@ export const addParticipant = async (req, res) => {
     notifyUsers(addedUsers, {
       title: `Added to group "${chat.name}"`,
       body: `You have been added to the group chat "${chat.name}".`,
-      data: { chatId: chat._id.toString(), workspaceId: chat.workspace?.toString() || null },
+      data: buildChatNotificationData(chat),
     });
 
     const populatedChat = await Chat.findById(chatId).populate(
@@ -1485,10 +1498,11 @@ export const removeParticipant = async (req, res) => {
     );
     await chat.save();
 
+    // Removed from the group — no chatId, since they can no longer open it.
     notifyUsers([targetUserId], {
       title: `Removed from group "${chat.name}"`,
       body: `You have been removed from the group chat "${chat.name}".`,
-      data: { workspaceId: chat.workspace?.toString() || null },
+      data: { notificationType: 'system' },
     });
 
     res.status(200).json({
@@ -1548,7 +1562,7 @@ export const makeGroupAdmin = async (req, res) => {
     notifyUsers([targetUserId], {
       title: `You are now an admin of "${chat.name}"`,
       body: `You have been promoted to admin in the group chat "${chat.name}".`,
-      data: { chatId: chat._id.toString() },
+      data: buildChatNotificationData(chat),
     });
 
     res.status(200).json({
@@ -1621,7 +1635,7 @@ export const removeGroupAdmin = async (req, res) => {
     notifyUsers([targetUserId], {
       title: `Admin rights removed for "${chat.name}"`,
       body: `You are no longer an admin of the group chat "${chat.name}".`,
-      data: { chatId: chat._id.toString() },
+      data: buildChatNotificationData(chat),
     });
 
     res.status(200).json({
@@ -1678,10 +1692,11 @@ export const deleteGroupChat = async (req, res) => {
     await Chat.findByIdAndDelete(chatId);
 
     const participantIds = chat.participants.map(p => p.user.toString());
+    // System notification — chat is gone, nowhere to navigate.
     notifyUsers(participantIds, {
       title: `Group "${chat.name}" has been deleted`,
       body: `The group chat "${chat.name}" has been permanently deleted.`,
-      data: {},
+      data: { notificationType: 'system' },
     });
 
     res.status(200).json({
@@ -1842,7 +1857,7 @@ export const exitGroupChat = async (req, res) => {
     notifyUsers(otherParticipantIds, {
       title: `${req.user.name} left the group`,
       body: `${req.user.name} has left the group chat "${chat.name}".`,
-      data: { chatId: chat._id.toString() },
+      data: buildChatNotificationData(chat),
     });
 
     res.status(200).json({

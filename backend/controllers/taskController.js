@@ -365,7 +365,12 @@ export const createTask = async (req, res) => {
       notifyUsers(assignee, {
         title: `New task: "${task.title}"`,
         body: `You have been assigned a new task "${task.title}" in project "${project.name}".`,
-        data: { taskId: task._id.toString(), projectId: project._id.toString() },
+        data: {
+          notificationType: 'task',
+          taskId: task._id.toString(),
+          projectId: project._id.toString(),
+          workspaceId: project.workspace.toString(),
+        },
         emailEventType: 'taskAssignment',
         emailHtml: `<h3>New Task</h3><p>Task: <strong>${task.title}</strong></p><p><a href="${process.env.CLIENT_URL}/tasks/${task._id}">View Task</a></p>`,
       });
@@ -462,7 +467,12 @@ export const updateTask = async (req, res) => {
           notifyUsers(assigneeId, {
             title: `Task assigned to you: "${task.title}"`,
             body: `You have been assigned the task "${task.title}".`,
-            data: { taskId: task._id.toString(), projectId: project._id.toString() },
+            data: {
+              notificationType: 'task',
+              taskId: task._id.toString(),
+              projectId: project._id.toString(),
+              workspaceId: project.workspace.toString(),
+            },
             emailEventType: 'taskAssignment',
           });
         } else if (!assigneeId) {
@@ -525,7 +535,12 @@ export const assignTask = async (req, res) => {
         notifyUsers(assigneeId, {
           title: `Task assigned to you: "${task.title}"`,
           body: `You have been assigned the task "${task.title}" in project "${project.name}".`,
-          data: { taskId: task._id.toString(), projectId: project._id.toString() },
+          data: {
+            notificationType: 'task',
+            taskId: task._id.toString(),
+            projectId: project._id.toString(),
+            workspaceId: project.workspace.toString(),
+          },
           emailEventType: 'taskAssignment',
         });
       }
@@ -601,7 +616,12 @@ export const addSubTask = async (req, res) => {
       notifyUsers(task.assignee.toString(), {
         title: `New sub‑task added to "${task.title}"`,
         body: `A new sub‑task "${title}" has been added to your task.`,
-        data: { taskId: task._id.toString(), projectId: project._id.toString() },
+        data: {
+          notificationType: 'task',
+          taskId: task._id.toString(),
+          projectId: project._id.toString(),
+          workspaceId: project.workspace.toString(),
+        },
         emailEventType: 'taskUpdate',
       });
     }
@@ -734,7 +754,13 @@ export const markSubTaskDone = async (req, res) => {
       notifyUsers(recipients, {
         title: `Sub‑task done: "${subTask.title}"`,
         body: `${req.user.name || 'Assignee'} marked sub‑task "${subTask.title}" as done. Please confirm.`,
-        data: { taskId: task._id.toString(), subTaskIndex: index },
+        data: {
+          notificationType: 'task',
+          taskId: task._id.toString(),
+          projectId: project._id.toString(),
+          workspaceId: project.workspace.toString(),
+          subTaskIndex: index,
+        },
         emailEventType: 'taskUpdate',
         emailHtml: `<p><a href="${process.env.CLIENT_URL}/tasks/${task._id}">View Task</a></p>`,
       });
@@ -822,7 +848,13 @@ export const confirmSubTask = async (req, res) => {
       notifyUsers(task.assignee.toString(), {
         title: `Sub‑task confirmed: "${subTask.title}"`,
         body: `Your sub‑task "${subTask.title}" has been confirmed by ${req.user.name}.`,
-        data: { taskId: task._id.toString(), subTaskIndex: index },
+        data: {
+          notificationType: 'task',
+          taskId: task._id.toString(),
+          projectId: project._id.toString(),
+          workspaceId: project.workspace.toString(),
+          subTaskIndex: index,
+        },
         emailEventType: 'taskUpdate',
       });
     }
@@ -876,7 +908,13 @@ export const rejectSubTask = async (req, res) => {
       notifyUsers(task.assignee.toString(), {
         title: `Sub‑task rejected: "${subTask.title}"`,
         body: `Your sub‑task "${subTask.title}" was rejected by ${req.user.name}. ${reason ? `Reason: ${reason}` : ''}`,
-        data: { taskId: task._id.toString(), subTaskIndex: index },
+        data: {
+          notificationType: 'task',
+          taskId: task._id.toString(),
+          projectId: project._id.toString(),
+          workspaceId: project.workspace.toString(),
+          subTaskIndex: index,
+        },
         emailEventType: 'taskUpdate',
       });
     }
@@ -998,7 +1036,12 @@ export const markTaskCompleted = async (req, res) => {
           notifyUsers(recipients, {
             title: `Task completed (recurring): "${task.title}"`,
             body: `${req.user.name || 'Assignee'} completed the recurring task "${task.title}". A new occurrence has been created.`,
-            data: { taskId: newTask._id.toString(), projectId: project._id.toString() },
+            data: {
+              notificationType: 'task',
+              taskId: newTask._id.toString(),
+              projectId: project._id.toString(),
+              workspaceId: project.workspace.toString(),
+            },
             emailEventType: 'taskUpdate',
           });
         }
@@ -1007,7 +1050,12 @@ export const markTaskCompleted = async (req, res) => {
           notifyUsers(task.assignee.toString(), {
             title: `New occurrence for recurring task: "${task.title}"`,
             body: `The next occurrence of your recurring task "${task.title}" has been created. Due: ${nextDue}`,
-            data: { taskId: newTask._id.toString(), projectId: project._id.toString() },
+            data: {
+              notificationType: 'task',
+              taskId: newTask._id.toString(),
+              projectId: project._id.toString(),
+              workspaceId: project.workspace.toString(),
+            },
             emailEventType: 'taskUpdate',
           });
         }
@@ -1045,7 +1093,12 @@ export const markTaskCompleted = async (req, res) => {
       notifyUsers(recipients, {
         title: `Task completed: "${task.title}"`,
         body: `${req.user.name || 'Assignee'} marked task "${task.title}" as completed. Please confirm.`,
-        data: { taskId: task._id.toString(), projectId: project._id.toString() },
+        data: {
+          notificationType: 'task',
+          taskId: task._id.toString(),
+          projectId: project._id.toString(),
+          workspaceId: project.workspace.toString(),
+        },
         emailEventType: 'taskUpdate',
         emailHtml: `<p><a href="${process.env.CLIENT_URL}/tasks/${task._id}">View Task</a></p>`,
       });
@@ -1098,7 +1151,12 @@ export const confirmTaskCompletion = async (req, res) => {
       notifyUsers(task.assignee.toString(), {
         title: `Task completion confirmed: "${task.title}"`,
         body: `Your task "${task.title}" has been confirmed as complete by ${req.user.name}.`,
-        data: { taskId: task._id.toString(), projectId: project._id.toString() },
+        data: {
+          notificationType: 'task',
+          taskId: task._id.toString(),
+          projectId: project._id.toString(),
+          workspaceId: project.workspace.toString(),
+        },
         emailEventType: 'taskUpdate',
       });
     }
@@ -1369,7 +1427,12 @@ export const addComment = async (req, res) => {
       notifyUsers(validMentions, {
         title: `You were mentioned in a comment on "${task.title}"`,
         body: `${req.user.name || 'Someone'} mentioned you: ${comment.substring(0, 100)}`,
-        data: { taskId: task._id.toString(), projectId: project._id.toString() },
+        data: {
+          notificationType: 'task',
+          taskId: task._id.toString(),
+          projectId: project._id.toString(),
+          workspaceId: project.workspace.toString(),
+        },
         emailEventType: 'taskUpdate',
       });
     }
@@ -1451,7 +1514,12 @@ export const sendManualReminder = async (req, res) => {
     await notifyUsers(task.assignee._id, {
       title: `📢 Manual Reminder: Task "${task.title}"`,
       body: `${req.user.name} reminded you: ${customMessage}`,
-      data: { taskId: task._id.toString(), projectId: project._id.toString() },
+      data: {
+        notificationType: 'task',
+        taskId: task._id.toString(),
+        projectId: project._id.toString(),
+        workspaceId: project.workspace.toString(),
+      },
       emailEventType: 'taskUpdate',
       emailHtml: `<p>${customMessage}</p><p><a href="${process.env.CLIENT_URL}/tasks/${task._id}">View Task</a></p>`,
     });
@@ -1839,7 +1907,12 @@ export const checkAndSendReminders = async () => {
       await notifyUsers(task.assignee._id, {
         title: `⏰ Reminder: Task "${task.title}" due soon`,
         body: `The task "${task.title}" is due within 1 hour.`,
-        data: { taskId: task._id.toString(), projectId: task.project.toString() },
+        data: {
+          notificationType: 'task',
+          taskId: task._id.toString(),
+          projectId: task.project.toString(),
+          workspaceId: task.workspace ? task.workspace.toString() : undefined,
+        },
         emailEventType: 'taskUpdate',
       });
       task.reminderSent = true;
@@ -1864,7 +1937,12 @@ export const checkAndSendReminders = async () => {
       await notifyUsers(task.assignee._id, {
         title: `📅 Daily reminder: "${task.title}"`,
         body: `Your daily reminder for task "${task.title}".`,
-        data: { taskId: task._id.toString(), projectId: task.project.toString() },
+        data: {
+          notificationType: 'task',
+          taskId: task._id.toString(),
+          projectId: task.project.toString(),
+          workspaceId: task.workspace ? task.workspace.toString() : undefined,
+        },
         emailEventType: 'taskUpdate',
       });
       task.lastDailyReminderSent = now;
@@ -1888,7 +1966,10 @@ export const checkAndSendReminders = async () => {
       await notifyUsers(ptask.user._id, {
         title: `📅 Personal reminder: "${ptask.title}"`,
         body: `Your daily reminder for personal task "${ptask.title}".`,
-        data: { personalTaskId: ptask._id.toString() },
+        data: {
+          notificationType: 'personal_task',
+          personalTaskId: ptask._id.toString(),
+        },
         emailEventType: 'taskUpdate',
       });
       ptask.lastDailyReminderSent = now;

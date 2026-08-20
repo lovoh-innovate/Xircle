@@ -200,7 +200,11 @@ const createProject = async (req, res) => {
       notifyUsers(allNewMembers, {
         title: `Added to project "${projectName}"`,
         body: `You have been added to the project "${projectName}".`,
-        data: { projectId: project._id.toString(), workspaceId },
+        data: {
+          notificationType: 'project',
+          projectId: project._id.toString(),
+          workspaceId: workspaceId.toString(),
+        },
         emailEventType: 'teamInvite',
         emailHtml: `
           <h3>You've been added to a new project</h3>
@@ -534,7 +538,11 @@ const updateProject = async (req, res) => {
       notifyUsers(recipients, {
         title: `Project "${project.name}" updated`,
         body: `Status changed to "${status}".`,
-        data: { projectId: project._id.toString() },
+        data: {
+          notificationType: 'project',
+          projectId: project._id.toString(),
+          workspaceId: project.workspace.toString(),
+        },
         emailEventType: 'projectUpdate',
       });
     }
@@ -617,7 +625,11 @@ const confirmProjectCompletion = async (req, res) => {
     notifyUsers(recipients, {
       title: `Project "${project.name}" completed`,
       body: 'All tasks have been finished. Great work!',
-      data: { projectId: project._id.toString() },
+      data: {
+        notificationType: 'project',
+        projectId: project._id.toString(),
+        workspaceId: project.workspace.toString(),
+      },
       emailEventType: 'projectUpdate',
       emailHtml: `
         <h2>Project Completed 🎉</h2>
@@ -713,7 +725,11 @@ const manageProjectManagers = async (req, res) => {
       notifyUsers(managerId, {
         title: `New role in "${project.name}"`,
         body: 'You have been promoted to Project Manager.',
-        data: { projectId: project._id.toString() },
+        data: {
+          notificationType: 'project',
+          projectId: project._id.toString(),
+          workspaceId: project.workspace.toString(),
+        },
         emailEventType: 'teamInvite',
       });
     }
@@ -790,7 +806,11 @@ const addTeamMember = async (req, res) => {
     notifyUsers(memberId, {
       title: `Added to project "${project.name}"`,
       body: `You are now a team member (${role}) in this project.`,
-      data: { projectId: project._id.toString() },
+      data: {
+        notificationType: 'project',
+        projectId: project._id.toString(),
+        workspaceId: project.workspace.toString(),
+      },
       emailEventType: 'teamInvite',
     });
 
@@ -867,10 +887,15 @@ const removeTeamMember = async (req, res) => {
     await project.save();
 
     // ── Notify the removed member ─────────────────────────────
+    // No projectId here on purpose — they've been removed and may lose
+    // visibility into the project, so we route to the workspace instead.
     notifyUsers(memberId, {
       title: `Removed from project "${project.name}"`,
       body: 'You have been removed from the project.',
-      data: { projectId: project._id.toString() },
+      data: {
+        notificationType: 'workspace',
+        workspaceId: project.workspace.toString(),
+      },
       emailEventType: 'projectUpdate',
     });
 
@@ -1151,10 +1176,15 @@ const deleteProject = async (req, res) => {
       ...project.projectManagers.map(pm => pm.toString()),
       ...project.teamMembers.filter(tm => tm.status === 'active').map(tm => tm.user.toString()),
     ];
+    // No projectId — it's in trash, not a live route target. Land on the
+    // workspace's projects list instead.
     notifyUsers(recipients, {
       title: `Project "${project.name}" moved to trash`,
       body: 'The project has been moved to trash and will be permanently deleted after 30 days.',
-      data: { workspaceId: workspace._id.toString() },
+      data: {
+        notificationType: 'workspace',
+        workspaceId: workspace._id.toString(),
+      },
       emailEventType: 'projectUpdate',
     });
 

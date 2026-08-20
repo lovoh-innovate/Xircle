@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+// src/hooks/useMobilePushNotifications.js
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { useRegisterMobileTokenMutation } from '../slices/notificationApiSlice';
@@ -37,6 +38,15 @@ export const useMobilePushNotifications = () => {
       return false;
     }
 
+    // ✅ Already subscribed — don't re-register. This is the guard that
+    // was missing before: without it, calling subscribe() a second time
+    // (even harmlessly, e.g. from a re-render) re-runs PushNotifications
+    // .register() and re-hits the backend, creating a duplicate token
+    // record for the same device.
+    if (isSubscribed && fcmToken) {
+      return true;
+    }
+
     try {
       let permStatus = await PushNotifications.checkPermissions();
       if (permStatus.receive === 'prompt') {
@@ -47,8 +57,6 @@ export const useMobilePushNotifications = () => {
         return false;
       }
       setPermission('granted');
-
-      // ⭐ Channel creation is now handled in main.jsx – no need here
 
       return new Promise((resolve) => {
         let registrationListener;
@@ -104,12 +112,11 @@ export const useMobilePushNotifications = () => {
       console.error('Failed to subscribe to mobile push:', error);
       return false;
     }
-  }, [isSupported, registerMobileToken]);
+  }, [isSupported, isSubscribed, fcmToken, registerMobileToken]);
 
   // ── Unsubscribe (remove token from server) ────────────────────────
   const unsubscribe = useCallback(async () => {
     if (!isSupported || !fcmToken) {
-      console.warn('Cannot unsubscribe: no token or unsupported platform');
       return false;
     }
 

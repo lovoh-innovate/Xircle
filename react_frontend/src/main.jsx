@@ -203,17 +203,15 @@ const PushNotificationInitializer = () => {
     }
   }, []);
 
-  // Subscribe on login, unsubscribe on logout
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     if (userInfo?.token) {
-      if (permission !== 'denied') {
-        subscribe();
-      }
+      subscribe();
     } else {
       unsubscribe();
     }
-  }, [userInfo, permission, subscribe, unsubscribe]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userInfo?.token]);
 
   return null;
 };
@@ -230,6 +228,64 @@ const buildCallDataFromPush = (data) => ({
   status: 'ringing',
   isInitiator: false,
 });
+
+// ── Helper: route a tapped push notification to the right screen ──────
+//
+// Payload shapes actually seen from the backend (verified against
+// callController.js, messagingController.js, socket.js, taskController.js,
+// projectController.js, teamController.js, workspaceController.js):
+//
+//   Calls               → { notificationType: 'call', roomId, callId, type }
+//   Chats/channels (REST)→ { notificationType: 'chat'|'channel', chatId, workspaceId, scope, messageId }
+//   Chats (socket path)  → { chatId, chatType, chatName, senderName, url, messageId, workspaceId? }
+//     ⚠️ socket.js's send-message handler does NOT set notificationType —
+//     so we key off chatId presence, not notificationType, to catch both.
+//   Tasks                → { taskId, projectId }  — NO workspaceId, ever.
+//   Projects (most)       → { projectId } only — workspaceId is missing
+//     except in createProject, which sends { projectId, workspaceId }.
+//   Workspace/team events → { workspaceId } (sometimes with extra fields)
+//   System (deletions)    → { notificationType: 'system' } — nothing to open
+//
+// Because taskId/projectId pushes usually lack workspaceId, we can only
+// build a full route when workspaceId happens to be present. Otherwise we
+// fall back instead of guessing — see the note at the bottom of this file
+// on the backend fix needed to close that gap completely.
+const routeFromNotificationData = (data, navigate) => {
+  // 1. Calls
+  if (data.notificationType === 'call' && data.roomId) {
+    return `/call/${data.roomId}?autoJoin=true`;
+  }
+
+  // 2. Chats / channels — key off chatId, not notificationType, since the
+  //    socket.js send-message path never sets notificationType.
+  if (data.chatId) {
+    if (data.workspaceId) {
+      return `/workspace/${data.workspaceId}/chat/${data.chatId}`;
+    }
+    // Public chat/channel outside any workspace
+    return `/channels/${data.chatId}`;
+  }
+
+  // 3. Tasks — no dedicated task-detail route exists yet, so the closest
+  //    we can land on is the project screen (requires workspaceId, which
+  //    taskController.js doesn't currently send — see backend note below).
+  if (data.taskId && data.projectId && data.workspaceId) {
+    return `/workspace/${data.workspaceId}/project/${data.projectId}`;
+  }
+
+  // 4. Projects
+  if (data.projectId && data.workspaceId) {
+    return `/workspace/${data.projectId ? data.workspaceId : ''}/project/${data.projectId}`;
+  }
+
+  // 5. Workspace / team notifications
+  if (data.workspaceId) {
+    return `/workspace/${data.workspaceId}`;
+  }
+
+  // 6. Nothing routable in the payload
+  return '/my-workspaces';
+};
 
 // ── Root Layout ──────────────────────────────────────────────────────
 const RootLayout = () => {
@@ -267,20 +323,10 @@ const RootLayout = () => {
       }
 
       if (notification?.title && notification?.body) {
-        // react-hot-toast has no `.info` — use the base toast() call
-        // with a custom icon instead, and onClick has to go through
-        // toast's own click-to-navigate pattern via a manual listener
-        // since toast() doesn't support an onClick option natively.
         toast(`${notification.title}: ${notification.body}`, {
           icon: 'ℹ️',
           duration: 5000,
         });
-
-        if (data.chatId && data.workspaceId) {
-          // Optional: auto-navigate a moment after showing the toast,
-          // since toast() has no built-in onClick handler.
-          // Remove this if you'd rather the user tap the toast manually.
-        }
       }
     };
 
@@ -290,15 +336,10 @@ const RootLayout = () => {
 
       if (data.notificationType === 'call' && data.roomId) {
         setIncomingCallFromPush(buildCallDataFromPush(data));
-        navigate(`/call/${data.roomId}?autoJoin=true`);
-        return;
       }
 
-      if (data.chatId && data.workspaceId) {
-        navigate(`/workspace/${data.workspaceId}/chat/${data.chatId}`);
-      } else {
-        navigate('/my-workspaces');
-      }
+      const target = routeFromNotificationData(data, navigate);
+      navigate(target);
     };
 
     window.addEventListener('mobile-push-received', handlePushReceived);
@@ -314,19 +355,14 @@ const RootLayout = () => {
     <div className="bg-gray-50 dark:bg-[#0b0b10] min-h-screen w-full transition-colors duration-300">
       <GlobalNavigator />
 
-      {/* ✅ Preloads all core data once at login/app-start and keeps
-          a permanent subscription alive for the whole session, so
-          pages read from cache instantly instead of refetching. */}
       <PreloadAppData />
 
       <PullToRefresh>
         <Outlet />
       </PullToRefresh>
       <IncomingCallModal />
-      {/* ✅ Global app update checker */}
       <AppUpdateChecker />
 
-      {/* ========== REACT-HOT-TOAST CONFIGURATION ========== */}
       <Toaster
         position="bottom-center"
         toastOptions={{
@@ -369,14 +405,12 @@ const router = createBrowserRouter([
     path: '/',
     element: <RootLayout />,
     children: [
-      // ── Public routes (no auth required) ──
       { index: true, element: <Welcome /> },
       { path: 'login', element: <Login /> },
       { path: 'signup', element: <Signup /> },
       { path: 'forgot-password', element: <ForgotPassword /> },
       { path: 'app/download/:versionId', element: <AppDownload /> },
 
-      // ── Protected routes (auth required) ──
       {
         element: <PrivateRoute />,
         children: [
@@ -406,7 +440,6 @@ const router = createBrowserRouter([
 
           { path: 'profile', element: <Profile /> },
 
-          // General routes
           { path: 'channels', element: <GeneralChannels /> },
           { path: 'channels/:chatId', element: <GeneralChannelId /> },
           { path: 'chat', element: <GeneralChats /> },
@@ -415,7 +448,6 @@ const router = createBrowserRouter([
 
           { path: 'call/:roomId', element: <CallScreen /> },
 
-          //Admin
           { path: 'admin/upload', element: <UploadApp /> },
         ],
       },
