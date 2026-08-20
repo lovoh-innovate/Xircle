@@ -1352,13 +1352,16 @@ const MyWorkspaceChatId = () => {
 
   // ─── Polling ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (!chatId) return;
-    const interval = setInterval(() => {
+  if (!chatId) return;
+  const interval = setInterval(() => {
+    if (!isConnected) {
+      // socket is down — poll as a fallback until it reconnects
       refetchMessages();
       refetchChats();
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [chatId, refetchMessages, refetchChats]);
+    }
+  }, 15000); // 15s, not 3s
+  return () => clearInterval(interval);
+}, [chatId, isConnected, refetchMessages, refetchChats]);
 
   // ─── Focus input on reply ─────────────────────────────────────────
   useEffect(() => {

@@ -50,7 +50,8 @@ const apiCacheTransform = createTransform(
     Object.keys(newQueries).forEach((queryKey) => {
       if (
         queryKey.startsWith('checkAppUpdate') ||
-        queryKey.startsWith('getAppVersion')
+        queryKey.startsWith('getAppVersion') ||
+        queryKey.startsWith('getChatMessages')
       ) {
         delete newQueries[queryKey];
       }

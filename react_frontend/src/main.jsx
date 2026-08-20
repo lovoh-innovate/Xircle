@@ -256,14 +256,19 @@ const routeFromNotificationData = (data, navigate) => {
     return `/call/${data.roomId}?autoJoin=true`;
   }
 
-  // 2. Chats / channels — key off chatId, not notificationType, since the
-  //    socket.js send-message path never sets notificationType.
+    // 2. Chats / channels
   if (data.chatId) {
     if (data.workspaceId) {
+      // Workspace chats (direct or group) share one route regardless of type
       return `/workspace/${data.workspaceId}/chat/${data.chatId}`;
     }
-    // Public chat/channel outside any workspace
-    return `/channels/${data.chatId}`;
+    // Public scope — direct and group chats live on different routes,
+    // so the type actually matters here. REST path (messagingController.js)
+    // sets notificationType: 'channel' for groups; the socket.js send-message
+    // path instead sets chatType: 'group'/'direct' and never sets
+    // notificationType — check both so either path routes correctly.
+    const isGroup = data.notificationType === 'channel' || data.chatType === 'group';
+    return isGroup ? `/channels/${data.chatId}` : `/chats/${data.chatId}`;
   }
 
   // 3. Tasks — no dedicated task-detail route exists yet, so the closest
