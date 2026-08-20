@@ -467,9 +467,7 @@ const GeneralChannels = () => {
   // ─── Merged Joined – with fix: joined channels always take precedence ──
   const mergedJoined = useMemo(() => {
     const joinedIds = new Set(joinedChannels.map(c => c._id));
-    // Filter out pending channels that are already joined
     const pendingNotJoined = pendingChannels.filter(c => !joinedIds.has(c._id));
-    // Show pending first, then joined
     return [...pendingNotJoined, ...joinedChannels];
   }, [pendingChannels, joinedChannels]);
 
@@ -481,7 +479,6 @@ const GeneralChannels = () => {
     );
   }, [chatsData]);
 
-  // Group by workspaceId, using the workspaceNameMap for names
   const workspaceGroups = useMemo(() => {
     const groups = {};
     for (const chat of workspaceChats) {
@@ -554,8 +551,9 @@ const GeneralChannels = () => {
           <GeneralSidebar />
         </div>
 
-        <div className="flex-1 flex flex-col min-h-screen relative">
-          <header className="bg-white dark:bg-[#0f0f12] border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10">
+        <div className="flex-1 flex flex-col h-screen md:h-auto md:min-h-screen relative overflow-hidden">
+          {/* ─── Fixed Header ──────────────────────────────────────── */}
+          <header className="bg-white dark:bg-[#0f0f12] border-b border-gray-200 dark:border-gray-800 flex-shrink-0 z-10">
             <div className="px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
               <h1 className="text-lg font-semibold text-gray-800 dark:text-white">
                 Channels
@@ -591,8 +589,8 @@ const GeneralChannels = () => {
             </div>
           </header>
 
-          {/* ─── Mobile‑optimised Tab Bar ──────────────────────────── */}
-          <div className="flex bg-gray-50 dark:bg-[#1a1a1a] border-b border-gray-200 dark:border-gray-800 overflow-hidden">
+          {/* ─── Fixed Tab Bar ────────────────────────────────────── */}
+          <div className="flex bg-gray-50 dark:bg-[#1a1a1a] border-b border-gray-200 dark:border-gray-800 flex-shrink-0 overflow-hidden">
             {tabs.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
@@ -615,7 +613,7 @@ const GeneralChannels = () => {
             ))}
           </div>
 
-          {/* ─── Content ────────────────────────────────────────── */}
+          {/* ─── Scrollable Content ──────────────────────────────── */}
           <main className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12]">
             {isLoading ? (
               <div className="flex justify-center py-8">
@@ -644,9 +642,7 @@ const GeneralChannels = () => {
                 {activeTab === 'joined' && (
                   <div className="divide-y divide-gray-100 dark:divide-gray-800">
                     {mergedJoined.map((channel) => {
-                      // Determine if channel is actually joined (participant)
                       const isJoined = joinedChannels.some(c => c._id === channel._id);
-                      // Only pending if it's NOT joined AND it's in pending list
                       const isPending = !isJoined && pendingIds.has(channel._id);
                       const status = isPending ? 'pending' : 'joined';
                       return (
@@ -691,7 +687,6 @@ const GeneralChannels = () => {
                 {activeTab === 'discover' && (
                   <div className="divide-y divide-gray-100 dark:divide-gray-800">
                     {discoverChannels.map((channel) => {
-                      // For discover, if already joined, show as joined (clickable)
                       const isJoined = joinedChannels.some(c => c._id === channel._id);
                       const isPending = !isJoined && pendingIds.has(channel._id);
                       const status = isJoined ? 'joined' : (isPending ? 'pending' : 'discover');
