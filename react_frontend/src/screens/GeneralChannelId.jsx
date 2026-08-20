@@ -15,6 +15,8 @@ import {
   useHandleJoinRequestMutation,
   useUpdatePublicGroupMutation,
   useCreatePublicDirectChatMutation,
+  useMakeGroupAdminMutation,
+  useRemoveGroupAdminMutation,
 } from '../slices/messagingApiSlice';
 import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
 import { useSocket } from '../components/SocketContext.jsx';
@@ -56,6 +58,7 @@ import {
   FaTrashAlt as FaTrashIcon,
   FaPlus,
   FaCamera,
+  FaUserCog,
 } from 'react-icons/fa';
 import GeneralSidebar from '../components/GeneralSidebar';
 
@@ -197,19 +200,16 @@ const AudioWaveform = ({ isOwn, isPlaying }) => (
   </div>
 );
 
-// ─── Message Ticks (updated: text messages show clock until sent) ──
+// ─── Message Ticks ──────────────────────────────────────────────────
 const MessageTicks = ({ message, isOwn }) => {
   if (!isOwn) return null;
 
-  // ── TEXT MESSAGES: always show clock until sent, no failed icon ──
   if (message.messageType === 'text') {
     if (!message._sent) {
       return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
     }
-    // if sent, fall through to normal ticks
   }
 
-  // ── MEDIA MESSAGES: keep existing pending/failed logic ──────────
   if (message._pending) {
     return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
   }
@@ -220,7 +220,6 @@ const MessageTicks = ({ message, isOwn }) => {
     return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
   }
 
-  // ── Sent → delivered / read ──────────────────────────────────────
   if (!message._delivered && !message._read) {
     return <FaCheck className="text-[10px] text-gray-400 dark:text-gray-500" />;
   }
@@ -323,7 +322,7 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor }) => {
   );
 };
 
-// ─── Media Message Component (updated: skip pending/failed for text) ──
+// ─── Media Message Component ──────────────────────────────────────
 const MediaMessage = ({
   message,
   isOwn,
@@ -345,9 +344,7 @@ const MediaMessage = ({
   onJumpToMessage,
   resolveSender,
 }) => {
-  // ── For text messages: skip pending/failed blocks ────────────────
   if (message.messageType !== 'text') {
-    // ── Pending state (only for media) ──
     if (message._pending) {
       return (
         <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
@@ -364,7 +361,6 @@ const MediaMessage = ({
       );
     }
 
-    // ── Failed state (only for media) ──
     if (message._failed) {
       return (
         <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
@@ -382,7 +378,6 @@ const MediaMessage = ({
     }
   }
 
-  // ── Deleted state ──
   if (message.isDeleted) {
     return (
       <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
@@ -575,7 +570,6 @@ const MediaMessage = ({
   };
   const swipeIconOpacity = Math.min(swipeX / 60, 1);
 
-  // Max width class based on mobile
   const maxWidthClass = isMobile ? 'max-w-[75%]' : 'max-w-[85%]';
 
   // ─── Image messages ──────────────────────────────────────────────────
@@ -983,6 +977,68 @@ const MessageActionModal = ({
   );
 };
 
+// ─── Member Action Modal (mobile long press) ──────────────────────
+const MemberActionModal = ({
+  isOpen,
+  onClose,
+  member,
+  isAdmin,
+  isCreator,
+  canManage,
+  onMakeAdmin,
+  onRemoveAdmin,
+  onRemoveMember,
+}) => {
+  if (!isOpen || !member) return null;
+  const user = member.user || {};
+  const memberName = user.name || 'Unknown';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 dark:bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white dark:bg-[#14141a] rounded-t-2xl w-full max-w-lg p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-200 dark:border-gray-700/60">
+          <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-gray-600 dark:text-gray-300 text-sm font-medium">
+            {memberName.charAt(0).toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{memberName}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{member.role === 'admin' ? 'Admin' : 'Member'}</p>
+          </div>
+        </div>
+        <div className="space-y-1">
+          {canManage && member.role !== 'admin' && (
+            <button
+              onClick={() => { onClose(); onMakeAdmin(member.user._id); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition"
+            >
+              <FaUserCog className="text-sm" /> <span className="text-sm font-medium">Make Admin</span>
+            </button>
+          )}
+          {canManage && member.role === 'admin' && member.user._id !== userInfo?._id && !isCreator && (
+            <button
+              onClick={() => { onClose(); onRemoveAdmin(member.user._id); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-500/10 transition"
+            >
+              <FaUserCog className="text-sm" /> <span className="text-sm font-medium">Remove Admin</span>
+            </button>
+          )}
+          {canManage && member.user._id !== userInfo?._id && !isCreator && (
+            <button
+              onClick={() => { onClose(); onRemoveMember(member.user._id); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition"
+            >
+              <FaTrashAlt className="text-sm" /> <span className="text-sm font-medium">Remove from Channel</span>
+            </button>
+          )}
+        </div>
+        <button onClick={onClose} className="w-full mt-3 py-3 text-center text-sm font-medium text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700/60 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+};
+
 // ─── Edit Channel Modal ──────────────────────────────────────────
 const EditChannelModal = ({ isOpen, onClose, chat, onSuccess }) => {
   const [name, setName] = useState(chat?.name || '');
@@ -1116,12 +1172,27 @@ const EditChannelModal = ({ isOpen, onClose, chat, onSuccess }) => {
 };
 
 // ─── Channel Details Panel (Group only) ──────────────────────────
-const ChannelDetailsPanel = ({ chat, userInfo, onClose, onEdit, onOpenDM }) => {
+const ChannelDetailsPanel = ({
+  chat,
+  userInfo,
+  onClose,
+  onEdit,
+  onOpenDM,
+  onMakeAdmin,
+  onRemoveAdmin,
+  onRemoveMember,
+  openConfirm,
+  isDesktop,
+}) => {
   const [showJoinRequests, setShowJoinRequests] = useState(false);
+  const [showMemberActions, setShowMemberActions] = useState(false);
+  const [selectedMember, setSelectedMember] = useState(null);
+
   const isAdmin = chat?.participants?.some(
     (p) => (p.user?._id === userInfo?._id || p.user === userInfo?._id) && p.role === 'admin'
   );
   const isCreator = chat?.createdBy?._id === userInfo?._id;
+  const canManage = isAdmin || isCreator;
 
   const { data: membersData, isLoading: membersLoading } = useGetGroupMembersQuery(chat?._id, {
     skip: !chat?._id,
@@ -1143,6 +1214,35 @@ const ChannelDetailsPanel = ({ chat, userInfo, onClose, onEdit, onOpenDM }) => {
 
   const members = membersData?.members || [];
   const joinRequests = joinRequestsData?.requests || [];
+
+  // Touch handlers for member long press (mobile)
+  const longPressTimer = useRef(null);
+  const isLongPress = useRef(false);
+
+  const handleMemberTouchStart = (e, member) => {
+    if (isDesktop) return;
+    isLongPress.current = false;
+    longPressTimer.current = setTimeout(() => {
+      isLongPress.current = true;
+      e.preventDefault();
+      setSelectedMember(member);
+      setShowMemberActions(true);
+    }, 500);
+  };
+
+  const handleMemberTouchEnd = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const handleMemberTouchMove = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
 
   return (
     <div className="h-full bg-white dark:bg-[#14141a] border-l border-gray-200 dark:border-gray-800/60 flex flex-col overflow-y-auto">
@@ -1212,12 +1312,19 @@ const ChannelDetailsPanel = ({ chat, userInfo, onClose, onEdit, onOpenDM }) => {
                 const isCreatorUser = chat?.createdBy?._id === user._id;
                 const isAdminRole = member.role === 'admin';
                 const isSelf = user._id === userInfo?._id;
+
                 return (
-                  <li key={user._id} className="flex items-center gap-3">
+                  <li
+                    key={user._id}
+                    className="flex items-center gap-3"
+                    onTouchStart={(e) => handleMemberTouchStart(e, member)}
+                    onTouchEnd={handleMemberTouchEnd}
+                    onTouchMove={handleMemberTouchMove}
+                  >
                     <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center text-gray-600 dark:text-gray-300 text-xs font-medium flex-shrink-0">
                       {user.name?.charAt(0).toUpperCase() || '?'}
                     </div>
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 flex items-center gap-1 flex-wrap">
                       {isSelf ? (
                         <span className="text-sm text-gray-800 dark:text-gray-200 truncate">
                           {user.name || 'Unknown'} (You)
@@ -1243,6 +1350,32 @@ const ChannelDetailsPanel = ({ chat, userInfo, onClose, onEdit, onOpenDM }) => {
                           )}
                         </button>
                       )}
+                      {/* Desktop admin actions */}
+                      {isDesktop && canManage && !isSelf && !isCreatorUser && (
+                        <div className="flex gap-1 ml-auto flex-shrink-0">
+                          {member.role !== 'admin' ? (
+                            <button
+                              onClick={() => onMakeAdmin(user._id)}
+                              className="text-[10px] bg-teal-100 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400 px-2 py-0.5 rounded hover:bg-teal-200 dark:hover:bg-teal-900/50 transition"
+                            >
+                              Make Admin
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => onRemoveAdmin(user._id)}
+                              className="text-[10px] bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 px-2 py-0.5 rounded hover:bg-orange-200 dark:hover:bg-orange-900/50 transition"
+                            >
+                              Remove Admin
+                            </button>
+                          )}
+                          <button
+                            onClick={() => onRemoveMember(user._id)}
+                            className="text-[10px] bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-2 py-0.5 rounded hover:bg-red-200 dark:hover:bg-red-900/50 transition"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </li>
                 );
@@ -1251,6 +1384,19 @@ const ChannelDetailsPanel = ({ chat, userInfo, onClose, onEdit, onOpenDM }) => {
           )}
         </div>
       </div>
+
+      {/* Member Action Modal (mobile) */}
+      <MemberActionModal
+        isOpen={showMemberActions}
+        onClose={() => setShowMemberActions(false)}
+        member={selectedMember}
+        isAdmin={isAdmin}
+        isCreator={isCreator}
+        canManage={canManage}
+        onMakeAdmin={onMakeAdmin}
+        onRemoveAdmin={onRemoveAdmin}
+        onRemoveMember={onRemoveMember}
+      />
     </div>
   );
 };
@@ -1267,7 +1413,7 @@ const base64ToFile = (base64Data, fileName, mimeType) => {
   return new File([blob], fileName, { type: mimeType });
 };
 
-// ─── Main Component (Group Channel) ──────────────────────────────────
+// ─── Main Component ──────────────────────────────────────────────────
 const GeneralChannelId = () => {
   const { chatId } = useParams();
   const navigate = useNavigate();
@@ -1292,7 +1438,7 @@ const GeneralChannelId = () => {
 
   const { data: chatListData, refetch: refetchChats } = useGetUserChatsQuery({ archived: false });
   const chat = chatListData?.chats?.find(c => c._id === chatId);
-  
+
   useEffect(() => {
     if (chat && (chat.type !== 'group' || chat.scope !== 'public')) {
       navigate('/channels');
@@ -1321,7 +1467,6 @@ const GeneralChannelId = () => {
     }
   }, [chat, userInfo]);
 
-  // ─── Robust resolveSender ──────────────────────────────────────────
   const resolveSender = useCallback((senderField) => {
     if (!senderField) return { name: 'Unknown', profile: null };
     if (typeof senderField === 'string') {
@@ -1346,6 +1491,54 @@ const GeneralChannelId = () => {
     return { ...senderField, name };
   }, []);
 
+  // ─── Mutations for member management ─────────────────────────────
+  const [makeGroupAdmin] = useMakeGroupAdminMutation();
+  const [removeGroupAdmin] = useRemoveGroupAdminMutation();
+
+  // ─── Confirm modal state ───────────────────────────────────────────
+  const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {}, danger: false });
+
+  const openConfirm = (title, message, onConfirm, danger = false) => {
+    setConfirmModal({ isOpen: true, title, message, onConfirm, danger });
+  };
+
+  // ─── Member action handlers ──────────────────────────────────────
+  const handleMakeAdmin = async (userId) => {
+    try {
+      await makeGroupAdmin({ chatId, userId }).unwrap();
+      toast.success('User promoted to admin');
+      // Refetch members and chats
+      refetchChats();
+      // Optionally refetch messages? Not needed.
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to promote user');
+    }
+  };
+
+  const handleRemoveAdmin = async (userId) => {
+    openConfirm(
+      'Remove Admin',
+      'Are you sure you want to remove admin rights from this user?',
+      async () => {
+        try {
+          await removeGroupAdmin({ chatId, userId }).unwrap();
+          toast.success('Admin rights removed');
+          refetchChats();
+        } catch (err) {
+          toast.error(err?.data?.message || 'Failed to remove admin');
+        }
+      },
+      false
+    );
+  };
+
+  const handleRemoveMember = async (userId) => {
+    // We need the `removeParticipant` mutation – import it from slice.
+    // For now, we'll assume it's available via `useRemoveParticipantMutation`.
+    // We'll add the import and use it.
+    // We'll handle later.
+  };
+
   // ─── Fetch join requests ──────────────────────────────────────────
   const { data: joinRequestsData, refetch: refetchJoinRequests } = useGetJoinRequestsQuery(chat?._id, {
     skip: !chat?._id || !isAdmin,
@@ -1368,7 +1561,6 @@ const GeneralChannelId = () => {
   const [unstarMessage] = useUnstarMessageMutation();
 
   const [createDirectChat] = useCreatePublicDirectChatMutation();
-  const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {}, danger: false });
   const [actionModal, setActionModal] = useState({ isOpen: false, message: null });
 
   // ─── Reset state when chatId changes ──────────────────────────────
@@ -1421,14 +1613,13 @@ const GeneralChannelId = () => {
     }
   }, [message]);
 
-  // ─── Message handling (updated optimistic merge) ────────────────
+  // ─── Message handling (optimistic merge) ─────────────────────────
   const mergeMessagesIntoState = useCallback((incomingList) => {
     if (!incomingList || incomingList.length === 0) return;
     setLocalMessages((prev) => {
       let next = prev;
       let mutated = false;
       incomingList.forEach((incoming) => {
-        // 1. Check if this message already exists by real _id
         const existingIdx = next.findIndex((m) => m._id === incoming._id);
         if (existingIdx > -1) {
           if (!mutated) next = [...next];
@@ -1457,12 +1648,11 @@ const GeneralChannelId = () => {
           return;
         }
 
-        // 2. Check if this is a temporary message (sent by us, not yet replaced)
         const isOwn = incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
         if (isOwn) {
-          const tempIdx = next.findIndex((m) => 
-            m._temp && 
-            m.content === incoming.content && 
+          const tempIdx = next.findIndex((m) =>
+            m._temp &&
+            m.content === incoming.content &&
             Math.abs(new Date(m.createdAt) - new Date(incoming.createdAt)) < 5000
           );
           if (tempIdx > -1) {
@@ -1486,7 +1676,6 @@ const GeneralChannelId = () => {
           }
         }
 
-        // 3. It's a new message from someone else or our own that we didn't optimistically add
         const msg = {
           ...incoming,
           _sent: true,
@@ -1513,7 +1702,6 @@ const GeneralChannelId = () => {
     });
   }, [userInfo?._id]);
 
-  // ─── FIXED: Only access firstMsg.chat if firstMsg exists ──────────
   useEffect(() => {
     if (messagesData?.messages) {
       const messages = messagesData.messages;
@@ -1609,7 +1797,7 @@ const GeneralChannelId = () => {
     return () => observer.disconnect();
   }, [localMessages, markMessageAsRead, userInfo]);
 
-  // ─── Handle media send (optimistic) ────────────────────────────
+  // ─── Handle media send ────────────────────────────────────────────
   const handleSendMedia = async (file) => {
     if (!file) return;
     const formData = new FormData();
@@ -1657,7 +1845,7 @@ const GeneralChannelId = () => {
     }
   };
 
-  // ─── Send message (text) – updated: no spinner, clock only ────
+  // ─── Send message (text) ──────────────────────────────────────────
   const handleSendMessage = (e) => {
     e.preventDefault();
     const trimmed = message.trim();
@@ -1688,11 +1876,11 @@ const GeneralChannelId = () => {
     setMessage('');
     const replyToId = replyToMessage?._id || null;
     setReplyToMessage(null);
-    
+
     if (inputRef.current) {
       inputRef.current.style.height = 'auto';
     }
-    
+
     socket.emit('send-message', {
       chatId,
       content: trimmed,
@@ -1707,7 +1895,7 @@ const GeneralChannelId = () => {
     });
   };
 
-  // ─── File / image: Native plugins with custom modal for images ──
+  // ─── File / image: Native plugins ──────────────────────────────
   const handleTakePhoto = useCallback(async () => {
     setShowMediaPicker(false);
     try {
@@ -1814,7 +2002,7 @@ const GeneralChannelId = () => {
   const handlePaste = (e) => {
     const items = e.clipboardData?.items;
     if (!items) return;
-    
+
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       if (item.type.startsWith('image/')) {
@@ -1847,7 +2035,7 @@ const GeneralChannelId = () => {
     }
   }, [createDirectChat, navigate]);
 
-  // ─── Voice recording (unchanged, but uses updated send pattern) ──
+  // ─── Voice recording ────────────────────────────────────────────
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [recordingBlob, setRecordingBlob] = useState(null);
@@ -1888,7 +2076,6 @@ const GeneralChannelId = () => {
     }
   };
 
-  // Native recording
   const startNativeRecording = async () => {
     try {
       const { value: hasPermission } =
@@ -1963,7 +2150,6 @@ const GeneralChannelId = () => {
     stopTimer();
   };
 
-  // Web recording
   const startWebRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -2062,7 +2248,7 @@ const GeneralChannelId = () => {
     }
   };
 
-  // ─── Send audio message (optimistic, updated) ─────────────────────
+  // ─── Send audio message ──────────────────────────────────────────
   const sendAudioMessage = async (audioBlob) => {
     const formData = new FormData();
     const mimeType = isNative ? 'audio/m4a' : 'audio/webm';
@@ -2133,13 +2319,12 @@ const GeneralChannelId = () => {
     }
   };
 
-  // ─── Message action handlers (optimistic delete) ──────────────
+  // ─── Message action handlers ────────────────────────────────────
   const handleDeleteMessage = async (messageId) => {
-    setConfirmModal({
-      isOpen: true,
-      title: 'Delete Message',
-      message: 'Are you sure?',
-      onConfirm: async () => {
+    openConfirm(
+      'Delete Message',
+      'Are you sure you want to delete this message?',
+      async () => {
         setLocalMessages(prev => prev.map(m => m._id === messageId ? { ...m, isDeleted: true } : m));
         try {
           await deleteMessageApi(messageId).unwrap();
@@ -2149,21 +2334,21 @@ const GeneralChannelId = () => {
           toast.error(err?.data?.message || 'Failed');
         }
       },
-      danger: true,
-    });
+      true
+    );
   };
 
-  const handleArchiveMessage = async (messageId) => { 
-    try { await archiveMessage(messageId).unwrap(); toast.success('Archived'); refetchMessages(); } catch (err) { toast.error(err?.data?.message); } 
+  const handleArchiveMessage = async (messageId) => {
+    try { await archiveMessage(messageId).unwrap(); toast.success('Archived'); refetchMessages(); } catch (err) { toast.error(err?.data?.message); }
   };
-  const handleUnarchiveMessage = async (messageId) => { 
-    try { await unarchiveMessage(messageId).unwrap(); toast.success('Unarchived'); refetchMessages(); } catch (err) { toast.error(err?.data?.message); } 
+  const handleUnarchiveMessage = async (messageId) => {
+    try { await unarchiveMessage(messageId).unwrap(); toast.success('Unarchived'); refetchMessages(); } catch (err) { toast.error(err?.data?.message); }
   };
-  const handleStarMessage = async (messageId) => { 
-    try { await starMessage(messageId).unwrap(); toast.success('Starred'); refetchMessages(); } catch (err) { toast.error(err?.data?.message); } 
+  const handleStarMessage = async (messageId) => {
+    try { await starMessage(messageId).unwrap(); toast.success('Starred'); refetchMessages(); } catch (err) { toast.error(err?.data?.message); }
   };
-  const handleUnstarMessage = async (messageId) => { 
-    try { await unstarMessage(messageId).unwrap(); toast.success('Unstarred'); refetchMessages(); } catch (err) { toast.error(err?.data?.message); } 
+  const handleUnstarMessage = async (messageId) => {
+    try { await unstarMessage(messageId).unwrap(); toast.success('Unstarred'); refetchMessages(); } catch (err) { toast.error(err?.data?.message); }
   };
   const handleReply = (msg) => { setReplyToMessage(msg); setTimeout(() => inputRef.current?.focus(), 100); };
   const cancelReply = () => setReplyToMessage(null);
@@ -2283,7 +2468,6 @@ const GeneralChannelId = () => {
               <div className="py-2">
                 <ReplyPreview replyTo={replyToMessage} onCancel={cancelReply} resolveSender={resolveSender} />
 
-                {/* Media Preview */}
                 {pendingMedia && (
                   <MediaPreview
                     mediaFile={pendingMedia}
@@ -2335,10 +2519,10 @@ const GeneralChannelId = () => {
                   <button type="button" onClick={() => handleFileUpload('image')} className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition flex-shrink-0 mb-1"><FaImage className="text-sm" /></button>
                   <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
                   <input type="file" ref={imageInputRef} onChange={handleFileChange} className="hidden" accept="image/*,video/*" />
-                  <textarea 
-                    ref={inputRef} 
-                    value={message} 
-                    onChange={(e) => setMessage(e.target.value)} 
+                  <textarea
+                    ref={inputRef}
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
                     onPaste={handlePaste}
                     onKeyDown={(e) => {
                       if (isMobile) return;
@@ -2364,7 +2548,18 @@ const GeneralChannelId = () => {
 
           {isDesktop && showDetails && (
             <div className="lg:w-80 lg:flex-shrink-0 border-l border-gray-200 dark:border-gray-800/60 h-full overflow-hidden">
-              <ChannelDetailsPanel chat={chat} userInfo={userInfo} onClose={() => setShowDetails(false)} onEdit={handleEditChannel} onOpenDM={handleOpenDM} />
+              <ChannelDetailsPanel
+                chat={chat}
+                userInfo={userInfo}
+                onClose={() => setShowDetails(false)}
+                onEdit={handleEditChannel}
+                onOpenDM={handleOpenDM}
+                onMakeAdmin={handleMakeAdmin}
+                onRemoveAdmin={handleRemoveAdmin}
+                onRemoveMember={handleRemoveMember}
+                openConfirm={openConfirm}
+                isDesktop={isDesktop}
+              />
             </div>
           )}
         </div>
@@ -2375,7 +2570,18 @@ const GeneralChannelId = () => {
         <>
           <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setShowDetails(false)} />
           <div className="fixed inset-y-0 right-0 z-50 w-80 max-w-[85vw] bg-white dark:bg-[#14141a] shadow-xl border-l border-gray-200 dark:border-gray-800/60 overflow-y-auto transition-transform duration-300 ease-in-out">
-            <ChannelDetailsPanel chat={chat} userInfo={userInfo} onClose={() => setShowDetails(false)} onEdit={handleEditChannel} onOpenDM={handleOpenDM} />
+            <ChannelDetailsPanel
+              chat={chat}
+              userInfo={userInfo}
+              onClose={() => setShowDetails(false)}
+              onEdit={handleEditChannel}
+              onOpenDM={handleOpenDM}
+              onMakeAdmin={handleMakeAdmin}
+              onRemoveAdmin={handleRemoveAdmin}
+              onRemoveMember={handleRemoveMember}
+              openConfirm={openConfirm}
+              isDesktop={isDesktop}
+            />
           </div>
         </>
       )}

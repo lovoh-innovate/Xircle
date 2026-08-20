@@ -154,7 +154,7 @@ export const updateOnlineStatus = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CREATE GROUP CHAT (Workspace – Owner or Admin)
+// CREATE GROUP CHAT (Workspace – Owner or Admin) – with avatar upload
 // POST /api/messages/group
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -162,7 +162,8 @@ export const createGroupChat = async (req, res) => {
   console.log(`🔵 createGroupChat called by user ${req.user.id}`);
   try {
     const userId = req.user.id;
-    const { workspaceId, name, avatar, memberIds = [] } = req.body;
+    const { workspaceId, name, memberIds = [] } = req.body;
+    const avatarFile = req.file; // multer file
 
     if (!workspaceId || !name?.trim()) {
       return res
@@ -197,16 +198,13 @@ export const createGroupChat = async (req, res) => {
       },
     ];
 
-    // Get active workspace member IDs for validation
     const activeMemberIds = workspace.members
       .filter(m => m.status === 'active')
       .map(m => m.user.toString());
 
-    // Add selected members (skip duplicates and the creator)
     const addedUsers = [];
     for (const mid of memberIds) {
       if (activeMemberIds.includes(mid) && mid !== userId) {
-        // Avoid duplicates
         if (!participants.some(p => p.user.toString() === mid)) {
           participants.push({
             user: mid,
@@ -220,7 +218,7 @@ export const createGroupChat = async (req, res) => {
       }
     }
 
-    // If no memberIds provided, fallback to adding all active members (like before)
+    // If no memberIds provided, fallback to adding all active members
     if (memberIds.length === 0) {
       for (const member of workspace.members) {
         const mid = member.user.toString();
@@ -237,12 +235,14 @@ export const createGroupChat = async (req, res) => {
       }
     }
 
+    let avatarUrl = avatarFile ? avatarFile.path : null;
+
     const chat = await Chat.create({
       workspace: workspaceId,
       type: "group",
       scope: "workspace",
       name: name.trim(),
-      avatar: avatar || null,
+      avatar: avatarUrl,
       participants,
       createdBy: userId,
       lastMessageAt: new Date(),
@@ -254,7 +254,6 @@ export const createGroupChat = async (req, res) => {
       .populate("participants.user", "name email profile username")
       .populate("createdBy", "name email profile username");
 
-    // Notify only the users who were actually added
     if (addedUsers.length > 0) {
       console.log(`📢 Notifying ${addedUsers.length} members about new group chat`);
       notifyUsers(addedUsers, {
@@ -271,6 +270,90 @@ export const createGroupChat = async (req, res) => {
     });
   } catch (error) {
     console.error(`❌ createGroupChat error:`, error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UPDATE GROUP CHAT (workspace or public) – with avatar upload
+// PUT /api/messages/group/:chatId
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const updateGroupChat = async (req, res) => {
+  console.log(`🔵 updateGroupChat called by user ${req.user.id} for chat ${req.params.chatId}`);
+  try {
+    const userId = req.user.id;
+    const { chatId } = req.params;
+    const { name, description, isPublic } = req.body;
+    const avatarFile = req.file;
+
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+      return res.status(404).json({ message: "Chat not found." });
+    }
+
+    if (chat.type !== "group") {
+      return res.status(400).json({ message: "Only group chats can be updated." });
+    }
+
+    let canUpdate = false;
+    let isWorkspaceChat = chat.scope === 'workspace' && chat.workspace;
+
+    if (chat.scope === 'public') {
+      // Public group: only creator can update
+      if (chat.createdBy.toString() === userId) canUpdate = true;
+    } else if (isWorkspaceChat) {
+      // Workspace group: creator or workspace admin/owner can update
+      const workspace = await Workspace.findById(chat.workspace);
+      if (workspace) {
+        const isOwner = workspace.owner.toString() === userId;
+        const isAdmin = workspace.members.some(
+          (m) => m.user.toString() === userId && m.role === 'Admin' && m.status === 'active'
+        );
+        if (isOwner || isAdmin || chat.createdBy.toString() === userId) canUpdate = true;
+      }
+    }
+
+    if (!canUpdate) {
+      return res.status(403).json({
+        message: "You do not have permission to update this group."
+      });
+    }
+
+    // Update fields
+    if (name) chat.name = name.trim();
+    if (description !== undefined) chat.description = description.trim();
+    // Only allow isPublic for public groups
+    if (chat.scope === 'public' && isPublic !== undefined) {
+      chat.isPublic = isPublic === 'true' || isPublic === true;
+    }
+    if (avatarFile) {
+      chat.avatar = avatarFile.path;
+    }
+
+    await chat.save();
+
+    const updatedChat = await Chat.findById(chatId)
+      .populate("participants.user", "name email profile username")
+      .populate("createdBy", "name email profile username");
+
+    // Notify all members about the update (optional)
+    const participantIds = chat.participants.map(p => p.user.toString());
+    if (participantIds.length > 0 && name) {
+      notifyUsers(participantIds, {
+        title: `Group "${chat.name}" updated`,
+        body: `The group chat "${chat.name}" has been updated.`,
+        data: buildChatNotificationData(chat),
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Group updated successfully",
+      chat: updatedChat,
+    });
+  } catch (error) {
+    console.error(`❌ updateGroupChat error:`, error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

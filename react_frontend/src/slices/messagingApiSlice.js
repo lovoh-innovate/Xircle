@@ -44,13 +44,37 @@ export const messagingApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['Chat'],
     }),
 
-    // 🆕 Update public group (creator only)
+    // ─── Unified Group Update (workspace & public) ───────────────────
+    // ✅ Use this new mutation for both workspace and public groups
+    updateGroupChat: builder.mutation({
+      query: ({ chatId, data }) => {
+        const isFormData = data instanceof FormData;
+        return {
+          url: `${MESSAGING_URL}/group/${chatId}`,
+          method: 'PUT',
+          body: data,
+          headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
+        };
+      },
+      invalidatesTags: (result, error, { chatId }) => [
+        { type: 'Chat', id: chatId },
+        'Chat',
+        'PublicGroup',
+      ],
+    }),
+
+    // ─── Public group update (legacy – use updateGroupChat instead) ──
+    // Kept for backward compatibility; points to the same unified endpoint
     updatePublicGroup: builder.mutation({
-      query: ({ chatId, data }) => ({
-        url: `${MESSAGING_URL}/public/group/${chatId}`,
-        method: 'PUT',
-        body: data,
-      }),
+      query: ({ chatId, data }) => {
+        const isFormData = data instanceof FormData;
+        return {
+          url: `${MESSAGING_URL}/group/${chatId}`, // now unified
+          method: 'PUT',
+          body: data,
+          headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
+        };
+      },
       invalidatesTags: (result, error, { chatId }) => [
         { type: 'Chat', id: chatId },
         'Chat',
@@ -310,21 +334,20 @@ export const messagingApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['Chat'],
     }),
 
-   searchUsers: builder.query({
-  query: ({ workspaceId, query, scope }) => ({
-    url: `${MESSAGING_URL}/search/users`,
-    params: { workspaceId, query, scope },
-  }),
-  providesTags: ['UserSearch'],
-}),
+    searchUsers: builder.query({
+      query: ({ workspaceId, query, scope }) => ({
+        url: `${MESSAGING_URL}/search/users`,
+        params: { workspaceId, query, scope },
+      }),
+      providesTags: ['UserSearch'],
+    }),
 
-    // src/slices/messagingApiSlice.js
-getPendingJoinRequests: builder.query({
-  query: () => ({
-    url: `${MESSAGING_URL}/public/groups/pending`,
-  }),
-  providesTags: ['PublicGroup', 'PendingRequests'],
-}),
+    getPendingJoinRequests: builder.query({
+      query: () => ({
+        url: `${MESSAGING_URL}/public/groups/pending`,
+      }),
+      providesTags: ['PublicGroup', 'PendingRequests'],
+    }),
 
   }),
 });
@@ -343,8 +366,13 @@ export const {
   useGetJoinRequestsQuery,
   useGetPendingJoinRequestsQuery,
 
-  // 🆕 Public group update/delete
+  // 🆕 Unified group update (recommended)
+  useUpdateGroupChatMutation,
+
+  // Legacy public group update (kept for compatibility)
   useUpdatePublicGroupMutation,
+
+  // Public group delete
   useDeletePublicGroupMutation,
 
   // Group admin

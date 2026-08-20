@@ -37,8 +37,8 @@ import {
   unarchiveMessage,
   starMessage,
   unstarMessage,
-  // 🆕 Public group update/delete
-  updatePublicGroup,
+  // 🆕 Unified group update (replaces updatePublicGroup)
+  updateGroupChat,
   deletePublicGroup,
 } from '../controllers/messagingController.js';
 import { protect } from '../middleware/authMiddleware.js';
@@ -48,7 +48,8 @@ import multer from 'multer';
 const router = express.Router();
 
 // ─── Chat management (workspace) ──────────────────────────────────────
-router.post('/group', protect, createGroupChat);
+// ✅ Added upload.single('avatar') for avatar upload
+router.post('/group', protect, upload.single('avatar'), createGroupChat);
 router.post('/direct', protect, createDirectChat);
 router.get('/chats', protect, getUserChats);
 router.get('/search/users', protect, searchUsers);
@@ -63,11 +64,12 @@ router.get('/public/groups/search', protect, searchPublicGroups);
 router.post('/public/groups/:chatId/join-request', protect, requestJoinGroup);
 router.post('/public/groups/:chatId/join-request/:requestId', protect, handleJoinRequest);
 router.get('/public/groups/:chatId/join-requests', protect, getJoinRequests);
-// ─── Pending join requests ──────────────────────────────────────────
 router.get('/public/groups/pending', protect, getPendingJoinRequests);
 
-// 🆕 Update and delete public groups (creator only)
-router.put('/public/group/:chatId', protect, upload.single('avatar'), updatePublicGroup);
+// 🆕 Unified group update (workspace & public) – with avatar upload
+router.put('/group/:chatId', protect, upload.single('avatar'), updateGroupChat);
+
+// 🆕 Delete public group (creator only) – kept
 router.delete('/public/group/:chatId', protect, deletePublicGroup);
 
 // ─── Group admin management ──────────────────────────────────────────

@@ -36,6 +36,7 @@ import {
   FaCompass,
   FaSignOutAlt,
 } from 'react-icons/fa';
+import { FiRadio } from 'react-icons/fi';
 import { motion } from 'framer-motion';
 import GeneralSidebar from '../components/GeneralSidebar';
 import GeneralBottombar from '../components/GeneralBottombar';
@@ -798,11 +799,11 @@ const GeneralChannels = () => {
 
   // ─── Tab configuration ─────────────────────────────────────────
   const tabs = [
-    { id: 'all', label: 'All', icon: FaGlobe },
-    { id: 'my', label: 'My', icon: FaUser },
-    { id: 'joined', label: 'Joined', icon: FaCheckCircle },
-    { id: 'workspace', label: 'Workspace', icon: FaBuilding },
-  ];
+  { id: 'all', label: 'All', icon: FiRadio },      // 👈 double circle icon
+  { id: 'my', label: 'My', icon: FaUser },
+  { id: 'joined', label: 'Joined', icon: FaCheckCircle },
+  { id: 'workspace', label: 'Workspace', icon: FaBuilding },
+];
 
   // ─── Filter by search term ─────────────────────────────────────
   const filterByName = (channel) =>
