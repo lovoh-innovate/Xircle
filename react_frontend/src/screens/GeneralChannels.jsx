@@ -240,7 +240,7 @@ const getInitials = (name) => {
 };
 
 // ─── Channel Card ────────────────────────────────────────────────
-const ChannelCard = ({ channel, status = 'discover', onJoin, onEdit, onDelete, isCreator = false, linkTo, workspaceName }) => {
+const ChannelCard = ({ channel, status = 'discover', onJoin, onEdit, onDelete, isCreator = false, linkTo, workspaceName, navigate }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const memberCount = channel.participants?.length || 0;
   const name = channel.name || 'Unnamed Channel';
@@ -281,8 +281,8 @@ const ChannelCard = ({ channel, status = 'discover', onJoin, onEdit, onDelete, i
 
   const handleCardClick = () => {
     if (status === 'pending') return;
-    if (linkTo) {
-      window.location.href = linkTo;
+    if (linkTo && navigate) {
+      navigate(linkTo);
     }
   };
 
@@ -386,6 +386,7 @@ const WorkspaceGroupSection = ({ workspaceId, workspaceName, channels, userInfo,
           status="joined"
           linkTo={`${baseRoute}/${channel._id}`}
           workspaceName={workspaceName}
+          navigate={navigate}
         />
       ))}
     </div>
@@ -463,10 +464,13 @@ const GeneralChannels = () => {
 
   const pendingIds = useMemo(() => new Set(pendingChannels.map(c => c._id)), [pendingChannels]);
 
+  // ─── Merged Joined – with fix: joined channels always take precedence ──
   const mergedJoined = useMemo(() => {
-    const pendingMap = pendingChannels.reduce((acc, p) => ({ ...acc, [p._id]: true }), {});
-    const filteredJoined = joinedChannels.filter(c => !pendingMap[c._id]);
-    return [...pendingChannels, ...filteredJoined];
+    const joinedIds = new Set(joinedChannels.map(c => c._id));
+    // Filter out pending channels that are already joined
+    const pendingNotJoined = pendingChannels.filter(c => !joinedIds.has(c._id));
+    // Show pending first, then joined
+    return [...pendingNotJoined, ...joinedChannels];
   }, [pendingChannels, joinedChannels]);
 
   // ─── Workspace channels (scope: workspace, type: group) ──────
@@ -626,32 +630,42 @@ const GeneralChannels = () => {
                         key={channel._id}
                         channel={channel}
                         status="my"
+                        linkTo={`/channels/${channel._id}`}
                         onJoin={handleJoin}
                         onEdit={handleEdit}
                         onDelete={handleDelete}
                         isCreator={true}
+                        navigate={navigate}
                       />
                     ))}
                   </div>
                 )}
+
                 {activeTab === 'joined' && (
                   <div className="divide-y divide-gray-100 dark:divide-gray-800">
                     {mergedJoined.map((channel) => {
-                      const status = pendingIds.has(channel._id) ? 'pending' : 'joined';
+                      // Determine if channel is actually joined (participant)
+                      const isJoined = joinedChannels.some(c => c._id === channel._id);
+                      // Only pending if it's NOT joined AND it's in pending list
+                      const isPending = !isJoined && pendingIds.has(channel._id);
+                      const status = isPending ? 'pending' : 'joined';
                       return (
                         <ChannelCard
                           key={channel._id}
                           channel={channel}
                           status={status}
+                          linkTo={isPending ? undefined : `/channels/${channel._id}`}
                           onJoin={handleJoin}
                           onEdit={handleEdit}
                           onDelete={handleDelete}
                           isCreator={false}
+                          navigate={navigate}
                         />
                       );
                     })}
                   </div>
                 )}
+
                 {activeTab === 'workspace' && (
                   <div>
                     {workspaceGroups.length === 0 ? (
@@ -673,19 +687,25 @@ const GeneralChannels = () => {
                     )}
                   </div>
                 )}
+
                 {activeTab === 'discover' && (
                   <div className="divide-y divide-gray-100 dark:divide-gray-800">
                     {discoverChannels.map((channel) => {
-                      const status = pendingIds.has(channel._id) ? 'pending' : 'discover';
+                      // For discover, if already joined, show as joined (clickable)
+                      const isJoined = joinedChannels.some(c => c._id === channel._id);
+                      const isPending = !isJoined && pendingIds.has(channel._id);
+                      const status = isJoined ? 'joined' : (isPending ? 'pending' : 'discover');
                       return (
                         <ChannelCard
                           key={channel._id}
                           channel={channel}
                           status={status}
+                          linkTo={(isJoined || status === 'discover') ? `/channels/${channel._id}` : undefined}
                           onJoin={handleJoin}
                           onEdit={handleEdit}
                           onDelete={handleDelete}
                           isCreator={false}
+                          navigate={navigate}
                         />
                       );
                     })}

@@ -1358,7 +1358,7 @@ const GeneralChannelId = () => {
     refetch: refetchMessages,
   } = useGetChatMessagesQuery(
     { chatId, page: 1, limit: 50 },
-    { skip: !chatId, refetchOnMountOrArgChange: true } // 👈 force refetch on mount
+    { skip: !chatId, refetchOnMountOrArgChange: true }
   );
   const [sendMessageApi] = useSendMessageMutation();
   const [deleteMessageApi] = useDeleteMessageMutation();
@@ -1384,7 +1384,7 @@ const GeneralChannelId = () => {
     setShowScrollDown(false);
     setPendingMedia(null);
     setShowMediaPicker(false);
-    if (chatId) refetchMessages(); // 👈 force fresh fetch
+    if (chatId) refetchMessages();
   }, [chatId, refetchMessages]);
 
   // ─── Scroll / bottom detection ─────────────────────────────────
@@ -1513,16 +1513,20 @@ const GeneralChannelId = () => {
     });
   }, [userInfo?._id]);
 
+  // ─── FIXED: Only access firstMsg.chat if firstMsg exists ──────────
   useEffect(() => {
     if (messagesData?.messages) {
-      const firstMsg = messagesData.messages[0];
-      const msgChatId = typeof firstMsg.chat === 'string' ? firstMsg.chat : firstMsg.chat?._id;
-      if (msgChatId && msgChatId !== chatId) return;
-      mergeMessagesIntoState(messagesData.messages);
+      const messages = messagesData.messages;
+      if (messages.length > 0) {
+        const firstMsg = messages[0];
+        const msgChatId = typeof firstMsg.chat === 'string' ? firstMsg.chat : firstMsg.chat?._id;
+        if (msgChatId && msgChatId !== chatId) return;
+      }
+      mergeMessagesIntoState(messages);
     }
   }, [messagesData, mergeMessagesIntoState, chatId]);
 
-  // ─── Socket handlers (updated: message-deleted sets isDeleted) ──
+  // ─── Socket handlers ──────────────────────────────────────────────
   useEffect(() => {
     if (!socket || !isConnected || !chatId) return;
     socket.emit('join-chat', chatId);
@@ -1646,7 +1650,6 @@ const GeneralChannelId = () => {
 
     try {
       const result = await sendMessageApi({ chatId, data: formData }).unwrap();
-      // ✅ On success: do NOT update state manually – the 'new-message' event will replace the temp.
       toast.success(`${messageType === 'image' ? 'Image' : 'File'} sent!`);
     } catch (err) {
       setLocalMessages(prev => prev.map(m => m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m));
@@ -1669,8 +1672,8 @@ const GeneralChannelId = () => {
     const optimisticMsg = {
       _id: tempId,
       _temp: true,
-      _pending: false, // no spinner
-      _sent: false,    // clock will show
+      _pending: false,
+      _sent: false,
       _failed: false,
       _delivered: false,
       _read: false,
@@ -1698,11 +1701,9 @@ const GeneralChannelId = () => {
       replyToId,
     }, (response) => {
       if (response?.error) {
-        // Error: remove the temporary message and show toast
         setLocalMessages((prev) => prev.filter((m) => m._id !== tempId));
         toast.error(response.error);
       }
-      // On success: do nothing – the 'new-message' event will replace the temp.
     });
   };
 
@@ -2110,7 +2111,6 @@ const GeneralChannelId = () => {
 
     try {
       const result = await sendMessageApi({ chatId, data: formData }).unwrap();
-      // Rely on 'new-message' event to replace temporary
       toast.success('Voice note sent!');
     } catch (err) {
       setLocalMessages(prev => prev.map(m => m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m));
