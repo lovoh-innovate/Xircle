@@ -5,13 +5,14 @@ import {
   createWorkspace,
   getMyWorkspaces,
   getWorkspace,
+  getWorkspaceByInviteCode,  // 👈 new import
   updateWorkspace,
   deleteWorkspace,
   leaveWorkspace,
   removeMember,
   regenerateInviteCode,
   migrateWorkspaces,
-  updateMemberRole,          // 👈 new controller function
+  updateMemberRole,
 } from '../controllers/workspaceController.js';
 
 import multer from 'multer';
@@ -42,8 +43,11 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
 });
 
-// ── Routes ────────────────────────────────────────────────────────────────
+// ─── Public Routes ─────────────────────────────────────────────────────────
+// Preview workspace by invite code – no authentication required
+router.get('/by-code/:inviteCode', getWorkspaceByInviteCode);
 
+// ─── Protected Routes ─────────────────────────────────────────────────────
 // Create workspace with optional logo upload
 router.post('/', protect, upload.single('logo'), createWorkspace);
 

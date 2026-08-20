@@ -509,6 +509,38 @@ const migrateWorkspaces = asyncHandler(async (req, res) => {
   });
 });
 
+// controllers/workspaceController.js (add this function)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET WORKSPACE BY INVITE CODE (preview before joining)
+// GET /api/workspaces/by-code/:inviteCode
+// ─────────────────────────────────────────────────────────────────────────────
+
+const getWorkspaceByInviteCode = asyncHandler(async (req, res) => {
+  const { inviteCode } = req.params;
+
+  const workspace = await Workspace.findOne({
+    inviteCode: inviteCode.toUpperCase(),
+  });
+
+  if (!workspace) {
+    res.status(404);
+    throw new Error('Invalid invite code. Workspace not found.');
+  }
+
+  res.status(200).json({
+    success: true,
+    workspace: {
+      _id: workspace._id,
+      name: workspace.name,
+      industry: workspace.industry,
+      color: workspace.color,
+      logo: workspace.logo,
+      memberCount: workspace.members?.length || 0,
+    },
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // EXPORTS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -524,4 +556,5 @@ export {
   updateMemberRole,           // new endpoint
   regenerateInviteCode,
   migrateWorkspaces,
+  getWorkspaceByInviteCode,
 };

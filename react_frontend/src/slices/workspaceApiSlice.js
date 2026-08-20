@@ -34,6 +34,14 @@ export const workspaceApiSlice = apiSlice.injectEndpoints({
       providesTags: (result, error, id) => [{ type: 'Workspace', id }],
     }),
 
+    // 🆕 Get workspace by invite code (public preview, no auth required)
+    getWorkspaceByInviteCode: builder.query({
+      query: (inviteCode) => ({
+        url: `${WORKSPACES_URL}/by-code/${inviteCode}`,
+      }),
+      providesTags: ['Workspace'],
+    }),
+
     // Update a workspace (owner only) – supports logo upload via FormData
     updateWorkspace: builder.mutation({
       query: ({ id, data }) => {
@@ -91,7 +99,7 @@ export const workspaceApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (result, error, id) => [{ type: 'Workspace', id }],
     }),
 
-    // ─── Member Role Management (NEW) ──────────────────────────────
+    // ─── Member Role Management ─────────────────────────────────────
 
     // Update a member's role (owner only)
     updateMemberRole: builder.mutation({
@@ -123,11 +131,12 @@ export const {
   useCreateWorkspaceMutation,
   useGetMyWorkspacesQuery,
   useGetWorkspaceQuery,
+  useGetWorkspaceByInviteCodeQuery, // 👈 NEW hook
   useUpdateWorkspaceMutation,
   useDeleteWorkspaceMutation,
   useLeaveWorkspaceMutation,
   useRemoveMemberMutation,
   useRegenerateInviteCodeMutation,
   useMigrateWorkspacesMutation,
-  useUpdateMemberRoleMutation,   // 👈 NEW hook
+  useUpdateMemberRoleMutation,
 } = workspaceApiSlice;
