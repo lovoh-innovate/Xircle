@@ -66,7 +66,7 @@ const apiCacheTransform = createTransform(
 
 // ─── Persist configuration ──────────────────────────────────────────
 const persistConfig = {
-  key: 'root-v19',
+  key: 'root-v20',
   storage,
   whitelist: [
     'auth',

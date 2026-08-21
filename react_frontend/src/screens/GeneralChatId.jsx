@@ -1236,7 +1236,6 @@ const GeneralChatId = () => {
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
-  const formRef = useRef(null); // ← NEW: ref to the send form so keydown can trigger a single, canonical submit
   const [previewImage, setPreviewImage] = useState(null);
   const [replyToMessage, setReplyToMessage] = useState(null);
   const [localMessages, setLocalMessages] = useState([]);
@@ -1457,13 +1456,11 @@ const GeneralChatId = () => {
             return;
           }
 
-          // 2. Check if this is a temporary message (sent by us, not yet replaced).
-          //    We match on ALL pending/unmatched temp messages with the same content,
-          //    not just the first, and consume the OLDEST unmatched one — this keeps
-          //    us correct even if two optimistic temps briefly exist for any reason.
+          // 2. Check if this is a temporary message (sent by us, not yet replaced)
           const isOwn =
             incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
           if (isOwn) {
+            // Find a temporary message with the same content and similar timestamp
             const tempIdx = next.findIndex(
               (m) =>
                 m._temp &&
@@ -1701,32 +1698,10 @@ const GeneralChatId = () => {
   };
 
   // ─── Send message (text) ──────────────────────────────────────
-  // ✅ FIX FOR "DOUBLE MESSAGE" BUG:
-  // On some machines, the Enter-to-send keydown handler and the browser's
-  // native form submission could BOTH end up calling this function for the
-  // same keypress (timing differences across browsers/OS keyboard layers),
-  // which created two separate optimistic (temp) messages. Only one of
-  // them ever got matched against the real server message, so the other
-  // stayed stuck on the "clock" (unsent) icon forever — exactly the
-  // "one sent, one not" symptom you're seeing.
-  //
-  // Fix: a synchronous ref-based lock (`sendLockRef`) makes this function
-  // a no-op if it's called again before the previous send has been
-  // acknowledged by the server (or a short safety timeout elapses), no
-  // matter what triggered the second call.
-  const sendLockRef = useRef(false);
-  const [isSending, setIsSending] = useState(false);
-
   const handleSendMessage = (e) => {
     e.preventDefault();
-
     const trimmed = message.trim();
     if (!trimmed || !socket) return;
-
-    // Hard guard — blocks any duplicate/near-simultaneous invocation.
-    if (sendLockRef.current) return;
-    sendLockRef.current = true;
-    setIsSending(true);
 
     const senderWithName = {
       ...userInfo,
@@ -1767,14 +1742,6 @@ const GeneralChatId = () => {
       inputRef.current.style.height = "auto";
     }
 
-    const releaseLock = () => {
-      sendLockRef.current = false;
-      setIsSending(false);
-    };
-    // Safety net: if the server ack never comes back for some reason,
-    // don't leave the UI permanently locked out of sending.
-    const safetyTimer = setTimeout(releaseLock, 4000);
-
     socket.emit(
       "send-message",
       {
@@ -1785,8 +1752,6 @@ const GeneralChatId = () => {
         replyToId,
       },
       (response) => {
-        clearTimeout(safetyTimer);
-        releaseLock();
         if (response?.error) {
           // Error: remove the temporary message and show toast
           setLocalMessages((prev) => prev.filter((m) => m._id !== tempId));
@@ -2559,7 +2524,7 @@ const GeneralChatId = () => {
                   </div>
                 )}
 
-                <form ref={formRef} onSubmit={handleSendMessage} className="flex items-end gap-2">
+                <form onSubmit={handleSendMessage} className="flex items-end gap-2">
                   <button
                     type="button"
                     onClick={() => handleFileUpload("file")}
@@ -2594,17 +2559,9 @@ const GeneralChatId = () => {
                     onPaste={handlePaste}
                     onKeyDown={(e) => {
                       if (isMobile) return;
-                      // Ignore Enter presses that are part of IME composition
-                      // (e.g. predictive text / non-Latin input on some laptops) —
-                      // otherwise a composition-confirming Enter can fire a send.
-                      if (e.nativeEvent.isComposing) return;
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
-                        // ✅ Route through the form's own submit instead of calling
-                        // handleSendMessage(e) directly here AND letting the form's
-                        // onSubmit potentially fire too. requestSubmit() is the single,
-                        // canonical trigger — this is what eliminated the double-send.
-                        formRef.current?.requestSubmit();
+                        handleSendMessage(e);
                       }
                     }}
                     placeholder="Message"
@@ -2615,7 +2572,7 @@ const GeneralChatId = () => {
                   {message.trim() ? (
                     <button
                       type="submit"
-                      disabled={!isConnected || isSending}
+                      disabled={!isConnected}
                       className="p-2 rounded-full text-white disabled:opacity-50 flex-shrink-0 transition hover:opacity-80 mb-1"
                       style={{ backgroundColor: "#0d9488" }}
                     >
