@@ -1411,123 +1411,124 @@ const GeneralChatId = () => {
 
   // ─── Message handling ──────────────────────────────────────────
   const mergeMessagesIntoState = useCallback(
-    (incomingList) => {
-      if (!incomingList || incomingList.length === 0) return;
-      setLocalMessages((prev) => {
-        let next = prev;
-        let mutated = false;
-        incomingList.forEach((incoming) => {
-          // 1. Check if this message already exists by real _id
-          const existingIdx = next.findIndex((m) => m._id === incoming._id);
-          if (existingIdx > -1) {
-            if (!mutated) next = [...next];
-            mutated = true;
-            // Update the existing message with server data, preserving client flags
-            const existing = next[existingIdx];
-            const updated = {
-              ...incoming,
-              _sent: existing._sent || false,
-              _pending: existing._pending || false,
-              _failed: existing._failed || false,
-              _delivered: true,
-              _read: false,
-            };
-            // Determine read status based on who has read it
-            const isOwn =
-              incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
-            if (isOwn) {
-              const otherId = otherParticipant?._id;
-              if (
-                otherId &&
-                incoming.readBy?.some((r) => r.user === otherId || r.user?._id === otherId)
-              ) {
-                updated._read = true;
-              }
-            } else {
-              if (
-                incoming.readBy?.some(
-                  (r) => r.user === userInfo?._id || r.user?._id === userInfo?._id,
-                )
-              ) {
-                updated._read = true;
-              }
-            }
-            next[existingIdx] = updated;
-            return;
-          }
-
-          // 2. Check if this is a temporary message (sent by us, not yet replaced)
-          const isOwn =
-            incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
+  (incomingList) => {
+    if (!incomingList || incomingList.length === 0) return;
+    setLocalMessages((prev) => {
+      let next = prev;
+      let mutated = false;
+      incomingList.forEach((incoming) => {
+        // 1. Check if this message already exists by real _id
+        const existingIdx = next.findIndex((m) => m._id === incoming._id);
+        if (existingIdx > -1) {
+          if (!mutated) next = [...next];
+          mutated = true;
+          const existing = next[existingIdx];
+          const updated = {
+            ...incoming,
+            _sent: existing._sent || false,
+            _pending: existing._pending || false,
+            _failed: existing._failed || false,
+            _delivered: true,
+            _read: false,
+          };
+          const isOwn = incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
           if (isOwn) {
-            // Find a temporary message with the same content and similar timestamp
-            const tempIdx = next.findIndex(
-              (m) =>
-                m._temp &&
-                m.content === incoming.content &&
-                Math.abs(new Date(m.createdAt) - new Date(incoming.createdAt)) < 5000,
-            );
-            if (tempIdx > -1) {
-              if (!mutated) next = [...next];
-              mutated = true;
-              // Replace the temporary with the real message
-              const realMsg = {
-                ...incoming,
-                _sent: true,
-                _pending: false,
-                _failed: false,
-                _delivered: true,
-                _read: false,
-                _temp: false,
-              };
-              // Check if already read by the other participant
-              const otherId = otherParticipant?._id;
-              if (
-                otherId &&
-                incoming.readBy?.some((r) => r.user === otherId || r.user?._id === otherId)
-              ) {
-                realMsg._read = true;
-              }
-              next[tempIdx] = realMsg;
-              return;
+            const otherId = otherParticipant?._id;
+            if (otherId && incoming.readBy?.some((r) => r.user === otherId || r.user?._id === otherId)) {
+              updated._read = true;
+            }
+          } else {
+            if (incoming.readBy?.some((r) => r.user === userInfo?._id || r.user?._id === userInfo?._id)) {
+              updated._read = true;
             }
           }
+          next[existingIdx] = updated;
+          return;
+        }
 
-          // 3. It's a new message from someone else or our own that we didn't optimistically add
-          const msg = {
+        const isOwn = incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
+
+        // 2. Find a temporary message to replace
+        let tempIdx = -1;
+        if (isOwn) {
+          // Try to find by _tempId first (most reliable)
+          tempIdx = next.findIndex((m) => m._tempId === incoming._id);
+          if (tempIdx === -1) {
+            // Fallback: find by content + timestamp for text messages
+            const incomingContent = incoming.content || '';
+            const incomingTime = new Date(incoming.createdAt).getTime();
+            tempIdx = next.findIndex((m) => {
+              if (!m._temp) return false;
+              // For text messages: match content and close timestamp
+              if (m.content !== undefined && m.content === incomingContent) {
+                const mTime = new Date(m.createdAt).getTime();
+                return Math.abs(mTime - incomingTime) < 10000; // 10s window
+              }
+              // For media messages: match mediaName and close timestamp
+              if (m.mediaName && m.mediaName === incoming.mediaName) {
+                const mTime = new Date(m.createdAt).getTime();
+                return Math.abs(mTime - incomingTime) < 20000; // 20s window
+              }
+              return false;
+            });
+          }
+        }
+
+        if (tempIdx > -1) {
+          if (!mutated) next = [...next];
+          mutated = true;
+          const realMsg = {
             ...incoming,
             _sent: true,
             _pending: false,
             _failed: false,
             _delivered: true,
             _read: false,
+            _temp: false,
+            _tempId: undefined,
           };
           if (isOwn) {
             const otherId = otherParticipant?._id;
-            if (
-              otherId &&
-              incoming.readBy?.some((r) => r.user === otherId || r.user?._id === otherId)
-            ) {
-              msg._read = true;
+            if (otherId && incoming.readBy?.some((r) => r.user === otherId || r.user?._id === otherId)) {
+              realMsg._read = true;
             }
           } else {
-            if (
-              incoming.readBy?.some(
-                (r) => r.user === userInfo?._id || r.user?._id === userInfo?._id,
-              )
-            ) {
-              msg._read = true;
+            if (incoming.readBy?.some((r) => r.user === userInfo?._id || r.user?._id === userInfo?._id)) {
+              realMsg._read = true;
             }
           }
-          if (!mutated) next = [...next];
-          mutated = true;
-          next.push(msg);
-        });
-        return mutated ? next : prev;
+          next[tempIdx] = realMsg;
+          return;
+        }
+
+        // 3. It's a new message from someone else or our own that wasn't optimistically added
+        const msg = {
+          ...incoming,
+          _sent: true,
+          _pending: false,
+          _failed: false,
+          _delivered: true,
+          _read: false,
+        };
+        if (isOwn) {
+          const otherId = otherParticipant?._id;
+          if (otherId && incoming.readBy?.some((r) => r.user === otherId || r.user?._id === otherId)) {
+            msg._read = true;
+          }
+        } else {
+          if (incoming.readBy?.some((r) => r.user === userInfo?._id || r.user?._id === userInfo?._id)) {
+            msg._read = true;
+          }
+        }
+        if (!mutated) next = [...next];
+        mutated = true;
+        next.push(msg);
       });
-    },
-    [userInfo?._id, otherParticipant?._id],
-  );
+      return mutated ? next : prev;
+    });
+  },
+  [userInfo?._id, otherParticipant?._id],
+);
 
   useEffect(() => {
     if (messagesData?.messages && messagesData.messages.length > 0) {
@@ -1712,6 +1713,7 @@ const GeneralChatId = () => {
     // For text: no pending spinner, just set _sent: false → clock
     const optimisticMsg = {
       _id: tempId,
+      _tempId: tempId, 
       _temp: true,
       _pending: false, // no spinner
       _sent: false, // clock will show
