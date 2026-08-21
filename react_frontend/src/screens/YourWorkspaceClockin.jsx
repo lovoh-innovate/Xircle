@@ -278,7 +278,7 @@ const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
   );
 };
 
-// ─── Leaderboard Table ──────────────────────────────────────────────
+// ─── Leaderboard Table (mobile‑optimized) ──────────────────────────
 const LeaderboardTable = ({ data, period }) => {
   if (!data || data.length === 0) {
     return (
@@ -298,39 +298,39 @@ const LeaderboardTable = ({ data, period }) => {
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[400px] text-sm">
+      <table className="w-full min-w-[280px] text-xs sm:text-sm">
         <thead>
           <tr className="border-b border-gray-200 dark:border-gray-800">
-            <th className="text-left py-2 px-2 text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">Rank</th>
-            <th className="text-left py-2 px-2 text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">Member</th>
-            <th className="text-center py-2 px-2 text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">Early</th>
-            <th className="text-center py-2 px-2 text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider hidden sm:table-cell">Avg Early</th>
-            <th className="text-center py-2 px-2 text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">Score</th>
+            <th className="text-left py-1.5 px-1 sm:py-2 sm:px-2 text-[10px] sm:text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">Rank</th>
+            <th className="text-left py-1.5 px-1 sm:py-2 sm:px-2 text-[10px] sm:text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">Member</th>
+            <th className="text-center py-1.5 px-1 sm:py-2 sm:px-2 text-[10px] sm:text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">Early</th>
+            <th className="text-center py-1.5 px-1 sm:py-2 sm:px-2 text-[10px] sm:text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider hidden sm:table-cell">Avg Early</th>
+            <th className="text-center py-1.5 px-1 sm:py-2 sm:px-2 text-[10px] sm:text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">Score</th>
           </tr>
         </thead>
         <tbody>
           {data.map((item, index) => (
             <tr key={item.user._id} className="border-b border-gray-100 dark:border-gray-800/30 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition">
-              <td className="py-2 px-2 font-medium text-gray-700 dark:text-gray-300 text-center">
+              <td className="py-1.5 px-1 sm:py-2 sm:px-2 font-medium text-gray-700 dark:text-gray-300 text-center text-xs sm:text-sm">
                 {getMedal(index)}
               </td>
-              <td className="py-2 px-2">
-                <div className="flex items-center gap-2">
+              <td className="py-1.5 px-1 sm:py-2 sm:px-2">
+                <div className="flex items-center gap-1.5 sm:gap-2">
                   {item.user.profile ? (
-                    <img src={item.user.profile} alt={item.user.name} className="w-7 h-7 rounded-full object-cover" />
+                    <img src={item.user.profile} alt={item.user.name} className="w-5 h-5 sm:w-7 sm:h-7 rounded-full object-cover" />
                   ) : (
-                    <div className="w-7 h-7 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-xs font-bold text-gray-600 dark:text-gray-300">
+                    <div className="w-5 h-5 sm:w-7 sm:h-7 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-[8px] sm:text-xs font-bold text-gray-600 dark:text-gray-300">
                       {item.user.name?.charAt(0).toUpperCase() || '?'}
                     </div>
                   )}
-                  <span className="text-gray-800 dark:text-gray-200 text-sm truncate max-w-[80px] sm:max-w-full">
+                  <span className="text-gray-800 dark:text-gray-200 text-[10px] sm:text-sm truncate max-w-[60px] sm:max-w-[120px]">
                     {item.user.name}
                   </span>
                 </div>
               </td>
-              <td className="text-center py-2 px-2 text-gray-600 dark:text-gray-400 text-sm">{item.earlyCount}</td>
-              <td className="text-center py-2 px-2 text-gray-600 dark:text-gray-400 text-sm hidden sm:table-cell">{item.avgEarlyMinutes} min</td>
-              <td className="text-center py-2 px-2 font-semibold text-teal-600 dark:text-teal-400 text-sm">{Math.round(item.score)}</td>
+              <td className="text-center py-1.5 px-1 sm:py-2 sm:px-2 text-gray-600 dark:text-gray-400 text-[10px] sm:text-sm">{item.earlyCount}</td>
+              <td className="text-center py-1.5 px-1 sm:py-2 sm:px-2 text-gray-600 dark:text-gray-400 text-[10px] sm:text-sm hidden sm:table-cell">{item.avgEarlyMinutes} min</td>
+              <td className="text-center py-1.5 px-1 sm:py-2 sm:px-2 font-semibold text-teal-600 dark:text-teal-400 text-[10px] sm:text-sm">{Math.round(item.score)}</td>
             </tr>
           ))}
         </tbody>

@@ -161,7 +161,7 @@ const ClockInWidget = ({ workspaceId, brandColor }) => {
   );
 };
 
-// ─── Clock‑in Schedule Banner with Countdown ────────────────────────
+// ─── Clock‑in Schedule Banner with Countdown (shortened text) ──────
 const ClockInBanner = ({ workspaceId, brandColor, userInfo }) => {
   const { data: settingsData } = useGetClockInSettingsQuery(workspaceId);
   const { data: historyData } = useGetUserClockInHistoryQuery(
@@ -170,7 +170,6 @@ const ClockInBanner = ({ workspaceId, brandColor, userInfo }) => {
   );
 
   const [countdown, setCountdown] = useState('');
-  const [countdownColor, setCountdownColor] = useState('');
   const [isOverdue, setIsOverdue] = useState(false);
 
   const isEnabled = settingsData?.settings?.clockInEnabled || false;
@@ -203,38 +202,30 @@ const ClockInBanner = ({ workspaceId, brandColor, userInfo }) => {
       let diffMs = startDate - now;
       let isLate = false;
 
-      // If start time is in the past, show overdue
       if (diffMs < 0) {
         isLate = true;
         setIsOverdue(true);
-        setCountdownColor('text-red-600 dark:text-red-400');
 
-        // Check if we have an end time to see if window is closed
         if (clockInEnd) {
           const [endHours, endMinutes] = clockInEnd.split(':').map(Number);
           const endDate = new Date(now);
           endDate.setHours(endHours, endMinutes, 0, 0);
           if (now > endDate) {
-            setCountdown('⛔ Window closed');
-            setCountdownColor('text-red-600 dark:text-red-400');
+            setCountdown('⛔ Closed');
             return;
           }
         }
 
-        // Show negative countdown (how late they are)
         const lateMinutes = Math.floor(Math.abs(diffMs) / 60000);
         const lateSeconds = Math.floor((Math.abs(diffMs) % 60000) / 1000);
         setCountdown(`-${String(lateMinutes).padStart(2, '0')}:${String(lateSeconds).padStart(2, '0')}`);
-        setCountdownColor('text-red-600 dark:text-red-400');
         return;
       }
 
-      // Countdown to start time
       setIsOverdue(false);
       const minutes = Math.floor(diffMs / 60000);
       const seconds = Math.floor((diffMs % 60000) / 1000);
       setCountdown(`${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
-      setCountdownColor('text-teal-600 dark:text-teal-400');
     };
 
     updateCountdown();
@@ -242,16 +233,15 @@ const ClockInBanner = ({ workspaceId, brandColor, userInfo }) => {
     return () => clearInterval(interval);
   }, [isEnabled, hasScheduledTime, clockInStart, clockInEnd, isClockedIn]);
 
-  // If not enabled, show nothing
   if (!isEnabled) return null;
 
-  // If no schedule set, show a warning
+  // No schedule set
   if (!hasScheduledTime) {
     return (
-      <div className="px-3 sm:px-6 py-2 border-t border-gray-200/60 dark:border-gray-800/30 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:text-sm bg-yellow-50/50 dark:bg-yellow-900/10">
+      <div className="px-3 sm:px-6 py-2 border-t border-gray-200/60 dark:border-gray-800/30 flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm bg-yellow-50/50 dark:bg-yellow-900/10">
         <span className="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
           <FaExclamationTriangle className="text-yellow-500 text-[11px] sm:text-xs" />
-          No clock-in schedule set yet —{' '}
+          No schedule set —{' '}
           <Link
             to={`/workspace/${workspaceId}/clockin`}
             className="underline font-medium hover:opacity-80 transition"
@@ -260,41 +250,42 @@ const ClockInBanner = ({ workspaceId, brandColor, userInfo }) => {
             set it now
           </Link>
         </span>
+        <ClockInWidget workspaceId={workspaceId} brandColor={brandColor} />
       </div>
     );
   }
 
-  // If clocked in, show success
+  // Clocked in – shortened
   if (isClockedIn) {
     const clockInTimeFormatted = latest
       ? new Date(latest.clockInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       : '';
     return (
       <div
-        className="px-3 sm:px-6 py-2 border-t border-gray-200/60 dark:border-gray-800/30 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:text-sm"
+        className="px-3 sm:px-6 py-2 border-t border-gray-200/60 dark:border-gray-800/30 flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm"
         style={{ backgroundColor: `${brandColor}0d` }}
       >
-        <span className="flex items-center gap-1.5 font-medium text-green-600 dark:text-green-400">
+        <span className="flex items-center gap-1.5 font-medium text-green-600 dark:text-green-400 whitespace-nowrap">
           <FaCheck className="text-[11px] sm:text-xs" />
-          You're clocked in! (Since {clockInTimeFormatted})
+          ✓ In {clockInTimeFormatted}
+          {closingTime && (
+            <span className="text-gray-600 dark:text-gray-400 font-normal whitespace-nowrap">
+              · Closes {formatTime(closingTime)}
+            </span>
+          )}
         </span>
-        {closingTime && (
-          <span className="flex items-center gap-1.5 text-gray-600 dark:text-gray-400">
-            <FaTimes className="text-[11px] sm:text-xs" />
-            Closes at <span className="font-mono font-semibold text-gray-800 dark:text-gray-200">{formatTime(closingTime)}</span>
-          </span>
-        )}
+        <ClockInWidget workspaceId={workspaceId} brandColor={brandColor} />
       </div>
     );
   }
 
-  // ─── Show countdown banner ────────────────────────────────────────
+  // Show countdown banner
   const isLate = countdown.startsWith('-');
-  const windowClosed = countdown.includes('Window closed');
+  const windowClosed = countdown.includes('Closed');
 
   return (
     <div
-      className={`px-3 sm:px-6 py-2 border-t border-gray-200/60 dark:border-gray-800/30 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:text-sm transition-colors ${
+      className={`px-3 sm:px-6 py-2 border-t border-gray-200/60 dark:border-gray-800/30 flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm transition-colors ${
         isLate && !windowClosed
           ? 'bg-red-50/80 dark:bg-red-950/20 border-red-200 dark:border-red-800/30'
           : isLate && windowClosed
@@ -302,57 +293,34 @@ const ClockInBanner = ({ workspaceId, brandColor, userInfo }) => {
           : 'bg-teal-50/50 dark:bg-teal-950/10'
       }`}
     >
-      <span className="flex items-center gap-1.5 font-medium" style={{ color: isLate ? '#dc2626' : brandColor }}>
+      <span className="flex items-center gap-1.5 font-medium whitespace-nowrap" style={{ color: isLate ? '#dc2626' : brandColor }}>
         <FaClock className="text-[11px] sm:text-xs" />
         {windowClosed ? (
           <>
-            Clock-in window <span className="font-semibold text-red-700 dark:text-red-300">closed</span> — you missed it
+            ⛔ <span className="font-semibold text-red-700 dark:text-red-300">Closed</span>
           </>
         ) : isLate ? (
           <>
-            <span className="text-red-700 dark:text-red-300">Overdue!</span> You're <span className="font-mono font-bold text-red-700 dark:text-red-300">{countdown}</span> late
+            <span className="text-red-700 dark:text-red-300">⏰ Late</span>
+            <span className="font-mono font-bold text-red-700 dark:text-red-300">{countdown}</span>
           </>
         ) : (
           <>
-            Clock in <span className="font-mono font-bold" style={{ color: brandColor }}>{countdown}</span>
+            In <span className="font-mono font-bold" style={{ color: brandColor }}>{countdown}</span>
           </>
         )}
-      </span>
-
-      {!windowClosed && (
-        <span className="flex items-center gap-1.5" style={{ color: isLate ? '#dc2626' : 'inherit' }}>
-          <span>Scheduled:</span>
-          <span className="font-mono font-semibold text-gray-800 dark:text-gray-200">
-            {formatTime(clockInStart)}{clockInEnd ? ` – ${formatTime(clockInEnd)}` : ''}
+        {!windowClosed && (
+          <span className="text-gray-600 dark:text-gray-400 font-normal whitespace-nowrap">
+            · {formatTime(clockInStart)}{clockInEnd ? `–${formatTime(clockInEnd)}` : ''}
           </span>
-        </span>
-      )}
-
-      {closingTime && !windowClosed && (
-        <span className="flex items-center gap-1.5 text-gray-600 dark:text-gray-400">
-          <FaTimes className="text-[11px] sm:text-xs" />
-          Closes at <span className="font-mono font-semibold text-gray-800 dark:text-gray-200">{formatTime(closingTime)}</span>
-        </span>
-      )}
-
-      {!windowClosed && !isLate && (
-        <Link
-          to={`/workspace/${workspaceId}/clockin`}
-          className="text-[10px] font-medium uppercase tracking-wider hover:underline transition"
-          style={{ color: brandColor }}
-        >
-          Clock in now →
-        </Link>
-      )}
-
-      {isLate && !windowClosed && (
-        <Link
-          to={`/workspace/${workspaceId}/clockin`}
-          className="text-[10px] font-medium uppercase tracking-wider hover:underline transition text-red-600 dark:text-red-400"
-        >
-          Clock in now →
-        </Link>
-      )}
+        )}
+        {closingTime && !windowClosed && (
+          <span className="text-gray-600 dark:text-gray-400 font-normal whitespace-nowrap">
+            · Closes {formatTime(closingTime)}
+          </span>
+        )}
+      </span>
+      <ClockInWidget workspaceId={workspaceId} brandColor={brandColor} />
     </div>
   );
 };
@@ -377,7 +345,6 @@ const YourWorkspaceId = () => {
   const [taskCounts, setTaskCounts] = useState({});
   const [loadingTasks, setLoadingTasks] = useState({});
 
-  // ── handle task count updates from TaskCounter (memoized) ────
   const handleTaskCount = useCallback((projectId, count) => {
     setTaskCounts(prev => {
       if (prev[projectId] === count) return prev;
@@ -392,7 +359,6 @@ const YourWorkspaceId = () => {
     });
   }, []);
 
-  // ── recompute total whenever taskCounts changes ──────────────
   useEffect(() => {
     const sum = Object.values(taskCounts).reduce((a, b) => a + b, 0);
     setTotalTasks(sum);
@@ -511,7 +477,6 @@ const YourWorkspaceId = () => {
     <div className="relative bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl p-5 mb-4">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3 min-w-0">
-          {/* ─── Clickable Workspace label ─────────────────────────── */}
           <button
             onClick={() => navigate('/my-workspaces')}
             className="flex flex-col items-start hover:opacity-80 transition-opacity min-w-0 flex-1"
@@ -525,16 +490,12 @@ const YourWorkspaceId = () => {
             </h1>
           </button>
         </div>
-        <div className="flex items-center gap-2">
-          {/* ─── Clock‑in widget (mobile) ───────────────────────────── */}
-          <ClockInWidget workspaceId={workspaceId} brandColor={brandColor} />
-          <button
-            onClick={() => setHideStats((v) => !v)}
-            className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition flex-shrink-0"
-          >
-            {hideStats ? <FaEyeSlash className="text-xs" /> : <FaEye className="text-xs" />}
-          </button>
-        </div>
+        <button
+          onClick={() => setHideStats((v) => !v)}
+          className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition flex-shrink-0"
+        >
+          {hideStats ? <FaEyeSlash className="text-xs" /> : <FaEye className="text-xs" />}
+        </button>
       </div>
 
       <div className="flex items-end justify-between mb-4">
@@ -595,7 +556,6 @@ const YourWorkspaceId = () => {
       archived: 'Archived',
     }[project.status] || 'Planning';
 
-    // Always fetch tasks for this project
     const { data: taskData, isLoading: taskLoading } = useGetProjectTasksQuery(
       { projectId: project._id }
     );
@@ -668,10 +628,9 @@ const YourWorkspaceId = () => {
 
       {/* main content */}
       <div className="flex-1 md:ml-[260px]">
-        {/* mobile header */}
+        {/* mobile header - removed ClockInWidget */}
         <div className="md:hidden fixed top-0 left-0 right-0 z-10 bg-white/80 dark:bg-[#0b0b10]/80 backdrop-blur-md px-4 pt-4 pb-2 border-b border-gray-200/60 dark:border-gray-800/40">
           <div className="flex items-center justify-between">
-            {/* ─── Clickable Workspace label in mobile header ─────── */}
             <button
               onClick={() => navigate('/my-workspaces')}
               className="flex items-center gap-2 hover:opacity-80 transition-opacity flex-1 min-w-0"
@@ -685,16 +644,12 @@ const YourWorkspaceId = () => {
                 {workspace.name}
               </span>
             </button>
-            <div className="flex items-center gap-2">
-              {/* ─── Clock‑in widget (mobile header) ────────────────── */}
-              <ClockInWidget workspaceId={workspaceId} brandColor={brandColor} />
-              <button
-                onClick={() => setHideStats((v) => !v)}
-                className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition flex-shrink-0"
-              >
-                {hideStats ? <FaEyeSlash className="text-xs" /> : <FaEye className="text-xs" />}
-              </button>
-            </div>
+            <button
+              onClick={() => setHideStats((v) => !v)}
+              className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition flex-shrink-0"
+            >
+              {hideStats ? <FaEyeSlash className="text-xs" /> : <FaEye className="text-xs" />}
+            </button>
           </div>
         </div>
 
@@ -830,7 +785,6 @@ const YourWorkspaceId = () => {
 
           {/* chart + quick actions */}
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
-            {/* Trading‑style AreaChart */}
             <div className="lg:col-span-3 bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-4 sm:p-5 relative overflow-hidden group">
               <div className="absolute top-0 right-0 w-32 h-32 bg-teal-500/5 dark:bg-[#0d9488]/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
               <div className="flex items-center justify-between mb-3">
@@ -914,7 +868,6 @@ const YourWorkspaceId = () => {
               </div>
             </div>
 
-            {/* quick actions */}
             <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-1 gap-2">
               <QuickAction icon={FaFolder} label="Projects" to={`/workspace/${workspaceId}/projects`} />
               <QuickAction icon={FaHashtag} label="Channels" to={`/workspace/${workspaceId}/channels`} />
@@ -924,7 +877,6 @@ const YourWorkspaceId = () => {
 
           {/* two‑column feed: Projects + Members/About */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-            {/* Projects list */}
             <div className="lg:col-span-2 bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden">
               <div className="px-4 sm:px-5 py-3 flex items-center justify-between border-b border-gray-200/60 dark:border-gray-800/40">
                 <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
@@ -965,7 +917,6 @@ const YourWorkspaceId = () => {
               </div>
             </div>
 
-            {/* right – members online + about */}
             <div className="space-y-4">
               <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden">
                 <div className="px-4 sm:px-5 py-3 flex items-center justify-between border-b border-gray-200/60 dark:border-gray-800/40">
@@ -1024,7 +975,6 @@ const YourWorkspaceId = () => {
                               )}
                             </p>
                           </div>
-                          {/* Real-time online dot, driven by useWorkspacePresence */}
                           <span className="w-1.5 h-1.5 rounded-full bg-green-500 dark:bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] flex-shrink-0" />
                         </div>
                       );
