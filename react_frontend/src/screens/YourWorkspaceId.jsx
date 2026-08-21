@@ -12,7 +12,7 @@ import {
   useClockInMutation,
   useClockOutMutation,
   useGetUserClockInHistoryQuery,
-} from '../slices/clockInApiSlice';
+} from '../slices/clockinApiSlice';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
 import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
 import {

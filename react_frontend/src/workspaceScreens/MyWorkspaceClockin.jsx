@@ -12,7 +12,7 @@ import {
   useGetWorkspaceClockInsQuery,
   useGetClockInLeaderboardQuery,
   useTriggerMonthlyLeaderboardMutation,
-} from '../slices/clockInApiSlice';
+} from '../slices/clockinApiSlice';
 import MyWorkspaceSidebar from '../workspaceComponents/MyWorkspaceSidebar';
 import MyWorkspaceBottombar from '../workspaceComponents/MyWorkspaceBottombar';
 import {
