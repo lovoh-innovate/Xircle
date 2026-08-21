@@ -1713,7 +1713,7 @@ const GeneralChatId = () => {
     // For text: no pending spinner, just set _sent: false → clock
     const optimisticMsg = {
       _id: tempId,
-      _tempId: tempId, 
+      _tempId: tempId,
       _temp: true,
       _pending: false, // no spinner
       _sent: false, // clock will show
@@ -1758,9 +1758,15 @@ const GeneralChatId = () => {
           // Error: remove the temporary message and show toast
           setLocalMessages((prev) => prev.filter((m) => m._id !== tempId));
           toast.error(response.error);
+        } else {
+          // ✅ FIX: Mark as sent and delivered immediately
+          setLocalMessages((prev) =>
+            prev.map((m) =>
+              m._id === tempId ? { ...m, _sent: true, _delivered: true } : m
+            )
+          );
         }
-        // On success: do nothing – the 'new-message' event will replace the temporary.
-      },
+      }
     );
   };
 
