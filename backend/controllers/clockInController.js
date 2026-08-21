@@ -425,7 +425,7 @@ export const getClockInLeaderboard = asyncHandler(async (req, res) => {
     startDate = new Date(0); // beginning of time
   }
 
-  // Aggregation pipeline: group by user, count early clock-ins, average early minutes, count total clock-ins
+  // Aggregation pipeline: group by user, count early/on-time/late, and compute score
   const leaderboard = await ClockIn.aggregate([
     {
       $match: {
@@ -438,10 +438,9 @@ export const getClockInLeaderboard = asyncHandler(async (req, res) => {
         _id: "$user",
         totalClockIns: { $sum: 1 },
         earlyCount: { $sum: { $cond: ["$isEarly", 1, 0] } },
-        totalEarlyMinutes: { $sum: "$earlyMinutes" },
-        avgEarlyMinutes: { $avg: "$earlyMinutes" },
         onTimeCount: { $sum: { $cond: [{ $eq: ["$status", "on-time"] }, 1, 0] } },
         lateCount: { $sum: { $cond: ["$isLate", 1, 0] } },
+        avgEarlyMinutes: { $avg: "$earlyMinutes" },
       },
     },
     {
@@ -463,13 +462,14 @@ export const getClockInLeaderboard = asyncHandler(async (req, res) => {
         },
         totalClockIns: 1,
         earlyCount: 1,
-        avgEarlyMinutes: { $round: ["$avgEarlyMinutes", 1] },
         onTimeCount: 1,
         lateCount: 1,
+        avgEarlyMinutes: { $round: ["$avgEarlyMinutes", 1] },
         score: {
           $add: [
-            { $multiply: ["$earlyCount", 10] },
-            { $multiply: [{ $subtract: [100, "$avgEarlyMinutes"] }, 1] },
+            { $multiply: ["$earlyCount", 10] },   // +10 per early arrival
+            { $multiply: ["$onTimeCount", 2] },   // +2 per on-time arrival (reward consistency)
+            { $multiply: ["$lateCount", -5] },    // -5 per late arrival
           ],
         },
       },
