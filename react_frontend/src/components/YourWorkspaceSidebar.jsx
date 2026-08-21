@@ -3,29 +3,44 @@ import React, { useState, useMemo } from 'react';
 import { Link, useParams, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import {
-  FaHashtag,
-  FaUsers,
-  FaHome,
-  FaComment,
-  FaChevronDown,
-  FaChevronRight,
-  FaChevronLeft,
-  FaEnvelope,
-  FaSearch,
-  FaBell,
-  FaFolder,
-  FaTasks,
-  FaPlus,
-  FaRocket,
-  FaSpinner,
-  FaSun,
-  FaMoon,
-  FaDesktop,
-} from 'react-icons/fa';
+  FiHome,
+  FiFolder,
+  FiCheckSquare,
+  FiMail,
+  FiUsers,
+  FiClock,
+  FiChevronDown,
+  FiChevronRight,
+  FiChevronLeft,
+  FiSearch,
+  FiBell,
+  FiSun,
+  FiMoon,
+  FiMonitor,
+} from 'react-icons/fi';
 import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
 import { useGetWorkspaceProjectsQuery } from '../slices/projectApiSlice';
 import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
 import { useTheme } from '../contexts/ThemeContext';
+import { FaSpinner } from 'react-icons/fa';
+
+// ─── Custom WhatsApp‑style Chat Icon ──────────────────────────────
+const ChatIcon = ({ className }) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.75"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    style={{ width: '1.2rem', height: '1.2rem' }}
+  >
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    <path d="M8 10h8" />
+    <path d="M8 14h6" />
+  </svg>
+);
 
 // ─── FORCE DEDUPLICATION HELPER ─────────────────────────────────────
 const forceUniqueById = (arr, getId = (item) => item?._id) => {
@@ -65,7 +80,7 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   });
   const rawChats = propChats || chatsData?.chats || [];
 
-  // ── only chats that actually belong to this workspace (never public/outside-workspace) ──
+  // ── only chats that actually belong to this workspace ──
   const chats = useMemo(
     () => rawChats.filter((chat) => belongsToWorkspace(chat, workspaceId)),
     [rawChats, workspaceId]
@@ -104,12 +119,12 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
 
   // ─── Navigation ──────────────────────────────────────────────────
   const navOptions = [
-    { id: 'home', label: 'Dashboard', icon: FaHome, path: `/workspace/${workspaceId}` },
-    { id: 'projects', label: 'Projects', icon: FaFolder, path: `/workspace/${workspaceId}/projects` },
-    // ─── NEW: All Tasks ──────────────────────────────────────────
-    { id: 'all-tasks', label: 'All Tasks', icon: FaTasks, path: `/workspace/${workspaceId}/tasks` },
-    { id: 'channels', label: 'Channels', icon: FaComment, path: `/workspace/${workspaceId}/channels` },
-    { id: 'dms', label: 'Direct Messages', icon: FaEnvelope, path: `/workspace/${workspaceId}/dms` },
+    { id: 'home', label: 'Dashboard', icon: FiHome, path: `/workspace/${workspaceId}` },
+    { id: 'projects', label: 'Projects', icon: FiFolder, path: `/workspace/${workspaceId}/projects` },
+    { id: 'all-tasks', label: 'All Tasks', icon: FiCheckSquare, path: `/workspace/${workspaceId}/tasks` },
+    { id: 'channels', label: 'Channels', icon: ChatIcon, path: `/workspace/${workspaceId}/channels` },
+    { id: 'dms', label: 'Direct Messages', icon: FiMail, path: `/workspace/${workspaceId}/dms` },
+    { id: 'clockin', label: 'Clock‑in', icon: FiClock, path: `/workspace/${workspaceId}/clockin` },
   ];
 
   const members = workspace?.members || [];
@@ -185,7 +200,7 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
         to={`/workspace/${workspaceId}/project/${project._id}`}
         className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group"
       >
-        <FaFolder className="text-xs text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300 flex-shrink-0" />
+        <FiFolder className="text-xs text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300 flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between">
             <span className="truncate text-sm text-gray-700 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-gray-200">
@@ -210,7 +225,7 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
             ) : (
               <>
                 <span className="flex items-center gap-0.5">
-                  <FaTasks className="text-[8px]" />
+                  <FiCheckSquare className="text-[8px]" />
                   {totalTasks} tasks
                 </span>
                 <span>·</span>
@@ -226,9 +241,9 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   // ─── Theme Toggle ──────────────────────────────────────────────
   const ThemeToggleButton = () => {
     const getIcon = () => {
-      if (theme === 'light') return <FaSun className="text-yellow-500" />;
-      if (theme === 'dark') return <FaMoon className="text-purple-400" />;
-      return <FaDesktop className="text-blue-400" />;
+      if (theme === 'light') return <FiSun className="text-yellow-500" />;
+      if (theme === 'dark') return <FiMoon className="text-purple-400" />;
+      return <FiMonitor className="text-blue-400" />;
     };
     const getLabel = () => {
       if (theme === 'light') return 'Light';
@@ -331,7 +346,7 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
             title="Projects"
             className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
           >
-            <FaFolder className="text-lg" />
+            <FiFolder className="text-lg" />
             {projects.some((p) => p.progress < 100) && (
               <span
                 className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full"
@@ -340,13 +355,12 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
             )}
           </Link>
 
-          {/* ─── All Tasks icon in collapsed mode ─── */}
           <Link
             to={`/workspace/${workspaceId}/tasks`}
             title="All Tasks"
             className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
           >
-            <FaTasks className="text-lg" />
+            <FiCheckSquare className="text-lg" />
           </Link>
 
           <Link
@@ -354,7 +368,7 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
             title="Channels"
             className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
           >
-            <FaComment className="text-lg" />
+            <ChatIcon className="text-lg" />
             {channels.some((c) => c.unreadCount > 0) && (
               <span
                 className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full"
@@ -368,13 +382,21 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
             title="Direct Messages"
             className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
           >
-            <FaEnvelope className="text-lg" />
+            <FiMail className="text-lg" />
             {directMessages.some((c) => c.unreadCount > 0) && (
               <span
                 className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full"
                 style={{ backgroundColor: brandColor }}
               />
             )}
+          </Link>
+
+          <Link
+            to={`/workspace/${workspaceId}/clockin`}
+            title="Clock‑in"
+            className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+          >
+            <FiClock className="text-lg" />
           </Link>
         </div>
       ) : (
@@ -386,9 +408,9 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
               className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider"
             >
               {expandedSections.projects ? (
-                <FaChevronDown className="text-[10px]" />
+                <FiChevronDown className="text-[10px]" />
               ) : (
-                <FaChevronRight className="text-[10px]" />
+                <FiChevronRight className="text-[10px]" />
               )}
               <span>Projects</span>
               <span className="ml-auto text-xs text-gray-400 dark:text-gray-600">
@@ -397,12 +419,11 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
             </button>
             {expandedSections.projects && (
               <div className="mt-1 space-y-0.5">
-                {/* ─── "All Tasks" shortcut inside projects section ── */}
                 <Link
                   to={`/workspace/${workspaceId}/tasks`}
                   className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group text-sm text-gray-700 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
                 >
-                  <FaTasks className="text-xs text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300" />
+                  <FiCheckSquare className="text-xs text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300" />
                   <span className="font-medium">All Tasks</span>
                 </Link>
 
@@ -438,9 +459,9 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
               className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider"
             >
               {expandedSections.channels ? (
-                <FaChevronDown className="text-[10px]" />
+                <FiChevronDown className="text-[10px]" />
               ) : (
-                <FaChevronRight className="text-[10px]" />
+                <FiChevronRight className="text-[10px]" />
               )}
               <span>Channels</span>
               <span className="ml-auto text-xs text-gray-400 dark:text-gray-600">
@@ -463,7 +484,7 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
                       className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-sm group"
                     >
                       <div className="flex items-center gap-2 min-w-0">
-                        <FaHashtag className="text-gray-400 dark:text-gray-500 text-xs" />
+                        <ChatIcon className="text-gray-400 dark:text-gray-500 text-xs" />
                         <span className="truncate text-gray-700 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-gray-200">
                           {chat.name || 'Unnamed'}
                         </span>
@@ -498,9 +519,9 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
               className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider"
             >
               {expandedSections.dms ? (
-                <FaChevronDown className="text-[10px]" />
+                <FiChevronDown className="text-[10px]" />
               ) : (
-                <FaChevronRight className="text-[10px]" />
+                <FiChevronRight className="text-[10px]" />
               )}
               <span>Direct Messages</span>
               <span className="ml-auto text-xs text-gray-400 dark:text-gray-600">
@@ -584,9 +605,9 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
           title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           {isCollapsed ? (
-            <FaChevronRight className="text-xs" />
+            <FiChevronRight className="text-xs" />
           ) : (
-            <FaChevronLeft className="text-xs" />
+            <FiChevronLeft className="text-xs" />
           )}
         </button>
       </div>
@@ -641,10 +662,10 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
             </div>
             <div className="flex gap-1 items-center">
               <button className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
-                <FaSearch className="text-xs" />
+                <FiSearch className="text-xs" />
               </button>
               <button className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
-                <FaBell className="text-xs" />
+                <FiBell className="text-xs" />
               </button>
               <ThemeToggleButton />
             </div>
@@ -655,4 +676,4 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   );
 };
 
-export default YourWorkspaceSidebar;  
+export default YourWorkspaceSidebar;

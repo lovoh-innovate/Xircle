@@ -1,3 +1,4 @@
+// models/workspaceModel.js
 import mongoose from "mongoose";
 
 // ─── Member sub‑schema ──────────────────────────────────────────────
@@ -38,6 +39,20 @@ const workspaceSchema = new mongoose.Schema(
     activeTasks: { type: Number, default: 0 },
     inviteCode: { type: String, unique: true },
     verified: { type: Boolean, default: false },
+
+    // ─── Clock‑in settings ──────────────────────────────────────────
+    clockInTime: {
+      type: String, // "HH:MM" in 24h format, e.g., "09:00"
+      default: null,
+    },
+    closingTime: {
+      type: String, // "HH:MM" in 24h format, e.g., "18:00"
+      default: null,
+    },
+    clockInEnabled: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 );

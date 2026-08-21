@@ -19,11 +19,13 @@ import callRoutes from "./routes/callRoutes.js";
 import notificationRoutes from './routes/notificationRoutes.js';
 import personalTaskRoutes from './routes/personalTaskRoutes.js';
 import appRoutes from './routes/appRoutes.js';
+import clockInRoutes from './routes/clockInRoutes.js';
 
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 import { initSocket } from "./controllers/socket.js";
 
 import { checkAndSendReminders } from "./controllers/taskController.js";
+import { startClockInScheduler, sendMonthlyLeaderboardForAllWorkspaces } from "./controllers/clockInController.js";
 
 dotenv.config();
 
@@ -83,6 +85,7 @@ app.use("/api/calls", callRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/personal-tasks', personalTaskRoutes);
 app.use('/api/app', appRoutes);
+app.use('/api/clockin', clockInRoutes);
 
 // ── Error middleware ──
 app.use(notFound);
@@ -120,6 +123,25 @@ mongoose
       }
     });
     console.log('⏰ Reminder cron job scheduled (every 15 minutes).');
+
+    // ─── Start clock‑in reminder scheduler ──────────────────────────
+    // Runs every minute – internal scheduler already handles that.
+    startClockInScheduler();
+    console.log('⏰ Clock‑in reminder scheduler started.');
+
+    // ─── Schedule monthly leaderboard email ─────────────────────────
+    // Runs on the 1st of every month at 9:00 AM
+    cron.schedule('0 9 1 * *', async () => {
+      console.log('📊 Running monthly leaderboard email job...');
+      try {
+        await sendMonthlyLeaderboardForAllWorkspaces();
+        console.log('✅ Monthly leaderboard emails sent.');
+      } catch (error) {
+        console.error('❌ Monthly leaderboard email error:', error);
+      }
+    });
+    console.log('📊 Monthly leaderboard email cron scheduled (1st of month at 09:00).');
+
   })
   .catch((err) => {
     console.error("❌ MongoDB connection error:", err.message);

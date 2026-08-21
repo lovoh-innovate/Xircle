@@ -8,14 +8,27 @@ import { toast } from 'react-toastify';
 import {
   FiHome,
   FiMessageCircle,
+  FiUsers,
   FiMenu,
   FiX,
   FiFolder,
   FiBell,
   FiUser,
   FiLogOut,
+  FiClock,
+  FiSettings,
 } from 'react-icons/fi';
-import { FaUsers } from 'react-icons/fa';
+
+// ─── Custom WhatsApp‑style Chat Icon (optional) ──────────────────────────
+// If you prefer to use the custom chat icon for Messages instead of FiMessageCircle,
+// uncomment the ChatIcon component and use it below.
+// const ChatIcon = ({ className }) => (
+//   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className={className} style={{ width: '1.5rem', height: '1.5rem' }}>
+//     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+//     <path d="M8 10h8" />
+//     <path d="M8 14h6" />
+//   </svg>
+// );
 
 const YourWorkspaceBottombar = ({ workspace }) => {
   const { workspaceId } = useParams();
@@ -44,25 +57,29 @@ const YourWorkspaceBottombar = ({ workspace }) => {
     }
   };
 
-  // Bottom navigation
+  // ─── Bottom navigation ─────────────────────────────────────────────
   const navItems = [
     { id: 'home', label: 'Home', icon: FiHome, path: `/workspace/${workspaceId}` },
+    // Direct Messages – use FiMessageCircle (or ChatIcon if desired)
     { id: 'dms', label: 'Messages', icon: FiMessageCircle, path: `/workspace/${workspaceId}/dms` },
-    { id: 'channels', label: 'Channels', icon: FaUsers, path: `/workspace/${workspaceId}/channels` },
+    // Channels – use FiUsers (people icon)
+    { id: 'channels', label: 'Channels', icon: FiUsers, path: `/workspace/${workspaceId}/channels` },
   ];
 
-  // Slide‑out menu
+  // ─── Slide‑out menu ───────────────────────────────────────────────
   const menuItems = [
     { id: 'projects', label: 'Projects', icon: FiFolder, path: `/workspace/${workspaceId}/projects` },
-    { id: 'channels', label: 'Channels', icon: FaUsers, path: `/workspace/${workspaceId}/channels` },
+    { id: 'channels', label: 'Channels', icon: FiUsers, path: `/workspace/${workspaceId}/channels` },
+    { id: 'clockin', label: 'Clock‑in', icon: FiClock, path: `/workspace/${workspaceId}/clockin` },
     { id: 'notifications', label: 'Notifications', icon: FiBell, path: `/workspace/${workspaceId}/notifications` },
+    { id: 'settings', label: 'Settings', icon: FiSettings, path: `/workspace/${workspaceId}/settings` },
     { id: 'profile', label: 'Profile', icon: FiUser, path: '/profile' },
     { id: 'logout', label: 'Logout', icon: FiLogOut, action: handleLogout },
   ];
 
   return (
     <>
-      {/* Bottom Bar (mobile only) – glass effect with light/dark */}
+      {/* ─── Bottom Bar (mobile only) ──────────────────────────────── */}
       <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/90 dark:bg-[#0f0f12]/90 backdrop-blur-xl border-t border-gray-200/60 dark:border-gray-800/60 md:hidden shadow-lg">
         <div className="flex items-center justify-around h-16 px-2 max-w-lg mx-auto">
           {navItems.map((item) => {
@@ -113,7 +130,7 @@ const YourWorkspaceBottombar = ({ workspace }) => {
         </div>
       </div>
 
-      {/* Slide‑out overlay (mobile only) */}
+      {/* ─── Slide‑out overlay ──────────────────────────────────────── */}
       {menuOpen && (
         <div
           className="fixed inset-0 z-50 bg-black/40 dark:bg-[#0b0b10]/70 backdrop-blur-sm md:hidden"
@@ -121,7 +138,7 @@ const YourWorkspaceBottombar = ({ workspace }) => {
         />
       )}
 
-      {/* Slide‑out panel – light/dark */}
+      {/* ─── Slide‑out panel ────────────────────────────────────────── */}
       <div
         className={`fixed top-0 left-0 z-50 h-full w-[280px] bg-white dark:bg-[#14141a] border-r border-gray-200/60 dark:border-gray-800/60 shadow-2xl transition-transform duration-300 ease-out md:hidden ${
           menuOpen ? 'translate-x-0' : '-translate-x-full'

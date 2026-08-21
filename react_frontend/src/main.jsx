@@ -55,6 +55,7 @@ import MyWorkspaceDMs from './workspaceScreens/MyWorkspaceDMs.jsx';
 import MyWorkspaceSettings from './workspaceScreens/MyWorkspaceSettings.jsx';
 import MyWorkspaceCreateProject from './workspaceScreens/MyWorkspaceCreateProject.jsx';
 import MyWorkspaceUpdateProject from './workspaceScreens/MyWorkspaceUpdateProject.jsx';
+import MyWorkspaceClockin from './workspaceScreens/MyWorkspaceClockin.jsx';
 
 import YourWorkspaceChannels from './screens/YourWorkspaceChannels.jsx';
 import YourWorkspaceChannelId from './screens/YourWorkspaceChannelId.jsx';
@@ -62,6 +63,7 @@ import YourWorkspaceDMs from './screens/YourWorkspaceDMs.jsx';
 import YourWorkspaceProjects from './screens/YourWorkspaceProjects.jsx';
 import YourWorkspaceProjectId from './screens/YourWorkspaceProjectId.jsx';
 import YourWorkspaceMembers from './screens/YourWorkspaceMembers.jsx';
+import YourWorkspaceClockin from './screens/YourWorkspaceClockin.jsx';
 
 import CallScreen from './components/CallScreen.jsx';
 
@@ -435,6 +437,7 @@ const router = createBrowserRouter([
           { path: 'my-workspace/:workspaceId/settings', element: <MyWorkspaceSettings /> },
           { path: 'my-workspace/:workspaceId/projects/create', element: <MyWorkspaceCreateProject /> },
           { path: 'my-workspace/:workspaceId/projects/edit/:projectId', element: <MyWorkspaceUpdateProject /> },
+          {path: 'my-workspace/:workspaceId/clockin', element: <MyWorkspaceClockin /> },
           { path: 'my-workspace/:workspaceId/tasks', element: <AllTasks /> },
 
           { path: 'workspace/:workspaceId/channels', element: <YourWorkspaceChannels /> },
@@ -444,6 +447,7 @@ const router = createBrowserRouter([
           { path: 'workspace/:workspaceId/project/:projectId', element: <YourWorkspaceProjectId /> },
           {path: 'workspace/:workspaceId/members', element: <YourWorkspaceMembers /> },
           { path: 'workspace/:workspaceId/tasks', element: <AllTasks /> },
+          {path: 'workspace/:workspaceId/clockin', element: <YourWorkspaceClockin /> },
 
           { path: 'profile', element: <Profile /> },
 

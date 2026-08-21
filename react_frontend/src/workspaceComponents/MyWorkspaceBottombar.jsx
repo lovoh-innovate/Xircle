@@ -3,7 +3,6 @@ import React, { useState } from 'react';
 import { Link, useParams, useLocation, useNavigate } from 'react-router-dom';
 import {
   FiHome,
-  FiMessageCircle,
   FiUsers,
   FiSettings,
   FiMenu,
@@ -15,11 +14,30 @@ import {
   FiUser,
   FiCopy,
   FiCheck,
+  FiClock,
 } from 'react-icons/fi';
 import { useDispatch } from 'react-redux';
 import { useLogoutMutation } from '../slices/userApiSlice';
 import { logout } from '../slices/authSlice';
 import { toast } from 'react-toastify';
+
+// ─── Custom WhatsApp‑style Chat Icon (matches sidebar & bottom bar) ──
+const ChatIcon = ({ className }) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.75"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    style={{ width: '1.5rem', height: '1.5rem' }}
+  >
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    <path d="M8 10h8" />
+    <path d="M8 14h6" />
+  </svg>
+);
 
 // ─── Invite Modal ──────────────────────────────────────────────────────
 const InviteModal = ({ isOpen, onClose, inviteCode, brandColor, workspaceName }) => {
@@ -65,7 +83,6 @@ const InviteModal = ({ isOpen, onClose, inviteCode, brandColor, workspaceName })
           Share this invite code with your team. They can join using the code.
         </p>
 
-        {/* Invite code card */}
         <div className="bg-gray-50 dark:bg-[#0b0b10] rounded-xl border border-gray-200 dark:border-gray-700/60 p-4 mb-4">
           <div className="flex items-center justify-between">
             <div>
@@ -83,7 +100,6 @@ const InviteModal = ({ isOpen, onClose, inviteCode, brandColor, workspaceName })
           </div>
         </div>
 
-        {/* Copy invite link */}
         <button
           onClick={handleCopyLink}
           className="flex items-center justify-center gap-2 w-full py-2.5 border border-gray-200 dark:border-gray-700/60 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800/30 transition text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
@@ -109,7 +125,7 @@ const MyWorkspaceBottombar = ({ workspace }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
 
-  const brandColor = workspace?.color || '#0d9488'; // teal default
+  const brandColor = workspace?.color || '#0d9488';
 
   const [logoutUser] = useLogoutMutation();
 
@@ -130,14 +146,17 @@ const MyWorkspaceBottombar = ({ workspace }) => {
     }
   };
 
+  // ─── Bottom navigation items (with custom ChatIcon) ────────────────
   const navItems = [
     { id: 'home', label: 'Home', icon: FiHome, path: `/my-workspace/${workspaceId}` },
-    { id: 'channels', label: 'Chats', icon: FiMessageCircle, path: `/my-workspace/${workspaceId}/channels` },
+    { id: 'channels', label: 'Chats', icon: ChatIcon, path: `/my-workspace/${workspaceId}/channels` },
     { id: 'members', label: 'Members', icon: FiUsers, path: `/my-workspace/${workspaceId}/members` },
   ];
 
+  // ─── Menu items (slide‑out) ─────────────────────────────────────────
   const menuItems = [
     { id: 'projects', label: 'Projects', icon: FiFolder, path: `/my-workspace/${workspaceId}/projects` },
+    { id: 'clockin', label: 'Clock‑in', icon: FiClock, path: `/my-workspace/${workspaceId}/clockin` },
     { id: 'invite', label: 'Invite Members', icon: FiUserPlus, action: () => setInviteModalOpen(true) },
     { id: 'notifications', label: 'Notifications', icon: FiBell, path: `/my-workspace/${workspaceId}/notifications` },
     { id: 'settings', label: 'Settings', icon: FiSettings, path: `/my-workspace/${workspaceId}/settings` },
@@ -193,7 +212,7 @@ const MyWorkspaceBottombar = ({ workspace }) => {
         </div>
       </div>
 
-      {/* ── Slide-out Menu (mobile) ── */}
+      {/* ─── Slide-out Menu (mobile) ── */}
       {menuOpen && (
         <div className="fixed inset-0 z-50 bg-black/40 dark:bg-[#0b0b10]/70 backdrop-blur-sm md:hidden" onClick={() => setMenuOpen(false)} />
       )}
@@ -276,7 +295,7 @@ const MyWorkspaceBottombar = ({ workspace }) => {
         </div>
       </div>
 
-      {/* ── Invite Modal ── */}
+      {/* ─── Invite Modal ── */}
       <InviteModal
         isOpen={inviteModalOpen}
         onClose={() => setInviteModalOpen(false)}
@@ -285,7 +304,6 @@ const MyWorkspaceBottombar = ({ workspace }) => {
         workspaceName={workspace?.name}
       />
 
-      {/* Slide-up animation */}
       <style>{`
         @keyframes slideUp {
           from { transform: translateY(100%); opacity: 0; }

@@ -7,6 +7,12 @@ import { useGetWorkspaceProjectsQuery } from '../slices/projectApiSlice';
 import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
 import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
 import { useWorkspacePresence } from '../services/useWorkspacePresence';
+import {
+  useGetClockInSettingsQuery,
+  useClockInMutation,
+  useClockOutMutation,
+  useGetUserClockInHistoryQuery,
+} from '../slices/clockInApiSlice';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
 import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
 import {
@@ -24,6 +30,8 @@ import {
   FaClock,
   FaSpinner,
   FaArrowLeft,
+  FaCheck,
+  FaTimes,
 } from 'react-icons/fa';
 import {
   AreaChart,
@@ -33,6 +41,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
+import { toast } from 'react-hot-toast';
 
 // ─── Helper component to fetch task count for a single project ──
 const TaskCounter = memo(({ projectId, onCount, onLoading }) => {
@@ -63,6 +72,84 @@ const TaskCounter = memo(({ projectId, onCount, onLoading }) => {
 
 // ─── helper: pull a user id off either a populated user object or a raw id ──
 const getMemberId = (member) => (member?.user?._id || member?.user)?.toString();
+
+// ─── Clock‑in / out widget ──────────────────────────────────────────
+const ClockInWidget = ({ workspaceId, brandColor }) => {
+  const { data: settingsData, isLoading: settingsLoading } =
+    useGetClockInSettingsQuery(workspaceId);
+  const { data: historyData, refetch: refetchHistory } =
+    useGetUserClockInHistoryQuery(
+      { workspaceId, page: 1, limit: 1 },
+      { skip: !settingsData?.settings?.clockInEnabled }
+    );
+  const [clockIn, { isLoading: isClockInLoading }] = useClockInMutation();
+  const [clockOut, { isLoading: isClockOutLoading }] = useClockOutMutation();
+
+  const isEnabled = settingsData?.settings?.clockInEnabled || false;
+  const today = new Date().toISOString().split('T')[0];
+  const latest = historyData?.history?.[0];
+  const isClockedIn =
+    latest &&
+    new Date(latest.clockInTime).toISOString().split('T')[0] === today &&
+    !latest.clockOutTime;
+  const clockInTime = isClockedIn
+    ? new Date(latest.clockInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : null;
+
+  const handleClockIn = async () => {
+    try {
+      await clockIn(workspaceId).unwrap();
+      toast.success('Clocked in successfully!');
+      refetchHistory();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to clock in.');
+    }
+  };
+
+  const handleClockOut = async () => {
+    try {
+      await clockOut(workspaceId).unwrap();
+      toast.success('Clocked out successfully!');
+      refetchHistory();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to clock out.');
+    }
+  };
+
+  if (!isEnabled) return null;
+  if (settingsLoading) return <FaSpinner className="animate-spin text-teal-500 text-sm" />;
+
+  return (
+    <div className="flex items-center gap-2 bg-gray-100 dark:bg-[#14141a] px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-800/60 text-xs">
+      <FaClock className="text-teal-600 dark:text-[#0d9488]" />
+      {isClockedIn ? (
+        <>
+          <span className="text-gray-700 dark:text-gray-300">
+            In at <span className="font-mono">{clockInTime}</span>
+          </span>
+          <button
+            onClick={handleClockOut}
+            disabled={isClockOutLoading}
+            className="flex items-center gap-1 px-2 py-0.5 bg-red-500/10 text-red-600 dark:text-red-400 rounded-full hover:bg-red-500/20 transition disabled:opacity-50"
+          >
+            {isClockOutLoading ? <FaSpinner className="animate-spin text-xs" /> : <FaTimes className="text-[10px]" />}
+            <span className="hidden sm:inline">Out</span>
+          </button>
+        </>
+      ) : (
+        <button
+          onClick={handleClockIn}
+          disabled={isClockInLoading}
+          className="flex items-center gap-1 px-2 py-0.5 bg-teal-500/10 text-teal-600 dark:text-[#0d9488] rounded-full hover:bg-teal-500/20 transition disabled:opacity-50"
+          style={{ color: brandColor }}
+        >
+          {isClockInLoading ? <FaSpinner className="animate-spin text-xs" /> : <FaCheck className="text-[10px]" />}
+          <span className="hidden sm:inline">Clock In</span>
+        </button>
+      )}
+    </div>
+  );
+};
 
 // ─── main component ──────────────────────────────────────────────────
 const YourWorkspaceId = () => {
@@ -232,12 +319,16 @@ const YourWorkspaceId = () => {
             </h1>
           </button>
         </div>
-        <button
-          onClick={() => setHideStats((v) => !v)}
-          className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition flex-shrink-0"
-        >
-          {hideStats ? <FaEyeSlash className="text-xs" /> : <FaEye className="text-xs" />}
-        </button>
+        <div className="flex items-center gap-2">
+          {/* ─── Clock‑in widget (mobile) ───────────────────────────── */}
+          <ClockInWidget workspaceId={workspaceId} brandColor={brandColor} />
+          <button
+            onClick={() => setHideStats((v) => !v)}
+            className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition flex-shrink-0"
+          >
+            {hideStats ? <FaEyeSlash className="text-xs" /> : <FaEye className="text-xs" />}
+          </button>
+        </div>
       </div>
 
       <div className="flex items-end justify-between mb-4">
@@ -388,12 +479,16 @@ const YourWorkspaceId = () => {
                 {workspace.name}
               </span>
             </button>
-            <button
-              onClick={() => setHideStats((v) => !v)}
-              className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition flex-shrink-0 ml-2"
-            >
-              {hideStats ? <FaEyeSlash className="text-xs" /> : <FaEye className="text-xs" />}
-            </button>
+            <div className="flex items-center gap-2">
+              {/* ─── Clock‑in widget (mobile header) ────────────────── */}
+              <ClockInWidget workspaceId={workspaceId} brandColor={brandColor} />
+              <button
+                onClick={() => setHideStats((v) => !v)}
+                className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition flex-shrink-0"
+              >
+                {hideStats ? <FaEyeSlash className="text-xs" /> : <FaEye className="text-xs" />}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -413,7 +508,7 @@ const YourWorkspaceId = () => {
             <HeroCard />
           </div>
 
-          {/* desktop hero bar – UNTOUCHED, left-aligned as before */}
+          {/* desktop hero bar – left-aligned as before, with clock‑in widget */}
           <div className="hidden md:flex flex-wrap items-center justify-between gap-3 mb-6">
             <button
               onClick={() => navigate('/my-workspaces')}
@@ -443,7 +538,9 @@ const YourWorkspaceId = () => {
                 </h1>
               </div>
             </button>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              {/* ─── Clock‑in widget (desktop) ───────────────────────── */}
+              <ClockInWidget workspaceId={workspaceId} brandColor={brandColor} />
               <span className="text-[10px] font-mono text-gray-500 dark:text-gray-600 bg-gray-100 dark:bg-[#14141a] px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-800/60 flex items-center gap-2">
                 {hideStats ? '••••••••' : workspace.inviteCode}
                 {!hideStats && (
