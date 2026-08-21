@@ -1509,6 +1509,9 @@ const YourWorkspaceChannelId = () => {
   const { socket, isConnected } = useSocket();
   const [localMessages, setLocalMessages] = useState([]);
 
+  // ─── Online status for DM participants ──────────────────────────────
+  const [otherUserOnline, setOtherUserOnline] = useState(null);
+
   const { data: workspaceData, isLoading: workspaceLoading, error } = useGetWorkspaceQuery(workspaceId);
   const { data: chatsData, isLoading: chatsLoading, refetch: refetchChats } = useGetUserChatsQuery(workspaceId);
   const {
@@ -1517,7 +1520,7 @@ const YourWorkspaceChannelId = () => {
     refetch: refetchMessages,
   } = useGetChatMessagesQuery(
     { chatId, page: 1, limit: 50 },
-    { skip: !chatId, refetchOnMountOrArgChange: true } // 👈 force fresh fetch on mount
+    { skip: !chatId, refetchOnMountOrArgChange: true }
   );
   const [sendMessageApi] = useSendMessageMutation();
   const [deleteMessageApi] = useDeleteMessageMutation();
@@ -1673,7 +1676,7 @@ const YourWorkspaceChannelId = () => {
     }, 1200);
   }, []);
 
-  // ─── Socket handlers (updated merge logic) ──────────────────────
+  // ─── Socket handlers ──────────────────────────────────────────────
   useEffect(() => {
     if (!socket || !isConnected || !chatId) return;
 
@@ -1719,15 +1722,21 @@ const YourWorkspaceChannelId = () => {
 
           // 2. If this is our own message, try to replace a temporary
           if (isOwn) {
-            const tempIdx = next.findIndex(
-              m => m._temp && m.content === incoming.content && Math.abs(new Date(m.createdAt) - new Date(incoming.createdAt)) < 5000
-            );
+            // First, try by _tempId (most reliable)
+            let tempIdx = next.findIndex(m => m._tempId === incoming._id);
+            if (tempIdx === -1) {
+              // Fallback: content + timestamp
+              tempIdx = next.findIndex(
+                m => m._temp && m.content === incoming.content && Math.abs(new Date(m.createdAt) - new Date(incoming.createdAt)) < 10000
+              );
+            }
             if (tempIdx > -1) {
               if (!mutated) next = [...next];
               mutated = true;
               const realMsg = {
                 ...incoming,
                 _temp: false,
+                _tempId: undefined,
                 _pending: false,
                 _failed: false,
                 _sent: true,
@@ -1790,17 +1799,36 @@ const YourWorkspaceChannelId = () => {
       );
     };
 
+    const handleUserStatusChange = ({ userId, online, chatId: statusChatId }) => {
+      if (statusChatId !== chatId) return;
+      if (userId === otherParticipant?._id) {
+        setOtherUserOnline(online);
+      }
+    };
+
     socket.on('new-message', handleNewMessage);
     socket.on('message-deleted', handleMessageDeleted);
     socket.on('message-read', handleMessageRead);
+    socket.on('user-status-changed', handleUserStatusChange);
 
     return () => {
       socket.emit('leave-chat', chatId);
       socket.off('new-message', handleNewMessage);
       socket.off('message-deleted', handleMessageDeleted);
       socket.off('message-read', handleMessageRead);
+      socket.off('user-status-changed', handleUserStatusChange);
     };
-  }, [socket, isConnected, chatId, userInfo?._id, participants]);
+  }, [socket, isConnected, chatId, userInfo?._id, participants, otherParticipant?._id]);
+
+  // ─── Request presence when socket connects and we have a participant ──
+  useEffect(() => {
+    if (!socket || !isConnected || !otherParticipant?._id) return;
+    socket.emit('request-presence', { userId: otherParticipant._id }, (response) => {
+      if (response && typeof response.online === 'boolean') {
+        setOtherUserOnline(response.online);
+      }
+    });
+  }, [socket, isConnected, otherParticipant?._id]);
 
   // ─── Merge initial messages ──────────────────────────────────────
   useEffect(() => {
@@ -2093,7 +2121,6 @@ const YourWorkspaceChannelId = () => {
 
     try {
       const result = await sendMessageApi({ chatId, data: formData }).unwrap();
-      // ✅ On success: rely on 'new-message' event to replace temp – no manual update
       toast.success('Voice note sent!');
     } catch (err) {
       setLocalMessages(prev => prev.map(m => m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m));
@@ -2418,7 +2445,6 @@ const YourWorkspaceChannelId = () => {
 
     try {
       const result = await sendMessageApi({ chatId, data: formData }).unwrap();
-      // ✅ On success: rely on 'new-message' event – no manual update
       toast.success(`${type === 'image' ? 'Image' : 'File'} sent!`);
     } catch (err) {
       setLocalMessages(prev => prev.map(m => m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m));
@@ -2434,13 +2460,11 @@ const YourWorkspaceChannelId = () => {
   // ─── Message action handlers (optimistic delete) ────────────────
   const handleDeleteMessage = useCallback((msg) => {
     const msgId = msg._id;
-    // Optimistically mark as deleted
     setLocalMessages(prev => prev.map(m => m._id === msgId ? { ...m, isDeleted: true } : m));
 
     deleteMessageApi(msgId)
       .unwrap()
       .catch(err => {
-        // Revert on failure
         setLocalMessages(prev => prev.map(m => m._id === msgId ? { ...m, isDeleted: false } : m));
         toast.error(err?.data?.message || 'Failed to delete message');
       });
@@ -2772,6 +2796,7 @@ const YourWorkspaceChannelId = () => {
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const optimisticMsg = {
       _id: tempId,
+      _tempId: tempId,
       _temp: true,
       _pending: false, // no spinner
       _sent: false,    // clock will show
@@ -2821,8 +2846,14 @@ const YourWorkspaceChannelId = () => {
         // On error: remove the temporary message (do not show failed)
         setLocalMessages((prev) => prev.filter((m) => m._id !== tempId));
         toast.error(response.error);
+      } else {
+        // ✅ FIX: Mark as sent and delivered immediately
+        setLocalMessages((prev) =>
+          prev.map((m) =>
+            m._id === tempId ? { ...m, _sent: true, _delivered: true } : m
+          )
+        );
       }
-      // On success: do nothing – the 'new-message' event will replace the temp.
     });
   };
 
@@ -2887,7 +2918,7 @@ const YourWorkspaceChannelId = () => {
             <div className="min-w-0 flex-1">
               <h2 className="font-semibold text-base text-gray-800 dark:text-gray-100 truncate">{displayName}</h2>
               <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                {isDM ? (isDMOnline ? 'Online' : 'Offline') : `${memberCount} members`}
+                {isDM ? (otherUserOnline === true ? 'Online' : otherUserOnline === false ? 'Offline' : '') : `${memberCount} members`}
               </p>
             </div>
           </div>
@@ -3157,7 +3188,7 @@ const YourWorkspaceChannelId = () => {
         workspace={workspace}
         isDM={isDM}
         otherParticipant={otherParticipant}
-        isDMOnline={isDMOnline}
+        isDMOnline={otherUserOnline === true}
         userInfo={userInfo}
         canManageWorkspace={canManageWorkspace}
         brandColor={brandColor}

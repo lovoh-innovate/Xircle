@@ -1077,6 +1077,9 @@ const MyWorkspaceChatId = () => {
   const [localMessages, setLocalMessages] = useState([]);
   const isMobile = useMediaQuery("(max-width: 768px)");
 
+  // ─── Online status (real‑time via socket) ─────────────────────────
+  const [otherUserOnline, setOtherUserOnline] = useState(null);
+
   // ─── Attachment preview state ─────────────────────────────────────
   const [attachmentPreview, setAttachmentPreview] = useState(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -1204,7 +1207,7 @@ const MyWorkspaceChatId = () => {
     }
   }, [workspace, otherParticipant, userInfo]);
 
-  // ─── Improved merge function with delivered/read ────────────────
+  // ─── Improved merge function with _tempId support ────────────────
   const mergeMessagesIntoState = useCallback(
     (incomingList) => {
       if (!incomingList || incomingList.length === 0) return;
@@ -1215,23 +1218,21 @@ const MyWorkspaceChatId = () => {
         incomingList.forEach((incoming) => {
           const isOwn = incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
 
+          // 1. Already exists by real _id?
           const existingIdx = next.findIndex((m) => m._id === incoming._id);
-
           if (existingIdx > -1) {
             if (!mutated) next = [...next];
             mutated = true;
             const existing = next[existingIdx];
-
             const updated = {
               ...incoming,
-              _temp: false,
-              _pending: false,
-              _failed: false,
-              _sent: true,
+              _sent: existing._sent || false,
+              _pending: existing._pending || false,
+              _failed: existing._failed || false,
               _delivered: true,
               _read: false,
             };
-
+            // Read status
             if (isOwn) {
               const otherId = otherParticipant?._id;
               if (otherId && incoming.readBy?.some((r) => r.user === otherId || r.user?._id === otherId)) {
@@ -1242,24 +1243,34 @@ const MyWorkspaceChatId = () => {
                 updated._read = true;
               }
             }
-
             next[existingIdx] = updated;
             return;
           }
 
+          // 2. Try to replace a temporary message (ours)
           if (isOwn) {
-            const tempIdx = next.findIndex(
-              (m) =>
-                m._temp &&
-                m.content === incoming.content &&
-                Math.abs(new Date(m.createdAt) - new Date(incoming.createdAt)) < 5000
-            );
+            // First, try by _tempId (most reliable)
+            let tempIdx = next.findIndex((m) => m._tempId === incoming._id);
+            if (tempIdx === -1) {
+              // Fallback: content + timestamp (10s window)
+              const incomingContent = incoming.content || '';
+              const incomingTime = new Date(incoming.createdAt).getTime();
+              tempIdx = next.findIndex((m) => {
+                if (!m._temp) return false;
+                if (m.content !== undefined && m.content === incomingContent) {
+                  const mTime = new Date(m.createdAt).getTime();
+                  return Math.abs(mTime - incomingTime) < 10000;
+                }
+                return false;
+              });
+            }
             if (tempIdx > -1) {
               if (!mutated) next = [...next];
               mutated = true;
               const realMsg = {
                 ...incoming,
                 _temp: false,
+                _tempId: undefined,
                 _pending: false,
                 _failed: false,
                 _sent: true,
@@ -1275,12 +1286,12 @@ const MyWorkspaceChatId = () => {
             }
           }
 
+          // 3. New message (not temporary)
           const msg = {
             ...incoming,
-            _temp: false,
+            _sent: true,
             _pending: false,
             _failed: false,
-            _sent: true,
             _delivered: true,
             _read: false,
           };
@@ -1294,7 +1305,6 @@ const MyWorkspaceChatId = () => {
               msg._read = true;
             }
           }
-
           if (!mutated) next = [...next];
           mutated = true;
           next.push(msg);
@@ -1317,6 +1327,15 @@ const MyWorkspaceChatId = () => {
     if (!socket || !isConnected || !chatId) return;
     socket.emit("join-chat", chatId);
 
+    // Request presence
+    if (otherParticipant?._id) {
+      socket.emit("request-presence", { userId: otherParticipant._id }, (response) => {
+        if (response && typeof response.online === "boolean") {
+          setOtherUserOnline(response.online);
+        }
+      });
+    }
+
     const handleNewMessage = (incoming) => {
       const incomingChatId = typeof incoming.chat === "string" ? incoming.chat : incoming.chat?._id;
       if (incomingChatId && incomingChatId !== chatId) return;
@@ -1338,17 +1357,26 @@ const MyWorkspaceChatId = () => {
       );
     };
 
+    const handleUserStatusChange = ({ userId, online, chatId: statusChatId }) => {
+      if (statusChatId !== chatId) return;
+      if (userId === otherParticipant?._id) {
+        setOtherUserOnline(online);
+      }
+    };
+
     socket.on("new-message", handleNewMessage);
     socket.on("message-deleted", handleMessageDeleted);
     socket.on("message-read", handleMessageRead);
+    socket.on("user-status-changed", handleUserStatusChange);
 
     return () => {
       socket.emit("leave-chat", chatId);
       socket.off("new-message", handleNewMessage);
       socket.off("message-deleted", handleMessageDeleted);
       socket.off("message-read", handleMessageRead);
+      socket.off("user-status-changed", handleUserStatusChange);
     };
-  }, [socket, isConnected, chatId, mergeMessagesIntoState]);
+  }, [socket, isConnected, chatId, mergeMessagesIntoState, otherParticipant?._id]);
 
   // ─── Polling ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -1359,7 +1387,7 @@ const MyWorkspaceChatId = () => {
       refetchMessages();
       refetchChats();
     }
-  }, 15000); // 15s, not 3s
+  }, 15000); // 15s
   return () => clearInterval(interval);
 }, [chatId, isConnected, refetchMessages, refetchChats]);
 
@@ -1690,7 +1718,6 @@ const MyWorkspaceChatId = () => {
 
     try {
       const result = await sendMessageApi({ chatId, data: formData }).unwrap();
-      // ✅ On success: rely on 'new-message' event – no manual update
       toast.success('Voice note sent!');
     } catch (err) {
       setLocalMessages(prev => prev.map(m => m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m));
@@ -1926,7 +1953,6 @@ const MyWorkspaceChatId = () => {
 
     try {
       const result = await sendMessageApi({ chatId, data: formData }).unwrap();
-      // ✅ On success: rely on 'new-message' event – no manual update
       toast.success(`${type === "image" ? "Image" : "File"} sent!`);
     } catch (err) {
       setLocalMessages(prev => prev.map(m => m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m));
@@ -1955,12 +1981,11 @@ const MyWorkspaceChatId = () => {
   // ─── Derived data ──────────────────────────────────────────────────
   const displayName = otherParticipant?.name || "Unknown";
   const displayAvatar = otherParticipant?.profile || null;
-  const isDMOnline = otherParticipant?.online || false;
   const brandColor = workspace.color || "#0d9488";
 
   // ─── Handlers ──────────────────────────────────────────────────────
 
-  // ─── Optimistic text send (UPDATED: no spinner, clock only) ──────
+  // ─── Optimistic text send (UPDATED: immediate sent status) ──────
   const handleSendMessage = (e) => {
     e.preventDefault();
     const trimmed = message.trim();
@@ -1974,6 +1999,7 @@ const MyWorkspaceChatId = () => {
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const optimisticMsg = {
       _id: tempId,
+      _tempId: tempId,
       _temp: true,
       _pending: false, // no spinner
       _sent: false,    // clock will show
@@ -2018,8 +2044,14 @@ const MyWorkspaceChatId = () => {
           // On error: remove the temporary message (do not mark failed)
           setLocalMessages((prev) => prev.filter((m) => m._id !== tempId));
           toast.error(response.error);
+        } else {
+          // ✅ FIX: Mark as sent and delivered immediately
+          setLocalMessages((prev) =>
+            prev.map((m) =>
+              m._id === tempId ? { ...m, _sent: true, _delivered: true } : m
+            )
+          );
         }
-        // On success: do nothing – the 'new-message' event will replace the temp.
       }
     );
   };
@@ -2179,7 +2211,7 @@ const MyWorkspaceChatId = () => {
             <div className="min-w-0 flex-1">
               <h2 className="font-semibold text-base text-gray-800 dark:text-gray-100 truncate">{displayName}</h2>
               <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                {isDMOnline ? "Online" : "Offline"}
+                {otherUserOnline === true ? "Online" : otherUserOnline === false ? "Offline" : ""}
               </p>
             </div>
           </div>

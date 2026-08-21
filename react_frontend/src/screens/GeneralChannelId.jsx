@@ -18,7 +18,7 @@ import {
   useMakeGroupAdminMutation,
   useRemoveGroupAdminMutation,
   useRemoveParticipantMutation,
-  useExitGroupChatMutation, // 👈 ADDED
+  useExitGroupChatMutation,
 } from '../slices/messagingApiSlice';
 import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
 import { useSocket } from '../components/SocketContext.jsx';
@@ -61,7 +61,7 @@ import {
   FaPlus,
   FaCamera,
   FaUserCog,
-  FaSignOutAlt, // 👈 ADDED for exit icon
+  FaSignOutAlt,
 } from 'react-icons/fa';
 import GeneralSidebar from '../components/GeneralSidebar';
 
@@ -1186,7 +1186,7 @@ const ChannelDetailsPanel = ({
   onMakeAdmin,
   onRemoveAdmin,
   onRemoveMember,
-  onExitGroup, // 👈 ADDED
+  onExitGroup,
   openConfirm,
   isDesktop,
 }) => {
@@ -1512,7 +1512,7 @@ const GeneralChannelId = () => {
   const [makeGroupAdmin] = useMakeGroupAdminMutation();
   const [removeGroupAdmin] = useRemoveGroupAdminMutation();
   const [removeParticipant] = useRemoveParticipantMutation();
-  const [exitGroupChat] = useExitGroupChatMutation(); // 👈 ADDED
+  const [exitGroupChat] = useExitGroupChatMutation();
 
   // ─── Confirm modal state ───────────────────────────────────────────
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {}, danger: false });
@@ -1658,13 +1658,14 @@ const GeneralChannelId = () => {
     }
   }, [message]);
 
-  // ─── Message handling (optimistic merge) ─────────────────────────
+  // ─── Message handling (optimistic merge with _tempId) ────────────
   const mergeMessagesIntoState = useCallback((incomingList) => {
     if (!incomingList || incomingList.length === 0) return;
     setLocalMessages((prev) => {
       let next = prev;
       let mutated = false;
       incomingList.forEach((incoming) => {
+        // 1. Check if this message already exists by real _id
         const existingIdx = next.findIndex((m) => m._id === incoming._id);
         if (existingIdx > -1) {
           if (!mutated) next = [...next];
@@ -1694,33 +1695,62 @@ const GeneralChannelId = () => {
         }
 
         const isOwn = incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
+
+        // 2. Try to match a temporary message we sent
+        let tempIdx = -1;
         if (isOwn) {
-          const tempIdx = next.findIndex((m) =>
-            m._temp &&
-            m.content === incoming.content &&
-            Math.abs(new Date(m.createdAt) - new Date(incoming.createdAt)) < 5000
-          );
-          if (tempIdx > -1) {
-            if (!mutated) next = [...next];
-            mutated = true;
-            const realMsg = {
-              ...incoming,
-              _sent: true,
-              _pending: false,
-              _failed: false,
-              _delivered: true,
-              _read: false,
-              _temp: false,
-            };
+          // First, try by _tempId (most reliable)
+          tempIdx = next.findIndex((m) => m._tempId === incoming._id);
+          if (tempIdx === -1) {
+            // Fallback: content + timestamp for text, mediaName + timestamp for media
+            const incomingContent = incoming.content || '';
+            const incomingMedia = incoming.mediaName || '';
+            const incomingTime = new Date(incoming.createdAt).getTime();
+            tempIdx = next.findIndex((m) => {
+              if (!m._temp) return false;
+              // For text: match content
+              if (incomingContent && m.content === incomingContent) {
+                const mTime = new Date(m.createdAt).getTime();
+                return Math.abs(mTime - incomingTime) < 10000; // 10s window
+              }
+              // For media: match mediaName
+              if (incomingMedia && m.mediaName === incomingMedia) {
+                const mTime = new Date(m.createdAt).getTime();
+                return Math.abs(mTime - incomingTime) < 20000; // 20s window
+              }
+              return false;
+            });
+          }
+        }
+
+        if (tempIdx > -1) {
+          if (!mutated) next = [...next];
+          mutated = true;
+          const realMsg = {
+            ...incoming,
+            _sent: true,
+            _pending: false,
+            _failed: false,
+            _delivered: true,
+            _read: false,
+            _temp: false,
+            _tempId: undefined,
+          };
+          if (isOwn) {
             const readByOthers = incoming.readBy?.filter(r => r.user !== userInfo?._id && r.user !== userInfo?._id);
             if (readByOthers && readByOthers.length > 0) {
               realMsg._read = true;
             }
-            next[tempIdx] = realMsg;
-            return;
+          } else {
+            if (incoming.readBy?.some((r) => r.user === userInfo?._id || r.user?._id === userInfo?._id)) {
+              realMsg._read = true;
+            }
           }
+          next[tempIdx] = realMsg;
+          return;
         }
 
+        // 3. New message (not temporary)
         const msg = {
           ...incoming,
           _sent: true,
@@ -1890,7 +1920,7 @@ const GeneralChannelId = () => {
     }
   };
 
-  // ─── Send message (text) ──────────────────────────────────────────
+  // ─── Send message (text) with _tempId and immediate sent flag ──
   const handleSendMessage = (e) => {
     e.preventDefault();
     const trimmed = message.trim();
@@ -1904,6 +1934,7 @@ const GeneralChannelId = () => {
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const optimisticMsg = {
       _id: tempId,
+      _tempId: tempId,
       _temp: true,
       _pending: false,
       _sent: false,
@@ -1936,6 +1967,13 @@ const GeneralChannelId = () => {
       if (response?.error) {
         setLocalMessages((prev) => prev.filter((m) => m._id !== tempId));
         toast.error(response.error);
+      } else {
+        // ✅ Mark as sent and delivered immediately
+        setLocalMessages((prev) =>
+          prev.map((m) =>
+            m._id === tempId ? { ...m, _sent: true, _delivered: true } : m
+          )
+        );
       }
     });
   };
@@ -2602,7 +2640,7 @@ const GeneralChannelId = () => {
                 onMakeAdmin={handleMakeAdmin}
                 onRemoveAdmin={handleRemoveAdmin}
                 onRemoveMember={handleRemoveMember}
-                onExitGroup={handleExitGroup} // 👈 PASSED
+                onExitGroup={handleExitGroup}
                 openConfirm={openConfirm}
                 isDesktop={isDesktop}
               />

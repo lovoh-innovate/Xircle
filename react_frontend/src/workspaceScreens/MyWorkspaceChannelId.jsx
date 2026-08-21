@@ -8,7 +8,7 @@ import {
   useGetChatMessagesQuery,
   useSendMessageMutation,
   useDeleteMessageMutation,
-  useArchiveMessageMutation,
+  ﻿useArchiveMessageMutation,
   useUnarchiveMessageMutation,
   useStarMessageMutation,
   useUnstarMessageMutation,
@@ -1759,7 +1759,7 @@ const MyWorkspaceChannelId = () => {
     }, 1200);
   }, []);
 
-  // ─── Unified merge function ──────────────────────────────────────
+  // ─── Unified merge function (UPDATED: with _tempId and fallback) ──
   const mergeMessagesIntoState = useCallback(
     (incomingList) => {
       if (!incomingList || incomingList.length === 0) return;
@@ -1770,7 +1770,7 @@ const MyWorkspaceChannelId = () => {
         incomingList.forEach((incoming) => {
           const isOwn = incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
 
-          // 1. If message already exists by real _id, update it
+          // 1. Already exists by real _id?
           const existingIdx = next.findIndex((m) => m._id === incoming._id);
           if (existingIdx > -1) {
             if (!mutated) next = [...next];
@@ -1784,7 +1784,7 @@ const MyWorkspaceChannelId = () => {
               _delivered: true,
               _read: false,
             };
-            // Determine read status
+            // Read status
             if (isOwn) {
               const otherIds = participants.map(p => p.user?._id || p.user).filter(id => id !== userInfo?._id);
               if (otherIds.some(id => incoming.readBy?.some(r => r.user === id || r.user?._id === id))) {
@@ -1799,27 +1799,43 @@ const MyWorkspaceChannelId = () => {
             return;
           }
 
-          // 2. If this is our own message, try to replace a temporary
+          // 2. Try to replace a temporary message (ours)
           if (isOwn) {
-            const tempIdx = next.findIndex(
-              (m) =>
-                m._temp &&
-                m.content === incoming.content &&
-                Math.abs(new Date(m.createdAt) - new Date(incoming.createdAt)) < 5000
-            );
+            // First, try by _tempId (most reliable)
+            let tempIdx = next.findIndex((m) => m._tempId === incoming._id);
+            if (tempIdx === -1) {
+              // Fallback: content + timestamp (10s window)
+              const incomingContent = incoming.content || '';
+              const incomingMedia = incoming.mediaName || '';
+              const incomingTime = new Date(incoming.createdAt).getTime();
+              tempIdx = next.findIndex((m) => {
+                if (!m._temp) return false;
+                // For text: match content
+                if (incomingContent && m.content === incomingContent) {
+                  const mTime = new Date(m.createdAt).getTime();
+                  return Math.abs(mTime - incomingTime) < 10000;
+                }
+                // For media: match mediaName
+                if (incomingMedia && m.mediaName === incomingMedia) {
+                  const mTime = new Date(m.createdAt).getTime();
+                  return Math.abs(mTime - incomingTime) < 20000;
+                }
+                return false;
+              });
+            }
             if (tempIdx > -1) {
               if (!mutated) next = [...next];
               mutated = true;
               const realMsg = {
                 ...incoming,
                 _temp: false,
+                _tempId: undefined,
                 _pending: false,
                 _failed: false,
                 _sent: true,
                 _delivered: true,
                 _read: false,
               };
-              // Check read status
               const otherIds = participants.map(p => p.user?._id || p.user).filter(id => id !== userInfo?._id);
               if (otherIds.some(id => incoming.readBy?.some(r => r.user === id || r.user?._id === id))) {
                 realMsg._read = true;
@@ -1829,7 +1845,7 @@ const MyWorkspaceChannelId = () => {
             }
           }
 
-          // 3. New message from someone else (or ours that wasn't temp)
+          // 3. New message (not temporary)
           const msg = {
             ...incoming,
             _sent: true,
@@ -1859,7 +1875,7 @@ const MyWorkspaceChannelId = () => {
     [userInfo?._id, participants]
   );
 
-  // ─── Socket events (UPDATED: use mergeMessagesIntoState) ──────────
+  // ─── Socket events ──────────────────────────────────────────────
   useEffect(() => {
     if (!socket || !isConnected || !chatId) return;
 
@@ -2546,7 +2562,7 @@ const MyWorkspaceChannelId = () => {
     setActionModal({ isOpen: true, message: msg });
   };
 
-  // ─── Optimistic send text message (UPDATED: no spinner, clock only) ──
+  // ─── Optimistic send text message (UPDATED: with _tempId and success callback) ──
   const handleSendMessage = (e) => {
     e.preventDefault();
     const trimmed = message.trim();
@@ -2560,6 +2576,7 @@ const MyWorkspaceChannelId = () => {
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const optimisticMsg = {
       _id: tempId,
+      _tempId: tempId,
       _temp: true,
       _pending: false, // no spinner
       _sent: false,    // clock will show
@@ -2611,8 +2628,14 @@ const MyWorkspaceChannelId = () => {
           // On error: remove the temporary message (do not mark failed)
           setLocalMessages((prev) => prev.filter((m) => m._id !== tempId));
           toast.error(response.error);
+        } else {
+          // ✅ FIX: Mark as sent and delivered immediately
+          setLocalMessages((prev) =>
+            prev.map((m) =>
+              m._id === tempId ? { ...m, _sent: true, _delivered: true } : m
+            )
+          );
         }
-        // On success: do nothing – the 'new-message' event will replace the temp.
       }
     );
   };
