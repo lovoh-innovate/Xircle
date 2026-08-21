@@ -18,10 +18,10 @@ export const clockInApiSlice = apiSlice.injectEndpoints({
     }),
 
     setClockInSettings: builder.mutation({
-      query: ({ workspaceId, clockInTime, closingTime, clockInEnabled }) => ({
+      query: ({ workspaceId, clockInStart, clockInEnd, closingTime, clockInEnabled }) => ({
         url: `${CLOCKIN_URL}/${workspaceId}/clockin-settings`,
         method: 'PUT',
-        body: { clockInTime, closingTime, clockInEnabled },
+        body: { clockInStart, clockInEnd, closingTime, clockInEnabled },
       }),
       invalidatesTags: (result, error, { workspaceId }) => [
         { type: 'ClockInSettings', id: workspaceId },

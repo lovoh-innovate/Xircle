@@ -32,6 +32,7 @@ import {
   FaArrowLeft,
   FaCheck,
   FaTimes,
+  FaExclamationTriangle,
 } from 'react-icons/fa';
 import {
   AreaChart,
@@ -42,6 +43,15 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { toast } from 'react-hot-toast';
+
+// ─── Format "HH:MM" (24h) into friendly 12-hour time ──────────────
+const formatTime = (time24) => {
+  if (!time24) return '';
+  const [h, m] = time24.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, '0')} ${period}`;
+};
 
 // ─── Helper component to fetch task count for a single project ──
 const TaskCounter = memo(({ projectId, onCount, onLoading }) => {
@@ -146,6 +156,202 @@ const ClockInWidget = ({ workspaceId, brandColor }) => {
           {isClockInLoading ? <FaSpinner className="animate-spin text-xs" /> : <FaCheck className="text-[10px]" />}
           <span className="hidden sm:inline">Clock In</span>
         </button>
+      )}
+    </div>
+  );
+};
+
+// ─── Clock‑in Schedule Banner with Countdown ────────────────────────
+const ClockInBanner = ({ workspaceId, brandColor, userInfo }) => {
+  const { data: settingsData } = useGetClockInSettingsQuery(workspaceId);
+  const { data: historyData } = useGetUserClockInHistoryQuery(
+    { workspaceId, page: 1, limit: 1 },
+    { skip: !settingsData?.settings?.clockInEnabled }
+  );
+
+  const [countdown, setCountdown] = useState('');
+  const [countdownColor, setCountdownColor] = useState('');
+  const [isOverdue, setIsOverdue] = useState(false);
+
+  const isEnabled = settingsData?.settings?.clockInEnabled || false;
+  const clockInStart = settingsData?.settings?.clockInStart || settingsData?.settings?.clockInTime || null;
+  const clockInEnd = settingsData?.settings?.clockInEnd || null;
+  const hasScheduledTime = clockInStart !== null;
+  const closingTime = settingsData?.settings?.closingTime || null;
+
+  // Check if user is clocked in today
+  const today = new Date().toISOString().split('T')[0];
+  const latest = historyData?.history?.[0];
+  const isClockedIn =
+    latest &&
+    new Date(latest.clockInTime).toISOString().split('T')[0] === today &&
+    !latest.clockOutTime;
+
+  // ─── Countdown timer ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!isEnabled || !hasScheduledTime || isClockedIn) {
+      setCountdown('');
+      return;
+    }
+
+    const updateCountdown = () => {
+      const now = new Date();
+      const [startHours, startMinutes] = clockInStart.split(':').map(Number);
+      const startDate = new Date(now);
+      startDate.setHours(startHours, startMinutes, 0, 0);
+
+      let diffMs = startDate - now;
+      let isLate = false;
+
+      // If start time is in the past, show overdue
+      if (diffMs < 0) {
+        isLate = true;
+        setIsOverdue(true);
+        setCountdownColor('text-red-600 dark:text-red-400');
+
+        // Check if we have an end time to see if window is closed
+        if (clockInEnd) {
+          const [endHours, endMinutes] = clockInEnd.split(':').map(Number);
+          const endDate = new Date(now);
+          endDate.setHours(endHours, endMinutes, 0, 0);
+          if (now > endDate) {
+            setCountdown('⛔ Window closed');
+            setCountdownColor('text-red-600 dark:text-red-400');
+            return;
+          }
+        }
+
+        // Show negative countdown (how late they are)
+        const lateMinutes = Math.floor(Math.abs(diffMs) / 60000);
+        const lateSeconds = Math.floor((Math.abs(diffMs) % 60000) / 1000);
+        setCountdown(`-${String(lateMinutes).padStart(2, '0')}:${String(lateSeconds).padStart(2, '0')}`);
+        setCountdownColor('text-red-600 dark:text-red-400');
+        return;
+      }
+
+      // Countdown to start time
+      setIsOverdue(false);
+      const minutes = Math.floor(diffMs / 60000);
+      const seconds = Math.floor((diffMs % 60000) / 1000);
+      setCountdown(`${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
+      setCountdownColor('text-teal-600 dark:text-teal-400');
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [isEnabled, hasScheduledTime, clockInStart, clockInEnd, isClockedIn]);
+
+  // If not enabled, show nothing
+  if (!isEnabled) return null;
+
+  // If no schedule set, show a warning
+  if (!hasScheduledTime) {
+    return (
+      <div className="px-3 sm:px-6 py-2 border-t border-gray-200/60 dark:border-gray-800/30 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:text-sm bg-yellow-50/50 dark:bg-yellow-900/10">
+        <span className="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
+          <FaExclamationTriangle className="text-yellow-500 text-[11px] sm:text-xs" />
+          No clock-in schedule set yet —{' '}
+          <Link
+            to={`/workspace/${workspaceId}/clockin`}
+            className="underline font-medium hover:opacity-80 transition"
+            style={{ color: brandColor }}
+          >
+            set it now
+          </Link>
+        </span>
+      </div>
+    );
+  }
+
+  // If clocked in, show success
+  if (isClockedIn) {
+    const clockInTimeFormatted = latest
+      ? new Date(latest.clockInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : '';
+    return (
+      <div
+        className="px-3 sm:px-6 py-2 border-t border-gray-200/60 dark:border-gray-800/30 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:text-sm"
+        style={{ backgroundColor: `${brandColor}0d` }}
+      >
+        <span className="flex items-center gap-1.5 font-medium text-green-600 dark:text-green-400">
+          <FaCheck className="text-[11px] sm:text-xs" />
+          You're clocked in! (Since {clockInTimeFormatted})
+        </span>
+        {closingTime && (
+          <span className="flex items-center gap-1.5 text-gray-600 dark:text-gray-400">
+            <FaTimes className="text-[11px] sm:text-xs" />
+            Closes at <span className="font-mono font-semibold text-gray-800 dark:text-gray-200">{formatTime(closingTime)}</span>
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  // ─── Show countdown banner ────────────────────────────────────────
+  const isLate = countdown.startsWith('-');
+  const windowClosed = countdown.includes('Window closed');
+
+  return (
+    <div
+      className={`px-3 sm:px-6 py-2 border-t border-gray-200/60 dark:border-gray-800/30 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:text-sm transition-colors ${
+        isLate && !windowClosed
+          ? 'bg-red-50/80 dark:bg-red-950/20 border-red-200 dark:border-red-800/30'
+          : isLate && windowClosed
+          ? 'bg-red-100 dark:bg-red-950/30 border-red-300 dark:border-red-800/50'
+          : 'bg-teal-50/50 dark:bg-teal-950/10'
+      }`}
+    >
+      <span className="flex items-center gap-1.5 font-medium" style={{ color: isLate ? '#dc2626' : brandColor }}>
+        <FaClock className="text-[11px] sm:text-xs" />
+        {windowClosed ? (
+          <>
+            Clock-in window <span className="font-semibold text-red-700 dark:text-red-300">closed</span> — you missed it
+          </>
+        ) : isLate ? (
+          <>
+            <span className="text-red-700 dark:text-red-300">Overdue!</span> You're <span className="font-mono font-bold text-red-700 dark:text-red-300">{countdown}</span> late
+          </>
+        ) : (
+          <>
+            Clock in <span className="font-mono font-bold" style={{ color: brandColor }}>{countdown}</span>
+          </>
+        )}
+      </span>
+
+      {!windowClosed && (
+        <span className="flex items-center gap-1.5" style={{ color: isLate ? '#dc2626' : 'inherit' }}>
+          <span>Scheduled:</span>
+          <span className="font-mono font-semibold text-gray-800 dark:text-gray-200">
+            {formatTime(clockInStart)}{clockInEnd ? ` – ${formatTime(clockInEnd)}` : ''}
+          </span>
+        </span>
+      )}
+
+      {closingTime && !windowClosed && (
+        <span className="flex items-center gap-1.5 text-gray-600 dark:text-gray-400">
+          <FaTimes className="text-[11px] sm:text-xs" />
+          Closes at <span className="font-mono font-semibold text-gray-800 dark:text-gray-200">{formatTime(closingTime)}</span>
+        </span>
+      )}
+
+      {!windowClosed && !isLate && (
+        <Link
+          to={`/workspace/${workspaceId}/clockin`}
+          className="text-[10px] font-medium uppercase tracking-wider hover:underline transition"
+          style={{ color: brandColor }}
+        >
+          Clock in now →
+        </Link>
+      )}
+
+      {isLate && !windowClosed && (
+        <Link
+          to={`/workspace/${workspaceId}/clockin`}
+          className="text-[10px] font-medium uppercase tracking-wider hover:underline transition text-red-600 dark:text-red-400"
+        >
+          Clock in now →
+        </Link>
       )}
     </div>
   );
@@ -506,6 +712,15 @@ const YourWorkspaceId = () => {
           {/* mobile hero card */}
           <div className="md:hidden">
             <HeroCard />
+          </div>
+
+          {/* ─── Clock‑in Schedule Banner ───────────────────────────── */}
+          <div className="mb-4">
+            <ClockInBanner
+              workspaceId={workspaceId}
+              brandColor={brandColor}
+              userInfo={userInfo}
+            />
           </div>
 
           {/* desktop hero bar – left-aligned as before, with clock‑in widget */}

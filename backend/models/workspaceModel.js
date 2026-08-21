@@ -40,18 +40,24 @@ const workspaceSchema = new mongoose.Schema(
     inviteCode: { type: String, unique: true },
     verified: { type: Boolean, default: false },
 
-    // ─── Clock‑in settings ──────────────────────────────────────────
-    clockInTime: {
-      type: String, // "HH:MM" in 24h format, e.g., "09:00"
+    // ─── Clock‑in settings (range based) ──────────────────────────
+    clockInStart: {
+      type: String,   // "HH:MM" in 24h format, e.g., "08:30"
       default: null,
     },
-    closingTime: {
-      type: String, // "HH:MM" in 24h format, e.g., "18:00"
+    clockInEnd: {
+      type: String,   // "HH:MM" in 24h format, e.g., "09:00"
       default: null,
     },
     clockInEnabled: {
       type: Boolean,
       default: false,
+    },
+
+    // ─── Optional: closing time for clock‑out penalty ─────────────
+    closingTime: {
+      type: String,   // "HH:MM" in 24h format, e.g., "18:00"
+      default: null,
     },
   },
   { timestamps: true }

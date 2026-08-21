@@ -27,9 +27,19 @@ import {
   FaChevronDown,
   FaArrowLeft,
   FaCalendarAlt,
+  FaExclamationTriangle,
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 import { motion } from 'framer-motion';
+
+// ─── Format "HH:MM" (24h) into friendly 12-hour time ──────────────
+const formatTime = (time24) => {
+  if (!time24) return '';
+  const [h, m] = time24.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, '0')} ${period}`;
+};
 
 // ─── Custom Dropdown ──────────────────────────────────────────────────────
 const CustomDropdown = ({ options, value, onChange, placeholder, label, brandColor }) => {
@@ -135,18 +145,23 @@ const BottomSheet = ({ isOpen, onClose, children }) => {
   );
 };
 
-// ─── Settings Modal Content ──────────────────────────────────────────
+// ─── Settings Modal Content (handles both old and new fields) ──────────
 const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
-  const { data: settingsData, isLoading: settingsLoading } = useGetClockInSettingsQuery(workspaceId);
+  const { data: settingsData, isLoading: settingsLoading, refetch: refetchSettings } = useGetClockInSettingsQuery(workspaceId);
   const [setSettings, { isLoading: isSaving }] = useSetClockInSettingsMutation();
 
-  const [clockInTime, setClockInTime] = useState('');
+  const [clockInStart, setClockInStart] = useState('');
+  const [clockInEnd, setClockInEnd] = useState('');
   const [closingTime, setClosingTime] = useState('');
   const [clockInEnabled, setClockInEnabled] = useState(false);
 
   useEffect(() => {
     if (settingsData?.settings) {
-      setClockInTime(settingsData.settings.clockInTime || '');
+      // Use clockInStart if available, else fallback to clockInTime
+      const start = settingsData.settings.clockInStart || settingsData.settings.clockInTime || '';
+      const end = settingsData.settings.clockInEnd || '';
+      setClockInStart(start);
+      setClockInEnd(end);
       setClosingTime(settingsData.settings.closingTime || '');
       setClockInEnabled(settingsData.settings.clockInEnabled || false);
     }
@@ -159,17 +174,27 @@ const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
     try {
       await setSettings({
         workspaceId,
-        clockInTime: clockInTime || null,
+        clockInStart: clockInStart || null,
+        clockInEnd: clockInEnd || null,
         closingTime: closingTime || null,
         clockInEnabled,
       }).unwrap();
       toast.success('Clock-in settings updated!');
+      await refetchSettings();
       onSuccess();
       onClose();
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to update settings.');
     }
   };
+
+  if (settingsLoading) {
+    return (
+      <div className="p-6 flex justify-center">
+        <FaSpinner className="animate-spin text-teal-500 text-2xl" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-6">
@@ -182,66 +207,73 @@ const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
         </button>
       </div>
 
-      {settingsLoading ? (
-        <div className="flex justify-center py-8">
-          <FaSpinner className="animate-spin text-teal-500 text-2xl" />
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Clock‑in Start</label>
+            <input
+              type="time"
+              value={clockInStart}
+              onChange={(e) => setClockInStart(e.target.value)}
+              className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
+              step="60"
+            />
+            <p className="text-xs text-gray-400 mt-1">Clocking in before this time = Early</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Clock‑in End</label>
+            <input
+              type="time"
+              value={clockInEnd}
+              onChange={(e) => setClockInEnd(e.target.value)}
+              className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
+              step="60"
+            />
+            <p className="text-xs text-gray-400 mt-1">Clocking in after this time = Late</p>
+          </div>
         </div>
-      ) : (
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Clock‑in Time</label>
-            <input
-              type="time"
-              value={clockInTime}
-              onChange={(e) => setClockInTime(e.target.value)}
-              className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
-              step="60"
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Closing Time (for clock‑out penalty)</label>
+          <input
+            type="time"
+            value={closingTime}
+            onChange={(e) => setClosingTime(e.target.value)}
+            className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
+            step="60"
+          />
+          <p className="text-xs text-gray-400 mt-1">Optional: members clocking out after this time will be flagged as late</p>
+        </div>
+
+        <div className="flex items-center gap-3 py-2">
+          <button
+            type="button"
+            onClick={() => setClockInEnabled(!clockInEnabled)}
+            className={`relative w-12 h-7 rounded-full transition-colors ${clockInEnabled ? 'bg-teal-600' : 'bg-gray-300 dark:bg-gray-700'}`}
+          >
+            <span
+              className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white transition-transform ${clockInEnabled ? 'translate-x-5' : ''}`}
             />
-            <p className="text-xs text-gray-400 mt-1">Leave empty to disable automatic scheduling</p>
-          </div>
+          </button>
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            {clockInEnabled ? 'Clock‑in enabled' : 'Clock‑in disabled'}
+          </span>
+        </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Closing Time</label>
-            <input
-              type="time"
-              value={closingTime}
-              onChange={(e) => setClosingTime(e.target.value)}
-              className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
-              step="60"
-            />
-            <p className="text-xs text-gray-400 mt-1">Members will be marked late if they clock out after this time</p>
-          </div>
-
-          <div className="flex items-center gap-3 py-2">
-            <button
-              type="button"
-              onClick={() => setClockInEnabled(!clockInEnabled)}
-              className={`relative w-12 h-7 rounded-full transition-colors ${clockInEnabled ? 'bg-teal-600' : 'bg-gray-300 dark:bg-gray-700'}`}
-            >
-              <span
-                className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white transition-transform ${clockInEnabled ? 'translate-x-5' : ''}`}
-              />
-            </button>
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              {clockInEnabled ? 'Clock‑in enabled' : 'Clock‑in disabled'}
-            </span>
-          </div>
-
-          <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 py-3 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-[#2a2a2a] transition text-gray-700 dark:text-gray-300">
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="flex-1 py-3 bg-teal-600 dark:bg-teal-500 text-white rounded-xl hover:bg-teal-700 dark:hover:bg-teal-600 disabled:opacity-50 transition"
-              style={{ backgroundColor: brandColor }}
-            >
-              {isSaving ? <FaSpinner className="animate-spin mx-auto" /> : 'Save Settings'}
-            </button>
-          </div>
-        </form>
-      )}
+        <div className="flex gap-3 pt-2">
+          <button type="button" onClick={onClose} className="flex-1 py-3 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-[#2a2a2a] transition text-gray-700 dark:text-gray-300">
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={isSaving}
+            className="flex-1 py-3 bg-teal-600 dark:bg-teal-500 text-white rounded-xl hover:bg-teal-700 dark:hover:bg-teal-600 disabled:opacity-50 transition"
+            style={{ backgroundColor: brandColor }}
+          >
+            {isSaving ? <FaSpinner className="animate-spin mx-auto" /> : 'Save Settings'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 };
@@ -318,7 +350,7 @@ const YourWorkspaceClockin = () => {
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
 
   // ─── Workspace data ──────────────────────────────────────────────────
-  const { data: workspaceData, isLoading: workspaceLoading, error: workspaceError } = useGetWorkspaceQuery(workspaceId);
+  const { data: workspaceData, isLoading: workspaceLoading } = useGetWorkspaceQuery(workspaceId);
   const workspace = workspaceData?.workspace;
 
   // ─── Check if user is a member ──────────────────────────────────────
@@ -342,6 +374,12 @@ const YourWorkspaceClockin = () => {
 
   // ─── Queries ────────────────────────────────────────────────────────
   const { data: settingsData } = useGetClockInSettingsQuery(workspaceId);
+
+  // ─── Get scheduled clock‑in times – fallback to clockInTime ──────
+  const clockInStart = settingsData?.settings?.clockInStart || settingsData?.settings?.clockInTime || null;
+  const clockInEnd = settingsData?.settings?.clockInEnd || null;
+  const closingTime = settingsData?.settings?.closingTime || null;
+  const hasScheduledTime = clockInStart !== null;
 
   // Today's clock-ins (admin only)
   const today = new Date().toISOString().split('T')[0];
@@ -589,7 +627,7 @@ const YourWorkspaceClockin = () => {
                 )}
                 {isClockInEnabled && userTodayClockIn && isClockedIn && (
                   <span className="text-[10px] sm:text-xs text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-1.5 sm:px-2 py-0.5 rounded-full border border-green-200 dark:border-green-700/40 whitespace-nowrap hidden xs:inline">
-                    {new Date(userTodayClockIn.clockInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    In: {new Date(userTodayClockIn.clockInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
                 )}
               </div>
@@ -627,6 +665,35 @@ const YourWorkspaceClockin = () => {
                 )}
               </div>
             </div>
+
+            {/* ─── Scheduled window banner — always visible, all screen sizes ─── */}
+            {isClockInEnabled && (
+              <div
+                className="px-3 sm:px-6 py-2 border-t border-gray-200/60 dark:border-gray-800/30 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:text-sm"
+                style={{ backgroundColor: `${brandColor}0d` }}
+              >
+                {hasScheduledTime ? (
+                  <span className="flex items-center gap-1.5 font-medium" style={{ color: brandColor }}>
+                    <FaClock className="text-[11px] sm:text-xs" />
+                    Clock in between{' '}
+                    <span className="font-mono font-semibold text-gray-800 dark:text-gray-200">
+                      {formatTime(clockInStart)}{clockInEnd ? ` – ${formatTime(clockInEnd)}` : ''}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
+                    <FaExclamationTriangle className="text-yellow-500 text-[11px] sm:text-xs" />
+                    No clock-in schedule set yet
+                  </span>
+                )}
+                {closingTime && (
+                  <span className="flex items-center gap-1.5 text-gray-600 dark:text-gray-400">
+                    <FaTimes className="text-[11px] sm:text-xs" />
+                    Closes at <span className="font-mono font-semibold text-gray-800 dark:text-gray-200">{formatTime(closingTime)}</span>
+                  </span>
+                )}
+              </div>
+            )}
 
             {/* ─── Tabs ────────────────────────────────────────────────── */}
             <div className="flex gap-2 sm:gap-4 px-3 sm:px-6 border-t border-gray-200/60 dark:border-gray-800/30">

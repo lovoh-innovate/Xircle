@@ -23,7 +23,9 @@ const isAdmin = (workspace, userId) =>
 const isManager = (workspace, userId) =>
   isOwner(workspace, userId) || isAdmin(workspace, userId);
 
-// ─── Notification helper (internal) ────────────────────────────────
+const TIME_REGEX = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+
+// ─── Notification helper ────────────────────────────────────────────
 async function notifyUsers(
   userIds,
   { title, body, data = {}, emailEventType = null, emailHtml = null }
@@ -46,19 +48,30 @@ async function notifyUsers(
   }
 }
 
-// ─── Set Clock‑In Settings ──────────────────────────────────────────
+// ─── Set Clock‑In Settings (start, end, closingTime, enabled) ──────
+// NOTE: previous version destructured only { clockInStart, clockInEnd,
+// clockInEnabled } from req.body — closingTime was silently dropped
+// and never saved. That's fixed below.
 
 export const setClockInSettings = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const { workspaceId } = req.params;
-  const { clockInTime, closingTime, clockInEnabled } = req.body;
+  const { clockInStart, clockInEnd, closingTime, clockInEnabled } = req.body;
 
-  // Validate time format (HH:MM)
-  const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
-  if (clockInTime && !timeRegex.test(clockInTime)) {
-    return res.status(400).json({ success: false, message: "Invalid clock-in time format. Use HH:MM." });
+  console.log("🔥 [clockin-settings] incoming body:", {
+    clockInStart,
+    clockInEnd,
+    closingTime,
+    clockInEnabled,
+  });
+
+  if (clockInStart && !TIME_REGEX.test(clockInStart)) {
+    return res.status(400).json({ success: false, message: "Invalid start time format. Use HH:MM." });
   }
-  if (closingTime && !timeRegex.test(closingTime)) {
+  if (clockInEnd && !TIME_REGEX.test(clockInEnd)) {
+    return res.status(400).json({ success: false, message: "Invalid end time format. Use HH:MM." });
+  }
+  if (closingTime && !TIME_REGEX.test(closingTime)) {
     return res.status(400).json({ success: false, message: "Invalid closing time format. Use HH:MM." });
   }
 
@@ -67,23 +80,32 @@ export const setClockInSettings = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: "Workspace not found." });
   }
 
-  // Only owner or admin can set settings
   if (!isManager(workspace, userId)) {
     return res.status(403).json({ success: false, message: "Only the workspace owner or admin can set clock-in settings." });
   }
 
-  // Update workspace
-  if (clockInTime !== undefined) workspace.clockInTime = clockInTime;
+  // Allow explicit null (to clear a field) as well as a real value.
+  // Only skip when the key wasn't sent at all (undefined).
+  if (clockInStart !== undefined) workspace.clockInStart = clockInStart;
+  if (clockInEnd !== undefined) workspace.clockInEnd = clockInEnd;
   if (closingTime !== undefined) workspace.closingTime = closingTime;
   if (clockInEnabled !== undefined) workspace.clockInEnabled = clockInEnabled;
 
   await workspace.save();
 
+  console.log("✅ [clockin-settings] saved:", {
+    clockInStart: workspace.clockInStart,
+    clockInEnd: workspace.clockInEnd,
+    closingTime: workspace.closingTime,
+    clockInEnabled: workspace.clockInEnabled,
+  });
+
   res.status(200).json({
     success: true,
     message: "Clock-in settings updated.",
     settings: {
-      clockInTime: workspace.clockInTime,
+      clockInStart: workspace.clockInStart,
+      clockInEnd: workspace.clockInEnd,
       closingTime: workspace.closingTime,
       clockInEnabled: workspace.clockInEnabled,
     },
@@ -101,7 +123,6 @@ export const getClockInSettings = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: "Workspace not found." });
   }
 
-  // Only members can view
   const isMember = workspace.members.some(
     (m) => m.user.toString() === userId && m.status === "active"
   );
@@ -112,14 +133,15 @@ export const getClockInSettings = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     settings: {
-      clockInTime: workspace.clockInTime,
+      clockInStart: workspace.clockInStart,
+      clockInEnd: workspace.clockInEnd,
       closingTime: workspace.closingTime,
       clockInEnabled: workspace.clockInEnabled,
     },
   });
 });
 
-// ─── Clock‑In ────────────────────────────────────────────────────────
+// ─── Clock‑In (start/end window → early / on-time / late) ─────────
 
 export const clockIn = asyncHandler(async (req, res) => {
   const userId = req.user.id;
@@ -148,19 +170,25 @@ export const clockIn = asyncHandler(async (req, res) => {
     user: userId,
     workspace: workspaceId,
     date: { $gte: today },
-    clockOutTime: null, // still clocked in
+    clockOutTime: null,
   });
   if (existing) {
     return res.status(400).json({ success: false, message: "You have already clocked in today and haven't clocked out yet." });
   }
 
-  // Determine if late or early
   const now = new Date();
-  let clockInTimeDate = null;
-  if (workspace.clockInTime) {
-    const [hours, minutes] = workspace.clockInTime.split(":").map(Number);
-    clockInTimeDate = new Date(now);
-    clockInTimeDate.setHours(hours, minutes, 0, 0);
+
+  // Parse start and end times (if set)
+  let startDate = null, endDate = null;
+  if (workspace.clockInStart) {
+    const [hours, minutes] = workspace.clockInStart.split(":").map(Number);
+    startDate = new Date(now);
+    startDate.setHours(hours, minutes, 0, 0);
+  }
+  if (workspace.clockInEnd) {
+    const [hours, minutes] = workspace.clockInEnd.split(":").map(Number);
+    endDate = new Date(now);
+    endDate.setHours(hours, minutes, 0, 0);
   }
 
   let status = "on-time";
@@ -169,22 +197,28 @@ export const clockIn = asyncHandler(async (req, res) => {
   let isEarly = false;
   let earlyMinutes = 0;
 
-  if (clockInTimeDate) {
-    const diffMs = now - clockInTimeDate;
-    const diffMin = Math.floor(diffMs / 60000);
-    if (diffMin > 0) {
-      // Late
-      isLate = true;
-      lateMinutes = diffMin;
-      status = "late";
-    } else if (diffMin < -5) { // more than 5 minutes early
+  if (startDate && endDate) {
+    const nowMs = now.getTime();
+    const startMs = startDate.getTime();
+    const endMs = endDate.getTime();
+
+    if (nowMs < startMs) {
       isEarly = true;
-      earlyMinutes = Math.abs(diffMin);
+      earlyMinutes = Math.floor((startMs - nowMs) / 60000);
       status = "early";
+    } else if (nowMs > endMs) {
+      isLate = true;
+      lateMinutes = Math.floor((nowMs - endMs) / 60000);
+      status = "late";
+    } else {
+      status = "on-time";
     }
+  } else {
+    // No range defined — treat as on-time
+    status = "on-time";
   }
 
-  const clockIn = await ClockIn.create({
+  const clockInDoc = await ClockIn.create({
     user: userId,
     workspace: workspaceId,
     clockInTime: now,
@@ -196,12 +230,12 @@ export const clockIn = asyncHandler(async (req, res) => {
     earlyMinutes,
   });
 
-  // Notify admin/owner that someone clocked in
+  // Notify admins/owner
   const adminIds = workspace.members
     .filter((m) => m.role === "Admin" && m.status === "active")
     .map((m) => m.user.toString());
   const ownerId = workspace.owner.toString();
-  const recipientIds = [...new Set([...adminIds, ownerId])].filter(id => id !== userId);
+  const recipientIds = [...new Set([...adminIds, ownerId])].filter((id) => id !== userId);
 
   const user = await User.findById(userId).select("name");
   const userName = user?.name || "A member";
@@ -214,17 +248,17 @@ export const clockIn = asyncHandler(async (req, res) => {
         type: "clockin",
         workspaceId: workspaceId,
         userId: userId,
-        clockInId: clockIn._id.toString(),
+        clockInId: clockInDoc._id.toString(),
       },
       emailEventType: "newMessage",
       emailHtml: `<p><strong>${userName}</strong> clocked in at ${now.toLocaleTimeString()} ${isLate ? `(late by ${lateMinutes} min)` : isEarly ? `(early by ${earlyMinutes} min)` : ""}</p>`,
     });
   }
 
-  // Send a confirmation to the user
+  // Confirmation to user
   notifyUsers([userId], {
     title: "✅ Clocked in successfully",
-    body: `You clocked in at ${now.toLocaleTimeString()}`,
+    body: `You clocked in at ${now.toLocaleTimeString()} (${status})`,
     data: { type: "clockin-confirmation" },
   });
 
@@ -232,8 +266,8 @@ export const clockIn = asyncHandler(async (req, res) => {
     success: true,
     message: "Clocked in successfully.",
     clockIn: {
-      id: clockIn._id,
-      time: clockIn.clockInTime,
+      id: clockInDoc._id,
+      time: clockInDoc.clockInTime,
       status,
       isLate,
       lateMinutes,
@@ -243,7 +277,7 @@ export const clockIn = asyncHandler(async (req, res) => {
   });
 });
 
-// ─── Clock‑Out ───────────────────────────────────────────────────────
+// ─── Clock‑Out (closingTime → clockOutLate penalty) ────────────────
 
 export const clockOut = asyncHandler(async (req, res) => {
   const userId = req.user.id;
@@ -261,16 +295,15 @@ export const clockOut = asyncHandler(async (req, res) => {
     return res.status(403).json({ success: false, message: "You are not an active member of this workspace." });
   }
 
-  // Find today's clock-in without clock-out
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const clockIn = await ClockIn.findOne({
+  const clockInDoc = await ClockIn.findOne({
     user: userId,
     workspace: workspaceId,
     date: { $gte: today },
     clockOutTime: null,
   });
-  if (!clockIn) {
+  if (!clockInDoc) {
     return res.status(400).json({ success: false, message: "You haven't clocked in today or already clocked out." });
   }
 
@@ -289,12 +322,11 @@ export const clockOut = asyncHandler(async (req, res) => {
     }
   }
 
-  clockIn.clockOutTime = now;
-  clockIn.clockOutLate = clockOutLate;
-  clockIn.clockOutLateMinutes = clockOutLateMinutes;
-  await clockIn.save();
+  clockInDoc.clockOutTime = now;
+  clockInDoc.clockOutLate = clockOutLate;
+  clockInDoc.clockOutLateMinutes = clockOutLateMinutes;
+  await clockInDoc.save();
 
-  // Send confirmation to user
   notifyUsers([userId], {
     title: "✅ Clocked out successfully",
     body: `You clocked out at ${now.toLocaleTimeString()} ${clockOutLate ? `(clocked out ${clockOutLateMinutes} min after closing)` : ""}`,
@@ -305,8 +337,8 @@ export const clockOut = asyncHandler(async (req, res) => {
     success: true,
     message: "Clocked out successfully.",
     clockOut: {
-      id: clockIn._id,
-      time: clockIn.clockOutTime,
+      id: clockInDoc._id,
+      time: clockInDoc.clockOutTime,
       clockOutLate,
       clockOutLateMinutes,
     },
@@ -354,7 +386,7 @@ export const getUserClockInHistory = asyncHandler(async (req, res) => {
   });
 });
 
-// ─── Get All Clock‑Ins for Workspace (admin/owner) ────────────────
+// ─── Get All Clock‑Ins for Workspace (admin/owner) ─────────────────
 
 export const getWorkspaceClockIns = asyncHandler(async (req, res) => {
   const userId = req.user.id;
@@ -401,7 +433,7 @@ export const getWorkspaceClockIns = asyncHandler(async (req, res) => {
   });
 });
 
-// ─── Leaderboard ────────────────────────────────────────────────────
+// ─── Leaderboard ──────────────────────────────────────────────────
 
 export const getClockInLeaderboard = asyncHandler(async (req, res) => {
   const { workspaceId } = req.params;
@@ -412,7 +444,6 @@ export const getClockInLeaderboard = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: "Workspace not found." });
   }
 
-  // Determine date range
   const now = new Date();
   let startDate;
   if (period === "week") {
@@ -422,10 +453,9 @@ export const getClockInLeaderboard = asyncHandler(async (req, res) => {
     startDate = new Date(now);
     startDate.setMonth(now.getMonth() - 1);
   } else {
-    startDate = new Date(0); // beginning of time
+    startDate = new Date(0);
   }
 
-  // Aggregation pipeline: group by user, count early/on-time/late, and compute score
   const leaderboard = await ClockIn.aggregate([
     {
       $match: {
@@ -461,15 +491,21 @@ export const getClockInLeaderboard = asyncHandler(async (req, res) => {
           profile: "$user.profile",
         },
         totalClockIns: 1,
-        earlyCount: 1,
+        // Early count = early * 1 + on-time * 0.5 (late adds 0)
+        earlyCount: {
+          $add: [
+            "$earlyCount",
+            { $multiply: ["$onTimeCount", 0.5] },
+          ],
+        },
         onTimeCount: 1,
         lateCount: 1,
         avgEarlyMinutes: { $round: ["$avgEarlyMinutes", 1] },
+        // Score: early = 10, on-time = 5, late = 0
         score: {
           $add: [
-            { $multiply: ["$earlyCount", 10] },   // +10 per early arrival
-            { $multiply: ["$onTimeCount", 2] },   // +2 per on-time arrival (reward consistency)
-            { $multiply: ["$lateCount", -5] },    // -5 per late arrival
+            { $multiply: ["$earlyCount", 10] },
+            { $multiply: ["$onTimeCount", 5] },
           ],
         },
       },
@@ -485,29 +521,25 @@ export const getClockInLeaderboard = asyncHandler(async (req, res) => {
   });
 });
 
-// ─── Scheduler for reminders ────────────────────────────────────────
+// ─── Scheduler for reminders (based on start time) ──────────────
 
 export const startClockInScheduler = () => {
-  // Run every minute
   cron.schedule("* * * * *", async () => {
     try {
       const now = new Date();
-      const currentTime = now.toTimeString().slice(0, 5);
 
-      // Find workspaces with clock-in enabled and clockInTime set
       const workspaces = await Workspace.find({
         clockInEnabled: true,
-        clockInTime: { $ne: null },
+        clockInStart: { $ne: null },
       });
 
       for (const workspace of workspaces) {
-        const clockInTime = workspace.clockInTime;
-        const [hours, minutes] = clockInTime.split(":").map(Number);
+        const startTime = workspace.clockInStart;
+        const [hours, minutes] = startTime.split(":").map(Number);
         const target = new Date(now);
         target.setHours(hours, minutes, 0, 0);
         const diffMinutes = Math.floor((target - now) / 60000);
 
-        // Send reminders at 30 and 10 minutes before
         if (diffMinutes === 30 || diffMinutes === 10) {
           const memberIds = workspace.members
             .filter((m) => m.status === "active")
@@ -518,13 +550,13 @@ export const startClockInScheduler = () => {
           const minutesText = diffMinutes === 30 ? "30 minutes" : "10 minutes";
           notifyUsers(allIds, {
             title: `⏰ Clock-in in ${minutesText}`,
-            body: `Clock-in time is at ${clockInTime}. Don't forget to clock in!`,
+            body: `Clock-in window opens at ${startTime}. Don't forget to clock in!`,
             data: {
               type: "clockin-reminder",
               workspaceId: workspace._id.toString(),
             },
             emailEventType: "newMessage",
-            emailHtml: `<p>Reminder: Clock-in is at <strong>${clockInTime}</strong>. Please clock in on time.</p>`,
+            emailHtml: `<p>Reminder: Clock‑in starts at <strong>${startTime}</strong>. Please clock in on time.</p>`,
           });
         }
       }
@@ -534,7 +566,7 @@ export const startClockInScheduler = () => {
   });
 };
 
-// ─── Monthly leaderboard email ─────────────────────────────────────
+// ─── Monthly leaderboard email ──────────────────────────────────
 
 export const sendMonthlyLeaderboard = async (workspaceId) => {
   try {
@@ -557,6 +589,8 @@ export const sendMonthlyLeaderboard = async (workspaceId) => {
           _id: "$user",
           totalClockIns: { $sum: 1 },
           earlyCount: { $sum: { $cond: ["$isEarly", 1, 0] } },
+          onTimeCount: { $sum: { $cond: [{ $eq: ["$status", "on-time"] }, 1, 0] } },
+          lateCount: { $sum: { $cond: ["$isLate", 1, 0] } },
           avgEarlyMinutes: { $avg: "$earlyMinutes" },
         },
       },
@@ -573,11 +607,12 @@ export const sendMonthlyLeaderboard = async (workspaceId) => {
         $project: {
           user: { name: "$user.name", email: "$user.email" },
           earlyCount: 1,
+          onTimeCount: 1,
           avgEarlyMinutes: { $round: ["$avgEarlyMinutes", 1] },
           score: {
             $add: [
-              { $multiply: ["$earlyCount", 10] },
-              { $multiply: [{ $subtract: [100, "$avgEarlyMinutes"] }, 1] },
+              "$earlyCount",
+              { $multiply: ["$onTimeCount", 0.5] },
             ],
           },
         },
@@ -598,9 +633,6 @@ export const sendMonthlyLeaderboard = async (workspaceId) => {
   }
 };
 
-// ─── Send monthly leaderboard emails for all workspaces ────────────
-// 👇 ADD THIS FUNCTION
-
 export const sendMonthlyLeaderboardForAllWorkspaces = async () => {
   try {
     const workspaces = await Workspace.find({ clockInEnabled: true });
@@ -609,11 +641,9 @@ export const sendMonthlyLeaderboardForAllWorkspaces = async () => {
     }
     console.log(`✅ Monthly leaderboard emails sent for ${workspaces.length} workspaces.`);
   } catch (error) {
-    console.error('❌ sendMonthlyLeaderboardForAllWorkspaces error:', error);
+    console.error("❌ sendMonthlyLeaderboardForAllWorkspaces error:", error);
   }
 };
-
-// ─── Endpoint to manually trigger monthly leaderboard email ──────
 
 export const triggerMonthlyLeaderboard = asyncHandler(async (req, res) => {
   const userId = req.user.id;
@@ -624,7 +654,6 @@ export const triggerMonthlyLeaderboard = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: "Workspace not found." });
   }
 
-  // Only owner or admin can trigger
   if (!isManager(workspace, userId)) {
     return res.status(403).json({ success: false, message: "Only workspace owner or admin can trigger monthly report." });
   }
