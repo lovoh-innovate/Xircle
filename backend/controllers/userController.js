@@ -1,3 +1,5 @@
+// controllers/userController.js
+
 import User from "../models/userModel.js";
 import asyncHandler from "express-async-handler";
 import generateToken from "../utils/generateToken.js";
@@ -98,7 +100,6 @@ const googleAuth = asyncHandler(async (req, res) => {
       throw new Error("Account already exists. Please login instead.");
     }
 
-    // Generate username
     const baseUsername = (email?.split("@")[0] || name || "user")
       .toLowerCase()
       .replace(/\s+/g, "")
@@ -111,13 +112,13 @@ const googleAuth = asyncHandler(async (req, res) => {
       name: name || "",
       username,
       email,
-      phone: "", // Phone will be collected separately
+      phone: "",
       profile: picture || "",
       password: `google-auth-${googleId}`,
       isVerified: true,
       authMethod: "google",
       role: "user",
-      acceptedTerms: true, // Google signup implies T&C acceptance
+      acceptedTerms: true,
       ownedWorkspaces: [],
       joinedWorkspaces: [],
     });
@@ -130,7 +131,6 @@ const googleAuth = asyncHandler(async (req, res) => {
       throw new Error("No account found with this email. Please sign up first.");
     }
 
-    // Update user info if needed
     if (!user.googleId) user.googleId = googleId;
     if (!user.profile && picture) user.profile = picture;
     if (!user.name && name) user.name = name;
@@ -151,6 +151,7 @@ const googleAuth = asyncHandler(async (req, res) => {
     profile: user.profile,
     authMethod: user.authMethod,
     role: user.role,
+    createdAt: user.createdAt, // ✅ added
     token,
   });
 });
@@ -160,14 +161,11 @@ const googleAuth = asyncHandler(async (req, res) => {
 // POST /api/users/register
 // ─────────────────────────────────────────────────────────────────────────────
 
-// controllers/userController.js
-
 const registerUser = asyncHandler(async (req, res) => {
   console.log('📝 Registration request received:', req.body);
 
   const { name, email, phone, password, acceptedTerms } = req.body;
 
-  // ── Validate ──
   if (!name || !email || !phone || !password) {
     res.status(400);
     throw new Error('All fields are required');
@@ -177,24 +175,20 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new Error('You must accept the Terms and Conditions');
   }
 
-  // ── Check existing user ──
   const userExists = await User.findOne({ email: email.toLowerCase().trim() });
   if (userExists) {
     res.status(400);
     throw new Error('User already exists. Please login.');
   }
 
-  // ── Generate username ──
   const baseUsername = email.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '');
   const username = await generateUniqueUsername(baseUsername);
   console.log(`✅ Username generated: ${username}`);
 
-  // ── Generate OTP ──
   const otp = generateOTP();
   const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
   console.log(`🔑 OTP for ${email}: ${otp}`);
 
-  // ── Create user (unverified) with OTP ──
   let user;
   try {
     user = await User.create({
@@ -217,27 +211,25 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new Error('Failed to create user: ' + createError.message);
   }
 
-  // ── Send OTP email (ALWAYS try, no bypass) ──
   console.log('📧 Attempting to send OTP email...');
   try {
     await sendOTPEmail(email, otp, 'verification');
     console.log(`✅ OTP email sent to ${email}`);
   } catch (emailError) {
     console.error('❌ Email sending FAILED:', emailError.message);
-    // Clean up – delete the user (no partial registration)
     await User.findByIdAndDelete(user._id);
     console.log(`🗑️ Deleted user ${user._id} due to email failure`);
     res.status(500);
     throw new Error('Failed to send verification email. Please try again.');
   }
 
-  // ── Success response (waiting for OTP verification) ──
   console.log('✅ Registration complete, waiting for OTP verification');
   res.status(201).json({
     success: true,
     message: 'User registered. Please verify your email with the OTP sent.',
     userId: user._id,
     email: user.email,
+    // No createdAt here – not needed for this response
   });
 });
 
@@ -266,7 +258,6 @@ const verifyEmail = asyncHandler(async (req, res) => {
     throw new Error("Email already verified");
   }
 
-  // Check OTP
   if (user.resetPasswordOTP !== otp) {
     res.status(400);
     throw new Error("Invalid OTP");
@@ -277,13 +268,11 @@ const verifyEmail = asyncHandler(async (req, res) => {
     throw new Error("OTP has expired. Please request a new one.");
   }
 
-  // Verify user
   user.isVerified = true;
   user.resetPasswordOTP = undefined;
   user.resetPasswordExpires = undefined;
   await user.save();
 
-  // Generate token and log user in
   const token = generateToken(res, user._id);
 
   res.status(200).json({
@@ -297,6 +286,7 @@ const verifyEmail = asyncHandler(async (req, res) => {
     profile: user.profile,
     authMethod: user.authMethod,
     role: user.role,
+    createdAt: user.createdAt, // ✅ added
     token,
   });
 });
@@ -326,13 +316,11 @@ const resendOTP = asyncHandler(async (req, res) => {
     throw new Error("Email already verified");
   }
 
-  // Generate new OTP
   const otp = generateOTP();
   user.resetPasswordOTP = otp;
   user.resetPasswordExpires = new Date(Date.now() + 10 * 60 * 1000);
   await user.save();
 
-  // Send OTP email
   try {
     await sendOTPEmail(email, otp, 'verification');
   } catch (error) {
@@ -350,8 +338,6 @@ const resendOTP = asyncHandler(async (req, res) => {
 // LOCAL LOGIN (email/password)
 // POST /api/users/login
 // ─────────────────────────────────────────────────────────────────────────────
-
-// controllers/userController.js
 
 const loginUser = asyncHandler(async (req, res) => {
   console.log('🔐 Login attempt:', req.body.email);
@@ -372,21 +358,18 @@ const loginUser = asyncHandler(async (req, res) => {
       throw new Error('Invalid email or password');
     }
 
-    // Google auth check
     if (user.authMethod === 'google' && !user.hasPassword()) {
       console.warn(`❌ Google account with no password: ${email}`);
       res.status(401);
       throw new Error('This account uses Google Sign-In. Please use Google to login, or reset your password.');
     }
 
-    // Email verified?
     if (!user.isVerified) {
       console.warn(`❌ Unverified email: ${email}`);
       res.status(401);
       throw new Error('Please verify your email first. Check your inbox for the OTP.');
     }
 
-    // Check password
     const isMatch = await user.matchPassword(password);
     if (!isMatch) {
       console.warn(`❌ Wrong password for ${email}`);
@@ -406,11 +389,11 @@ const loginUser = asyncHandler(async (req, res) => {
       profile: user.profile,
       authMethod: user.authMethod,
       role: user.role,
+      createdAt: user.createdAt, // ✅ added
       token,
     });
   } catch (error) {
     console.error('❌ Login error:', error.message);
-    // If error already has status, re-throw; else set 500
     if (!res.statusCode || res.statusCode === 200) {
       res.status(500);
     }
@@ -438,13 +421,11 @@ const forgotPassword = asyncHandler(async (req, res) => {
     throw new Error("No account found with this email");
   }
 
-  // Generate OTP
   const otp = generateOTP();
   user.resetPasswordOTP = otp;
   user.resetPasswordExpires = new Date(Date.now() + 10 * 60 * 1000);
   await user.save();
 
-  // Send OTP email
   try {
     await sendOTPEmail(email, otp, 'reset');
   } catch (error) {
@@ -483,7 +464,6 @@ const resetPassword = asyncHandler(async (req, res) => {
     throw new Error("User not found");
   }
 
-  // Check OTP
   if (user.resetPasswordOTP !== otp) {
     res.status(400);
     throw new Error("Invalid OTP");
@@ -494,9 +474,8 @@ const resetPassword = asyncHandler(async (req, res) => {
     throw new Error("OTP has expired. Please request a new one.");
   }
 
-  // Set new password and clear OTP
   user.password = newPassword;
-  user.authMethod = "local"; // Even if they were google auth, they now have a password
+  user.authMethod = "local";
   user.resetPasswordOTP = undefined;
   user.resetPasswordExpires = undefined;
   await user.save();
@@ -533,27 +512,22 @@ const changePassword = asyncHandler(async (req, res) => {
     throw new Error("User not found");
   }
 
-  // If user is using Google auth without a password
   if (user.authMethod === "google" && !user.hasPassword()) {
-    // They can set a password directly without current password
     user.password = newPassword;
-    user.authMethod = "local"; // Now they have a local password too
+    user.authMethod = "local";
     await user.save();
-    
     return res.status(200).json({
       success: true,
       message: "Password set successfully. You can now login with email and password.",
     });
   }
 
-  // Verify current password
   const isMatch = await user.matchPassword(currentPassword);
   if (!isMatch) {
     res.status(401);
     throw new Error("Current password is incorrect");
   }
 
-  // Set new password
   user.password = newPassword;
   await user.save();
 
@@ -594,6 +568,7 @@ const updateProfile = asyncHandler(async (req, res) => {
     profile: updatedUser.profile,
     authMethod: updatedUser.authMethod,
     role: updatedUser.role,
+    createdAt: updatedUser.createdAt, // ✅ added
   });
 });
 

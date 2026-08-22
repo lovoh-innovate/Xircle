@@ -12,6 +12,7 @@ import {
   useGetWorkspaceClockInsQuery,
   useGetClockInLeaderboardQuery,
   useTriggerMonthlyLeaderboardMutation,
+  useGetAttendanceSummaryQuery,
 } from '../slices/clockinApiSlice';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
 import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
@@ -28,6 +29,9 @@ import {
   FaArrowLeft,
   FaCalendarAlt,
   FaExclamationTriangle,
+  FaUserCheck,
+  FaUserTimes,
+  FaLock,
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 import { motion } from 'framer-motion';
@@ -39,6 +43,16 @@ const formatTime = (time24) => {
   const period = h >= 12 ? 'PM' : 'AM';
   const hour12 = h % 12 === 0 ? 12 : h % 12;
   return `${hour12}:${String(m).padStart(2, '0')} ${period}`;
+};
+
+// ─── Check if current time is past closingTime ──────────────────────
+const isPastClosing = (closingTime) => {
+  if (!closingTime) return false;
+  const now = new Date();
+  const [hours, minutes] = closingTime.split(':').map(Number);
+  const closingDate = new Date(now);
+  closingDate.setHours(hours, minutes, 0, 0);
+  return now > closingDate;
 };
 
 // ─── Custom Dropdown ──────────────────────────────────────────────────────
@@ -145,7 +159,7 @@ const BottomSheet = ({ isOpen, onClose, children }) => {
   );
 };
 
-// ─── Settings Modal Content (handles both old and new fields) ──────────
+// ─── Settings Modal Content ──────────────────────────────────────────
 const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
   const { data: settingsData, isLoading: settingsLoading, refetch: refetchSettings } = useGetClockInSettingsQuery(workspaceId);
   const [setSettings, { isLoading: isSaving }] = useSetClockInSettingsMutation();
@@ -157,7 +171,6 @@ const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
 
   useEffect(() => {
     if (settingsData?.settings) {
-      // Use clockInStart if available, else fallback to clockInTime
       const start = settingsData.settings.clockInStart || settingsData.settings.clockInTime || '';
       const end = settingsData.settings.clockInEnd || '';
       setClockInStart(start);
@@ -218,7 +231,7 @@ const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
               className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
               step="60"
             />
-            <p className="text-xs text-gray-400 mt-1">Clocking in before this time = Early</p>
+            <p className="text-xs text-gray-400 mt-1">Clocking in before this time = Not allowed</p>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Clock‑in End</label>
@@ -234,7 +247,7 @@ const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Closing Time (for clock‑out penalty)</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Closing Time (auto clock‑out)</label>
           <input
             type="time"
             value={closingTime}
@@ -242,7 +255,7 @@ const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
             className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
             step="60"
           />
-          <p className="text-xs text-gray-400 mt-1">Optional: members clocking out after this time will be flagged as late</p>
+          <p className="text-xs text-gray-400 mt-1">Clock‑in will not be allowed after this time</p>
         </div>
 
         <div className="flex items-center gap-3 py-2">
@@ -278,7 +291,38 @@ const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
   );
 };
 
-// ─── Leaderboard Table (mobile‑optimized) ──────────────────────────
+// ─── Status Badge ──────────────────────────────────────────────────────
+const StatusBadge = ({ clockIn }) => {
+  if (!clockIn) return null;
+  if (clockIn.status === 'auto-clocked-out') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-medium text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-900/30 px-1.5 sm:px-2 py-0.5 rounded-full">
+        <FaClock className="text-[10px]" /> Auto Out
+      </span>
+    );
+  }
+  if (clockIn.isEarly) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-medium text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-1.5 sm:px-2 py-0.5 rounded-full">
+        <FaCheck className="text-[10px]" /> Early
+      </span>
+    );
+  }
+  if (clockIn.isLate) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-medium text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30 px-1.5 sm:px-2 py-0.5 rounded-full">
+        <FaTimes className="text-[10px]" /> Late
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/30 px-1.5 sm:px-2 py-0.5 rounded-full">
+      <FaCheck className="text-[10px]" /> On time
+    </span>
+  );
+};
+
+// ─── Leaderboard Table ──────────────────────────────────────────────
 const LeaderboardTable = ({ data, period }) => {
   if (!data || data.length === 0) {
     return (
@@ -339,12 +383,110 @@ const LeaderboardTable = ({ data, period }) => {
   );
 };
 
+// ─── Attendance Summary View ──────────────────────────────────────────
+const AttendanceSummaryView = ({ workspaceId, brandColor }) => {
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const { data, isLoading, refetch } = useGetAttendanceSummaryQuery({
+    workspaceId,
+    date: selectedDate,
+  });
+
+  useEffect(() => {
+    refetch();
+  }, [selectedDate, refetch]);
+
+  const summary = data || { clockedIn: [], notClockedIn: [] };
+
+  return (
+    <div className="p-3 sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-2">
+          <FaCalendarAlt className="text-teal-500" />
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="px-3 py-1.5 border border-gray-300 dark:border-gray-700/60 rounded-lg bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-teal-500 outline-none"
+          />
+        </div>
+        <span className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
+          Total members: {summary.totalMembers || 0}
+        </span>
+      </div>
+
+      {isLoading ? (
+        <div className="flex justify-center py-8">
+          <FaSpinner className="animate-spin text-teal-500 text-2xl" />
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {/* Clocked In */}
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <FaUserCheck className="text-green-500" />
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                Clocked In ({summary.clockedIn?.length || 0})
+              </h3>
+            </div>
+            {summary.clockedIn?.length === 0 ? (
+              <p className="text-xs text-gray-400 dark:text-gray-500 italic">No one has clocked in yet today.</p>
+            ) : (
+              <div className="divide-y divide-gray-100 dark:divide-gray-800/30 border border-gray-100 dark:border-gray-800/30 rounded-xl overflow-hidden">
+                {summary.clockedIn.map((user) => (
+                  <div key={user._id} className="flex items-center justify-between px-4 py-2 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-xs font-bold text-gray-600 dark:text-gray-300">
+                        {user.name?.charAt(0).toUpperCase() || '?'}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{user.name}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {user.clockInTime ? new Date(user.clockInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                        </p>
+                      </div>
+                    </div>
+                    <StatusBadge clockIn={user} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Not Clocked In */}
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <FaUserTimes className="text-red-500" />
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                Not Clocked In ({summary.notClockedIn?.length || 0})
+              </h3>
+            </div>
+            {summary.notClockedIn?.length === 0 ? (
+              <p className="text-xs text-gray-400 dark:text-gray-500 italic">Everyone has clocked in today!</p>
+            ) : (
+              <div className="divide-y divide-gray-100 dark:divide-gray-800/30 border border-gray-100 dark:border-gray-800/30 rounded-xl overflow-hidden">
+                {summary.notClockedIn.map((user) => (
+                  <div key={user._id} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition">
+                    <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-xs font-bold text-gray-600 dark:text-gray-300">
+                      {user.name?.charAt(0).toUpperCase() || '?'}
+                    </div>
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{user.name}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── Main Component ──────────────────────────────────────────────────────
 const YourWorkspaceClockin = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
-  const [activeTab, setActiveTab] = useState('history');
+  const [activeTab, setActiveTab] = useState('summary');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [leaderboardPeriod, setLeaderboardPeriod] = useState('month');
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
@@ -353,18 +495,14 @@ const YourWorkspaceClockin = () => {
   const { data: workspaceData, isLoading: workspaceLoading } = useGetWorkspaceQuery(workspaceId);
   const workspace = workspaceData?.workspace;
 
-  // ─── Check if user is a member ──────────────────────────────────────
   const userId = userInfo?._id;
   const isMember = workspace?.members?.some(
     (m) => (m.user?._id === userId || m.user === userId) && m.status === 'active'
   );
-
-  // ─── Check if user is an admin ──────────────────────────────────────
   const isAdmin = workspace?.members?.some(
     (m) => (m.user?._id === userId || m.user === userId) && m.role === 'Admin' && m.status === 'active'
   );
 
-  // If not a member, redirect
   if (!isMember && !workspaceLoading) {
     navigate(`/workspace/${workspaceId}`);
     return null;
@@ -374,19 +512,13 @@ const YourWorkspaceClockin = () => {
 
   // ─── Queries ────────────────────────────────────────────────────────
   const { data: settingsData } = useGetClockInSettingsQuery(workspaceId);
-
-  // ─── Get scheduled clock‑in times – fallback to clockInTime ──────
   const clockInStart = settingsData?.settings?.clockInStart || settingsData?.settings?.clockInTime || null;
   const clockInEnd = settingsData?.settings?.clockInEnd || null;
   const closingTime = settingsData?.settings?.closingTime || null;
   const hasScheduledTime = clockInStart !== null;
 
-  // Today's clock-ins (admin only)
-  const today = new Date().toISOString().split('T')[0];
-  const { data: todayData, isLoading: todayLoading, refetch: refetchToday } = useGetWorkspaceClockInsQuery(
-    { workspaceId, date: today, limit: 100 },
-    { skip: !isAdmin || activeTab !== 'today' }
-  );
+  // ─── Check if past closing ──────────────────────────────────────────
+  const pastClosing = isPastClosing(closingTime);
 
   // Current user's today clock-in status
   const { data: userHistoryData, isLoading: userHistoryLoading, refetch: refetchUserHistory } = useGetUserClockInHistoryQuery(
@@ -420,7 +552,6 @@ const YourWorkspaceClockin = () => {
       await clockInMutation(workspaceId).unwrap();
       toast.success('Clocked in successfully!');
       refetchUserHistory();
-      if (isAdmin) refetchToday();
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to clock in.');
     }
@@ -431,7 +562,6 @@ const YourWorkspaceClockin = () => {
       await clockOutMutation(workspaceId).unwrap();
       toast.success('Clocked out successfully!');
       refetchUserHistory();
-      if (isAdmin) refetchToday();
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to clock out.');
     }
@@ -457,72 +587,6 @@ const YourWorkspaceClockin = () => {
   };
 
   // ─── Render helpers ──────────────────────────────────────────────
-  const renderStatusBadge = (clockIn) => {
-    if (clockIn.isEarly) {
-      return (
-        <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-medium text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-1.5 sm:px-2 py-0.5 rounded-full">
-          <FaCheck className="text-[10px]" /> Early
-        </span>
-      );
-    }
-    if (clockIn.isLate) {
-      return (
-        <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-medium text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30 px-1.5 sm:px-2 py-0.5 rounded-full">
-          <FaTimes className="text-[10px]" /> Late
-        </span>
-      );
-    }
-    return (
-      <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/30 px-1.5 sm:px-2 py-0.5 rounded-full">
-        <FaCheck className="text-[10px]" /> On time
-      </span>
-    );
-  };
-
-  const renderClockInList = (clockIns) => {
-    if (!clockIns || clockIns.length === 0) {
-      return (
-        <div className="text-center py-12 text-gray-400 dark:text-gray-500">
-          <FaClock className="text-4xl mx-auto mb-2 opacity-30" />
-          <p className="text-sm">No clock-ins found</p>
-        </div>
-      );
-    }
-
-    return clockIns.map((item) => {
-      const user = item.user || {};
-      const time = new Date(item.clockInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      return (
-        <div key={item._id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-800/30 last:border-0 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition">
-          <div className="relative flex-shrink-0">
-            {user.profile ? (
-              <img src={user.profile} alt={user.name} className="w-10 h-10 rounded-full object-cover" />
-            ) : (
-              <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-gray-600 dark:text-gray-300 font-bold text-sm">
-                {user.name?.charAt(0).toUpperCase() || '?'}
-              </div>
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-semibold text-gray-800 dark:text-gray-200 truncate">{user.name || 'Unknown'}</p>
-            <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-              <span>{time}</span>
-              {item.clockOutTime && (
-                <>
-                  <span>·</span>
-                  <span>Out: {new Date(item.clockOutTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                </>
-              )}
-            </div>
-          </div>
-          <div className="flex-shrink-0">
-            {renderStatusBadge(item)}
-          </div>
-        </div>
-      );
-    });
-  };
-
   const renderHistoryList = (history) => {
     if (!history || history.length === 0) {
       return (
@@ -553,10 +617,13 @@ const YourWorkspaceClockin = () => {
                   <span>Out: {new Date(item.clockOutTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                 </>
               )}
+              {item.status === 'auto-clocked-out' && (
+                <span className="text-purple-500 text-[10px]">(auto)</span>
+              )}
             </div>
           </div>
           <div className="flex-shrink-0">
-            {renderStatusBadge(item)}
+            <StatusBadge clockIn={item} />
           </div>
         </div>
       );
@@ -581,11 +648,12 @@ const YourWorkspaceClockin = () => {
   }
 
   const isClockInEnabled = settingsData?.settings?.clockInEnabled || false;
+  const canClockIn = isClockInEnabled && !isClockedIn && !pastClosing;
 
   // ─── Determine tabs based on role ─────────────────────────────────
   const tabs = isAdmin
     ? [
-        { id: 'today', label: 'Today', icon: FaUsers },
+        { id: 'summary', label: 'Attendance', icon: FaUsers },
         { id: 'history', label: 'History', icon: FaHistory },
         { id: 'leaderboard', label: 'Leaderboard', icon: FaChartBar },
       ]
@@ -654,9 +722,12 @@ const YourWorkspaceClockin = () => {
                   ) : (
                     <button
                       onClick={handleClockIn}
-                      disabled={isClockInLoading}
-                      className="px-2 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-sm bg-teal-600 dark:bg-teal-500 text-white rounded-xl hover:bg-teal-700 dark:hover:bg-teal-600 transition disabled:opacity-50 flex items-center gap-1 sm:gap-2 whitespace-nowrap"
-                      style={{ backgroundColor: brandColor }}
+                      disabled={!canClockIn || isClockInLoading}
+                      className={`px-2 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-sm text-white rounded-xl transition disabled:opacity-50 flex items-center gap-1 sm:gap-2 whitespace-nowrap ${
+                        canClockIn ? 'bg-teal-600 dark:bg-teal-500 hover:bg-teal-700 dark:hover:bg-teal-600' : 'bg-gray-400 dark:bg-gray-600 cursor-not-allowed'
+                      }`}
+                      style={canClockIn ? { backgroundColor: brandColor } : {}}
+                      title={!canClockIn && pastClosing ? 'Clock-in is closed for today' : ''}
                     >
                       {isClockInLoading ? <FaSpinner className="animate-spin text-xs sm:text-sm" /> : <FaCheck className="text-xs sm:text-sm" />}
                       <span>Clock In</span>
@@ -666,13 +737,20 @@ const YourWorkspaceClockin = () => {
               </div>
             </div>
 
-            {/* ─── Scheduled window banner — always visible, all screen sizes ─── */}
+            {/* ─── Scheduled window banner ─────────────────────────────── */}
             {isClockInEnabled && (
               <div
-                className="px-3 sm:px-6 py-2 border-t border-gray-200/60 dark:border-gray-800/30 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:text-sm"
-                style={{ backgroundColor: `${brandColor}0d` }}
+                className={`px-3 sm:px-6 py-2 border-t border-gray-200/60 dark:border-gray-800/30 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:text-sm ${
+                  pastClosing ? 'bg-red-50 dark:bg-red-900/20' : 'bg-teal-50/30 dark:bg-teal-900/10'
+                }`}
+                style={!pastClosing ? { backgroundColor: `${brandColor}0d` } : {}}
               >
-                {hasScheduledTime ? (
+                {pastClosing ? (
+                  <span className="flex items-center gap-1.5 font-medium text-red-600 dark:text-red-400">
+                    <FaLock className="text-[11px] sm:text-xs" />
+                    Clock‑in is closed for today
+                  </span>
+                ) : hasScheduledTime ? (
                   <span className="flex items-center gap-1.5 font-medium" style={{ color: brandColor }}>
                     <FaClock className="text-[11px] sm:text-xs" />
                     Clock in between{' '}
@@ -718,16 +796,8 @@ const YourWorkspaceClockin = () => {
 
           {/* ─── Content ───────────────────────────────────────────────── */}
           <main className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12]">
-            {isAdmin && activeTab === 'today' && (
-              <div className="divide-y divide-gray-100 dark:divide-gray-800/30">
-                {todayLoading ? (
-                  <div className="flex justify-center py-8">
-                    <FaSpinner className="animate-spin text-teal-500 text-2xl" />
-                  </div>
-                ) : (
-                  renderClockInList(todayData?.clockIns || [])
-                )}
-              </div>
+            {isAdmin && activeTab === 'summary' && (
+              <AttendanceSummaryView workspaceId={workspaceId} brandColor={brandColor} />
             )}
 
             {activeTab === 'history' && (
@@ -822,7 +892,6 @@ const YourWorkspaceClockin = () => {
             workspace={workspace}
             onClose={() => setSettingsOpen(false)}
             onSuccess={() => {
-              if (isAdmin && activeTab === 'today') refetchToday();
               refetchUserHistory();
             }}
           />

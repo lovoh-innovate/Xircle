@@ -25,7 +25,11 @@ import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 import { initSocket } from "./controllers/socket.js";
 
 import { checkAndSendReminders } from "./controllers/taskController.js";
-import { startClockInScheduler, sendMonthlyLeaderboardForAllWorkspaces } from "./controllers/clockInController.js";
+import {
+  startClockInScheduler,
+  startAutoClockOutScheduler,          // 👈 added import
+  sendMonthlyLeaderboardForAllWorkspaces
+} from "./controllers/clockInController.js";
 
 dotenv.config();
 
@@ -107,7 +111,7 @@ mongoose
       console.log(`✅ Socket.io ready for connections`);
     });
 
-    // ── Schedule the reminder cron job ──
+    // ── Schedule the task reminder cron job ──
     // Runs every 15 minutes
     cron.schedule('*/15 * * * *', async () => {
       console.log('⏰ Running task reminder cron job...');
@@ -125,9 +129,14 @@ mongoose
     console.log('⏰ Reminder cron job scheduled (every 15 minutes).');
 
     // ─── Start clock‑in reminder scheduler ──────────────────────────
-    // Runs every minute – internal scheduler already handles that.
+    // Sends notifications 30 and 10 minutes before clock-in start time.
     startClockInScheduler();
     console.log('⏰ Clock‑in reminder scheduler started.');
+
+    // ─── Start auto clock‑out scheduler ─────────────────────────────
+    // Automatically clocks out all open records shortly after closing time.
+    startAutoClockOutScheduler();
+    console.log('⏰ Auto clock‑out scheduler started.');
 
     // ─── Schedule monthly leaderboard email ─────────────────────────
     // Runs on the 1st of every month at 9:00 AM

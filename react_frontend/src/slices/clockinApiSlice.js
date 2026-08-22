@@ -1,4 +1,3 @@
-// slices/clockInApiSlice.js
 import { apiSlice } from './apiSlice';
 
 const CLOCKIN_URL = '/clockin';
@@ -25,6 +24,7 @@ export const clockInApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (result, error, { workspaceId }) => [
         { type: 'ClockInSettings', id: workspaceId },
+        { type: 'AttendanceSummary', id: workspaceId }, // settings can affect summary
       ],
     }),
 
@@ -39,6 +39,7 @@ export const clockInApiSlice = apiSlice.injectEndpoints({
         { type: 'ClockIn', id: workspaceId },
         { type: 'ClockInHistory', id: workspaceId },
         { type: 'ClockInLeaderboard', id: workspaceId },
+        { type: 'AttendanceSummary', id: workspaceId }, // refresh summary
       ],
     }),
 
@@ -51,6 +52,7 @@ export const clockInApiSlice = apiSlice.injectEndpoints({
         { type: 'ClockIn', id: workspaceId },
         { type: 'ClockInHistory', id: workspaceId },
         { type: 'ClockInLeaderboard', id: workspaceId },
+        { type: 'AttendanceSummary', id: workspaceId },
       ],
     }),
 
@@ -75,6 +77,18 @@ export const clockInApiSlice = apiSlice.injectEndpoints({
       }),
       providesTags: (result, error, { workspaceId }) => [
         { type: 'WorkspaceClockIns', id: workspaceId },
+      ],
+    }),
+
+    // ─── Attendance Summary ──────────────────────────────────────────
+
+    getAttendanceSummary: builder.query({
+      query: ({ workspaceId, date }) => ({
+        url: `${CLOCKIN_URL}/${workspaceId}/attendance-summary`,
+        params: { date },
+      }),
+      providesTags: (result, error, { workspaceId }) => [
+        { type: 'AttendanceSummary', id: workspaceId },
       ],
     }),
 
@@ -109,6 +123,7 @@ export const {
   useClockOutMutation,
   useGetUserClockInHistoryQuery,
   useGetWorkspaceClockInsQuery,
+  useGetAttendanceSummaryQuery,           // 👈 new export
   useGetClockInLeaderboardQuery,
   useTriggerMonthlyLeaderboardMutation,
 } = clockInApiSlice;

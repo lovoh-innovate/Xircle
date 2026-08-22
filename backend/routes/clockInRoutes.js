@@ -1,4 +1,3 @@
-// routes/clockInRoutes.js
 import express from 'express';
 import { protect } from '../middleware/authMiddleware.js';
 import {
@@ -10,6 +9,7 @@ import {
   getWorkspaceClockIns,
   getClockInLeaderboard,
   triggerMonthlyLeaderboard,
+  getAttendanceSummary,                   // 👈 import the new endpoint
 } from '../controllers/clockInController.js';
 
 const router = express.Router();
@@ -27,6 +27,9 @@ router.get('/:workspaceId/clockin/history', protect, getUserClockInHistory);
 
 // ─── Admin/owner views ───────────────────────────────────────────────
 router.get('/:workspaceId/clockins', protect, getWorkspaceClockIns);
+
+// ─── Attendance Summary (for a specific date) ──────────────────────
+router.get('/:workspaceId/attendance-summary', protect, getAttendanceSummary);
 
 // ─── Leaderboard ──────────────────────────────────────────────────────
 router.get('/:workspaceId/leaderboard', protect, getClockInLeaderboard);
