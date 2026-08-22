@@ -119,6 +119,66 @@ const safeFormatTime = (dateString) => {
   }
 };
 
+// ─── Skeleton Message Component ────────────────────────────────────────
+const SkeletonMessage = ({ isOwn }) => {
+  const randomWidth = useCallback(() => {
+    const widths = ["w-32", "w-40", "w-48", "w-52", "w-56", "w-36", "w-44", "w-60"];
+    return widths[Math.floor(Math.random() * widths.length)];
+  }, []);
+
+  const randomHeight = useCallback(() => {
+    const heights = ["h-8", "h-10", "h-12", "h-9", "h-11"];
+    return heights[Math.floor(Math.random() * heights.length)];
+  }, []);
+
+  return (
+    <div className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""} animate-pulse`}>
+      {!isOwn && (
+        <div className="w-8 h-8 rounded-full flex-shrink-0 bg-gray-200 dark:bg-gray-700" />
+      )}
+      <div className={`max-w-[75%] sm:max-w-[85%] ${isOwn ? "items-end" : "items-start"} flex flex-col gap-0.5`}>
+        {!isOwn && (
+          <div className="h-3 w-16 bg-gray-200 dark:bg-gray-700 rounded-full mb-0.5" />
+        )}
+        <div className={`px-4 py-2.5 rounded-2xl ${isOwn ? "bg-teal-200/60 dark:bg-teal-700/40" : "bg-gray-200 dark:bg-gray-700/60"}`}>
+          <div className={`${randomWidth()} ${randomHeight()} rounded-lg`} />
+        </div>
+        <div className="flex items-center gap-1 mt-0.5">
+          <div className="w-8 h-2 bg-gray-200 dark:bg-gray-700 rounded-full" />
+          <div className="w-3 h-2 bg-gray-200 dark:bg-gray-700 rounded-full" />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const SkeletonMessages = ({ count = 6 }) => {
+  return (
+    <div className="space-y-4 pt-4">
+      {/* Date divider skeleton */}
+      <div className="flex justify-center my-3">
+        <div className="w-24 h-5 bg-gray-200 dark:bg-gray-700 rounded-full animate-pulse" />
+      </div>
+      {Array.from({ length: count }).map((_, i) => {
+        // Alternate between own and other messages
+        const isOwn = i % 2 === 0;
+        // Add extra padding between message groups
+        if (i === 3) {
+          return (
+            <React.Fragment key={i}>
+              <div className="flex justify-center my-3">
+                <div className="w-20 h-5 bg-gray-200 dark:bg-gray-700 rounded-full animate-pulse" />
+              </div>
+              <SkeletonMessage isOwn={isOwn} />
+            </React.Fragment>
+          );
+        }
+        return <SkeletonMessage key={i} isOwn={isOwn} />;
+      })}
+    </div>
+  );
+};
+
 // ─── Confirm Modal ──────────────────────────────────────────────────
 const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, danger = false }) => {
   if (!isOpen) return null;
@@ -1453,9 +1513,11 @@ const GeneralChannelId = () => {
 
   const { socket, isConnected } = useSocket();
 
-  const { data: chatListData, refetch: refetchChats } = useGetUserChatsQuery({ archived: false });
+  // ─── Fetch chat list with loading state ────────────────────────────
+  const { data: chatListData, isLoading: chatsListLoading, refetch: refetchChats } = useGetUserChatsQuery({ archived: false });
   const chat = chatListData?.chats?.find(c => c._id === chatId);
 
+  // ─── Redirect if not a valid public channel ────────────────────────
   useEffect(() => {
     if (chat && (chat.type !== 'group' || chat.scope !== 'public')) {
       navigate('/channels');
@@ -1607,22 +1669,6 @@ const GeneralChannelId = () => {
 
   const [createDirectChat] = useCreatePublicDirectChatMutation();
   const [actionModal, setActionModal] = useState({ isOpen: false, message: null });
-
-  // ─── Reset state when chatId changes ──────────────────────────────
-  useEffect(() => {
-    setLocalMessages([]);
-    setReplyToMessage(null);
-    setPreviewImage(null);
-    setShowDetails(false);
-    setActionModal({ isOpen: false, message: null });
-    setConfirmModal((prev) => ({ ...prev, isOpen: false }));
-    userMapRef.current = new Map();
-    setIsAtBottom(true);
-    setShowScrollDown(false);
-    setPendingMedia(null);
-    setShowMediaPicker(false);
-    if (chatId) refetchMessages();
-  }, [chatId, refetchMessages]);
 
   // ─── Scroll / bottom detection ─────────────────────────────────
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -2100,12 +2146,26 @@ const GeneralChannelId = () => {
     }
   };
 
-  // ─── Open private DM ──────────────────────────────────────────
+  // ─── Open private DM (FIXED: check existing chat first) ──────────
   const handleOpenDM = useCallback(async (userId) => {
     if (!userId) {
       toast.error('User ID is required to start a chat');
       return;
     }
+
+    // First, check if a direct chat already exists with this user
+    const existingChat = chatListData?.chats?.find(c => 
+      c.type === 'direct' && 
+      c.participants?.some(p => (p.user?._id === userId || p.user === userId))
+    );
+
+    if (existingChat) {
+      // Navigate to existing DM
+      navigate(`/chats/${existingChat._id}`);
+      return;
+    }
+
+    // No existing chat – create a new one
     try {
       const result = await createDirectChat({ userId }).unwrap();
       if (result.chat?._id) {
@@ -2116,7 +2176,7 @@ const GeneralChannelId = () => {
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to open private chat');
     }
-  }, [createDirectChat, navigate]);
+  }, [chatListData, createDirectChat, navigate]);
 
   // ─── Voice recording ────────────────────────────────────────────
   const [isRecording, setIsRecording] = useState(false);
@@ -2449,11 +2509,16 @@ const GeneralChannelId = () => {
   const handleEditSuccess = () => { refetchChats(); };
   const clearPendingMedia = () => setPendingMedia(null);
 
-  // ─── Render messages with dividers ────────────────────────────
+  // ─── Render messages with dividers (with skeleton) ──────────────
   const renderMessagesWithDividers = () => {
+    if (messagesLoading) {
+      return <SkeletonMessages count={6} />;
+    }
+
     if (localMessages.length === 0) {
       return <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500"><FaComment className="text-4xl mb-2 opacity-30" /><p className="text-sm">No messages yet</p></div>;
     }
+
     const sorted = [...localMessages].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
     let lastDate = null;
     const elements = [];
@@ -2503,8 +2568,21 @@ const GeneralChannelId = () => {
   };
 
   // ─── Render ────────────────────────────────────────────────────
+  if (chatsListLoading) {
+    return (
+      <div className="h-dvh bg-white dark:bg-[#0f0f12] flex items-center justify-center">
+        <FaSpinner className="animate-spin text-teal-500 text-3xl" />
+      </div>
+    );
+  }
+
   if (!chat) {
-    return <div className="min-h-screen flex items-center justify-center"><FaUsers className="text-4xl mb-2 opacity-30" /><p className="text-sm text-gray-500">Channel not found</p></div>;
+    return (
+      <div className="h-dvh flex flex-col items-center justify-center bg-white dark:bg-[#0f0f12] gap-2">
+        <FaUsers className="text-4xl mb-2 opacity-30 text-gray-400" />
+        <p className="text-sm text-gray-500">Channel not found</p>
+      </div>
+    );
   }
 
   return (
