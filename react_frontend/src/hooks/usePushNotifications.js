@@ -1,90 +1,122 @@
 // src/hooks/usePushNotifications.js
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import {
+  getMessaging,
+  getToken,
+  deleteToken,
+  onMessage,
+  isSupported as isMessagingSupported,
+} from 'firebase/messaging';
 import {
   useGetVapidPublicKeyQuery,
   useRegisterWebPushMutation,
 } from '../slices/notificationApiSlice';
 
-// Convert a base64‑encoded VAPID key to a Uint8Array for the Push API
-const urlBase64ToUint8Array = (base64String) => {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
+const firebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
+
 export const usePushNotifications = () => {
-  // -------------------------------------------------------------------
-  // State
-  // -------------------------------------------------------------------
   const [isSupported, setIsSupported] = useState(false);
-  const [subscription, setSubscription] = useState(null);
+  const [fcmToken, setFcmToken] = useState(null);
   const [permission, setPermission] = useState('default');
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [vapidPublicKey, setVapidPublicKey] = useState(null);
 
-  // RTK Query hooks
+  const messagingRef = useRef(null);
+  const registering = useRef(false);
+
   const { data: vapidData, isLoading: vapidLoading } = useGetVapidPublicKeyQuery(undefined, {
-    skip: !isSupported, // only fetch if the browser supports push
+    skip: !isSupported,
   });
   const [registerSubscription] = useRegisterWebPushMutation();
 
-  // -------------------------------------------------------------------
-  // Check for browser support on mount
-  // -------------------------------------------------------------------
+  // Check support and initialise
   useEffect(() => {
-    const supported = 'serviceWorker' in navigator && 'PushManager' in window;
-    setIsSupported(supported);
-    if (supported) {
-      setPermission(Notification.permission);
-      checkExistingSubscription();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    let cancelled = false;
+    isMessagingSupported().then((supported) => {
+      if (cancelled) return;
+      setIsSupported(supported);
+      if (supported) {
+        messagingRef.current = getMessaging(firebaseApp);
+        setPermission(Notification.permission);
+        // Check for existing token in localStorage
+        const stored = localStorage.getItem('webFcmToken');
+        if (stored && Notification.permission === 'granted') {
+          setFcmToken(stored);
+          setIsSubscribed(true);
+          // Optionally re‑send token to server to be safe
+          registerSubscription({ token: stored, deviceType: 'web' })
+            .unwrap()
+            .catch(err => console.warn('Re‑register existing token failed:', err));
+        }
+        // Listen to foreground messages
+        onMessage(messagingRef.current, (payload) => {
+          console.log('📩 Web push received in foreground:', payload);
+          window.dispatchEvent(
+            new CustomEvent('mobile-push-received', {
+              detail: { data: payload.data || {} },
+            })
+          );
+        });
+      }
+    });
+    return () => { cancelled = true; };
+  }, [registerSubscription]);
 
-  // Store the VAPID public key when it arrives
+  // Update VAPID key when it arrives
   useEffect(() => {
     if (vapidData?.data?.publicKey) {
       setVapidPublicKey(vapidData.data.publicKey);
     }
   }, [vapidData]);
 
-  // -------------------------------------------------------------------
-  // Check if the user is already subscribed
-  // -------------------------------------------------------------------
-  const checkExistingSubscription = useCallback(async () => {
-    if (!isSupported) return;
-    try {
-      const registration = await navigator.serviceWorker.ready;
-      const existingSub = await registration.pushManager.getSubscription();
-      if (existingSub) {
-        setSubscription(existingSub);
-        setIsSubscribed(true);
-        setPermission('granted');
-      }
-    } catch (error) {
-      console.error('Error checking existing web push subscription:', error);
-    }
-  }, [isSupported]);
-
-  // -------------------------------------------------------------------
-  // Subscribe to push notifications
-  // -------------------------------------------------------------------
+  // ─── Subscribe ──────────────────────────────────────────────────────
   const subscribe = useCallback(async () => {
     if (!isSupported) {
       console.warn('Push notifications are not supported in this browser');
       return false;
     }
 
-    if (!vapidPublicKey) {
-      console.warn('VAPID public key not yet available');
+    if (registering.current) {
+      console.log('Already registering, skipping');
       return false;
     }
 
+    // Wait for VAPID key if not available
+    if (!vapidPublicKey) {
+      console.warn('Waiting for VAPID key...');
+      let retries = 0;
+      while (!vapidPublicKey && retries < 15) {
+        await new Promise(r => setTimeout(r, 400));
+        retries++;
+      }
+      if (!vapidPublicKey) {
+        console.error('VAPID key never loaded');
+        return false;
+      }
+    }
+
+    // If already subscribed, just send the token again (in case server lost it)
+    if (isSubscribed && fcmToken) {
+      try {
+        await registerSubscription({ token: fcmToken, deviceType: 'web' }).unwrap();
+        return true;
+      } catch (e) {
+        console.warn('Resubscription with existing token failed, will re-register');
+        // fall through
+      }
+    }
+
+    registering.current = true;
     try {
       // 1. Request permission if needed
       let perm = Notification.permission;
@@ -96,75 +128,76 @@ export const usePushNotifications = () => {
         setPermission(perm);
         return false;
       }
-
-      // 2. Get the service worker registration
-      const registration = await navigator.serviceWorker.ready;
-
-      // 3. Subscribe with the VAPID key
-      const applicationServerKey = urlBase64ToUint8Array(vapidPublicKey);
-      const newSubscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey,
-      });
-
-      // 4. Store locally
-      setSubscription(newSubscription);
-      setIsSubscribed(true);
       setPermission('granted');
 
-      // 5. Send the raw subscription object to your server
-      await registerSubscription({
-        subscription: newSubscription, // raw PushSubscription object
-        deviceType: 'web',
-      }).unwrap();
+      // 2. Get service worker registration
+      const registration = await navigator.serviceWorker.ready;
+
+      // 3. Get FCM token
+      const token = await getToken(messagingRef.current, {
+        vapidKey: vapidPublicKey,
+        serviceWorkerRegistration: registration,
+      });
+
+      if (!token) {
+        console.warn('No registration token received');
+        return false;
+      }
+
+      // 4. Store locally
+      setFcmToken(token);
+      localStorage.setItem('webFcmToken', token);
+      setIsSubscribed(true);
+
+      // 5. Send token to server
+      await registerSubscription({ token, deviceType: 'web' }).unwrap();
+      console.log('✅ Web push registered successfully');
 
       return true;
     } catch (error) {
       console.error('Web push subscription error:', error);
+      // If it failed, clear local state to avoid confusion
+      setFcmToken(null);
+      localStorage.removeItem('webFcmToken');
+      setIsSubscribed(false);
       return false;
+    } finally {
+      registering.current = false;
     }
-  }, [isSupported, vapidPublicKey, registerSubscription]);
+  }, [isSupported, vapidPublicKey, isSubscribed, fcmToken, registerSubscription]);
 
-  // -------------------------------------------------------------------
-  // Unsubscribe from push notifications
-  // -------------------------------------------------------------------
+  // ─── Unsubscribe ──────────────────────────────────────────────────
   const unsubscribe = useCallback(async () => {
-    if (!isSupported || !subscription) {
-      console.warn('No active subscription to unsubscribe from');
+    if (!isSupported || !fcmToken) {
+      console.warn('No active token to unsubscribe from');
       return false;
     }
 
     try {
-      // 1. Unsubscribe from the browser's push service
-      await subscription.unsubscribe();
-
-      // 2. Tell the server to remove this subscription
+      await deleteToken(messagingRef.current);
       await registerSubscription({
-        subscription: subscription, // raw object
+        token: fcmToken,
         deviceType: 'web',
         action: 'unsubscribe',
       }).unwrap();
 
-      // 3. Clear local state
-      setSubscription(null);
+      localStorage.removeItem('webFcmToken');
+      setFcmToken(null);
       setIsSubscribed(false);
-      setPermission(Notification.permission); // may remain 'granted' but we're unsubscribed
-
+      setPermission(Notification.permission);
       return true;
     } catch (error) {
       console.error('Web push unsubscribe error:', error);
       return false;
     }
-  }, [isSupported, subscription, registerSubscription]);
+  }, [isSupported, fcmToken, registerSubscription]);
 
-  // -------------------------------------------------------------------
-  // Return everything the UI might need
-  // -------------------------------------------------------------------
+  // ─── Return ──────────────────────────────────────────────────────
   return {
     isSupported,
     isSubscribed,
     permission,
-    subscription,          // the raw PushSubscription object (contains endpoint)
+    fcmToken,
     vapidPublicKey,
     vapidLoading,
     subscribe,

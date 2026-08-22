@@ -1,22 +1,17 @@
 // controllers/notificationController.js
 import User from '../models/userModel.js';
 import Notification from '../models/notificationModel.js';
-import webpush from 'web-push';
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
 import { Resend } from 'resend';
 
 // ─── ENVIRONMENT CHECKS & INITIALISATION ──────────────────────────────────
-
-if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY || !process.env.VAPID_SUBJECT) {
-  console.warn('⚠️  VAPID environment variables missing – web push will not work');
-} else {
-  webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT,
-    process.env.VAPID_PUBLIC_KEY,
-    process.env.VAPID_PRIVATE_KEY
-  );
-}
+// NOTE: web-push / VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY are no longer used.
+// Both web and mobile now go through Firebase Cloud Messaging (FCM).
+// For web, you need a "Web Push certificate" VAPID key from the Firebase
+// Console (Project Settings → Cloud Messaging → Web Push certificates),
+// NOT the old key pair you generated for the `web-push` library.
+// Set it as FIREBASE_VAPID_KEY in your env.
 
 let firebaseInitialised = false;
 if (process.env.FIREBASE_PRIVATE_KEY) {
@@ -41,7 +36,11 @@ if (process.env.FIREBASE_PRIVATE_KEY) {
     console.error('❌ Firebase initialisation failed:', error.message);
   }
 } else {
-  console.warn('⚠️  FIREBASE_PRIVATE_KEY not set – mobile push notifications disabled');
+  console.warn('⚠️  FIREBASE_PRIVATE_KEY not set – all push notifications disabled');
+}
+
+if (!process.env.FIREBASE_VAPID_KEY) {
+  console.warn('⚠️  FIREBASE_VAPID_KEY not set – web push token generation on the client will fail');
 }
 
 if (!process.env.RESEND_API_KEY) {
@@ -51,9 +50,22 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────
 
+// Error codes FCM returns when a token is dead/invalid — used to deactivate
+// tokens for BOTH web and mobile now that both live under one send path.
+const DEAD_TOKEN_CODES = new Set([
+  'messaging/invalid-registration-token',
+  'messaging/registration-token-not-registered',
+  'messaging/invalid-argument',
+]);
+
 export const sendPushNotification = async (userId, title, body, data = {}) => {
   console.log(`🔔 sendPushNotification called for userId: ${userId}`);
   try {
+    if (!firebaseInitialised) {
+      console.log('⚠️ Firebase not initialised, skipping push');
+      return 0;
+    }
+
     const user = await User.findById(userId).select('pushTokens notificationPreferences');
     if (!user) {
       console.log(`❌ User ${userId} not found`);
@@ -64,60 +76,69 @@ export const sendPushNotification = async (userId, title, body, data = {}) => {
       return 0;
     }
 
-    const tokens = user.pushTokens?.filter(t => t.isActive) || [];
+    const tokens = user.pushTokens?.filter(t => t.isActive && t.token) || [];
     if (tokens.length === 0) {
       console.log(`⚠️ No active tokens for user ${userId}`);
       return 0;
     }
 
     tokens.forEach((t, i) => {
-      console.log(`  Token ${i+1}: type=${t.deviceType}, endpoint=${t.token?.substring(0, 30)}...`);
+      console.log(`  Token ${i + 1}: type=${t.deviceType}, token=${t.token?.substring(0, 30)}...`);
     });
 
     let sentCount = 0;
 
     for (const tokenRecord of tokens) {
       try {
-        // ── Web push ──────────────────────────────────────────────────
-        if (tokenRecord.deviceType === 'web' && tokenRecord.subscription) {
-          console.log(`📤 Sending web push to endpoint: ${tokenRecord.token?.substring(0, 30)}...`);
-          await webpush.sendNotification(
-            tokenRecord.subscription,
-            JSON.stringify({
-              title,
-              body,
-              icon: '/icon.png',
-              badge: '/badge.png',
-              data,
-              vibrate: data.notificationType === 'call' ? [1000, 500, 1000, 500, 1000] : [200, 100, 200],
-              requireInteraction: data.notificationType === 'call' ? true : false,
-              actions: data.actions || [],
-            })
-          );
-          sentCount++;
-          console.log(`✅ Web push sent successfully to ${tokenRecord.token?.substring(0, 20)}...`);
-        }
+        const isCall = data.notificationType === 'call';
+        const stringData = Object.fromEntries(
+          Object.entries(data).map(([k, v]) => [k, String(v)])
+        );
 
-        // ── Mobile push (FCM) ─────────────────────────────────────────
-        else if (['ios', 'android'].includes(tokenRecord.deviceType) && tokenRecord.token) {
-          if (!firebaseInitialised) {
-            console.log(`⚠️ Firebase not initialised, skipping mobile token`);
-            continue;
+        // ── Web (FCM web push) ──────────────────────────────────────
+        if (tokenRecord.deviceType === 'web') {
+          const message = {
+            token: tokenRecord.token,
+            data: stringData,
+          };
+
+          if (isCall) {
+            // Calls: data-only, let the app render its own ringing UI.
+            message.webpush = {
+              headers: { Urgency: 'high' },
+            };
+          } else {
+            message.webpush = {
+              headers: { Urgency: 'high' },
+              notification: {
+                title,
+                body,
+                icon: '/icon.png',
+                badge: '/badge.png',
+                vibrate: [200, 100, 200],
+              },
+              fcmOptions: {
+                link: data.link || '/',
+              },
+            };
           }
 
-          console.log(`📤 Sending FCM push to token: ${tokenRecord.token?.substring(0, 20)}...`);
+          await getMessaging().send(message);
+          sentCount++;
+          console.log(`✅ Web (FCM) push sent successfully`);
+        }
 
-          // ── Base message: always data-only ──────────────────────────
+        // ── Mobile push (FCM) — UNCHANGED behaviour ──────────────────
+        else if (['ios', 'android'].includes(tokenRecord.deviceType)) {
           const message = {
-            data: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
+            data: stringData,
             token: tokenRecord.token,
           };
 
-          // ════════════════════════════════════════════════════════════════
-          // ⭐ CRITICAL: Calls = DATA‑ONLY (no `notification` key at all)
-          // ════════════════════════════════════════════════════════════════
-          if (data.notificationType === 'call') {
-            // Calls: no top‑level notification, no android.notification
+          // ════════════════════════════════════════════════════════════
+          // ⭐ CRITICAL: Calls = DATA-ONLY (no `notification` key at all)
+          // ════════════════════════════════════════════════════════════
+          if (isCall) {
             message.android = {
               priority: 'high',
               ttl: 86400,
@@ -137,7 +158,6 @@ export const sendPushNotification = async (userId, title, body, data = {}) => {
               },
             };
           } else {
-            // Non‑call: normal push with notification payload
             message.notification = { title, body };
             message.android = {
               priority: 'high',
@@ -162,12 +182,12 @@ export const sendPushNotification = async (userId, title, body, data = {}) => {
           sentCount++;
           console.log(`✅ FCM push sent successfully`);
         } else {
-          console.log(`⚠️ Unknown device type or missing subscription/token for token:`, tokenRecord);
+          console.log(`⚠️ Unknown device type for token:`, tokenRecord.deviceType);
         }
       } catch (error) {
-        console.error(`❌ Push failed for ${tokenRecord.deviceType}:`, error.message);
-        if (error.statusCode === 410 || error.statusCode === 404 || error.message?.includes('expired')) {
-          console.log(`🔴 Deactivating expired token: ${tokenRecord.token?.substring(0, 20)}...`);
+        console.error(`❌ Push failed for ${tokenRecord.deviceType}:`, error.code || error.message);
+        if (DEAD_TOKEN_CODES.has(error.code)) {
+          console.log(`🔴 Deactivating dead token: ${tokenRecord.token?.substring(0, 20)}...`);
           tokenRecord.isActive = false;
           await user.save();
         }
@@ -374,15 +394,23 @@ export const updatePushNotifications = async (req, res) => {
 
 // ─── DEVICE TOKEN REGISTRATION ──────────────────────────────────────────
 
+// Web now registers an FCM registration token (from firebase.messaging()
+// .getToken({ vapidKey: FIREBASE_VAPID_KEY }) on the client) instead of a
+// raw browser PushSubscription. Body shape changes from
+// { subscription: {...} } to { token: '<fcm-token>' }.
 export const registerPushSubscription = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { subscription, deviceType = 'web' } = req.body;
+    const { token } = req.body;
 
-    if (!subscription || !subscription.endpoint) {
+    // No more silent fallback to `subscription.endpoint` — that's a
+    // Web Push subscription URL, not an FCM registration token, and
+    // storing it as one guarantees every send to it will fail with
+    // messaging/registration-token-not-registered.
+    if (!token) {
       return res.status(400).json({
         success: false,
-        message: 'Valid push subscription with endpoint is required',
+        message: 'A valid FCM token is required',
       });
     }
 
@@ -394,14 +422,13 @@ export const registerPushSubscription = async (req, res) => {
     if (!user.pushTokens) user.pushTokens = [];
 
     const tokenData = {
-      token: subscription.endpoint,
-      deviceType,
-      subscription,
+      token,
+      deviceType: 'web',
       isActive: true,
       lastUsed: new Date(),
     };
 
-    const existingIndex = user.pushTokens.findIndex(t => t.token === subscription.endpoint);
+    const existingIndex = user.pushTokens.findIndex(t => t.token === token);
     if (existingIndex >= 0) {
       user.pushTokens[existingIndex] = { ...user.pushTokens[existingIndex], ...tokenData };
     } else {
@@ -416,7 +443,7 @@ export const registerPushSubscription = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Web push subscription registered',
+      message: 'Web push token registered',
     });
   } catch (error) {
     console.error('Register push subscription error:', error);
@@ -428,6 +455,7 @@ export const registerPushSubscription = async (req, res) => {
   }
 };
 
+// Mobile registration — UNCHANGED, still works exactly as before.
 export const registerMobileToken = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -586,19 +614,22 @@ export const sendTestEmail = async (req, res) => {
   }
 };
 
-// ─── VAPID PUBLIC KEY ──────────────────────────────────────────────────
-
+// ─── FIREBASE WEB VAPID KEY ─────────────────────────────────────────────
+// Endpoint name kept the same as before so the frontend route doesn't
+// change — only the meaning of the returned key changes (now it's the
+// Firebase Console "Web Push certificate" key, used with
+// firebase.messaging().getToken({ vapidKey })).
 export const getVapidPublicKey = async (req, res) => {
   try {
-    if (!process.env.VAPID_PUBLIC_KEY) {
+    if (!process.env.FIREBASE_VAPID_KEY) {
       return res.status(503).json({
         success: false,
-        message: 'VAPID public key not configured',
+        message: 'Firebase VAPID key not configured',
       });
     }
     res.status(200).json({
       success: true,
-      data: { publicKey: process.env.VAPID_PUBLIC_KEY },
+      data: { publicKey: process.env.FIREBASE_VAPID_KEY },
     });
   } catch (error) {
     console.error('Get VAPID key error:', error);
@@ -610,7 +641,7 @@ export const getVapidPublicKey = async (req, res) => {
   }
 };
 
-// ─── IN‑APP NOTIFICATION CRUD ─────────────────────────────────────────
+// ─── IN-APP NOTIFICATION CRUD ─────────────────────────────────────────
 
 export const getUserNotifications = async (req, res) => {
   try {
@@ -712,12 +743,17 @@ export const clearAllNotifications = async (req, res) => {
 // ─── BROADCAST APP UPDATE ──────────────────────────────────────────────
 
 /**
- * Broadcast an app update notification to all users with push tokens.
+ * Broadcast an app update notification to all users with push tokens
+ * (web + mobile, unified under FCM multicast).
  * @param {Object} versionData - { version, isRequired, releaseNotes, _id }
  */
 export const broadcastAppUpdate = async (versionData) => {
   try {
-    // Fetch all users that have at least one active push token
+    if (!firebaseInitialised) {
+      console.warn('⚠️ Firebase not initialised – skipping broadcast');
+      return;
+    }
+
     const users = await User.find({
       'pushTokens.isActive': true,
     }).select('pushTokens');
@@ -727,35 +763,36 @@ export const broadcastAppUpdate = async (versionData) => {
       return;
     }
 
-    // Collect all active FCM tokens (mobile) and web subscriptions separately
-    const fcmTokens = [];
-    const webSubscriptions = [];
+    const mobileTokens = [];
+    const webTokens = [];
 
     users.forEach((user) => {
       user.pushTokens.forEach((tokenRecord) => {
-        if (!tokenRecord.isActive) return;
-        if (tokenRecord.deviceType === 'web' && tokenRecord.subscription) {
-          webSubscriptions.push(tokenRecord.subscription);
-        } else if (['ios', 'android'].includes(tokenRecord.deviceType) && tokenRecord.token) {
-          fcmTokens.push(tokenRecord.token);
+        if (!tokenRecord.isActive || !tokenRecord.token) return;
+        if (tokenRecord.deviceType === 'web') {
+          webTokens.push(tokenRecord.token);
+        } else if (['ios', 'android'].includes(tokenRecord.deviceType)) {
+          mobileTokens.push(tokenRecord.token);
         }
       });
     });
 
-    // ── FCM (mobile) multicast ────────────────────────────────────────
-    if (fcmTokens.length > 0 && firebaseInitialised) {
+    const baseData = {
+      type: 'APP_UPDATE',
+      version: versionData.version || '',
+      isRequired: String(versionData.isRequired || false),
+      versionId: versionData._id || '',
+      releaseNotes: versionData.releaseNotes || '',
+      timestamp: Date.now().toString(),
+    };
+
+    // ── Mobile multicast — UNCHANGED ──────────────────────────────────
+    if (mobileTokens.length > 0) {
       const payload = {
-        data: {
-          type: 'APP_UPDATE',
-          version: versionData.version || '',
-          isRequired: String(versionData.isRequired || false),
-          versionId: versionData._id || '',
-          releaseNotes: versionData.releaseNotes || '',
-          timestamp: Date.now().toString(),
-        },
+        data: baseData,
         android: {
           priority: 'high',
-          ttl: 3600 * 1000, // 1 hour
+          ttl: 3600 * 1000,
         },
         apns: {
           headers: {
@@ -768,57 +805,51 @@ export const broadcastAppUpdate = async (versionData) => {
             },
           },
         },
-        tokens: fcmTokens,
+        tokens: mobileTokens,
       };
 
       const response = await getMessaging().sendEachForMulticast(payload);
       console.log(
-        `📨 FCM broadcast: ${response.successCount} succeeded, ${response.failureCount} failed`
+        `📨 Mobile broadcast: ${response.successCount} succeeded, ${response.failureCount} failed`
       );
 
-      // Optionally clean up invalid tokens
       if (response.failureCount > 0) {
         response.responses.forEach((resp, idx) => {
           if (!resp.success) {
-            console.error(`❌ FCM failure for token ${fcmTokens[idx]}:`, resp.error);
-            // You could mark the token as inactive here (requires fetching user again)
+            console.error(`❌ FCM failure for token ${mobileTokens[idx]}:`, resp.error?.code);
           }
         });
       }
-    } else if (fcmTokens.length > 0 && !firebaseInitialised) {
-      console.warn('⚠️ Firebase not initialised – skipping FCM broadcast');
     }
 
-    // ── Web push (send individually) ──────────────────────────────────
-    if (webSubscriptions.length > 0 && process.env.VAPID_PRIVATE_KEY) {
-      const webPayload = JSON.stringify({
-        title: 'App Update Available',
-        body: `Version ${versionData.version} is ready for download.`,
-        icon: '/icon.png',
-        badge: '/badge.png',
-        data: {
-          type: 'APP_UPDATE',
-          version: versionData.version,
-          isRequired: String(versionData.isRequired || false),
-          versionId: versionData._id || '',
-          releaseNotes: versionData.releaseNotes || '',
-          timestamp: Date.now().toString(),
+    // ── Web multicast — NOW via FCM instead of web-push ──────────────
+    if (webTokens.length > 0) {
+      const payload = {
+        data: baseData,
+        webpush: {
+          headers: { Urgency: 'high' },
+          notification: {
+            title: 'App Update Available',
+            body: `Version ${versionData.version} is ready for download.`,
+            icon: '/icon.png',
+            badge: '/badge.png',
+          },
         },
-      });
+        tokens: webTokens,
+      };
 
-      let webSuccess = 0;
-      for (const subscription of webSubscriptions) {
-        try {
-          await webpush.sendNotification(subscription, webPayload);
-          webSuccess++;
-        } catch (err) {
-          console.error('❌ Web push failed:', err.message);
-          // Optionally handle expired subscriptions
-        }
+      const response = await getMessaging().sendEachForMulticast(payload);
+      console.log(
+        `📨 Web broadcast: ${response.successCount} succeeded, ${response.failureCount} failed`
+      );
+
+      if (response.failureCount > 0) {
+        response.responses.forEach((resp, idx) => {
+          if (!resp.success) {
+            console.error(`❌ FCM failure for web token ${webTokens[idx]}:`, resp.error?.code);
+          }
+        });
       }
-      console.log(`📨 Web broadcast: ${webSuccess} succeeded out of ${webSubscriptions.length}`);
-    } else if (webSubscriptions.length > 0 && !process.env.VAPID_PRIVATE_KEY) {
-      console.warn('⚠️ VAPID not configured – skipping web broadcast');
     }
   } catch (error) {
     console.error('❌ broadcastAppUpdate error:', error);

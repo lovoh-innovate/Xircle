@@ -12,7 +12,7 @@ import {
 } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
-import toast, { Toaster } from 'react-hot-toast';   // ✅ toast now actually imported
+import toast, { Toaster } from 'react-hot-toast';
 import PreloadAppData from './components/PreloadAppData.jsx';
 
 import './index.css';
@@ -22,17 +22,11 @@ import PrivateRoute from './components/PrivateRoute.jsx';
 import AppUpdateChecker from './components/AppUpdateChecker.jsx';
 import Welcome from './screens/Welcome.jsx';
 
-// ── ThemeProvider and useTheme ──────────────────────────────────────
 import { ThemeProvider, useTheme } from './contexts/ThemeContext.jsx';
-
-// ── Refresh Context ──────────────────────────────────────────────────
 import { RefreshProvider, useRefresh } from './contexts/RefreshContext.jsx';
-
-// ── Socket and Call ──────────────────────────────────────────────────
 import { SocketProvider, useSocket } from './components/SocketContext.jsx';
 import IncomingCallModal from './components/IncomingCallModal.jsx';
 
-// ── Screens ──────────────────────────────────────────────────────────
 import Login from './screens/Login.jsx';
 import ForgotPassword from './screens/ForgotPassword.jsx';
 import Signup from './screens/Signup.jsx';
@@ -44,7 +38,6 @@ import MyWorkspaceId from './workspaceScreens/MyWorkspaceId.jsx';
 
 import AllTasks from './screens/AllTasks.jsx';
 
-// My workspace sub‑routes
 import MyWorkspaceChannels from './workspaceScreens/MyWorkspaceChannels.jsx';
 import MyWorkspaceChatId from './workspaceScreens/MyWorkspaceChatId.jsx';
 import MyWorkspaceChannelId from './workspaceScreens/MyWorkspaceChannelId.jsx';
@@ -67,7 +60,6 @@ import YourWorkspaceClockin from './screens/YourWorkspaceClockin.jsx';
 
 import CallScreen from './components/CallScreen.jsx';
 
-// General Screens
 import GeneralChannels from './screens/GeneralChannels.jsx';
 import GeneralChannelId from './screens/GeneralChannelId.jsx';
 import GeneralChats from './screens/GeneralChats.jsx';
@@ -75,10 +67,9 @@ import GeneralChatId from './screens/GeneralChatId.jsx';
 import PersonalTasks from './screens/PersonalTasks.jsx';
 
 import AppDownload from './screens/AppDownload';
-//Admin
 import UploadApp from './screens/UploadApp.jsx';
 
-import { useMobilePushNotifications } from './hooks/useMobilePushNotifications.js';
+import { PushNotificationProvider, usePushNotificationContext } from './contexts/PushNotificationContext.jsx';
 
 // ─── Global Pull‑to‑Refresh Component ──────────────────────────────
 const PullToRefresh = ({ children }) => {
@@ -165,56 +156,77 @@ const ServiceWorkerRegister = () => {
 };
 
 // ── Mobile Push Initializer ───────────────────────────────────────────
+// Now reads subscribe/unsubscribe/permission from the shared context
+// instead of calling useMobilePushNotifications() itself, so there's
+// exactly one live copy of push state for the whole app.
 const PushNotificationInitializer = () => {
   const { userInfo } = useSelector((state) => state.auth);
-  const { permission, subscribe, unsubscribe } = useMobilePushNotifications();
-
-  // Create channels on app start (Android)
-  useEffect(() => {
-    if (Capacitor.isNativePlatform()) {
-      const createChannels = async () => {
-        try {
-          await PushNotifications.createChannel({
-            id: 'default',
-            name: 'Default',
-            importance: 4,
-            visibility: 1,
-            sound: 'default',
-            vibration: true,
-            lights: true,
-            description: 'General notifications',
-          });
-          console.log('✅ Default channel created');
-
-          await PushNotifications.createChannel({
-            id: 'call_channel',
-            name: 'Incoming Calls',
-            importance: 4,
-            visibility: 1,
-            sound: 'ringtone',
-            vibration: true,
-            lights: true,
-            bypassDnd: true,
-            description: 'Incoming call notifications',
-          });
-          console.log('✅ Call channel created');
-        } catch (err) {
-          console.warn('Could not create notification channels:', err);
-        }
-      };
-      createChannels();
-    }
-  }, []);
+  const { subscribe, unsubscribe, isNative } = usePushNotificationContext();
 
   useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
+    if (!isNative) return;
+    const createChannels = async () => {
+      try {
+        await PushNotifications.createChannel({
+          id: 'default',
+          name: 'Default',
+          importance: 4,
+          visibility: 1,
+          sound: 'default',
+          vibration: true,
+          lights: true,
+          description: 'General notifications',
+        });
+        console.log('✅ Default channel created');
+
+        await PushNotifications.createChannel({
+          id: 'call_channel',
+          name: 'Incoming Calls',
+          importance: 4,
+          visibility: 1,
+          sound: 'ringtone',
+          vibration: true,
+          lights: true,
+          bypassDnd: true,
+          description: 'Incoming call notifications',
+        });
+        console.log('✅ Call channel created');
+      } catch (err) {
+        console.warn('Could not create notification channels:', err);
+      }
+    };
+    createChannels();
+  }, [isNative]);
+
+  useEffect(() => {
+    if (!isNative) return;
     if (userInfo?.token) {
       subscribe();
     } else {
       unsubscribe();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userInfo?.token]);
+  }, [userInfo?.token, isNative]);
+
+  return null;
+};
+
+// ── Web Push Initializer ──────────────────────────────────────────────
+// Reads permission/isSupported/subscribe from the shared context — this
+// is the SAME instance Settings.jsx now reads from, so a silent refresh
+// done here is immediately visible in Settings without a manual re-toggle.
+const WebPushInitializer = () => {
+  const { userInfo } = useSelector((state) => state.auth);
+  const { permission, subscribe, isSupported, isNative } = usePushNotificationContext();
+
+  useEffect(() => {
+    if (isNative) return;
+    if (!isSupported) return;
+    if (userInfo?.token && permission === 'granted') {
+      subscribe();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userInfo?.token, permission, isSupported, isNative]);
 
   return null;
 };
@@ -232,66 +244,31 @@ const buildCallDataFromPush = (data) => ({
   isInitiator: false,
 });
 
-// ── Helper: route a tapped push notification to the right screen ──────
-//
-// Payload shapes actually seen from the backend (verified against
-// callController.js, messagingController.js, socket.js, taskController.js,
-// projectController.js, teamController.js, workspaceController.js):
-//
-//   Calls               → { notificationType: 'call', roomId, callId, type }
-//   Chats/channels (REST)→ { notificationType: 'chat'|'channel', chatId, workspaceId, scope, messageId }
-//   Chats (socket path)  → { chatId, chatType, chatName, senderName, url, messageId, workspaceId? }
-//     ⚠️ socket.js's send-message handler does NOT set notificationType —
-//     so we key off chatId presence, not notificationType, to catch both.
-//   Tasks                → { taskId, projectId }  — NO workspaceId, ever.
-//   Projects (most)       → { projectId } only — workspaceId is missing
-//     except in createProject, which sends { projectId, workspaceId }.
-//   Workspace/team events → { workspaceId } (sometimes with extra fields)
-//   System (deletions)    → { notificationType: 'system' } — nothing to open
-//
-// Because taskId/projectId pushes usually lack workspaceId, we can only
-// build a full route when workspaceId happens to be present. Otherwise we
-// fall back instead of guessing — see the note at the bottom of this file
-// on the backend fix needed to close that gap completely.
 const routeFromNotificationData = (data, navigate) => {
-  // 1. Calls
   if (data.notificationType === 'call' && data.roomId) {
     return `/call/${data.roomId}?autoJoin=true`;
   }
 
-    // 2. Chats / channels
   if (data.chatId) {
     if (data.workspaceId) {
-      // Workspace chats (direct or group) share one route regardless of type
       return `/workspace/${data.workspaceId}/chat/${data.chatId}`;
     }
-    // Public scope — direct and group chats live on different routes,
-    // so the type actually matters here. REST path (messagingController.js)
-    // sets notificationType: 'channel' for groups; the socket.js send-message
-    // path instead sets chatType: 'group'/'direct' and never sets
-    // notificationType — check both so either path routes correctly.
     const isGroup = data.notificationType === 'channel' || data.chatType === 'group';
     return isGroup ? `/channels/${data.chatId}` : `/chats/${data.chatId}`;
   }
 
-  // 3. Tasks — no dedicated task-detail route exists yet, so the closest
-  //    we can land on is the project screen (requires workspaceId, which
-  //    taskController.js doesn't currently send — see backend note below).
   if (data.taskId && data.projectId && data.workspaceId) {
     return `/workspace/${data.workspaceId}/project/${data.projectId}`;
   }
 
-  // 4. Projects
   if (data.projectId && data.workspaceId) {
     return `/workspace/${data.projectId ? data.workspaceId : ''}/project/${data.projectId}`;
   }
 
-  // 5. Workspace / team notifications
   if (data.workspaceId) {
     return `/workspace/${data.workspaceId}`;
   }
 
-  // 6. Nothing routable in the payload
   return '/my-workspaces';
 };
 
@@ -302,7 +279,6 @@ const RootLayout = () => {
   const { isDarkMode } = useTheme();
   const { refreshAll } = useRefresh();
 
-  // ── Real‑time data updates via WebSocket ──────────────────────────
   useEffect(() => {
     if (!socket) return;
 
@@ -318,7 +294,6 @@ const RootLayout = () => {
     };
   }, [socket, refreshAll]);
 
-  // ── Listen for Capacitor push events ───────────────────────────────
   useEffect(() => {
     const handlePushReceived = (event) => {
       const notification = event.detail;
@@ -437,7 +412,7 @@ const router = createBrowserRouter([
           { path: 'my-workspace/:workspaceId/settings', element: <MyWorkspaceSettings /> },
           { path: 'my-workspace/:workspaceId/projects/create', element: <MyWorkspaceCreateProject /> },
           { path: 'my-workspace/:workspaceId/projects/edit/:projectId', element: <MyWorkspaceUpdateProject /> },
-          {path: 'my-workspace/:workspaceId/clockin', element: <MyWorkspaceClockin /> },
+          { path: 'my-workspace/:workspaceId/clockin', element: <MyWorkspaceClockin /> },
           { path: 'my-workspace/:workspaceId/tasks', element: <AllTasks /> },
 
           { path: 'workspace/:workspaceId/channels', element: <YourWorkspaceChannels /> },
@@ -445,9 +420,9 @@ const router = createBrowserRouter([
           { path: 'workspace/:workspaceId/dms', element: <YourWorkspaceDMs /> },
           { path: 'workspace/:workspaceId/projects', element: <YourWorkspaceProjects /> },
           { path: 'workspace/:workspaceId/project/:projectId', element: <YourWorkspaceProjectId /> },
-          {path: 'workspace/:workspaceId/members', element: <YourWorkspaceMembers /> },
+          { path: 'workspace/:workspaceId/members', element: <YourWorkspaceMembers /> },
           { path: 'workspace/:workspaceId/tasks', element: <AllTasks /> },
-          {path: 'workspace/:workspaceId/clockin', element: <YourWorkspaceClockin /> },
+          { path: 'workspace/:workspaceId/clockin', element: <YourWorkspaceClockin /> },
 
           { path: 'profile', element: <Profile /> },
 
@@ -477,15 +452,23 @@ const PersistLoadingScreen = () => (
 );
 
 // ── AppRoot ───────────────────────────────────────────────────────────
+// PushNotificationProvider now lives here — ONE instance for the entire
+// app. WebPushInitializer, PushNotificationInitializer, and every screen
+// (Settings included) read from it via usePushNotificationContext()
+// instead of instantiating usePushNotifications()/
+// useMobilePushNotifications() themselves.
 const AppRoot = () => {
   const userInfo = useSelector((state) => state.auth?.userInfo);
   const token = userInfo?.token;
 
   return (
     <SocketProvider token={token}>
-      <ServiceWorkerRegister />
-      <PushNotificationInitializer />
-      <RouterProvider router={router} />
+      <PushNotificationProvider>
+        <ServiceWorkerRegister />
+        <PushNotificationInitializer />
+        <WebPushInitializer />
+        <RouterProvider router={router} />
+      </PushNotificationProvider>
     </SocketProvider>
   );
 };

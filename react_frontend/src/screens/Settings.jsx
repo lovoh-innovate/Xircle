@@ -1,16 +1,15 @@
 // src/screens/Settings.jsx
 import React, { useState, useEffect } from 'react';
-import { useSelector, useDispatch } from 'react-redux';
-import { Capacitor } from '@capacitor/core';
+import { useSelector } from 'react-redux';
 import {
   useGetNotificationPreferencesQuery,
   useUpdateEmailNotificationsMutation,
   useUpdatePushNotificationsMutation,
   useSendTestPushMutation,
   useSendTestEmailMutation,
+  useGetVapidPublicKeyQuery,
 } from '../slices/notificationApiSlice';
-import { usePushNotifications } from '../hooks/usePushNotifications';
-import { useMobilePushNotifications } from '../hooks/useMobilePushNotifications';
+import { usePushNotificationContext } from '../contexts/PushNotificationContext';
 import {
   FaArrowLeft,
   FaBell,
@@ -25,43 +24,39 @@ import {
   FaSun,
   FaMoon,
   FaDesktop,
+  FaExternalLinkAlt,
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
-import {ToastContainer} from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
 
 // ─── Custom hook – centralises all settings logic ──────────────────────
 
 const useNotificationSettings = () => {
-  const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
-  const isNative = Capacitor.isNativePlatform();
 
-  // Local state
   const [emailPrefs, setEmailPrefs] = useState({});
   const [pushPrefs, setPushPrefs] = useState({});
   const [actionLoading, setActionLoading] = useState(false);
   const [swReady, setSwReady] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
+  const [registrationStatus, setRegistrationStatus] = useState('idle');
 
-  // API hooks
   const { data: prefData, isLoading: prefsLoading, isError: prefsError, refetch } =
     useGetNotificationPreferencesQuery();
   const [updateEmail] = useUpdateEmailNotificationsMutation();
   const [updatePush] = useUpdatePushNotificationsMutation();
   const [sendTestPush] = useSendTestPushMutation();
   const [sendTestEmail] = useSendTestEmailMutation();
+  const { data: vapidData, isLoading: vapidLoading } = useGetVapidPublicKeyQuery();
 
-  // Push hooks – choose based on platform
-  const webPush = usePushNotifications();
-  const mobilePush = useMobilePushNotifications();
-  const push = isNative ? mobilePush : webPush;
-  const { isSubscribed, permission, subscribe, unsubscribe, isSupported, subscription, fcmToken } = push;
+  // Single shared push-state instance (see PushNotificationContext) —
+  // this is the SAME instance WebPushInitializer/PushNotificationInitializer
+  // use, so it's never out of sync after a reload/navigation.
+  const push = usePushNotificationContext();
+  const { isSubscribed, permission, subscribe, unsubscribe, isSupported, fcmToken, isNative } = push;
 
-  // Load preferences from API
   useEffect(() => {
     if (prefData?.data) {
       setEmailPrefs(prefData.data.email || {});
@@ -69,23 +64,24 @@ const useNotificationSettings = () => {
     }
   }, [prefData]);
 
-  // Check service worker status (web only)
   useEffect(() => {
     if (isNative || !('serviceWorker' in navigator)) return;
-    navigator.serviceWorker.ready.then(() => setSwReady(true)).catch(() => setSwReady(false));
+    navigator.serviceWorker.ready
+      .then(() => {
+        console.log('✅ Service Worker is ready');
+        setSwReady(true);
+      })
+      .catch((err) => {
+        console.warn('❌ Service Worker not ready:', err);
+        setSwReady(false);
+      });
   }, [isNative]);
 
-  // Log subscription changes
   useEffect(() => {
-    if (!isNative && subscription) {
-      console.log('🔔 Web subscription endpoint:', subscription.endpoint);
+    if (fcmToken) {
+      console.log(`🔔 ${isNative ? 'Mobile' : 'Web'} FCM token:`, fcmToken);
     }
-    if (isNative && fcmToken) {
-      console.log('📱 FCM Token:', fcmToken);
-    }
-  }, [isNative, subscription, fcmToken]);
-
-  // ── Handlers ──────────────────────────────────────────────────────────
+  }, [isNative, fcmToken]);
 
   const handleEmailToggle = async (key) => {
     const newPrefs = { ...emailPrefs, [key]: !emailPrefs[key] };
@@ -118,38 +114,90 @@ const useNotificationSettings = () => {
   const handlePushMasterToggle = async (currentlyEnabled) => {
     if (actionLoading) return;
     setActionLoading(true);
+    setRegistrationStatus('registering');
+
+    console.log('🔔 Toggling push:', {
+      currentlyEnabled,
+      isSupported,
+      permission,
+      isSubscribed,
+      fcmToken: fcmToken?.substring(0, 30) + '...',
+      vapidKey: vapidData?.data?.publicKey?.substring(0, 30) + '...',
+      isNative,
+    });
+
     try {
       if (currentlyEnabled) {
+        console.log('🔔 Unsubscribing from push...');
         const success = await unsubscribe();
         if (success) {
           const newPrefs = { ...pushPrefs, enabled: false };
           setPushPrefs(newPrefs);
           await updatePush(newPrefs).unwrap();
           setSuccess('Push notifications disabled');
+          setRegistrationStatus('idle');
           setTimeout(() => setSuccess(''), 3000);
+          console.log('✅ Push unsubscribed successfully');
         } else {
+          setRegistrationStatus('error');
           setError('Failed to disable push');
           setTimeout(() => setError(''), 4000);
+          console.warn('❌ Push unsubscribe returned false');
         }
       } else {
+        if (!vapidData?.data?.publicKey) {
+          console.error('❌ VAPID key not available');
+          setRegistrationStatus('error');
+          setError('VAPID key not available. Please try again.');
+          setTimeout(() => setError(''), 4000);
+          setActionLoading(false);
+          return;
+        }
+
+        if (!isNative && !swReady) {
+          console.warn('⚠️ Service Worker not ready, attempting to register...');
+          try {
+            await navigator.serviceWorker.register('/sw.js');
+            await navigator.serviceWorker.ready;
+            setSwReady(true);
+            console.log('✅ Service Worker registered successfully');
+          } catch (swErr) {
+            console.error('❌ Service Worker registration failed:', swErr);
+            setRegistrationStatus('error');
+            setError('Service Worker registration failed. Please refresh and try again.');
+            setTimeout(() => setError(''), 4000);
+            setActionLoading(false);
+            return;
+          }
+        }
+
+        console.log('🔔 Subscribing to push...');
         const success = await subscribe();
         if (success) {
           const newPrefs = { ...pushPrefs, enabled: true };
           setPushPrefs(newPrefs);
           await updatePush(newPrefs).unwrap();
           setSuccess('Push notifications enabled');
+          setRegistrationStatus('success');
           setTimeout(() => setSuccess(''), 3000);
+          console.log('✅ Push subscribed successfully');
         } else {
+          setRegistrationStatus('error');
           if (permission === 'denied') {
             setError('Notifications blocked. Enable them in browser settings.');
+          } else if (!isSupported) {
+            setError('Push notifications are not supported in this browser.');
           } else {
-            setError('Failed to enable push');
+            setError('Failed to enable push. Please try again.');
           }
           setTimeout(() => setError(''), 4000);
+          console.warn('❌ Push subscribe returned false');
         }
       }
     } catch (err) {
-      setError(err?.data?.message || 'An error occurred');
+      console.error('❌ Push toggle error:', err);
+      setRegistrationStatus('error');
+      setError(err?.message || 'An error occurred');
       setTimeout(() => setError(''), 4000);
     } finally {
       setActionLoading(false);
@@ -159,6 +207,9 @@ const useNotificationSettings = () => {
   const handleReRegister = async () => {
     if (actionLoading || isNative) return;
     setActionLoading(true);
+    setRegistrationStatus('registering');
+    console.log('🔄 Re-registering push...');
+
     try {
       await unsubscribe();
       const success = await subscribe();
@@ -167,13 +218,19 @@ const useNotificationSettings = () => {
         setPushPrefs(newPrefs);
         await updatePush(newPrefs).unwrap();
         setSuccess('Push subscription refreshed');
+        setRegistrationStatus('success');
         setTimeout(() => setSuccess(''), 3000);
+        console.log('✅ Push re-registered successfully');
       } else {
+        setRegistrationStatus('error');
         setError('Failed to re-register push');
         setTimeout(() => setError(''), 4000);
+        console.warn('❌ Push re-register returned false');
       }
     } catch (err) {
-      setError(err?.data?.message || 'Re-registration failed');
+      console.error('❌ Re-register error:', err);
+      setRegistrationStatus('error');
+      setError(err?.message || 'Re-registration failed');
       setTimeout(() => setError(''), 4000);
     } finally {
       setActionLoading(false);
@@ -205,9 +262,9 @@ const useNotificationSettings = () => {
 
   const pushEnabled = pushPrefs.enabled && isSubscribed && permission === 'granted';
   const pushAvailable = isSupported && isSubscribed && permission === 'granted';
+  const vapidKeyAvailable = !!vapidData?.data?.publicKey;
 
   return {
-    // State
     emailPrefs,
     pushPrefs,
     actionLoading,
@@ -219,15 +276,16 @@ const useNotificationSettings = () => {
     isSubscribed,
     permission,
     isSupported,
-    subscription,
     fcmToken,
     pushEnabled,
     pushAvailable,
+    registrationStatus,
+    vapidKeyAvailable,
+    vapidLoading,
     isLoading: prefsLoading,
     isError: prefsError,
     refetch,
 
-    // Handlers
     handleEmailToggle,
     handlePushSubToggle,
     handlePushMasterToggle,
@@ -318,6 +376,85 @@ const ThemeToggleCard = () => {
   );
 };
 
+// ─── Shared diagnostic block ────────────────────────────────────────────
+const PushTokenDiagnostic = ({
+  swReady,
+  fcmToken,
+  isNative,
+  actionLoading,
+  isSupported,
+  permission,
+  onReRegister,
+  vapidKeyAvailable,
+  isSubscribed,
+}) => {
+  const [copied, setCopied] = useState(false);
+
+  const copyToken = () => {
+    if (fcmToken) {
+      navigator.clipboard.writeText(fcmToken);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  return (
+    <div className="bg-gray-50 dark:bg-[#0b0b10] rounded-lg p-3 text-xs text-gray-600 dark:text-gray-400 space-y-1.5 border border-gray-200 dark:border-gray-800/40">
+      <div className="flex items-center gap-2 flex-wrap">
+        <FaInfoCircle className="text-teal-600 dark:text-[#0d9488]" />
+        <span>Status: {isSubscribed ? '✅ Subscribed' : permission === 'denied' ? '🚫 Blocked' : '⏳ Not subscribed'}</span>
+      </div>
+      {!isNative && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span>Service Worker: {swReady ? '✅ Ready' : '⏳ Loading...'}</span>
+        </div>
+      )}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span>VAPID Key: {vapidKeyAvailable ? '✅ Available' : '⏳ Loading...'}</span>
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span>Permission: {permission === 'granted' ? '✅ Granted' : permission === 'denied' ? '❌ Denied' : '⏳ Not requested'}</span>
+        {permission === 'denied' && !isNative && (
+          <button
+            onClick={() => {
+              toast.info('Please enable notifications in browser settings.', {
+                duration: 5000,
+              });
+            }}
+            className="text-blue-600 dark:text-blue-400 hover:underline text-xs flex items-center gap-1"
+          >
+            <FaExternalLinkAlt className="text-[9px]" /> Learn how
+          </button>
+        )}
+      </div>
+      {fcmToken && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-medium">Token:</span>
+          <span className="font-mono text-gray-700 dark:text-gray-300 truncate max-w-[180px]">
+            {fcmToken.length > 40 ? fcmToken.slice(0, 40) + '…' : fcmToken}
+          </span>
+          <button
+            onClick={copyToken}
+            className="text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] transition text-[10px]"
+          >
+            {copied ? 'Copied!' : 'Copy'}
+          </button>
+        </div>
+      )}
+      {!isNative && (
+        <button
+          onClick={onReRegister}
+          disabled={actionLoading || !isSupported || permission === 'denied' || !vapidKeyAvailable}
+          className="mt-2 flex items-center gap-1 text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] transition disabled:opacity-50"
+        >
+          <FaSync className={actionLoading ? 'animate-spin' : ''} />
+          Re‑register Push
+        </button>
+      )}
+    </div>
+  );
+};
+
 // ─── Desktop View ──────────────────────────────────────────────────────
 
 const DesktopNotificationSettings = ({ state }) => {
@@ -329,14 +466,14 @@ const DesktopNotificationSettings = ({ state }) => {
     success,
     error,
     isNative,
-    push,
-    isSubscribed,
     permission,
     isSupported,
-    subscription,
     fcmToken,
     pushEnabled,
     pushAvailable,
+    registrationStatus,
+    vapidKeyAvailable,
+    vapidLoading,
     handleEmailToggle,
     handlePushSubToggle,
     handlePushMasterToggle,
@@ -349,7 +486,6 @@ const DesktopNotificationSettings = ({ state }) => {
     <div className="hidden md:block min-h-screen bg-gray-50 dark:bg-[#0b0b10] transition-colors duration-300">
       <div className="px-6 py-6 lg:px-8">
         <div className="max-w-4xl mx-auto">
-          {/* Header */}
           <div className="mb-6">
             <div className="flex items-center space-x-2">
               <div className="p-1.5 bg-teal-100 dark:bg-[#0d9488]/20 rounded-lg">
@@ -377,10 +513,8 @@ const DesktopNotificationSettings = ({ state }) => {
           )}
 
           <div className="grid grid-cols-1 gap-6">
-            {/* Theme Toggle */}
             <ThemeToggleCard />
 
-            {/* Email Notifications */}
             <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden transition-colors duration-300">
               <div className="px-5 py-3 bg-gray-50 dark:bg-[#0f0f12] border-b border-gray-200/60 dark:border-gray-800/40">
                 <div className="flex items-center space-x-2">
@@ -413,7 +547,6 @@ const DesktopNotificationSettings = ({ state }) => {
               </div>
             </div>
 
-            {/* Push Notifications */}
             <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden transition-colors duration-300">
               <div className="px-5 py-3 bg-gray-50 dark:bg-[#0f0f12] border-b border-gray-200/60 dark:border-gray-800/40">
                 <div className="flex items-center space-x-2">
@@ -425,6 +558,12 @@ const DesktopNotificationSettings = ({ state }) => {
                   <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
                     {isNative ? 'Mobile Push Notifications' : 'Web Push Notifications'}
                   </h2>
+                  {registrationStatus === 'registering' && (
+                    <FaSpinner className="animate-spin text-teal-600 dark:text-[#0d9488] ml-2" />
+                  )}
+                  {registrationStatus === 'success' && (
+                    <FaCheckCircle className="text-green-500 dark:text-green-400 ml-2" />
+                  )}
                 </div>
               </div>
               <div className="p-5 space-y-4">
@@ -436,62 +575,54 @@ const DesktopNotificationSettings = ({ state }) => {
                     </p>
                   </div>
                 ) : (
-                  <>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Enable push notifications</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-500">
-                          {permission === 'denied'
-                            ? 'Notifications are blocked in browser settings.'
-                            : 'Receive push notifications in this browser'}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        {permission === 'denied' ? (
-                          <span className="text-xs text-red-500 dark:text-red-400 flex items-center gap-1">
-                            <FaTimesCircle /> Blocked
-                          </span>
-                        ) : (
-                          <>
-                            {actionLoading && <FaSpinner className="animate-spin text-teal-600 dark:text-[#0d9488]" />}
-                            <ToggleSwitch
-                              enabled={pushEnabled}
-                              onChange={() => handlePushMasterToggle(pushEnabled)}
-                              disabled={!isSupported || permission === 'denied' || actionLoading}
-                              loading={actionLoading}
-                            />
-                          </>
-                        )}
-                      </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Enable push notifications</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-500">
+                        {permission === 'denied'
+                          ? 'Notifications are blocked in browser settings.'
+                          : isSupported && vapidKeyAvailable
+                          ? 'Receive push notifications in this browser'
+                          : vapidKeyAvailable === false && !isNative
+                          ? 'Loading VAPID key...'
+                          : 'Push is not supported in this browser'}
+                      </p>
                     </div>
-
-                    {/* Diagnostic info */}
-                    <div className="bg-gray-50 dark:bg-[#0b0b10] rounded-lg p-3 text-xs text-gray-600 dark:text-gray-400 space-y-1 border border-gray-200 dark:border-gray-800/40">
-                      <div className="flex items-center gap-2">
-                        <FaInfoCircle className="text-teal-600 dark:text-[#0d9488]" />
-                        <span>Service Worker: {swReady ? '✅ Ready' : '⏳ Loading...'}</span>
-                      </div>
-                      {subscription && (
-                        <div className="truncate">
-                          <span className="font-medium">Endpoint:</span>{' '}
-                          {subscription.endpoint.length > 60
-                            ? subscription.endpoint.slice(0, 60) + '…'
-                            : subscription.endpoint}
-                        </div>
+                    <div className="flex items-center gap-3">
+                      {permission === 'denied' ? (
+                        <span className="text-xs text-red-500 dark:text-red-400 flex items-center gap-1">
+                          <FaTimesCircle /> Blocked
+                        </span>
+                      ) : (
+                        <ToggleSwitch
+                          enabled={pushEnabled}
+                          onChange={() => handlePushMasterToggle(pushEnabled)}
+                          disabled={
+                            !isSupported ||
+                            permission === 'denied' ||
+                            actionLoading ||
+                            vapidLoading ||
+                            !vapidKeyAvailable
+                          }
+                          loading={actionLoading}
+                        />
                       )}
-                      <button
-                        onClick={handleReRegister}
-                        disabled={actionLoading || !isSupported || permission === 'denied'}
-                        className="mt-2 flex items-center gap-1 text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] transition disabled:opacity-50"
-                      >
-                        <FaSync className={actionLoading ? 'animate-spin' : ''} />
-                        Re‑register Push
-                      </button>
                     </div>
-                  </>
+                  </div>
                 )}
 
-                {/* Push sub-preferences */}
+                <PushTokenDiagnostic
+                  swReady={swReady}
+                  fcmToken={fcmToken}
+                  isNative={isNative}
+                  actionLoading={actionLoading}
+                  isSupported={isSupported}
+                  permission={permission}
+                  onReRegister={handleReRegister}
+                  vapidKeyAvailable={vapidKeyAvailable}
+                  isSubscribed={state.isSubscribed}
+                />
+
                 {pushEnabled && Object.keys(pushPrefs).length > 1 && (
                   <div className="space-y-3 pt-2 border-t border-gray-200 dark:border-gray-800/40">
                     {Object.entries(pushPrefs).map(([key, value]) => {
@@ -516,18 +647,9 @@ const DesktopNotificationSettings = ({ state }) => {
                     })}
                   </div>
                 )}
-
-                {isNative && fcmToken && (
-                  <div className="bg-gray-50 dark:bg-[#0b0b10] rounded-lg p-3 border border-gray-200 dark:border-gray-800/40">
-                    <p className="text-xs text-gray-600 dark:text-gray-400 break-all">
-                      <span className="font-medium">FCM Token:</span> {fcmToken}
-                    </p>
-                  </div>
-                )}
               </div>
             </div>
 
-            {/* Test Notifications */}
             <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden transition-colors duration-300">
               <div className="px-5 py-3 bg-gray-50 dark:bg-[#0f0f12] border-b border-gray-200/60 dark:border-gray-800/40">
                 <div className="flex items-center space-x-2">
@@ -553,7 +675,7 @@ const DesktopNotificationSettings = ({ state }) => {
                 </div>
                 {!isNative && !pushAvailable && isSupported && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 mt-3">
-                    Push is not active. Enable it above or re‑register if the endpoint is missing.
+                    Push is not active. Enable it above or re‑register if the token is missing.
                   </p>
                 )}
               </div>
@@ -576,14 +698,14 @@ const MobileNotificationSettings = ({ state }) => {
     success,
     error,
     isNative,
-    push,
-    isSubscribed,
     permission,
     isSupported,
-    subscription,
     fcmToken,
     pushEnabled,
     pushAvailable,
+    registrationStatus,
+    vapidKeyAvailable,
+    vapidLoading,
     handleEmailToggle,
     handlePushSubToggle,
     handlePushMasterToggle,
@@ -598,6 +720,9 @@ const MobileNotificationSettings = ({ state }) => {
         <div className="flex items-center space-x-2">
           <FaBell className="w-5 h-5 text-teal-600 dark:text-[#0d9488]" />
           <h1 className="text-base font-semibold text-gray-800 dark:text-gray-200">Notification Settings</h1>
+          {registrationStatus === 'registering' && (
+            <FaSpinner className="animate-spin text-teal-600 dark:text-[#0d9488] ml-2" />
+          )}
         </div>
       </div>
 
@@ -616,10 +741,8 @@ const MobileNotificationSettings = ({ state }) => {
           </div>
         )}
 
-        {/* Theme Toggle */}
         <ThemeToggleCard />
 
-        {/* Email Notifications */}
         <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden transition-colors duration-300">
           <div className="px-4 py-3 bg-gray-50 dark:bg-[#0f0f12] border-b border-gray-200/60 dark:border-gray-800/40">
             <div className="flex items-center space-x-2">
@@ -652,7 +775,6 @@ const MobileNotificationSettings = ({ state }) => {
           </div>
         </div>
 
-        {/* Push Notifications */}
         <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden transition-colors duration-300">
           <div className="px-4 py-3 bg-gray-50 dark:bg-[#0f0f12] border-b border-gray-200/60 dark:border-gray-800/40">
             <div className="flex items-center space-x-2">
@@ -664,6 +786,9 @@ const MobileNotificationSettings = ({ state }) => {
               <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
                 {isNative ? 'Mobile Push' : 'Web Push'}
               </h2>
+              {registrationStatus === 'registering' && (
+                <FaSpinner className="animate-spin text-teal-600 dark:text-[#0d9488] ml-2" />
+              )}
             </div>
           </div>
           <div className="divide-y divide-gray-100 dark:divide-gray-800/30">
@@ -675,62 +800,56 @@ const MobileNotificationSettings = ({ state }) => {
                 </p>
               </div>
             ) : (
-              <>
-                <div className="p-4 flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Enable push</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-500">
-                      {permission === 'denied'
-                        ? 'Notifications are blocked in browser settings.'
-                        : 'Receive push notifications in this browser'}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {permission === 'denied' ? (
-                      <span className="text-xs text-red-500 dark:text-red-400 flex items-center gap-1">
-                        <FaTimesCircle /> Blocked
-                      </span>
-                    ) : (
-                      <>
-                        {actionLoading && <FaSpinner className="animate-spin text-teal-600 dark:text-[#0d9488]" />}
-                        <ToggleSwitch
-                          enabled={pushEnabled}
-                          onChange={() => handlePushMasterToggle(pushEnabled)}
-                          disabled={!isSupported || permission === 'denied' || actionLoading}
-                          loading={actionLoading}
-                        />
-                      </>
-                    )}
-                  </div>
+              <div className="p-4 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Enable push</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-500">
+                    {permission === 'denied'
+                      ? 'Notifications are blocked in browser settings.'
+                      : isSupported && vapidKeyAvailable
+                      ? 'Receive push notifications in this browser'
+                      : vapidKeyAvailable === false && !isNative
+                      ? 'Loading VAPID key...'
+                      : 'Push is not supported in this browser'}
+                  </p>
                 </div>
-
-                {/* Diagnostic info */}
-                <div className="p-4 bg-gray-50 dark:bg-[#0b0b10] space-y-1 border-t border-gray-200 dark:border-gray-800/30">
-                  <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-                    <FaInfoCircle className="text-teal-600 dark:text-[#0d9488]" />
-                    <span>Service Worker: {swReady ? '✅ Ready' : '⏳ Loading...'}</span>
-                  </div>
-                  {subscription && (
-                    <div className="truncate text-xs text-gray-600 dark:text-gray-400">
-                      <span className="font-medium">Endpoint:</span>{' '}
-                      {subscription.endpoint.length > 60
-                        ? subscription.endpoint.slice(0, 60) + '…'
-                        : subscription.endpoint}
-                    </div>
+                <div className="flex items-center gap-3">
+                  {permission === 'denied' ? (
+                    <span className="text-xs text-red-500 dark:text-red-400 flex items-center gap-1">
+                      <FaTimesCircle /> Blocked
+                    </span>
+                  ) : (
+                    <ToggleSwitch
+                      enabled={pushEnabled}
+                      onChange={() => handlePushMasterToggle(pushEnabled)}
+                      disabled={
+                        !isSupported ||
+                        permission === 'denied' ||
+                        actionLoading ||
+                        vapidLoading ||
+                        !vapidKeyAvailable
+                      }
+                      loading={actionLoading}
+                    />
                   )}
-                  <button
-                    onClick={handleReRegister}
-                    disabled={actionLoading || !isSupported || permission === 'denied'}
-                    className="mt-1 flex items-center gap-1 text-xs text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] transition disabled:opacity-50"
-                  >
-                    <FaSync className={actionLoading ? 'animate-spin' : ''} />
-                    Re‑register Push
-                  </button>
                 </div>
-              </>
+              </div>
             )}
 
-            {/* Push sub-preferences */}
+            <div className="p-4 border-t border-gray-200 dark:border-gray-800/30">
+              <PushTokenDiagnostic
+                swReady={swReady}
+                fcmToken={fcmToken}
+                isNative={isNative}
+                actionLoading={actionLoading}
+                isSupported={isSupported}
+                permission={permission}
+                onReRegister={handleReRegister}
+                vapidKeyAvailable={vapidKeyAvailable}
+                isSubscribed={state.isSubscribed}
+              />
+            </div>
+
             {pushEnabled && Object.keys(pushPrefs).length > 1 && (
               <div className="divide-y divide-gray-100 dark:divide-gray-800/30">
                 {Object.entries(pushPrefs).map(([key, value]) => {
@@ -755,18 +874,9 @@ const MobileNotificationSettings = ({ state }) => {
                 })}
               </div>
             )}
-
-            {isNative && fcmToken && (
-              <div className="p-4 bg-gray-50 dark:bg-[#0b0b10] border-t border-gray-200 dark:border-gray-800/30">
-                <p className="text-xs text-gray-600 dark:text-gray-400 break-all">
-                  <span className="font-medium">FCM Token:</span> {fcmToken}
-                </p>
-              </div>
-            )}
           </div>
         </div>
 
-        {/* Test Notifications */}
         <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden transition-colors duration-300">
           <div className="px-4 py-3 bg-gray-50 dark:bg-[#0f0f12] border-b border-gray-200/60 dark:border-gray-800/40">
             <div className="flex items-center space-x-2">
@@ -792,7 +902,7 @@ const MobileNotificationSettings = ({ state }) => {
             </div>
             {!isNative && !pushAvailable && isSupported && (
               <p className="text-xs text-amber-600 dark:text-amber-400 mt-3">
-                Push is not active. Enable it above or re‑register if the endpoint is missing.
+                Push is not active. Enable it above or re‑register if the token is missing.
               </p>
             )}
           </div>
@@ -807,9 +917,6 @@ const MobileNotificationSettings = ({ state }) => {
 const Settings = () => {
   const state = useNotificationSettings();
   const navigate = useNavigate();
-
-  // Make ToastContainer respect the current theme
-  const { isDarkMode } = useTheme();
 
   if (state.isLoading) {
     return (
@@ -841,7 +948,6 @@ const Settings = () => {
 
   return (
     <>
-      {/* Header with back button (mobile) */}
       <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 px-4 h-14 flex items-center gap-3 md:hidden">
         <button onClick={() => navigate(-1)} className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition">
           <FaArrowLeft />
@@ -850,12 +956,6 @@ const Settings = () => {
       </header>
       <DesktopNotificationSettings state={state} />
       <MobileNotificationSettings state={state} />
-      <ToastContainer
-        position="bottom-center"
-        autoClose={4000}
-        hideProgressBar={false}
-        theme={isDarkMode ? 'dark' : 'light'}
-      />
     </>
   );
 };

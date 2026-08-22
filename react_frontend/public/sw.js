@@ -1,5 +1,26 @@
 // public/sw.js
 
+// ─── Firebase Messaging (background push) ───────────────────────────────
+// Loaded as compat scripts because service workers can't use ES module
+// imports or Vite env vars — this is the one place these values are
+// hardcoded rather than pulled from .env. They're public client
+// identifiers (same ones used in usePushNotifications.js), so that's fine.
+// ⚠️ Match the SDK version below to whatever `firebase` version is in
+// your package.json (major version at least).
+importScripts('https://www.gstatic.com/firebasejs/10.12.4/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.12.4/firebase-messaging-compat.js');
+
+firebase.initializeApp({
+  apiKey: 'AIzaSyCP3S5DnU5KKg-y8AdP9ZVkxqxJIy7ZLQM',
+  authDomain: 'xircle-f60ef.firebaseapp.com',
+  projectId: 'xircle-f60ef',
+  storageBucket: 'xircle-f60ef.firebasestorage.app',
+  messagingSenderId: '596946698879',
+  appId: '1:596946698879:web:24bd19169f77ed0125b54a',
+});
+
+const messaging = firebase.messaging();
+
 // ─── Versioning ──────────────────────────────────────────────────────────
 // You no longer need to bump this by hand for normal deploys — the
 // network-first HTML strategy below means index.html is never stuck stale.
@@ -56,10 +77,6 @@ self.addEventListener('fetch', (event) => {
     (req.headers.get('accept') || '').includes('text/html');
 
   // API requests: NEVER cache these, always go straight to network.
-  // This is the fix for the "delete/upload doesn't reflect until I clear
-  // browser data" bug — API GET responses (e.g. /api/app/version) were
-  // previously falling into the cache-first static-asset branch below and
-  // being served from cache forever, regardless of server-side changes.
   const isApiRequest = url.pathname.startsWith('/api/');
   if (isApiRequest) {
     event.respondWith(fetch(req));
@@ -67,14 +84,10 @@ self.addEventListener('fetch', (event) => {
   }
 
   // HTML / navigation requests: ALWAYS go to network first.
-  // This is the fix for the stale-index.html-with-dead-asset-hashes problem —
-  // the shell HTML is never served from cache unless the network is unreachable.
   if (isNavigation) {
     event.respondWith(
       fetch(req)
         .then((networkResponse) => {
-          // keep a fallback copy for offline use, but never rely on it
-          // unless the network genuinely fails
           const clone = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
           return networkResponse;
@@ -99,41 +112,47 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// ─── Push event – show notification with call actions ──────────────────
-self.addEventListener('push', (event) => {
-  let data = {};
-  try {
-    data = event.data.json();
-  } catch (error) {
-    data = { title: 'New Notification', body: event.data.text() };
-  }
-
+// ─── Push event – now handled by Firebase Messaging ─────────────────────
+// IMPORTANT: There is no `self.addEventListener('push', ...)` anymore.
+// firebase-messaging-compat.js registers its OWN internal 'push' listener
+// when you call firebase.messaging() above — adding a second one here
+// would cause duplicate/garbled notifications. All notification-building
+// logic that used to live in the 'push' listener now lives in
+// onBackgroundMessage below, working from `payload.data` (all string
+// values, matching the data-only messages the backend now sends for web).
+messaging.onBackgroundMessage((payload) => {
+  const data = payload.data || {};
   const title = data.title || 'Notification';
+
   let options = {
     body: data.body || '',
     icon: data.icon || '/icon.png',
     badge: data.badge || '/badge.png',
-    data: data.data || {},
-    vibrate: data.vibrate || [200, 100, 200],
-    requireInteraction: data.requireInteraction || false,
-    actions: data.actions || [],
+    data,
+    vibrate: [200, 100, 200],
+    requireInteraction: false,
+    actions: [],
   };
 
   if (data.notificationType === 'call') {
     options.vibrate = [1000, 500, 1000, 500, 1000];
     options.actions = [
       { action: 'answer', title: 'Answer' },
-      { action: 'decline', title: 'Decline' }
+      { action: 'decline', title: 'Decline' },
     ];
     options.requireInteraction = true;
     options.tag = 'call';
     options.silent = false;
+  } else if (data.notificationType === 'chat' || data.notificationType === 'channel') {
+    options.actions = [{ action: 'reply', title: 'Reply' }];
   }
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  self.registration.showNotification(title, options);
 });
 
 // ─── Notification click – handle actions and navigation ────────────────
+// Unchanged — this is generic Notification API behaviour, unrelated to
+// whether the notification came from raw web-push or FCM.
 self.addEventListener('notificationclick', (event) => {
   const notification = event.notification;
   const action = event.action;
