@@ -35,6 +35,7 @@ import MyWorkspaces from './screens/MyWorkspaces.jsx';
 import Profile from './screens/Profile.jsx';
 import YourWorkspaceId from './screens/YourWorkspaceId.jsx';
 import MyWorkspaceId from './workspaceScreens/MyWorkspaceId.jsx';
+import Notifications from './screens/Notifications.jsx';
 
 import AllTasks from './screens/AllTasks.jsx';
 
@@ -49,6 +50,8 @@ import MyWorkspaceSettings from './workspaceScreens/MyWorkspaceSettings.jsx';
 import MyWorkspaceCreateProject from './workspaceScreens/MyWorkspaceCreateProject.jsx';
 import MyWorkspaceUpdateProject from './workspaceScreens/MyWorkspaceUpdateProject.jsx';
 import MyWorkspaceClockin from './workspaceScreens/MyWorkspaceClockin.jsx';
+import MyWorkspaceNotifications from './workspaceScreens/MyWorkspaceNotifications.jsx';
+
 
 import YourWorkspaceChannels from './screens/YourWorkspaceChannels.jsx';
 import YourWorkspaceChannelId from './screens/YourWorkspaceChannelId.jsx';
@@ -57,6 +60,7 @@ import YourWorkspaceProjects from './screens/YourWorkspaceProjects.jsx';
 import YourWorkspaceProjectId from './screens/YourWorkspaceProjectId.jsx';
 import YourWorkspaceMembers from './screens/YourWorkspaceMembers.jsx';
 import YourWorkspaceClockin from './screens/YourWorkspaceClockin.jsx';
+import YourWorkspaceNotifications from './screens/YourWorkspaceNotifications.jsx';
 
 import CallScreen from './components/CallScreen.jsx';
 
@@ -401,6 +405,7 @@ const router = createBrowserRouter([
           { path: 'my-workspaces', element: <MyWorkspaces /> },
           { path: 'workspace/:workspaceId', element: <YourWorkspaceId /> },
           { path: 'my-workspace/:workspaceId', element: <MyWorkspaceId /> },
+          
 
           { path: 'my-workspace/:workspaceId/channels', element: <MyWorkspaceChannels /> },
           { path: 'my-workspace/:workspaceId/chat/:chatId', element: <MyWorkspaceChatId /> },
@@ -414,6 +419,8 @@ const router = createBrowserRouter([
           { path: 'my-workspace/:workspaceId/projects/edit/:projectId', element: <MyWorkspaceUpdateProject /> },
           { path: 'my-workspace/:workspaceId/clockin', element: <MyWorkspaceClockin /> },
           { path: 'my-workspace/:workspaceId/tasks', element: <AllTasks /> },
+          { path: 'my-workspace/:workspaceId/notifications', element: <MyWorkspaceNotifications /> },
+
 
           { path: 'workspace/:workspaceId/channels', element: <YourWorkspaceChannels /> },
           { path: 'workspace/:workspaceId/chat/:chatId', element: <YourWorkspaceChannelId /> },
@@ -423,6 +430,7 @@ const router = createBrowserRouter([
           { path: 'workspace/:workspaceId/members', element: <YourWorkspaceMembers /> },
           { path: 'workspace/:workspaceId/tasks', element: <AllTasks /> },
           { path: 'workspace/:workspaceId/clockin', element: <YourWorkspaceClockin /> },
+          { path: 'workspace/:workspaceId/notifications', element: <YourWorkspaceNotifications /> },
 
           { path: 'profile', element: <Profile /> },
 
@@ -431,6 +439,7 @@ const router = createBrowserRouter([
           { path: 'chat', element: <GeneralChats /> },
           { path: 'chats/:chatId', element: <GeneralChatId /> },
           { path: 'personal-tasks', element: <PersonalTasks /> },
+          { path: 'notifications', element: <Notifications /> },
 
           { path: 'call/:roomId', element: <CallScreen /> },
 

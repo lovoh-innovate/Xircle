@@ -17,10 +17,11 @@ export const clockInApiSlice = apiSlice.injectEndpoints({
     }),
 
     setClockInSettings: builder.mutation({
-      query: ({ workspaceId, clockInStart, clockInEnd, closingTime, clockInEnabled }) => ({
+      // 👇 FIX: clockOutEarliest was missing here before, so it never reached the backend
+      query: ({ workspaceId, clockInStart, clockInEnd, closingTime, clockOutEarliest, clockInEnabled }) => ({
         url: `${CLOCKIN_URL}/${workspaceId}/clockin-settings`,
         method: 'PUT',
-        body: { clockInStart, clockInEnd, closingTime, clockInEnabled },
+        body: { clockInStart, clockInEnd, closingTime, clockOutEarliest, clockInEnabled },
       }),
       invalidatesTags: (result, error, { workspaceId }) => [
         { type: 'ClockInSettings', id: workspaceId },
@@ -38,19 +39,22 @@ export const clockInApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (result, error, workspaceId) => [
         { type: 'ClockIn', id: workspaceId },
         { type: 'ClockInHistory', id: workspaceId },
+        { type: 'WorkspaceClockIns', id: workspaceId },
         { type: 'ClockInLeaderboard', id: workspaceId },
-        { type: 'AttendanceSummary', id: workspaceId }, // refresh summary
+        { type: 'AttendanceSummary', id: workspaceId },
       ],
     }),
 
     clockOut: builder.mutation({
-      query: (workspaceId) => ({
+      query: ({ workspaceId, reason }) => ({
         url: `${CLOCKIN_URL}/${workspaceId}/clockout`,
         method: 'POST',
+        body: { reason },
       }),
-      invalidatesTags: (result, error, workspaceId) => [
+      invalidatesTags: (result, error, { workspaceId }) => [
         { type: 'ClockIn', id: workspaceId },
         { type: 'ClockInHistory', id: workspaceId },
+        { type: 'WorkspaceClockIns', id: workspaceId },
         { type: 'ClockInLeaderboard', id: workspaceId },
         { type: 'AttendanceSummary', id: workspaceId },
       ],
@@ -123,7 +127,7 @@ export const {
   useClockOutMutation,
   useGetUserClockInHistoryQuery,
   useGetWorkspaceClockInsQuery,
-  useGetAttendanceSummaryQuery,           // 👈 new export
+  useGetAttendanceSummaryQuery,
   useGetClockInLeaderboardQuery,
   useTriggerMonthlyLeaderboardMutation,
 } = clockInApiSlice;

@@ -54,9 +54,18 @@ const workspaceSchema = new mongoose.Schema(
       default: false,
     },
 
-    // ─── Optional: closing time for clock‑out penalty ─────────────
+    // ─── Closing time for clock‑out penalty / auto clock-out ──────
     closingTime: {
       type: String,   // "HH:MM" in 24h format, e.g., "18:00"
+      default: null,
+    },
+
+    // ─── Earliest allowed clock‑out time without a reason ─────────
+    // Clocking out before this time requires the member to submit a reason.
+    // 👇 This field was missing before — even if the frontend sent it,
+    // Mongoose was silently stripping it since it wasn't declared here.
+    clockOutEarliest: {
+      type: String,   // "HH:MM" in 24h format, e.g., "17:00"
       default: null,
     },
   },

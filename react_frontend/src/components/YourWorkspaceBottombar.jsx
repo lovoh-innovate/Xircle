@@ -71,8 +71,8 @@ const YourWorkspaceBottombar = ({ workspace }) => {
     { id: 'projects', label: 'Projects', icon: FiFolder, path: `/workspace/${workspaceId}/projects` },
     { id: 'channels', label: 'Channels', icon: FiUsers, path: `/workspace/${workspaceId}/channels` },
     { id: 'clockin', label: 'Clock‑in', icon: FiClock, path: `/workspace/${workspaceId}/clockin` },
-    { id: 'notifications', label: 'Notifications', icon: FiBell, path: `/workspace/${workspaceId}/notifications` },
-    { id: 'settings', label: 'Settings', icon: FiSettings, path: `/workspace/${workspaceId}/settings` },
+    // { id: 'notifications', label: 'Notifications', icon: FiBell, path: `/workspace/${workspaceId}/notifications` },
+    // { id: 'settings', label: 'Settings', icon: FiSettings, path: `/workspace/${workspaceId}/settings` },
     { id: 'profile', label: 'Profile', icon: FiUser, path: '/profile' },
     { id: 'logout', label: 'Logout', icon: FiLogOut, action: handleLogout },
   ];

@@ -1,4 +1,3 @@
-// models/clockInModel.js
 import mongoose from "mongoose";
 
 const clockInSchema = new mongoose.Schema(
@@ -25,9 +24,12 @@ const clockInSchema = new mongoose.Schema(
       type: Date,
       required: true,
     },
+    // "on-time"  = clocked in within [clockInStart, clockInEnd]
+    // "late"     = clocked in after clockInEnd
+    // ("early" kept in enum only so old documents don't break validation on re-save)
     status: {
       type: String,
-      enum: ["early", "on-time", "late"],
+      enum: ["on-time", "late", "early"],
       default: "on-time",
     },
     isLate: {
@@ -39,13 +41,10 @@ const clockInSchema = new mongoose.Schema(
       default: 0,
     },
     isEarly: {
-      type: Boolean,
-      default: false,
+      type: Boolean, // true whenever isLate is false (kept for frontend compatibility)
+      default: true,
     },
-    earlyMinutes: {
-      type: Number,
-      default: 0,
-    },
+    // ─── Clock-out side ──────────────────────────────────────────────
     clockOutLate: {
       type: Boolean,
       default: false,
@@ -54,13 +53,26 @@ const clockInSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    // Was this clock-out done automatically by the closing-time scheduler?
+    // This is INTENTIONALLY separate from `status` so a person's on-time/late
+    // record for the day is never lost/overwritten when they get auto-clocked-out.
+    autoClockedOut: {
+      type: Boolean,
+      default: false,
+    },
+    // Reason for clocking out before clockOutEarliest. Visible to owner/admin.
+    clockOutReason: {
+      type: String,
+      default: null,
+    },
   },
   { timestamps: true }
 );
 
-// Index for efficient queries
+// Indexes for efficient queries
 clockInSchema.index({ workspace: 1, date: 1 });
 clockInSchema.index({ user: 1, date: 1 });
+clockInSchema.index({ workspace: 1, clockInTime: 1 });
 
 const ClockIn = mongoose.model("ClockIn", clockInSchema);
 export default ClockIn;

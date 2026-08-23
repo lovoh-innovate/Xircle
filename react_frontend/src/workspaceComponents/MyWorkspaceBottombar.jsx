@@ -158,7 +158,7 @@ const MyWorkspaceBottombar = ({ workspace }) => {
     { id: 'projects', label: 'Projects', icon: FiFolder, path: `/my-workspace/${workspaceId}/projects` },
     { id: 'clockin', label: 'Clock‑in', icon: FiClock, path: `/my-workspace/${workspaceId}/clockin` },
     { id: 'invite', label: 'Invite Members', icon: FiUserPlus, action: () => setInviteModalOpen(true) },
-    { id: 'notifications', label: 'Notifications', icon: FiBell, path: `/my-workspace/${workspaceId}/notifications` },
+    // { id: 'notifications', label: 'Notifications', icon: FiBell, path: `/my-workspace/${workspaceId}/notifications` },
     { id: 'settings', label: 'Settings', icon: FiSettings, path: `/my-workspace/${workspaceId}/settings` },
     { id: 'profile', label: 'Profile', icon: FiUser, path: '/profile' },
   ];

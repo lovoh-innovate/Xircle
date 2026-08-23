@@ -55,6 +55,16 @@ const isPastClosing = (closingTime) => {
   return now > closingDate;
 };
 
+// ─── Check if current time is before clockOutEarliest ──────────────
+const isBeforeEarliest = (clockOutEarliest) => {
+  if (!clockOutEarliest) return false;
+  const now = new Date();
+  const [hours, minutes] = clockOutEarliest.split(':').map(Number);
+  const earliestDate = new Date(now);
+  earliestDate.setHours(hours, minutes, 0, 0);
+  return now < earliestDate;
+};
+
 // ─── Custom Dropdown ──────────────────────────────────────────────────────
 const CustomDropdown = ({ options, value, onChange, placeholder, label, brandColor }) => {
   const [open, setOpen] = useState(false);
@@ -123,6 +133,48 @@ const ConfirmModal = ({ isOpen, onConfirm, onCancel, title, message, confirmLabe
   );
 };
 
+// ─── Reason Modal (for early clock‑out) ──────────────────────────────
+const ReasonModal = ({ isOpen, onConfirm, onCancel, title, message, confirmLabel = 'Confirm', confirmColor = 'bg-teal-600 hover:bg-teal-700' }) => {
+  const [reason, setReason] = useState('');
+
+  useEffect(() => {
+    if (!isOpen) setReason('');
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const handleConfirm = () => {
+    if (!reason.trim()) {
+      toast.error('Please provide a reason.');
+      return;
+    }
+    onConfirm(reason.trim());
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-sm w-full p-6 shadow-xl">
+        <h3 className="text-lg font-bold text-gray-800 dark:text-gray-200 mb-2">{title}</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">{message}</p>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Enter your reason..."
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700/60 rounded-lg bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-teal-500 outline-none resize-none h-20"
+        />
+        <div className="flex gap-3 mt-4">
+          <button onClick={onCancel} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+            Cancel
+          </button>
+          <button onClick={handleConfirm} className={`flex-1 py-2 text-white rounded-xl text-sm font-medium transition ${confirmColor}`}>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Bottom Sheet ──────────────────────────────────────────────────────
 const BottomSheet = ({ isOpen, onClose, children }) => {
   const [visible, setVisible] = useState(false);
@@ -167,29 +219,40 @@ const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
   const [clockInStart, setClockInStart] = useState('');
   const [clockInEnd, setClockInEnd] = useState('');
   const [closingTime, setClosingTime] = useState('');
+  const [clockOutEarliest, setClockOutEarliest] = useState('');
   const [clockInEnabled, setClockInEnabled] = useState(false);
 
   useEffect(() => {
     if (settingsData?.settings) {
-      const start = settingsData.settings.clockInStart || settingsData.settings.clockInTime || '';
-      const end = settingsData.settings.clockInEnd || '';
-      setClockInStart(start);
-      setClockInEnd(end);
+      setClockInStart(settingsData.settings.clockInStart || '');
+      setClockInEnd(settingsData.settings.clockInEnd || '');
       setClosingTime(settingsData.settings.closingTime || '');
+      setClockOutEarliest(settingsData.settings.clockOutEarliest || '');
       setClockInEnabled(settingsData.settings.clockInEnabled || false);
     }
   }, [settingsData]);
 
   const brandColor = workspace?.color || '#0d9488';
 
+  // Validate that start < end
+  const validateTimes = () => {
+    if (clockInStart && clockInEnd && clockInStart >= clockInEnd) {
+      toast.error('Clock‑in start must be before clock‑in end.');
+      return false;
+    }
+    return true;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!validateTimes()) return;
     try {
       await setSettings({
         workspaceId,
         clockInStart: clockInStart || null,
         clockInEnd: clockInEnd || null,
         closingTime: closingTime || null,
+        clockOutEarliest: clockOutEarliest || null,
         clockInEnabled,
       }).unwrap();
       toast.success('Clock-in settings updated!');
@@ -242,20 +305,33 @@ const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
               className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
               step="60"
             />
-            <p className="text-xs text-gray-400 mt-1">Clocking in after this time = Late</p>
+            <p className="text-xs text-gray-400 mt-1">Clocking in after this time = Late (anything up to and including this time is on-time)</p>
           </div>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Closing Time (auto clock‑out)</label>
-          <input
-            type="time"
-            value={closingTime}
-            onChange={(e) => setClosingTime(e.target.value)}
-            className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
-            step="60"
-          />
-          <p className="text-xs text-gray-400 mt-1">Clock‑in will not be allowed after this time</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Closing Time (auto clock‑out)</label>
+            <input
+              type="time"
+              value={closingTime}
+              onChange={(e) => setClosingTime(e.target.value)}
+              className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
+              step="60"
+            />
+            <p className="text-xs text-gray-400 mt-1">Clock‑in will not be allowed after this time</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Earliest Clock‑out</label>
+            <input
+              type="time"
+              value={clockOutEarliest}
+              onChange={(e) => setClockOutEarliest(e.target.value)}
+              className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
+              step="60"
+            />
+            <p className="text-xs text-gray-400 mt-1">Clock‑out before this time requires a reason</p>
+          </div>
         </div>
 
         <div className="flex items-center gap-3 py-2">
@@ -292,32 +368,46 @@ const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
 };
 
 // ─── Status Badge ──────────────────────────────────────────────────────
+// FIX: "auto clocked out" now reads clockIn.autoClockedOut (a dedicated field) instead of
+// clockIn.status — the scheduler used to overwrite `status`, which wiped out whether the
+// person was actually on-time or late that day and broke the leaderboard.
 const StatusBadge = ({ clockIn }) => {
   if (!clockIn) return null;
-  if (clockIn.status === 'auto-clocked-out') {
-    return (
-      <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-medium text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-900/30 px-1.5 sm:px-2 py-0.5 rounded-full">
-        <FaClock className="text-[10px]" /> Auto Out
-      </span>
-    );
-  }
-  if (clockIn.isEarly) {
+
+  const isAuto = clockIn.autoClockedOut || clockIn.status === 'auto-clocked-out';
+
+  if (clockIn.isEarly && !clockIn.isLate) {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-medium text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-1.5 sm:px-2 py-0.5 rounded-full">
-        <FaCheck className="text-[10px]" /> Early
+        <FaCheck className="text-[10px]" /> On Time{isAuto ? ' · Auto Out' : ''}
       </span>
     );
   }
   if (clockIn.isLate) {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-medium text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30 px-1.5 sm:px-2 py-0.5 rounded-full">
-        <FaTimes className="text-[10px]" /> Late
+        <FaTimes className="text-[10px]" /> Late{isAuto ? ' · Auto Out' : ''}
+      </span>
+    );
+  }
+  // Fallback if neither flag is set but status might be 'on-time' or legacy 'early'
+  if (clockIn.status === 'on-time' || clockIn.status === 'early') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-medium text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-1.5 sm:px-2 py-0.5 rounded-full">
+        <FaCheck className="text-[10px]" /> On Time
+      </span>
+    );
+  }
+  if (isAuto) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-medium text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-900/30 px-1.5 sm:px-2 py-0.5 rounded-full">
+        <FaClock className="text-[10px]" /> Auto Out
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/30 px-1.5 sm:px-2 py-0.5 rounded-full">
-      <FaCheck className="text-[10px]" /> On time
+    <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700/30 px-1.5 sm:px-2 py-0.5 rounded-full">
+      {clockIn.status || 'Unknown'}
     </span>
   );
 };
@@ -347,8 +437,8 @@ const LeaderboardTable = ({ data, period }) => {
           <tr className="border-b border-gray-200 dark:border-gray-800">
             <th className="text-left py-1.5 px-1 sm:py-2 sm:px-2 text-[10px] sm:text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">Rank</th>
             <th className="text-left py-1.5 px-1 sm:py-2 sm:px-2 text-[10px] sm:text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">Member</th>
-            <th className="text-center py-1.5 px-1 sm:py-2 sm:px-2 text-[10px] sm:text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">Early</th>
-            <th className="text-center py-1.5 px-1 sm:py-2 sm:px-2 text-[10px] sm:text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider hidden sm:table-cell">Avg Early</th>
+            <th className="text-center py-1.5 px-1 sm:py-2 sm:px-2 text-[10px] sm:text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">On Time</th>
+            <th className="text-center py-1.5 px-1 sm:py-2 sm:px-2 text-[10px] sm:text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider hidden sm:table-cell">Avg Late</th>
             <th className="text-center py-1.5 px-1 sm:py-2 sm:px-2 text-[10px] sm:text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">Score</th>
           </tr>
         </thead>
@@ -373,7 +463,7 @@ const LeaderboardTable = ({ data, period }) => {
                 </div>
               </td>
               <td className="text-center py-1.5 px-1 sm:py-2 sm:px-2 text-gray-600 dark:text-gray-400 text-[10px] sm:text-sm">{item.earlyCount}</td>
-              <td className="text-center py-1.5 px-1 sm:py-2 sm:px-2 text-gray-600 dark:text-gray-400 text-[10px] sm:text-sm hidden sm:table-cell">{item.avgEarlyMinutes} min</td>
+              <td className="text-center py-1.5 px-1 sm:py-2 sm:px-2 text-gray-600 dark:text-gray-400 text-[10px] sm:text-sm hidden sm:table-cell">{item.avgLateMinutes} min</td>
               <td className="text-center py-1.5 px-1 sm:py-2 sm:px-2 font-semibold text-teal-600 dark:text-teal-400 text-[10px] sm:text-sm">{Math.round(item.score)}</td>
             </tr>
           ))}
@@ -490,6 +580,7 @@ const YourWorkspaceClockin = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [leaderboardPeriod, setLeaderboardPeriod] = useState('month');
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
+  const [reasonModal, setReasonModal] = useState({ isOpen: false, onConfirm: null });
 
   // ─── Workspace data ──────────────────────────────────────────────────
   const { data: workspaceData, isLoading: workspaceLoading } = useGetWorkspaceQuery(workspaceId);
@@ -515,10 +606,11 @@ const YourWorkspaceClockin = () => {
   const clockInStart = settingsData?.settings?.clockInStart || settingsData?.settings?.clockInTime || null;
   const clockInEnd = settingsData?.settings?.clockInEnd || null;
   const closingTime = settingsData?.settings?.closingTime || null;
+  const clockOutEarliest = settingsData?.settings?.clockOutEarliest || null;
   const hasScheduledTime = clockInStart !== null;
 
-  // ─── Check if past closing ──────────────────────────────────────────
   const pastClosing = isPastClosing(closingTime);
+  const beforeEarliest = isBeforeEarliest(clockOutEarliest);
 
   // Current user's today clock-in status
   const { data: userHistoryData, isLoading: userHistoryLoading, refetch: refetchUserHistory } = useGetUserClockInHistoryQuery(
@@ -557,13 +649,40 @@ const YourWorkspaceClockin = () => {
     }
   };
 
-  const handleClockOut = async () => {
+  const handleClockOut = async (providedReason = null) => {
     try {
-      await clockOutMutation(workspaceId).unwrap();
+      await clockOutMutation({ workspaceId, reason: providedReason || undefined }).unwrap();
       toast.success('Clocked out successfully!');
       refetchUserHistory();
+      setReasonModal({ isOpen: false, onConfirm: null });
     } catch (err) {
-      toast.error(err?.data?.message || 'Failed to clock out.');
+      // If the error is about missing reason, open the modal
+      if (err?.data?.message?.includes('reason') || err?.data?.message?.includes('provide a reason')) {
+        if (!reasonModal.isOpen) {
+          setReasonModal({
+            isOpen: true,
+            onConfirm: async (reason) => {
+              await handleClockOut(reason);
+            },
+          });
+        }
+      } else {
+        toast.error(err?.data?.message || 'Failed to clock out.');
+      }
+    }
+  };
+
+  // Wrap clock-out to check earliest time preemptively
+  const onClockOutClick = () => {
+    if (beforeEarliest) {
+      setReasonModal({
+        isOpen: true,
+        onConfirm: async (reason) => {
+          await handleClockOut(reason);
+        },
+      });
+    } else {
+      handleClockOut(null);
     }
   };
 
@@ -617,10 +736,13 @@ const YourWorkspaceClockin = () => {
                   <span>Out: {new Date(item.clockOutTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                 </>
               )}
-              {item.status === 'auto-clocked-out' && (
+              {item.autoClockedOut && (
                 <span className="text-purple-500 text-[10px]">(auto)</span>
               )}
             </div>
+            {item.clockOutReason && (
+              <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5 italic">📝 {item.clockOutReason}</p>
+            )}
           </div>
           <div className="flex-shrink-0">
             <StatusBadge clockIn={item} />
@@ -712,7 +834,7 @@ const YourWorkspaceClockin = () => {
                 {isClockInEnabled && (
                   isClockedIn ? (
                     <button
-                      onClick={handleClockOut}
+                      onClick={onClockOutClick}
                       disabled={isClockOutLoading}
                       className="px-2 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-sm bg-red-600 dark:bg-red-500 text-white rounded-xl hover:bg-red-700 dark:hover:bg-red-600 transition disabled:opacity-50 flex items-center gap-1 sm:gap-2 whitespace-nowrap"
                     >
@@ -768,6 +890,12 @@ const YourWorkspaceClockin = () => {
                   <span className="flex items-center gap-1.5 text-gray-600 dark:text-gray-400">
                     <FaTimes className="text-[11px] sm:text-xs" />
                     Closes at <span className="font-mono font-semibold text-gray-800 dark:text-gray-200">{formatTime(closingTime)}</span>
+                  </span>
+                )}
+                {clockOutEarliest && (
+                  <span className="flex items-center gap-1.5 text-gray-600 dark:text-gray-400">
+                    <FaClock className="text-[11px] sm:text-xs" />
+                    Earliest out: <span className="font-mono font-semibold text-gray-800 dark:text-gray-200">{formatTime(clockOutEarliest)}</span>
                   </span>
                 )}
               </div>
@@ -907,6 +1035,17 @@ const YourWorkspaceClockin = () => {
         message={confirmModal.message}
         confirmLabel="Send"
         confirmColor="bg-teal-600 hover:bg-teal-700"
+      />
+
+      {/* ─── Reason Modal ───────────────────────────────────────────── */}
+      <ReasonModal
+        isOpen={reasonModal.isOpen}
+        onConfirm={reasonModal.onConfirm || (() => {})}
+        onCancel={() => setReasonModal({ isOpen: false, onConfirm: null })}
+        title="Early Clock‑out Reason"
+        message="You are clocking out before the earliest allowed time. Please provide a reason."
+        confirmLabel="Confirm Clock‑out"
+        confirmColor="bg-red-600 hover:bg-red-700"
       />
     </>
   );

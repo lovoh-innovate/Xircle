@@ -9,7 +9,7 @@ import {
   getWorkspaceClockIns,
   getClockInLeaderboard,
   triggerMonthlyLeaderboard,
-  getAttendanceSummary,                   // 👈 import the new endpoint
+  getAttendanceSummary,
 } from '../controllers/clockInController.js';
 
 const router = express.Router();
