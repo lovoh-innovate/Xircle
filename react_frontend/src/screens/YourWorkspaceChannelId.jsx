@@ -121,6 +121,63 @@ const useMediaQuery = (query) => {
   return matches;
 };
 
+// ─── Skeleton Message Component (copied from GeneralChatId) ────────────
+const SkeletonMessage = ({ isOwn }) => {
+  const randomWidth = useCallback(() => {
+    const widths = ["w-32", "w-40", "w-48", "w-52", "w-56", "w-36", "w-44", "w-60"];
+    return widths[Math.floor(Math.random() * widths.length)];
+  }, []);
+  const randomHeight = useCallback(() => {
+    const heights = ["h-8", "h-10", "h-12", "h-9", "h-11"];
+    return heights[Math.floor(Math.random() * heights.length)];
+  }, []);
+
+  return (
+    <div className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""} animate-pulse`}>
+      {!isOwn && (
+        <div className="w-8 h-8 rounded-full flex-shrink-0 bg-gray-200 dark:bg-gray-700" />
+      )}
+      <div className={`max-w-[75%] sm:max-w-[85%] ${isOwn ? "items-end" : "items-start"} flex flex-col gap-0.5`}>
+        {!isOwn && (
+          <div className="h-3 w-16 bg-gray-200 dark:bg-gray-700 rounded-full mb-0.5" />
+        )}
+        <div className={`px-4 py-2.5 rounded-2xl ${isOwn ? "bg-teal-200/60 dark:bg-teal-700/40" : "bg-gray-200 dark:bg-gray-700/60"}`}>
+          <div className={`${randomWidth()} ${randomHeight()} rounded-lg`} />
+        </div>
+        <div className="flex items-center gap-1 mt-0.5">
+          <div className="w-8 h-2 bg-gray-200 dark:bg-gray-700 rounded-full" />
+          <div className="w-3 h-2 bg-gray-200 dark:bg-gray-700 rounded-full" />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const SkeletonMessages = ({ count = 6 }) => {
+  return (
+    <div className="space-y-4 pt-4">
+      {/* Date divider skeleton */}
+      <div className="flex justify-center my-3">
+        <div className="w-24 h-5 bg-gray-200 dark:bg-gray-700 rounded-full animate-pulse" />
+      </div>
+      {Array.from({ length: count }).map((_, i) => {
+        const isOwn = i % 2 === 0;
+        if (i === 3) {
+          return (
+            <React.Fragment key={i}>
+              <div className="flex justify-center my-3">
+                <div className="w-20 h-5 bg-gray-200 dark:bg-gray-700 rounded-full animate-pulse" />
+              </div>
+              <SkeletonMessage isOwn={isOwn} />
+            </React.Fragment>
+          );
+        }
+        return <SkeletonMessage key={i} isOwn={isOwn} />;
+      })}
+    </div>
+  );
+};
+
 // ─── Media Picker Modal (custom bottom sheet) ──────────────────────
 const MediaPickerModal = ({ isOpen, onClose, onTakePhoto, onChooseFromGallery, brandColor }) => {
   if (!isOpen) return null;
@@ -1620,16 +1677,16 @@ const YourWorkspaceChannelId = () => {
 
   // ─── Polling for messages ──────────────────────────────────────────
   useEffect(() => {
-  if (!chatId) return;
-  const interval = setInterval(() => {
-    if (!isConnected) {
-      // socket is down — poll as a fallback until it reconnects
-      refetchMessages();
-      refetchChats();
-    }
-  }, 15000); // 15s, not 3s
-  return () => clearInterval(interval);
-}, [chatId, isConnected, refetchMessages, refetchChats]);
+    if (!chatId) return;
+    const interval = setInterval(() => {
+      if (!isConnected) {
+        // socket is down — poll as a fallback until it reconnects
+        refetchMessages();
+        refetchChats();
+      }
+    }, 15000); // 15s, not 3s
+    return () => clearInterval(interval);
+  }, [chatId, isConnected, refetchMessages, refetchChats]);
 
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showScrollDown, setShowScrollDown] = useState(false);
@@ -2591,12 +2648,8 @@ const YourWorkspaceChannelId = () => {
   }, [localMessages, markMessageAsRead, userInfo]);
 
   // ─── Error / loading states ─────────────────────────────────────────
-  if (error) {
-    navigate(`/workspace/${workspaceId}`);
-    return null;
-  }
-
-  if (workspaceLoading || chatsLoading || messagesLoading) {
+  // Only show full-page spinner if workspace or chat list is loading
+  if (workspaceLoading || chatsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
         <div className="text-center">
@@ -2608,9 +2661,13 @@ const YourWorkspaceChannelId = () => {
     );
   }
 
-  const workspace = workspaceData?.workspace;
-  if (!workspace || !chat) return null;
+  // If workspace or chat not found, redirect
+  if (error || !workspaceData?.workspace || !chat) {
+    navigate(`/workspace/${workspaceId}`);
+    return null;
+  }
 
+  const workspace = workspaceData?.workspace;
   const brandColor = workspace.color || '#0d9488';
   const memberCount = chat.participants?.length || 0;
 
@@ -2948,7 +3005,10 @@ const YourWorkspaceChannelId = () => {
             onScroll={handleMessagesScroll}
             className="h-full overflow-y-auto px-4 py-3 space-y-4 pt-20 lg:pt-3 pb-24 lg:pb-3"
           >
-            {localMessages.length === 0 ? (
+            {/* ─── Skeleton or messages ──────────────────────────────── */}
+            {messagesLoading ? (
+              <SkeletonMessages count={6} />
+            ) : localMessages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
                 <FaComment className="text-4xl mb-2 opacity-30" />
                 <p className="text-sm">No messages yet</p>
