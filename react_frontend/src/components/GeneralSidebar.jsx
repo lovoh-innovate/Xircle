@@ -12,11 +12,13 @@ import {
   useGetUserChatsQuery,
   messagingApiSlice,
 } from '../slices/messagingApiSlice';
+import { useCheckAppUpdateQuery } from '../slices/appApiSlice';
 import {
   FiHome,
   FiCheckSquare,
   FiUsers,
   FiUpload,
+  FiPackage,
 } from 'react-icons/fi';
 import {
   FaExclamationCircle,
@@ -24,10 +26,11 @@ import {
   FaUserCircle,
   FaCog,
   FaSignOutAlt,
+  FaExclamationTriangle,
 } from 'react-icons/fa';
 import { persistor } from '../store';
 
-const LOGO = '/logo.png';
+const LOGO = '/logo.jpeg';
 
 // ─── Custom WhatsApp‑style Chat Icon ──────────────────────────────
 const ChatIcon = ({ className }) => (
@@ -52,6 +55,25 @@ const GeneralSidebar = () => {
   const dispatch = useDispatch();
   const { userInfo } = useSelector((state) => state.auth);
   const isAdmin = userInfo?.role === 'admin' || userInfo?.role === 'super_admin';
+
+  // ── App update check for ALL users ──
+  const token = userInfo?.token;
+  const currentVersion = userInfo?.appVersion;
+  const { data: updateData, isLoading: updateLoading } = useCheckAppUpdateQuery(
+    {
+      platform: 'android',
+      currentVersion: currentVersion || undefined,
+      token,
+    },
+    {
+      skip: !token,
+      refetchOnMountOrArgChange: true,
+    }
+  );
+
+  const hasUpdate = updateData?.hasUpdate || false;
+  const isRequired = updateData?.isRequired || false;
+  const updateBadgeColor = hasUpdate ? (isRequired ? 'bg-red-500' : 'bg-orange-400') : null;
 
   const handleLogout = async () => {
     try {
@@ -155,7 +177,7 @@ const GeneralSidebar = () => {
     <aside className="fixed top-0 left-0 w-72 h-full bg-[#0f0f12]/90 backdrop-blur-xl border-r border-white/10 shadow-xl flex flex-col overflow-y-auto z-40">
       {/* ─── Logo ───────────────────────────────────── */}
       <div className="flex items-center gap-3 px-4 py-4 border-b border-white/10 sticky top-0 bg-inherit z-10">
-        <img src={LOGO} alt="Xircle" className="h-8 w-8 object-contain" />
+        <img src={LOGO} alt="Xircle" className="h-8 w-8 object-contain rounded-lg" />
         <span className="text-xl font-bold text-white tracking-tight">Xircle</span>
       </div>
 
@@ -167,6 +189,8 @@ const GeneralSidebar = () => {
             { to: '/personal-tasks', icon: FiCheckSquare, label: 'My Tasks', onHover: prefetchAllTasks },
             { to: '/chat', icon: ChatIcon, label: 'Chat', onHover: prefetchAllChats },
             { to: '/channels', icon: FiUsers, label: 'Channels' },
+            // ─── App Versions (for ALL users) ──
+            { to: '/app-versions', icon: FiPackage, label: 'App Versions' },
           ].map(({ to, icon: Icon, label, onHover }) => (
             <li key={to}>
               <NavLink
@@ -180,16 +204,31 @@ const GeneralSidebar = () => {
                   }`
                 }
               >
-                <Icon className="text-lg w-6 text-center" />
+                <div className="relative">
+                  <Icon className="text-lg w-6 text-center" />
+                  {to === '/app-versions' && hasUpdate && !updateLoading && (
+                    <span
+                      className={`absolute -top-1 -right-2 w-2.5 h-2.5 rounded-full ${updateBadgeColor} shadow-[0_0_8px_currentColor]`}
+                      style={{ color: isRequired ? '#ef4444' : '#fb923c' }}
+                    />
+                  )}
+                </div>
                 <span>{label}</span>
                 {({ isActive }) => isActive && (
                   <span className="ml-auto w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                )}
+                {to === '/app-versions' && hasUpdate && !updateLoading && (
+                  <span
+                    className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full ${updateBadgeColor} text-white`}
+                  >
+                    {isRequired ? 'Required' : 'New'}
+                  </span>
                 )}
               </NavLink>
             </li>
           ))}
 
-          {/* ─── Admin: Upload App ─────────────────── */}
+          {/* ─── Admin: Upload App ────────────────── */}
           {isAdmin && (
             <li>
               <NavLink
@@ -319,7 +358,6 @@ const GeneralSidebar = () => {
       {/* ─── User Profile ────────────────────────────── */}
       <div className="border-t border-white/10 p-4 sticky bottom-0 bg-inherit">
         <div className="flex items-center gap-3">
-          {/* Clickable profile area */}
           <div
             onClick={() => navigate('/profile')}
             className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer hover:bg-white/5 rounded-lg p-1 transition-colors"
@@ -343,7 +381,6 @@ const GeneralSidebar = () => {
             </div>
           </div>
 
-          {/* Actions: settings cog + logout */}
           <div className="flex items-center gap-1 flex-shrink-0">
             <button
               onClick={() => navigate('/profile')}

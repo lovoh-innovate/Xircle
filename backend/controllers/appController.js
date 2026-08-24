@@ -2,11 +2,37 @@
 import AppVersion from '../models/appVersionModel.js';
 import User from '../models/userModel.js';
 import jwt from 'jsonwebtoken';
-import { broadcastAppUpdate } from './notificationController.js';
+import { createAndSendNotification } from './notificationController.js';
 import { r2Client, R2_BUCKET_NAME, R2_PUBLIC_URL } from '../config/r2.js';
 import { GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 
-// ─── Public endpoints ──────────────────────────────────────────────
+// ─── Notification helper ──────────────────────────────────────────────
+async function notifyUser(userId, { title, body, data = {}, emailHtml = null }) {
+  if (!userId) return;
+  try {
+    await createAndSendNotification({
+      recipient: userId,
+      title,
+      body,
+      data,
+      sendPush: true,
+      emailEventType: 'newMessage',
+      emailSubject: title,
+      emailHtml: emailHtml || `<p>${body}</p>`,
+    });
+  } catch (err) {
+    console.error(`Notification to ${userId} failed:`, err.message);
+  }
+}
+
+async function notifyMultipleUsers(userIds, { title, body, data = {}, emailHtml = null }) {
+  if (!userIds || !Array.isArray(userIds) || userIds.length === 0) return;
+  for (const userId of userIds) {
+    await notifyUser(userId, { title, body, data, emailHtml });
+  }
+}
+
+// ─── Public endpoints ──────────────────────────────────────────────────
 
 /**
  * GET /api/app/version
@@ -127,11 +153,24 @@ export const downloadApp = async (req, res) => {
     if (token) {
       try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        await User.findByIdAndUpdate(decoded.id, {
+        const user = await User.findByIdAndUpdate(decoded.id, {
           appVersion: appVersion.version,
           appVersionUpdatedAt: new Date(),
-        });
-        console.log(`✅ User ${decoded.id} version updated to ${appVersion.version} on download`);
+        }, { new: true });
+
+        if (user) {
+          console.log(`✅ User ${decoded.id} version updated to ${appVersion.version} on download`);
+          
+          // Notify user of successful update
+          await notifyUser(decoded.id, {
+            title: '📱 App Updated',
+            body: `You've successfully updated to version ${appVersion.version}`,
+            data: {
+              type: 'app_update',
+              version: appVersion.version,
+            },
+          });
+        }
       } catch (error) {
         console.log('⚠️ Download token invalid, skipping version update');
       }
@@ -143,7 +182,7 @@ export const downloadApp = async (req, res) => {
     try {
       const command = new GetObjectCommand({
         Bucket: R2_BUCKET_NAME,
-        Key: appVersion.fileName, // R2 object key, stored at upload time
+        Key: appVersion.fileName,
       });
       const r2Response = await r2Client.send(command);
 
@@ -236,7 +275,7 @@ export const updateUserAppVersion = async (req, res) => {
   }
 };
 
-// ─── Admin endpoints – authentication only, no role checks ──────
+// ─── Admin endpoints ──────────────────────────────────────────────────
 
 /**
  * POST /api/app/admin/upload
@@ -267,7 +306,7 @@ export const uploadApp = async (req, res) => {
       releaseNotes: releaseNotes || '',
       fileUrl,
       fileSize: req.file.size,
-      fileName: req.file.key, // R2 object key, used for download/delete
+      fileName: req.file.key,
       filePublicId: req.file.key,
       isRequired: isRequired === 'true' || isRequired === true,
       platform,
@@ -276,13 +315,53 @@ export const uploadApp = async (req, res) => {
     });
     await appVersion.save();
 
-    // 🚀 Broadcast push notification
-    broadcastAppUpdate({
-      _id: appVersion._id,
-      version: appVersion.version,
-      isRequired: appVersion.isRequired,
-      releaseNotes: appVersion.releaseNotes,
-    }).catch(err => console.error('Push broadcast failed:', err));
+    // ── Get uploader info for notification ──
+    const uploader = await User.findById(userId).select('name email');
+    const uploaderName = uploader?.name || 'An admin';
+
+    // ── Notify ALL users with active tokens about the update ──
+    const users = await User.find({
+      'pushTokens.isActive': true,
+    }).select('_id name');
+
+    const userIds = users.map(u => u._id.toString());
+    const notificationData = {
+      title: `📱 New App Update v${version}`,
+      body: isRequired 
+        ? `Version ${version} is required. Please update to continue.`
+        : `Version ${version} is now available with new features.`,
+      data: {
+        type: 'app_update',
+        version,
+        isRequired: String(isRequired),
+        versionId: appVersion._id.toString(),
+        releaseNotes: releaseNotes || '',
+      },
+      emailHtml: `
+        <h2>📱 New App Update</h2>
+        <p><strong>Version ${version}</strong> is now available for download.</p>
+        ${isRequired ? '<p style="color:red;font-weight:bold;">⚠️ This update is required.</p>' : ''}
+        ${releaseNotes ? `<p><strong>What\'s new:</strong><br/>${releaseNotes}</p>` : ''}
+        <p>Click the link below to download:</p>
+        <p><a href="${fileUrl}">Download v${version}</a></p>
+        <hr/>
+        <p style="color:#666;">Uploaded by: ${uploaderName}</p>
+      `,
+    };
+
+    // Send to all users asynchronously (don't block response)
+    notifyMultipleUsers(userIds, notificationData)
+      .catch(err => console.error('Failed to send update notifications:', err));
+
+    // Also send confirmation to uploader
+    await notifyUser(userId, {
+      title: '✅ App Uploaded Successfully',
+      body: `Version ${version} has been uploaded and notifications sent to all users.`,
+      data: {
+        type: 'upload_confirmation',
+        version,
+      },
+    });
 
     res.status(201).json({
       success: true,
@@ -294,6 +373,7 @@ export const uploadApp = async (req, res) => {
         fileSize: appVersion.fileSize,
         fileUrl: appVersion.fileUrl,
         createdAt: appVersion.createdAt,
+        notificationsSent: userIds.length,
       },
     });
   } catch (error) {
@@ -321,6 +401,16 @@ export const updateApp = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Version not found' });
     }
 
+    const changes = {};
+    if (version && version !== appVersion.version) changes.version = version;
+    if (releaseNotes !== undefined && releaseNotes !== appVersion.releaseNotes) changes.releaseNotes = releaseNotes;
+    if (isRequired !== undefined && isRequired !== appVersion.isRequired) changes.isRequired = isRequired;
+    if (isActive !== undefined && isActive !== appVersion.isActive) changes.isActive = isActive;
+
+    if (Object.keys(changes).length === 0) {
+      return res.status(400).json({ success: false, message: 'No changes detected' });
+    }
+
     if (version) appVersion.version = version;
     if (releaseNotes !== undefined) appVersion.releaseNotes = releaseNotes;
     if (isRequired !== undefined) appVersion.isRequired = isRequired;
@@ -328,10 +418,50 @@ export const updateApp = async (req, res) => {
     appVersion.updatedAt = new Date();
     await appVersion.save();
 
+    // ── Notify the admin who made the change ──
+    await notifyUser(userId, {
+      title: '✅ App Version Updated',
+      body: `Version ${appVersion.version} has been updated successfully.`,
+      data: {
+        type: 'version_updated',
+        versionId: appVersion._id.toString(),
+        version: appVersion.version,
+        changes: Object.keys(changes).join(', '),
+      },
+    });
+
+    // ── If marked as required, notify users about the required update ──
+    if (isRequired && changes.isRequired) {
+      const users = await User.find({
+        'pushTokens.isActive': true,
+      }).select('_id');
+      const userIds = users.map(u => u._id.toString());
+      
+      if (userIds.length > 0) {
+        await notifyMultipleUsers(userIds, {
+          title: `⚠️ Required Update: v${appVersion.version}`,
+          body: `Version ${appVersion.version} is now marked as required. Please update your app immediately.`,
+          data: {
+            type: 'app_update',
+            version: appVersion.version,
+            isRequired: 'true',
+            versionId: appVersion._id.toString(),
+          },
+          emailHtml: `
+            <h2>⚠️ Required App Update</h2>
+            <p><strong>Version ${appVersion.version}</strong> is now marked as required.</p>
+            <p>Please update your app immediately to continue using it.</p>
+            <p><a href="/app-versions">Click here to download the update</a></p>
+          `,
+        });
+      }
+    }
+
     res.status(200).json({
       success: true,
       message: 'App version updated',
       data: appVersion,
+      changes,
     });
   } catch (error) {
     console.error('updateApp error:', error);
@@ -356,6 +486,11 @@ export const deleteApp = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Version not found' });
     }
 
+    const versionInfo = {
+      version: appVersion.version,
+      platform: appVersion.platform,
+    };
+
     // ── Delete object from R2 if exists ──
     if (appVersion.fileName) {
       try {
@@ -371,7 +506,23 @@ export const deleteApp = async (req, res) => {
     }
 
     await AppVersion.findByIdAndDelete(versionId);
-    res.status(200).json({ success: true, message: 'App version deleted' });
+
+    // ── Notify the admin who deleted it ──
+    await notifyUser(userId, {
+      title: '🗑️ App Version Deleted',
+      body: `Version ${versionInfo.version} has been deleted successfully.`,
+      data: {
+        type: 'version_deleted',
+        version: versionInfo.version,
+        platform: versionInfo.platform,
+      },
+    });
+
+    res.status(200).json({ 
+      success: true, 
+      message: 'App version deleted',
+      deleted: versionInfo,
+    });
   } catch (error) {
     console.error('deleteApp error:', error);
     res.status(500).json({ success: false, message: 'Error deleting app', error: error.message });

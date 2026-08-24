@@ -2,6 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
+import { Capacitor } from '@capacitor/core';
+import { Browser } from '@capacitor/browser';
 import {
   useLoginMutation,
   useGoogleAuthMutation,
@@ -10,7 +12,7 @@ import {
 } from '../slices/userApiSlice';
 import { setCredentials } from '../slices/authSlice';
 import { toast } from 'react-hot-toast';
-import { FaEnvelope, FaLock, FaEye, FaEyeSlash, FaArrowLeft } from 'react-icons/fa';
+import { FaEnvelope, FaLock, FaEye, FaEyeSlash, FaArrowLeft, FaGoogle } from 'react-icons/fa';
 import { GoogleLogin } from '@react-oauth/google';
 
 const Login = () => {
@@ -43,6 +45,85 @@ const Login = () => {
       navigate(from, { replace: true });
     }
   }, [userInfo, navigate, from]);
+
+  // ── Handle Google OAuth for Capacitor ──
+  const handleGoogleLogin = async () => {
+    if (Capacitor.isNativePlatform()) {
+      // ── Capacitor Native - Open in Browser ──
+      try {
+        setIsLoading(true);
+        toast.loading('Opening Google login...', { duration: 5000 });
+        
+        // Construct the Google OAuth URL for your domain
+        const redirectUri = `https://xircle.lovohcreate.com/login`;
+        const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
+          `client_id=${import.meta.env.VITE_GOOGLE_CLIENT_ID}&` +
+          `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+          `response_type=code&` +
+          `scope=email%20profile&` +
+          `access_type=online`;
+        
+        await Browser.open({
+          url: googleAuthUrl,
+          presentationStyle: 'fullscreen',
+          toolbarColor: '#0d9488',
+        });
+        
+        toast.dismiss();
+      } catch (error) {
+        toast.dismiss();
+        console.error('Google login error:', error);
+        toast.error('Failed to open Google login. Please try again.');
+        setIsLoading(false);
+      }
+    } else {
+      // ── Web Browser - Use GoogleLogin component ──
+      // The GoogleLogin component will handle this
+      toast.info('Please use the Google login button below');
+    }
+  };
+
+  // ── Handle Google OAuth callback for Capacitor ──
+  // This should be called when the user returns from the browser
+  const handleGoogleCallback = async (code) => {
+    try {
+      setIsLoading(true);
+      const res = await googleAuth({ 
+        code, 
+        mode: 'login',
+        // For Capacitor, we might need to send the code to your backend
+      }).unwrap();
+      dispatch(setCredentials({ ...res }));
+      toast.success('Google login successful!');
+      navigate(from, { replace: true });
+    } catch (err) {
+      toast.error(err?.data?.message || 'Google login failed. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ── Google login handlers for Web ──
+  const handleGoogleSuccess = async (credentialResponse) => {
+    try {
+      setIsLoading(true);
+      const res = await googleAuth({
+        token: credentialResponse.credential,
+        mode: 'login',
+      }).unwrap();
+      dispatch(setCredentials({ ...res }));
+      toast.success('Google login successful!');
+      navigate(from, { replace: true });
+    } catch (err) {
+      toast.error(err?.data?.message || 'Google login failed. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleError = () => {
+    toast.error('Google login failed. Please try again.');
+  };
 
   // ── Login submit ──
   const handleSubmit = async (e) => {
@@ -108,27 +189,7 @@ const Login = () => {
     setPendingEmail('');
   };
 
-  // ── Google login handlers ──
-  const handleGoogleSuccess = async (credentialResponse) => {
-    try {
-      setIsLoading(true);
-      const res = await googleAuth({
-        token: credentialResponse.credential,
-        mode: 'login',
-      }).unwrap();
-      dispatch(setCredentials({ ...res }));
-      toast.success('Google login successful!');
-      navigate(from, { replace: true });
-    } catch (err) {
-      toast.error(err?.data?.message || 'Google login failed. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleGoogleError = () => {
-    toast.error('Google login failed. Please try again.');
-  };
+  const isNative = Capacitor.isNativePlatform();
 
   // ── Render OTP form ──
   const renderOTPForm = () => (
@@ -223,7 +284,6 @@ const Login = () => {
             backgroundPosition: 'center',
           }}
         >
-          {/* Overlay – adapts to theme */}
           <div className="absolute inset-0 bg-gradient-to-br from-teal-700/90 dark:from-[#0b0b10]/95 to-teal-500/80 dark:to-[#0d9488]/60"></div>
           <div className="absolute inset-0 opacity-20">
             <div className="absolute top-20 left-10 w-64 h-64 bg-white rounded-full blur-3xl"></div>
@@ -232,7 +292,7 @@ const Login = () => {
 
           <div className="relative z-10 flex flex-col justify-between h-full p-12 text-white">
             <div>
-              <img src="/xircle-logo.png" alt="Xircle" className="h-12 w-auto" />
+              <img src="/logo.jpeg" alt="Xircle" className="h-12 w-auto rounded-lg" />
             </div>
             <div className="max-w-lg mx-auto w-full">
               <div className="bg-white/10 dark:bg-white/5 backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-2xl p-8 shadow-2xl shadow-black/10">
@@ -287,7 +347,7 @@ const Login = () => {
         ) : (
           <div className="w-full max-w-md">
             <div className="lg:hidden text-center mb-8">
-              <img src="/xircle-logo.png" alt="Xircle" className="h-12 w-auto mx-auto" />
+              <img src="/logo.jpeg" alt="Xircle" className="h-12 w-auto mx-auto rounded-lg" />
             </div>
 
             <div className="mb-8">
@@ -296,18 +356,40 @@ const Login = () => {
             </div>
 
             <div className="mb-6">
-              <div className="flex justify-center">
-                <GoogleLogin
-                  onSuccess={handleGoogleSuccess}
-                  onError={handleGoogleError}
-                  theme="filled_black"
-                  size="large"
-                  width="100%"
-                  text="signin_with"
-                  shape="rectangular"
-                  logo_alignment="center"
-                />
-              </div>
+              {isNative ? (
+                // ── Capacitor Native - Custom Google Button ──
+                <button
+                  onClick={handleGoogleLogin}
+                  disabled={isLoading || isGoogleLoading}
+                  className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white dark:bg-[#1a1a24] text-gray-800 dark:text-gray-200 font-medium rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-[#2a2a35] focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all duration-200 disabled:opacity-70 disabled:cursor-not-allowed"
+                >
+                  {isLoading || isGoogleLoading ? (
+                    <div className="flex items-center gap-2">
+                      <div className="w-5 h-5 border-2 border-teal-600 border-t-transparent rounded-full animate-spin"></div>
+                      <span>Signing in...</span>
+                    </div>
+                  ) : (
+                    <>
+                      <FaGoogle className="text-xl text-red-500" />
+                      <span>Sign in with Google</span>
+                    </>
+                  )}
+                </button>
+              ) : (
+                // ── Web Browser - GoogleLogin Component ──
+                <div className="flex justify-center">
+                  <GoogleLogin
+                    onSuccess={handleGoogleSuccess}
+                    onError={handleGoogleError}
+                    theme="filled_black"
+                    size="large"
+                    width="100%"
+                    text="signin_with"
+                    shape="rectangular"
+                    logo_alignment="center"
+                  />
+                </div>
+              )}
             </div>
 
             <div className="relative mb-6">

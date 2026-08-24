@@ -1,5 +1,14 @@
 {
   "appId": "com.lovohcreate.xircle",
   "appName": "Xircle",
-  "webDir": "dist"
+  "webDir": "dist",
+  "plugins": {
+    "Browser": {
+      "presentationStyle": "fullscreen",
+      "preferredMode": "single"
+    }
+  },
+  "server": {
+    "androidScheme": "https"
+  }
 }

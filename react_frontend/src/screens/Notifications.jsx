@@ -24,15 +24,28 @@ import {
   FaInbox,
   FaChevronLeft,
   FaChevronRight,
+  FaDownload,
+  FaExclamationTriangle,
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 
 // ─── Build the destination route for a notification ────────────────
 const buildNotificationLink = (data = {}) => {
+  // ── App Update Notifications ──────────────────────────────────────
+  if (data.type === 'app_update' || data.type === 'APP_UPDATE' || data.notificationType === 'app_update') {
+    return '/app-versions';
+  }
+
+  if (data.type === 'version_updated' || data.type === 'upload_confirmation' || data.type === 'version_deleted') {
+    return '/app-versions';
+  }
+
+  // ── Call Notifications ────────────────────────────────────────────
   if (data.notificationType === 'call' && data.roomId) {
     return `/call/${data.roomId}?autoJoin=true`;
   }
 
+  // ── Chat/Channel Notifications ────────────────────────────────────
   if (data.chatId) {
     if (data.workspaceId) {
       return `/workspace/${data.workspaceId}/chat/${data.chatId}`;
@@ -41,28 +54,66 @@ const buildNotificationLink = (data = {}) => {
     return isGroup ? `/channels/${data.chatId}` : `/chats/${data.chatId}`;
   }
 
+  // ── Task Notifications ────────────────────────────────────────────
   if (data.taskId && data.projectId && data.workspaceId) {
     return `/workspace/${data.workspaceId}/project/${data.projectId}`;
   }
 
+  // ── Project Notifications ─────────────────────────────────────────
   if (data.projectId && data.workspaceId) {
     return `/workspace/${data.workspaceId}/project/${data.projectId}`;
   }
 
+  // ── Workspace Notifications ───────────────────────────────────────
   if (data.workspaceId) {
     return `/workspace/${data.workspaceId}`;
+  }
+
+  // ── Clock-in Notifications ────────────────────────────────────────
+  if (data.type === 'clockin' || data.type === 'clockout' || 
+      data.type === 'clockin-reminder' || data.type === 'auto-clockout' ||
+      data.type === 'clockin-confirmation' || data.type === 'clockout-confirmation') {
+    if (data.workspaceId) {
+      return `/workspace/${data.workspaceId}/clockin`;
+    }
   }
 
   return '/my-workspaces';
 };
 
 const getNotificationIcon = (data = {}) => {
+  // ── App Update Notifications ──────────────────────────────────────
+  if (data.type === 'app_update' || data.type === 'APP_UPDATE' || data.notificationType === 'app_update') {
+    return FaDownload;
+  }
+  if (data.type === 'version_updated' || data.type === 'upload_confirmation' || data.type === 'version_deleted') {
+    return FaDownload;
+  }
+
+  // ── Other Notifications ───────────────────────────────────────────
   if (data.notificationType === 'call') return FaPhoneAlt;
   if (data.notificationType === 'channel' || data.chatType === 'group') return FaHashtag;
   if (data.chatId) return FaComments;
   if (data.taskId) return FaTasks;
   if (data.projectId) return FaFolder;
   return FaBell;
+};
+
+const getNotificationBadge = (data = {}) => {
+  // ── App Update Badge ──────────────────────────────────────────────
+  if (data.type === 'app_update' || data.type === 'APP_UPDATE' || data.notificationType === 'app_update') {
+    const isRequired = data.isRequired === 'true' || data.isRequired === true;
+    return (
+      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+        isRequired 
+          ? 'bg-red-500/20 text-red-400' 
+          : 'bg-orange-400/20 text-orange-400'
+      }`}>
+        {isRequired ? 'Required' : 'Optional'}
+      </span>
+    );
+  }
+  return null;
 };
 
 const timeAgo = (dateStr) => {
@@ -82,7 +133,12 @@ const timeAgo = (dateStr) => {
 // ─── Single notification row ────────────────────────────────────────
 const NotificationItem = ({ notification, onClick, onDelete, deleting }) => {
   const Icon = getNotificationIcon(notification.data);
+  const Badge = getNotificationBadge(notification.data);
   const unread = !notification.read;
+  const isAppUpdate = notification.data?.type === 'app_update' || 
+                      notification.data?.type === 'APP_UPDATE' || 
+                      notification.data?.notificationType === 'app_update';
+  const isRequired = notification.data?.isRequired === 'true' || notification.data?.isRequired === true;
 
   return (
     <div
@@ -91,24 +147,46 @@ const NotificationItem = ({ notification, onClick, onDelete, deleting }) => {
         unread
           ? 'bg-teal-50/50 dark:bg-teal-900/10 hover:bg-teal-50 dark:hover:bg-teal-900/20'
           : 'hover:bg-gray-100 dark:hover:bg-[#2a2a2a]'
-      }`}
+      } ${isAppUpdate ? 'border-l-4 ' + (isRequired ? 'border-l-red-500' : 'border-l-orange-400') : ''}`}
     >
       {unread && (
         <span className="absolute left-1.5 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-teal-500" />
       )}
-      <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 bg-gradient-to-br from-teal-400 to-cyan-400 text-white">
+      <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+        isAppUpdate 
+          ? isRequired 
+            ? 'bg-gradient-to-br from-red-400 to-red-600' 
+            : 'bg-gradient-to-br from-orange-400 to-orange-600'
+          : 'bg-gradient-to-br from-teal-400 to-cyan-400'
+      } text-white`}>
         <Icon className="text-sm" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className={`text-sm truncate ${unread ? 'font-semibold text-gray-800 dark:text-white' : 'font-medium text-gray-700 dark:text-gray-300'}`}>
-          {notification.title}
-        </p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className={`text-sm truncate ${unread ? 'font-semibold text-gray-800 dark:text-white' : 'font-medium text-gray-700 dark:text-gray-300'}`}>
+            {notification.title}
+          </p>
+          {Badge}
+          {isAppUpdate && notification.data?.version && (
+            <span className="text-[10px] font-mono text-gray-400 dark:text-gray-500">
+              v{notification.data.version}
+            </span>
+          )}
+        </div>
         <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">
           {notification.body}
         </p>
-        <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">
-          {timeAgo(notification.createdAt)}
-        </p>
+        <div className="flex items-center gap-3 mt-1">
+          <p className="text-[10px] text-gray-400 dark:text-gray-500">
+            {timeAgo(notification.createdAt)}
+          </p>
+          {isAppUpdate && (
+            <span className="text-[10px] text-teal-400 flex items-center gap-0.5">
+              <FaDownload className="text-[8px]" />
+              Tap to download
+            </span>
+          )}
+        </div>
       </div>
       <button
         onClick={(e) => {
@@ -151,6 +229,11 @@ const Notifications = () => {
   const notifications = data?.notifications || [];
   const pagination = data?.pagination;
   const unreadCount = notifications.filter((n) => !n.read).length;
+  const appUpdateCount = notifications.filter((n) => 
+    n.data?.type === 'app_update' || 
+    n.data?.type === 'APP_UPDATE' || 
+    n.data?.notificationType === 'app_update'
+  ).length;
 
   const handleItemClick = async (notification) => {
     if (!notification.read) {
@@ -216,11 +299,6 @@ const Notifications = () => {
         <GeneralSidebar />
       </div>
 
-      {/* No h-screen / overflow-hidden split here — the page scrolls
-          normally (mobile and desktop alike), so `sticky` on the
-          header always resolves against the real scrolling viewport
-          instead of a nested flex container that mobile browsers can
-          silently blow past. */}
       <div className="flex-1 flex flex-col min-w-0">
         <header className="sticky top-0 z-20 bg-white dark:bg-[#0f0f12] border-b border-gray-200 dark:border-gray-800">
           <div className="px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
@@ -229,6 +307,12 @@ const Notifications = () => {
               {unreadCount > 0 && (
                 <span className="text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full bg-teal-500">
                   {unreadCount}
+                </span>
+              )}
+              {appUpdateCount > 0 && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-orange-400/20 text-orange-400 flex items-center gap-0.5">
+                  <FaDownload className="text-[8px]" />
+                  {appUpdateCount} update{appUpdateCount > 1 ? 's' : ''}
                 </span>
               )}
             </h1>

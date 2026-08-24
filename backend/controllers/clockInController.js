@@ -12,8 +12,6 @@ import cron from "node-cron";
 // TIMEZONE
 // ─────────────────────────────────────────────────────────────
 
-// Your business/workspace time is Nigeria time.
-// Africa/Lagos = UTC+1.
 const BUSINESS_TIMEZONE = "Africa/Lagos";
 const TIMEZONE_OFFSET_MINUTES = 60;
 
@@ -37,19 +35,6 @@ const isManager = (workspace, userId) =>
 
 const TIME_REGEX = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
 
-/**
- * Get the current Nigeria date/time parts.
- *
- * Example:
- * {
- *   year: 2026,
- *   month: 8,
- *   day: 24,
- *   hour: 7,
- *   minute: 54,
- *   second: 20
- * }
- */
 const getLagosParts = (date = new Date()) => {
   const formatter = new Intl.DateTimeFormat("en-GB", {
     timeZone: BUSINESS_TIMEZONE,
@@ -61,26 +46,18 @@ const getLagosParts = (date = new Date()) => {
     second: "2-digit",
     hourCycle: "h23",
   });
-
   const parts = formatter.formatToParts(date);
-
   const result = {};
-
   for (const part of parts) {
     if (part.type !== "literal") {
       result[part.type] = Number(part.value);
     }
   }
-
   return result;
 };
 
-/**
- * Return YYYY-MM-DD using Nigeria time.
- */
 const getLagosDateKey = (date = new Date()) => {
   const parts = getLagosParts(date);
-
   return [
     parts.year,
     String(parts.month).padStart(2, "0"),
@@ -88,88 +65,43 @@ const getLagosDateKey = (date = new Date()) => {
   ].join("-");
 };
 
-/**
- * Return current time in minutes according to Nigeria time.
- */
 const getLagosMinutes = (date = new Date()) => {
   const parts = getLagosParts(date);
-
   return parts.hour * 60 + parts.minute;
 };
 
-/**
- * Convert HH:MM into minutes.
- */
 const timeToMinutes = (hhmm) => {
   if (!hhmm) return null;
-
   const [hours, minutes] = hhmm.split(":").map(Number);
-
   return hours * 60 + minutes;
 };
 
-/**
- * Create a real JavaScript Date representing a specific
- * Nigeria-local date/time.
- *
- * Example:
- *
- * makeLagosDate("2026-08-24", "07:00")
- *
- * means:
- *
- * 24 August 2026 at 7:00 AM Nigeria time.
- *
- * The returned Date is stored internally as UTC, which is
- * exactly what MongoDB/JavaScript Date should use.
- */
 const makeLagosDate = (dateKey, hhmm) => {
   if (!dateKey || !hhmm) return null;
-
   const [year, month, day] = dateKey.split("-").map(Number);
   const [hours, minutes] = hhmm.split(":").map(Number);
-
-  // Nigeria is UTC+1.
   return new Date(
     Date.UTC(year, month - 1, day, hours, minutes, 0, 0) -
       TIMEZONE_OFFSET_MINUTES * 60 * 1000
   );
 };
 
-/**
- * Create a Date for HH:MM on the same Nigeria calendar day
- * as the supplied base Date.
- */
 const timeOnDate = (base, hhmm) => {
   if (!hhmm) return null;
-
   const dateKey = getLagosDateKey(base);
-
   return makeLagosDate(dateKey, hhmm);
 };
 
-/**
- * Get the beginning of the current Nigeria calendar day
- * as a real Date/UTC timestamp.
- */
 const getLagosDayStart = (date = new Date()) => {
   const dateKey = getLagosDateKey(date);
-
   return makeLagosDate(dateKey, "00:00");
 };
 
-/**
- * Get the beginning of the next Nigeria calendar day.
- */
 const getLagosNextDayStart = (date = new Date()) => {
   const start = getLagosDayStart(date);
-
   return new Date(start.getTime() + 24 * 60 * 60 * 1000);
 };
 
-/**
- * Format a Date as Nigeria local time.
- */
 const formatLagosTime = (date = new Date()) => {
   return new Intl.DateTimeFormat("en-NG", {
     timeZone: BUSINESS_TIMEZONE,
@@ -180,9 +112,6 @@ const formatLagosTime = (date = new Date()) => {
   }).format(date);
 };
 
-/**
- * Format a Date as Nigeria local date/time.
- */
 const formatLagosDateTime = (date = new Date()) => {
   return new Intl.DateTimeFormat("en-NG", {
     timeZone: BUSINESS_TIMEZONE,
@@ -196,9 +125,6 @@ const formatLagosDateTime = (date = new Date()) => {
   }).format(date);
 };
 
-const isSameCalendarDay = (a, b) =>
-  getLagosDateKey(a) === getLagosDateKey(b);
-
 // ─────────────────────────────────────────────────────────────
 // Notification helper
 // ─────────────────────────────────────────────────────────────
@@ -208,9 +134,7 @@ async function notifyUsers(
   { title, body, data = {}, emailEventType = null, emailHtml = null }
 ) {
   if (!userIds) return;
-
   const recipients = Array.isArray(userIds) ? userIds : [userIds];
-
   for (const recipient of recipients) {
     createAndSendNotification({
       recipient,
@@ -239,8 +163,8 @@ export const setClockInSettings = asyncHandler(async (req, res) => {
     clockInStart,
     clockInEnd,
     closingTime,
-    clockOutEarliest,
     clockInEnabled,
+    autoClockoutEnabled,
   } = req.body;
 
   if (clockInStart && !TIME_REGEX.test(clockInStart)) {
@@ -261,13 +185,6 @@ export const setClockInSettings = asyncHandler(async (req, res) => {
     return res.status(400).json({
       success: false,
       message: "Invalid closing time format. Use HH:MM.",
-    });
-  }
-
-  if (clockOutEarliest && !TIME_REGEX.test(clockOutEarliest)) {
-    return res.status(400).json({
-      success: false,
-      message: "Invalid earliest clock-out time format. Use HH:MM.",
     });
   }
 
@@ -307,12 +224,12 @@ export const setClockInSettings = asyncHandler(async (req, res) => {
     workspace.closingTime = closingTime;
   }
 
-  if (clockOutEarliest !== undefined) {
-    workspace.clockOutEarliest = clockOutEarliest;
-  }
-
   if (clockInEnabled !== undefined) {
     workspace.clockInEnabled = clockInEnabled;
+  }
+
+  if (autoClockoutEnabled !== undefined) {
+    workspace.autoClockoutEnabled = autoClockoutEnabled;
   }
 
   await workspace.save();
@@ -325,8 +242,8 @@ export const setClockInSettings = asyncHandler(async (req, res) => {
       clockInStart: workspace.clockInStart,
       clockInEnd: workspace.clockInEnd,
       closingTime: workspace.closingTime,
-      clockOutEarliest: workspace.clockOutEarliest,
       clockInEnabled: workspace.clockInEnabled,
+      autoClockoutEnabled: workspace.autoClockoutEnabled,
     },
   });
 });
@@ -367,8 +284,8 @@ export const getClockInSettings = asyncHandler(async (req, res) => {
       clockInStart: workspace.clockInStart,
       clockInEnd: workspace.clockInEnd,
       closingTime: workspace.closingTime,
-      clockOutEarliest: workspace.clockOutEarliest,
       clockInEnabled: workspace.clockInEnabled,
+      autoClockoutEnabled: workspace.autoClockoutEnabled,
     },
   });
 });
@@ -410,22 +327,18 @@ export const clockIn = asyncHandler(async (req, res) => {
 
   const now = new Date();
 
-  // Everything below uses Nigeria calendar dates.
   const today = getLagosDayStart(now);
   const tomorrow = getLagosNextDayStart(now);
 
-  // Already clocked in today and haven't clocked out?
-  const existing = await ClockIn.findOne({
+  // 1. Check if already clocked in today without clocking out
+  const openRecord = await ClockIn.findOne({
     user: userId,
     workspace: workspaceId,
-    date: {
-      $gte: today,
-      $lt: tomorrow,
-    },
+    date: { $gte: today, $lt: tomorrow },
     clockOutTime: null,
   });
 
-  if (existing) {
+  if (openRecord) {
     return res.status(400).json({
       success: false,
       message:
@@ -433,9 +346,21 @@ export const clockIn = asyncHandler(async (req, res) => {
     });
   }
 
-  // ───────────────────────────────────────────────
-  // Nigeria time-based checks
-  // ───────────────────────────────────────────────
+  // 2. Check if already clocked out today (cannot clock in again)
+  const closedRecord = await ClockIn.findOne({
+    user: userId,
+    workspace: workspaceId,
+    date: { $gte: today, $lt: tomorrow },
+    clockOutTime: { $ne: null },
+  });
+
+  if (closedRecord) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "You have already clocked out today. You can only clock in once per day.",
+    });
+  }
 
   const currentNigeriaMinutes = getLagosMinutes(now);
 
@@ -443,7 +368,6 @@ export const clockIn = asyncHandler(async (req, res) => {
   const endMinutes = timeToMinutes(workspace.clockInEnd);
   const closingMinutes = timeToMinutes(workspace.closingTime);
 
-  // Block if closing time has passed.
   if (
     closingMinutes !== null &&
     currentNigeriaMinutes > closingMinutes
@@ -454,7 +378,6 @@ export const clockIn = asyncHandler(async (req, res) => {
     });
   }
 
-  // Block if clock-in hasn't opened yet.
   if (
     startMinutes !== null &&
     currentNigeriaMinutes < startMinutes
@@ -467,7 +390,6 @@ export const clockIn = asyncHandler(async (req, res) => {
     });
   }
 
-  // Late only after clockInEnd.
   let isLate = false;
   let lateMinutes = 0;
 
@@ -482,8 +404,6 @@ export const clockIn = asyncHandler(async (req, res) => {
   const status = isLate ? "late" : "on-time";
   const isEarly = !isLate;
 
-  // Create record.
-  // `now` remains a real UTC Date internally.
   const clockInDoc = await ClockIn.create({
     user: userId,
     workspace: workspaceId,
@@ -495,7 +415,6 @@ export const clockIn = asyncHandler(async (req, res) => {
     isEarly,
   });
 
-  // Notify admins/owner.
   const adminIds = workspace.members
     .filter((m) => m.role === "Admin" && m.status === "active")
     .map((m) => m.user.toString());
@@ -526,7 +445,6 @@ export const clockIn = asyncHandler(async (req, res) => {
     });
   }
 
-  // Confirmation to user.
   notifyUsers([userId], {
     title: "✅ Clocked in successfully",
     body: `You clocked in at ${nigeriaTime} (${status})`,
@@ -588,10 +506,7 @@ export const clockOut = asyncHandler(async (req, res) => {
   const clockInDoc = await ClockIn.findOne({
     user: userId,
     workspace: workspaceId,
-    date: {
-      $gte: today,
-      $lt: tomorrow,
-    },
+    date: { $gte: today, $lt: tomorrow },
     clockOutTime: null,
   });
 
@@ -604,24 +519,17 @@ export const clockOut = asyncHandler(async (req, res) => {
   }
 
   const currentNigeriaMinutes = getLagosMinutes(now);
+  const closingMinutes = timeToMinutes(workspace.closingTime);
 
-  const earliestMinutes = timeToMinutes(
-    workspace.clockOutEarliest
-  );
-
-  const closingMinutes = timeToMinutes(
-    workspace.closingTime
-  );
-
-  // Check if clock-out is before earliest allowed time.
+  // If clocking out before closing time, require a reason
   if (
-    earliestMinutes !== null &&
-    currentNigeriaMinutes < earliestMinutes
+    closingMinutes !== null &&
+    currentNigeriaMinutes < closingMinutes
   ) {
     if (!reason || reason.trim() === "") {
       return res.status(400).json({
         success: false,
-        message: `You are clocking out before ${workspace.clockOutEarliest}. Please provide a reason.`,
+        message: `You are clocking out before closing time (${workspace.closingTime}). Please provide a reason.`,
       });
     }
   }
@@ -634,21 +542,18 @@ export const clockOut = asyncHandler(async (req, res) => {
     currentNigeriaMinutes > closingMinutes
   ) {
     clockOutLate = true;
-    clockOutLateMinutes =
-      currentNigeriaMinutes - closingMinutes;
+    clockOutLateMinutes = currentNigeriaMinutes - closingMinutes;
   }
 
   clockInDoc.clockOutTime = now;
   clockInDoc.clockOutLate = clockOutLate;
   clockInDoc.clockOutLateMinutes = clockOutLateMinutes;
-
   if (reason) {
     clockInDoc.clockOutReason = reason.trim();
   }
 
   await clockInDoc.save();
 
-  // Notify admins/owner.
   const adminIds = workspace.members
     .filter((m) => m.role === "Admin" && m.status === "active")
     .map((m) => m.user.toString());
@@ -798,7 +703,6 @@ export const getWorkspaceClockIns = asyncHandler(
     };
 
     if (date) {
-      // `date` is interpreted as a Nigeria calendar date.
       const start = makeLagosDate(date, "00:00");
       const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
 
@@ -869,7 +773,6 @@ export const getAttendanceSummary = asyncHandler(
           message: "Invalid date format. Use YYYY-MM-DD.",
         });
       }
-
       targetDateKey = date;
     }
 
@@ -907,15 +810,11 @@ export const getAttendanceSummary = asyncHandler(
     );
 
     const clockedInUsers = await User.find({
-      _id: {
-        $in: clockedInIds,
-      },
+      _id: { $in: clockedInIds },
     }).select("name email profile");
 
     const notClockedInUsers = await User.find({
-      _id: {
-        $in: notClockedInIds,
-      },
+      _id: { $in: notClockedInIds },
     }).select("name email profile");
 
     res.status(200).json({
@@ -923,7 +822,6 @@ export const getAttendanceSummary = asyncHandler(
       timezone: BUSINESS_TIMEZONE,
       date: targetDateKey,
       totalMembers: memberIds.length,
-
       clockedIn: clockedInUsers.map((u) => {
         const record = clockIns.find(
           (c) =>
@@ -945,7 +843,6 @@ export const getAttendanceSummary = asyncHandler(
           autoClockedOut: record?.autoClockedOut,
         };
       }),
-
       notClockedIn: notClockedInUsers,
     });
   }
@@ -972,18 +869,14 @@ const getLeaderboardData = async (
     .populate("user", "name email profile")
     .lean();
 
-  // Group by Nigeria calendar day.
   const byDay = {};
 
   for (const record of allClockIns) {
     if (!record.user) continue;
-
     const dayKey = getLagosDateKey(record.clockInTime);
-
     if (!byDay[dayKey]) {
       byDay[dayKey] = [];
     }
-
     byDay[dayKey].push(record);
   }
 
@@ -994,7 +887,6 @@ const getLeaderboardData = async (
 
   const ensureUser = (record) => {
     const id = record.user._id.toString();
-
     if (!userStats[id]) {
       userStats[id] = {
         userId: id,
@@ -1007,7 +899,6 @@ const getLeaderboardData = async (
         totalLateMinutes: 0,
       };
     }
-
     return userStats[id];
   };
 
@@ -1032,9 +923,7 @@ const getLeaderboardData = async (
 
     onTime.forEach((record, index) => {
       const stat = ensureUser(record);
-
       stat.onTimeCount += 1;
-
       stat.totalPoints +=
         index < TOP_POINTS.length
           ? TOP_POINTS[index]
@@ -1043,13 +932,9 @@ const getLeaderboardData = async (
 
     late.forEach((record) => {
       const stat = ensureUser(record);
-
       stat.lateCount += 1;
-
       stat.totalLateMinutes +=
         record.lateMinutes || 0;
-
-      // Late = 0 points.
     });
   }
 
@@ -1061,11 +946,9 @@ const getLeaderboardData = async (
         email: u.email,
         profile: u.profile,
       },
-
       totalPoints: u.totalPoints,
       earlyCount: u.onTimeCount,
       lateCount: u.lateCount,
-
       avgLateMinutes:
         u.lateCount > 0
           ? Math.round(
@@ -1074,7 +957,6 @@ const getLeaderboardData = async (
                 10
             ) / 10
           : 0,
-
       score: u.totalPoints,
     })
   );
@@ -1115,9 +997,6 @@ export const getClockInLeaderboard = asyncHandler(
       );
     } else if (period === "month") {
       startDate = new Date(now);
-
-      // This is a rolling month, same behavior as
-      // your previous implementation.
       startDate.setUTCMonth(
         startDate.getUTCMonth() - 1
       );
@@ -1149,15 +1028,11 @@ export const startClockInScheduler = () => {
   cron.schedule("* * * * *", async () => {
     try {
       const now = new Date();
-
-      const currentNigeriaMinutes =
-        getLagosMinutes(now);
+      const currentNigeriaMinutes = getLagosMinutes(now);
 
       const workspaces = await Workspace.find({
         clockInEnabled: true,
-        clockInStart: {
-          $ne: null,
-        },
+        clockInStart: { $ne: null },
       });
 
       for (const workspace of workspaces) {
@@ -1203,9 +1078,7 @@ export const startClockInScheduler = () => {
               workspaceId:
                 workspace._id.toString(),
             },
-
             emailEventType: "newMessage",
-
             emailHtml: `<p>Reminder: Clock-in starts at <strong>${workspace.clockInStart}</strong> Nigeria time. Please clock in on time.</p>`,
           });
         }
@@ -1220,22 +1093,19 @@ export const startClockInScheduler = () => {
 };
 
 // ─────────────────────────────────────────────────────────────
-// Automatic Clock-Out Scheduler
+// Automatic Clock-Out Scheduler (only if enabled)
 // ─────────────────────────────────────────────────────────────
 
 export const startAutoClockOutScheduler = () => {
   cron.schedule("* * * * *", async () => {
     try {
       const now = new Date();
-
-      const currentNigeriaMinutes =
-        getLagosMinutes(now);
+      const currentNigeriaMinutes = getLagosMinutes(now);
 
       const workspaces = await Workspace.find({
         clockInEnabled: true,
-        closingTime: {
-          $ne: null,
-        },
+        closingTime: { $ne: null },
+        autoClockoutEnabled: true,
       });
 
       for (const workspace of workspaces) {
@@ -1243,64 +1113,43 @@ export const startAutoClockOutScheduler = () => {
           workspace.closingTime
         );
 
-        if (closingMinutes === null) {
-          continue;
-        }
+        if (closingMinutes === null) continue;
 
         const diff =
           currentNigeriaMinutes -
           closingMinutes;
 
         if (diff >= 0 && diff < 5) {
-          // Only records from today's Nigeria calendar day.
-          const todayStart =
-            getLagosDayStart(now);
+          const todayStart = getLagosDayStart(now);
+          const tomorrowStart = getLagosNextDayStart(now);
 
-          const tomorrowStart =
-            getLagosNextDayStart(now);
+          const openRecords = await ClockIn.find({
+            workspace: workspace._id,
+            clockOutTime: null,
+            clockInTime: {
+              $gte: todayStart,
+              $lt: tomorrowStart,
+            },
+          });
 
-          const openRecords =
-            await ClockIn.find({
-              workspace:
-                workspace._id,
+          if (openRecords.length === 0) continue;
 
-              clockOutTime: null,
-
-              clockInTime: {
-                $gte: todayStart,
-                $lt: tomorrowStart,
-              },
-            });
-
-          if (openRecords.length === 0) {
-            continue;
-          }
-
-          // Closing time interpreted as Nigeria time.
           const closingDate = timeOnDate(
             now,
             workspace.closingTime
           );
 
           for (const record of openRecords) {
-            record.clockOutTime =
-              closingDate;
-
+            record.clockOutTime = closingDate;
             record.clockOutLate = false;
             record.clockOutLateMinutes = 0;
-
-            // Do NOT touch status.
-            // Status should continue reflecting whether
-            // the person clocked in on-time or late.
             record.autoClockedOut = true;
 
             await record.save();
 
             notifyUsers([record.user], {
               title: "⏰ Auto clock-out",
-
               body: `You were automatically clocked out at closing time (${workspace.closingTime} Nigeria time).`,
-
               data: {
                 type: "auto-clockout",
               },
@@ -1331,41 +1180,34 @@ export const sendMonthlyLeaderboard = async (
   workspaceId
 ) => {
   try {
-    const workspace =
-      await Workspace.findById(
-        workspaceId
-      );
+    const workspace = await Workspace.findById(
+      workspaceId
+    );
 
     if (!workspace) return;
 
     const now = new Date();
-
     const startDate = new Date(now);
-
     startDate.setUTCMonth(
       startDate.getUTCMonth() - 1
     );
 
-    const leaderboardData =
-      await getLeaderboardData(
-        workspaceId,
-        startDate,
-        now,
-        5
-      );
+    const leaderboardData = await getLeaderboardData(
+      workspaceId,
+      startDate,
+      now,
+      5
+    );
 
-    if (leaderboardData.length === 0) {
-      return;
-    }
+    if (leaderboardData.length === 0) return;
 
     const emails = leaderboardData.map(
       (item) => item.user.email
     );
 
-    const owner =
-      await User.findById(
-        workspace.owner
-      ).select("email");
+    const owner = await User.findById(
+      workspace.owner
+    ).select("email");
 
     const ownerEmail = owner?.email;
 
@@ -1395,10 +1237,9 @@ export const sendMonthlyLeaderboard = async (
 export const sendMonthlyLeaderboardForAllWorkspaces =
   async () => {
     try {
-      const workspaces =
-        await Workspace.find({
-          clockInEnabled: true,
-        });
+      const workspaces = await Workspace.find({
+        clockInEnabled: true,
+      });
 
       for (const workspace of workspaces) {
         await sendMonthlyLeaderboard(
@@ -1426,10 +1267,9 @@ export const triggerMonthlyLeaderboard =
     const userId = req.user.id;
     const { workspaceId } = req.params;
 
-    const workspace =
-      await Workspace.findById(
-        workspaceId
-      );
+    const workspace = await Workspace.findById(
+      workspaceId
+    );
 
     if (!workspace) {
       return res.status(404).json({

@@ -36,6 +36,7 @@ import Profile from './screens/Profile.jsx';
 import YourWorkspaceId from './screens/YourWorkspaceId.jsx';
 import MyWorkspaceId from './workspaceScreens/MyWorkspaceId.jsx';
 import Notifications from './screens/Notifications.jsx';
+import AppVersions from './screens/AppVersions.jsx';
 
 import AllTasks from './screens/AllTasks.jsx';
 
@@ -160,9 +161,6 @@ const ServiceWorkerRegister = () => {
 };
 
 // ── Mobile Push Initializer ───────────────────────────────────────────
-// Now reads subscribe/unsubscribe/permission from the shared context
-// instead of calling useMobilePushNotifications() itself, so there's
-// exactly one live copy of push state for the whole app.
 const PushNotificationInitializer = () => {
   const { userInfo } = useSelector((state) => state.auth);
   const { subscribe, unsubscribe, isNative } = usePushNotificationContext();
@@ -216,9 +214,6 @@ const PushNotificationInitializer = () => {
 };
 
 // ── Web Push Initializer ──────────────────────────────────────────────
-// Reads permission/isSupported/subscribe from the shared context — this
-// is the SAME instance Settings.jsx now reads from, so a silent refresh
-// done here is immediately visible in Settings without a manual re-toggle.
 const WebPushInitializer = () => {
   const { userInfo } = useSelector((state) => state.auth);
   const { permission, subscribe, isSupported, isNative } = usePushNotificationContext();
@@ -248,11 +243,24 @@ const buildCallDataFromPush = (data) => ({
   isInitiator: false,
 });
 
+// ── Route resolver from notification data ────────────────────────────
 const routeFromNotificationData = (data, navigate) => {
+  // ── App Update Notifications ──────────────────────────────────────
+  if (data.type === 'app_update' || data.type === 'APP_UPDATE' || data.notificationType === 'app_update') {
+    console.log('📱 Routing to app versions for update:', data.version);
+    return '/app-versions';
+  }
+
+  if (data.type === 'version_updated' || data.type === 'upload_confirmation' || data.type === 'version_deleted') {
+    return '/app-versions';
+  }
+
+  // ── Call Notifications ────────────────────────────────────────────
   if (data.notificationType === 'call' && data.roomId) {
     return `/call/${data.roomId}?autoJoin=true`;
   }
 
+  // ── Chat/Channel Notifications ────────────────────────────────────
   if (data.chatId) {
     if (data.workspaceId) {
       return `/workspace/${data.workspaceId}/chat/${data.chatId}`;
@@ -261,18 +269,31 @@ const routeFromNotificationData = (data, navigate) => {
     return isGroup ? `/channels/${data.chatId}` : `/chats/${data.chatId}`;
   }
 
+  // ── Task Notifications ────────────────────────────────────────────
   if (data.taskId && data.projectId && data.workspaceId) {
     return `/workspace/${data.workspaceId}/project/${data.projectId}`;
   }
 
+  // ── Project Notifications ─────────────────────────────────────────
   if (data.projectId && data.workspaceId) {
-    return `/workspace/${data.projectId ? data.workspaceId : ''}/project/${data.projectId}`;
+    return `/workspace/${data.workspaceId}/project/${data.projectId}`;
   }
 
+  // ── Workspace Notifications ───────────────────────────────────────
   if (data.workspaceId) {
     return `/workspace/${data.workspaceId}`;
   }
 
+  // ── Clock-in Notifications ────────────────────────────────────────
+  if (data.type === 'clockin' || data.type === 'clockout' || 
+      data.type === 'clockin-reminder' || data.type === 'auto-clockout' ||
+      data.type === 'clockin-confirmation' || data.type === 'clockout-confirmation') {
+    if (data.workspaceId) {
+      return `/workspace/${data.workspaceId}/clockin`;
+    }
+  }
+
+  // ── Default fallback ──────────────────────────────────────────────
   return '/my-workspaces';
 };
 
@@ -302,13 +323,54 @@ const RootLayout = () => {
     const handlePushReceived = (event) => {
       const notification = event.detail;
       const data = notification?.data || {};
+      console.log('📨 Push received in foreground:', data);
 
+      // ── Handle App Update Notifications ──────────────────────────
+      if (data.type === 'app_update' || data.type === 'APP_UPDATE' || data.notificationType === 'app_update') {
+        const isRequired = data.isRequired === 'true' || data.isRequired === true;
+        const version = data.version || 'new';
+        
+        toast(
+          (t) => (
+            <div className="flex flex-col gap-1 max-w-[280px]">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">📱</span>
+                <span className="font-semibold text-sm">App Update v{version}</span>
+                {isRequired && (
+                  <span className="text-xs bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full font-bold">
+                    Required
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-gray-400">{notification?.body || 'Tap to download the latest version'}</p>
+            </div>
+          ),
+          {
+            duration: 8000,
+            style: {
+              background: '#1e1e2a',
+              color: '#f0f0f0',
+              borderRadius: '16px',
+              padding: '12px 16px',
+              borderLeft: `4px solid ${isRequired ? '#ef4444' : '#fb923c'}`,
+              boxShadow: '0 12px 40px rgba(0,0,0,0.6)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              backdropFilter: 'blur(12px)',
+            },
+            icon: '📱',
+          }
+        );
+        return;
+      }
+
+      // ── Handle Call Notifications ────────────────────────────────
       if (data.notificationType === 'call' && data.roomId) {
         console.log('📞 Call push received in foreground:', data);
         setIncomingCallFromPush(buildCallDataFromPush(data));
         return;
       }
 
+      // ── Handle Other Notifications ───────────────────────────────
       if (notification?.title && notification?.body) {
         toast(`${notification.title}: ${notification.body}`, {
           icon: 'ℹ️',
@@ -321,10 +383,21 @@ const RootLayout = () => {
       const data = event.detail || {};
       console.log('📱 Push tapped data:', data);
 
-      if (data.notificationType === 'call' && data.roomId) {
-        setIncomingCallFromPush(buildCallDataFromPush(data));
+      // ── Handle App Update Taps ────────────────────────────────────
+      if (data.type === 'app_update' || data.type === 'APP_UPDATE' || data.notificationType === 'app_update') {
+        console.log('📱 User tapped app update notification, navigating to /app-versions');
+        navigate('/app-versions');
+        return;
       }
 
+      // ── Handle Call Taps ──────────────────────────────────────────
+      if (data.notificationType === 'call' && data.roomId) {
+        setIncomingCallFromPush(buildCallDataFromPush(data));
+        // Let the modal handle navigation
+        return;
+      }
+
+      // ── Route all other notifications ────────────────────────────
       const target = routeFromNotificationData(data, navigate);
       navigate(target);
     };
@@ -440,6 +513,7 @@ const router = createBrowserRouter([
           { path: 'chats/:chatId', element: <GeneralChatId /> },
           { path: 'personal-tasks', element: <PersonalTasks /> },
           { path: 'notifications', element: <Notifications /> },
+          {path: 'app-versions', element: <AppVersions />},
 
           { path: 'call/:roomId', element: <CallScreen /> },
 
@@ -461,11 +535,6 @@ const PersistLoadingScreen = () => (
 );
 
 // ── AppRoot ───────────────────────────────────────────────────────────
-// PushNotificationProvider now lives here — ONE instance for the entire
-// app. WebPushInitializer, PushNotificationInitializer, and every screen
-// (Settings included) read from it via usePushNotificationContext()
-// instead of instantiating usePushNotifications()/
-// useMobilePushNotifications() themselves.
 const AppRoot = () => {
   const userInfo = useSelector((state) => state.auth?.userInfo);
   const token = userInfo?.token;

@@ -40,13 +40,13 @@ const workspaceSchema = new mongoose.Schema(
     inviteCode: { type: String, unique: true },
     verified: { type: Boolean, default: false },
 
-    // ─── Clock‑in settings (range based) ──────────────────────────
+    // ─── Clock‑in settings ──────────────────────────────────────────
     clockInStart: {
-      type: String,   // "HH:MM" in 24h format, e.g., "08:30"
+      type: String,   // "HH:MM" in 24h format
       default: null,
     },
     clockInEnd: {
-      type: String,   // "HH:MM" in 24h format, e.g., "09:00"
+      type: String,   // "HH:MM" in 24h format
       default: null,
     },
     clockInEnabled: {
@@ -54,25 +54,24 @@ const workspaceSchema = new mongoose.Schema(
       default: false,
     },
 
-    // ─── Closing time for clock‑out penalty / auto clock-out ──────
+    // ─── Closing time for late clock‑out / auto clock‑out ──────────
     closingTime: {
-      type: String,   // "HH:MM" in 24h format, e.g., "18:00"
+      type: String,   // "HH:MM" in 24h format
       default: null,
     },
 
-    // ─── Earliest allowed clock‑out time without a reason ─────────
-    // Clocking out before this time requires the member to submit a reason.
-    // 👇 This field was missing before — even if the frontend sent it,
-    // Mongoose was silently stripping it since it wasn't declared here.
-    clockOutEarliest: {
-      type: String,   // "HH:MM" in 24h format, e.g., "17:00"
-      default: null,
+    // ─── Auto‑clock‑out toggle (new) ────────────────────────────────
+    autoClockoutEnabled: {
+      type: Boolean,
+      default: false,
     },
+
+    // ❌ Removed: clockOutEarliest – no longer used.
   },
   { timestamps: true }
 );
 
-// ─── Auto‑generate initials from name ──────────────────────────────
+// ─── Auto‑generate initials ──────────────────────────────────────
 workspaceSchema.pre("save", function () {
   if (this.isModified("name") && this.name) {
     const words = this.name.trim().split(/\s+/);

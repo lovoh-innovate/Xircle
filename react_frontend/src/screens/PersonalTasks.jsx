@@ -15,7 +15,7 @@ import {
   // we'll add a reorder mutation later; for now we assume it exists
   // useReorderPersonalTasksMutation,
 } from '../slices/personalTaskApiSlice';
-import toast from 'react-hot-toast'; // ✅ switched to react-hot-toast
+import toast from 'react-hot-toast';
 import {
   FaPlus,
   FaSpinner,
@@ -188,6 +188,9 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading }) => 
     task?.recurrenceEndDate ? new Date(task.recurrenceEndDate).toISOString().slice(0, 16) : ''
   );
 
+  // ── Collapsible details state ──────────────────────────────────────
+  const [showDetails, setShowDetails] = useState(isEditing); // editing shows all, creation hides
+
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   const toggleDay = (day) => {
@@ -265,6 +268,7 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading }) => 
         </button>
       </div>
 
+      {/* ── Title (always visible) ── */}
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Title *</label>
         <input
@@ -276,160 +280,176 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading }) => 
         />
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
-        <textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          rows={2}
-          className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white placeholder-gray-400"
-        />
-      </div>
+      {/* ── Toggle Details ── */}
+      <button
+        type="button"
+        onClick={() => setShowDetails(!showDetails)}
+        className="flex items-center gap-2 text-sm text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 transition"
+      >
+        <FaAngleDown className={`transition-transform ${showDetails ? 'rotate-180' : ''}`} />
+        {showDetails ? 'Hide details' : 'Add more details'}
+      </button>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Priority</label>
-          <select
-            value={priority}
-            onChange={(e) => setPriority(e.target.value)}
-            className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
-          >
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-            <option value="urgent">Urgent</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Folder</label>
-          <select
-            value={folderId}
-            onChange={(e) => setFolderId(e.target.value)}
-            className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
-          >
-            <option value="">No Folder</option>
-            {folders.map((f) => (
-              <option key={f._id} value={f._id}>{f.name}</option>
-            ))}
-          </select>
-        </div>
-      </div>
+      {/* ── Details (collapsible) ── */}
+      {showDetails && (
+        <>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={2}
+              className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white placeholder-gray-400"
+            />
+          </div>
 
-      {/* Due Date */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Due Date</label>
-        {recurrenceType === 'none' ? (
-          <>
-            <div className="flex flex-wrap gap-2 mb-2">
-              {['1 hour', 'Today', '2 days', '1 month', '2 months', '6 months'].map((label) => (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={() => setDueDatePreset(label)}
-                  className="px-3 py-1 text-xs rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-teal-100 dark:hover:bg-teal-900/30 transition"
-                >
-                  {label}
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => setDueDate('')}
-                className="px-3 py-1 text-xs rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-800/40 transition"
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Priority</label>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value)}
+                className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
               >
-                Clear
-              </button>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Folder</label>
+              <select
+                value={folderId}
+                onChange={(e) => setFolderId(e.target.value)}
+                className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
+              >
+                <option value="">No Folder</option>
+                {folders.map((f) => (
+                  <option key={f._id} value={f._id}>{f.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Due Date */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Due Date</label>
+            {recurrenceType === 'none' ? (
+              <>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {['1 hour', 'Today', '2 days', '1 month', '2 months', '6 months'].map((label) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => setDueDatePreset(label)}
+                      className="px-3 py-1 text-xs rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-teal-100 dark:hover:bg-teal-900/30 transition"
+                    >
+                      {label}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setDueDate('')}
+                    className="px-3 py-1 text-xs rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-800/40 transition"
+                  >
+                    Clear
+                  </button>
+                </div>
+                <input
+                  type="datetime-local"
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                  className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
+                />
+              </>
+            ) : (
+              <div className="text-sm text-gray-500 dark:text-gray-400 p-2 bg-gray-50 dark:bg-[#2a2a2a] rounded-xl">
+                Due date is determined by recurrence pattern
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Daily Reminder Time (HH:MM)</label>
             <input
-              type="datetime-local"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
+              type="time"
+              value={dailyReminderTime}
+              onChange={(e) => setDailyReminderTime(e.target.value)}
               className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
             />
-          </>
-        ) : (
-          <div className="text-sm text-gray-500 dark:text-gray-400 p-2 bg-gray-50 dark:bg-[#2a2a2a] rounded-xl">
-            Due date is determined by recurrence pattern
           </div>
-        )}
-      </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Daily Reminder Time (HH:MM)</label>
-        <input
-          type="time"
-          value={dailyReminderTime}
-          onChange={(e) => setDailyReminderTime(e.target.value)}
-          className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
-        />
-      </div>
-
-      {/* Recurrence */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Recurrence</label>
-        <select
-          value={recurrenceType}
-          onChange={(e) => handleRecurrenceChange(e.target.value)}
-          className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
-        >
-          <option value="none">None</option>
-          <option value="daily">Daily</option>
-          <option value="weekly">Weekly</option>
-        </select>
-      </div>
-
-      {recurrenceType === 'weekly' && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Repeat on</label>
-          <div className="flex flex-wrap gap-2">
-            {weekDays.map((day, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => toggleDay(idx)}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition ${
-                  recurrenceDays.includes(idx)
-                    ? 'bg-teal-500 text-white'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'
-                }`}
-              >
-                {day}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {(recurrenceType === 'daily' || recurrenceType === 'weekly') && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">End Date (optional)</label>
-          <div className="flex flex-wrap gap-2 mb-2">
-            {['1 hour', 'Today', '2 days', '1 month', '2 months', '6 months'].map((label) => (
-              <button
-                key={label}
-                type="button"
-                onClick={() => setEndDatePreset(label)}
-                className="px-3 py-1 text-xs rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-teal-100 dark:hover:bg-teal-900/30 transition"
-              >
-                {label}
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => setRecurrenceEndDate('')}
-              className="px-3 py-1 text-xs rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-800/40 transition"
+          {/* Recurrence */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Recurrence</label>
+            <select
+              value={recurrenceType}
+              onChange={(e) => handleRecurrenceChange(e.target.value)}
+              className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
             >
-              Clear
-            </button>
+              <option value="none">None</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+            </select>
           </div>
-          <input
-            type="datetime-local"
-            value={recurrenceEndDate}
-            onChange={(e) => setRecurrenceEndDate(e.target.value)}
-            className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
-          />
-        </div>
+
+          {recurrenceType === 'weekly' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Repeat on</label>
+              <div className="flex flex-wrap gap-2">
+                {weekDays.map((day, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => toggleDay(idx)}
+                    className={`px-3 py-1 rounded-full text-xs font-medium transition ${
+                      recurrenceDays.includes(idx)
+                        ? 'bg-teal-500 text-white'
+                        : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    {day}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {(recurrenceType === 'daily' || recurrenceType === 'weekly') && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">End Date (optional)</label>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {['1 hour', 'Today', '2 days', '1 month', '2 months', '6 months'].map((label) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => setEndDatePreset(label)}
+                    className="px-3 py-1 text-xs rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-teal-100 dark:hover:bg-teal-900/30 transition"
+                  >
+                    {label}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setRecurrenceEndDate('')}
+                  className="px-3 py-1 text-xs rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-800/40 transition"
+                >
+                  Clear
+                </button>
+              </div>
+              <input
+                type="datetime-local"
+                value={recurrenceEndDate}
+                onChange={(e) => setRecurrenceEndDate(e.target.value)}
+                className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
+              />
+            </div>
+          )}
+        </>
       )}
 
+      {/* ── Action Buttons (always visible) ── */}
       <div className="flex gap-3 pt-2">
         <button
           type="button"
