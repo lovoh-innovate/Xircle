@@ -26,7 +26,7 @@ const messaging = firebase.messaging();
 // network-first HTML strategy below means index.html is never stuck stale.
 // Bump this ONLY if you change this file's own caching logic in a way that
 // needs old caches wiped immediately.
-const CACHE_VERSION = 'v28';
+const CACHE_VERSION = 'v29';
 const CACHE_NAME = `app-cache-${CACHE_VERSION}`;
 
 // Only precache things that rarely/never change. Do NOT put '/' or

@@ -9,8 +9,6 @@ import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
 import { useWorkspacePresence } from '../services/useWorkspacePresence';
 import {
   useGetClockInSettingsQuery,
-  useClockInMutation,
-  useClockOutMutation,
   useGetUserClockInHistoryQuery,
 } from '../slices/clockinApiSlice';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
@@ -83,17 +81,16 @@ const TaskCounter = memo(({ projectId, onCount, onLoading }) => {
 // ─── helper: pull a user id off either a populated user object or a raw id ──
 const getMemberId = (member) => (member?.user?._id || member?.user)?.toString();
 
-// ─── Clock‑in / out widget ──────────────────────────────────────────
+// ─── Clock‑in / out widget (now navigates to clock‑in page) ──────────
 const ClockInWidget = ({ workspaceId, brandColor }) => {
+  const navigate = useNavigate();
   const { data: settingsData, isLoading: settingsLoading } =
     useGetClockInSettingsQuery(workspaceId);
-  const { data: historyData, refetch: refetchHistory } =
+  const { data: historyData } =
     useGetUserClockInHistoryQuery(
       { workspaceId, page: 1, limit: 1 },
       { skip: !settingsData?.settings?.clockInEnabled }
     );
-  const [clockIn, { isLoading: isClockInLoading }] = useClockInMutation();
-  const [clockOut, { isLoading: isClockOutLoading }] = useClockOutMutation();
 
   const isEnabled = settingsData?.settings?.clockInEnabled || false;
   const today = new Date().toISOString().split('T')[0];
@@ -106,28 +103,12 @@ const ClockInWidget = ({ workspaceId, brandColor }) => {
     ? new Date(latest.clockInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : null;
 
-  const handleClockIn = async () => {
-    try {
-      await clockIn(workspaceId).unwrap();
-      toast.success('Clocked in successfully!');
-      refetchHistory();
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to clock in.');
-    }
-  };
-
-  const handleClockOut = async () => {
-    try {
-      await clockOut(workspaceId).unwrap();
-      toast.success('Clocked out successfully!');
-      refetchHistory();
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to clock out.');
-    }
-  };
-
   if (!isEnabled) return null;
   if (settingsLoading) return <FaSpinner className="animate-spin text-teal-500 text-sm" />;
+
+  const handleNavigate = () => {
+    navigate(`/workspace/${workspaceId}/clockin`);
+  };
 
   return (
     <div className="flex items-center gap-2 bg-gray-100 dark:bg-[#14141a] px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-800/60 text-xs">
@@ -138,22 +119,20 @@ const ClockInWidget = ({ workspaceId, brandColor }) => {
             In at <span className="font-mono">{clockInTime}</span>
           </span>
           <button
-            onClick={handleClockOut}
-            disabled={isClockOutLoading}
-            className="flex items-center gap-1 px-2 py-0.5 bg-red-500/10 text-red-600 dark:text-red-400 rounded-full hover:bg-red-500/20 transition disabled:opacity-50"
+            onClick={handleNavigate}
+            className="flex items-center gap-1 px-2 py-0.5 bg-red-500/10 text-red-600 dark:text-red-400 rounded-full hover:bg-red-500/20 transition"
           >
-            {isClockOutLoading ? <FaSpinner className="animate-spin text-xs" /> : <FaTimes className="text-[10px]" />}
+            <FaTimes className="text-[10px]" />
             <span className="hidden sm:inline">Out</span>
           </button>
         </>
       ) : (
         <button
-          onClick={handleClockIn}
-          disabled={isClockInLoading}
-          className="flex items-center gap-1 px-2 py-0.5 bg-teal-500/10 text-teal-600 dark:text-[#0d9488] rounded-full hover:bg-teal-500/20 transition disabled:opacity-50"
+          onClick={handleNavigate}
+          className="flex items-center gap-1 px-2 py-0.5 bg-teal-500/10 rounded-full hover:bg-teal-500/20 transition"
           style={{ color: brandColor }}
         >
-          {isClockInLoading ? <FaSpinner className="animate-spin text-xs" /> : <FaCheck className="text-[10px]" />}
+          <FaCheck className="text-[10px]" />
           <span className="hidden sm:inline">Clock In</span>
         </button>
       )}

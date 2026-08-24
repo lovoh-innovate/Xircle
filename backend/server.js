@@ -49,7 +49,7 @@ app.use(cookieParser());
 
 // ── CORS ──
 const allowedOrigins = [
-  'http://localhost:30',
+  'http://localhost:1000',
   'https://xircle.lovohcreate.com',
   'http://localhost',
   'https://localhost'
