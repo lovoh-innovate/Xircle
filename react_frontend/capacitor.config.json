@@ -2,13 +2,18 @@
   "appId": "com.lovohcreate.xircle",
   "appName": "Xircle",
   "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "allowNavigation": [
+      "xircle.lovohcreate.com",
+      "accounts.google.com",
+      "*.googleapis.com"
+    ]
+  },
   "plugins": {
     "Browser": {
       "presentationStyle": "fullscreen",
       "preferredMode": "single"
     }
-  },
-  "server": {
-    "androidScheme": "https"
   }
 }

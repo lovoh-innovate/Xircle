@@ -37,6 +37,7 @@ import YourWorkspaceId from './screens/YourWorkspaceId.jsx';
 import MyWorkspaceId from './workspaceScreens/MyWorkspaceId.jsx';
 import Notifications from './screens/Notifications.jsx';
 import AppVersions from './screens/AppVersions.jsx';
+import AuthCallback from './screens/AuthCallback.jsx';
 
 import AllTasks from './screens/AllTasks.jsx';
 
@@ -514,6 +515,7 @@ const router = createBrowserRouter([
           { path: 'personal-tasks', element: <PersonalTasks /> },
           { path: 'notifications', element: <Notifications /> },
           {path: 'app-versions', element: <AppVersions />},
+          {path: 'auth/google/callback', element: <AuthCallback />},
 
           { path: 'call/:roomId', element: <CallScreen /> },
 

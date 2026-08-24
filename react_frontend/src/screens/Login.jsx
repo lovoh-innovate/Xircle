@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { Capacitor } from '@capacitor/core';
-import { Browser } from '@capacitor/browser';
 import {
   useLoginMutation,
   useGoogleAuthMutation,
@@ -14,6 +13,7 @@ import { setCredentials } from '../slices/authSlice';
 import { toast } from 'react-hot-toast';
 import { FaEnvelope, FaLock, FaEye, FaEyeSlash, FaArrowLeft, FaGoogle } from 'react-icons/fa';
 import { GoogleLogin } from '@react-oauth/google';
+import { useGoogleAuth } from '../components/GoogleAuthHandler';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -37,6 +37,9 @@ const Login = () => {
   const [verifyEmail, { isLoading: isVerifyLoading }] = useVerifyEmailMutation();
   const [resendOTP, { isLoading: isResendLoading }] = useResendOTPMutation();
 
+  // Use the Google Auth handler
+  const { openGoogleAuth } = useGoogleAuth();
+
   // Redirect to my-workspaces after login
   const from = location.state?.from?.pathname || '/my-workspaces';
 
@@ -46,60 +49,23 @@ const Login = () => {
     }
   }, [userInfo, navigate, from]);
 
-  // ── Handle Google OAuth for Capacitor ──
+  // ── Handle Google Login ──
   const handleGoogleLogin = async () => {
     if (Capacitor.isNativePlatform()) {
-      // ── Capacitor Native - Open in Browser ──
+      // ── Capacitor Native - Open in Browser with Deep Link ──
       try {
         setIsLoading(true);
-        toast.loading('Opening Google login...', { duration: 5000 });
-        
-        // Construct the Google OAuth URL for your domain
-        const redirectUri = `https://xircle.lovohcreate.com/login`;
-        const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
-          `client_id=${import.meta.env.VITE_GOOGLE_CLIENT_ID}&` +
-          `redirect_uri=${encodeURIComponent(redirectUri)}&` +
-          `response_type=code&` +
-          `scope=email%20profile&` +
-          `access_type=online`;
-        
-        await Browser.open({
-          url: googleAuthUrl,
-          presentationStyle: 'fullscreen',
-          toolbarColor: '#0d9488',
-        });
-        
-        toast.dismiss();
+        await openGoogleAuth('login');
+        // The auth flow will complete in the deep link handler
+        setIsLoading(false);
       } catch (error) {
-        toast.dismiss();
+        setIsLoading(false);
         console.error('Google login error:', error);
         toast.error('Failed to open Google login. Please try again.');
-        setIsLoading(false);
       }
     } else {
       // ── Web Browser - Use GoogleLogin component ──
-      // The GoogleLogin component will handle this
       toast.info('Please use the Google login button below');
-    }
-  };
-
-  // ── Handle Google OAuth callback for Capacitor ──
-  // This should be called when the user returns from the browser
-  const handleGoogleCallback = async (code) => {
-    try {
-      setIsLoading(true);
-      const res = await googleAuth({ 
-        code, 
-        mode: 'login',
-        // For Capacitor, we might need to send the code to your backend
-      }).unwrap();
-      dispatch(setCredentials({ ...res }));
-      toast.success('Google login successful!');
-      navigate(from, { replace: true });
-    } catch (err) {
-      toast.error(err?.data?.message || 'Google login failed. Please try again.');
-    } finally {
-      setIsLoading(false);
     }
   };
 
