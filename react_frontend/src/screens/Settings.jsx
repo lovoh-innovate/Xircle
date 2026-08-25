@@ -173,6 +173,8 @@ const useNotificationSettings = () => {
             setError('Notifications blocked. Enable them in browser settings.');
           } else if (!isSupported) {
             setError('Push notifications are not supported in this browser.');
+          } else if (vapidKeyError) {
+            setError('Push is temporarily unavailable. Please try again shortly.');
           } else {
             setError('Failed to enable push. Please try again.');
           }
@@ -188,15 +190,13 @@ const useNotificationSettings = () => {
     }
   };
 
-  // ─── THE FIX: pushEnabled now trusts the LOCAL browser subscription
-  // state (isSubscribed, derived from localStorage token + actual
+  // ─── pushEnabled trusts the LOCAL browser subscription state
+  // (isSubscribed, derived from localStorage token + actual
   // Notification.permission on mount) over the server preference.
   // `isSubscribed` becomes true almost immediately on reload — well
   // before the GET /preferences round trip resolves — so this is what
   // was causing the toggle to render "off" after reload even though
-  // this browser was genuinely registered: it was ignoring the one
-  // signal that actually reflects reality, and only trusting the server
-  // flag, which could lag or fall out of sync. ───────────────────────
+  // this browser was genuinely registered.
   const pushEnabled = useMemo(() => {
     // For mobile, just use server preference (mobile handles subscription internally)
     if (isNative) {
@@ -213,11 +213,25 @@ const useNotificationSettings = () => {
     return isSubscribed || pushPrefs.enabled;
   }, [pushPrefs.enabled, permission, vapidKeyError, isNative, isSubscribed]);
 
-  // Push is available if supported and permission granted (and no VAPID error)
+  // ─── FIX: this was the actual bug making the toggle "inactive in
+  // production". It required permission === 'granted' BEFORE the toggle
+  // could even be clicked — but permission only becomes 'granted' as a
+  // RESULT of clicking the toggle and answering the browser prompt
+  // (subscribe() is what calls Notification.requestPermission()). For
+  // every first-time user (permission starts as 'default') this was an
+  // unbreakable deadlock: can't click without permission, can't get
+  // permission without clicking. It only ever looked "fine" on
+  // localhost because the dev browser already had permission granted
+  // for that origin from earlier manual testing.
+  //
+  // 'denied' is already handled separately below (Settings.jsx renders
+  // a "Blocked" badge instead of the toggle in that case), so
+  // pushAvailable doesn't need to gate on permission at all — only on
+  // whether the browser/environment can support push in principle.
   const pushAvailable = useMemo(() => {
     if (isNative) return true;
-    return isSupported && permission === 'granted' && !vapidKeyError;
-  }, [isNative, isSupported, permission, vapidKeyError]);
+    return isSupported && !vapidKeyError;
+  }, [isNative, isSupported, vapidKeyError]);
 
   return {
     emailPrefs,

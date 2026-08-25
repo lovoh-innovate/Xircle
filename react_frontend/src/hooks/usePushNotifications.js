@@ -34,10 +34,42 @@ export const usePushNotifications = () => {
   const messagingRef = useRef(null);
   const registering = useRef(false);
 
-  const { data: vapidData, isLoading: vapidLoading } = useGetVapidPublicKeyQuery(undefined, {
+  // ─── FIX: vapidPublicKey as state is fine for render, but subscribe()
+  // is a stable-ish useCallback whose closure captures whatever
+  // vapidPublicKey was at creation time. A `while` loop that sleeps and
+  // re-checks that captured const can NEVER see a newer value — it's not
+  // a ref, so it never changes mid-execution no matter what React does
+  // in between awaits. We mirror the value into a ref so the loop reads
+  // live state instead of a frozen snapshot from render time. ─────────
+  const vapidPublicKeyRef = useRef(null);
+  useEffect(() => {
+    vapidPublicKeyRef.current = vapidPublicKey;
+  }, [vapidPublicKey]);
+
+  const {
+    data: vapidData,
+    isLoading: vapidLoading,
+    isError: vapidQueryError,
+    refetch: refetchVapidKey,
+  } = useGetVapidPublicKeyQuery(undefined, {
     skip: !isSupported,
   });
   const [registerSubscription] = useRegisterWebPushMutation();
+
+  // ─── FIX: this was previously never returned from the hook at all,
+  // so Settings.jsx's `vapidKeyError` was always undefined — the
+  // warning banner never rendered and pushAvailable never accounted
+  // for it. True when: the endpoint request failed (network/auth/500),
+  // OR it succeeded but came back without a usable key (e.g. the
+  // controller's 503 "not configured" response, or a malformed body).
+  const vapidKeyError =
+    isSupported &&
+    !vapidLoading &&
+    (vapidQueryError || (vapidData !== undefined && !vapidData?.data?.publicKey));
+
+  const retryLoadVapidKey = useCallback(() => {
+    refetchVapidKey();
+  }, [refetchVapidKey]);
 
   // Check support and initialise
   useEffect(() => {
@@ -91,15 +123,17 @@ export const usePushNotifications = () => {
       return false;
     }
 
-    // Wait for VAPID key if not available
-    if (!vapidPublicKey) {
+    // Wait for VAPID key if not available — now polls the REF (live
+    // value), not the closed-over state variable, so it actually has a
+    // chance of seeing the key land mid-wait instead of always failing.
+    if (!vapidPublicKeyRef.current) {
       console.warn('Waiting for VAPID key...');
       let retries = 0;
-      while (!vapidPublicKey && retries < 15) {
+      while (!vapidPublicKeyRef.current && retries < 15) {
         await new Promise(r => setTimeout(r, 400));
         retries++;
       }
-      if (!vapidPublicKey) {
+      if (!vapidPublicKeyRef.current) {
         console.error('VAPID key never loaded');
         return false;
       }
@@ -135,7 +169,7 @@ export const usePushNotifications = () => {
 
       // 3. Get FCM token
       const token = await getToken(messagingRef.current, {
-        vapidKey: vapidPublicKey,
+        vapidKey: vapidPublicKeyRef.current,
         serviceWorkerRegistration: registration,
       });
 
@@ -164,7 +198,7 @@ export const usePushNotifications = () => {
     } finally {
       registering.current = false;
     }
-  }, [isSupported, vapidPublicKey, isSubscribed, fcmToken, registerSubscription]);
+  }, [isSupported, isSubscribed, fcmToken, registerSubscription]);
 
   // ─── Unsubscribe ──────────────────────────────────────────────────
   const unsubscribe = useCallback(async () => {
@@ -200,6 +234,8 @@ export const usePushNotifications = () => {
     fcmToken,
     vapidPublicKey,
     vapidLoading,
+    vapidKeyError,
+    retryLoadVapidKey,
     subscribe,
     unsubscribe,
   };
