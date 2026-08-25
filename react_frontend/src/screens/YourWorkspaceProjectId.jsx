@@ -343,6 +343,184 @@ const RejectReasonModal = React.memo(({ isOpen, onClose, onConfirm }) => {
   );
 });
 
+// ─── Mark Task Complete Modal ──────────────────────────────────────
+const MarkCompleteModal = React.memo(({ isOpen, onClose, task, brandColor, onSubmit }) => {
+  const [notes, setNotes] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async () => {
+    setLoading(true);
+    try {
+      await onSubmit({ notes: notes.trim() });
+      onClose();
+      setNotes('');
+    } catch (err) {
+      // Error already handled in parent
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
+        <div className="flex justify-between mb-4">
+          <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Mark Task Complete</h2>
+          <button onClick={onClose} className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"><FaTimes /></button>
+        </div>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+          Confirm you have completed "{task?.title}". Add any final notes (optional).
+        </p>
+        <textarea
+          placeholder="Completion notes (optional)"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          rows={3}
+          className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none mb-4"
+        />
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
+          <button
+            onClick={handleSubmit}
+            disabled={loading}
+            className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80 disabled:opacity-50"
+            style={{ backgroundColor: brandColor }}
+          >
+            {loading ? 'Submitting...' : 'Complete'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+// ─── Confirm Completion Modal ──────────────────────────────────────
+const ConfirmCompletionModal = React.memo(({ isOpen, onClose, task, brandColor, onSubmit }) => {
+  const [feedback, setFeedback] = useState('');
+  const [finalHours, setFinalHours] = useState('');
+  const [finalLinksText, setFinalLinksText] = useState('');
+  const [finalAttachments, setFinalAttachments] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const handleFileChange = (e) => {
+    setFinalAttachments([...e.target.files]);
+    e.target.value = '';
+  };
+
+  const removeFile = (index) => {
+    setFinalAttachments(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSubmit = async () => {
+    setLoading(true);
+    try {
+      const links = finalLinksText.split('\n').map(l => l.trim()).filter(Boolean);
+      await onSubmit({
+        feedback: feedback.trim(),
+        finalHours: finalHours ? parseFloat(finalHours) : undefined,
+        finalLinks: links.length ? links : undefined,
+        finalAttachments,
+      });
+      onClose();
+      // Reset
+      setFeedback('');
+      setFinalHours('');
+      setFinalLinksText('');
+      setFinalAttachments([]);
+    } catch (err) {
+      // Error handled in parent
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto shadow-xl">
+        <div className="flex justify-between mb-4">
+          <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Confirm Task Completion</h2>
+          <button onClick={onClose} className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"><FaTimes /></button>
+        </div>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+          Provide final details for "{task?.title}" before confirming completion.
+        </p>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Feedback (optional)</label>
+            <textarea
+              value={feedback}
+              onChange={(e) => setFeedback(e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none"
+              placeholder="Any feedback for the assignee..."
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Actual Hours (optional)</label>
+            <input
+              type="number"
+              step="0.5"
+              value={finalHours}
+              onChange={(e) => setFinalHours(e.target.value)}
+              className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none"
+              placeholder="e.g. 2.5"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Final Links (one per line, optional)</label>
+            <textarea
+              value={finalLinksText}
+              onChange={(e) => setFinalLinksText(e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none"
+              placeholder="https://example.com"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Final Attachments (optional)</label>
+            <input
+              type="file"
+              multiple
+              onChange={handleFileChange}
+              className="w-full text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-teal-50 dark:file:bg-[#0d9488]/20 file:text-teal-600 dark:file:text-[#0d9488]"
+            />
+            {finalAttachments.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {finalAttachments.map((f, i) => (
+                  <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5">
+                    <span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span>
+                    <button type="button" onClick={() => removeFile(i)} className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"><FaTrashAlt className="text-xs" /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex gap-3 mt-4">
+          <button onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
+          <button
+            onClick={handleSubmit}
+            disabled={loading}
+            className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80 disabled:opacity-50"
+            style={{ backgroundColor: brandColor }}
+          >
+            {loading ? 'Submitting...' : 'Confirm'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
 // ─── Task Card ─────────────────────────────────────────────────────────
 const TaskCard = React.memo(({
   task,
@@ -414,7 +592,7 @@ const TaskCard = React.memo(({
             >
               {task.title.charAt(0).toUpperCase()}
             </div>
-            <h4 className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
+            <h4 className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate max-w-[120px] md:max-w-[200px] group-hover:text-gray-900 dark:group-hover:text-white transition">
               {task.title}
             </h4>
             {hasRecurrence && (
@@ -438,20 +616,20 @@ const TaskCard = React.memo(({
           )}
           {folderName && (
             <span className="text-[10px] text-gray-500 dark:text-gray-500 flex items-center gap-1">
-              <FaFolder className="text-[8px]" /> {folderName}
+              <FaFolder className="text-[8px]" /> <span className="truncate max-w-[60px] md:max-w-[100px]">{folderName}</span>
             </span>
           )}
         </div>
 
         {task.description && (
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">{task.description}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2 truncate">{task.description}</p>
         )}
 
         <div className="mt-3 flex items-center justify-between">
-          <span className="text-xs text-gray-500 dark:text-gray-500">
+          <span className="text-xs text-gray-500 dark:text-gray-500 truncate max-w-[80px] md:max-w-[120px]">
             {assignee ? `${assignee.name}` : 'Unassigned'}
           </span>
-          <span className="text-xs text-gray-500 dark:text-gray-500">{task.dueDate ? formatDateTime(task.dueDate) : 'No due'}</span>
+          <span className="text-xs text-gray-500 dark:text-gray-500 truncate">{task.dueDate ? formatDateTime(task.dueDate) : 'No due'}</span>
         </div>
 
         <div className="mt-2 flex items-center gap-2">
@@ -528,7 +706,7 @@ const SearchModal = React.memo(({ isOpen, onClose, items, type, brandColor, onSe
                       {item.title.charAt(0).toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition">{item.title}</p>
+                      <p className="text-sm font-medium text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">{item.title}</p>
                       <div className="flex items-center gap-1.5 text-xs">
                         <TaskStatusBadge status={item.status} />
                         <TaskPriorityBadge priority={item.priority} />
@@ -546,7 +724,7 @@ const SearchModal = React.memo(({ isOpen, onClose, items, type, brandColor, onSe
                       {item.status === 'active' && <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white dark:border-[#0b0b10]" />}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition">{item.user?.name || 'Unknown'}</p>
+                      <p className="text-sm font-medium text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">{item.user?.name || 'Unknown'}</p>
                       <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{item.user?.email}</p>
                     </div>
                   </>
@@ -728,7 +906,7 @@ const SubTaskItem = React.memo(({
               {draggable && (
                 <FaGripVertical className="text-gray-300 dark:text-gray-700 text-xs flex-shrink-0 cursor-grab" />
               )}
-              <span className="text-sm font-medium text-gray-800 dark:text-gray-300">{subTask.title}</span>
+              <span className="text-sm font-medium text-gray-800 dark:text-gray-300 truncate max-w-[140px] md:max-w-[200px]">{subTask.title}</span>
               <span className={`text-[10px] font-medium ${st.color}`}>{st.label}</span>
               {subTask.dueDate && new Date(subTask.dueDate) < new Date() && subTask.status !== 'confirmed' && (
                 <span className="text-[10px] text-red-500 dark:text-red-400 flex items-center gap-1"><FaClock className="text-[8px]" /> Overdue</span>
@@ -980,6 +1158,114 @@ const AssignTaskModal = React.memo(({ isOpen, onClose, task, assignableMembers, 
   );
 });
 
+// ─── Project Menu Modal (bottom sheet) ────────────────────────────────
+const ProjectMenuModal = ({
+  isOpen,
+  onClose,
+  project,
+  canManage,
+  isArchivedForMe,
+  isTrash,
+  onArchive,
+  onUnarchive,
+  onMoveToTrash,
+  onRestore,
+  onPermanentDelete,
+  brandColor,
+}) => {
+  if (!isOpen) return null;
+
+  const isMobile = window.innerWidth < 768;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-0 md:p-4"
+      onClick={onClose}
+    >
+      <div
+        className={`bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl md:rounded-2xl w-full md:max-w-sm ${isMobile ? 'max-h-[80vh]' : 'max-h-[80vh]'} overflow-y-auto transform transition-transform duration-300 ${
+          isMobile ? 'mt-auto' : 'mx-auto'
+        }`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-5">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 truncate pr-4">
+              {project?.name || 'Project'}
+            </h3>
+            <button onClick={onClose} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition flex-shrink-0">
+              <FaTimes />
+            </button>
+          </div>
+
+          <div className="space-y-1">
+            {isTrash ? (
+              <>
+                {canManage && (
+                  <button
+                    onClick={() => { onClose(); onRestore(); }}
+                    className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[#0d9488] hover:bg-[#0d9488]/10 transition"
+                  >
+                    <FaTrashRestore className="text-sm" />
+                    <span className="text-sm font-medium">Restore</span>
+                  </button>
+                )}
+                {canManage && (
+                  <button
+                    onClick={() => { onClose(); onPermanentDelete(); }}
+                    className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-red-600 dark:text-red-400 hover:bg-red-500/10 transition"
+                  >
+                    <FaTrashAlt className="text-sm" />
+                    <span className="text-sm font-medium">Delete Permanently</span>
+                  </button>
+                )}
+              </>
+            ) : (
+              <>
+                {canManage && (
+                  <button
+                    onClick={() => { onClose(); /* navigate to edit */ }}
+                    className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+                  >
+                    <FaEdit className="text-sm text-[#0d9488]" />
+                    <span className="text-sm font-medium">Edit Project</span>
+                  </button>
+                )}
+                {isArchivedForMe ? (
+                  <button
+                    onClick={() => { onClose(); onUnarchive(); }}
+                    className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[#0d9488] hover:bg-[#0d9488]/10 transition"
+                  >
+                    <FaUndo className="text-sm" />
+                    <span className="text-sm font-medium">Unarchive</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => { onClose(); onArchive(); }}
+                    className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-600 dark:text-gray-400 hover:bg-[#0d9488]/10 transition"
+                  >
+                    <FaArchive className="text-sm" />
+                    <span className="text-sm font-medium">Archive for me</span>
+                  </button>
+                )}
+                {canManage && !isTrash && (
+                  <button
+                    onClick={() => { onClose(); onMoveToTrash(); }}
+                    className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/10 transition"
+                  >
+                    <FaTrashAlt className="text-sm" />
+                    <span className="text-sm font-medium">Move to Trash</span>
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Task Detail View ────────────────────────────────────────────────
 const TaskDetailView = React.memo(({
   task,
@@ -995,6 +1281,8 @@ const TaskDetailView = React.memo(({
   onSendReminder,
   onConfirmCompletion,
   onAssignTask,
+  onMarkComplete,
+  onSetReadyForCompletion, // NEW
   subDragStart,
   subDragEnd,
   subDragOver,
@@ -1010,6 +1298,10 @@ const TaskDetailView = React.memo(({
   const [newSubTaskDue, setNewSubTaskDue] = useState('');
   const [adding, setAdding] = useState(false);
   const [addSubTask] = useAddSubTaskMutation();
+
+  // ── New modals state ──
+  const [showMarkCompleteModal, setShowMarkCompleteModal] = useState(false);
+  const [showConfirmCompletionModal, setShowConfirmCompletionModal] = useState(false);
 
   const hasRecurrence = task.recurrenceType && task.recurrenceType !== 'none';
   const recurrenceLabel = task.recurrenceType === 'daily' ? 'Daily' : task.recurrenceType === 'weekly' ? 'Weekly' : '';
@@ -1043,6 +1335,80 @@ const TaskDetailView = React.memo(({
   const canReorderSub = canManage || (isAssignee && task.allowAssigneeEditSubtasks);
   const isReadOnly = task.isArchived || task.isTrash || false;
 
+  // ── Handlers for new modals ──
+  const handleMarkCompleteClick = () => {
+    setShowMarkCompleteModal(true);
+  };
+
+  const handleMarkCompleteSubmit = async ({ notes }) => {
+    try {
+      await onMarkComplete(notes);
+      setShowMarkCompleteModal(false);
+    } catch (err) {
+      // error already handled in parent
+    }
+  };
+
+  const handleConfirmCompletionClick = () => {
+    setShowConfirmCompletionModal(true);
+  };
+
+  const handleConfirmCompletionSubmit = async (data) => {
+    try {
+      await onConfirmCompletion(data);
+      setShowConfirmCompletionModal(false);
+    } catch (err) {
+      // error already handled in parent
+    }
+  };
+
+  // ── Handle Set Ready for Completion ──
+  const handleSetReadyClick = () => {
+    onSetReadyForCompletion(task);
+  };
+
+  // ── Display final details if confirmed ──
+  const showFinalDetails = task.status === 'confirmed_completed';
+  const finalDetails = showFinalDetails ? (
+    <div className="mt-4 bg-gray-50 dark:bg-[#1a1a24] p-3 rounded-xl border border-gray-200 dark:border-gray-800/40 space-y-1">
+      <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Final Details</p>
+      {task.completionFeedback && <div><span className="font-medium text-gray-600 dark:text-gray-400">Feedback:</span> {task.completionFeedback}</div>}
+      {task.actualHours !== undefined && task.actualHours !== null && <div><span className="font-medium text-gray-600 dark:text-gray-400">Actual Hours:</span> {task.actualHours}</div>}
+      {task.finalLinks && task.finalLinks.length > 0 && (
+        <div>
+          <span className="font-medium text-gray-600 dark:text-gray-400">Final Links:</span>
+          <div className="flex flex-wrap items-center gap-1 mt-0.5">
+            {task.finalLinks.map((l, i) => (
+              <React.Fragment key={i}>
+                <a href={l} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] underline break-all">{l}</a>
+                {i < task.finalLinks.length - 1 && <span className="text-gray-400 dark:text-gray-500">,</span>}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+      )}
+      {task.finalAttachments && task.finalAttachments.length > 0 && (
+        <div>
+          <span className="font-medium text-gray-600 dark:text-gray-400">Final Attachments:</span>
+          <div className="flex flex-wrap items-center gap-1 mt-0.5">
+            {task.finalAttachments.map((att, i) => (
+              <React.Fragment key={i}>
+                <a href={att.url} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] underline break-all">{att.name || 'file'}</a>
+                {i < task.finalAttachments.length - 1 && <span className="text-gray-400 dark:text-gray-500">,</span>}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  ) : null;
+
+  // Determine if we can show "Set Ready" button: manager can, task not already ready/completed/confirmed, and not read-only
+  const showSetReady = canManage && !isReadOnly && 
+    task.status !== 'ready_for_completion' && 
+    task.status !== 'completed' && 
+    task.status !== 'confirmed_completed';
+
   return (
     <div className="flex flex-col h-full bg-gray-50 dark:bg-[#0f0f12]">
       {/* Header */}
@@ -1055,7 +1421,7 @@ const TaskDetailView = React.memo(({
           {task.title.charAt(0).toUpperCase()}
         </div>
         <div className="flex-1 min-w-0">
-          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate">{task.title}</h2>
+          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate max-w-[180px] md:max-w-full">{task.title}</h2>
           <div className="flex items-center gap-1.5 text-xs flex-wrap">
             <TaskStatusBadge status={task.status} />
             <TaskPriorityBadge priority={task.priority} />
@@ -1064,7 +1430,7 @@ const TaskDetailView = React.memo(({
                 <FaRedo className="text-[10px]" /> {recurrenceLabel}
               </span>
             )}
-            {task.assignee && <span className="text-gray-600 dark:text-gray-400 truncate">{task.assignee.name}</span>}
+            {task.assignee && <span className="text-gray-600 dark:text-gray-400 truncate max-w-[80px] md:max-w-[120px]">{task.assignee.name}</span>}
             {task.folder && <span className="text-gray-600 dark:text-gray-400 truncate flex items-center gap-1"><FaFolder className="text-xs" /> {task.folder.name}</span>}
           </div>
         </div>
@@ -1114,6 +1480,7 @@ const TaskDetailView = React.memo(({
             </span>
           )}
         </div>
+        {finalDetails}
       </div>
 
       {/* Sub‑tasks area */}
@@ -1190,28 +1557,56 @@ const TaskDetailView = React.memo(({
       </div>
 
       {/* Bottom action bar */}
-      {!isReadOnly && isAssignee && task.status !== 'completed' && task.status !== 'confirmed_completed' && (
-        <div className="border-t border-gray-200/60 dark:border-gray-800/40 bg-white dark:bg-[#14141a] px-3 py-2 flex-shrink-0 sticky bottom-0">
+      <div className="border-t border-gray-200/60 dark:border-gray-800/40 bg-white dark:bg-[#14141a] px-3 py-2 flex-shrink-0 sticky bottom-0 space-y-2">
+        {showSetReady && (
           <button
-            onClick={() => onRefresh()}
+            onClick={handleSetReadyClick}
             className="w-full py-2 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 transition hover:opacity-80"
             style={{ backgroundColor: brandColor }}
           >
-            <FaChartLine className="text-sm" /> Refresh status
+            <FaCheckCircle className="text-sm" /> Set Ready for Completion
           </button>
-        </div>
-      )}
-      {!isReadOnly && canManage && task.status === 'completed' && task.status !== 'confirmed_completed' && (
-        <div className="border-t border-gray-200/60 dark:border-gray-800/40 bg-white dark:bg-[#14141a] px-3 py-2 flex-shrink-0 sticky bottom-0">
+        )}
+        {isAssignee && !isReadOnly && task.status === 'ready_for_completion' && (
           <button
-            onClick={onConfirmCompletion}
+            onClick={handleMarkCompleteClick}
+            className="w-full py-2 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 transition hover:opacity-80"
+            style={{ backgroundColor: brandColor }}
+          >
+            <FaCheckDouble className="text-sm" /> Mark as Complete
+          </button>
+        )}
+        {!isReadOnly && canManage && task.status === 'completed' && task.status !== 'confirmed_completed' && (
+          <button
+            onClick={handleConfirmCompletionClick}
             className="w-full py-2 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 transition hover:opacity-80"
             style={{ backgroundColor: brandColor }}
           >
             <FaCheckDouble className="text-sm" /> Confirm Completion
           </button>
-        </div>
-      )}
+        )}
+        {!showSetReady && !(isAssignee && task.status === 'ready_for_completion') && !(canManage && task.status === 'completed' && task.status !== 'confirmed_completed') && (
+          <p className="text-center text-xs text-gray-500 dark:text-gray-400">
+            {task.status === 'confirmed_completed' ? 'Task confirmed' : 'No actions available'}
+          </p>
+        )}
+      </div>
+
+      {/* Modals */}
+      <MarkCompleteModal
+        isOpen={showMarkCompleteModal}
+        onClose={() => setShowMarkCompleteModal(false)}
+        task={task}
+        brandColor={brandColor}
+        onSubmit={handleMarkCompleteSubmit}
+      />
+      <ConfirmCompletionModal
+        isOpen={showConfirmCompletionModal}
+        onClose={() => setShowConfirmCompletionModal(false)}
+        task={task}
+        brandColor={brandColor}
+        onSubmit={handleConfirmCompletionSubmit}
+      />
     </div>
   );
 });
@@ -1356,7 +1751,7 @@ const FolderReadOnlyModal = React.memo(({ isOpen, onClose, folder, project, bran
                   <div key={uid} className="flex items-center justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-xl px-3 py-2">
                     <div className="flex items-center gap-2">
                       {user?.profile ? <img src={user.profile} className="w-6 h-6 rounded-full object-cover" alt="" /> : <FaUser className="text-gray-400" />}
-                      <span className="text-sm text-gray-800 dark:text-gray-200">{user?.name || 'Unknown'}</span>
+                      <span className="text-sm text-gray-800 dark:text-gray-200 truncate max-w-[150px]">{user?.name || 'Unknown'}</span>
                     </div>
                     <button
                       onClick={() => handleRemove(uid)}
@@ -1391,7 +1786,7 @@ const FolderReadOnlyModal = React.memo(({ isOpen, onClose, folder, project, bran
                       }}
                       className="accent-teal-600 dark:accent-[#0d9488]"
                     />
-                    <span className="text-sm text-gray-800 dark:text-gray-200">{user?.name || 'Unknown'}</span>
+                    <span className="text-sm text-gray-800 dark:text-gray-200 truncate">{user?.name || 'Unknown'}</span>
                   </label>
                 );
               })}
@@ -1416,7 +1811,7 @@ const FolderReadOnlyModal = React.memo(({ isOpen, onClose, folder, project, bran
   );
 });
 
-// ─── Create Task Modal (optimized with optimistic submit) ───────────
+// ─── Create Task Modal ──────────────────────────────────────────────
 const CreateTaskModal = React.memo(({ isOpen, onClose, projectId, brandColor, assignableMembers, folders, onSuccess, onSubmit }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -1646,11 +2041,7 @@ const CreateTaskModal = React.memo(({ isOpen, onClose, projectId, brandColor, as
                         key={idx}
                         type="button"
                         onClick={() => toggleDay(idx)}
-                        className={`px-3 py-1 rounded-full text-xs font-medium transition ${
-                          recurrenceDays.includes(idx)
-                            ? 'bg-teal-500 text-white'
-                            : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'
-                        }`}
+                        className={`px-3 py-1 rounded-full text-xs font-medium transition ${recurrenceDays.includes(idx) ? 'bg-teal-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'}`}
                       >
                         {day}
                       </button>
@@ -1895,11 +2286,7 @@ const EditTaskModal = React.memo(({ isOpen, onClose, task, brandColor, assignabl
                     key={idx}
                     type="button"
                     onClick={() => toggleDay(idx)}
-                    className={`px-3 py-1 rounded-full text-xs font-medium transition ${
-                      recurrenceDays.includes(idx)
-                        ? 'bg-teal-500 text-white'
-                        : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'
-                    }`}
+                    className={`px-3 py-1 rounded-full text-xs font-medium transition ${recurrenceDays.includes(idx) ? 'bg-teal-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'}`}
                   >
                     {day}
                   </button>
@@ -2033,6 +2420,7 @@ const YourWorkspaceProjectId = () => {
   const [editingFolder, setEditingFolder] = useState(null);
   const [showReadOnlyModal, setShowReadOnlyModal] = useState(false);
   const [readOnlyFolder, setReadOnlyFolder] = useState(null);
+  const [projectMenuModalOpen, setProjectMenuModalOpen] = useState(false);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
@@ -2053,7 +2441,7 @@ const YourWorkspaceProjectId = () => {
   });
 
   // ── Mobile folder long-press menu ─────────────────────────────────
-  const [folderMenuOpen, setFolderMenuOpen] = useState(null); // folderId or null
+  const [folderMenuOpen, setFolderMenuOpen] = useState(null);
   const longPressTimer = useRef(null);
 
   // ── Queries
@@ -2084,6 +2472,8 @@ const YourWorkspaceProjectId = () => {
   const [reorderSubTasks] = useReorderSubTasksMutation();
   const [createTask] = useCreateTaskMutation();
   const [deleteFolder] = useDeleteFolderMutation(); // for optimistic folder delete
+  const [markTaskCompleted] = useMarkTaskCompletedMutation(); // for assignee to mark complete
+  const [updateTask] = useUpdateTaskMutation(); // for setting ready
 
   // Local state for tasks and folders (optimistic updates)
   const [localTasks, setLocalTasks] = useState([]);
@@ -2235,11 +2625,9 @@ const YourWorkspaceProjectId = () => {
 
   // ── Optimistic folder delete ────────────────────────────────────────
   const handleDeleteFolderOptimistic = useCallback(async (folderId) => {
-    // Store folder name for toast
     const folderToDelete = folders.find(f => f._id === folderId);
     if (!folderToDelete) return;
 
-    // Remove from local state optimistically
     setLocalFolders(prev => prev.filter(f => f._id !== folderId));
     if (selectedFolderId === folderId) {
       setSelectedFolderId(null);
@@ -2249,9 +2637,8 @@ const YourWorkspaceProjectId = () => {
       await deleteFolder(folderId).unwrap();
       toast.success('Folder deleted');
       refetchFolders();
-      refetchTasks(); // tasks may have been unlinked
+      refetchTasks();
     } catch (err) {
-      // Revert on error
       setLocalFolders(prev => [...prev, folderToDelete]);
       toast.error(err?.data?.message || 'Failed to delete folder');
     }
@@ -2273,6 +2660,7 @@ const YourWorkspaceProjectId = () => {
       toast.error(err?.data?.message || 'Failed to archive');
     }
     setProjectMenuOpen(false);
+    setProjectMenuModalOpen(false);
   }, [archiveProject, projectId, refetchProject]);
 
   const handleUnarchiveProject = useCallback(async () => {
@@ -2284,6 +2672,7 @@ const YourWorkspaceProjectId = () => {
       toast.error(err?.data?.message || 'Failed to unarchive');
     }
     setProjectMenuOpen(false);
+    setProjectMenuModalOpen(false);
   }, [unarchiveProject, projectId, refetchProject]);
 
   const handleMoveToTrash = useCallback(() => {
@@ -2303,6 +2692,7 @@ const YourWorkspaceProjectId = () => {
       danger: false,
     });
     setProjectMenuOpen(false);
+    setProjectMenuModalOpen(false);
   }, [deleteProject, projectId, navigate, workspaceId, project?.name]);
 
   const handleRestoreProject = useCallback(() => {
@@ -2322,6 +2712,7 @@ const YourWorkspaceProjectId = () => {
       danger: false,
     });
     setProjectMenuOpen(false);
+    setProjectMenuModalOpen(false);
   }, [restoreProject, projectId, refetchProject, project?.name]);
 
   const handlePermanentDeleteProject = useCallback(() => {
@@ -2341,6 +2732,7 @@ const YourWorkspaceProjectId = () => {
       danger: true,
     });
     setProjectMenuOpen(false);
+    setProjectMenuModalOpen(false);
   }, [permanentlyDeleteProject, projectId, navigate, workspaceId, project?.name]);
 
   const handleDeleteTask = useCallback((task) => {
@@ -2436,23 +2828,57 @@ const YourWorkspaceProjectId = () => {
     } catch (e) { toast.error(e?.data?.message || 'Failed to send reminder'); }
   }, [sendManualReminder]);
 
-  const handleConfirmCompletion = useCallback((taskId) => {
-    setConfirmModal({
-      isOpen: true,
-      title: 'Confirm Completion',
-      message: 'Are you sure you want to confirm completion of this task?',
-      onConfirm: async () => {
-        try {
-          await confirmTaskCompletion({ taskId }).unwrap();
-          toast.success('Task completion confirmed');
-          refreshAll();
-        } catch (e) {
-          toast.error(e?.data?.message || 'Failed');
-        }
-      },
-      danger: false,
-    });
-  }, [confirmTaskCompletion, refreshAll]);
+  // ── Modified handlers for completion ──
+  const handleMarkComplete = useCallback(async (notes) => {
+    try {
+      await markTaskCompleted({ taskId: activeTask._id, notes }).unwrap();
+      toast.success('Task marked as complete');
+      refreshAll();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to mark task complete');
+      throw err;
+    }
+  }, [activeTask, markTaskCompleted, refreshAll]);
+
+  const handleConfirmCompletion = useCallback(async (data) => {
+    try {
+      const fd = new FormData();
+      fd.append('feedback', data.feedback || '');
+      if (data.finalHours !== undefined) fd.append('finalHours', data.finalHours.toString());
+      if (data.finalLinks) {
+        data.finalLinks.forEach(l => fd.append('finalLinks', l));
+      }
+      if (data.finalAttachments) {
+        data.finalAttachments.forEach(f => fd.append('finalAttachments', f));
+      }
+      await confirmTaskCompletion({ taskId: activeTask._id, data: fd }).unwrap();
+      toast.success('Task completion confirmed');
+      refreshAll();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to confirm completion');
+      throw err;
+    }
+  }, [activeTask, confirmTaskCompletion, refreshAll]);
+
+  // ── NEW: Set task status to ready_for_completion (optimistic) ──
+  const handleSetReadyForCompletion = useCallback(async (task) => {
+    const previousStatus = task.status;
+    // Optimistic update
+    setLocalTasks(prev => prev.map(t =>
+      t._id === task._id ? { ...t, status: 'ready_for_completion' } : t
+    ));
+    try {
+      await updateTask({ taskId: task._id, data: { status: 'ready_for_completion' } }).unwrap();
+      toast.success('Task is now ready for completion');
+      refreshAll();
+    } catch (err) {
+      // Revert on error
+      setLocalTasks(prev => prev.map(t =>
+        t._id === task._id ? { ...t, status: previousStatus } : t
+      ));
+      toast.error(err?.data?.message || 'Failed to update task status');
+    }
+  }, [updateTask, refreshAll]);
 
   const handleAssignTask = useCallback(async (assigneeId) => {
     try {
@@ -2481,7 +2907,6 @@ const YourWorkspaceProjectId = () => {
     setShowFolderForm(true);
   }, []);
 
-  // ── Folder handlers with optimistic update ──────────────────────────
   const handleDeleteFolder = useCallback((folder) => {
     setConfirmModal({
       isOpen: true,
@@ -2646,7 +3071,6 @@ const YourWorkspaceProjectId = () => {
   const handleTouchStart = (e, folderId) => {
     longPressTimer.current = setTimeout(() => {
       setFolderMenuOpen(folderId);
-      // Vibrate if supported
       if (navigator.vibrate) navigator.vibrate(50);
     }, 600);
   };
@@ -2723,47 +3147,11 @@ const YourWorkspaceProjectId = () => {
               )}
               <div className="relative">
                 <button
-                  onClick={() => setProjectMenuOpen(!projectMenuOpen)}
+                  onClick={() => setProjectMenuModalOpen(true)}
                   className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
                 >
                   <FaEllipsisV className="text-xs md:text-sm" />
                 </button>
-                {projectMenuOpen && (
-                  <div className="absolute right-0 top-full mt-1 bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-800/60 rounded-xl min-w-[160px] z-20 py-1 shadow-lg">
-                    {!isTrash && (
-                      isArchivedForMe ? (
-                        <button onClick={handleUnarchiveProject} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 w-full transition">
-                          <FaUndo className="text-xs text-teal-500 dark:text-[#0d9488]" /> Unarchive
-                        </button>
-                      ) : (
-                        <button onClick={handleArchiveProject} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 w-full transition">
-                          <FaArchive className="text-xs text-gray-500" /> Archive
-                        </button>
-                      )
-                    )}
-                    {canManage && (
-                      <>
-                        <div className="border-t border-gray-200 dark:border-gray-700/60 my-1" />
-                        {isTrash ? (
-                          <>
-                            <button onClick={handleRestoreProject} className="flex items-center gap-2 px-4 py-2 text-sm text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-500/10 w-full transition">
-                              <FaTrashRestore className="text-xs" /> Restore
-                            </button>
-                            <button onClick={handlePermanentDeleteProject} className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 w-full transition">
-                              <FaTrashAlt className="text-xs" /> Delete Permanently
-                            </button>
-                          </>
-                        ) : (
-                          !isArchivedForMe && (
-                            <button onClick={handleMoveToTrash} className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 w-full transition">
-                              <FaTrashAlt className="text-xs" /> Move to Trash
-                            </button>
-                          )
-                        )}
-                      </>
-                    )}
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -2828,7 +3216,7 @@ const YourWorkspaceProjectId = () => {
                         }`}
                       >
                         <FaFolder className="text-[8px] md:text-[10px]" />
-                        {f.name}
+                        <span className="truncate max-w-[50px] md:max-w-[80px]">{f.name}</span>
                       </button>
                       {/* Desktop hover actions */}
                       {canManage && !isTrash && !isArchivedForMe && (
@@ -2917,7 +3305,7 @@ const YourWorkspaceProjectId = () => {
                           {m.profile ? <img src={m.profile} className="w-full h-full rounded-full object-cover" /> : m.name?.charAt(0).toUpperCase()}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{m.name}</p>
+                          <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate max-w-[120px] md:max-w-[200px]">{m.name}</p>
                           <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{m.email}</p>
                         </div>
                         {canManage && projectManagers.length > 1 && !isTrash && !isArchivedForMe && (
@@ -2948,7 +3336,7 @@ const YourWorkspaceProjectId = () => {
                             {user.profile ? <img src={user.profile} className="w-full h-full rounded-full object-cover" /> : user.name?.charAt(0).toUpperCase()}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{user.name || 'Unknown'}</p>
+                            <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate max-w-[120px] md:max-w-[200px]">{user.name || 'Unknown'}</p>
                             <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{user.email}</p>
                           </div>
                           {canManage && !isTrash && !isArchivedForMe && (
@@ -2979,8 +3367,10 @@ const YourWorkspaceProjectId = () => {
                 onRefresh={refreshAll}
                 canManage={canManage}
                 onSendReminder={handleSendManualReminder}
-                onConfirmCompletion={() => handleConfirmCompletion(activeTask._id)}
+                onConfirmCompletion={handleConfirmCompletion}
                 onAssignTask={openAssignModal}
+                onMarkComplete={handleMarkComplete}
+                onSetReadyForCompletion={handleSetReadyForCompletion}
                 subDragStart={handleSubDragStart}
                 subDragEnd={handleSubDragEnd}
                 subDragOver={handleSubDragOver}
@@ -3096,6 +3486,31 @@ const YourWorkspaceProjectId = () => {
         project={project}
         brandColor={brandColor}
         onSuccess={() => { refetchFolders(); }}
+      />
+
+      {/* Project Menu Modal */}
+      <ProjectMenuModal
+        isOpen={projectMenuModalOpen}
+        onClose={() => setProjectMenuModalOpen(false)}
+        project={project}
+        canManage={canManage}
+        isArchivedForMe={isArchivedForMe}
+        isTrash={isTrash}
+        onArchive={handleArchiveProject}
+        onUnarchive={handleUnarchiveProject}
+        onMoveToTrash={() => {
+          setProjectMenuModalOpen(false);
+          handleMoveToTrash();
+        }}
+        onRestore={() => {
+          setProjectMenuModalOpen(false);
+          handleRestoreProject();
+        }}
+        onPermanentDelete={() => {
+          setProjectMenuModalOpen(false);
+          handlePermanentDeleteProject();
+        }}
+        brandColor={brandColor}
       />
 
       <ConfirmModal

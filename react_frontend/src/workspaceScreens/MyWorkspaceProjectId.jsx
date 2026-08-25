@@ -289,6 +289,184 @@ const DeleteTaskConfirmModal = React.memo(({ isOpen, onClose, onConfirm, taskNam
   );
 });
 
+// ─── Mark Complete Modal ────────────────────────────────────────────
+const MarkCompleteModal = React.memo(({ isOpen, onClose, task, brandColor, onSubmit }) => {
+  const [notes, setNotes] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async () => {
+    setLoading(true);
+    try {
+      await onSubmit({ notes: notes.trim() });
+      onClose();
+      setNotes('');
+    } catch (err) {
+      // Error handled in parent
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
+        <div className="flex justify-between mb-4">
+          <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Mark Task Complete</h2>
+          <button onClick={onClose} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"><FaTimes /></button>
+        </div>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+          Confirm you have completed "{task?.title}". Add any final notes (optional).
+        </p>
+        <textarea
+          placeholder="Completion notes (optional)"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          rows={3}
+          className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-[#0d9488] outline-none mb-4"
+        />
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
+          <button
+            onClick={handleSubmit}
+            disabled={loading}
+            className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80 disabled:opacity-50"
+            style={{ backgroundColor: brandColor }}
+          >
+            {loading ? 'Submitting...' : 'Complete'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+// ─── Confirm Completion Modal ──────────────────────────────────────
+const ConfirmCompletionModal = React.memo(({ isOpen, onClose, task, brandColor, onSubmit }) => {
+  const [feedback, setFeedback] = useState('');
+  const [finalHours, setFinalHours] = useState('');
+  const [finalLinksText, setFinalLinksText] = useState('');
+  const [finalAttachments, setFinalAttachments] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const handleFileChange = (e) => {
+    setFinalAttachments([...e.target.files]);
+    e.target.value = '';
+  };
+
+  const removeFile = (index) => {
+    setFinalAttachments(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSubmit = async () => {
+    setLoading(true);
+    try {
+      const links = finalLinksText.split('\n').map(l => l.trim()).filter(Boolean);
+      await onSubmit({
+        feedback: feedback.trim(),
+        finalHours: finalHours ? parseFloat(finalHours) : undefined,
+        finalLinks: links.length ? links : undefined,
+        finalAttachments,
+      });
+      onClose();
+      // Reset
+      setFeedback('');
+      setFinalHours('');
+      setFinalLinksText('');
+      setFinalAttachments([]);
+    } catch (err) {
+      // Error handled in parent
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto shadow-xl">
+        <div className="flex justify-between mb-4">
+          <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Confirm Task Completion</h2>
+          <button onClick={onClose} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"><FaTimes /></button>
+        </div>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+          Provide final details for "{task?.title}" before confirming completion.
+        </p>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Feedback (optional)</label>
+            <textarea
+              value={feedback}
+              onChange={(e) => setFeedback(e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-[#0d9488] outline-none"
+              placeholder="Any feedback for the assignee..."
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Actual Hours (optional)</label>
+            <input
+              type="number"
+              step="0.5"
+              value={finalHours}
+              onChange={(e) => setFinalHours(e.target.value)}
+              className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
+              placeholder="e.g. 2.5"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Final Links (one per line, optional)</label>
+            <textarea
+              value={finalLinksText}
+              onChange={(e) => setFinalLinksText(e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-[#0d9488] outline-none"
+              placeholder="https://example.com"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Final Attachments (optional)</label>
+            <input
+              type="file"
+              multiple
+              onChange={handleFileChange}
+              className="w-full text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-[#0d9488]/20 file:text-[#0d9488]"
+            />
+            {finalAttachments.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {finalAttachments.map((f, i) => (
+                  <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5">
+                    <span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span>
+                    <button type="button" onClick={() => removeFile(i)} className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"><FaTrashAlt className="text-xs" /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex gap-3 mt-4">
+          <button onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
+          <button
+            onClick={handleSubmit}
+            disabled={loading}
+            className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80 disabled:opacity-50"
+            style={{ backgroundColor: brandColor }}
+          >
+            {loading ? 'Submitting...' : 'Confirm'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
 // ─── Folder Select Modal ────────────────────────────────────────────────
 const FolderSelectModal = React.memo(({ isOpen, onClose, folders, mode, task, onConfirm, brandColor }) => {
   const [selectedFolderId, setSelectedFolderId] = useState(null);
@@ -506,7 +684,7 @@ const TaskCard = React.memo(({
             <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0" style={{ backgroundColor: brandColor }}>
               {task.title.charAt(0).toUpperCase()}
             </div>
-            <h4 className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
+            <h4 className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate max-w-[120px] md:max-w-[200px] group-hover:text-gray-900 dark:group-hover:text-white transition">
               {displayTitle}
             </h4>
             {hasRecurrence && (
@@ -581,10 +759,10 @@ const TaskCard = React.memo(({
             <span className="text-[10px] text-blue-400 flex items-center gap-1"><FaLock className="text-[8px]" /> Read‑only</span>
           )}
         </div>
-        {task.description && <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">{task.description}</p>}
+        {task.description && <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 line-clamp-2 truncate">{task.description}</p>}
         <div className="mt-3 flex items-center justify-between">
-          <span className="text-xs text-gray-500 dark:text-gray-500">{assignee ? `${assignee.name}` : 'Unassigned'}</span>
-          <span className="text-xs text-gray-500 dark:text-gray-500">{task.dueDate ? formatDateTime(task.dueDate) : 'No due'}</span>
+          <span className="text-xs text-gray-500 dark:text-gray-500 truncate max-w-[80px] md:max-w-[120px]">{assignee ? `${assignee.name}` : 'Unassigned'}</span>
+          <span className="text-xs text-gray-500 dark:text-gray-500 truncate">{task.dueDate ? formatDateTime(task.dueDate) : 'No due'}</span>
         </div>
         <div className="mt-2 flex items-center gap-2">
           <div className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
@@ -601,7 +779,7 @@ const TaskCard = React.memo(({
 const SubTaskItem = React.memo(({
   subTask, index, taskId, isAssignee, canManage, onRefresh, brandColor, readOnly,
   onDragStart, onDragOver, onDrop, onDragLeave, dragOver,
-  onDragEnd,   // <-- ADDED: missing prop
+  onDragEnd,
 }) => {
   const [markDone] = useMarkSubTaskDoneMutation();
   const [confirmSub] = useConfirmSubTaskMutation();
@@ -731,7 +909,7 @@ const SubTaskItem = React.memo(({
               {canDrag && (
                 <FaGripVertical className="text-gray-300 dark:text-gray-700 text-xs flex-shrink-0 cursor-grab" />
               )}
-              <span className="text-sm font-medium text-gray-800 dark:text-gray-300">{subTask.title}</span>
+              <span className="text-sm font-medium text-gray-800 dark:text-gray-300 truncate max-w-[140px] md:max-w-[200px]">{subTask.title}</span>
               <span className={`text-[10px] font-medium ${st.color}`}>{st.label}</span>
               {hasRecurrence && (
                 <span className="text-[10px] text-teal-600 dark:text-[#0d9488] flex items-center gap-0.5">
@@ -1514,6 +1692,10 @@ const MyWorkspaceProjectId = () => {
   const containerRef = useRef(null);
   const isMd = useMediaQuery('(min-width: 768px)');
 
+  // ── New modals state ──
+  const [showMarkCompleteModal, setShowMarkCompleteModal] = useState(false);
+  const [showConfirmCompletionModal, setShowConfirmCompletionModal] = useState(false);
+
   // ── Mobile folder long-press menu ─────────────────────────────────
   const [folderMenuOpen, setFolderMenuOpen] = useState(null);
   const longPressTimer = useRef(null);
@@ -1553,6 +1735,8 @@ const MyWorkspaceProjectId = () => {
   const [reorderTasks] = useReorderTasksMutation();
   const [reorderSubTasks] = useReorderSubTasksMutation();
   const [createTask] = useCreateTaskMutation(); // for optimistic creation
+  const [markTaskCompleted] = useMarkTaskCompletedMutation(); // for assignee
+  const [updateTask] = useUpdateTaskMutation(); // for setting ready
 
   // Derived data (useMemo)
   const workspace = wData?.workspace;
@@ -1837,13 +2021,57 @@ const MyWorkspaceProjectId = () => {
     try { await sendManualReminder({ taskId: task._id, message: '' }).unwrap(); toast.success('Reminder sent'); } catch (e) { toast.error(e?.data?.message || 'Failed'); }
   }, [sendManualReminder]);
 
-  const handleConfirmCompletion = useCallback((taskId) => {
-    setConfirmModal({
-      isOpen: true, title: 'Confirm Completion', message: 'Confirm that this task is complete?', onConfirm: async () => {
-        try { await confirmTaskCompletion({ taskId }).unwrap(); toast.success('Completion confirmed'); refetchTasks(); refetchProject(); } catch (e) { toast.error(e?.data?.message || 'Failed'); }
-      },
-    });
-  }, [confirmTaskCompletion, refetchTasks, refetchProject]);
+  // ── Modified handlers for completion ──
+  const handleMarkComplete = useCallback(async (notes) => {
+    try {
+      await markTaskCompleted({ taskId: activeTask._id, notes }).unwrap();
+      toast.success('Task marked as complete');
+      refreshAll();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to mark task complete');
+      throw err;
+    }
+  }, [activeTask, markTaskCompleted, refreshAll]);
+
+  const handleConfirmCompletion = useCallback(async (data) => {
+    try {
+      const fd = new FormData();
+      fd.append('feedback', data.feedback || '');
+      if (data.finalHours !== undefined) fd.append('finalHours', data.finalHours.toString());
+      if (data.finalLinks) {
+        data.finalLinks.forEach(l => fd.append('finalLinks', l));
+      }
+      if (data.finalAttachments) {
+        data.finalAttachments.forEach(f => fd.append('finalAttachments', f));
+      }
+      await confirmTaskCompletion({ taskId: activeTask._id, data: fd }).unwrap();
+      toast.success('Task completion confirmed');
+      refreshAll();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to confirm completion');
+      throw err;
+    }
+  }, [activeTask, confirmTaskCompletion, refreshAll]);
+
+  // ── FIXED: Set task status to "ready_for_completion" ──
+  const handleSetReadyForCompletion = useCallback(async () => {
+    const previousStatus = activeTask.status;
+    try {
+      // Optimistic update
+      setLocalTasks(prev => prev.map(t =>
+        t._id === activeTask._id ? { ...t, status: 'ready_for_completion' } : t
+      ));
+      await updateTask({ taskId: activeTask._id, data: { status: 'ready_for_completion' } }).unwrap();
+      toast.success('Task is now ready for completion');
+      refreshAll();
+    } catch (err) {
+      // Revert optimistic update
+      setLocalTasks(prev => prev.map(t =>
+        t._id === activeTask._id ? { ...t, status: previousStatus } : t
+      ));
+      toast.error(err?.data?.message || 'Failed to update task status');
+    }
+  }, [activeTask, updateTask, refreshAll]);
 
   const handleAssignTask = useCallback(async (assigneeId) => {
     try {
@@ -2317,7 +2545,7 @@ const MyWorkspaceProjectId = () => {
                         : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
                     } ${!showArchived && draggedOverTabId === folder._id && isDraggingSomething ? 'ring-2 ring-[#0d9488] ring-offset-2 bg-[#0d9488]/5' : ''}`}
                   >
-                    <span>{folder.name}</span>
+                    <span className="truncate max-w-[80px] md:max-w-[120px]">{folder.name}</span>
                     {readOnly && <FaLock className="text-[10px] text-blue-400" />}
                     {canManage && (
                       <span className="opacity-0 group-hover:opacity-100 transition flex items-center gap-0.5 ml-0.5">
@@ -2452,7 +2680,7 @@ const MyWorkspaceProjectId = () => {
                   )}
                   <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white font-bold text-sm" style={{ backgroundColor: brandColor }}>{activeTask.title.charAt(0).toUpperCase()}</div>
                   <div className="flex-1 min-w-0">
-                    <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate">{formatTaskTitle(activeTask.title)}</h2>
+                    <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate max-w-[180px] md:max-w-full">{formatTaskTitle(activeTask.title)}</h2>
                     <div className="flex items-center gap-1.5 text-xs flex-wrap">
                       <TaskStatusBadge status={activeTask.status} />
                       <TaskPriorityBadge priority={activeTask.priority} />
@@ -2461,7 +2689,7 @@ const MyWorkspaceProjectId = () => {
                           <FaRedo className="text-[10px]" /> {activeTask.recurrenceType === 'daily' ? 'Daily' : 'Weekly'}
                         </span>
                       )}
-                      {activeTask.assignee && <span className="text-gray-500 dark:text-gray-400 truncate">{activeTask.assignee.name}</span>}
+                      {activeTask.assignee && <span className="text-gray-500 dark:text-gray-400 truncate max-w-[80px] md:max-w-[120px]">{activeTask.assignee.name}</span>}
                       {activeTask.isArchived && (
                         <span className="text-orange-600 dark:text-orange-400 flex items-center gap-1">
                           <FaArchive className="text-[10px]" /> Archived
@@ -2508,6 +2736,41 @@ const MyWorkspaceProjectId = () => {
                     <span>{activeTask.subTasks?.filter(st => st.status === 'confirmed').length || 0}/{activeTask.subTasks?.length || 0} sub‑tasks confirmed</span>
                     {activeTask.dueDate && <span className="flex items-center gap-1"><FaCalendarAlt className="text-[10px]" /> Due: {formatDateTime(activeTask.dueDate)}</span>}
                   </div>
+
+                  {/* ─── Show final details if confirmed ─── */}
+                  {activeTask.status === 'confirmed_completed' && (
+                    <div className="mt-3 bg-gray-50 dark:bg-[#1a1a24] p-3 rounded-xl border border-gray-200 dark:border-gray-800/40 space-y-1">
+                      <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Final Details</p>
+                      {activeTask.completionFeedback && <div><span className="font-medium text-gray-600 dark:text-gray-400">Feedback:</span> {activeTask.completionFeedback}</div>}
+                      {activeTask.actualHours !== undefined && activeTask.actualHours !== null && <div><span className="font-medium text-gray-600 dark:text-gray-400">Actual Hours:</span> {activeTask.actualHours}</div>}
+                      {activeTask.finalLinks && activeTask.finalLinks.length > 0 && (
+                        <div>
+                          <span className="font-medium text-gray-600 dark:text-gray-400">Final Links:</span>
+                          <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                            {activeTask.finalLinks.map((l, i) => (
+                              <React.Fragment key={i}>
+                                <a href={l} target="_blank" rel="noopener noreferrer" className="text-[#0d9488] underline break-all">{l}</a>
+                                {i < activeTask.finalLinks.length - 1 && <span className="text-gray-500">,</span>}
+                              </React.Fragment>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {activeTask.finalAttachments && activeTask.finalAttachments.length > 0 && (
+                        <div>
+                          <span className="font-medium text-gray-600 dark:text-gray-400">Final Attachments:</span>
+                          <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                            {activeTask.finalAttachments.map((att, i) => (
+                              <React.Fragment key={i}>
+                                <a href={att.url} target="_blank" rel="noopener noreferrer" className="text-[#0d9488] underline break-all">{att.name || 'file'}</a>
+                                {i < activeTask.finalAttachments.length - 1 && <span className="text-gray-500">,</span>}
+                              </React.Fragment>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="flex-1 overflow-y-auto px-4 py-3 pb-24 md:pb-6">
                   <div className="flex items-center justify-between mb-3">
@@ -2655,14 +2918,42 @@ const MyWorkspaceProjectId = () => {
                     })
                   )}
                 </div>
-                {!activeTask.isArchived && !isActiveFolderReadOnly && activeTask.assignee?._id === userInfo?._id && activeTask.status === 'ready_for_completion' && (
-                  <div className="border-t border-gray-200 dark:border-gray-800/40 bg-white dark:bg-[#14141a] px-3 py-2 flex-shrink-0 sticky bottom-0">
-                    <button onClick={refreshAll} className="w-full py-2 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 transition hover:opacity-80" style={{ backgroundColor: brandColor }}><FaChartLine className="text-sm" /> Refresh status</button>
-                  </div>
-                )}
-                {!activeTask.isArchived && !isActiveFolderReadOnly && canManage && activeTask.status === 'completed' && activeTask.status !== 'confirmed_completed' && (
-                  <div className="border-t border-gray-200 dark:border-gray-800/40 bg-white dark:bg-[#14141a] px-3 py-2 flex-shrink-0 sticky bottom-0">
-                    <button onClick={() => handleConfirmCompletion(activeTask._id)} className="w-full py-2 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 transition hover:opacity-80" style={{ backgroundColor: brandColor }}><FaCheckDouble className="text-sm" /> Confirm Completion</button>
+                {/* ─── Bottom action bar ──────────────────────────────── */}
+                {!activeTask.isArchived && !isActiveFolderReadOnly && (
+                  <div className="border-t border-gray-200 dark:border-gray-800/40 bg-white dark:bg-[#14141a] px-3 py-2 flex-shrink-0 sticky bottom-0 space-y-2">
+                    {/* NEW: Set Ready for Completion button (for managers) */}
+                    {canManage && activeTask.status !== 'ready_for_completion' && activeTask.status !== 'completed' && activeTask.status !== 'confirmed_completed' && (
+                      <button
+                        onClick={handleSetReadyForCompletion}
+                        className="w-full py-2 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 transition hover:opacity-80"
+                        style={{ backgroundColor: brandColor }}
+                      >
+                        <FaCheckCircle className="text-sm" /> Set Ready for Completion
+                      </button>
+                    )}
+                    {activeTask.assignee?._id === userInfo?._id && activeTask.status === 'ready_for_completion' && (
+                      <button
+                        onClick={() => setShowMarkCompleteModal(true)}
+                        className="w-full py-2 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 transition hover:opacity-80"
+                        style={{ backgroundColor: brandColor }}
+                      >
+                        <FaCheckDouble className="text-sm" /> Mark as Complete
+                      </button>
+                    )}
+                    {canManage && activeTask.status === 'completed' && activeTask.status !== 'confirmed_completed' && (
+                      <button
+                        onClick={() => setShowConfirmCompletionModal(true)}
+                        className="w-full py-2 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 transition hover:opacity-80"
+                        style={{ backgroundColor: brandColor }}
+                      >
+                        <FaCheckDouble className="text-sm" /> Confirm Completion
+                      </button>
+                    )}
+                    {!(canManage && activeTask.status !== 'ready_for_completion' && activeTask.status !== 'completed' && activeTask.status !== 'confirmed_completed') && !(activeTask.assignee?._id === userInfo?._id && activeTask.status === 'ready_for_completion') && !(canManage && activeTask.status === 'completed' && activeTask.status !== 'confirmed_completed') && (
+                      <p className="text-center text-xs text-gray-500 dark:text-gray-400">
+                        {activeTask.status === 'confirmed_completed' ? 'Task confirmed' : 'No actions available'}
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -2871,6 +3162,22 @@ const MyWorkspaceProjectId = () => {
         task={folderActionModal.task}
         onConfirm={handleFolderActionConfirm}
         brandColor={brandColor}
+      />
+
+      {/* ─── New Completion Modals ──────────────────────────────────── */}
+      <MarkCompleteModal
+        isOpen={showMarkCompleteModal}
+        onClose={() => setShowMarkCompleteModal(false)}
+        task={activeTask}
+        brandColor={brandColor}
+        onSubmit={handleMarkComplete}
+      />
+      <ConfirmCompletionModal
+        isOpen={showConfirmCompletionModal}
+        onClose={() => setShowConfirmCompletionModal(false)}
+        task={activeTask}
+        brandColor={brandColor}
+        onSubmit={handleConfirmCompletion}
       />
     </div>
   );

@@ -213,14 +213,19 @@ const notifyUsers = async (
 
 // ─── Task progress helpers ──────────────────────────────────────
 
+// 🔧 UPDATED: handle tasks with no sub‑tasks
 const updateTaskProgress = async (taskId) => {
   const task = await Task.findById(taskId);
   if (!task) return;
 
   const total = task.subTasks.length;
   if (total === 0) {
-    task.progress = 0;
-    task.status = 'pending';
+    // No sub‑tasks → task is ready for completion (100% progress)
+    task.progress = 100;
+    // Only change status if not already completed/confirmed
+    if (task.status !== 'completed' && task.status !== 'confirmed_completed') {
+      task.status = 'ready_for_completion';
+    }
   } else {
     const confirmed = task.subTasks.filter((st) => st.status === 'confirmed').length;
     task.progress = Math.round((confirmed / total) * 100);
@@ -987,7 +992,7 @@ export const markTaskCompleted = async (req, res) => {
     }
 
     if (task.status !== 'ready_for_completion') {
-      return res.status(400).json({ success: false, message: 'All sub‑tasks must be confirmed before completing the task.' });
+      return res.status(400).json({ success: false, message: 'Task is not ready for completion.' });
     }
 
     const hasRecurrence = task.recurrenceType && task.recurrenceType !== 'none';

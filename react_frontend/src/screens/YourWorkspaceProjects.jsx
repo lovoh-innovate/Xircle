@@ -11,6 +11,8 @@ import {
   useUnarchiveProjectMutation,
   useRestoreProjectMutation,
   usePermanentlyDeleteProjectMutation,
+  useGetProjectByIdQuery,
+  useUpdateProjectMutation,
 } from '../slices/projectApiSlice';
 import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
@@ -248,7 +250,7 @@ const SearchProjectsModal = ({ isOpen, onClose, projects, brandColor, workspaceI
   );
 };
 
-// ─── Create Project Modal ──────────────────────────────────────────────
+// ─── Create Project Modal ─────────────────────────────────────────────
 const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -335,6 +337,293 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
   );
 };
 
+// ─── Edit Project Modal (bottom sheet on mobile, centered on desktop) ──
+const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor, onSuccess }) => {
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [status, setStatus] = useState('');
+  const [priority, setPriority] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [updateProject] = useUpdateProjectMutation();
+
+  const { data: projectData, isLoading: projectLoading } = useGetProjectByIdQuery(projectId, {
+    skip: !isOpen || !projectId,
+  });
+
+  useEffect(() => {
+    if (projectData?.project) {
+      const p = projectData.project;
+      setName(p.name || '');
+      setDescription(p.description || '');
+      setStatus(p.status || 'planning');
+      setPriority(p.priority || 'medium');
+      setStartDate(p.startDate ? new Date(p.startDate).toISOString().slice(0, 16) : '');
+      setEndDate(p.endDate ? new Date(p.endDate).toISOString().slice(0, 16) : '');
+    }
+  }, [projectData]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      toast.error('Project name is required');
+      return;
+    }
+    setLoading(true);
+    try {
+      const fd = new FormData();
+      fd.append('name', name.trim());
+      fd.append('description', description.trim());
+      fd.append('status', status);
+      fd.append('priority', priority);
+      if (startDate) fd.append('startDate', startDate);
+      if (endDate) fd.append('endDate', endDate);
+      await updateProject({ projectId, data: fd }).unwrap();
+      toast.success('Project updated');
+      onSuccess();
+      onClose();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to update project');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  const isMobile = window.innerWidth < 768;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-0 md:p-4"
+      onClick={onClose}
+    >
+      <div
+        className={`bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl md:rounded-2xl w-full md:max-w-md ${isMobile ? 'max-h-[90vh]' : 'max-h-[90vh]'} overflow-y-auto transform transition-transform duration-300 ${
+          isMobile ? 'mt-auto' : 'mx-auto'
+        }`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-5">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">
+              <FaEdit className="inline mr-2 text-[#0d9488]" /> Edit Project
+            </h2>
+            <button onClick={onClose} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition">
+              <FaTimes />
+            </button>
+          </div>
+
+          {projectLoading ? (
+            <div className="flex justify-center py-8">
+              <FaSpinner className="animate-spin text-2xl text-[#0d9488]" />
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Project Name *</label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Description</label>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={3}
+                  className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Status</label>
+                <select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value)}
+                  className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
+                >
+                  <option value="planning">Planning</option>
+                  <option value="in-progress">In Progress</option>
+                  <option value="completed">Completed</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Priority</label>
+                <select
+                  value={priority}
+                  onChange={(e) => setPriority(e.target.value)}
+                  className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Start Date</label>
+                  <input
+                    type="datetime-local"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">End Date</label>
+                  <input
+                    type="datetime-local"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80"
+                  style={{ backgroundColor: brandColor }}
+                >
+                  {loading ? 'Updating...' : 'Update Project'}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Project Menu Modal (bottom sheet on mobile, centered on desktop) ──
+const ProjectMenuModal = ({
+  isOpen,
+  onClose,
+  project,
+  canManage,
+  onEdit,
+  onArchive,
+  onUnarchive,
+  onDelete,
+  onPermanentDelete,
+  onRestore,
+  brandColor,
+}) => {
+  if (!isOpen || !project) return null;
+
+  const isTrashed = project.isTrash;
+  const isArchivedForMe = project.isArchivedForMe;
+
+  const handleAction = (action) => {
+    onClose();
+    action();
+  };
+
+  const isMobile = window.innerWidth < 768;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-0 md:p-4"
+      onClick={onClose}
+    >
+      <div
+        className={`bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl md:rounded-2xl w-full md:max-w-sm ${isMobile ? 'max-h-[80vh]' : 'max-h-[80vh]'} overflow-y-auto transform transition-transform duration-300 ${
+          isMobile ? 'mt-auto' : 'mx-auto'
+        }`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-5">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 truncate pr-4">
+              {project.name}
+            </h3>
+            <button onClick={onClose} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition flex-shrink-0">
+              <FaTimes />
+            </button>
+          </div>
+
+          <div className="space-y-1">
+            {isTrashed ? (
+              <>
+                <button
+                  onClick={() => handleAction(onRestore)}
+                  className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[#0d9488] hover:bg-[#0d9488]/10 transition"
+                >
+                  <FaTrashRestore className="text-sm" />
+                  <span className="text-sm font-medium">Restore</span>
+                </button>
+                <button
+                  onClick={() => handleAction(onPermanentDelete)}
+                  className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-red-600 dark:text-red-400 hover:bg-red-500/10 transition"
+                >
+                  <FaTrashAlt className="text-sm" />
+                  <span className="text-sm font-medium">Delete Permanently</span>
+                </button>
+              </>
+            ) : (
+              <>
+                {canManage && (
+                  <button
+                    onClick={() => handleAction(() => onEdit(project._id))}
+                    className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+                  >
+                    <FaEdit className="text-sm text-[#0d9488]" />
+                    <span className="text-sm font-medium">Edit</span>
+                  </button>
+                )}
+                {isArchivedForMe ? (
+                  <button
+                    onClick={() => handleAction(onUnarchive)}
+                    className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[#0d9488] hover:bg-[#0d9488]/10 transition"
+                  >
+                    <FaUndo className="text-sm" />
+                    <span className="text-sm font-medium">Unarchive</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleAction(onArchive)}
+                    className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-600 dark:text-gray-400 hover:bg-[#0d9488]/10 transition"
+                  >
+                    <FaArchive className="text-sm" />
+                    <span className="text-sm font-medium">Archive for me</span>
+                  </button>
+                )}
+                {canManage && (
+                  <button
+                    onClick={() => handleAction(onDelete)}
+                    className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/10 transition"
+                  >
+                    <FaTrashAlt className="text-sm" />
+                    <span className="text-sm font-medium">Move to Trash</span>
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Project Card ──────────────────────────────────────────────────────
 const ProjectCard = ({
   project,
@@ -347,30 +636,8 @@ const ProjectCard = ({
   onArchive,
   onUnarchive,
   onEdit,
+  onMenuOpen,
 }) => {
-  const [showMenu, setShowMenu] = useState(false);
-  const menuRef = useRef(null);
-  const buttonRef = useRef(null);
-
-  const [confirmModal, setConfirmModal] = useState({ isOpen: false, action: null });
-
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (
-        menuRef.current &&
-        !menuRef.current.contains(event.target) &&
-        buttonRef.current &&
-        !buttonRef.current.contains(event.target)
-      ) {
-        setShowMenu(false);
-      }
-    };
-    if (showMenu) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showMenu]);
-
   const progress = project.progress || 0;
   const completed = isProjectCompleted(project);
   const statusLabels = {
@@ -399,189 +666,101 @@ const ProjectCard = ({
 
   const stopProp = (e) => e.stopPropagation();
 
-  const isArchivedForMe = project.isArchivedForMe;
-  const isTrashed = project.isTrash;
-
-  const handleArchive = (e) => { stopProp(e); setShowMenu(false); onArchive(project._id); };
-  const handleUnarchive = (e) => { stopProp(e); setShowMenu(false); onUnarchive(project._id); };
-  const handleMoveToTrash = (e) => {
-    stopProp(e);
-    setShowMenu(false);
-    setConfirmModal({ isOpen: true, action: 'trash' });
+  const handleCardClick = (e) => {
+    if (e.target.closest('button')) return;
+    window.__navigate(`/workspace/${workspaceId}/project/${project._id}`);
   };
-  const handlePermanentDelete = (e) => {
-    stopProp(e);
-    setShowMenu(false);
-    setConfirmModal({ isOpen: true, action: 'permDelete' });
-  };
-  const handleRestore = (e) => { stopProp(e); setShowMenu(false); onRestore(project._id); };
-
-  const confirmAction = () => {
-    if (confirmModal.action === 'trash') {
-      onDelete(project._id);
-    } else if (confirmModal.action === 'permDelete') {
-      onPermanentDelete(project._id);
-    }
-    setConfirmModal({ isOpen: false, action: null });
-  };
-  const cancelAction = () => setConfirmModal({ isOpen: false, action: null });
 
   return (
-    <>
-      <ConfirmModal
-        isOpen={confirmModal.isOpen}
-        onConfirm={confirmAction}
-        onCancel={cancelAction}
-        title={confirmModal.action === 'trash' ? 'Move to Trash' : 'Delete Permanently'}
-        message={
-          confirmModal.action === 'trash'
-            ? `Are you sure you want to move "${project.name}" to trash? It can be restored within 30 days.`
-            : `Are you sure you want to PERMANENTLY DELETE "${project.name}"? This cannot be undone.`
-        }
-        confirmLabel={confirmModal.action === 'trash' ? 'Move to Trash' : 'Delete Permanently'}
-        confirmColor={confirmModal.action === 'trash' ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-red-600 hover:bg-red-700'}
-      />
+    <div
+      onClick={handleCardClick}
+      className="group relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 hover:border-[#0d9488]/50 transition-all duration-500 hover:shadow-[0_8px_40px_rgba(13,148,136,0.15)] active:scale-[0.98] cursor-pointer overflow-hidden"
+    >
+      <div className="absolute inset-0 bg-gradient-to-br from-[#0d9488]/0 via-[#0d9488]/0 to-transparent group-hover:from-[#0d9488]/10 group-hover:via-[#0d9488]/5 transition-all duration-700 pointer-events-none" />
+      <div className="relative h-20 md:h-28 bg-gray-100 dark:bg-[#1a1a24] overflow-hidden">
+        {project.coverImage ? (
+          <img src={project.coverImage} alt={project.name} className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: `${brandColor}15` }}>
+            <FaFolder className="text-2xl md:text-3xl" style={{ color: brandColor }} />
+          </div>
+        )}
+        <span className={`absolute top-2 right-2 text-[10px] font-medium px-2.5 py-1 rounded-full backdrop-blur-sm border ${statusColor[displayStatus]} bg-white/60 dark:bg-black/30 border-gray-200 dark:border-gray-700/50 pointer-events-none`}>
+          {statusLabels[displayStatus] || 'Planning'}
+        </span>
 
-      <Link
-        to={`/workspace/${workspaceId}/project/${project._id}`}
-        className="group relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 hover:border-[#0d9488]/50 transition-all duration-500 hover:shadow-[0_8px_40px_rgba(13,148,136,0.15)] active:scale-[0.98] block overflow-hidden"
-        onClick={(e) => {
-          if (e.target.closest('button')) {
-            e.preventDefault();
-          }
-        }}
-      >
-        <div className="absolute inset-0 bg-gradient-to-br from-[#0d9488]/0 via-[#0d9488]/0 to-transparent group-hover:from-[#0d9488]/10 group-hover:via-[#0d9488]/5 transition-all duration-700 pointer-events-none" />
-        <div className="relative h-20 md:h-28 bg-gray-100 dark:bg-[#1a1a24] overflow-hidden">
-          {project.coverImage ? (
-            <img src={project.coverImage} alt={project.name} className="w-full h-full object-cover" />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: `${brandColor}15` }}>
-              <FaFolder className="text-2xl md:text-3xl" style={{ color: brandColor }} />
-            </div>
-          )}
-          <span className={`absolute top-2 right-2 text-[10px] font-medium px-2.5 py-1 rounded-full backdrop-blur-sm border ${statusColor[displayStatus]} bg-white/60 dark:bg-black/30 border-gray-200 dark:border-gray-700/50 pointer-events-none`}>
-            {statusLabels[displayStatus] || 'Planning'}
-          </span>
+        {/* Menu button */}
+        <button
+          onClick={(e) => { stopProp(e); onMenuOpen(project); }}
+          className="absolute top-2 left-2 p-1.5 bg-white/60 dark:bg-black/40 backdrop-blur-sm rounded-lg text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-black/60 transition z-10"
+        >
+          <FaEllipsisV className="text-xs" />
+        </button>
+      </div>
 
-          <div className="absolute top-2 left-2 flex items-center gap-1.5">
-            {canManage && (
-              <>
-                <button
-                  ref={buttonRef}
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(!showMenu); }}
-                  className="p-1.5 bg-white/60 dark:bg-black/40 backdrop-blur-sm rounded-lg text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-black/60 transition"
-                >
-                  <FaEllipsisV className="text-xs" />
-                </button>
-
-                {!isTrashed && (
-                  <button
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleMoveToTrash(e); }}
-                    className="p-1.5 bg-white/60 dark:bg-black/40 backdrop-blur-sm rounded-lg text-yellow-600 dark:text-yellow-400 hover:text-yellow-700 dark:hover:text-yellow-300 hover:bg-yellow-500/20 transition"
-                    title="Move to Trash"
-                  >
-                    <FaTrashAlt className="text-xs" />
-                  </button>
-                )}
-              </>
-            )}
-
-            {showMenu && canManage && (
-              <div ref={menuRef} className="absolute left-0 top-full mt-1 bg-white dark:bg-[#1e1e26] rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.8)] border border-gray-200 dark:border-gray-800/60 min-w-[180px] z-20 py-1">
-                {isTrashed ? (
-                  <>
-                    <button onClick={handleRestore} className="flex items-center gap-2 px-4 py-2 text-sm text-[#0d9488] hover:bg-[#0d9488]/10 transition w-full">
-                      <FaTrashRestore className="text-xs" /> Restore
-                    </button>
-                    <button onClick={handlePermanentDelete} className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-500/10 transition w-full">
-                      <FaTrashAlt className="text-xs" /> Delete Permanently
-                    </button>
-                  </>
+      {/* Content */}
+      <div className="p-3 md:p-4">
+        <h3 className="text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">
+          {project.name}
+        </h3>
+        {project.description && (
+          <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-1 md:line-clamp-2 mt-0.5 md:mt-1">
+            {project.description}
+          </p>
+        )}
+        <div className="flex items-center mt-2 md:mt-3 gap-1">
+          <div className="flex -space-x-2">
+            {(project.teamMembers || []).slice(0, 4).map((member, idx) => (
+              <div
+                key={idx}
+                className="w-5 h-5 md:w-6 md:h-6 rounded-full border border-gray-300 dark:border-gray-800 bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-[7px] md:text-[8px] font-bold text-white"
+                style={{ backgroundColor: member?.profile ? 'transparent' : brandColor }}
+              >
+                {member?.profile ? (
+                  <img src={member.profile} alt="" className="w-full h-full rounded-full object-cover" />
                 ) : (
-                  <>
-                    <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(false); onEdit(project._id); }} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-[#0d9488]/10 hover:text-gray-900 dark:hover:text-white transition w-full">
-                      <FaEdit className="text-xs text-[#0d9488]" /> Edit
-                    </button>
-                    {isArchivedForMe ? (
-                      <button onClick={handleUnarchive} className="flex items-center gap-2 px-4 py-2 text-sm text-[#0d9488] hover:bg-[#0d9488]/10 transition w-full">
-                        <FaUndo className="text-xs" /> Unarchive
-                      </button>
-                    ) : (
-                      <button onClick={handleArchive} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-[#0d9488]/10 transition w-full">
-                        <FaArchive className="text-xs" /> Archive for me
-                      </button>
-                    )}
-                  </>
+                  (member?.name?.charAt(0) || '?').toUpperCase()
                 )}
+              </div>
+            ))}
+            {(project.teamMembers || []).length > 4 && (
+              <div className="w-5 h-5 md:w-6 md:h-6 rounded-full border border-gray-300 dark:border-gray-800 bg-gray-200 dark:bg-[#1e1e26] flex items-center justify-center text-[7px] md:text-[8px] text-gray-600 dark:text-gray-400">
+                +{(project.teamMembers || []).length - 4}
               </div>
             )}
           </div>
+          <span className="text-[9px] md:text-[10px] text-gray-500 dark:text-gray-500 ml-1">
+            {(project.teamMembers || []).length} members
+          </span>
         </div>
-
-        <div className="p-3 md:p-4">
-          <h3 className="text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">
-            {project.name}
-          </h3>
-          {project.description && (
-            <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-1 md:line-clamp-2 mt-0.5 md:mt-1">
-              {project.description}
-            </p>
-          )}
-          <div className="flex items-center mt-2 md:mt-3 gap-1">
-            <div className="flex -space-x-2">
-              {(project.teamMembers || []).slice(0, 4).map((member, idx) => (
+        {!project.isTrash && (
+          <>
+            <div className="mt-2 md:mt-3 relative">
+              <div className="flex justify-between text-[9px] md:text-[10px] text-gray-500 dark:text-gray-500 mb-0.5 md:mb-1">
+                <span>Progress</span>
+                <span className="font-mono">{progress}%</span>
+              </div>
+              <div className="w-full h-1 md:h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
                 <div
-                  key={idx}
-                  className="w-5 h-5 md:w-6 md:h-6 rounded-full border border-gray-300 dark:border-gray-800 bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-[7px] md:text-[8px] font-bold text-white"
-                  style={{ backgroundColor: member?.profile ? 'transparent' : brandColor }}
-                >
-                  {member?.profile ? (
-                    <img src={member.profile} alt="" className="w-full h-full rounded-full object-cover" />
-                  ) : (
-                    (member?.name?.charAt(0) || '?').toUpperCase()
-                  )}
-                </div>
-              ))}
-              {(project.teamMembers || []).length > 4 && (
-                <div className="w-5 h-5 md:w-6 md:h-6 rounded-full border border-gray-300 dark:border-gray-800 bg-gray-200 dark:bg-[#1e1e26] flex items-center justify-center text-[7px] md:text-[8px] text-gray-600 dark:text-gray-400">
-                  +{(project.teamMembers || []).length - 4}
-                </div>
-              )}
+                  className="h-full rounded-full transition-all duration-1000 ease-out"
+                  style={{ width: `${progress}%`, backgroundColor: brandColor, boxShadow: `0 0 12px ${brandColor}88` }}
+                />
+              </div>
             </div>
-            <span className="text-[9px] md:text-[10px] text-gray-500 dark:text-gray-500 ml-1">
-              {(project.teamMembers || []).length} members
-            </span>
-          </div>
-          {!isTrashed && (
-            <>
-              <div className="mt-2 md:mt-3 relative">
-                <div className="flex justify-between text-[9px] md:text-[10px] text-gray-500 dark:text-gray-500 mb-0.5 md:mb-1">
-                  <span>Progress</span>
-                  <span className="font-mono">{progress}%</span>
-                </div>
-                <div className="w-full h-1 md:h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-1000 ease-out"
-                    style={{ width: `${progress}%`, backgroundColor: brandColor, boxShadow: `0 0 12px ${brandColor}88` }}
-                  />
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 md:gap-3 mt-2 md:mt-3 text-[9px] md:text-[10px] text-gray-500 dark:text-gray-500 pointer-events-none">
-                <span className="flex items-center gap-1">
-                  <FaTasks className="text-[8px] md:text-[10px] text-[#0d9488]" />
-                  {taskLoading ? <FaSpinner className="animate-spin text-[10px]" /> : totalTasks}
-                </span>
-                <span className="flex items-center gap-1">
-                  <FaCheckCircle className="text-[8px] md:text-[10px] text-green-500 dark:text-green-400" />
-                  {taskLoading ? '...' : completedTasks}
-                </span>
-              </div>
-            </>
-          )}
-        </div>
-      </Link>
-    </>
+            <div className="flex flex-wrap items-center gap-2 md:gap-3 mt-2 md:mt-3 text-[9px] md:text-[10px] text-gray-500 dark:text-gray-500 pointer-events-none">
+              <span className="flex items-center gap-1">
+                <FaTasks className="text-[8px] md:text-[10px] text-[#0d9488]" />
+                {taskLoading ? <FaSpinner className="animate-spin text-[10px]" /> : totalTasks}
+              </span>
+              <span className="flex items-center gap-1">
+                <FaCheckCircle className="text-[8px] md:text-[10px] text-green-500 dark:text-green-400" />
+                {taskLoading ? '...' : completedTasks}
+              </span>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 };
 
@@ -593,8 +772,12 @@ const YourWorkspaceProjects = () => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editProjectId, setEditProjectId] = useState(null);
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [menuModalOpen, setMenuModalOpen] = useState(false);
   const [filters, setFilters] = useState({ status: 'all', sort: 'newest', search: '' });
   const [view, setView] = useState('active');
+
   const [optimisticArchivedIds, setOptimisticArchivedIds] = useState([]);
 
   const { data: workspaceData, isLoading: workspaceLoading, error: workspaceError } = useGetWorkspaceQuery(workspaceId);
@@ -729,6 +912,25 @@ const YourWorkspaceProjects = () => {
       toast.success('Project unarchived.');
       refetchProjects();
     } catch (err) { toast.error(err?.data?.message || 'Failed to unarchive project'); }
+  };
+
+  const handleEdit = (projectId) => {
+    setEditProjectId(projectId);
+  };
+
+  const handleEditSuccess = () => {
+    refetchProjects();
+    setEditProjectId(null);
+  };
+
+  const handleMenuOpen = (project) => {
+    setSelectedProject(project);
+    setMenuModalOpen(true);
+  };
+
+  const handleMenuClose = () => {
+    setMenuModalOpen(false);
+    setSelectedProject(null);
   };
 
   return (
@@ -913,7 +1115,8 @@ const YourWorkspaceProjects = () => {
                       onRestore={handleRestore}
                       onArchive={handleArchive}
                       onUnarchive={handleUnarchive}
-                      onEdit={(id) => navigate(`/workspace/${workspaceId}/projects/edit/${id}`)}
+                      onEdit={handleEdit}
+                      onMenuOpen={handleMenuOpen}
                     />
                   ))}
                 </div>
@@ -996,6 +1199,31 @@ const YourWorkspaceProjects = () => {
       <SearchProjectsModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} projects={projects} brandColor={brandColor} workspaceId={workspaceId} />
       <FilterDrawer isOpen={filterDrawerOpen} onClose={() => setFilterDrawerOpen(false)} filters={filters} setFilters={setFilters} view={view} setView={setView} canManage={canManage} />
       {canManage && <CreateProjectModal workspace={workspace} isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} onCreated={() => refetchProjects()} />}
+
+      {/* Edit Project Modal */}
+      <EditProjectModal
+        isOpen={!!editProjectId}
+        onClose={() => setEditProjectId(null)}
+        projectId={editProjectId}
+        workspaceId={workspaceId}
+        brandColor={brandColor}
+        onSuccess={handleEditSuccess}
+      />
+
+      {/* Project Menu Modal */}
+      <ProjectMenuModal
+        isOpen={menuModalOpen}
+        onClose={handleMenuClose}
+        project={selectedProject}
+        canManage={canManage}
+        onEdit={handleEdit}
+        onArchive={() => selectedProject && handleArchive(selectedProject._id)}
+        onUnarchive={() => selectedProject && handleUnarchive(selectedProject._id)}
+        onDelete={() => selectedProject && handleDeleteProject(selectedProject._id)}
+        onPermanentDelete={() => selectedProject && handlePermanentDelete(selectedProject._id)}
+        onRestore={() => selectedProject && handleRestore(selectedProject._id)}
+        brandColor={brandColor}
+      />
     </div>
   );
 };
