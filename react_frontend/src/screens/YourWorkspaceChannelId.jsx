@@ -1493,6 +1493,8 @@ const YourWorkspaceChannelId = () => {
   const [message, setMessage] = useState('');
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
+  const headerRef = useRef(null);
+  const [headerHeight, setHeaderHeight] = useState(0);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
   const inputRef = useRef(null);
@@ -1662,6 +1664,25 @@ const YourWorkspaceChannelId = () => {
       document.body.style.overflow = '';
     };
   }, []);
+
+  // ─── Measure the fixed header's actual height ──────────────────────
+  // Since the header is position:fixed on mobile (out of normal flow),
+  // the messages list needs real top padding to avoid sliding under it.
+  // A hardcoded guess breaks on different devices/safe-areas/font sizes,
+  // so measure it live instead.
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const updateHeight = () => setHeaderHeight(el.offsetHeight);
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(el);
+    window.addEventListener('resize', updateHeight);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateHeight);
+    };
+  }, [chat, isDM, otherUserOnline]);
 
   // ─── Polling for messages ──────────────────────────────────────────
   useEffect(() => {
@@ -2912,6 +2933,7 @@ const YourWorkspaceChannelId = () => {
              viewport regardless of dvh/scroll quirks. Reverts to a normal
              sticky in-flow header at lg (matches previous desktop behavior). */}
         <header
+          ref={headerRef}
           className="fixed lg:sticky top-0 left-0 right-0 lg:left-auto lg:right-auto z-20 flex items-center justify-between px-4 border-b border-gray-200/60 dark:border-gray-800/60 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl text-gray-800 dark:text-white flex-shrink-0 cursor-pointer"
           style={{
             paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))',
@@ -2974,7 +2996,10 @@ const YourWorkspaceChannelId = () => {
           <div
             ref={messagesContainerRef}
             onScroll={handleMessagesScroll}
-            className="h-full overflow-y-auto px-4 py-3 space-y-4 pt-20 lg:pt-3 pb-24 lg:pb-3"
+            className="h-full overflow-y-auto px-4 py-3 space-y-4 pb-24 lg:pb-3 lg:!pt-3"
+            style={{
+              paddingTop: isMobile ? `${(headerHeight || 90) + 12}px` : undefined,
+            }}
           >
             {messagesLoading ? (
               <SkeletonMessages count={6} />
