@@ -3003,7 +3003,7 @@ const YourWorkspaceChannelId = () => {
           <div
             ref={messagesContainerRef}
             onScroll={handleMessagesScroll}
-            className="h-full overflow-y-auto px-4 py-3 space-y-4 pt-20 lg:pt-3 pb-24 lg:pb-3"
+            className="h-full overflow-y-auto px-4 py-3 space-y-4 pt-[72px] lg:pt-3 pb-24 lg:pb-3"
           >
             {/* ─── Skeleton or messages ──────────────────────────────── */}
             {messagesLoading ? (

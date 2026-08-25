@@ -1416,8 +1416,8 @@ const FolderReadOnlyModal = React.memo(({ isOpen, onClose, folder, project, bran
   );
 });
 
-// ─── Create Task Modal ──────────────────────────────────────────────
-const CreateTaskModal = React.memo(({ isOpen, onClose, projectId, brandColor, assignableMembers, folders, onSuccess }) => {
+// ─── Create Task Modal (optimized with optimistic submit) ───────────
+const CreateTaskModal = React.memo(({ isOpen, onClose, projectId, brandColor, assignableMembers, folders, onSuccess, onSubmit }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [assigneeId, setAssigneeId] = useState('');
@@ -1431,15 +1431,11 @@ const CreateTaskModal = React.memo(({ isOpen, onClose, projectId, brandColor, as
   const [attachments, setAttachments] = useState([]);
   const [folderId, setFolderId] = useState('');
   const [loading, setLoading] = useState(false);
-  const [createTask] = useCreateTaskMutation();
 
-  // ── Recurrence states ──
   const [recurrenceType, setRecurrenceType] = useState('none');
   const [recurrenceDays, setRecurrenceDays] = useState([]);
   const [recurrenceEndDate, setRecurrenceEndDate] = useState('');
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-  // ── Collapsible details state ──
   const [showDetails, setShowDetails] = useState(false);
 
   const toggleDay = (day) => {
@@ -1506,33 +1502,53 @@ const CreateTaskModal = React.memo(({ isOpen, onClose, projectId, brandColor, as
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!title.trim()) { toast.error('Title required'); return; }
+
+    const formData = {
+      projectId,
+      title: title.trim(),
+      description: description.trim(),
+      assigneeId: assigneeId || '',
+      priority,
+      estimatedHours: estimatedHours || '',
+      bufferTime: bufferTime.toString(),
+      allowAssigneeEditSubtasks: allowAssigneeEditSubtasks ? 'true' : 'false',
+      startDate: startDate || undefined,
+      dueDate: dueDate || undefined,
+      folderId: folderId || undefined,
+      recurrenceType,
+      recurrenceDays: recurrenceType === 'weekly' ? recurrenceDays : undefined,
+      recurrenceEndDate: recurrenceEndDate || undefined,
+      links: linksText.split('\n').map(l => l.trim()).filter(Boolean),
+      attachments,
+    };
+
     setLoading(true);
     try {
-      const fd = new FormData();
-      fd.append('projectId', projectId);
-      fd.append('title', title.trim());
-      fd.append('description', description.trim());
-      fd.append('assigneeId', assigneeId || '');
-      fd.append('priority', priority);
-      fd.append('estimatedHours', estimatedHours || '');
-      fd.append('bufferTime', bufferTime.toString());
-      fd.append('allowAssigneeEditSubtasks', allowAssigneeEditSubtasks ? 'true' : 'false');
-      if (startDate) fd.append('startDate', startDate);
-      if (dueDate) fd.append('dueDate', dueDate);
-      if (folderId) fd.append('folderId', folderId);
-      fd.append('recurrenceType', recurrenceType);
-      if (recurrenceType === 'weekly') {
-        fd.append('recurrenceDays', JSON.stringify(recurrenceDays));
-      }
-      if (recurrenceEndDate) fd.append('recurrenceEndDate', recurrenceEndDate);
-      linksText.split('\n').map(l => l.trim()).filter(Boolean).forEach(l => fd.append('links', l));
-      attachments.forEach(f => fd.append('attachments', f));
-      await createTask(fd).unwrap();
-      toast.success('Task created');
-      onSuccess();
+      await onSubmit(formData);
       onClose();
-    } catch (err) { toast.error(err?.data?.message || 'Failed'); }
-    finally { setLoading(false); }
+      // Reset form
+      setTitle('');
+      setDescription('');
+      setAssigneeId('');
+      setPriority('medium');
+      setStartDate('');
+      setDueDate('');
+      setEstimatedHours('');
+      setBufferTime(0);
+      setAllowAssigneeEditSubtasks(false);
+      setLinksText('');
+      setAttachments([]);
+      setFolderId('');
+      setRecurrenceType('none');
+      setRecurrenceDays([]);
+      setRecurrenceEndDate('');
+      setShowDetails(false);
+      toast.success('Task created (optimistic)');
+    } catch (err) {
+      toast.error(err?.message || 'Failed to create task');
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -1705,7 +1721,6 @@ const EditTaskModal = React.memo(({ isOpen, onClose, task, brandColor, assignabl
   const [loading, setLoading] = useState(false);
   const [updateTask] = useUpdateTaskMutation();
 
-  // ── Recurrence states ──
   const [recurrenceType, setRecurrenceType] = useState(task?.recurrenceType || 'none');
   const [recurrenceDays, setRecurrenceDays] = useState(task?.recurrenceDays || []);
   const [recurrenceEndDate, setRecurrenceEndDate] = useState(
@@ -2037,7 +2052,11 @@ const YourWorkspaceProjectId = () => {
     managerId: '',
   });
 
-  // Queries
+  // ── Mobile folder long-press menu ─────────────────────────────────
+  const [folderMenuOpen, setFolderMenuOpen] = useState(null); // folderId or null
+  const longPressTimer = useRef(null);
+
+  // ── Queries
   const { data: wData, isLoading: wLoad, error: wErr } = useGetWorkspaceQuery(workspaceId);
   const { data: pData, isLoading: pLoad, error: pErr, refetch: refetchProject } = useGetProjectByIdQuery(projectId);
   const { data: foldersData, isLoading: foldersLoading, refetch: refetchFolders } = useGetProjectFoldersQuery(projectId);
@@ -2063,27 +2082,34 @@ const YourWorkspaceProjectId = () => {
   const [assignTask] = useAssignTaskMutation();
   const [reorderTasks] = useReorderTasksMutation();
   const [reorderSubTasks] = useReorderSubTasksMutation();
+  const [createTask] = useCreateTaskMutation();
+  const [deleteFolder] = useDeleteFolderMutation(); // for optimistic folder delete
 
-  // Local tasks for optimistic updates
+  // Local state for tasks and folders (optimistic updates)
   const [localTasks, setLocalTasks] = useState([]);
+  const [localFolders, setLocalFolders] = useState([]);
+
   useEffect(() => {
     setLocalTasks(tData?.tasks || []);
   }, [tData]);
+
+  useEffect(() => {
+    setLocalFolders(foldersData?.folders || []);
+  }, [foldersData]);
+
   const tasks = localTasks;
+  const folders = localFolders;
 
   // ─── Workspace admin detection ──────────────────────────────────────
   const workspace = wData?.workspace;
   const project = pData?.project;
-  const folders = foldersData?.folders || [];
 
-  // Determine if current user is workspace owner
   const isOwner = useMemo(() => {
     if (!workspace || !userInfo?._id) return false;
     const ownerId = workspace.owner?._id || workspace.owner;
     return ownerId?.toString() === userInfo._id.toString();
   }, [workspace, userInfo]);
 
-  // Determine if current user is workspace admin (role: 'Admin')
   const isWorkspaceAdmin = useMemo(() => {
     if (!workspace || !userInfo?._id) return false;
     return workspace.members?.some(
@@ -2091,7 +2117,6 @@ const YourWorkspaceProjectId = () => {
     );
   }, [workspace, userInfo]);
 
-  // Determine if current user is project manager
   const isProjectManager = useMemo(() => {
     if (!project || !userInfo?._id) return false;
     return project.projectManagers?.some((pm) => {
@@ -2100,10 +2125,8 @@ const YourWorkspaceProjectId = () => {
     });
   }, [project, userInfo]);
 
-  // Combined management permission: owner OR workspace admin OR project manager
   const canManage = useMemo(() => isOwner || isWorkspaceAdmin || isProjectManager, [isOwner, isWorkspaceAdmin, isProjectManager]);
 
-  // Active task
   const activeTask = useMemo(() => tasks.find(t => t._id === selectedTaskId) || null, [tasks, selectedTaskId]);
   const projectManagers = project?.projectManagers || [];
   const projectProgress = project?.progress || 0;
@@ -2126,7 +2149,6 @@ const YourWorkspaceProjectId = () => {
 
   const brandColor = workspace?.color || '#0d9488';
 
-  // Available members to add as manager
   const availableForManager = useMemo(() => {
     if (!workspace) return [];
     return workspace.members?.filter(m =>
@@ -2146,6 +2168,94 @@ const YourWorkspaceProjectId = () => {
   const [isDraggingTask, setIsDraggingTask] = useState(false);
   const [draggedSubIdx, setDraggedSubIdx] = useState(null);
   const [dragOverSubIdx, setDragOverSubIdx] = useState(null);
+
+  // ── Optimistic task creation ────────────────────────────────────────
+  const handleCreateTaskOptimistic = useCallback(async (formData) => {
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    const optimisticTask = {
+      _id: tempId,
+      title: formData.title,
+      description: formData.description || '',
+      priority: formData.priority || 'medium',
+      status: 'pending',
+      progress: 0,
+      assignee: formData.assigneeId ? { _id: formData.assigneeId, name: 'Loading...' } : null,
+      folder: formData.folderId ? { _id: formData.folderId, name: folders.find(f => f._id === formData.folderId)?.name || 'Folder' } : null,
+      startDate: formData.startDate || null,
+      dueDate: formData.dueDate || null,
+      estimatedHours: formData.estimatedHours || 0,
+      bufferTime: parseInt(formData.bufferTime) || 0,
+      allowAssigneeEditSubtasks: formData.allowAssigneeEditSubtasks === 'true',
+      recurrenceType: formData.recurrenceType || 'none',
+      recurrenceDays: formData.recurrenceDays || [],
+      recurrenceEndDate: formData.recurrenceEndDate || null,
+      links: formData.links || [],
+      attachments: [],
+      subTasks: [],
+      isArchived: false,
+      isTrash: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    setLocalTasks(prev => [optimisticTask, ...prev]);
+
+    const fd = new FormData();
+    fd.append('projectId', formData.projectId);
+    fd.append('title', formData.title);
+    fd.append('description', formData.description);
+    fd.append('assigneeId', formData.assigneeId || '');
+    fd.append('priority', formData.priority);
+    fd.append('estimatedHours', formData.estimatedHours || '');
+    fd.append('bufferTime', formData.bufferTime);
+    fd.append('allowAssigneeEditSubtasks', formData.allowAssigneeEditSubtasks);
+    if (formData.startDate) fd.append('startDate', formData.startDate);
+    if (formData.dueDate) fd.append('dueDate', formData.dueDate);
+    if (formData.folderId) fd.append('folderId', formData.folderId);
+    fd.append('recurrenceType', formData.recurrenceType);
+    if (formData.recurrenceType === 'weekly') {
+      fd.append('recurrenceDays', JSON.stringify(formData.recurrenceDays));
+    }
+    if (formData.recurrenceEndDate) fd.append('recurrenceEndDate', formData.recurrenceEndDate);
+    formData.links.forEach(l => fd.append('links', l));
+    formData.attachments.forEach(f => fd.append('attachments', f));
+
+    try {
+      const result = await createTask(fd).unwrap();
+      setLocalTasks(prev => prev.map(t => t._id === tempId ? result.task : t));
+      refetchTasks();
+      refetchProject();
+      return result;
+    } catch (err) {
+      setLocalTasks(prev => prev.filter(t => t._id !== tempId));
+      toast.error(err?.data?.message || 'Failed to create task');
+      throw err;
+    }
+  }, [createTask, refetchTasks, refetchProject, folders]);
+
+  // ── Optimistic folder delete ────────────────────────────────────────
+  const handleDeleteFolderOptimistic = useCallback(async (folderId) => {
+    // Store folder name for toast
+    const folderToDelete = folders.find(f => f._id === folderId);
+    if (!folderToDelete) return;
+
+    // Remove from local state optimistically
+    setLocalFolders(prev => prev.filter(f => f._id !== folderId));
+    if (selectedFolderId === folderId) {
+      setSelectedFolderId(null);
+    }
+
+    try {
+      await deleteFolder(folderId).unwrap();
+      toast.success('Folder deleted');
+      refetchFolders();
+      refetchTasks(); // tasks may have been unlinked
+    } catch (err) {
+      // Revert on error
+      setLocalFolders(prev => [...prev, folderToDelete]);
+      toast.error(err?.data?.message || 'Failed to delete folder');
+    }
+  }, [folders, deleteFolder, refetchFolders, refetchTasks, selectedFolderId]);
 
   // ── Handlers (useCallback) ──────────────────────────────────────────
   const refreshAll = useCallback(() => {
@@ -2371,25 +2481,16 @@ const YourWorkspaceProjectId = () => {
     setShowFolderForm(true);
   }, []);
 
-  const handleDeleteFolder = useCallback(async (folder) => {
+  // ── Folder handlers with optimistic update ──────────────────────────
+  const handleDeleteFolder = useCallback((folder) => {
     setConfirmModal({
       isOpen: true,
       title: 'Delete Folder',
       message: `Are you sure you want to delete folder "${folder.name}"? Tasks will be unlinked but not deleted.`,
-      onConfirm: async () => {
-        try {
-          await useDeleteFolderMutation()[0](folder._id).unwrap();
-          toast.success('Folder deleted');
-          refetchFolders();
-          refetchTasks();
-          if (selectedFolderId === folder._id) setSelectedFolderId(null);
-        } catch (e) {
-          toast.error(e?.data?.message || 'Failed');
-        }
-      },
+      onConfirm: () => handleDeleteFolderOptimistic(folder._id),
       danger: true,
     });
-  }, [refetchFolders, refetchTasks, selectedFolderId]);
+  }, [handleDeleteFolderOptimistic]);
 
   const handleManageReadOnly = useCallback((folder) => {
     setReadOnlyFolder(folder);
@@ -2541,6 +2642,23 @@ const YourWorkspaceProjectId = () => {
     }
   }, [draggedSubIdx, activeTask, tasks, reorderSubTasks, refetchTasks]);
 
+  // ─── Long press handlers for folder options ────────────────────────
+  const handleTouchStart = (e, folderId) => {
+    longPressTimer.current = setTimeout(() => {
+      setFolderMenuOpen(folderId);
+      // Vibrate if supported
+      if (navigator.vibrate) navigator.vibrate(50);
+    }, 600);
+  };
+
+  const handleTouchEnd = () => {
+    clearTimeout(longPressTimer.current);
+  };
+
+  const handleTouchMove = () => {
+    clearTimeout(longPressTimer.current);
+  };
+
   // ─── Early returns AFTER all hooks ─────────────────────────────────
   if (wErr || pErr) { navigate(`/workspace/${workspaceId}/projects`); return null; }
   if (wLoad || pLoad || tLoad || foldersLoading) {
@@ -2561,40 +2679,36 @@ const YourWorkspaceProjectId = () => {
 
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
-          <div className="flex items-center justify-between px-4 h-14 lg:h-16">
-            <div className="flex items-center gap-3 min-w-0">
-              <button onClick={() => navigate(`/workspace/${workspaceId}/projects`)} className="p-1 lg:hidden text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"><FaArrowLeft /></button>
-              <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between px-3 md:px-4 h-14 lg:h-16">
+            <div className="flex items-center gap-2 min-w-0">
+              <button onClick={() => navigate(`/workspace/${workspaceId}/projects`)} className="p-1 lg:hidden text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"><FaArrowLeft className="text-sm" /></button>
+              <div className="flex items-center gap-2 min-w-0">
                 {project.coverImage ? (
-                  <img src={project.coverImage} className="w-10 h-10 rounded-xl object-cover border border-gray-200 dark:border-gray-700/60" alt="" />
+                  <img src={project.coverImage} className="w-8 h-8 md:w-10 md:h-10 rounded-xl object-cover border border-gray-200 dark:border-gray-700/60" alt="" />
                 ) : (
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold" style={{ backgroundColor: brandColor }}>
-                    <FaFolder className="text-lg" />
+                  <div className="w-8 h-8 md:w-10 md:h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm md:text-base" style={{ backgroundColor: brandColor }}>
+                    <FaFolder className="text-base md:text-lg" />
                   </div>
                 )}
-                <div>
-                  <h1 className="text-base font-semibold text-gray-800 dark:text-gray-200 truncate max-w-[150px] md:max-w-xs flex items-center gap-2">
+                <div className="min-w-0">
+                  <h1 className="text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 truncate max-w-[120px] md:max-w-xs flex items-center gap-1">
                     {project.name}
                     {isArchivedForMe && (
-                      <span className="text-xs font-normal text-gray-400 dark:text-gray-400 bg-gray-100 dark:bg-gray-800/40 px-2 py-0.5 rounded-full border border-gray-300 dark:border-gray-700/40">
-                        Archived
-                      </span>
+                      <span className="text-[10px] font-normal text-gray-400 dark:text-gray-400 bg-gray-100 dark:bg-gray-800/40 px-1.5 py-0.5 rounded-full border border-gray-300 dark:border-gray-700/40">Archived</span>
                     )}
                     {isTrash && (
-                      <span className="text-xs font-normal text-red-400 dark:text-red-400 bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded-full border border-red-300 dark:border-red-700/40">
-                        Trash
-                      </span>
+                      <span className="text-[10px] font-normal text-red-400 dark:text-red-400 bg-red-50 dark:bg-red-900/20 px-1.5 py-0.5 rounded-full border border-red-300 dark:border-red-700/40">Trash</span>
                     )}
                   </h1>
-                  <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                  <div className="flex items-center gap-1.5 text-[10px] md:text-xs text-gray-500 dark:text-gray-400 truncate">
                     <span>{activeTeam.length} members</span>
-                    <span className="w-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-full" />
+                    <span className="w-0.5 h-0.5 bg-gray-300 dark:bg-gray-600 rounded-full" />
                     <span>{projectProgress}% done</span>
                     {selectedFolderId && (
                       <>
-                        <span className="w-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-full" />
-                        <span className="text-teal-600 dark:text-[#0d9488] flex items-center gap-1">
-                          <FaFolder className="text-[10px]" /> {folders.find(f => f._id === selectedFolderId)?.name || 'Folder'}
+                        <span className="w-0.5 h-0.5 bg-gray-300 dark:bg-gray-600 rounded-full" />
+                        <span className="text-teal-600 dark:text-[#0d9488] flex items-center gap-0.5">
+                          <FaFolder className="text-[8px] md:text-[10px]" /> {folders.find(f => f._id === selectedFolderId)?.name || 'Folder'}
                         </span>
                       </>
                     )}
@@ -2602,20 +2716,20 @@ const YourWorkspaceProjectId = () => {
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button onClick={openSearchModal} className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"><FaSearch /></button>
+            <div className="flex items-center gap-1 md:gap-2">
+              <button onClick={openSearchModal} className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"><FaSearch className="text-xs md:text-sm" /></button>
               {canManage && !isTrash && !isArchivedForMe && (
-                <button onClick={() => activeTab === 'tasks' ? setShowCreateTask(true) : setShowAddMember(true)} className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"><FaPlus /></button>
+                <button onClick={() => activeTab === 'tasks' ? setShowCreateTask(true) : setShowAddMember(true)} className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"><FaPlus className="text-xs md:text-sm" /></button>
               )}
               <div className="relative">
                 <button
                   onClick={() => setProjectMenuOpen(!projectMenuOpen)}
                   className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
                 >
-                  <FaEllipsisV className="text-sm" />
+                  <FaEllipsisV className="text-xs md:text-sm" />
                 </button>
                 {projectMenuOpen && (
-                  <div className="absolute right-0 top-full mt-1 bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-800/60 rounded-xl min-w-[180px] z-20 py-1 shadow-lg">
+                  <div className="absolute right-0 top-full mt-1 bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-800/60 rounded-xl min-w-[160px] z-20 py-1 shadow-lg">
                     {!isTrash && (
                       isArchivedForMe ? (
                         <button onClick={handleUnarchiveProject} className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 w-full transition">
@@ -2653,10 +2767,10 @@ const YourWorkspaceProjectId = () => {
               </div>
             </div>
           </div>
-          <div className="flex gap-6 px-4 border-t border-gray-200/60 dark:border-gray-800/30">
+          <div className="flex gap-4 md:gap-6 px-3 md:px-4 border-t border-gray-200/60 dark:border-gray-800/30 overflow-x-auto">
             <button
               onClick={() => { setActiveTab('tasks'); setMobileShowDetail(false); setSelectedTaskId(null); }}
-              className={`pb-2 text-sm font-medium transition ${
+              className={`pb-2 text-xs md:text-sm font-medium transition whitespace-nowrap ${
                 activeTab === 'tasks'
                   ? 'border-b-2 border-teal-600 dark:border-[#0d9488] text-teal-600 dark:text-[#0d9488]'
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
@@ -2666,7 +2780,7 @@ const YourWorkspaceProjectId = () => {
             </button>
             <button
               onClick={() => { setActiveTab('team'); setMobileShowDetail(false); setSelectedTaskId(null); }}
-              className={`pb-2 text-sm font-medium transition ${
+              className={`pb-2 text-xs md:text-sm font-medium transition whitespace-nowrap ${
                 activeTab === 'team'
                   ? 'border-b-2 border-teal-600 dark:border-[#0d9488] text-teal-600 dark:text-[#0d9488]'
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
@@ -2680,19 +2794,19 @@ const YourWorkspaceProjectId = () => {
         <div className="flex-1 flex overflow-hidden">
           <div className={`${mobileShowDetail ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-2/5 lg:w-1/3 border-r border-gray-200/60 dark:border-gray-800/40 bg-white dark:bg-[#0f0f12] h-full`}>
             {activeTab === 'tasks' && (
-              <div className="border-b border-gray-200/60 dark:border-gray-800/30 px-3 py-2 bg-gray-50 dark:bg-[#14141a]/60">
+              <div className="border-b border-gray-200/60 dark:border-gray-800/30 px-2 md:px-3 py-2 bg-gray-50 dark:bg-[#14141a]/60">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Folders</span>
+                  <span className="text-[10px] md:text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Folders</span>
                   {canManage && !isTrash && !isArchivedForMe && (
-                    <button onClick={handleCreateFolder} className="text-xs text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] transition font-medium flex items-center gap-1">
-                      <FaPlus className="text-[10px]" /> New
+                    <button onClick={handleCreateFolder} className="text-[10px] md:text-xs text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] transition font-medium flex items-center gap-1">
+                      <FaPlus className="text-[8px] md:text-[10px]" /> New
                     </button>
                   )}
                 </div>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-nowrap overflow-x-auto gap-1.5 pb-1 scrollbar-hide">
                   <button
                     onClick={() => handleFolderSelect(null)}
-                    className={`text-xs px-2.5 py-1 rounded-full border transition ${
+                    className={`text-[10px] md:text-xs px-2 py-1 rounded-full border transition whitespace-nowrap ${
                       !selectedFolderId
                         ? 'bg-teal-600 dark:bg-[#0d9488] text-white border-teal-600 dark:border-[#0d9488]'
                         : 'bg-gray-100 dark:bg-[#1e1e26] border-gray-300 dark:border-gray-700/60 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-800/30'
@@ -2701,20 +2815,24 @@ const YourWorkspaceProjectId = () => {
                     All
                   </button>
                   {folders.map(f => (
-                    <div key={f._id} className="relative group flex items-center">
+                    <div key={f._id} className="relative group flex items-center shrink-0">
                       <button
                         onClick={() => handleFolderSelect(f._id)}
-                        className={`text-xs px-2.5 py-1 rounded-full border transition flex items-center gap-1 ${
+                        onTouchStart={(e) => handleTouchStart(e, f._id)}
+                        onTouchEnd={handleTouchEnd}
+                        onTouchMove={handleTouchMove}
+                        className={`text-[10px] md:text-xs px-2 py-1 rounded-full border transition flex items-center gap-1 whitespace-nowrap ${
                           selectedFolderId === f._id
                             ? 'bg-teal-600 dark:bg-[#0d9488] text-white border-teal-600 dark:border-[#0d9488]'
                             : 'bg-gray-100 dark:bg-[#1e1e26] border-gray-300 dark:border-gray-700/60 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-800/30'
                         }`}
                       >
-                        <FaFolder className="text-[10px]" />
+                        <FaFolder className="text-[8px] md:text-[10px]" />
                         {f.name}
                       </button>
+                      {/* Desktop hover actions */}
                       {canManage && !isTrash && !isArchivedForMe && (
-                        <div className="hidden group-hover:flex items-center gap-0.5 ml-0.5">
+                        <div className="hidden md:flex items-center gap-0.5 ml-0.5">
                           <button onClick={(e) => { e.stopPropagation(); handleEditFolder(f); }} className="p-0.5 text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 transition">
                             <FaEdit className="text-[8px]" />
                           </button>
@@ -2729,15 +2847,36 @@ const YourWorkspaceProjectId = () => {
                     </div>
                   ))}
                 </div>
+                {/* Mobile folder menu (long press) */}
+                {folderMenuOpen && canManage && !isTrash && !isArchivedForMe && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4" onClick={() => setFolderMenuOpen(null)}>
+                    <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-sm w-full p-4 shadow-xl" onClick={e => e.stopPropagation()}>
+                      <div className="flex flex-col gap-2">
+                        <button onClick={() => { setFolderMenuOpen(null); handleEditFolder(folders.find(f => f._id === folderMenuOpen)); }} className="flex items-center gap-3 px-4 py-3 bg-gray-50 dark:bg-[#1a1a24] rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800/50 transition">
+                          <FaEdit className="text-blue-500" /> Edit Folder
+                        </button>
+                        <button onClick={() => { setFolderMenuOpen(null); handleManageReadOnly(folders.find(f => f._id === folderMenuOpen)); }} className="flex items-center gap-3 px-4 py-3 bg-gray-50 dark:bg-[#1a1a24] rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800/50 transition">
+                          <FaUserLock className="text-teal-500" /> Read-Only Users
+                        </button>
+                        <button onClick={() => { setFolderMenuOpen(null); const f = folders.find(f => f._id === folderMenuOpen); if (f) handleDeleteFolder(f); }} className="flex items-center gap-3 px-4 py-3 bg-red-50 dark:bg-red-900/20 rounded-xl hover:bg-red-100 dark:hover:bg-red-800/30 transition text-red-600 dark:text-red-400">
+                          <FaTrashAlt className="text-xs" /> Delete Folder
+                        </button>
+                        <button onClick={() => setFolderMenuOpen(null)} className="mt-2 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="flex-1 overflow-y-auto p-3 md:p-4 pb-20 md:pb-4">
               {activeTab === 'tasks' ? (
                 tasks.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-20 text-gray-400 dark:text-gray-500">
-                    <FaTasks className="text-4xl mb-2 opacity-30" />
-                    <p className="text-sm">No tasks {selectedFolderId ? 'in this folder' : 'yet'}</p>
+                  <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-500">
+                    <FaTasks className="text-3xl md:text-4xl mb-2 opacity-30" />
+                    <p className="text-xs md:text-sm">No tasks {selectedFolderId ? 'in this folder' : 'yet'}</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 gap-3">
@@ -2881,6 +3020,7 @@ const YourWorkspaceProjectId = () => {
         assignableMembers={assignableMembers}
         folders={folders}
         onSuccess={() => { refetchTasks(); refetchProject(); refetchFolders(); }}
+        onSubmit={handleCreateTaskOptimistic}
       />
       <EditTaskModal
         key={selectedTask?._id}

@@ -495,9 +495,7 @@ const TaskCard = React.memo(({
       onClick={() => onClick(task._id)}
       className={`group relative bg-white dark:bg-[#14141a] rounded-2xl border transition-all duration-300 cursor-pointer overflow-hidden ${
         isActive ? 'border-[#0d9488] shadow-[0_0_20px_rgba(13,148,136,0.15)]' : 'border-gray-200 dark:border-gray-800/40 hover:border-[#0d9488]/50'
-      } ${draggable && !readOnly && !showArchived ? 'active:cursor-grabbing' : ''} ${readOnly || showArchived ? 'opacity-80' : ''} ${
-        dragOver ? 'border-[#0d9488] bg-[#0d9488]/5' : ''
-      }`}
+      } ${draggable && !readOnly && !showArchived ? 'active:cursor-grabbing' : ''} ${readOnly || showArchived ? 'opacity-80' : ''} ${dragOver ? 'border-[#0d9488] bg-[#0d9488]/5' : ''}`}
     >
       <div className="p-4">
         <div className="flex items-start justify-between gap-2">
@@ -1516,6 +1514,10 @@ const MyWorkspaceProjectId = () => {
   const containerRef = useRef(null);
   const isMd = useMediaQuery('(min-width: 768px)');
 
+  // ── Mobile folder long-press menu ─────────────────────────────────
+  const [folderMenuOpen, setFolderMenuOpen] = useState(null);
+  const longPressTimer = useRef(null);
+
   // Data fetching hooks
   const { data: wData, isLoading: wLoad, error: wErr } = useGetWorkspaceQuery(workspaceId);
   const { data: pData, isLoading: pLoad, error: pErr, refetch: refetchProject } = useGetProjectByIdQuery(projectId);
@@ -1550,17 +1552,27 @@ const MyWorkspaceProjectId = () => {
   const [manageProjectManagers] = useManageProjectManagersMutation();
   const [reorderTasks] = useReorderTasksMutation();
   const [reorderSubTasks] = useReorderSubTasksMutation();
+  const [createTask] = useCreateTaskMutation(); // for optimistic creation
 
   // Derived data (useMemo)
   const workspace = wData?.workspace;
   const project = pData?.project;
   const folders = foldersData?.folders || [];
+
+  // Local state for tasks and folders (optimistic updates)
   const [localTasks, setLocalTasks] = useState([]);
+  const [localFolders, setLocalFolders] = useState([]);
 
   useEffect(() => {
     setLocalTasks(tData?.tasks || []);
   }, [tData]);
+
+  useEffect(() => {
+    setLocalFolders(foldersData?.folders || []);
+  }, [foldersData]);
+
   const tasks = localTasks;
+  const visibleFolders = localFolders; // we'll filter later
 
   const activeTeam = useMemo(() => (project?.teamMembers || []).filter(m => m.status === 'active'), [project?.teamMembers]);
 
@@ -1603,21 +1615,6 @@ const MyWorkspaceProjectId = () => {
     const u = m.user || m;
     return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" /> : <FaUser className="text-gray-400" /> };
   }), [availableForManager]);
-
-  const visibleFolders = useMemo(() => {
-    if (canManage) return folders;
-    const assignedFolderIds = new Set();
-    tasks.forEach(task => {
-      if (task.assignee?._id === userInfo?._id) {
-        const fid = task.folder?._id || task.folder;
-        if (fid) assignedFolderIds.add(fid);
-      }
-    });
-    return folders.filter(f => {
-      if (assignedFolderIds.has(f._id)) return true;
-      return true;
-    });
-  }, [canManage, folders, tasks, userInfo]);
 
   const isFolderReadOnly = useCallback((folderId) => {
     if (canManage) return false;
@@ -1666,11 +1663,100 @@ const MyWorkspaceProjectId = () => {
     };
   }, [handleSplitterMouseMove, handleSplitterMouseUp]);
 
+  // ─── Optimistic task creation ────────────────────────────────────────
+  const handleCreateTaskOptimistic = useCallback(async (formData) => {
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    const optimisticTask = {
+      _id: tempId,
+      title: formData.title,
+      description: formData.description || '',
+      taskType: formData.taskType || 'general',
+      priority: formData.priority || 'medium',
+      status: 'pending',
+      progress: 0,
+      assignee: formData.assigneeId ? { _id: formData.assigneeId, name: 'Loading...' } : null,
+      folder: formData.folderId ? { _id: formData.folderId, name: visibleFolders.find(f => f._id === formData.folderId)?.name || 'Folder' } : null,
+      startDate: formData.startDate || null,
+      dueDate: formData.dueDate || null,
+      estimatedHours: formData.estimatedHours || 0,
+      bufferTime: parseFloat(formData.bufferTime) || 0,
+      allowAssigneeEditSubtasks: formData.allowAssigneeEditSubtasks || false,
+      recurrenceType: formData.recurrenceType || 'none',
+      recurrenceDays: formData.recurrenceDays || [],
+      recurrenceEndDate: formData.recurrenceEndDate || null,
+      links: formData.links || [],
+      attachments: [],
+      subTasks: [],
+      isArchived: false,
+      isTrash: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    setLocalTasks(prev => [optimisticTask, ...prev]);
+
+    try {
+      const fd = new FormData();
+      fd.append('projectId', formData.projectId);
+      fd.append('title', formData.title);
+      fd.append('description', formData.description);
+      fd.append('taskType', formData.taskType);
+      if (formData.assigneeId) fd.append('assigneeId', formData.assigneeId);
+      fd.append('priority', formData.priority);
+      if (formData.startDate) fd.append('startDate', new Date(formData.startDate).toISOString());
+      if (formData.dueDate) fd.append('dueDate', new Date(formData.dueDate).toISOString());
+      if (formData.estimatedHours) fd.append('estimatedHours', formData.estimatedHours);
+      fd.append('bufferTime', formData.bufferTime);
+      fd.append('links', JSON.stringify(formData.links || []));
+      fd.append('allowAssigneeEditSubtasks', formData.allowAssigneeEditSubtasks);
+      if (formData.folderId) fd.append('folderId', formData.folderId);
+      if (formData.dailyReminderTime) fd.append('dailyReminderTime', formData.dailyReminderTime);
+      fd.append('recurrenceType', formData.recurrenceType);
+      if (formData.recurrenceType === 'weekly') {
+        fd.append('recurrenceDays', JSON.stringify(formData.recurrenceDays));
+      }
+      if (formData.recurrenceEndDate) fd.append('recurrenceEndDate', formData.recurrenceEndDate);
+      formData.attachments?.forEach(file => fd.append('attachments', file));
+
+      const result = await createTask(fd).unwrap();
+      setLocalTasks(prev => prev.map(t => t._id === tempId ? result.task : t));
+      refetchTasks();
+      refetchProject();
+    } catch (err) {
+      setLocalTasks(prev => prev.filter(t => t._id !== tempId));
+      toast.error(err?.data?.message || 'Failed to create task');
+      throw err;
+    }
+  }, [createTask, refetchTasks, refetchProject, visibleFolders]);
+
+  // ─── Optimistic folder delete ────────────────────────────────────────
+  const handleDeleteFolderOptimistic = useCallback(async (folderId) => {
+    const folderToDelete = localFolders.find(f => f._id === folderId);
+    if (!folderToDelete) return;
+
+    // Remove from local state optimistically
+    setLocalFolders(prev => prev.filter(f => f._id !== folderId));
+    if (activeFolderId === folderId) {
+      setActiveFolderId(null);
+    }
+
+    try {
+      await deleteFolder(folderId).unwrap();
+      toast.success('Folder deleted');
+      refetchFolders();
+      refetchTasks();
+    } catch (err) {
+      // Revert on error
+      setLocalFolders(prev => [...prev, folderToDelete]);
+      toast.error(err?.data?.message || 'Failed to delete folder');
+    }
+  }, [localFolders, deleteFolder, refetchFolders, refetchTasks, activeFolderId]);
+
   // ─── Handlers (useCallback) ────────────────────────────────────────
   const refreshAll = useCallback(() => { refetchTasks(); refetchProject(); }, [refetchTasks, refetchProject]);
 
   const handleSaveFolderPermissions = useCallback(async (folderId, selectedUserIds) => {
-    const folder = folders.find(f => f._id === folderId);
+    const folder = localFolders.find(f => f._id === folderId);
     if (!folder) return;
     const currentUsers = folder.readOnlyUsers?.map(id => id.toString()) || [];
     const toAdd = selectedUserIds.filter(id => !currentUsers.includes(id));
@@ -1689,7 +1775,7 @@ const MyWorkspaceProjectId = () => {
       toast.error(error?.data?.message || 'Failed to update folder access');
       throw error;
     }
-  }, [folders, addFolderReadOnly, removeFolderReadOnly, refetchFolders, refetchTasks]);
+  }, [localFolders, addFolderReadOnly, removeFolderReadOnly, refetchFolders, refetchTasks]);
 
   const handleDeleteTask = useCallback((task) => {
     setDeleteTaskModal({
@@ -1815,7 +1901,9 @@ const MyWorkspaceProjectId = () => {
   const handleCreateFolder = useCallback(async () => {
     if (!newFolderName.trim()) return toast.error('Folder name required');
     try {
-      await createFolder({ projectId, name: newFolderName.trim() }).unwrap();
+      const result = await createFolder({ projectId, name: newFolderName.trim() }).unwrap();
+      // Add folder optimistically
+      setLocalFolders(prev => [...prev, result.folder]);
       toast.success('Folder created');
       setNewFolderName('');
       setShowCreateFolder(false);
@@ -1830,11 +1918,9 @@ const MyWorkspaceProjectId = () => {
       message: 'Deleting this folder will unlink its tasks. Are you sure?',
       confirmText: 'Delete',
       danger: true,
-      onConfirm: async () => {
-        try { await deleteFolder(folderId).unwrap(); toast.success('Folder deleted'); refetchFolders(); refetchTasks(); if (activeFolderId === folderId) setActiveFolderId(null); } catch (e) { toast.error(e?.data?.message || 'Failed'); }
-      }
+      onConfirm: () => handleDeleteFolderOptimistic(folderId),
     });
-  }, [deleteFolder, refetchFolders, refetchTasks, activeFolderId]);
+  }, [handleDeleteFolderOptimistic]);
 
   const handleRenameFolder = useCallback(async (folderId) => {
     if (!renameFolderName.trim()) return toast.error('Name required');
@@ -2101,7 +2187,24 @@ const MyWorkspaceProjectId = () => {
   const isActiveFolderReadOnly = activeFolderId ? isFolderReadOnly(activeFolderId) : false;
   const canReorderTasks = canManage && !showArchived;
 
-  // ─── Early returns AFTER all hooks ─────────────────────────────────
+  // ── Long press handlers for folder options ────────────────────────
+  const handleTouchStart = (e, folderId) => {
+    if (!canManage) return;
+    longPressTimer.current = setTimeout(() => {
+      setFolderMenuOpen(folderId);
+      if (navigator.vibrate) navigator.vibrate(50);
+    }, 600);
+  };
+
+  const handleTouchEnd = () => {
+    clearTimeout(longPressTimer.current);
+  };
+
+  const handleTouchMove = () => {
+    clearTimeout(longPressTimer.current);
+  };
+
+  // ── Early returns AFTER all hooks ─────────────────────────────────
   if (wErr || pErr) { navigate(`/my-workspace/${workspaceId}/projects`); return null; }
   if (wLoad || pLoad || tLoad || foldersLoading) {
     return (
@@ -2121,31 +2224,31 @@ const MyWorkspaceProjectId = () => {
 
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800/40 flex-shrink-0">
-          <div className="flex items-center justify-between px-4 h-14 lg:h-16">
-            <div className="flex items-center gap-3 min-w-0">
-              <button onClick={() => navigate(`/my-workspace/${workspaceId}/projects`)} className="p-1 lg:hidden text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"><FaArrowLeft /></button>
-              <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between px-3 md:px-4 h-14 lg:h-16">
+            <div className="flex items-center gap-2 min-w-0">
+              <button onClick={() => navigate(`/my-workspace/${workspaceId}/projects`)} className="p-1 lg:hidden text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"><FaArrowLeft className="text-sm" /></button>
+              <div className="flex items-center gap-2 min-w-0">
                 {project.coverImage ? (
-                  <img src={project.coverImage} className="w-10 h-10 rounded-xl object-cover border border-gray-200 dark:border-gray-700/60" alt="" />
+                  <img src={project.coverImage} className="w-8 h-8 md:w-10 md:h-10 rounded-xl object-cover border border-gray-200 dark:border-gray-700/60" alt="" />
                 ) : (
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold" style={{ backgroundColor: brandColor }}>
-                    <FaFolder className="text-lg" />
+                  <div className="w-8 h-8 md:w-10 md:h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm md:text-base" style={{ backgroundColor: brandColor }}>
+                    <FaFolder className="text-base md:text-lg" />
                   </div>
                 )}
-                <div>
-                  <h1 className="text-base font-semibold text-gray-800 dark:text-gray-200 truncate max-w-[150px] md:max-w-xs">{project.name}</h1>
-                  <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+                <div className="min-w-0">
+                  <h1 className="text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 truncate max-w-[120px] md:max-w-xs">{project.name}</h1>
+                  <div className="flex items-center gap-2 text-[10px] md:text-xs text-gray-500 dark:text-gray-400">
                     <span className="flex items-center gap-1">
-                      <FaChartLine className="text-[#0d9488] text-[10px]" />
+                      <FaChartLine className="text-[#0d9488] text-[8px] md:text-[10px]" />
                       {projectProgress}% done
                     </span>
-                    <span className="w-1 h-1 bg-gray-400 dark:bg-gray-600 rounded-full" />
+                    <span className="w-0.5 h-0.5 bg-gray-400 dark:bg-gray-600 rounded-full" />
                     <span className="flex items-center gap-1">
-                      <FaUsers className="text-[10px]" />
+                      <FaUsers className="text-[8px] md:text-[10px]" />
                       {activeTeam.length} members
                       {canManage && (
                         <button onClick={() => setShowAddMember(true)} className="text-[#0d9488] hover:text-[#14b8a6] transition ml-0.5">
-                          <FaPlus className="text-[10px]" />
+                          <FaPlus className="text-[8px] md:text-[10px]" />
                         </button>
                       )}
                     </span>
@@ -2153,22 +2256,22 @@ const MyWorkspaceProjectId = () => {
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button onClick={() => setSearchOpen(true)} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"><FaSearch /></button>
+            <div className="flex items-center gap-1 md:gap-2">
+              <button onClick={() => setSearchOpen(true)} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"><FaSearch className="text-xs md:text-sm" /></button>
               {canManage && !showArchived && (
-                <button onClick={() => setShowCreateTask(true)} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"><FaPlus /></button>
+                <button onClick={() => setShowCreateTask(true)} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"><FaPlus className="text-xs md:text-sm" /></button>
               )}
             </div>
           </div>
 
-          {/* Tabs */}
-          <div className="flex items-center gap-2 px-4 border-t border-gray-200 dark:border-gray-800/30 overflow-x-auto">
+          {/* Tabs - scrollable horizontally */}
+          <div className="flex items-center gap-1 px-3 md:px-4 border-t border-gray-200 dark:border-gray-800/30 overflow-x-auto scrollbar-hide py-1">
             <div
               onClick={() => { setActiveFolderId(null); setShowArchived(false); setMobileShowDetail(false); setSelectedTaskId(null); }}
               onDragOver={(e) => !showArchived && handleDragOver(e, null)}
               onDragLeave={handleDragLeave}
               onDrop={(e) => !showArchived && handleDrop(e, null)}
-              className={`relative flex-shrink-0 cursor-pointer pb-2 text-sm font-medium transition px-3 py-1.5 rounded-xl ${
+              className={`relative flex-shrink-0 cursor-pointer text-xs md:text-sm font-medium transition px-2.5 md:px-3 py-1.5 rounded-xl whitespace-nowrap ${
                 !showArchived && activeFolderId === null
                   ? 'bg-[#0d9488]/10 text-[#0d9488]'
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
@@ -2176,7 +2279,7 @@ const MyWorkspaceProjectId = () => {
             >
               All Tasks
               {!showArchived && draggedOverTabId === null && isDraggingSomething && (
-                <span className="absolute -top-2 left-1/2 transform -translate-x-1/2 text-[9px] font-medium text-[#0d9488] bg-white dark:bg-[#0f0f12] px-1.5 py-0.5 rounded shadow">
+                <span className="absolute -top-2 left-1/2 transform -translate-x-1/2 text-[9px] font-medium text-[#0d9488] bg-white dark:bg-[#0f0f12] px-1.5 py-0.5 rounded shadow whitespace-nowrap">
                   Move here?
                 </span>
               )}
@@ -2184,16 +2287,16 @@ const MyWorkspaceProjectId = () => {
 
             <div
               onClick={toggleArchived}
-              className={`relative flex-shrink-0 cursor-pointer pb-2 text-sm font-medium transition px-3 py-1.5 rounded-xl ${
+              className={`flex-shrink-0 cursor-pointer text-xs md:text-sm font-medium transition px-2.5 md:px-3 py-1.5 rounded-xl whitespace-nowrap ${
                 showArchived
                   ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300'
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
               }`}
             >
-              <span className="flex items-center gap-1"><FaArchive className="text-xs" /> Archived</span>
+              <span className="flex items-center gap-1"><FaArchive className="text-[10px] md:text-xs" /> Archived</span>
             </div>
 
-            {!showArchived && visibleFolders.map(folder => {
+            {!showArchived && localFolders.map(folder => {
               const readOnly = isFolderReadOnly(folder._id);
               return (
                 <div
@@ -2205,7 +2308,10 @@ const MyWorkspaceProjectId = () => {
                 >
                   <div
                     onClick={() => { setActiveFolderId(folder._id); setShowArchived(false); setMobileShowDetail(false); setSelectedTaskId(null); }}
-                    className={`flex items-center gap-1 cursor-pointer pb-2 text-sm font-medium transition px-3 py-1.5 rounded-xl ${
+                    onTouchStart={(e) => handleTouchStart(e, folder._id)}
+                    onTouchEnd={handleTouchEnd}
+                    onTouchMove={handleTouchMove}
+                    className={`flex items-center gap-1 cursor-pointer text-xs md:text-sm font-medium transition px-2.5 md:px-3 py-1.5 rounded-xl whitespace-nowrap ${
                       !showArchived && activeFolderId === folder._id
                         ? 'bg-[#0d9488]/10 text-[#0d9488]'
                         : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
@@ -2239,7 +2345,7 @@ const MyWorkspaceProjectId = () => {
                       </span>
                     )}
                     {!showArchived && draggedOverTabId === folder._id && isDraggingSomething && (
-                      <span className="absolute -top-2 left-1/2 transform -translate-x-1/2 text-[9px] font-medium text-[#0d9488] bg-white dark:bg-[#0f0f12] px-1.5 py-0.5 rounded shadow">
+                      <span className="absolute -top-2 left-1/2 transform -translate-x-1/2 text-[9px] font-medium text-[#0d9488] bg-white dark:bg-[#0f0f12] px-1.5 py-0.5 rounded shadow whitespace-nowrap">
                         Move here?
                       </span>
                     )}
@@ -2259,17 +2365,39 @@ const MyWorkspaceProjectId = () => {
           </div>
         </header>
 
+        {/* Mobile folder menu (long press) */}
+        {folderMenuOpen && canManage && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4" onClick={() => setFolderMenuOpen(null)}>
+            <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-sm w-full p-4 shadow-xl" onClick={e => e.stopPropagation()}>
+              <div className="flex flex-col gap-2">
+                <button onClick={() => { setFolderMenuOpen(null); const f = localFolders.find(f => f._id === folderMenuOpen); if (f) { setShowRenameFolder(f._id); setRenameFolderName(f.name); } }} className="flex items-center gap-3 px-4 py-3 bg-gray-50 dark:bg-[#1a1a24] rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800/50 transition">
+                  <FaPen className="text-blue-500" /> Rename Folder
+                </button>
+                <button onClick={() => { setFolderMenuOpen(null); const f = localFolders.find(f => f._id === folderMenuOpen); if (f) setFolderAccessModal({ isOpen: true, folder: f }); }} className="flex items-center gap-3 px-4 py-3 bg-gray-50 dark:bg-[#1a1a24] rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800/50 transition">
+                  <FaLockOpen className="text-yellow-500" /> Manage Access
+                </button>
+                <button onClick={() => { setFolderMenuOpen(null); handleDeleteFolder(folderMenuOpen); }} className="flex items-center gap-3 px-4 py-3 bg-red-50 dark:bg-red-900/20 rounded-xl hover:bg-red-100 dark:hover:bg-red-800/30 transition text-red-600 dark:text-red-400">
+                  <FaTrashAlt className="text-xs" /> Delete Folder
+                </button>
+                <button onClick={() => setFolderMenuOpen(null)} className="mt-2 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Split pane */}
         <div className="flex-1 flex overflow-hidden" ref={containerRef}>
           <div
             className={`flex flex-col h-full overflow-hidden flex-shrink-0 border-r border-gray-200 dark:border-gray-800/40 bg-gray-50 dark:bg-[#0f0f12] ${!isMd && mobileShowDetail ? 'hidden' : ''}`}
             style={{ width: isMd ? `${leftWidthPercent}%` : (mobileShowDetail ? '0%' : '100%') }}
           >
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="flex-1 overflow-y-auto p-3 md:p-4 pb-20 md:pb-4">
               {tasks.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-20 text-gray-500 dark:text-gray-500">
-                  <FaTasks className="text-4xl mb-2 opacity-30" />
-                  <p className="text-sm">{showArchived ? 'No archived tasks' : 'No tasks in this view'}</p>
+                <div className="flex flex-col items-center justify-center py-16 text-gray-500 dark:text-gray-500">
+                  <FaTasks className="text-3xl md:text-4xl mb-2 opacity-30" />
+                  <p className="text-xs md:text-sm">{showArchived ? 'No archived tasks' : 'No tasks in this view'}</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 gap-3">
@@ -2520,7 +2648,7 @@ const MyWorkspaceProjectId = () => {
                           onDragOver={canReorderSub ? handleSubDragOver : null}
                           onDrop={canReorderSub ? handleSubDrop : null}
                           onDragLeave={handleSubDragLeave}
-                          onDragEnd={canReorderSub ? handleSubDragEnd : null}   // <-- FIXED: pass onDragEnd
+                          onDragEnd={canReorderSub ? handleSubDragEnd : null}
                           dragOver={isDragOverSub}
                         />
                       );
@@ -2565,7 +2693,7 @@ const MyWorkspaceProjectId = () => {
               projectId={projectId}
               brandColor={brandColor}
               assignableMembers={assignableMembers}
-              folders={folders}
+              folders={visibleFolders}
               onSuccess={() => { setShowCreateTask(false); refreshAll(); }}
               onCancel={() => setShowCreateTask(false)}
             />
@@ -2584,7 +2712,7 @@ const MyWorkspaceProjectId = () => {
               task={selectedTask}
               brandColor={brandColor}
               assignableMembers={assignableMembers}
-              folders={folders}
+              folders={visibleFolders}
               onSuccess={() => { setShowEditTask(false); refreshAll(); }}
               onCancel={() => setShowEditTask(false)}
             />
@@ -2738,7 +2866,7 @@ const MyWorkspaceProjectId = () => {
       <FolderSelectModal
         isOpen={folderActionModal.isOpen}
         onClose={closeFolderActionModal}
-        folders={folders}
+        folders={visibleFolders}
         mode={folderActionModal.mode}
         task={folderActionModal.task}
         onConfirm={handleFolderActionConfirm}

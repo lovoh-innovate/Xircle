@@ -1,32 +1,40 @@
 // controllers/teamController.js
 import Workspace from "../models/workspaceModel.js";
 import User from "../models/userModel.js";
-
-// ── Notification service ──────────────────────────────────────────
 import { createAndSendNotification } from "./notificationController.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Works whether m.user is a raw ObjectId OR a populated user document
+const getUserId = (u) => (u?._id ? u._id.toString() : u?.toString());
+
 const isOwner = (workspace, userId) =>
-  workspace.owner.toString() === userId;
+  workspace.owner.toString() === userId.toString();
+
+const isAdmin = (workspace, userId) => {
+  return workspace.members.some(
+    (m) =>
+      getUserId(m.user) === userId.toString() &&
+      m.role?.toLowerCase() === 'admin' &&
+      m.status === 'active'
+  );
+};
+
+const isManager = (workspace, userId) => isOwner(workspace, userId) || isAdmin(workspace, userId);
 
 const findActiveMember = (workspace, userId) =>
   workspace.members.find(
-    (m) => m.user.toString() === userId && m.status === "active"
+    (m) => getUserId(m.user) === userId.toString() && m.status === "active"
   );
 
 const findPendingMember = (workspace, userId) =>
   workspace.members.find(
-    (m) => m.user.toString() === userId && m.status === "pending"
+    (m) => getUserId(m.user) === userId.toString() && m.status === "pending"
   );
-
-/**
- * Fire-and-forget notification to one or many users.
- * @param {string|string[]} userIds - Single user ID or array
- * @param {Object} options
- */
+  
+// ─── Notification helper ──────────────────────────────────────────────
 async function notifyUsers(
   userIds,
   { title, body, data = {}, emailEventType = null, emailHtml = null }
@@ -52,7 +60,6 @@ async function notifyUsers(
 // ─────────────────────────────────────────────────────────────────────────────
 // REQUEST TO JOIN WORKSPACE VIA INVITE CODE
 // POST /api/team/join
-// Staff uses invite code → goes into pending, waits for owner approval
 // ─────────────────────────────────────────────────────────────────────────────
 
 const requestToJoin = async (req, res) => {
@@ -99,7 +106,6 @@ const requestToJoin = async (req, res) => {
 
     await workspace.save();
 
-    // Notify owner
     const requestingUser = await User.findById(userId).select("name email");
     notifyUsers(workspace.owner.toString(), {
       title: `New join request for "${workspace.name}"`,
@@ -108,12 +114,8 @@ const requestToJoin = async (req, res) => {
       emailEventType: "teamInvite",
       emailHtml: `
         <h3>New Join Request</h3>
-        <p>${requestingUser?.name || "A user"} (${
-        requestingUser?.email || ""
-      }) has requested to join <strong>${workspace.name}</strong>.</p>
-        <p><a href="${process.env.CLIENT_URL}/workspace/${
-        workspace._id
-      }/members">Manage Members</a></p>
+        <p>${requestingUser?.name || "A user"} (${requestingUser?.email || ""}) has requested to join <strong>${workspace.name}</strong>.</p>
+        <p><a href="${process.env.CLIENT_URL}/workspace/${workspace._id}/members">Manage Members</a></p>
       `,
     });
 
@@ -129,14 +131,13 @@ const requestToJoin = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET ALL PENDING JOIN REQUESTS  (owner only)
+// GET ALL PENDING JOIN REQUESTS  (owner or admin)
 // GET /api/team/:workspaceId/requests
 // ─────────────────────────────────────────────────────────────────────────────
 
 const getPendingRequests = async (req, res) => {
   try {
     const userId = req.user.id;
-
     const workspace = await Workspace.findById(req.params.workspaceId).populate(
       "members.user",
       "name email profile phone authMethod"
@@ -145,21 +146,24 @@ const getPendingRequests = async (req, res) => {
     if (!workspace)
       return res.status(404).json({ message: "Workspace not found." });
 
-    if (!isOwner(workspace, userId))
+    // Debug: log user role info
+    console.log(`📝 User ${userId} checking pending requests. Is owner? ${isOwner(workspace, userId)}, Is admin? ${isAdmin(workspace, userId)}`);
+
+    if (!isManager(workspace, userId))
       return res
         .status(403)
-        .json({ message: "Only the workspace owner can view pending requests." });
+        .json({ message: "Only the workspace owner or admin can view pending requests." });
 
     const pending = workspace.members.filter((m) => m.status === "pending");
-
     res.status(200).json({ success: true, pending });
   } catch (error) {
+    console.error("❌ Error in getPendingRequests:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// APPROVE MEMBER + ASSIGN DEPARTMENT & ROLE  (owner only)
+// APPROVE MEMBER + ASSIGN DEPARTMENT & ROLE  (owner or admin)
 // PUT /api/team/:workspaceId/approve/:memberId
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -175,14 +179,13 @@ const approveMember = async (req, res) => {
         .json({ message: "Department is required when approving a member." });
 
     const workspace = await Workspace.findById(workspaceId);
-
     if (!workspace)
       return res.status(404).json({ message: "Workspace not found." });
 
-    if (!isOwner(workspace, userId))
+    if (!isManager(workspace, userId))
       return res
         .status(403)
-        .json({ message: "Only the workspace owner can approve members." });
+        .json({ message: "Only the workspace owner or admin can approve members." });
 
     const memberIndex = workspace.members.findIndex(
       (m) => m.user.toString() === memberId && m.status === "pending"
@@ -201,28 +204,22 @@ const approveMember = async (req, res) => {
 
     await workspace.save();
 
-    // Add to user's joinedWorkspaces
     await User.findByIdAndUpdate(memberId, {
       $addToSet: { joinedWorkspaces: workspaceId },
     });
 
     await workspace.populate("members.user", "name email profile");
 
-    // Notify the approved member
     notifyUsers(memberId, {
       title: `Welcome to "${workspace.name}"`,
-      body: `Your join request has been approved. You are now a member (${
-        role || "Staff"
-      }) in the ${department} department.`,
+      body: `Your join request has been approved. You are now a member (${role || "Staff"}) in the ${department} department.`,
       data: { workspaceId: workspace._id.toString() },
       emailEventType: "teamInvite",
       emailHtml: `
         <h3>Welcome to ${workspace.name}!</h3>
         <p>Your request to join has been approved.</p>
         <p>Role: ${role || "Staff"}<br/>Department: ${department}</p>
-        <p><a href="${process.env.CLIENT_URL}/workspace/${
-        workspace._id
-      }">Go to Workspace</a></p>
+        <p><a href="${process.env.CLIENT_URL}/workspace/${workspace._id}">Go to Workspace</a></p>
       `,
     });
 
@@ -237,7 +234,7 @@ const approveMember = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// REJECT JOIN REQUEST  (owner only)
+// REJECT JOIN REQUEST  (owner or admin)
 // DELETE /api/team/:workspaceId/reject/:memberId
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -247,14 +244,13 @@ const rejectMember = async (req, res) => {
     const { workspaceId, memberId } = req.params;
 
     const workspace = await Workspace.findById(workspaceId);
-
     if (!workspace)
       return res.status(404).json({ message: "Workspace not found." });
 
-    if (!isOwner(workspace, userId))
+    if (!isManager(workspace, userId))
       return res
         .status(403)
-        .json({ message: "Only the workspace owner can reject requests." });
+        .json({ message: "Only the workspace owner or admin can reject requests." });
 
     const memberIndex = workspace.members.findIndex(
       (m) => m.user.toString() === memberId && m.status === "pending"
@@ -268,10 +264,9 @@ const rejectMember = async (req, res) => {
     workspace.members.splice(memberIndex, 1);
     await workspace.save();
 
-    // Notify rejected user
     notifyUsers(memberId, {
       title: `Request to join "${workspace.name}" declined`,
-      body: "Your request to join the workspace has been declined by the owner.",
+      body: "Your request to join the workspace has been declined by the owner or admin.",
       data: { workspaceId: workspace._id.toString() },
       emailEventType: "teamInvite",
     });
@@ -290,7 +285,6 @@ const rejectMember = async (req, res) => {
 const getMembers = async (req, res) => {
   try {
     const userId = req.user.id;
-
     const workspace = await Workspace.findById(req.params.workspaceId).populate(
       "members.user",
       "name email profile phone authMethod"
@@ -308,7 +302,6 @@ const getMembers = async (req, res) => {
         .json({ message: "Access denied. You are not part of this workspace." });
 
     const activeMembers = workspace.members.filter((m) => m.status === "active");
-
     res.status(200).json({ success: true, members: activeMembers });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -356,7 +349,7 @@ const getMembersByDepartment = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UPDATE MEMBER ROLE OR DEPARTMENT  (owner only)
+// UPDATE MEMBER ROLE OR DEPARTMENT  (owner or admin)
 // PUT /api/team/:workspaceId/member/:memberId
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -372,14 +365,28 @@ const updateMember = async (req, res) => {
         .json({ message: "Provide at least a role or department to update." });
 
     const workspace = await Workspace.findById(workspaceId);
-
     if (!workspace)
       return res.status(404).json({ message: "Workspace not found." });
 
-    if (!isOwner(workspace, userId))
+    if (!isManager(workspace, userId))
       return res
         .status(403)
-        .json({ message: "Only the workspace owner can update members." });
+        .json({ message: "Only the workspace owner or admin can update members." });
+
+    if (memberId === userId)
+      return res
+        .status(400)
+        .json({ message: "You cannot update your own membership." });
+    if (isOwner(workspace, memberId))
+      return res
+        .status(400)
+        .json({ message: "Cannot update the workspace owner." });
+
+    if (isAdmin(workspace, userId) && isAdmin(workspace, memberId)) {
+      return res
+        .status(403)
+        .json({ message: "Admins cannot update other admins." });
+    }
 
     const memberIndex = workspace.members.findIndex(
       (m) => m.user.toString() === memberId && m.status === "active"
@@ -394,7 +401,6 @@ const updateMember = async (req, res) => {
     await workspace.save();
     await workspace.populate("members.user", "name email profile");
 
-    // Optional: notify the member about their updated role/department
     notifyUsers(memberId, {
       title: `Your role in "${workspace.name}" has been updated`,
       body: `Your role is now ${workspace.members[memberIndex].role} in the ${workspace.members[memberIndex].department} department.`,
@@ -413,7 +419,7 @@ const updateMember = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// REMOVE ACTIVE MEMBER  (owner only)
+// REMOVE ACTIVE MEMBER  (owner or admin)
 // DELETE /api/team/:workspaceId/member/:memberId
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -423,19 +429,28 @@ const removeMember = async (req, res) => {
     const { workspaceId, memberId } = req.params;
 
     const workspace = await Workspace.findById(workspaceId);
-
     if (!workspace)
       return res.status(404).json({ message: "Workspace not found." });
 
-    if (!isOwner(workspace, userId))
+    if (!isManager(workspace, userId))
       return res
         .status(403)
-        .json({ message: "Only the workspace owner can remove members." });
+        .json({ message: "Only the workspace owner or admin can remove members." });
 
     if (memberId === userId)
       return res
         .status(400)
-        .json({ message: "Owner cannot remove themselves." });
+        .json({ message: "You cannot remove yourself." });
+    if (isOwner(workspace, memberId))
+      return res
+        .status(400)
+        .json({ message: "Cannot remove the workspace owner." });
+
+    if (isAdmin(workspace, userId) && isAdmin(workspace, memberId)) {
+      return res
+        .status(403)
+        .json({ message: "Admins cannot remove other admins." });
+    }
 
     const memberIndex = workspace.members.findIndex(
       (m) => m.user.toString() === memberId && m.status === "active"
@@ -447,15 +462,13 @@ const removeMember = async (req, res) => {
     workspace.members.splice(memberIndex, 1);
     await workspace.save();
 
-    // Remove from user's joinedWorkspaces
     await User.findByIdAndUpdate(memberId, {
       $pull: { joinedWorkspaces: workspaceId },
     });
 
-    // Notify removed member
     notifyUsers(memberId, {
       title: `Removed from "${workspace.name}"`,
-      body: `You have been removed from the workspace "${workspace.name}" by the owner.`,
+      body: `You have been removed from the workspace "${workspace.name}" by an owner or admin.`,
       data: { workspaceId: workspace._id.toString() },
       emailEventType: "teamInvite",
     });
@@ -476,7 +489,6 @@ const removeMember = async (req, res) => {
 const getMyMembership = async (req, res) => {
   try {
     const userId = req.user.id;
-
     const workspace = await Workspace.findById(req.params.workspaceId)
       .populate("owner", "name email profile")
       .populate("members.user", "name email profile");

@@ -120,7 +120,7 @@ const MemberActionSheet = ({ isOpen, onClose, member, canManage, isOwner, onMake
   const isWorkspaceOwner = user._id === member.workspaceOwnerId;
 
   const showMakeAdmin = canManage && member.role !== 'admin' && !isSelf && !isWorkspaceOwner;
-  const showRemoveAdmin = canManage && member.role === 'admin' && !isSelf && !isWorkspaceOwner;
+  const showRemoveAdmin = canManage && member.role === 'admin' && !isSelf && !isWorkspaceOwner && !isOwner;
   const showRemoveMember = canManage && !isSelf && !isWorkspaceOwner;
   const showEditRole = canManage && !isSelf && !isWorkspaceOwner;
   const showDirectMessage = !isSelf;
@@ -459,11 +459,206 @@ const ApproveMemberModal = ({ isOpen, onClose, memberId, workspaceId, brandColor
   );
 };
 
+// ─── MemberItem – fixed menu toggle ────────────────────────────────────
+const MemberItem = React.memo(({
+  member,
+  isPending,
+  user,
+  memberId,
+  isWorkspaceOwner,
+  isCurrentUser,
+  canAct,
+  brandColor,
+  workspaceId,
+  userInfo,
+  canManagePending,
+  onApproveClick,
+  onReject,
+  onMakeAdmin,
+  onRemoveAdmin,
+  onRemoveMember,
+  onDirectMessage,
+  onEditRole,
+}) => {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  // Outside click handler
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const memberForAction = {
+    ...member,
+    user,
+    currentUserId: userInfo?._id,
+    workspaceOwnerId: workspaceId?.owner?._id,
+    role: member.role,
+  };
+
+  // Row click – only on mobile to open action sheet
+  const handleRowClick = (e) => {
+    // Ignore if the click came from a button (like the menu toggle)
+    if (e.target.closest('button')) return;
+    if (isPending || isCurrentUser) return;
+    // open action sheet (we'll use setSelectedMember and setActionSheetOpen from parent)
+    // We'll pass these via context or props – but we need to access them.
+    // To keep it clean, we'll use the parent's setState, but we'll need to lift state.
+    // For now, we'll call a prop function that handles this.
+    // We'll add a prop onMemberClick.
+    // Actually, the parent (MyWorkspaceMembers) defines handleRowClick inside the renderMemberList.
+    // We'll pass a function to handle the click.
+    // Let's add a prop onMemberClick.
+    if (window.innerWidth < 768) {
+      // We'll call a function passed from parent
+      if (onMemberClick) onMemberClick(memberForAction);
+    }
+  };
+
+  const toggleMenu = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setMenuOpen(!menuOpen);
+  };
+
+  return (
+    <div className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition-colors border-b border-gray-100 dark:border-gray-800/30 last:border-0">
+      <div className="relative flex-shrink-0">
+        {user?.profile ? (
+          <img src={user.profile} alt={user.name} className="w-10 h-10 rounded-xl object-cover" />
+        ) : (
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm"
+            style={{ backgroundColor: brandColor }}
+          >
+            {getInitials(user?.name)}
+          </div>
+        )}
+        {!isPending && member.status === 'active' && (
+          <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white dark:border-[#0f0f12]" />
+        )}
+      </div>
+
+      <div
+        className="flex-1 min-w-0 cursor-pointer md:cursor-default"
+        onClick={handleRowClick}
+      >
+        <div className="flex items-center flex-wrap gap-1">
+          <p className="font-semibold text-sm text-gray-800 dark:text-gray-200 truncate">
+            {user?.name || 'Unknown'}
+            {isCurrentUser && ' (You)'}
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {isPending && (
+              <span className="text-[10px] bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 px-1.5 py-0.5 rounded-full border border-yellow-200 dark:border-yellow-700/40">
+                Pending
+              </span>
+            )}
+            {!isPending && isWorkspaceOwner && (
+              <span className="text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-700/40">
+                Owner
+              </span>
+            )}
+            {!isPending && member.role && (
+              <span className="text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-full border border-blue-200 dark:border-blue-700/40">
+                {member.role}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+          <span className="truncate">{user?.email || 'No email'}</span>
+          {member.department && <span className="hidden sm:inline">· {member.department}</span>}
+        </div>
+      </div>
+
+      {!isPending && canAct && (
+        <div className="relative flex-shrink-0 hidden md:block" ref={menuRef}>
+          <button
+            onClick={toggleMenu}
+            className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"
+          >
+            <FaEllipsisV className="text-xs" />
+          </button>
+          {menuOpen && (
+            <div className="absolute right-0 top-8 bg-white dark:bg-[#1e1e26] rounded-xl shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[180px] z-10 py-1.5">
+              <button
+                onClick={() => {
+                  onEditRole({ ...member, user, workspaceId: workspaceId?._id });
+                  setMenuOpen(false);
+                }}
+                className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 hover:text-gray-900 dark:hover:text-white transition w-full"
+              >
+                <FaEdit className="text-xs text-teal-600 dark:text-[#0d9488]" /> Edit Role/Dept
+              </button>
+              <button
+                onClick={() => { onDirectMessage(user._id); setMenuOpen(false); }}
+                className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition w-full"
+              >
+                <FaComment className="text-xs" /> Direct Message
+              </button>
+              <button
+                onClick={() => { onMakeAdmin(user._id); setMenuOpen(false); }}
+                className="flex items-center gap-3 px-4 py-2.5 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition w-full"
+              >
+                <FaUserCog className="text-xs" /> Make Admin
+              </button>
+              <button
+                onClick={() => { onRemoveAdmin(user._id); setMenuOpen(false); }}
+                className="flex items-center gap-3 px-4 py-2.5 text-sm text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-500/10 transition w-full"
+              >
+                <FaUserCog className="text-xs" /> Remove Admin
+              </button>
+              <button
+                onClick={() => { onRemoveMember(user._id, user?.name); setMenuOpen(false); }}
+                className="flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-700 dark:hover:text-red-300 transition w-full"
+              >
+                <FaTrashAlt className="text-xs" /> Remove
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!isPending && !isCurrentUser && canManagePending && (
+        <div className="md:hidden flex-shrink-0 text-gray-400 dark:text-gray-500">
+          <FaChevronDown className="text-xs" />
+        </div>
+      )}
+
+      {isPending && canManagePending && (
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button
+            onClick={() => onApproveClick(user._id)}
+            className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-white rounded-full hover:opacity-80 transition"
+            style={{ backgroundColor: brandColor }}
+          >
+            <FaCheck className="text-[9px]" /> <span className="hidden xs:inline">Approve</span>
+          </button>
+          <button
+            onClick={() => onReject(user._id)}
+            className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 rounded-full transition"
+          >
+            <FaTimes className="text-xs" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+});
+
 // ─── Main Component ──────────────────────────────────────────────────────
 const MyWorkspaceMembers = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
+
   const [activeTab, setActiveTab] = useState('active');
   const [searchOpen, setSearchOpen] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
@@ -474,16 +669,42 @@ const MyWorkspaceMembers = () => {
 
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null, confirmLabel: 'Confirm' });
 
-  const { data: workspaceData, isLoading: workspaceLoading, error: workspaceError } = useGetWorkspaceQuery(workspaceId);
+  // ─── Queries with polling ────────────────────────────────────────────
+  const { data: workspaceData, isLoading: workspaceLoading, error: workspaceError, refetch: refetchWorkspace } = useGetWorkspaceQuery(workspaceId, { pollingInterval: 5000 });
   const { data: membersData, isLoading: membersLoading, refetch: refetchMembers } = useGetMembersQuery(workspaceId, { pollingInterval: 3000 });
-  const { data: pendingData, isLoading: pendingLoading, refetch: refetchPending } = useGetPendingRequestsQuery(workspaceId, { pollingInterval: 3000 });
 
+  const workspace = workspaceData?.workspace;
+  const isOwner = workspace?.owner?._id === userInfo?._id || workspace?.owner === userInfo?._id;
+  const currentUserMembership = workspace?.members?.find(
+    (m) => m.user?._id === userInfo?._id || m.user === userInfo?._id
+  );
+  const isAdmin = currentUserMembership?.role === 'Admin';
+  const canManagePending = isOwner || isAdmin;
+
+  const { data: pendingData, isLoading: pendingLoading, refetch: refetchPending } = useGetPendingRequestsQuery(workspaceId, {
+    pollingInterval: 3000,
+    skip: !canManagePending,
+  });
+
+  // ─── Mutations ──────────────────────────────────────────────────────
   const [rejectMember] = useRejectMemberMutation();
   const [removeMember] = useRemoveMemberMutation();
   const [updateMember] = useUpdateMemberMutation();
   const [createDirectChat] = useCreateDirectChatMutation();
 
+  // ─── Redirect on error ──────────────────────────────────────────────
+  if (workspaceError) {
+    navigate(`/my-workspace/${workspaceId}`);
+    return null;
+  }
+
+  const members = membersData?.members || [];
+  const pendingRequests = pendingData?.pending || [];
+  const brandColor = workspace?.color || '#0d9488';
+
+  // ─── Handlers ──────────────────────────────────────────────────────
   const handleReject = async (memberId) => {
+    if (!canManagePending) return toast.error('Only the owner or admin can reject requests.');
     setConfirmModal({
       isOpen: true,
       title: 'Reject Join Request',
@@ -494,6 +715,7 @@ const MyWorkspaceMembers = () => {
           await rejectMember({ workspaceId, memberId }).unwrap();
           toast.success('Request rejected');
           refetchPending();
+          refetchWorkspace();
           setConfirmModal({ isOpen: false });
         } catch (err) {
           toast.error(err?.data?.message || 'Failed to reject');
@@ -504,6 +726,7 @@ const MyWorkspaceMembers = () => {
   };
 
   const handleRemoveMember = async (memberId, memberName) => {
+    if (!canManagePending) return toast.error('Only the owner or admin can remove members.');
     setConfirmModal({
       isOpen: true,
       title: 'Remove Member',
@@ -514,6 +737,7 @@ const MyWorkspaceMembers = () => {
           await removeMember({ workspaceId, memberId }).unwrap();
           toast.success('Member removed');
           refetchMembers();
+          refetchWorkspace();
           setConfirmModal({ isOpen: false });
         } catch (err) {
           toast.error(err?.data?.message || 'Failed to remove');
@@ -524,6 +748,7 @@ const MyWorkspaceMembers = () => {
   };
 
   const handleApproveClick = (memberId) => {
+    if (!canManagePending) return toast.error('Only the owner or admin can approve requests.');
     setApproveMemberId(memberId);
     setShowApproveModal(true);
   };
@@ -531,6 +756,9 @@ const MyWorkspaceMembers = () => {
   const handleApproveSuccess = () => {
     refetchMembers();
     refetchPending();
+    refetchWorkspace();
+    setShowApproveModal(false);
+    setApproveMemberId(null);
   };
 
   const handleDirectMessage = async (userId) => {
@@ -553,6 +781,7 @@ const MyWorkspaceMembers = () => {
       }).unwrap();
       toast.success('Member promoted to Admin');
       refetchMembers();
+      refetchWorkspace();
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to make admin');
     }
@@ -568,6 +797,7 @@ const MyWorkspaceMembers = () => {
       }).unwrap();
       toast.success('Admin rights removed');
       refetchMembers();
+      refetchWorkspace();
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to remove admin');
     }
@@ -578,13 +808,19 @@ const MyWorkspaceMembers = () => {
     setShowUpdateModal(true);
   };
 
+  const handleMemberClick = (member) => {
+    setSelectedMember(member);
+    setActionSheetOpen(true);
+  };
+
+  // ─── Loading state ──────────────────────────────────────────────────
   if (workspaceLoading || membersLoading || pendingLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
         <div className="text-center">
           <div
             className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin mx-auto"
-            style={{ borderColor: workspaceData?.workspace?.color || '#0d9488', borderTopColor: 'transparent' }}
+            style={{ borderColor: brandColor, borderTopColor: 'transparent' }}
           />
           <p className="mt-3 text-gray-500 dark:text-gray-500 text-sm">Loading members...</p>
         </div>
@@ -592,185 +828,13 @@ const MyWorkspaceMembers = () => {
     );
   }
 
-  if (workspaceError) {
-    navigate(`/my-workspace/${workspaceId}`);
-    return null;
-  }
-
-  const workspace = workspaceData?.workspace;
-  const members = membersData?.members || [];
-  const pendingRequests = pendingData?.pending || [];
-  const isOwner = workspace?.owner?._id === userInfo?._id || workspace?.owner === userInfo?._id;
-  const brandColor = workspace?.color || '#0d9488';
-
-  // ─── MemberItem component for each row ──────────────────────────────
-  const MemberItem = ({ member, isPending, user, memberId, isWorkspaceOwner, isCurrentUser, canAct }) => {
-    const [menuOpen, setMenuOpen] = useState(false);
-    const menuRef = useRef(null);
-
-    // Close menu when clicking outside
-    useEffect(() => {
-      const handleClickOutside = (event) => {
-        if (menuRef.current && !menuRef.current.contains(event.target)) {
-          setMenuOpen(false);
-        }
-      };
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
-
-    const memberForAction = {
-      ...member,
-      user,
-      currentUserId: userInfo?._id,
-      workspaceOwnerId: workspace?.owner?._id,
-      role: member.role,
-    };
-
-    const handleRowClick = () => {
-      if (isPending || isCurrentUser) return;
-      setSelectedMember(memberForAction);
-      setActionSheetOpen(true);
-    };
-
-    const toggleMenu = (e) => {
-      e.stopPropagation();
-      setMenuOpen(!menuOpen);
-    };
-
-    return (
-      <div className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition-colors border-b border-gray-100 dark:border-gray-800/30 last:border-0">
-        <div className="relative flex-shrink-0">
-          {user?.profile ? (
-            <img src={user.profile} alt={user.name} className="w-10 h-10 rounded-xl object-cover" />
-          ) : (
-            <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm"
-              style={{ backgroundColor: brandColor }}
-            >
-              {getInitials(user?.name)}
-            </div>
-          )}
-          {!isPending && member.status === 'active' && (
-            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white dark:border-[#0f0f12]" />
-          )}
-        </div>
-
-        <div
-          className="flex-1 min-w-0 cursor-pointer md:cursor-default"
-          onClick={window.innerWidth < 768 ? handleRowClick : undefined}
-        >
-          <div className="flex items-center flex-wrap gap-1">
-            <p className="font-semibold text-sm text-gray-800 dark:text-gray-200 truncate">
-              {user?.name || 'Unknown'}
-              {isCurrentUser && ' (You)'}
-            </p>
-            <div className="flex flex-wrap gap-1">
-              {isPending && (
-                <span className="text-[10px] bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 px-1.5 py-0.5 rounded-full border border-yellow-200 dark:border-yellow-700/40">
-                  Pending
-                </span>
-              )}
-              {!isPending && isWorkspaceOwner && (
-                <span className="text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-700/40">
-                  Owner
-                </span>
-              )}
-              {!isPending && member.role && (
-                <span className="text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-full border border-blue-200 dark:border-blue-700/40">
-                  {member.role}
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            <span className="truncate">{user?.email || 'No email'}</span>
-            {member.department && <span className="hidden sm:inline">· {member.department}</span>}
-          </div>
-        </div>
-
-        {!isPending && canAct && (
-          <div className="relative flex-shrink-0 hidden md:block" ref={menuRef}>
-            <button
-              onClick={toggleMenu}
-              className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"
-            >
-              <FaEllipsisV className="text-xs" />
-            </button>
-            {menuOpen && (
-              <div className="absolute right-0 top-8 bg-white dark:bg-[#1e1e26] rounded-xl shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[180px] z-10 py-1.5">
-                <button
-                  onClick={() => {
-                    setSelectedMember({ ...member, workspaceId });
-                    setShowUpdateModal(true);
-                    setMenuOpen(false);
-                  }}
-                  className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 hover:text-gray-900 dark:hover:text-white transition w-full"
-                >
-                  <FaEdit className="text-xs text-teal-600 dark:text-[#0d9488]" /> Edit Role/Dept
-                </button>
-                <button
-                  onClick={() => { handleDirectMessage(user._id); setMenuOpen(false); }}
-                  className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition w-full"
-                >
-                  <FaComment className="text-xs" /> Direct Message
-                </button>
-                <button
-                  onClick={() => { handleMakeAdmin(user._id); setMenuOpen(false); }}
-                  className="flex items-center gap-3 px-4 py-2.5 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition w-full"
-                >
-                  <FaUserCog className="text-xs" /> Make Admin
-                </button>
-                <button
-                  onClick={() => { handleRemoveAdmin(user._id); setMenuOpen(false); }}
-                  className="flex items-center gap-3 px-4 py-2.5 text-sm text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-500/10 transition w-full"
-                >
-                  <FaUserCog className="text-xs" /> Remove Admin
-                </button>
-                <button
-                  onClick={() => { handleRemoveMember(user._id, user?.name); setMenuOpen(false); }}
-                  className="flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-700 dark:hover:text-red-300 transition w-full"
-                >
-                  <FaTrashAlt className="text-xs" /> Remove
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {!isPending && !isCurrentUser && isOwner && (
-          <div className="md:hidden flex-shrink-0 text-gray-400 dark:text-gray-500">
-            <FaChevronDown className="text-xs" />
-          </div>
-        )}
-
-        {isPending && isOwner && (
-          <div className="flex items-center gap-1 flex-shrink-0">
-            <button
-              onClick={() => handleApproveClick(user._id)}
-              className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-white rounded-full hover:opacity-80 transition"
-              style={{ backgroundColor: brandColor }}
-            >
-              <FaCheck className="text-[9px]" /> <span className="hidden xs:inline">Approve</span>
-            </button>
-            <button
-              onClick={() => handleReject(user._id)}
-              className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 rounded-full transition"
-            >
-              <FaTimes className="text-xs" />
-            </button>
-          </div>
-        )}
-      </div>
-    );
-  };
-
+  // ─── Render member list ─────────────────────────────────────────────
   const renderMemberList = (list, type = 'active') => {
     if (list.length === 0) {
       return (
         <div className="flex flex-col items-center justify-center py-12 text-gray-400 dark:text-gray-500">
           <FaUsers className="text-4xl mb-2 opacity-30" />
-          <p className="text-sm">{type === 'active' ? 'No members found' : 'No pending requests'}</p>
+          <p className="text-sm">{type === 'active' ? 'No active members found.' : 'No pending join requests.'}</p>
         </div>
       );
     }
@@ -783,7 +847,7 @@ const MyWorkspaceMembers = () => {
       const isWorkspaceOwner = user._id === workspace?.owner?._id;
       const isCurrentUser = user._id === userInfo?._id;
 
-      const canAct = isOwner && !isCurrentUser && !isWorkspaceOwner;
+      const canAct = canManagePending && !isCurrentUser && !isWorkspaceOwner;
 
       return (
         <MemberItem
@@ -795,6 +859,18 @@ const MyWorkspaceMembers = () => {
           isWorkspaceOwner={isWorkspaceOwner}
           isCurrentUser={isCurrentUser}
           canAct={canAct}
+          brandColor={brandColor}
+          workspaceId={workspace}
+          userInfo={userInfo}
+          canManagePending={canManagePending}
+          onApproveClick={handleApproveClick}
+          onReject={handleReject}
+          onMakeAdmin={handleMakeAdmin}
+          onRemoveAdmin={handleRemoveAdmin}
+          onRemoveMember={handleRemoveMember}
+          onDirectMessage={handleDirectMessage}
+          onEditRole={handleEditRole}
+          onMemberClick={handleMemberClick}
         />
       );
     });
@@ -838,7 +914,7 @@ const MyWorkspaceMembers = () => {
               >
                 <FaSearch className="text-sm" />
               </button>
-              {isOwner && pendingRequests.length > 0 && (
+              {canManagePending && pendingRequests.length > 0 && (
                 <button
                   onClick={() => setActiveTab('pending')}
                   className="text-xs text-white font-medium px-2 py-1 rounded-full flex items-center gap-1"
@@ -861,7 +937,7 @@ const MyWorkspaceMembers = () => {
             >
               Active ({members.length})
             </button>
-            {isOwner && (
+            {canManagePending && (
               <button
                 onClick={() => setActiveTab('pending')}
                 className={`pb-2 text-xs sm:text-sm font-medium transition ${
@@ -878,7 +954,7 @@ const MyWorkspaceMembers = () => {
 
         <div className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12] divide-y divide-gray-100 dark:divide-gray-800/30">
           {activeTab === 'active' && renderMemberList(members, 'active')}
-          {activeTab === 'pending' && isOwner && renderMemberList(pendingRequests, 'pending')}
+          {activeTab === 'pending' && canManagePending && renderMemberList(pendingRequests, 'pending')}
         </div>
       </div>
 
@@ -891,7 +967,7 @@ const MyWorkspaceMembers = () => {
           setSelectedMember(null);
         }}
         member={selectedMember}
-        canManage={isOwner}
+        canManage={canManagePending}
         isOwner={isOwner}
         onMakeAdmin={handleMakeAdmin}
         onRemoveAdmin={handleRemoveAdmin}
@@ -911,6 +987,7 @@ const MyWorkspaceMembers = () => {
         brandColor={brandColor}
         onSuccess={() => {
           refetchMembers();
+          refetchWorkspace();
           setShowUpdateModal(false);
           setSelectedMember(null);
         }}
