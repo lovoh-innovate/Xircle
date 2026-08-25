@@ -121,7 +121,7 @@ const useMediaQuery = (query) => {
   return matches;
 };
 
-// ─── Skeleton Message Component (copied from GeneralChatId) ────────────
+// ─── Skeleton Message Component ─────────────────────────────────────
 const SkeletonMessage = ({ isOwn }) => {
   const randomWidth = useCallback(() => {
     const widths = ["w-32", "w-40", "w-48", "w-52", "w-56", "w-36", "w-44", "w-60"];
@@ -156,7 +156,6 @@ const SkeletonMessage = ({ isOwn }) => {
 const SkeletonMessages = ({ count = 6 }) => {
   return (
     <div className="space-y-4 pt-4">
-      {/* Date divider skeleton */}
       <div className="flex justify-center my-3">
         <div className="w-24 h-5 bg-gray-200 dark:bg-gray-700 rounded-full animate-pulse" />
       </div>
@@ -178,7 +177,7 @@ const SkeletonMessages = ({ count = 6 }) => {
   );
 };
 
-// ─── Media Picker Modal (custom bottom sheet) ──────────────────────
+// ─── Media Picker Modal ──────────────────────────────────────────────
 const MediaPickerModal = ({ isOpen, onClose, onTakePhoto, onChooseFromGallery, brandColor }) => {
   if (!isOpen) return null;
   return (
@@ -220,14 +219,14 @@ const MediaPickerModal = ({ isOpen, onClose, onTakePhoto, onChooseFromGallery, b
   );
 };
 
-// ─── Image Preview Modal for attachments ──────────────────────────────
-const AttachmentPreviewModal = ({ 
-  isOpen, 
-  onClose, 
-  previewData, 
-  onSend, 
+// ─── Attachment Preview Modal ─────────────────────────────────────
+const AttachmentPreviewModal = ({
+  isOpen,
+  onClose,
+  previewData,
+  onSend,
   onRemove,
-  brandColor 
+  brandColor
 }) => {
   if (!isOpen || !previewData) return null;
 
@@ -242,7 +241,7 @@ const AttachmentPreviewModal = ({
           <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
             {isImage ? 'Image Preview' : isVideo ? 'Video Preview' : 'File Preview'}
           </h3>
-          <button 
+          <button
             onClick={onRemove}
             className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition"
           >
@@ -252,16 +251,16 @@ const AttachmentPreviewModal = ({
 
         <div className="p-4 flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10] max-h-[60vh] overflow-auto">
           {isImage && (
-            <img 
-              src={preview} 
-              alt="Preview" 
+            <img
+              src={preview}
+              alt="Preview"
               className="max-w-full max-h-[50vh] object-contain rounded-lg"
             />
           )}
           {isVideo && (
-            <video 
-              src={preview} 
-              controls 
+            <video
+              src={preview}
+              controls
               className="max-w-full max-h-[50vh] rounded-lg"
             />
           )}
@@ -279,13 +278,13 @@ const AttachmentPreviewModal = ({
         </div>
 
         <div className="flex gap-3 p-4 border-t border-gray-200 dark:border-gray-800/60">
-          <button 
+          <button
             onClick={onRemove}
             className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
           >
             Cancel
           </button>
-          <button 
+          <button
             onClick={() => onSend(previewData)}
             className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80"
             style={{ backgroundColor: brandColor }}
@@ -298,7 +297,7 @@ const AttachmentPreviewModal = ({
   );
 };
 
-// ─── Confirm Modal ──────────────────────────────────────────────────────
+// ─── Confirm Modal ──────────────────────────────────────────────────
 const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = 'Confirm', danger = false }) => {
   if (!isOpen) return null;
   return (
@@ -365,7 +364,7 @@ const PromptModal = ({ isOpen, onClose, onConfirm, title, label, placeholder = "
   );
 };
 
-// ─── Add Participant Modal ──────────────────────────────────────────────
+// ─── Add Participant Modal ──────────────────────────────────────────
 const AddParticipantModal = ({
   isOpen,
   onClose,
@@ -507,7 +506,7 @@ const AddParticipantModal = ({
   );
 };
 
-// ─── Message Action Modal (mobile long-press) ──────────────────────────
+// ─── Message Action Modal ──────────────────────────────────────────
 const MessageActionModal = ({
   isOpen,
   onClose,
@@ -610,19 +609,16 @@ const MessageActionModal = ({
   );
 };
 
-// ─── Message status ticks (UPDATED: text messages show clock until sent) ──
+// ─── Message status ticks ──────────────────────────────────────────
 const MessageTicks = ({ message, isOwn }) => {
   if (!isOwn) return null;
 
-  // ── TEXT MESSAGES: always show clock until sent, no failed icon ──
   if (message.messageType === 'text') {
     if (!message._sent) {
       return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
     }
-    // if sent, fall through to normal ticks
   }
 
-  // ── MEDIA MESSAGES: keep existing pending/failed logic ──────────
   if (message._pending) {
     return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
   }
@@ -633,7 +629,6 @@ const MessageTicks = ({ message, isOwn }) => {
     return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
   }
 
-  // ── Sent → delivered / read ──────────────────────────────────────
   if (!message._delivered && !message._read) {
     return <FaCheck className="text-[10px] text-gray-400 dark:text-gray-500" />;
   }
@@ -653,7 +648,7 @@ const MessageTicks = ({ message, isOwn }) => {
   );
 };
 
-// ─── Audio waveform ────────────────────────────────────────────────────
+// ─── Audio waveform ────────────────────────────────────────────────
 const WAVEFORM_BARS = [6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6, 10];
 
 const AudioWaveform = ({ isOwn, isPlaying, brandColor }) => (
@@ -672,7 +667,7 @@ const AudioWaveform = ({ isOwn, isPlaying, brandColor }) => (
   </div>
 );
 
-// ─── Fullscreen image viewer ──────────────────────────────────────────
+// ─── Fullscreen image viewer ──────────────────────────────────────
 const ImagePreviewModal = ({ imageUrl, onClose, senderName, time }) => {
   const handleDownload = () => {
     const link = document.createElement('a');
@@ -709,7 +704,7 @@ const ImagePreviewModal = ({ imageUrl, onClose, senderName, time }) => {
   );
 };
 
-// ─── Quoted reply preview ──────────────────────────────────────────────
+// ─── Quoted reply preview ──────────────────────────────────────────
 const QuotedReplyBlock = ({ replyData, isOwn, brandColor, onJump }) => {
   if (!replyData) return null;
   const name = replyData.senderName || 'Unknown';
@@ -747,7 +742,7 @@ const QuotedReplyBlock = ({ replyData, isOwn, brandColor, onJump }) => {
   );
 };
 
-// ─── Resolve reply preview ─────────────────────────────────────────────
+// ─── Resolve reply preview ─────────────────────────────────────────
 const resolveReplyPreview = (msg, allMessages, resolveSender) => {
   const replyTo = msg?.replyTo;
   if (!replyTo) return null;
@@ -776,7 +771,7 @@ const resolveReplyPreview = (msg, allMessages, resolveSender) => {
   };
 };
 
-// ─── Media Message Component (UPDATED: skip pending/failed for text) ──
+// ─── Media Message Component ──────────────────────────────────────
 const MediaMessage = ({
   message,
   isOwn,
@@ -797,9 +792,7 @@ const MediaMessage = ({
   onJumpToMessage,
   resolveSender,
 }) => {
-  // ── For text messages: skip pending/failed blocks ────────────────
   if (message.messageType !== 'text') {
-    // ── Pending state (only for media) ──
     if (message._pending) {
       return (
         <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
@@ -816,7 +809,6 @@ const MediaMessage = ({
       );
     }
 
-    // ── Failed state (only for media) ──
     if (message._failed) {
       return (
         <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
@@ -834,7 +826,6 @@ const MediaMessage = ({
     }
   }
 
-  // ── Deleted state ──
   if (message.isDeleted) {
     return (
       <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
@@ -1034,10 +1025,8 @@ const MediaMessage = ({
   };
   const swipeIconOpacity = Math.min(swipeX / SWIPE_REPLY_THRESHOLD, 1);
 
-  // Message width – mobile 75%, desktop 85%
   const maxWidthClass = isMobile ? 'max-w-[75%]' : 'max-w-[85%]';
 
-  // ── Image messages without bubble ──
   if (message.messageType === 'image') {
     return (
       <div
@@ -1162,7 +1151,6 @@ const MediaMessage = ({
     );
   }
 
-  // ── Regular messages with bubble ──
   return (
     <div
       data-message-id={message._id}
@@ -1279,7 +1267,7 @@ const MediaMessage = ({
   );
 };
 
-// ─── Chat Details Bottom Sheet ────────────────────────────────────────
+// ─── Chat Details Bottom Sheet ────────────────────────────────────
 const ChatDetailsSheet = ({
   isOpen,
   onClose,
@@ -1680,11 +1668,10 @@ const YourWorkspaceChannelId = () => {
     if (!chatId) return;
     const interval = setInterval(() => {
       if (!isConnected) {
-        // socket is down — poll as a fallback until it reconnects
         refetchMessages();
         refetchChats();
       }
-    }, 15000); // 15s, not 3s
+    }, 15000);
     return () => clearInterval(interval);
   }, [chatId, isConnected, refetchMessages, refetchChats]);
 
@@ -1748,7 +1735,6 @@ const YourWorkspaceChannelId = () => {
         incomingList.forEach((incoming) => {
           const isOwn = incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
 
-          // 1. If message already exists by real _id, update it
           const existingIdx = next.findIndex(m => m._id === incoming._id);
           if (existingIdx > -1) {
             if (!mutated) next = [...next];
@@ -1762,7 +1748,6 @@ const YourWorkspaceChannelId = () => {
               _delivered: true,
               _read: false,
             };
-            // Determine read status
             if (isOwn) {
               const otherIds = participants.map(p => p.user?._id || p.user).filter(id => id !== userInfo?._id);
               if (otherIds.some(id => incoming.readBy?.some(r => r.user === id || r.user?._id === id))) {
@@ -1777,12 +1762,9 @@ const YourWorkspaceChannelId = () => {
             return;
           }
 
-          // 2. If this is our own message, try to replace a temporary
           if (isOwn) {
-            // First, try by _tempId (most reliable)
             let tempIdx = next.findIndex(m => m._tempId === incoming._id);
             if (tempIdx === -1) {
-              // Fallback: content + timestamp
               tempIdx = next.findIndex(
                 m => m._temp && m.content === incoming.content && Math.abs(new Date(m.createdAt) - new Date(incoming.createdAt)) < 10000
               );
@@ -1809,7 +1791,6 @@ const YourWorkspaceChannelId = () => {
             }
           }
 
-          // 3. New message from someone else (or ours that wasn't temp)
           const msg = {
             ...incoming,
             _sent: true,
@@ -1877,7 +1858,7 @@ const YourWorkspaceChannelId = () => {
     };
   }, [socket, isConnected, chatId, userInfo?._id, participants, otherParticipant?._id]);
 
-  // ─── Request presence when socket connects and we have a participant ──
+  // ─── Request presence ─────────────────────────────────────────────
   useEffect(() => {
     if (!socket || !isConnected || !otherParticipant?._id) return;
     socket.emit('request-presence', { userId: otherParticipant._id }, (response) => {
@@ -1951,7 +1932,6 @@ const YourWorkspaceChannelId = () => {
     }
   };
 
-  // Native recording using VoiceRecorder
   const startNativeRecording = async () => {
     try {
       const { value: hasPermission } = await VoiceRecorder.hasAudioRecordingPermission();
@@ -2024,7 +2004,6 @@ const YourWorkspaceChannelId = () => {
     stopTimer();
   };
 
-  // Web recording using MediaRecorder
   const startWebRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -2092,7 +2071,6 @@ const YourWorkspaceChannelId = () => {
     stopTimer();
   };
 
-  // Unified recording handlers
   const startRecording = () => {
     if (isRecording) return;
     if (isNative) {
@@ -2269,8 +2247,6 @@ const YourWorkspaceChannelId = () => {
   };
 
   // ─── Native / Web file & image pickers ────────────────────────────
-
-  // Native image picker (Camera / Gallery) - called from custom modal
   const handleTakePhoto = useCallback(async () => {
     setShowMediaPicker(false);
     try {
@@ -2337,7 +2313,6 @@ const YourWorkspaceChannelId = () => {
     }
   }, []);
 
-  // Native file picker (documents, PDF, etc.)
   const handlePickFile = useCallback(async () => {
     try {
       const result = await FilePicker.pickFiles({ readData: true });
@@ -2376,7 +2351,6 @@ const YourWorkspaceChannelId = () => {
     }
   }, []);
 
-  // Entry point for file/image upload
   const handleFileUpload = useCallback(
     (type) => {
       if (isNative) {
@@ -2396,7 +2370,6 @@ const YourWorkspaceChannelId = () => {
     [handlePickFile],
   );
 
-  // Web-only file change handler (hidden inputs)
   const handleFileChange = useCallback((e) => {
     const file = e.target.files?.[0];
     if (!file) {
@@ -2418,7 +2391,6 @@ const YourWorkspaceChannelId = () => {
     e.target.value = '';
   }, []);
 
-  // ─── Handle paste ──────────────────────────────────────────────────
   const handlePaste = useCallback((e) => {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -2453,7 +2425,6 @@ const YourWorkspaceChannelId = () => {
     }
   }, []);
 
-  // ─── Optimistic sendAttachment ────────────────────────────────────
   const handleSendAttachment = async (previewData) => {
     const { file, type } = previewData;
     if (!file) return;
@@ -2514,7 +2485,7 @@ const YourWorkspaceChannelId = () => {
     setAttachmentPreview(null);
   };
 
-  // ─── Message action handlers (optimistic delete) ────────────────
+  // ─── Message action handlers ──────────────────────────────────────
   const handleDeleteMessage = useCallback((msg) => {
     const msgId = msg._id;
     setLocalMessages(prev => prev.map(m => m._id === msgId ? { ...m, isDeleted: true } : m));
@@ -2648,7 +2619,6 @@ const YourWorkspaceChannelId = () => {
   }, [localMessages, markMessageAsRead, userInfo]);
 
   // ─── Error / loading states ─────────────────────────────────────────
-  // Only show full-page spinner if workspace or chat list is loading
   if (workspaceLoading || chatsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
@@ -2661,7 +2631,6 @@ const YourWorkspaceChannelId = () => {
     );
   }
 
-  // If workspace or chat not found, redirect
   if (error || !workspaceData?.workspace || !chat) {
     navigate(`/workspace/${workspaceId}`);
     return null;
@@ -2839,7 +2808,7 @@ const YourWorkspaceChannelId = () => {
     }
   };
 
-  // ─── Optimistic send text message (UPDATED: no spinner, clock only) ──
+  // ─── Optimistic send text message ──────────────────────────────────
   const handleSendMessage = (e) => {
     e.preventDefault();
     const trimmed = message.trim();
@@ -2855,8 +2824,8 @@ const YourWorkspaceChannelId = () => {
       _id: tempId,
       _tempId: tempId,
       _temp: true,
-      _pending: false, // no spinner
-      _sent: false,    // clock will show
+      _pending: false,
+      _sent: false,
       _failed: false,
       _delivered: false,
       _read: false,
@@ -2900,11 +2869,9 @@ const YourWorkspaceChannelId = () => {
       mediaDuration: null,
     }, (response) => {
       if (response?.error) {
-        // On error: remove the temporary message (do not show failed)
         setLocalMessages((prev) => prev.filter((m) => m._id !== tempId));
         toast.error(response.error);
       } else {
-        // ✅ FIX: Mark as sent and delivered immediately
         setLocalMessages((prev) =>
           prev.map((m) =>
             m._id === tempId ? { ...m, _sent: true, _delivered: true } : m
@@ -2940,7 +2907,7 @@ const YourWorkspaceChannelId = () => {
       </div>
 
       <div className="flex-1 flex flex-col bg-white dark:bg-[#0f0f12] h-full overflow-hidden">
-        {/* ─── Fixed header (sticky) ─── */}
+        {/* ─── Header ─── */}
         <header
           className="sticky top-0 z-20 flex items-center justify-between px-4 py-3 border-b border-gray-200/60 dark:border-gray-800/60 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl text-gray-800 dark:text-white flex-shrink-0 cursor-pointer"
           onClick={() => setShowDetailsSheet(true)}
@@ -2995,13 +2962,13 @@ const YourWorkspaceChannelId = () => {
           </div>
         </header>
 
+        {/* ─── Messages ─── */}
         <div className="relative flex-1 overflow-hidden">
           <div
             ref={messagesContainerRef}
             onScroll={handleMessagesScroll}
             className="h-full overflow-y-auto px-4 py-3 space-y-4 pt-3 lg:pt-3 pb-24 lg:pb-3"
           >
-            {/* ─── Skeleton or messages ──────────────────────────────── */}
             {messagesLoading ? (
               <SkeletonMessages count={6} />
             ) : localMessages.length === 0 ? (
@@ -3052,11 +3019,12 @@ const YourWorkspaceChannelId = () => {
           )}
         </div>
 
+        {/* ─── Input Bar ─── */}
         <div
           className="fixed lg:sticky bottom-0 left-0 right-0 lg:left-auto lg:right-auto z-20 border-t border-gray-200/60 dark:border-gray-800/60 bg-white/90 dark:bg-[#0f0f12]/90 backdrop-blur-xl flex-shrink-0 px-3 sm:px-4"
           style={{
             paddingTop: '0.5rem',
-            paddingBottom: 'calc(0.5rem + var(--safe-bottom))',
+            paddingBottom: 'calc(0.5rem + env(safe-area-inset-bottom, 0px))',
           }}
         >
           <ReplyPreview
@@ -3307,7 +3275,6 @@ const YourWorkspaceChannelId = () => {
         brandColor={brandColor}
       />
 
-      {/* Custom Media Picker Modal */}
       <MediaPickerModal
         isOpen={showMediaPicker}
         onClose={() => setShowMediaPicker(false)}
