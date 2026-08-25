@@ -1,5 +1,5 @@
 // src/screens/Settings.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useSelector } from 'react-redux';
 import {
   useGetNotificationPreferencesQuery,
@@ -19,6 +19,7 @@ import {
   FaSun,
   FaMoon,
   FaDesktop,
+  FaSync,
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
@@ -35,20 +36,78 @@ const useNotificationSettings = () => {
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
 
-  const { data: prefData, isLoading: prefsLoading, isError: prefsError, refetch } =
-    useGetNotificationPreferencesQuery();
+  // Fetch preferences from server
+  const {
+    data: prefData,
+    isLoading: prefsLoading,
+    isError: prefsError,
+    refetch,
+  } = useGetNotificationPreferencesQuery(undefined, {
+    refetchOnMountOrArgChange: true,
+  });
+
   const [updateEmail] = useUpdateEmailNotificationsMutation();
   const [updatePush] = useUpdatePushNotificationsMutation();
 
   const push = usePushNotificationContext();
-  const { isSubscribed, permission, subscribe, unsubscribe, isSupported, isNative } = push;
+  const {
+    isSubscribed,
+    permission,
+    subscribe,
+    unsubscribe,
+    isSupported,
+    isNative,
+    vapidKeyError,
+    retryLoadVapidKey,
+  } = push;
 
+  // Prevent auto-subscribe from running multiple times
+  const autoSubscribeAttempted = useRef(false);
+
+  // Sync local state with server data
   useEffect(() => {
     if (prefData?.data) {
-      setEmailPrefs(prefData.data.email || {});
-      setPushPrefs(prefData.data.push || {});
+      const email = prefData.data.email || {};
+      const push = prefData.data.push || {};
+      setEmailPrefs(email);
+      setPushPrefs(push);
     }
   }, [prefData]);
+
+  // Auto-subscribe if needed (only once)
+  useEffect(() => {
+    const autoSubscribe = async () => {
+      if (autoSubscribeAttempted.current) return;
+      if (!isNative && isSupported && permission === 'granted' && !isSubscribed) {
+        // Only if the server says push is enabled
+        if (pushPrefs.enabled) {
+          console.log('🔄 Auto-subscribing to push...');
+          autoSubscribeAttempted.current = true;
+          await subscribe();
+        }
+      }
+    };
+    autoSubscribe();
+  }, [isNative, isSupported, permission, isSubscribed, pushPrefs.enabled, subscribe]);
+
+  // ─── Self-heal: if this browser IS subscribed (real token in
+  // localStorage, verified on mount) but the server still thinks push
+  // is disabled — e.g. a previous updatePush() call was lost, or the
+  // register call landed but the preference PUT didn't — quietly patch
+  // the server so future reloads/devices/admin views agree with reality.
+  // Runs once per mismatch, not on every render.
+  const selfHealAttempted = useRef(false);
+  useEffect(() => {
+    if (isNative) return;
+    if (selfHealAttempted.current) return;
+    if (isSubscribed && pushPrefs && pushPrefs.enabled === false) {
+      selfHealAttempted.current = true;
+      updatePush({ ...pushPrefs, enabled: true })
+        .unwrap()
+        .then(() => refetch())
+        .catch((err) => console.warn('Push pref self-heal failed:', err));
+    }
+  }, [isNative, isSubscribed, pushPrefs, updatePush, refetch]);
 
   const handleEmailToggle = async (key) => {
     const newPrefs = { ...emailPrefs, [key]: !emailPrefs[key] };
@@ -57,6 +116,7 @@ const useNotificationSettings = () => {
       await updateEmail(newPrefs).unwrap();
       setSuccess('Email preference updated');
       setTimeout(() => setSuccess(''), 3000);
+      refetch();
     } catch (err) {
       setError(err?.data?.message || 'Failed to update email preferences');
       setTimeout(() => setError(''), 4000);
@@ -71,6 +131,7 @@ const useNotificationSettings = () => {
       await updatePush(newPrefs).unwrap();
       setSuccess('Push preference updated');
       setTimeout(() => setSuccess(''), 3000);
+      refetch();
     } catch (err) {
       setError(err?.data?.message || 'Failed to update push preferences');
       setTimeout(() => setError(''), 4000);
@@ -84,6 +145,7 @@ const useNotificationSettings = () => {
 
     try {
       if (currentlyEnabled) {
+        // Disable
         const success = await unsubscribe();
         if (success) {
           const newPrefs = { ...pushPrefs, enabled: false };
@@ -91,11 +153,13 @@ const useNotificationSettings = () => {
           await updatePush(newPrefs).unwrap();
           setSuccess('Push notifications disabled');
           setTimeout(() => setSuccess(''), 3000);
+          refetch();
         } else {
           setError('Failed to disable push');
           setTimeout(() => setError(''), 4000);
         }
       } else {
+        // Enable
         const success = await subscribe();
         if (success) {
           const newPrefs = { ...pushPrefs, enabled: true };
@@ -103,6 +167,7 @@ const useNotificationSettings = () => {
           await updatePush(newPrefs).unwrap();
           setSuccess('Push notifications enabled');
           setTimeout(() => setSuccess(''), 3000);
+          refetch();
         } else {
           if (permission === 'denied') {
             setError('Notifications blocked. Enable them in browser settings.');
@@ -123,8 +188,36 @@ const useNotificationSettings = () => {
     }
   };
 
-  const pushEnabled = pushPrefs.enabled && isSubscribed && permission === 'granted';
-  const pushAvailable = isSupported && isSubscribed && permission === 'granted';
+  // ─── THE FIX: pushEnabled now trusts the LOCAL browser subscription
+  // state (isSubscribed, derived from localStorage token + actual
+  // Notification.permission on mount) over the server preference.
+  // `isSubscribed` becomes true almost immediately on reload — well
+  // before the GET /preferences round trip resolves — so this is what
+  // was causing the toggle to render "off" after reload even though
+  // this browser was genuinely registered: it was ignoring the one
+  // signal that actually reflects reality, and only trusting the server
+  // flag, which could lag or fall out of sync. ───────────────────────
+  const pushEnabled = useMemo(() => {
+    // For mobile, just use server preference (mobile handles subscription internally)
+    if (isNative) {
+      return pushPrefs.enabled;
+    }
+    // For web:
+    // If permission is denied, push cannot work => force off
+    if (permission === 'denied') return false;
+    // If VAPID key is missing, push cannot work => force off
+    if (vapidKeyError) return false;
+    // Trust the real local subscription first; fall back to the server
+    // flag only when we don't have a local subscription yet (e.g. very
+    // first load before the mount effect has resolved).
+    return isSubscribed || pushPrefs.enabled;
+  }, [pushPrefs.enabled, permission, vapidKeyError, isNative, isSubscribed]);
+
+  // Push is available if supported and permission granted (and no VAPID error)
+  const pushAvailable = useMemo(() => {
+    if (isNative) return true;
+    return isSupported && permission === 'granted' && !vapidKeyError;
+  }, [isNative, isSupported, permission, vapidKeyError]);
 
   return {
     emailPrefs,
@@ -139,6 +232,8 @@ const useNotificationSettings = () => {
     pushAvailable,
     isLoading: prefsLoading,
     isError: prefsError,
+    vapidKeyError,
+    retryLoadVapidKey,
     refetch,
     handleEmailToggle,
     handlePushSubToggle,
@@ -146,7 +241,7 @@ const useNotificationSettings = () => {
   };
 };
 
-// ─── Toggle Switch Component (smaller for mobile) ──────────────────────
+// ─── Toggle Switch Component ──────────────────────────────────────────
 
 const ToggleSwitch = ({ enabled, onChange, disabled = false, loading = false }) => (
   <button
@@ -164,7 +259,7 @@ const ToggleSwitch = ({ enabled, onChange, disabled = false, loading = false }) 
   </button>
 );
 
-// ─── Theme Toggle Component (responsive) ───────────────────────────────
+// ─── Theme Toggle Component ──────────────────────────────────────────
 
 const ThemeToggleCard = () => {
   const { theme, isDarkMode, toggleTheme } = useTheme();
@@ -271,6 +366,9 @@ const Settings = () => {
     permission,
     isSupported,
     pushEnabled,
+    pushAvailable,
+    vapidKeyError,
+    retryLoadVapidKey,
     handleEmailToggle,
     handlePushSubToggle,
     handlePushMasterToggle,
@@ -309,6 +407,24 @@ const Settings = () => {
           <div className="mb-4 p-3 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700/40 rounded-lg flex items-center space-x-2">
             <FaCheckCircle className="w-4 h-4 text-green-500 dark:text-green-400 flex-shrink-0" />
             <p className="text-sm text-green-600 dark:text-green-300">{success}</p>
+          </div>
+        )}
+
+        {/* VAPID key error warning */}
+        {vapidKeyError && !isNative && (
+          <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-700/40 rounded-lg flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <FaExclamationTriangle className="w-4 h-4 text-yellow-600 dark:text-yellow-400 flex-shrink-0" />
+              <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                Push notifications are unavailable: VAPID key not loaded.
+              </p>
+            </div>
+            <button
+              onClick={retryLoadVapidKey}
+              className="text-xs text-yellow-700 dark:text-yellow-300 hover:underline flex items-center gap-1 flex-shrink-0"
+            >
+              <FaSync className="w-3 h-3" /> Retry
+            </button>
           </div>
         )}
 
@@ -377,6 +493,8 @@ const Settings = () => {
                     <p className="text-xs text-gray-500 dark:text-gray-500 truncate">
                       {permission === 'denied'
                         ? 'Notifications are blocked in browser settings.'
+                        : vapidKeyError
+                        ? 'Push not available (VAPID key missing).'
                         : isSupported
                         ? 'Receive push notifications in this browser'
                         : 'Push is not supported in this browser'}
@@ -391,7 +509,7 @@ const Settings = () => {
                       <ToggleSwitch
                         enabled={pushEnabled}
                         onChange={() => handlePushMasterToggle(pushEnabled)}
-                        disabled={!isSupported || permission === 'denied' || actionLoading}
+                        disabled={!pushAvailable || actionLoading}
                         loading={actionLoading}
                       />
                     )}
