@@ -16,6 +16,8 @@ dependencies {
     implementation project(':capacitor-filesystem')
     implementation project(':capacitor-push-notifications')
     implementation project(':capawesome-capacitor-file-picker')
+    implementation project(':capgo-capacitor-social-login')
+    implementation project(':capacitor-google-sign-in')
     implementation project(':capacitor-voice-recorder')
 
 }

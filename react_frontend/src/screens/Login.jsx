@@ -13,7 +13,7 @@ import { setCredentials } from '../slices/authSlice';
 import { toast } from 'react-hot-toast';
 import { FaEnvelope, FaLock, FaEye, FaEyeSlash, FaArrowLeft, FaGoogle } from 'react-icons/fa';
 import { GoogleLogin } from '@react-oauth/google';
-import { useGoogleAuth } from '../components/GoogleAuthHandler';
+import { SocialLogin } from '@capgo/capacitor-social-login';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -37,9 +37,6 @@ const Login = () => {
   const [verifyEmail, { isLoading: isVerifyLoading }] = useVerifyEmailMutation();
   const [resendOTP, { isLoading: isResendLoading }] = useResendOTPMutation();
 
-  // Use the Google Auth handler
-  const { openGoogleAuth } = useGoogleAuth();
-
   // Redirect to my-workspaces after login
   const from = location.state?.from?.pathname || '/my-workspaces';
 
@@ -49,23 +46,76 @@ const Login = () => {
     }
   }, [userInfo, navigate, from]);
 
-  // ── Handle Google Login ──
-  const handleGoogleLogin = async () => {
-    if (Capacitor.isNativePlatform()) {
-      // ── Capacitor Native - Open in Browser with Deep Link ──
-      try {
-        setIsLoading(true);
-        await openGoogleAuth('login');
-        // The auth flow will complete in the deep link handler
-        setIsLoading(false);
-      } catch (error) {
-        setIsLoading(false);
-        console.error('Google login error:', error);
-        toast.error('Failed to open Google login. Please try again.');
+  // ── Initialize Social Login for Capacitor ──
+  useEffect(() => {
+    const initGoogleSignIn = async () => {
+      if (Capacitor.isNativePlatform()) {
+        try {
+          // @capgo/capacitor-social-login expects a nested `google` config,
+          // not a flat clientId/webClientId. This MUST be the Web client ID
+          // from Google Cloud Console (not the Android client ID) — Android's
+          // Credential Manager specifically requires the web one here.
+          await SocialLogin.initialize({
+            google: {
+              webClientId: import.meta.env.VITE_GOOGLE_CLIENT_ID,
+            },
+          });
+          console.log('✅ Social Login (Google) configured for Capacitor');
+        } catch (error) {
+          console.error('❌ Social Login config error:', error);
+        }
       }
-    } else {
-      // ── Web Browser - Use GoogleLogin component ──
-      toast.info('Please use the Google login button below');
+    };
+
+    initGoogleSignIn();
+  }, []);
+
+  // ── Handle Native Google Login ──
+  const handleNativeGoogleLogin = async () => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    try {
+      setIsLoading(true);
+      toast.loading('Signing in with Google...', { duration: 5000 });
+
+      // Sign in with Google (opens native account picker / Credential Manager)
+      const result = await SocialLogin.login({
+        provider: 'google',
+        options: {},
+      });
+
+      console.log('✅ Google Sign-In result:', result);
+
+      // idToken lives under `result.result`, not `result.authentication`
+      const idToken = result.result?.idToken;
+
+      if (!idToken) {
+        throw new Error('No ID token received from Google');
+      }
+
+      // Send the token to your backend
+      const res = await googleAuth({
+        token: idToken,
+        mode: 'login',
+      }).unwrap();
+
+      dispatch(setCredentials({ ...res }));
+      toast.dismiss();
+      toast.success('Google login successful!');
+      navigate(from, { replace: true });
+
+    } catch (error) {
+      toast.dismiss();
+      console.error('❌ Google Sign-In error:', error);
+
+      // Check if user cancelled
+      if (error.message?.includes('cancel')) {
+        toast.error('Login cancelled');
+      } else {
+        toast.error(error?.data?.message || 'Google login failed. Please try again.');
+      }
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -323,9 +373,9 @@ const Login = () => {
 
             <div className="mb-6">
               {isNative ? (
-                // ── Capacitor Native - Custom Google Button ──
+                // ── Capacitor Native - Native Google Sign-In ──
                 <button
-                  onClick={handleGoogleLogin}
+                  onClick={handleNativeGoogleLogin}
                   disabled={isLoading || isGoogleLoading}
                   className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white dark:bg-[#1a1a24] text-gray-800 dark:text-gray-200 font-medium rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-[#2a2a35] focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all duration-200 disabled:opacity-70 disabled:cursor-not-allowed"
                 >

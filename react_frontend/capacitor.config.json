@@ -14,6 +14,11 @@
     "Browser": {
       "presentationStyle": "fullscreen",
       "preferredMode": "single"
+    },
+    "GoogleAuth": {
+      "scopes": ["profile", "email"],
+      "serverClientId": "596946698879-m4hqsvm5iionnlq33903g5tk5b78k5tv.apps.googleusercontent.com",
+      "forceCodeForRefreshToken": true
     }
   }
 }
