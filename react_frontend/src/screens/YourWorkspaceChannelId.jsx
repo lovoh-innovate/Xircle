@@ -108,6 +108,25 @@ const safeFormatTime = (dateString) => {
   }
 };
 
+// ─── Date divider formatter ──────────────────────────────────────────
+const formatDateDivider = (dateString) => {
+  const date = new Date(dateString);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  const isToday = date.toDateString() === today.toDateString();
+  const isYesterday = date.toDateString() === yesterday.toDateString();
+
+  if (isToday) return "Today";
+  if (isYesterday) return "Yesterday";
+  return date.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+};
+
 // ─── Media Query hook ──────────────────────────────────────────────────
 const useMediaQuery = (query) => {
   const [matches, setMatches] = useState(false);
@@ -2879,6 +2898,72 @@ const YourWorkspaceChannelId = () => {
     });
   };
 
+  // ─── Render messages with dividers ──────────────────────────────
+  const renderMessagesWithDividers = () => {
+    if (messagesLoading) {
+      return <SkeletonMessages count={6} />;
+    }
+
+    if (localMessages.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
+          <FaComment className="text-4xl mb-2 opacity-30" />
+          <p className="text-sm">No messages yet</p>
+          <p className="text-xs mt-1 opacity-60">Paste images or screenshots here</p>
+        </div>
+      );
+    }
+
+    const sorted = [...localMessages].sort(
+      (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+    );
+    let lastDate = null;
+    const elements = [];
+
+    sorted.forEach((msg) => {
+      const msgDate = new Date(msg.createdAt);
+      const dateKey = msgDate.toDateString();
+      if (dateKey !== lastDate) {
+        const dividerText = formatDateDivider(msg.createdAt);
+        elements.push(
+          <div key={`divider-${dateKey}`} className="flex justify-center my-3">
+            <div className="bg-gray-200/70 dark:bg-gray-800/50 text-gray-500 dark:text-gray-400 text-xs px-3 py-1 rounded-full">
+              {dividerText}
+            </div>
+          </div>
+        );
+        lastDate = dateKey;
+      }
+
+      const sender = msg.sender?._id ? resolveSender(msg.sender._id) : resolveSender(msg.sender);
+      const isOwn = (msg.sender?._id === userInfo?._id || msg.sender === userInfo?._id);
+      elements.push(
+        <MediaMessage
+          key={msg._id}
+          message={msg}
+          isOwn={isOwn}
+          senderName={sender?.name || 'Unknown'}
+          senderProfile={sender?.profile}
+          brandColor={brandColor}
+          onImageClick={(payload) => setPreviewImage(payload)}
+          onDelete={handleDeleteMessage}
+          onArchive={handleArchiveMessage}
+          onUnarchive={handleUnarchiveMessage}
+          onStar={handleStarMessage}
+          onUnstar={handleUnstarMessage}
+          onReply={handleReply}
+          userId={userInfo?._id}
+          isMobile={isMobile}
+          onLongPress={handleLongPress}
+          allMessages={sorted}
+          onJumpToMessage={handleJumpToMessage}
+          resolveSender={resolveSender}
+        />
+      );
+    });
+    return elements;
+  };
+
   // ─── Render ───────────────────────────────────────────────────────────
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
@@ -2965,45 +3050,9 @@ const YourWorkspaceChannelId = () => {
           <div
             ref={messagesContainerRef}
             onScroll={handleMessagesScroll}
-            className="h-full overflow-y-auto px-4 py-3 space-y-1 pt-20 lg:pt-3 pb-24 lg:pb-3"
+            className="h-full overflow-y-auto px-4 py-4 space-y-3 pt-20 lg:pt-3 pb-24 lg:pb-3"
           >
-            {messagesLoading ? (
-              <SkeletonMessages count={6} />
-            ) : localMessages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
-                <FaComment className="text-4xl mb-2 opacity-30" />
-                <p className="text-sm">No messages yet</p>
-                <p className="text-xs mt-1 opacity-60">Paste images or screenshots here</p>
-              </div>
-            ) : (
-              localMessages.map((msg) => {
-                const sender = msg.sender?._id ? resolveSender(msg.sender._id) : resolveSender(msg.sender);
-                const isOwn = (msg.sender?._id === userInfo?._id || msg.sender === userInfo?._id);
-                return (
-                  <MediaMessage
-                    key={msg._id}
-                    message={msg}
-                    isOwn={isOwn}
-                    senderName={sender?.name || 'Unknown'}
-                    senderProfile={sender?.profile}
-                    brandColor={brandColor}
-                    onImageClick={(payload) => setPreviewImage(payload)}
-                    onDelete={handleDeleteMessage}
-                    onArchive={handleArchiveMessage}
-                    onUnarchive={handleUnarchiveMessage}
-                    onStar={handleStarMessage}
-                    onUnstar={handleUnstarMessage}
-                    onReply={handleReply}
-                    userId={userInfo?._id}
-                    isMobile={isMobile}
-                    onLongPress={handleLongPress}
-                    allMessages={localMessages}
-                    onJumpToMessage={handleJumpToMessage}
-                    resolveSender={resolveSender}
-                  />
-                );
-              })
-            )}
+            {renderMessagesWithDividers()}
             <div ref={messagesEndRef} />
           </div>
 
