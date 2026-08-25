@@ -33,7 +33,27 @@ const findPendingMember = (workspace, userId) =>
   workspace.members.find(
     (m) => getUserId(m.user) === userId.toString() && m.status === "pending"
   );
-  
+
+/**
+ * Get all active admin user IDs (including owner if they are also an admin – but owner is separate)
+ * Returns array of strings
+ */
+const getAdminUserIds = (workspace) => {
+  const adminIds = workspace.members
+    .filter(
+      (m) =>
+        m.status === 'active' &&
+        m.role?.toLowerCase() === 'admin'
+    )
+    .map((m) => getUserId(m.user));
+  // Include owner only if they are not already in the list (owner may not be listed as admin)
+  const ownerId = workspace.owner.toString();
+  if (!adminIds.includes(ownerId)) {
+    adminIds.push(ownerId);
+  }
+  return adminIds;
+};
+
 // ─── Notification helper ──────────────────────────────────────────────
 async function notifyUsers(
   userIds,
@@ -106,18 +126,27 @@ const requestToJoin = async (req, res) => {
 
     await workspace.save();
 
+    // ── Get requester's name ──
     const requestingUser = await User.findById(userId).select("name email");
-    notifyUsers(workspace.owner.toString(), {
-      title: `New join request for "${workspace.name}"`,
-      body: `${requestingUser?.name || "A user"} wants to join your workspace.`,
-      data: { workspaceId: workspace._id.toString(), userId },
-      emailEventType: "teamInvite",
-      emailHtml: `
-        <h3>New Join Request</h3>
-        <p>${requestingUser?.name || "A user"} (${requestingUser?.email || ""}) has requested to join <strong>${workspace.name}</strong>.</p>
-        <p><a href="${process.env.CLIENT_URL}/workspace/${workspace._id}/members">Manage Members</a></p>
-      `,
-    });
+
+    // ── Notify all active admins and the owner ──
+    const adminIds = getAdminUserIds(workspace);
+    // Remove the requester from the list if they somehow appear (they are pending, not active)
+    const recipientIds = adminIds.filter(id => id !== userId);
+
+    if (recipientIds.length > 0) {
+      notifyUsers(recipientIds, {
+        title: `New join request for "${workspace.name}"`,
+        body: `${requestingUser?.name || "A user"} wants to join your workspace.`,
+        data: { workspaceId: workspace._id.toString(), userId },
+        emailEventType: "teamInvite",
+        emailHtml: `
+          <h3>New Join Request</h3>
+          <p>${requestingUser?.name || "A user"} (${requestingUser?.email || ""}) has requested to join <strong>${workspace.name}</strong>.</p>
+          <p><a href="${process.env.CLIENT_URL}/workspace/${workspace._id}/members">Manage Members</a></p>
+        `,
+      });
+    }
 
     res.status(200).json({
       success: true,
@@ -146,7 +175,6 @@ const getPendingRequests = async (req, res) => {
     if (!workspace)
       return res.status(404).json({ message: "Workspace not found." });
 
-    // Debug: log user role info
     console.log(`📝 User ${userId} checking pending requests. Is owner? ${isOwner(workspace, userId)}, Is admin? ${isAdmin(workspace, userId)}`);
 
     if (!isManager(workspace, userId))
@@ -210,6 +238,7 @@ const approveMember = async (req, res) => {
 
     await workspace.populate("members.user", "name email profile");
 
+    // Notify the approved member
     notifyUsers(memberId, {
       title: `Welcome to "${workspace.name}"`,
       body: `Your join request has been approved. You are now a member (${role || "Staff"}) in the ${department} department.`,
@@ -222,6 +251,8 @@ const approveMember = async (req, res) => {
         <p><a href="${process.env.CLIENT_URL}/workspace/${workspace._id}">Go to Workspace</a></p>
       `,
     });
+
+    // (Optional) Notify the approver? Not required, but we can skip.
 
     res.status(200).json({
       success: true,
