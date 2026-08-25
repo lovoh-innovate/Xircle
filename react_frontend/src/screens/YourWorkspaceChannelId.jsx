@@ -2940,13 +2940,9 @@ const YourWorkspaceChannelId = () => {
       </div>
 
       <div className="flex-1 flex flex-col bg-white dark:bg-[#0f0f12] h-full overflow-hidden">
+        {/* ─── Fixed header (sticky) ─── */}
         <header
-          className="fixed lg:sticky top-0 left-0 right-0 lg:left-auto lg:right-auto z-20 flex items-center justify-between px-4 py-3 border-b border-gray-200/60 dark:border-gray-800/60 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl text-gray-800 dark:text-white flex-shrink-0 cursor-pointer"
-          style={{
-            paddingTop: 'calc(0.75rem + var(--safe-top))',
-            paddingLeft: 'calc(1rem + var(--safe-left))',
-            paddingRight: 'calc(1rem + var(--safe-right))',
-          }}
+          className="sticky top-0 z-20 flex items-center justify-between px-4 py-3 border-b border-gray-200/60 dark:border-gray-800/60 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl text-gray-800 dark:text-white flex-shrink-0 cursor-pointer"
           onClick={() => setShowDetailsSheet(true)}
         >
           <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -3003,7 +2999,7 @@ const YourWorkspaceChannelId = () => {
           <div
             ref={messagesContainerRef}
             onScroll={handleMessagesScroll}
-            className="h-full overflow-y-auto px-4 py-3 space-y-4 pt-[72px] lg:pt-3 pb-24 lg:pb-3"
+            className="h-full overflow-y-auto px-4 py-3 space-y-4 pt-3 lg:pt-3 pb-24 lg:pb-3"
           >
             {/* ─── Skeleton or messages ──────────────────────────────── */}
             {messagesLoading ? (
