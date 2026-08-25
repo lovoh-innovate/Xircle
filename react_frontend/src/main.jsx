@@ -27,6 +27,8 @@ import { RefreshProvider, useRefresh } from './contexts/RefreshContext.jsx';
 import { SocketProvider, useSocket } from './components/SocketContext.jsx';
 import IncomingCallModal from './components/IncomingCallModal.jsx';
 
+import NotFound from './screens/NotFound.jsx';
+
 import Login from './screens/Login.jsx';
 import ForgotPassword from './screens/ForgotPassword.jsx';
 import Signup from './screens/Signup.jsx';
@@ -471,6 +473,7 @@ const router = createBrowserRouter([
       { path: 'signup', element: <Signup /> },
       { path: 'forgot-password', element: <ForgotPassword /> },
       { path: 'app/download/:versionId', element: <AppDownload /> },
+      {path: '*', element: <NotFound />},
 
       {
         element: <PrivateRoute />,
@@ -520,6 +523,7 @@ const router = createBrowserRouter([
           { path: 'call/:roomId', element: <CallScreen /> },
 
           { path: 'admin/upload', element: <UploadApp /> },
+          {path: '*', element: <NotFound />},
         ],
       },
     ],

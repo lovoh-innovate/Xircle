@@ -1,51 +1,32 @@
 // src/components/AppDownloadHandler.jsx
 import { Capacitor } from '@capacitor/core';
-import { Browser } from '@capacitor/browser';
+import { AppLauncher } from '@capacitor/app-launcher';
 import { toast } from 'react-hot-toast';
 
+const API_BASE = 'https://xircle.onrender.com';
+
 /**
- * Download APK file - opens in browser for native Android
+ * Download APK file - hands off to the device's actual default browser app
+ * using AppLauncher (fires a real ACTION_VIEW intent - full app switch,
+ * not an in-app Custom Tab / SFSafariViewController).
  * @param {string} versionId - The version ID to download
  * @param {string} token - User authentication token
  * @param {string} version - Version number (for display)
  */
 export const downloadAppFile = async (versionId, token, version) => {
-  const API_BASE = import.meta.env.VITE_API_URL || '';
   const downloadUrl = `${API_BASE}/api/app/download/${versionId}?token=${token}`;
-  
   console.log('📱 Download URL:', downloadUrl);
-  
+
   if (Capacitor.isNativePlatform()) {
-    // ── Capacitor Native - Open in Browser ──
+    // ── Capacitor Native - Hand off to the SYSTEM default browser ──
     try {
-      // Show loading toast
-      toast.loading('Opening browser for download...', { duration: 5000 });
-      
-      await Browser.open({
-        url: downloadUrl,
-        presentationStyle: 'fullscreen',
-        toolbarColor: '#0d9488',
-        // For Android, this will open in Chrome
-      });
-      
-      toast.dismiss();
-      toast.success('Download started in browser!');
-      return { success: true, method: 'browser' };
-      
+      await AppLauncher.openUrl({ url: downloadUrl });
+      toast.success('Download started in your browser!');
+      return { success: true, method: 'system-browser' };
     } catch (error) {
-      toast.dismiss();
-      console.error('Browser open failed:', error);
-      
-      // Fallback: Try opening with system browser
-      try {
-        await Browser.open({
-          url: downloadUrl,
-          presentationStyle: 'popover',
-        });
-        return { success: true, method: 'browser' };
-      } catch (fallbackError) {
-        throw new Error('Failed to open download. Please try again.');
-      }
+      console.error('System browser open failed:', error);
+      toast.error('Failed to open download. Please try again.');
+      throw new Error('Failed to open download. Please try again.');
     }
   } else {
     // ── Web Browser Download ──
@@ -59,15 +40,16 @@ export const downloadAppFile = async (versionId, token, version) => {
  * Simple download function without loading state
  */
 export const downloadAppVersion = async (versionId, token) => {
-  const API_BASE = import.meta.env.VITE_API_URL || '';
   const url = `${API_BASE}/api/app/download/${versionId}?token=${token}`;
-  
+
   if (Capacitor.isNativePlatform()) {
-    await Browser.open({
-      url: url,
-      presentationStyle: 'fullscreen',
-      toolbarColor: '#0d9488',
-    });
+    try {
+      await AppLauncher.openUrl({ url });
+    } catch (error) {
+      console.error('System browser open failed:', error);
+      toast.error('Failed to open download. Please try again.');
+      throw error;
+    }
   } else {
     window.open(url, '_blank');
   }
