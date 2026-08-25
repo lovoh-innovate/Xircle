@@ -498,6 +498,7 @@ const MemberItem = React.memo(({
   onDirectMessage,
   onEditRole,
   isMobile,
+  onMemberClick, // <-- new prop
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
@@ -521,10 +522,16 @@ const MemberItem = React.memo(({
   };
 
   const handleRowClick = (e) => {
+    // If not on mobile, do nothing
     if (!isMobile) return;
+    // Ignore if pending or current user
     if (isPending || isCurrentUser) return;
-    setSelectedMember(memberForAction);
-    setActionSheetOpen(true);
+    // Prevent clicks on the three-dot button or any other button inside the row
+    if (e.target.closest('button')) return;
+    // Call the parent handler
+    if (onMemberClick) {
+      onMemberClick(memberForAction);
+    }
   };
 
   const toggleMenu = (e) => {
@@ -532,7 +539,6 @@ const MemberItem = React.memo(({
     setMenuOpen(!menuOpen);
   };
 
-  // We'll use the passed callbacks
   return (
     <div
       className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition-colors border-b border-gray-100 dark:border-gray-800/30 last:border-0 cursor-pointer md:cursor-default"
@@ -679,14 +685,13 @@ const YourWorkspaceMembers = () => {
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null, confirmLabel: 'Confirm' });
 
   // ─── Fetch workspace (includes members) ──────────────────────────────
-  // Added pollingInterval: 5000ms to auto-refresh the member list
   const {
     data,
     isLoading: workspaceLoading,
     error: workspaceError,
     refetch: refetchWorkspace,
   } = useGetWorkspaceQuery(workspaceId, {
-    pollingInterval: 5000, // refresh every 5 seconds
+    pollingInterval: 5000,
   });
   const workspace = data?.workspace;
 
@@ -699,7 +704,6 @@ const YourWorkspaceMembers = () => {
   const canManagePending = isOwner || isAdmin;
 
   // ─── Fetch pending requests ──────────────────────────────────────────
-  // Already has pollingInterval: 3000 from the hook's default in slice
   const {
     data: pendingData,
     isLoading: pendingLoading,
@@ -739,7 +743,7 @@ const YourWorkspaceMembers = () => {
           await rejectMember({ workspaceId, memberId }).unwrap();
           toast.success('Request rejected');
           refetchPending();
-          refetchWorkspace(); // refresh active members
+          refetchWorkspace();
           setConfirmModal({ isOpen: false });
         } catch (err) {
           toast.error(err?.data?.message || 'Failed to reject');
@@ -761,7 +765,7 @@ const YourWorkspaceMembers = () => {
           await removeMember({ workspaceId, memberId }).unwrap();
           toast.success('Member removed');
           refetchPending();
-          refetchWorkspace(); // refresh active members
+          refetchWorkspace();
           setConfirmModal({ isOpen: false });
         } catch (err) {
           toast.error(err?.data?.message || 'Failed to remove');
@@ -779,7 +783,7 @@ const YourWorkspaceMembers = () => {
 
   const handleApproveSuccess = () => {
     refetchPending();
-    refetchWorkspace(); // refresh active members
+    refetchWorkspace();
     setShowApproveModal(false);
     setApproveMemberId(null);
   };
@@ -804,7 +808,7 @@ const YourWorkspaceMembers = () => {
       }).unwrap();
       toast.success('Member promoted to Admin');
       refetchPending();
-      refetchWorkspace(); // refresh active members
+      refetchWorkspace();
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to make admin');
     }
@@ -820,7 +824,7 @@ const YourWorkspaceMembers = () => {
       }).unwrap();
       toast.success('Admin rights removed');
       refetchPending();
-      refetchWorkspace(); // refresh active members
+      refetchWorkspace();
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to remove admin');
     }
@@ -829,6 +833,12 @@ const YourWorkspaceMembers = () => {
   const handleEditRole = (member) => {
     setSelectedMember({ ...member, workspaceId });
     setShowUpdateModal(true);
+  };
+
+  // ─── Member click handler for mobile ──────────────────────────────
+  const handleMemberClick = (member) => {
+    setSelectedMember(member);
+    setActionSheetOpen(true);
   };
 
   // ─── Loading state ──────────────────────────────────────────────────
@@ -895,6 +905,7 @@ const YourWorkspaceMembers = () => {
           onDirectMessage={handleDirectMessage}
           onEditRole={handleEditRole}
           isMobile={isMobile}
+          onMemberClick={handleMemberClick} // <-- pass the callback
         />
       );
     });
@@ -915,7 +926,6 @@ const YourWorkspaceMembers = () => {
       </div>
 
       <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* ─── Header ─── */}
         <header className="sticky top-0 z-10 bg-white/95 dark:bg-[#0f0f12]/95 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
           <div className="flex items-center justify-between px-3 sm:px-4 h-12 sm:h-14">
             <div className="flex items-center gap-2 min-w-0">
@@ -951,7 +961,6 @@ const YourWorkspaceMembers = () => {
             </div>
           </div>
 
-          {/* ─── Tabs ─── */}
           <div className="flex gap-4 px-3 sm:px-4 border-t border-gray-200/60 dark:border-gray-800/30">
             <button
               onClick={() => setActiveTab('active')}
@@ -978,7 +987,6 @@ const YourWorkspaceMembers = () => {
           </div>
         </header>
 
-        {/* ─── Member List ─── */}
         <div className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12] divide-y divide-gray-100 dark:divide-gray-800/30">
           {activeTab === 'active' && renderMemberList(activeMembers, 'active')}
           {activeTab === 'pending' && canManagePending && renderMemberList(pendingRequests, 'pending')}
@@ -987,7 +995,6 @@ const YourWorkspaceMembers = () => {
 
       <YourWorkspaceBottombar workspace={workspace} />
 
-      {/* ─── Member Action Sheet (mobile) ─── */}
       <MemberActionSheet
         isOpen={actionSheetOpen}
         onClose={() => {
@@ -1006,7 +1013,6 @@ const YourWorkspaceMembers = () => {
         brandColor={brandColor}
       />
 
-      {/* ─── Update Member Modal ─── */}
       <UpdateMemberModal
         isOpen={showUpdateModal}
         onClose={() => {
@@ -1021,7 +1027,6 @@ const YourWorkspaceMembers = () => {
         }}
       />
 
-      {/* ─── Approve Member Modal ─── */}
       <ApproveMemberModal
         isOpen={showApproveModal}
         onClose={() => {
@@ -1034,7 +1039,6 @@ const YourWorkspaceMembers = () => {
         onSuccess={handleApproveSuccess}
       />
 
-      {/* ─── Confirm Modal ─── */}
       <ConfirmModal
         isOpen={confirmModal.isOpen}
         onConfirm={confirmModal.onConfirm || (() => {})}

@@ -32,6 +32,23 @@ import {
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 
+// ─── useMediaQuery hook ──────────────────────────────────────────────
+const useMediaQuery = (query) => {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    if (media.matches !== matches) {
+      setMatches(media.matches);
+    }
+    const listener = () => setMatches(media.matches);
+    media.addEventListener('change', listener);
+    return () => media.removeEventListener('change', listener);
+  }, [query, matches]);
+
+  return matches;
+};
+
 // ─── Helper: get initials ──────────────────────────────────────────────
 const getInitials = (name) => {
   if (!name) return '?';
@@ -459,7 +476,7 @@ const ApproveMemberModal = ({ isOpen, onClose, memberId, workspaceId, brandColor
   );
 };
 
-// ─── MemberItem – fixed menu toggle ────────────────────────────────────
+// ─── MemberItem with onMemberClick and isMobile ───────────────────────
 const MemberItem = React.memo(({
   member,
   isPending,
@@ -479,6 +496,8 @@ const MemberItem = React.memo(({
   onRemoveMember,
   onDirectMessage,
   onEditRole,
+  isMobile,
+  onMemberClick,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
@@ -504,20 +523,15 @@ const MemberItem = React.memo(({
 
   // Row click – only on mobile to open action sheet
   const handleRowClick = (e) => {
+    // Ignore if not on mobile
+    if (!isMobile) return;
     // Ignore if the click came from a button (like the menu toggle)
     if (e.target.closest('button')) return;
+    // Ignore pending or self
     if (isPending || isCurrentUser) return;
-    // open action sheet (we'll use setSelectedMember and setActionSheetOpen from parent)
-    // We'll pass these via context or props – but we need to access them.
-    // To keep it clean, we'll use the parent's setState, but we'll need to lift state.
-    // For now, we'll call a prop function that handles this.
-    // We'll add a prop onMemberClick.
-    // Actually, the parent (MyWorkspaceMembers) defines handleRowClick inside the renderMemberList.
-    // We'll pass a function to handle the click.
-    // Let's add a prop onMemberClick.
-    if (window.innerWidth < 768) {
-      // We'll call a function passed from parent
-      if (onMemberClick) onMemberClick(memberForAction);
+    // Call the parent handler
+    if (onMemberClick) {
+      onMemberClick(memberForAction);
     }
   };
 
@@ -668,6 +682,9 @@ const MyWorkspaceMembers = () => {
   const [actionSheetOpen, setActionSheetOpen] = useState(false);
 
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null, confirmLabel: 'Confirm' });
+
+  // ─── Media query for mobile detection ──────────────────────────────
+  const isMobile = useMediaQuery('(max-width: 768px)');
 
   // ─── Queries with polling ────────────────────────────────────────────
   const { data: workspaceData, isLoading: workspaceLoading, error: workspaceError, refetch: refetchWorkspace } = useGetWorkspaceQuery(workspaceId, { pollingInterval: 5000 });
@@ -870,6 +887,7 @@ const MyWorkspaceMembers = () => {
           onRemoveMember={handleRemoveMember}
           onDirectMessage={handleDirectMessage}
           onEditRole={handleEditRole}
+          isMobile={isMobile}
           onMemberClick={handleMemberClick}
         />
       );
