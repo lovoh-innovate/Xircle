@@ -1093,7 +1093,7 @@ export const startClockInScheduler = () => {
 };
 
 // ─────────────────────────────────────────────────────────────
-// Automatic Clock-Out Scheduler (only if enabled)
+// Automatic Clock-Out Scheduler (including cleanup)
 // ─────────────────────────────────────────────────────────────
 
 export const startAutoClockOutScheduler = () => {
@@ -1101,6 +1101,7 @@ export const startAutoClockOutScheduler = () => {
     try {
       const now = new Date();
       const currentNigeriaMinutes = getLagosMinutes(now);
+      const todayStart = getLagosDayStart(now);
 
       const workspaces = await Workspace.find({
         clockInEnabled: true,
@@ -1109,65 +1110,87 @@ export const startAutoClockOutScheduler = () => {
       });
 
       for (const workspace of workspaces) {
-        const closingMinutes = timeToMinutes(
-          workspace.closingTime
-        );
+        const closingMinutes = timeToMinutes(workspace.closingTime);
+        const startMinutes = timeToMinutes(workspace.clockInStart);
 
-        if (closingMinutes === null) continue;
-
-        const diff =
-          currentNigeriaMinutes -
-          closingMinutes;
-
-        if (diff >= 0 && diff < 5) {
-          const todayStart = getLagosDayStart(now);
-          const tomorrowStart = getLagosNextDayStart(now);
-
-          const openRecords = await ClockIn.find({
-            workspace: workspace._id,
-            clockOutTime: null,
-            clockInTime: {
-              $gte: todayStart,
-              $lt: tomorrowStart,
-            },
-          });
-
-          if (openRecords.length === 0) continue;
-
-          const closingDate = timeOnDate(
-            now,
-            workspace.closingTime
-          );
-
-          for (const record of openRecords) {
-            record.clockOutTime = closingDate;
-            record.clockOutLate = false;
-            record.clockOutLateMinutes = 0;
-            record.autoClockedOut = true;
-
-            await record.save();
-
-            notifyUsers([record.user], {
-              title: "⏰ Auto clock-out",
-              body: `You were automatically clocked out at closing time (${workspace.closingTime} Nigeria time).`,
-              data: {
-                type: "auto-clockout",
+        // ── 1. Auto‑clock‑out at closing time (existing) ──
+        if (closingMinutes !== null) {
+          const diff = currentNigeriaMinutes - closingMinutes;
+          if (diff >= 0 && diff < 5) {
+            const openRecords = await ClockIn.find({
+              workspace: workspace._id,
+              clockOutTime: null,
+              clockInTime: {
+                $gte: todayStart,
+                $lt: getLagosNextDayStart(now),
               },
             });
-          }
 
-          console.log(
-            `✅ Auto clock-out completed for workspace ${workspace.name} (${openRecords.length} users) at ${formatLagosTime(
-              now
-            )} Nigeria time.`
-          );
+            if (openRecords.length > 0) {
+              const closingDate = timeOnDate(now, workspace.closingTime);
+              for (const record of openRecords) {
+                record.clockOutTime = closingDate;
+                record.clockOutLate = false;
+                record.clockOutLateMinutes = 0;
+                record.autoClockedOut = true;
+                await record.save();
+
+                notifyUsers([record.user], {
+                  title: "⏰ Auto clock‑out",
+                  body: `You were automatically clocked out at closing time (${workspace.closingTime} Nigeria time).`,
+                  data: { type: "auto-clockout" },
+                });
+              }
+              console.log(
+                `✅ Auto clock‑out completed for workspace ${workspace.name} (${openRecords.length} users) at ${formatLagosTime(now)} Nigeria time.`
+              );
+            }
+          }
+        }
+
+        // ── 2. NEW: Cleanup previous days' open records 1 hour before clock‑in ──
+        if (startMinutes !== null) {
+          let cleanupMinute = startMinutes - 60;
+          if (cleanupMinute < 0) cleanupMinute += 1440; // wrap around midnight
+
+          if (currentNigeriaMinutes === cleanupMinute) {
+            // Find all open records with clockInTime before today
+            const openRecords = await ClockIn.find({
+              workspace: workspace._id,
+              clockOutTime: null,
+              clockInTime: { $lt: todayStart },
+            });
+
+            if (openRecords.length > 0) {
+              const closingTime = workspace.closingTime || "23:59";
+              for (const record of openRecords) {
+                // Set clockOutTime to the closing time of the day they clocked in
+                const closingDate = makeLagosDate(
+                  getLagosDateKey(record.clockInTime),
+                  closingTime
+                );
+                record.clockOutTime = closingDate || record.clockInTime;
+                record.clockOutLate = false;
+                record.clockOutLateMinutes = 0;
+                record.autoClockedOut = true;
+                await record.save();
+
+                await notifyUsers([record.user], {
+                  title: "⏰ Auto clock‑out (previous day)",
+                  body: `Your clock‑in from ${formatLagosDateTime(record.clockInTime)} was automatically closed because you forgot to clock out.`,
+                  data: { type: "auto-clockout-cleanup" },
+                });
+              }
+
+              console.log(
+                `✅ Cleaned up ${openRecords.length} open records for workspace ${workspace.name} (1h before clock‑in).`
+              );
+            }
+          }
         }
       }
     } catch (error) {
-      console.error(
-        "Auto clock-out scheduler error:",
-        error
-      );
+      console.error("Auto clock‑out scheduler error:", error);
     }
   });
 };
