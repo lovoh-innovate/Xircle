@@ -1384,13 +1384,16 @@ const GeneralChatId = () => {
     return { ...senderField, name };
   }, []);
 
-  const {
+    const {
     data: messagesData,
     isLoading: messagesLoading,
     refetch: refetchMessages,
   } = useGetChatMessagesQuery(
     { chatId, page: 1, limit: 50 },
-    { skip: !chatId, refetchOnMountOrArgChange: true },
+    { skip: !chatId }, // ✅ cache-first: reopening a chat shows what's
+    // already in RTK cache instantly instead of blocking on a refetch.
+    // Socket keeps it in sync; the 15s disconnect-fallback poll you
+    // already have still covers the "socket down" case.
   );
   const [sendMessageApi] = useSendMessageMutation();
   const [deleteMessageApi] = useDeleteMessageMutation();

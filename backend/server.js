@@ -27,8 +27,9 @@ import { initSocket } from "./controllers/socket.js";
 import { checkAndSendReminders } from "./controllers/taskController.js";
 import {
   startClockInScheduler,
-  startAutoClockOutScheduler,          // 👈 added import
-  sendMonthlyLeaderboardForAllWorkspaces
+  startAutoClockOutScheduler,
+  sendMonthlyLeaderboardForAllWorkspaces,
+  closeAllOpenRecordsFromPreviousDays,   // 👈 new import
 } from "./controllers/clockInController.js";
 
 dotenv.config();
@@ -98,21 +99,24 @@ app.use(errorHandler);
 // ── Start server ──
 mongoose
   .connect(MONGO_URL)
-  .then(() => {
+  .then(async () => {   // make the callback async to use await
     console.log("✅ Connected to MongoDB");
 
-    // Initialize Socket.io
+    // ─── 1. Startup cleanup: close all open records from previous days ──
+    // This runs once, immediately, so users can clock in today.
+    await closeAllOpenRecordsFromPreviousDays();
+
+    // ─── 2. Initialize Socket.io ──────────────────────────────────────
     const io = initSocket(server);
     app.set("io", io);
 
-    // Start HTTP server
+    // ─── 3. Start HTTP server ────────────────────────────────────────
     server.listen(PORT, () => {
       console.log(`✅ Server running on http://localhost:${PORT}`);
       console.log(`✅ Socket.io ready for connections`);
     });
 
-    // ── Schedule the task reminder cron job ──
-    // Runs every 15 minutes
+    // ─── 4. Schedule task reminder cron job (every 15 minutes) ────
     cron.schedule('*/15 * * * *', async () => {
       console.log('⏰ Running task reminder cron job...');
       try {
@@ -128,18 +132,15 @@ mongoose
     });
     console.log('⏰ Reminder cron job scheduled (every 15 minutes).');
 
-    // ─── Start clock‑in reminder scheduler ──────────────────────────
-    // Sends notifications 30 and 10 minutes before clock-in start time.
+    // ─── 5. Start clock‑in reminder scheduler ──────────────────────
     startClockInScheduler();
     console.log('⏰ Clock‑in reminder scheduler started.');
 
-    // ─── Start auto clock‑out scheduler ─────────────────────────────
-    // Automatically clocks out all open records shortly after closing time.
+    // ─── 6. Start auto clock‑out scheduler (includes cleanup logic) ─
     startAutoClockOutScheduler();
     console.log('⏰ Auto clock‑out scheduler started.');
 
-    // ─── Schedule monthly leaderboard email ─────────────────────────
-    // Runs on the 1st of every month at 9:00 AM
+    // ─── 7. Schedule monthly leaderboard email (1st of month, 9 AM) ─
     cron.schedule('0 9 1 * *', async () => {
       console.log('📊 Running monthly leaderboard email job...');
       try {

@@ -1319,3 +1319,55 @@ export const triggerMonthlyLeaderboard =
         "Monthly leaderboard email sent.",
     });
   });
+
+  // ─────────────────────────────────────────────────────────────
+// Startup cleanup: close all open records from previous days
+// ─────────────────────────────────────────────────────────────
+
+export const closeAllOpenRecordsFromPreviousDays = async () => {
+  try {
+    const now = new Date();
+    const todayStart = getLagosDayStart(now);
+
+    // Find all open records where clockInTime is before today
+    const openRecords = await ClockIn.find({
+      clockOutTime: null,
+      clockInTime: { $lt: todayStart },
+    });
+
+    if (openRecords.length === 0) {
+      console.log("✅ No open records from previous days found.");
+      return;
+    }
+
+    console.log(`🔄 Closing ${openRecords.length} open records from previous days...`);
+
+    for (const record of openRecords) {
+      // Fetch workspace to get closingTime (or fallback)
+      const workspace = await Workspace.findById(record.workspace);
+      const closingTime = workspace?.closingTime || "23:59";
+
+      // Set clockOutTime to the closing time of the day they clocked in
+      const closingDate = makeLagosDate(
+        getLagosDateKey(record.clockInTime),
+        closingTime
+      );
+      record.clockOutTime = closingDate || record.clockInTime; // fallback
+      record.clockOutLate = false;
+      record.clockOutLateMinutes = 0;
+      record.autoClockedOut = true;
+      await record.save();
+
+      // Notify the user (optional)
+      await notifyUsers([record.user], {
+        title: "⏰ Auto clock‑out (previous day)",
+        body: `Your clock‑in from ${formatLagosDateTime(record.clockInTime)} was automatically closed because you forgot to clock out.`,
+        data: { type: "auto-clockout-cleanup" },
+      });
+    }
+
+    console.log(`✅ Successfully closed ${openRecords.length} open records from previous days.`);
+  } catch (error) {
+    console.error("❌ Startup cleanup error:", error);
+  }
+};

@@ -1576,13 +1576,13 @@ const YourWorkspaceChannelId = () => {
 
   const { data: workspaceData, isLoading: workspaceLoading, error } = useGetWorkspaceQuery(workspaceId);
   const { data: chatsData, isLoading: chatsLoading, refetch: refetchChats } = useGetUserChatsQuery(workspaceId);
-  const {
+    const {
     data: messagesData,
     isLoading: messagesLoading,
     refetch: refetchMessages,
   } = useGetChatMessagesQuery(
     { chatId, page: 1, limit: 50 },
-    { skip: !chatId, refetchOnMountOrArgChange: true }
+    { skip: !chatId }
   );
   const [sendMessageApi] = useSendMessageMutation();
   const [deleteMessageApi] = useDeleteMessageMutation();

@@ -1652,14 +1652,14 @@ const GeneralChannelId = () => {
   });
   const pendingCount = joinRequestsData?.requests?.length || 0;
 
-  const {
-    data: messagesData,
-    isLoading: messagesLoading,
-    refetch: refetchMessages,
-  } = useGetChatMessagesQuery(
-    { chatId, page: 1, limit: 50 },
-    { skip: !chatId, refetchOnMountOrArgChange: true }
-  );
+ const {
+  data: messagesData,
+  isLoading: messagesLoading,
+  refetch: refetchMessages,
+} = useGetChatMessagesQuery(
+  { chatId, page: 1, limit: 50 },
+  { skip: !chatId }
+);
   const [sendMessageApi] = useSendMessageMutation();
   const [deleteMessageApi] = useDeleteMessageMutation();
   const [archiveMessage] = useArchiveMessageMutation();

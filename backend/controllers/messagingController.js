@@ -962,14 +962,7 @@ export const getUserChats = async (req, res) => {
     if (workspaceId) {
       query.workspace = workspaceId;
     } else {
-      if (workspaceId === undefined) {
-        query.$or = [
-          { workspace: { $ne: null } },
-          { scope: "public" }
-        ];
-      } else {
-        query.workspace = workspaceId;
-      }
+      query.$or = [{ workspace: { $ne: null } }, { scope: "public" }];
     }
 
     if (archived === 'true') {
@@ -984,27 +977,44 @@ export const getUserChats = async (req, res) => {
       .populate("createdBy", "name email profile username")
       .sort({ lastMessageAt: -1 });
 
-    const chatsWithUnread = await Promise.all(
-      chats.map(async (chat) => {
-        const unreadCount = await Message.countDocuments({
-          chat: chat._id,
-          readBy: { $not: { $elemMatch: { user: userId } } },
-          sender: { $ne: userId },
-        });
+    if (chats.length === 0) {
+      return res.status(200).json({ success: true, chats: [] });
+    }
 
-        const chatObj = chat.toObject();
-        chatObj.participants = chatObj.participants.map((p) => ({
-          ...p,
-          online: p.online || false,
-          lastSeen: p.lastSeen || null,
-        }));
+    // ✅ Single aggregation instead of 1-per-chat countDocuments.
+    // 50 chats used to mean 51 queries here; now it's always 2.
+    const chatIds = chats.map((c) => c._id);
+    const userObjectId = new mongoose.Types.ObjectId(userId);
 
-        return {
-          ...chatObj,
-          unreadCount,
-        };
-      }),
-    );
+    const unreadAgg = await Message.aggregate([
+      {
+        $match: {
+          chat: { $in: chatIds },
+          sender: { $ne: userObjectId },
+          isDeleted: false,
+          "readBy.user": { $ne: userObjectId },
+        },
+      },
+      { $group: { _id: "$chat", count: { $sum: 1 } } },
+    ]);
+
+    const unreadMap = {};
+    unreadAgg.forEach((u) => {
+      unreadMap[u._id.toString()] = u.count;
+    });
+
+    const chatsWithUnread = chats.map((chat) => {
+      const chatObj = chat.toObject();
+      chatObj.participants = chatObj.participants.map((p) => ({
+        ...p,
+        online: p.online || false,
+        lastSeen: p.lastSeen || null,
+      }));
+      return {
+        ...chatObj,
+        unreadCount: unreadMap[chat._id.toString()] || 0,
+      };
+    });
 
     res.status(200).json({
       success: true,

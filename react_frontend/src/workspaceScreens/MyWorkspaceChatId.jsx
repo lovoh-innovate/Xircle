@@ -1164,13 +1164,13 @@ const MyWorkspaceChatId = () => {
     isLoading: workspaceLoading,
   } = useGetWorkspaceQuery(workspaceId);
   const { data: chatsData, isLoading: chatsLoading, refetch: refetchChats } = useGetUserChatsQuery(workspaceId);
-  const {
+    const {
     data: messagesData,
     isLoading: messagesLoading,
     refetch: refetchMessages,
   } = useGetChatMessagesQuery(
     { chatId, page: 1, limit: 50 },
-    { skip: !chatId, refetchOnMountOrArgChange: true } // 👈 force fresh fetch on mount
+    { skip: !chatId }
   );
   const [sendMessageApi] = useSendMessageMutation();
   const [deleteMessageApi] = useDeleteMessageMutation();
@@ -2029,7 +2029,7 @@ const MyWorkspaceChatId = () => {
   }
 
   // ── Full-page spinner only for workspace or chats loading ──
-  if (workspaceLoading || chatsLoading || !workspace) {
+   if (workspaceLoading || chatsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
         <div className="w-8 h-8 border-4 border-teal-500 dark:border-teal-500 border-t-transparent rounded-full animate-spin" />
