@@ -29,6 +29,7 @@ import { useTheme } from '../contexts/ThemeContext';
 
 const useNotificationSettings = () => {
   const { userInfo } = useSelector((state) => state.auth);
+  const token = userInfo?.token;
 
   const [emailPrefs, setEmailPrefs] = useState({});
   const [pushPrefs, setPushPrefs] = useState({});
@@ -36,13 +37,23 @@ const useNotificationSettings = () => {
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
 
-  // Fetch preferences from server
+  // ─── FIX: skip until we actually have a token. Without this, on a
+  // hard reload of /settings this query fires the instant the component
+  // mounts (refetchOnMountOrArgChange: true) — which is BEFORE
+  // redux-persist has rehydrated state.auth.userInfo from storage. That
+  // sent an unauthenticated request every single cold load, previously
+  // masked as a 500 (now a clean 401 after the errorMiddleware fix, but
+  // still a wasted request that flashes the "Could not load
+  // preferences" error state for no reason). Once `token` lands after
+  // rehydration, `skip` flips to false and RTK Query fires normally. ──
   const {
     data: prefData,
     isLoading: prefsLoading,
+    isFetching: prefsFetching,
     isError: prefsError,
     refetch,
   } = useGetNotificationPreferencesQuery(undefined, {
+    skip: !token,
     refetchOnMountOrArgChange: true,
   });
 
@@ -213,21 +224,6 @@ const useNotificationSettings = () => {
     return isSubscribed || pushPrefs.enabled;
   }, [pushPrefs.enabled, permission, vapidKeyError, isNative, isSubscribed]);
 
-  // ─── FIX: this was the actual bug making the toggle "inactive in
-  // production". It required permission === 'granted' BEFORE the toggle
-  // could even be clicked — but permission only becomes 'granted' as a
-  // RESULT of clicking the toggle and answering the browser prompt
-  // (subscribe() is what calls Notification.requestPermission()). For
-  // every first-time user (permission starts as 'default') this was an
-  // unbreakable deadlock: can't click without permission, can't get
-  // permission without clicking. It only ever looked "fine" on
-  // localhost because the dev browser already had permission granted
-  // for that origin from earlier manual testing.
-  //
-  // 'denied' is already handled separately below (Settings.jsx renders
-  // a "Blocked" badge instead of the toggle in that case), so
-  // pushAvailable doesn't need to gate on permission at all — only on
-  // whether the browser/environment can support push in principle.
   const pushAvailable = useMemo(() => {
     if (isNative) return true;
     return isSupported && !vapidKeyError;
@@ -244,7 +240,14 @@ const useNotificationSettings = () => {
     isSupported,
     pushEnabled,
     pushAvailable,
-    isLoading: prefsLoading,
+    // ─── FIX: isLoading now also true while we're waiting on the token
+    // itself (pre-rehydration) — otherwise, before rehydration, `token`
+    // is undefined, the query is skipped, prefsLoading is false (RTK
+    // Query never considered it "loading" because it never ran), and
+    // the component would render the isError/empty branch for a beat
+    // before flipping to loading once the token arrives. Folding in
+    // `!token` keeps it on the spinner through that whole window.
+    isLoading: !token || prefsLoading || prefsFetching,
     isError: prefsError,
     vapidKeyError,
     retryLoadVapidKey,

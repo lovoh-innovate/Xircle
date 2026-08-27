@@ -15,8 +15,19 @@ const notFound = (req, res, next) => {
  * Handles all errors and sends appropriate status & message
  */
 const errorHandler = (err, req, res, next) => {
-  // ✅ Read status from error object first
-  let statusCode = err.status || err.statusCode || 500;
+  // ✅ Status resolution order:
+  //   1. err.status / err.statusCode — explicit, set by the throwing code
+  //   2. res.statusCode — set via res.status(x) BEFORE the throw (the
+  //      pattern used throughout this codebase: `res.status(401); throw new Error(...)`).
+  //      Express defaults res.statusCode to 200 until something sets it,
+  //      so if it's anything other than 200 here, that was a deliberate
+  //      res.status(x) call upstream and must be honoured — otherwise
+  //      EVERY controller using that pattern silently becomes a 500.
+  //   3. 500 — true fallback for genuinely unclassified errors.
+  let statusCode =
+    err.status ||
+    err.statusCode ||
+    (res.statusCode && res.statusCode !== 200 ? res.statusCode : 500);
   let message = err.message || 'Something went wrong';
 
   // ✅ Mongoose bad ObjectId
