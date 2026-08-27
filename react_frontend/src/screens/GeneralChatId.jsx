@@ -94,7 +94,10 @@ const safeFormatTime = (dateString) => {
   try {
     const d = new Date(dateString);
     if (isNaN(d.getTime())) return "";
-    return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   } catch {
     return "";
   }
@@ -103,7 +106,16 @@ const safeFormatTime = (dateString) => {
 // ─── Skeleton Message Component ────────────────────────────────────────
 const SkeletonMessage = ({ isOwn }) => {
   const randomWidth = useCallback(() => {
-    const widths = ["w-32", "w-40", "w-48", "w-52", "w-56", "w-36", "w-44", "w-60"];
+    const widths = [
+      "w-32",
+      "w-40",
+      "w-48",
+      "w-52",
+      "w-56",
+      "w-36",
+      "w-44",
+      "w-60",
+    ];
     return widths[Math.floor(Math.random() * widths.length)];
   }, []);
 
@@ -113,15 +125,21 @@ const SkeletonMessage = ({ isOwn }) => {
   }, []);
 
   return (
-    <div className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""} animate-pulse`}>
+    <div
+      className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""} animate-pulse`}
+    >
       {!isOwn && (
         <div className="w-8 h-8 rounded-full flex-shrink-0 bg-gray-200 dark:bg-gray-700" />
       )}
-      <div className={`max-w-[75%] sm:max-w-[85%] ${isOwn ? "items-end" : "items-start"} flex flex-col gap-0.5`}>
+      <div
+        className={`max-w-[75%] sm:max-w-[85%] ${isOwn ? "items-end" : "items-start"} flex flex-col gap-0.5`}
+      >
         {!isOwn && (
           <div className="h-3 w-16 bg-gray-200 dark:bg-gray-700 rounded-full mb-0.5" />
         )}
-        <div className={`px-4 py-2.5 rounded-2xl ${isOwn ? "bg-teal-200/60 dark:bg-teal-700/40" : "bg-gray-200 dark:bg-gray-700/60"}`}>
+        <div
+          className={`px-4 py-2.5 rounded-2xl ${isOwn ? "bg-teal-200/60 dark:bg-teal-700/40" : "bg-gray-200 dark:bg-gray-700/60"}`}
+        >
           <div className={`${randomWidth()} ${randomHeight()} rounded-lg`} />
         </div>
         <div className="flex items-center gap-1 mt-0.5">
@@ -176,7 +194,9 @@ const ConfirmModal = ({
         <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">
           {title}
         </h3>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{message}</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+          {message}
+        </p>
         <div className="flex gap-3">
           <button
             onClick={onClose}
@@ -190,7 +210,9 @@ const ConfirmModal = ({
               onClose();
             }}
             className={`flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80 ${
-              danger ? "bg-red-600 hover:bg-red-700" : "bg-teal-600 hover:bg-teal-700"
+              danger
+                ? "bg-red-600 hover:bg-red-700"
+                : "bg-teal-600 hover:bg-teal-700"
             }`}
           >
             Confirm
@@ -202,7 +224,12 @@ const ConfirmModal = ({
 };
 
 // ─── Media Picker Modal ────────────────────────────────────────────
-const MediaPickerModal = ({ isOpen, onClose, onTakePhoto, onChooseFromGallery }) => {
+const MediaPickerModal = ({
+  isOpen,
+  onClose,
+  onTakePhoto,
+  onChooseFromGallery,
+}) => {
   if (!isOpen) return null;
   return (
     <div
@@ -245,7 +272,8 @@ const MediaPickerModal = ({ isOpen, onClose, onTakePhoto, onChooseFromGallery })
 
 // ─── Audio waveform ──────────────────────────────────────────────────
 const WAVEFORM_BARS = [
-  6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6, 10,
+  6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6,
+  10,
 ];
 const AudioWaveform = ({ isOwn, isPlaying }) => (
   <div className="flex items-center gap-[2px] h-6 flex-1">
@@ -270,20 +298,26 @@ const MessageTicks = ({ message, isOwn }) => {
   // ── TEXT MESSAGES: always show clock until sent, no failed icon ──
   if (message.messageType === "text") {
     if (!message._sent) {
-      return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
+      return (
+        <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />
+      );
     }
     // if sent, fall through to normal ticks
   }
 
   // ── MEDIA MESSAGES: keep existing pending/failed logic ──────────
   if (message._pending) {
-    return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
+    return (
+      <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />
+    );
   }
   if (message._failed) {
     return <FaTimes className="text-[10px] text-red-500" />;
   }
   if (!message._sent) {
-    return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
+    return (
+      <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />
+    );
   }
 
   // ── Sent → delivered / read ──────────────────────────────────────
@@ -313,12 +347,12 @@ const QuotedReplyBlock = ({ replyData, isOwn, onJump }) => {
   const text = replyData.content
     ? replyData.content
     : replyData.mediaName
-    ? `📎 ${replyData.mediaName}`
-    : replyData.messageType === "image"
-    ? "📷 Photo"
-    : replyData.messageType === "audio"
-    ? "🎤 Voice note"
-    : "Media";
+      ? `📎 ${replyData.mediaName}`
+      : replyData.messageType === "image"
+        ? "📷 Photo"
+        : replyData.messageType === "audio"
+          ? "🎤 Voice note"
+          : "Media";
 
   return (
     <button
@@ -369,7 +403,11 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor }) => {
     <div className="flex items-center gap-3 p-3 mb-2 bg-gray-50 dark:bg-gray-800/30 rounded-xl border border-gray-200 dark:border-gray-700/60">
       <div className="relative flex-shrink-0">
         {type === "image" ? (
-          <img src={preview} alt="Preview" className="w-16 h-16 rounded-lg object-cover" />
+          <img
+            src={preview}
+            alt="Preview"
+            className="w-16 h-16 rounded-lg object-cover"
+          />
         ) : (
           <div className="w-16 h-16 rounded-lg bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-2xl">
             📄
@@ -426,7 +464,9 @@ const MediaMessage = ({
     // ── Pending state (only for media) ──
     if (message._pending) {
       return (
-        <div className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}>
+        <div
+          className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
+        >
           {!isOwn && (
             <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
               <FaUser className="text-gray-400 dark:text-gray-500" />
@@ -443,7 +483,9 @@ const MediaMessage = ({
     // ── Failed state (only for media) ──
     if (message._failed) {
       return (
-        <div className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}>
+        <div
+          className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
+        >
           {!isOwn && (
             <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
               <FaUser className="text-gray-400 dark:text-gray-500" />
@@ -461,7 +503,9 @@ const MediaMessage = ({
   // ── Deleted state (same for all) ──
   if (message.isDeleted) {
     return (
-      <div className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}>
+      <div
+        className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
+      >
         {!isOwn && (
           <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
             <FaUser className="text-gray-400 dark:text-gray-500" />
@@ -469,7 +513,9 @@ const MediaMessage = ({
         )}
         <div className="bg-gray-100 dark:bg-gray-800/40 px-4 py-2 rounded-2xl text-gray-400 dark:text-gray-500 italic text-sm flex items-center gap-1">
           <span>Message deleted</span>
-          <span className="text-[10px] ml-1 opacity-60">{safeFormatTime(message.createdAt)}</span>
+          <span className="text-[10px] ml-1 opacity-60">
+            {safeFormatTime(message.createdAt)}
+          </span>
         </div>
       </div>
     );
@@ -493,7 +539,9 @@ const MediaMessage = ({
     const replyTo = message?.replyTo;
     if (!replyTo) return null;
     if (typeof replyTo === "object") {
-      const rSender = resolveSender ? resolveSender(replyTo.sender) : replyTo.sender || {};
+      const rSender = resolveSender
+        ? resolveSender(replyTo.sender)
+        : replyTo.sender || {};
       return {
         id: replyTo._id,
         senderName: rSender?.name || replyTo.senderName || "Unknown",
@@ -504,7 +552,9 @@ const MediaMessage = ({
     }
     const original = allMessages?.find((m) => m._id === replyTo);
     if (!original) return null;
-    const rSender = resolveSender ? resolveSender(original.sender) : original.sender || {};
+    const rSender = resolveSender
+      ? resolveSender(original.sender)
+      : original.sender || {};
     return {
       id: original._id,
       senderName: rSender?.name || "Unknown",
@@ -600,14 +650,22 @@ const MediaMessage = ({
       case "image":
         return null;
       case "video":
-        return <video src={message.mediaUrl} controls className="max-w-full rounded-lg max-h-80" />;
+        return (
+          <video
+            src={message.mediaUrl}
+            controls
+            className="max-w-full rounded-lg max-h-80"
+          />
+        );
       case "audio":
         return (
           <div className="flex items-center gap-2.5 min-w-[220px] py-0.5">
             <button
               onClick={() => {
                 if (audioRef.current) {
-                  isPlaying ? audioRef.current.pause() : audioRef.current.play();
+                  isPlaying
+                    ? audioRef.current.pause()
+                    : audioRef.current.play();
                   setIsPlaying(!isPlaying);
                 }
               }}
@@ -628,7 +686,9 @@ const MediaMessage = ({
                 isOwn ? "text-white/70" : "text-gray-500 dark:text-gray-400"
               }`}
             >
-              {message.mediaDuration ? formatTime(message.mediaDuration) : "0:00"}
+              {message.mediaDuration
+                ? formatTime(message.mediaDuration)
+                : "0:00"}
             </span>
             <audio
               ref={audioRef}
@@ -651,7 +711,9 @@ const MediaMessage = ({
                 {message.mediaName || "File"}
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400">
-                {message.mediaSize ? `${(message.mediaSize / 1024).toFixed(1)} KB` : "File"}
+                {message.mediaSize
+                  ? `${(message.mediaSize / 1024).toFixed(1)} KB`
+                  : "File"}
               </div>
             </div>
             <button
@@ -699,7 +761,11 @@ const MediaMessage = ({
           {!isOwn && (
             <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
               {senderProfile ? (
-                <img src={senderProfile} alt={senderName} className="w-full h-full object-cover" />
+                <img
+                  src={senderProfile}
+                  alt={senderName}
+                  className="w-full h-full object-cover"
+                />
               ) : (
                 <div
                   className="w-full h-full flex items-center justify-center text-white text-xs font-bold"
@@ -720,7 +786,11 @@ const MediaMessage = ({
             )}
             {replyPreview && (
               <div className="w-full mb-1">
-                <QuotedReplyBlock replyData={replyPreview} isOwn={isOwn} onJump={onJumpToMessage} />
+                <QuotedReplyBlock
+                  replyData={replyPreview}
+                  isOwn={isOwn}
+                  onJump={onJumpToMessage}
+                />
               </div>
             )}
             <div
@@ -746,7 +816,8 @@ const MediaMessage = ({
                 />
               ) : (
                 <div className="w-full h-40 bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-gray-500 dark:text-gray-400">
-                  <FaExclamationTriangle className="text-2xl mr-2" /> Image unavailable
+                  <FaExclamationTriangle className="text-2xl mr-2" /> Image
+                  unavailable
                 </div>
               )}
               <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 text-[10px] text-white bg-black/50 px-2 py-0.5 rounded-full">
@@ -873,7 +944,11 @@ const MediaMessage = ({
         {!isOwn && (
           <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
             {senderProfile ? (
-              <img src={senderProfile} alt={senderName} className="w-full h-full object-cover" />
+              <img
+                src={senderProfile}
+                alt={senderName}
+                className="w-full h-full object-cover"
+              />
             ) : (
               <div
                 className="w-full h-full flex items-center justify-center text-white text-xs font-bold"
@@ -901,10 +976,16 @@ const MediaMessage = ({
             style={isOwn ? { backgroundColor: "#0d9488" } : {}}
           >
             {replyPreview && (
-              <QuotedReplyBlock replyData={replyPreview} isOwn={isOwn} onJump={onJumpToMessage} />
+              <QuotedReplyBlock
+                replyData={replyPreview}
+                isOwn={isOwn}
+                onJump={onJumpToMessage}
+              />
             )}
             {message.content && (
-              <p className="mb-2 whitespace-pre-wrap break-words">{message.content}</p>
+              <p className="mb-2 whitespace-pre-wrap break-words">
+                {message.content}
+              </p>
             )}
             {renderMediaContent()}
           </div>
@@ -1007,16 +1088,22 @@ const MediaMessage = ({
 // ─── Reply Preview Bar ────────────────────────────────────────────
 const ReplyPreview = ({ replyTo, onCancel, resolveSender }) => {
   if (!replyTo) return null;
-  const resolved = resolveSender ? resolveSender(replyTo.sender) : replyTo.sender;
+  const resolved = resolveSender
+    ? resolveSender(replyTo.sender)
+    : replyTo.sender;
   const senderName = resolved?.name || "Unknown";
-  const content = replyTo.content || (replyTo.mediaName ? `📎 ${replyTo.mediaName}` : "Media");
+  const content =
+    replyTo.content ||
+    (replyTo.mediaName ? `📎 ${replyTo.mediaName}` : "Media");
   return (
     <div className="flex items-center justify-between px-3 py-2 mb-2 bg-gray-100 dark:bg-gray-800/60 rounded-lg border-l-4 border-teal-500">
       <div className="flex-1 min-w-0">
         <span className="text-xs font-semibold text-teal-600 dark:text-teal-400">
           Replying to {senderName}
         </span>
-        <p className="text-sm text-gray-700 dark:text-gray-300 truncate">{content}</p>
+        <p className="text-sm text-gray-700 dark:text-gray-300 truncate">
+          {content}
+        </p>
       </div>
       <button
         onClick={onCancel}
@@ -1050,17 +1137,25 @@ const ImagePreviewModal = ({ imageUrl, onClose, senderName, time }) => {
   }, [imageUrl]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 bg-black flex flex-col"
+      onClick={onClose}
+    >
       <div
         className="flex items-center justify-between px-4 py-3 bg-black/70 text-white flex-shrink-0"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 min-w-0">
-          <button onClick={onClose} className="p-1 hover:bg-white/10 rounded-lg transition">
+          <button
+            onClick={onClose}
+            className="p-1 hover:bg-white/10 rounded-lg transition"
+          >
             <FaArrowLeft />
           </button>
           <div className="min-w-0">
-            <p className="text-sm font-medium truncate">{senderName || "Photo"}</p>
+            <p className="text-sm font-medium truncate">
+              {senderName || "Photo"}
+            </p>
             {time && <p className="text-[11px] text-white/60">{time}</p>}
           </div>
         </div>
@@ -1138,7 +1233,9 @@ const MessageActionModal = ({
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
-              {message.content ? message.content.substring(0, 60) : message.mediaName || "Media"}
+              {message.content
+                ? message.content.substring(0, 60)
+                : message.mediaName || "Media"}
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {new Date(message.createdAt).toLocaleString()}
@@ -1153,7 +1250,8 @@ const MessageActionModal = ({
             }}
             className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
           >
-            <FaReply className="text-sm" /> <span className="text-sm font-medium">Reply</span>
+            <FaReply className="text-sm" />{" "}
+            <span className="text-sm font-medium">Reply</span>
           </button>
           {isOwn && (
             <button
@@ -1175,7 +1273,8 @@ const MessageActionModal = ({
               }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 transition"
             >
-              <FaStar className="text-sm" /> <span className="text-sm font-medium">Unstar</span>
+              <FaStar className="text-sm" />{" "}
+              <span className="text-sm font-medium">Unstar</span>
             </button>
           ) : (
             <button
@@ -1185,7 +1284,8 @@ const MessageActionModal = ({
               }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
             >
-              <FaRegStar className="text-sm" /> <span className="text-sm font-medium">Star</span>
+              <FaRegStar className="text-sm" />{" "}
+              <span className="text-sm font-medium">Star</span>
             </button>
           )}
           {isArchived ? (
@@ -1196,7 +1296,8 @@ const MessageActionModal = ({
               }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition"
             >
-              <FaUndo className="text-sm" /> <span className="text-sm font-medium">Unarchive</span>
+              <FaUndo className="text-sm" />{" "}
+              <span className="text-sm font-medium">Unarchive</span>
             </button>
           ) : (
             <button
@@ -1206,7 +1307,8 @@ const MessageActionModal = ({
               }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
             >
-              <FaArchive className="text-sm" /> <span className="text-sm font-medium">Archive</span>
+              <FaArchive className="text-sm" />{" "}
+              <span className="text-sm font-medium">Archive</span>
             </button>
           )}
         </div>
@@ -1226,7 +1328,9 @@ const ContactInfoPanel = ({ user, onlineStatus, onClose }) => {
   return (
     <div className="h-full bg-white dark:bg-[#14141a] border-l border-gray-200 dark:border-gray-800/60 flex flex-col overflow-y-auto">
       <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800/60">
-        <h3 className="font-semibold text-gray-800 dark:text-gray-200">Contact Info</h3>
+        <h3 className="font-semibold text-gray-800 dark:text-gray-200">
+          Contact Info
+        </h3>
         <button
           onClick={onClose}
           className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-lg transition"
@@ -1258,14 +1362,22 @@ const ContactInfoPanel = ({ user, onlineStatus, onClose }) => {
         </div>
         {user?.email && (
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Email</p>
-            <p className="text-sm text-gray-800 dark:text-gray-200">{user.email}</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              Email
+            </p>
+            <p className="text-sm text-gray-800 dark:text-gray-200">
+              {user.email}
+            </p>
           </div>
         )}
         {user?.username && (
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Username</p>
-            <p className="text-sm text-gray-800 dark:text-gray-200">@{user.username}</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              Username
+            </p>
+            <p className="text-sm text-gray-800 dark:text-gray-200">
+              @{user.username}
+            </p>
           </div>
         )}
       </div>
@@ -1296,6 +1408,7 @@ const GeneralChatId = () => {
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
+  const isSendingRef = useRef(false); // 🔴 guards against double-send
   const [previewImage, setPreviewImage] = useState(null);
   const [replyToMessage, setReplyToMessage] = useState(null);
   const [localMessages, setLocalMessages] = useState([]);
@@ -1343,11 +1456,15 @@ const GeneralChatId = () => {
   // ─── Request presence when socket connects and we have a participant ──
   useEffect(() => {
     if (!socket || !isConnected || !otherParticipant?._id) return;
-    socket.emit("request-presence", { userId: otherParticipant._id }, (response) => {
-      if (response && typeof response.online === "boolean") {
-        setOtherUserOnline(response.online);
-      }
-    });
+    socket.emit(
+      "request-presence",
+      { userId: otherParticipant._id },
+      (response) => {
+        if (response && typeof response.online === "boolean") {
+          setOtherUserOnline(response.online);
+        }
+      },
+    );
   }, [socket, isConnected, otherParticipant?._id]);
 
   // ─── Build user map for sender resolution ──────────────────────────
@@ -1371,7 +1488,9 @@ const GeneralChatId = () => {
       return { _id: senderField, name: "Unknown", profile: null };
     }
     if (senderField.name) return senderField;
-    const found = senderField._id ? userMapRef.current.get(senderField._id) : null;
+    const found = senderField._id
+      ? userMapRef.current.get(senderField._id)
+      : null;
     if (found) {
       const name = found.name || found.username || found.email || "Unknown";
       return {
@@ -1384,7 +1503,7 @@ const GeneralChatId = () => {
     return { ...senderField, name };
   }, []);
 
-    const {
+  const {
     data: messagesData,
     isLoading: messagesLoading,
     refetch: refetchMessages,
@@ -1422,7 +1541,8 @@ const GeneralChatId = () => {
     const el = messagesContainerRef.current;
     if (!el) return;
     const threshold = 50;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    const atBottom =
+      el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
     setIsAtBottom(atBottom);
     if (atBottom) setShowScrollDown(false);
   };
@@ -1450,129 +1570,164 @@ const GeneralChatId = () => {
 
   // ─── Message handling ──────────────────────────────────────────
   const mergeMessagesIntoState = useCallback(
-  (incomingList) => {
-    if (!incomingList || incomingList.length === 0) return;
-    setLocalMessages((prev) => {
-      let next = prev;
-      let mutated = false;
-      incomingList.forEach((incoming) => {
-        // 1. Check if this message already exists by real _id
-        const existingIdx = next.findIndex((m) => m._id === incoming._id);
-        if (existingIdx > -1) {
-          if (!mutated) next = [...next];
-          mutated = true;
-          const existing = next[existingIdx];
-          const updated = {
-            ...incoming,
-            _sent: existing._sent || false,
-            _pending: existing._pending || false,
-            _failed: existing._failed || false,
-            _delivered: true,
-            _read: false,
-          };
-          const isOwn = incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
+    (incomingList) => {
+      if (!incomingList || incomingList.length === 0) return;
+      setLocalMessages((prev) => {
+        let next = prev;
+        let mutated = false;
+        incomingList.forEach((incoming) => {
+          // 1. Check if this message already exists by real _id
+          const existingIdx = next.findIndex((m) => m._id === incoming._id);
+          if (existingIdx > -1) {
+            if (!mutated) next = [...next];
+            mutated = true;
+            const existing = next[existingIdx];
+            const updated = {
+              ...incoming,
+              _sent: existing._sent || false,
+              _pending: existing._pending || false,
+              _failed: existing._failed || false,
+              _delivered: true,
+              _read: false,
+            };
+            const isOwn =
+              incoming.sender?._id === userInfo?._id ||
+              incoming.sender === userInfo?._id;
+            if (isOwn) {
+              const otherId = otherParticipant?._id;
+              if (
+                otherId &&
+                incoming.readBy?.some(
+                  (r) => r.user === otherId || r.user?._id === otherId,
+                )
+              ) {
+                updated._read = true;
+              }
+            } else {
+              if (
+                incoming.readBy?.some(
+                  (r) =>
+                    r.user === userInfo?._id || r.user?._id === userInfo?._id,
+                )
+              ) {
+                updated._read = true;
+              }
+            }
+            next[existingIdx] = updated;
+            return;
+          }
+
+          const isOwn =
+            incoming.sender?._id === userInfo?._id ||
+            incoming.sender === userInfo?._id;
+
+          // 2. Find a temporary message to replace
+          let tempIdx = -1;
           if (isOwn) {
-            const otherId = otherParticipant?._id;
-            if (otherId && incoming.readBy?.some((r) => r.user === otherId || r.user?._id === otherId)) {
-              updated._read = true;
-            }
-          } else {
-            if (incoming.readBy?.some((r) => r.user === userInfo?._id || r.user?._id === userInfo?._id)) {
-              updated._read = true;
+            // Try to find by _tempId first (most reliable)
+            tempIdx = next.findIndex((m) => m._tempId === incoming._id);
+            if (tempIdx === -1) {
+              // Fallback: find by content + timestamp for text messages
+              const incomingContent = incoming.content || "";
+              const incomingTime = new Date(incoming.createdAt).getTime();
+              tempIdx = next.findIndex((m) => {
+                if (!m._temp) return false;
+                // For text messages: match content and close timestamp
+                if (m.content !== undefined && m.content === incomingContent) {
+                  const mTime = new Date(m.createdAt).getTime();
+                  return Math.abs(mTime - incomingTime) < 10000; // 10s window
+                }
+                // For media messages: match mediaName and close timestamp
+                if (m.mediaName && m.mediaName === incoming.mediaName) {
+                  const mTime = new Date(m.createdAt).getTime();
+                  return Math.abs(mTime - incomingTime) < 20000; // 20s window
+                }
+                return false;
+              });
             }
           }
-          next[existingIdx] = updated;
-          return;
-        }
 
-        const isOwn = incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
-
-        // 2. Find a temporary message to replace
-        let tempIdx = -1;
-        if (isOwn) {
-          // Try to find by _tempId first (most reliable)
-          tempIdx = next.findIndex((m) => m._tempId === incoming._id);
-          if (tempIdx === -1) {
-            // Fallback: find by content + timestamp for text messages
-            const incomingContent = incoming.content || '';
-            const incomingTime = new Date(incoming.createdAt).getTime();
-            tempIdx = next.findIndex((m) => {
-              if (!m._temp) return false;
-              // For text messages: match content and close timestamp
-              if (m.content !== undefined && m.content === incomingContent) {
-                const mTime = new Date(m.createdAt).getTime();
-                return Math.abs(mTime - incomingTime) < 10000; // 10s window
+          if (tempIdx > -1) {
+            if (!mutated) next = [...next];
+            mutated = true;
+            const realMsg = {
+              ...incoming,
+              _sent: true,
+              _pending: false,
+              _failed: false,
+              _delivered: true,
+              _read: false,
+              _temp: false,
+              _tempId: undefined,
+            };
+            if (isOwn) {
+              const otherId = otherParticipant?._id;
+              if (
+                otherId &&
+                incoming.readBy?.some(
+                  (r) => r.user === otherId || r.user?._id === otherId,
+                )
+              ) {
+                realMsg._read = true;
               }
-              // For media messages: match mediaName and close timestamp
-              if (m.mediaName && m.mediaName === incoming.mediaName) {
-                const mTime = new Date(m.createdAt).getTime();
-                return Math.abs(mTime - incomingTime) < 20000; // 20s window
+            } else {
+              if (
+                incoming.readBy?.some(
+                  (r) =>
+                    r.user === userInfo?._id || r.user?._id === userInfo?._id,
+                )
+              ) {
+                realMsg._read = true;
               }
-              return false;
-            });
+            }
+            next[tempIdx] = realMsg;
+            return;
           }
-        }
 
-        if (tempIdx > -1) {
-          if (!mutated) next = [...next];
-          mutated = true;
-          const realMsg = {
+          // 3. It's a new message from someone else or our own that wasn't optimistically added
+          const msg = {
             ...incoming,
             _sent: true,
             _pending: false,
             _failed: false,
             _delivered: true,
             _read: false,
-            _temp: false,
-            _tempId: undefined,
           };
           if (isOwn) {
             const otherId = otherParticipant?._id;
-            if (otherId && incoming.readBy?.some((r) => r.user === otherId || r.user?._id === otherId)) {
-              realMsg._read = true;
+            if (
+              otherId &&
+              incoming.readBy?.some(
+                (r) => r.user === otherId || r.user?._id === otherId,
+              )
+            ) {
+              msg._read = true;
             }
           } else {
-            if (incoming.readBy?.some((r) => r.user === userInfo?._id || r.user?._id === userInfo?._id)) {
-              realMsg._read = true;
+            if (
+              incoming.readBy?.some(
+                (r) =>
+                  r.user === userInfo?._id || r.user?._id === userInfo?._id,
+              )
+            ) {
+              msg._read = true;
             }
           }
-          next[tempIdx] = realMsg;
-          return;
-        }
-
-        // 3. It's a new message from someone else or our own that wasn't optimistically added
-        const msg = {
-          ...incoming,
-          _sent: true,
-          _pending: false,
-          _failed: false,
-          _delivered: true,
-          _read: false,
-        };
-        if (isOwn) {
-          const otherId = otherParticipant?._id;
-          if (otherId && incoming.readBy?.some((r) => r.user === otherId || r.user?._id === otherId)) {
-            msg._read = true;
-          }
-        } else {
-          if (incoming.readBy?.some((r) => r.user === userInfo?._id || r.user?._id === userInfo?._id)) {
-            msg._read = true;
-          }
-        }
-        if (!mutated) next = [...next];
-        mutated = true;
-        next.push(msg);
+          if (!mutated) next = [...next];
+          mutated = true;
+          next.push(msg);
+        });
+        return mutated ? next : prev;
       });
-      return mutated ? next : prev;
-    });
-  },
-  [userInfo?._id, otherParticipant?._id],
-);
+    },
+    [userInfo?._id, otherParticipant?._id],
+  );
 
   useEffect(() => {
     if (messagesData?.messages && messagesData.messages.length > 0) {
       const firstMsg = messagesData.messages[0];
-      const msgChatId = typeof firstMsg.chat === "string" ? firstMsg.chat : firstMsg.chat?._id;
+      const msgChatId =
+        typeof firstMsg.chat === "string" ? firstMsg.chat : firstMsg.chat?._id;
       if (msgChatId && msgChatId !== chatId) return;
       mergeMessagesIntoState(messagesData.messages);
     }
@@ -1608,7 +1763,11 @@ const GeneralChatId = () => {
       );
     };
 
-    const handleUserStatusChange = ({ userId, online, chatId: statusChatId }) => {
+    const handleUserStatusChange = ({
+      userId,
+      online,
+      chatId: statusChatId,
+    }) => {
       if (statusChatId !== chatId) return;
       if (userId === otherParticipant?._id) {
         setOtherUserOnline(online);
@@ -1627,20 +1786,26 @@ const GeneralChatId = () => {
       socket.off("message-read", handleMessageRead);
       socket.off("user-status-changed", handleUserStatusChange);
     };
-  }, [socket, isConnected, chatId, mergeMessagesIntoState, otherParticipant?._id]);
+  }, [
+    socket,
+    isConnected,
+    chatId,
+    mergeMessagesIntoState,
+    otherParticipant?._id,
+  ]);
 
   // ─── Auto-refresh polling ──────────────────────────────────────
   useEffect(() => {
-  if (!chatId) return;
-  const interval = setInterval(() => {
-    if (!isConnected) {
-      // socket is down — poll as a fallback until it reconnects
-      refetchMessages();
-      refetchChats();
-    }
-  }, 15000); // 15s, not 3s
-  return () => clearInterval(interval);
-}, [chatId, isConnected, refetchMessages, refetchChats]);
+    if (!chatId) return;
+    const interval = setInterval(() => {
+      if (!isConnected) {
+        // socket is down — poll as a fallback until it reconnects
+        refetchMessages();
+        refetchChats();
+      }
+    }, 15000); // 15s, not 3s
+    return () => clearInterval(interval);
+  }, [chatId, isConnected, refetchMessages, refetchChats]);
 
   // ─── Mark message as read when visible ───────────────────────────
   const markMessageAsRead = useCallback(
@@ -1671,7 +1836,8 @@ const GeneralChatId = () => {
       },
       { threshold: 0.5 },
     );
-    const elements = messagesContainerRef.current.querySelectorAll("[data-message-id]");
+    const elements =
+      messagesContainerRef.current.querySelectorAll("[data-message-id]");
     elements.forEach((el) => observer.observe(el));
     return () => observer.disconnect();
   }, [localMessages, markMessageAsRead, userInfo]);
@@ -1687,7 +1853,8 @@ const GeneralChatId = () => {
 
     const senderWithName = {
       ...userInfo,
-      name: userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
+      name:
+        userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
     };
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -1731,7 +1898,9 @@ const GeneralChatId = () => {
     } catch (err) {
       // On error, mark the temporary as failed (red cross) and show error
       setLocalMessages((prev) =>
-        prev.map((m) => (m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m)),
+        prev.map((m) =>
+          m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m,
+        ),
       );
       toast.error(err?.data?.message || "Failed to send media");
     }
@@ -1742,10 +1911,12 @@ const GeneralChatId = () => {
     e.preventDefault();
     const trimmed = message.trim();
     if (!trimmed || !socket) return;
-
+    if (isSendingRef.current) return;
+    isSendingRef.current = true;
     const senderWithName = {
       ...userInfo,
-      name: userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
+      name:
+        userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
     };
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -1793,19 +1964,18 @@ const GeneralChatId = () => {
         replyToId,
       },
       (response) => {
+        isSendingRef.current = false; // 🔴 ADD THIS LINE — was missing
         if (response?.error) {
-          // Error: remove the temporary message and show toast
           setLocalMessages((prev) => prev.filter((m) => m._id !== tempId));
           toast.error(response.error);
         } else {
-          // ✅ FIX: Mark as sent and delivered immediately
           setLocalMessages((prev) =>
             prev.map((m) =>
-              m._id === tempId ? { ...m, _sent: true, _delivered: true } : m
-            )
+              m._id === tempId ? { ...m, _sent: true, _delivered: true } : m,
+            ),
           );
         }
-      }
+      },
     );
   };
 
@@ -1962,7 +2132,10 @@ const GeneralChatId = () => {
 
   const startTimer = () => {
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-    recordingTimerRef.current = setInterval(() => setRecordingTime((prev) => prev + 1), 1000);
+    recordingTimerRef.current = setInterval(
+      () => setRecordingTime((prev) => prev + 1),
+      1000,
+    );
   };
 
   const stopTimer = () => {
@@ -1975,9 +2148,11 @@ const GeneralChatId = () => {
   // Native recording
   const startNativeRecording = async () => {
     try {
-      const { value: hasPermission } = await VoiceRecorder.hasAudioRecordingPermission();
+      const { value: hasPermission } =
+        await VoiceRecorder.hasAudioRecordingPermission();
       if (!hasPermission) {
-        const { value: granted } = await VoiceRecorder.requestAudioRecordingPermission();
+        const { value: granted } =
+          await VoiceRecorder.requestAudioRecordingPermission();
         if (!granted) {
           toast.error("Microphone permission is required.");
           return;
@@ -2056,7 +2231,9 @@ const GeneralChatId = () => {
         if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: "audio/webm",
+        });
         setRecordingBlob(audioBlob);
         setShowRecordedPreview(true);
         stopTimer();
@@ -2074,10 +2251,13 @@ const GeneralChatId = () => {
       console.error("Web recording error:", err);
       let msg = "Microphone access denied";
       if (err.name === "NotAllowedError")
-        msg = "Microphone permission denied. Please grant it in system settings.";
+        msg =
+          "Microphone permission denied. Please grant it in system settings.";
       else if (err.name === "NotFoundError") msg = "No microphone found.";
-      else if (err.name === "NotReadableError") msg = "Microphone busy — please try again.";
-      else if (err.name === "AbortError") msg = "User canceled the permission prompt.";
+      else if (err.name === "NotReadableError")
+        msg = "Microphone busy — please try again.";
+      else if (err.name === "AbortError")
+        msg = "User canceled the permission prompt.";
       toast.error(msg);
       mediaRecorderRef.current = null;
     }
@@ -2152,7 +2332,9 @@ const GeneralChatId = () => {
     const formData = new FormData();
     const mimeType = isNative ? "audio/m4a" : "audio/webm";
     const extension = isNative ? "m4a" : "webm";
-    const audioFile = new File([audioBlob], `voice-note.${extension}`, { type: mimeType });
+    const audioFile = new File([audioBlob], `voice-note.${extension}`, {
+      type: mimeType,
+    });
     formData.append("media", audioFile);
     formData.append("messageType", "audio");
     formData.append("mediaDuration", recordingTime.toString());
@@ -2162,7 +2344,8 @@ const GeneralChatId = () => {
 
     const senderWithName = {
       ...userInfo,
-      name: userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
+      name:
+        userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
     };
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -2206,7 +2389,9 @@ const GeneralChatId = () => {
       toast.success("Voice note sent!");
     } catch (err) {
       setLocalMessages((prev) =>
-        prev.map((m) => (m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m)),
+        prev.map((m) =>
+          m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m,
+        ),
       );
       toast.error(err?.data?.message || "Failed to send voice note");
     }
@@ -2235,14 +2420,18 @@ const GeneralChatId = () => {
       message: "Are you sure?",
       onConfirm: async () => {
         setLocalMessages((prev) =>
-          prev.map((m) => (m._id === messageId ? { ...m, isDeleted: true } : m)),
+          prev.map((m) =>
+            m._id === messageId ? { ...m, isDeleted: true } : m,
+          ),
         );
         try {
           await deleteMessageApi(messageId).unwrap();
           toast.success("Message deleted");
         } catch (err) {
           setLocalMessages((prev) =>
-            prev.map((m) => (m._id === messageId ? { ...m, isDeleted: false } : m)),
+            prev.map((m) =>
+              m._id === messageId ? { ...m, isDeleted: false } : m,
+            ),
           );
           toast.error(err?.data?.message);
         }
@@ -2292,7 +2481,8 @@ const GeneralChatId = () => {
     setTimeout(() => inputRef.current?.focus(), 100);
   };
   const cancelReply = () => setReplyToMessage(null);
-  const handleLongPress = (message) => setActionModal({ isOpen: true, message });
+  const handleLongPress = (message) =>
+    setActionModal({ isOpen: true, message });
   const handleJumpToMessage = useCallback((messageId) => {
     const container = messagesContainerRef.current;
     if (!container) return;
@@ -2300,7 +2490,10 @@ const GeneralChatId = () => {
     if (!target) return;
     target.scrollIntoView({ behavior: "smooth", block: "center" });
     target.classList.add("ring-2", "ring-teal-400", "rounded-2xl");
-    setTimeout(() => target.classList.remove("ring-2", "ring-teal-400", "rounded-2xl"), 1200);
+    setTimeout(
+      () => target.classList.remove("ring-2", "ring-teal-400", "rounded-2xl"),
+      1200,
+    );
   }, []);
   const clearPendingMedia = () => setPendingMedia(null);
 
@@ -2316,7 +2509,9 @@ const GeneralChatId = () => {
         <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
           <FaComment className="text-4xl mb-2 opacity-30" />
           <p className="text-sm">No messages yet</p>
-          <p className="text-xs mt-1 opacity-60">Say hello to start the conversation!</p>
+          <p className="text-xs mt-1 opacity-60">
+            Say hello to start the conversation!
+          </p>
         </div>
       );
     }
@@ -2436,15 +2631,15 @@ const GeneralChatId = () => {
                       otherUserOnline === true
                         ? "text-green-500 dark:text-green-400"
                         : otherUserOnline === false
-                        ? "text-gray-500 dark:text-gray-400"
-                        : "text-gray-400 dark:text-gray-500"
+                          ? "text-gray-500 dark:text-gray-400"
+                          : "text-gray-400 dark:text-gray-500"
                     }`}
                   >
                     {otherUserOnline === true
                       ? "Online"
                       : otherUserOnline === false
-                      ? "Offline"
-                      : ""}
+                        ? "Offline"
+                        : ""}
                   </p>
                 </div>
               </div>
@@ -2515,7 +2710,9 @@ const GeneralChatId = () => {
                     <div className="flex gap-1">
                       <button
                         onClick={() => {
-                          const audio = new Audio(URL.createObjectURL(recordingBlob));
+                          const audio = new Audio(
+                            URL.createObjectURL(recordingBlob),
+                          );
                           audio.play();
                         }}
                         className="p-1 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white"
@@ -2543,7 +2740,8 @@ const GeneralChatId = () => {
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
                       <span className="text-xs text-red-600 dark:text-red-300">
-                        {recordingPaused ? "Paused" : "Recording..."} {formatTime(recordingTime)}
+                        {recordingPaused ? "Paused" : "Recording..."}{" "}
+                        {formatTime(recordingTime)}
                       </span>
                     </div>
                     <div className="flex gap-2">
@@ -2569,7 +2767,10 @@ const GeneralChatId = () => {
                   </div>
                 )}
 
-                <form onSubmit={handleSendMessage} className="flex items-end gap-2">
+                <form
+                  onSubmit={handleSendMessage}
+                  className="flex items-end gap-2"
+                >
                   <button
                     type="button"
                     onClick={() => handleFileUpload("file")}
@@ -2655,7 +2856,10 @@ const GeneralChatId = () => {
       {/* Mobile details overlay */}
       {isMobile && showDetails && (
         <>
-          <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setShowDetails(false)} />
+          <div
+            className="fixed inset-0 z-40 bg-black/40"
+            onClick={() => setShowDetails(false)}
+          />
           <div className="fixed inset-y-0 right-0 z-50 w-80 max-w-[85vw] bg-white dark:bg-[#14141a] shadow-xl border-l border-gray-200 dark:border-gray-800/60 overflow-y-auto transition-transform duration-300 ease-in-out">
             <ContactInfoPanel
               user={otherParticipant}
@@ -2687,8 +2891,12 @@ const GeneralChatId = () => {
         onClose={() => setActionModal({ isOpen: false, message: null })}
         message={actionModal.message}
         isOwn={actionModal.message?.sender?._id === userInfo?._id}
-        isStarred={actionModal.message?.starredBy?.some((id) => id === userInfo?._id)}
-        isArchived={actionModal.message?.archivedBy?.some((id) => id === userInfo?._id)}
+        isStarred={actionModal.message?.starredBy?.some(
+          (id) => id === userInfo?._id,
+        )}
+        isArchived={actionModal.message?.archivedBy?.some(
+          (id) => id === userInfo?._id,
+        )}
         onDelete={handleDeleteMessage}
         onArchive={handleArchiveMessage}
         onUnarchive={handleUnarchiveMessage}
