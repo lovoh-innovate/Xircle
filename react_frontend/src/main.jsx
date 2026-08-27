@@ -2,7 +2,6 @@
 import { StrictMode, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Provider, useSelector } from 'react-redux';
-import { PersistGate } from 'redux-persist/integration/react';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import {
   createBrowserRouter,
@@ -16,7 +15,12 @@ import toast, { Toaster } from 'react-hot-toast';
 import PreloadAppData from './components/PreloadAppData.jsx';
 
 import './index.css';
-import store, { persistor } from './store';
+// ─── CHANGED: store.js no longer exports `persistor` — no redux-persist
+// layer anymore. authSlice reads/writes localStorage synchronously and
+// directly, which is the entire persistence layer now (matches the
+// known-working reference implementation, and removes the async
+// REHYDRATE race that was overwriting a valid token with a stale one).
+import store from './store';
 
 import PrivateRoute from './components/PrivateRoute.jsx';
 import AppUpdateChecker from './components/AppUpdateChecker.jsx';
@@ -530,16 +534,6 @@ const router = createBrowserRouter([
   },
 ]);
 
-// ─── Loading screen while persisting data ──────────────────────────
-const PersistLoadingScreen = () => (
-  <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
-    <div className="flex flex-col items-center gap-4">
-      <div className="w-12 h-12 border-4 border-t-teal-600 dark:border-t-[#0d9488] border-gray-200 dark:border-gray-800 rounded-full animate-spin" />
-      <p className="text-gray-500 dark:text-gray-400 text-sm">Loading your workspace...</p>
-    </div>
-  </div>
-);
-
 // ── AppRoot ───────────────────────────────────────────────────────────
 const AppRoot = () => {
   const userInfo = useSelector((state) => state.auth?.userInfo);
@@ -557,16 +551,18 @@ const AppRoot = () => {
   );
 };
 
-// ─── Main render with PersistGate ──────────────────────────────────
+// ─── Main render — no PersistGate ──────────────────────────────────
+// authSlice's initialState reads localStorage synchronously, so
+// store.getState().auth.userInfo is correct on the very first render.
+// There's no async rehydration step left to gate behind a loading
+// screen, so AppRoot mounts directly.
 createRoot(document.getElementById('root')).render(
   <Provider store={store}>
     <StrictMode>
       <ThemeProvider>
         <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID}>
           <RefreshProvider>
-            <PersistGate loading={<PersistLoadingScreen />} persistor={persistor}>
-              <AppRoot />
-            </PersistGate>
+            <AppRoot />
           </RefreshProvider>
         </GoogleOAuthProvider>
       </ThemeProvider>

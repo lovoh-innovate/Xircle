@@ -1,5 +1,6 @@
 // src/hooks/usePushNotifications.js
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useSelector } from 'react-redux';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   getMessaging,
@@ -34,13 +35,19 @@ export const usePushNotifications = () => {
   const messagingRef = useRef(null);
   const registering = useRef(false);
 
-  // ─── FIX: vapidPublicKey as state is fine for render, but subscribe()
-  // is a stable-ish useCallback whose closure captures whatever
-  // vapidPublicKey was at creation time. A `while` loop that sleeps and
-  // re-checks that captured const can NEVER see a newer value — it's not
-  // a ref, so it never changes mid-execution no matter what React does
-  // in between awaits. We mirror the value into a ref so the loop reads
-  // live state instead of a frozen snapshot from render time. ─────────
+  // ─── FIX: this hook now has to know whether we're authenticated,
+  // because the VAPID-key query below hits a `protect`-guarded route.
+  // Without this, useGetVapidPublicKeyQuery fired as soon as
+  // `isSupported` became true — completely independent of whether
+  // auth state had loaded yet. On a fresh mount that meant it went out
+  // with NO Authorization header, got a legitimate 401 "Not authorized,
+  // no user token" back, and that message correctly matches
+  // AUTH_INVALID_MESSAGES in apiSlice.js — so logout() fired for real,
+  // wiping the actual session token that landed a moment later. Not a
+  // false 401, a real one — just fired too early, before it should
+  // have been asked at all. ───────────────────────────────────────────
+  const token = useSelector((state) => state.auth.userInfo?.token);
+
   const vapidPublicKeyRef = useRef(null);
   useEffect(() => {
     vapidPublicKeyRef.current = vapidPublicKey;
@@ -52,18 +59,15 @@ export const usePushNotifications = () => {
     isError: vapidQueryError,
     refetch: refetchVapidKey,
   } = useGetVapidPublicKeyQuery(undefined, {
-    skip: !isSupported,
+    // ─── FIX: don't fire until we actually have a token, not just
+    // when the browser says push is supported.
+    skip: !isSupported || !token,
   });
   const [registerSubscription] = useRegisterWebPushMutation();
 
-  // ─── FIX: this was previously never returned from the hook at all,
-  // so Settings.jsx's `vapidKeyError` was always undefined — the
-  // warning banner never rendered and pushAvailable never accounted
-  // for it. True when: the endpoint request failed (network/auth/500),
-  // OR it succeeded but came back without a usable key (e.g. the
-  // controller's 503 "not configured" response, or a malformed body).
   const vapidKeyError =
     isSupported &&
+    !!token &&
     !vapidLoading &&
     (vapidQueryError || (vapidData !== undefined && !vapidData?.data?.publicKey));
 
@@ -80,17 +84,14 @@ export const usePushNotifications = () => {
       if (supported) {
         messagingRef.current = getMessaging(firebaseApp);
         setPermission(Notification.permission);
-        // Check for existing token in localStorage
         const stored = localStorage.getItem('webFcmToken');
         if (stored && Notification.permission === 'granted') {
           setFcmToken(stored);
           setIsSubscribed(true);
-          // Optionally re‑send token to server to be safe
           registerSubscription({ token: stored, deviceType: 'web' })
             .unwrap()
             .catch(err => console.warn('Re‑register existing token failed:', err));
         }
-        // Listen to foreground messages
         onMessage(messagingRef.current, (payload) => {
           console.log('📩 Web push received in foreground:', payload);
           window.dispatchEvent(
@@ -118,14 +119,20 @@ export const usePushNotifications = () => {
       return false;
     }
 
+    // ─── FIX: don't even attempt this without a token — avoids the
+    // same premature-request problem inside subscribe()'s own retry
+    // loop, and gives a clear reason in the console instead of a
+    // silent 6-second timeout.
+    if (!token) {
+      console.warn('No auth token yet — refusing to subscribe to push');
+      return false;
+    }
+
     if (registering.current) {
       console.log('Already registering, skipping');
       return false;
     }
 
-    // Wait for VAPID key if not available — now polls the REF (live
-    // value), not the closed-over state variable, so it actually has a
-    // chance of seeing the key land mid-wait instead of always failing.
     if (!vapidPublicKeyRef.current) {
       console.warn('Waiting for VAPID key...');
       let retries = 0;
@@ -139,20 +146,17 @@ export const usePushNotifications = () => {
       }
     }
 
-    // If already subscribed, just send the token again (in case server lost it)
     if (isSubscribed && fcmToken) {
       try {
         await registerSubscription({ token: fcmToken, deviceType: 'web' }).unwrap();
         return true;
       } catch (e) {
         console.warn('Resubscription with existing token failed, will re-register');
-        // fall through
       }
     }
 
     registering.current = true;
     try {
-      // 1. Request permission if needed
       let perm = Notification.permission;
       if (perm === 'default') {
         perm = await Notification.requestPermission();
@@ -164,33 +168,28 @@ export const usePushNotifications = () => {
       }
       setPermission('granted');
 
-      // 2. Get service worker registration
       const registration = await navigator.serviceWorker.ready;
 
-      // 3. Get FCM token
-      const token = await getToken(messagingRef.current, {
+      const fcmTok = await getToken(messagingRef.current, {
         vapidKey: vapidPublicKeyRef.current,
         serviceWorkerRegistration: registration,
       });
 
-      if (!token) {
+      if (!fcmTok) {
         console.warn('No registration token received');
         return false;
       }
 
-      // 4. Store locally
-      setFcmToken(token);
-      localStorage.setItem('webFcmToken', token);
+      setFcmToken(fcmTok);
+      localStorage.setItem('webFcmToken', fcmTok);
       setIsSubscribed(true);
 
-      // 5. Send token to server
-      await registerSubscription({ token, deviceType: 'web' }).unwrap();
+      await registerSubscription({ token: fcmTok, deviceType: 'web' }).unwrap();
       console.log('✅ Web push registered successfully');
 
       return true;
     } catch (error) {
       console.error('Web push subscription error:', error);
-      // If it failed, clear local state to avoid confusion
       setFcmToken(null);
       localStorage.removeItem('webFcmToken');
       setIsSubscribed(false);
@@ -198,7 +197,7 @@ export const usePushNotifications = () => {
     } finally {
       registering.current = false;
     }
-  }, [isSupported, isSubscribed, fcmToken, registerSubscription]);
+  }, [isSupported, token, isSubscribed, fcmToken, registerSubscription]);
 
   // ─── Unsubscribe ──────────────────────────────────────────────────
   const unsubscribe = useCallback(async () => {

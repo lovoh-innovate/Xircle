@@ -11,7 +11,6 @@ import {
 import { logout, setCredentials } from '../slices/authSlice';
 import { apiSlice } from '../slices/apiSlice';
 import { toast } from 'react-hot-toast';
-import { persistor } from '../store';
 import {
   FaArrowLeft,
   FaEdit,
@@ -46,11 +45,15 @@ const Profile = () => {
 
   // When fresh user data arrives, update Redux store
   useEffect(() => {
-    if (freshUser) {
-      // Merge fresh data into Redux (including createdAt)
-      dispatch(setCredentials(freshUser));
-    }
-  }, [freshUser, dispatch]);
+  if (freshUser) {
+    dispatch(
+      setCredentials({
+        ...freshUser,
+        token: userInfo?.token,
+      })
+    );
+  }
+}, [freshUser, userInfo?.token, dispatch]);
 
   // Local form state for editing
   const [formData, setFormData] = useState({
@@ -134,7 +137,6 @@ const Profile = () => {
       console.warn('Server logout failed, continuing with local cleanup:', err);
     } finally {
       dispatch(logout());
-      await persistor.purge();
       dispatch(apiSlice.util.resetApiState());
       localStorage.clear();
       sessionStorage.clear();

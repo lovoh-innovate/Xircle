@@ -28,7 +28,6 @@ import {
   FaSignOutAlt,
   FaExclamationTriangle,
 } from 'react-icons/fa';
-import { persistor } from '../store';
 
 const LOGO = '/logo.jpeg';
 
@@ -78,7 +77,6 @@ const GeneralSidebar = () => {
   const handleLogout = async () => {
     try {
       dispatch(logout());
-      await persistor.purge();
       dispatch(apiSlice.util.resetApiState());
       localStorage.clear();
       sessionStorage.clear();
