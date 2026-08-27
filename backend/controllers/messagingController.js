@@ -218,23 +218,6 @@ export const createGroupChat = async (req, res) => {
       }
     }
 
-    // If no memberIds provided, fallback to adding all active members
-    if (memberIds.length === 0) {
-      for (const member of workspace.members) {
-        const mid = member.user.toString();
-        if (mid !== userId && member.status === 'active') {
-          participants.push({
-            user: mid,
-            role: 'member',
-            joinedAt: new Date(),
-            online: false,
-            lastSeen: new Date(),
-          });
-          addedUsers.push(mid);
-        }
-      }
-    }
-
     let avatarUrl = avatarFile ? avatarFile.path : null;
 
     const chat = await Chat.create({

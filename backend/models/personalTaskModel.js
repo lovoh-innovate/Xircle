@@ -90,6 +90,20 @@ const personalTaskSchema = new mongoose.Schema(
         title: { type: String, required: true },
         done: { type: Boolean, default: false },
         dueDate: Date,
+        // ─── Sub‑task recurrence ─────────────────────────────
+        recurrenceType: {
+          type: String,
+          enum: ['none', 'daily', 'weekly'],
+          default: 'none',
+        },
+        recurrenceDays: {
+          type: [Number], // 0=Sunday, 6=Saturday; used only for weekly
+          default: [],
+        },
+        recurrenceEndDate: {
+          type: Date,
+          default: null,
+        },
       },
     ],
     notes: {

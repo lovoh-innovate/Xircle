@@ -15,6 +15,11 @@ import {
   // we'll add a reorder mutation later; for now we assume it exists
   // useReorderPersonalTasksMutation,
 } from '../slices/personalTaskApiSlice';
+import {
+  useAddPersonalSubTaskMutation,
+  useTogglePersonalSubTaskMutation,
+  useDeletePersonalSubTaskMutation,
+} from '../slices/taskApiSlice';
 import toast from 'react-hot-toast';
 import {
   FaPlus,
@@ -28,22 +33,17 @@ import {
   FaEdit,
   FaTimes,
   FaCheck,
-  FaClock,
-  FaExclamationTriangle,
   FaExclamationCircle,
   FaRedo,
   FaCalendarAlt,
   FaChevronDown,
   FaChevronUp,
-  FaFilter,
   FaSortAmountDown,
   FaSortAmountUp,
-  FaCircle,
-  FaTag,
   FaAngleDown,
   FaGripVertical,
 } from 'react-icons/fa';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import GeneralSidebar from '../components/GeneralSidebar';
 import GeneralBottombar from '../components/GeneralBottombar';
 
@@ -578,7 +578,10 @@ const FolderModal = ({ isOpen, onClose, folders, onSave, onDelete, isLoading }) 
   );
 };
 
-// ─── Task Card - with drag handle ───────────────────────────────────
+// ─── Task Card ────────────────────────────────────────────────────
+// Collapsed by default: only drag handle, checkbox, title row, chevron.
+// Everything else — description, dates, subtasks, action icons — lives
+// behind the chevron so only one card's worth of info shows at a time.
 const TaskCard = React.memo(({
   task,
   onEdit,
@@ -586,6 +589,9 @@ const TaskCard = React.memo(({
   onRestore,
   onDelete,
   onStatusToggle,
+  onAddSubtask,
+  onToggleSubtask,
+  onDeleteSubtask,
   onDragStart,
   onDragOver,
   onDrop,
@@ -593,13 +599,7 @@ const TaskCard = React.memo(({
   isDragging,
 }) => {
   const [expanded, setExpanded] = useState(false);
-
-  const priorityColors = {
-    low: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
-    medium: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400',
-    high: 'bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400',
-    urgent: 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
-  };
+  const [newSubtask, setNewSubtask] = useState('');
 
   const priorityDots = {
     low: 'bg-blue-400',
@@ -622,6 +622,14 @@ const TaskCard = React.memo(({
   };
 
   const isOverdue = task.dueDate && new Date(task.dueDate) < new Date() && task.status !== 'completed';
+  const subtasks = task.subtasks || [];
+
+  const handleAddSubtaskSubmit = (e) => {
+    e.preventDefault();
+    if (!newSubtask.trim()) return;
+    onAddSubtask(task._id, newSubtask.trim());
+    setNewSubtask('');
+  };
 
   return (
     <div
@@ -633,16 +641,16 @@ const TaskCard = React.memo(({
       className={`bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-[#1e1e1e] transition-colors ${isDragging ? 'opacity-50' : ''}`}
     >
       <div className="px-3 sm:px-4 py-3">
-        <div className="flex items-start gap-3">
+        <div className="flex items-center gap-3">
           {/* Drag handle */}
-          <div className="cursor-grab active:cursor-grabbing text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 transition p-0.5 mt-0.5">
+          <div className="cursor-grab active:cursor-grabbing text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 transition p-0.5 flex-shrink-0">
             <FaGripVertical className="text-sm" />
           </div>
 
-          {/* Status toggle */}
+          {/* Status checkbox — checked when the task is done */}
           <button
             onClick={() => onStatusToggle(task._id, task.status === 'completed' ? 'pending' : 'completed')}
-            className={`mt-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition ${
+            className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition ${
               task.status === 'completed'
                 ? 'bg-teal-500 border-teal-500 text-white'
                 : 'border-gray-300 dark:border-gray-600 hover:border-teal-500'
@@ -651,25 +659,41 @@ const TaskCard = React.memo(({
             {task.status === 'completed' && <FaCheck className="text-[10px]" />}
           </button>
 
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h3 className={`font-medium text-sm text-gray-800 dark:text-white truncate ${task.status === 'completed' ? 'line-through text-gray-400 dark:text-gray-500' : ''}`}>
-                {task.title}
-              </h3>
-              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${priorityDots[task.priority] || 'bg-gray-400'}`} />
-              {task.recurrenceType && task.recurrenceType !== 'none' && (
-                <span className="flex-shrink-0 text-[10px] text-teal-500 dark:text-teal-400">
-                  <FaRedo className="inline mr-0.5 text-[9px]" /> {task.recurrenceType === 'daily' ? 'Daily' : 'Weekly'}
-                </span>
-              )}
-              {isOverdue && (
-                <span className="flex-shrink-0 text-[10px] text-red-500">
-                  <FaExclamationCircle className="inline mr-0.5 text-[9px]" /> Overdue
-                </span>
-              )}
-            </div>
+          {/* Title row — collapsed default view */}
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="flex-1 min-w-0 flex items-center gap-2 text-left"
+          >
+            <span className={`font-medium text-sm text-gray-800 dark:text-white truncate ${task.status === 'completed' ? 'line-through text-gray-400 dark:text-gray-500' : ''}`}>
+              {task.title}
+            </span>
+            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${priorityDots[task.priority] || 'bg-gray-400'}`} />
+            {task.recurrenceType && task.recurrenceType !== 'none' && (
+              <FaRedo className="flex-shrink-0 text-[9px] text-teal-500 dark:text-teal-400" />
+            )}
+            {isOverdue && (
+              <FaExclamationCircle className="flex-shrink-0 text-[9px] text-red-500" />
+            )}
+            {subtasks.length > 0 && (
+              <span className="flex-shrink-0 text-[10px] text-gray-400 dark:text-gray-500">
+                {subtasks.filter((st) => st.done).length}/{subtasks.length}
+              </span>
+            )}
+          </button>
 
-            <div className="flex flex-wrap items-center gap-2 mt-1">
+          {/* Chevron — reveals everything else */}
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-white transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 flex-shrink-0"
+          >
+            {expanded ? <FaChevronUp className="text-xs" /> : <FaChevronDown className="text-xs" />}
+          </button>
+        </div>
+
+        {expanded && (
+          <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800 space-y-3 pl-8">
+            {/* ── Basic details ── */}
+            <div className="flex flex-wrap items-center gap-2">
               <span className={`text-[10px] font-medium ${statusColors[task.status] || 'text-gray-500'}`}>
                 {task.status === 'in-progress' ? 'In Progress' : task.status.charAt(0).toUpperCase() + task.status.slice(1)}
               </span>
@@ -686,12 +710,78 @@ const TaskCard = React.memo(({
             </div>
 
             {task.description && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5 line-clamp-2">
-                {task.description}
-              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{task.description}</p>
             )}
 
-            <div className="flex items-center gap-0.5 mt-2">
+            {task.dailyReminderTime && (
+              <div className="text-xs">
+                <span className="font-medium text-gray-600 dark:text-gray-400">Daily reminder:</span>{' '}
+                <span className="text-gray-500 dark:text-gray-400">{task.dailyReminderTime}</span>
+              </div>
+            )}
+
+            {task.recurrenceType !== 'none' && (
+              <div className="text-xs">
+                <span className="font-medium text-gray-600 dark:text-gray-400">Recurrence:</span>{' '}
+                <span className="text-gray-500 dark:text-gray-400">
+                  {task.recurrenceType === 'daily' ? 'Daily' : `Weekly on ${task.recurrenceDays?.map(d => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d]).join(', ')}`}
+                </span>
+                {task.recurrenceEndDate && (
+                  <span className="text-gray-400 dark:text-gray-500 ml-1">until {formatDate(task.recurrenceEndDate)}</span>
+                )}
+              </div>
+            )}
+
+            {/* ── Subtasks ── */}
+            <div>
+              <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Subtasks</span>
+              <ul className="mt-1 space-y-1">
+                {subtasks.map((st, idx) => (
+                  <li key={idx} className="flex items-center gap-2">
+                    <button
+                      onClick={() => onToggleSubtask(task._id, idx, st.done)}
+                      className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition ${
+                        st.done
+                          ? 'bg-teal-500 border-teal-500 text-white'
+                          : 'border-gray-300 dark:border-gray-600 hover:border-teal-500'
+                      }`}
+                    >
+                      {st.done && <FaCheck className="text-[8px]" />}
+                    </button>
+                    <span className={`text-xs flex-1 truncate ${st.done ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-700 dark:text-gray-300'}`}>
+                      {st.title}
+                    </span>
+                    <button
+                      onClick={() => onDeleteSubtask(task._id, idx)}
+                      className="text-gray-300 dark:text-gray-600 hover:text-red-500 transition flex-shrink-0"
+                    >
+                      <FaTimes className="text-[10px]" />
+                    </button>
+                  </li>
+                ))}
+                {subtasks.length === 0 && (
+                  <li className="text-xs text-gray-400 dark:text-gray-500">No subtasks yet</li>
+                )}
+              </ul>
+              <form onSubmit={handleAddSubtaskSubmit} className="flex gap-2 mt-2">
+                <input
+                  type="text"
+                  value={newSubtask}
+                  onChange={(e) => setNewSubtask(e.target.value)}
+                  placeholder="Add subtask..."
+                  className="flex-1 px-3 py-1.5 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-lg text-xs text-gray-800 dark:text-white placeholder-gray-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none"
+                />
+                <button
+                  type="submit"
+                  className="px-2.5 py-1.5 bg-teal-600 dark:bg-teal-500 text-white rounded-lg hover:bg-teal-700 dark:hover:bg-teal-600 transition flex-shrink-0"
+                >
+                  <FaPlus className="text-[10px]" />
+                </button>
+              </form>
+            </div>
+
+            {/* ── Actions ── */}
+            <div className="flex items-center gap-0.5">
               <button
                 onClick={() => onEdit(task)}
                 className="p-1.5 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
@@ -723,53 +813,7 @@ const TaskCard = React.memo(({
               >
                 <FaTrashAlt className="text-xs" />
               </button>
-              <button
-                onClick={() => setExpanded(!expanded)}
-                className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-white transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 ml-auto"
-              >
-                {expanded ? <FaChevronUp className="text-xs" /> : <FaChevronDown className="text-xs" />}
-              </button>
             </div>
-          </div>
-        </div>
-
-        {expanded && (
-          <div className="mt-2 pt-2 border-t border-gray-100 dark:border-gray-800 space-y-1.5">
-            {task.dueDate && (
-              <div className="text-xs">
-                <span className="font-medium text-gray-600 dark:text-gray-400">Due:</span>{' '}
-                <span className="text-gray-500 dark:text-gray-400">{formatDate(task.dueDate)}</span>
-              </div>
-            )}
-            {task.dailyReminderTime && (
-              <div className="text-xs">
-                <span className="font-medium text-gray-600 dark:text-gray-400">Daily reminder:</span>{' '}
-                <span className="text-gray-500 dark:text-gray-400">{task.dailyReminderTime}</span>
-              </div>
-            )}
-            {task.recurrenceType !== 'none' && (
-              <div className="text-xs">
-                <span className="font-medium text-gray-600 dark:text-gray-400">Recurrence:</span>{' '}
-                <span className="text-gray-500 dark:text-gray-400">
-                  {task.recurrenceType === 'daily' ? 'Daily' : `Weekly on ${task.recurrenceDays?.map(d => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d]).join(', ')}`}
-                </span>
-                {task.recurrenceEndDate && (
-                  <span className="text-gray-400 dark:text-gray-500 ml-1">until {formatDate(task.recurrenceEndDate)}</span>
-                )}
-              </div>
-            )}
-            {task.subtasks && task.subtasks.length > 0 && (
-              <div className="mt-1">
-                <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Subtasks:</span>
-                <ul className="list-disc list-inside text-xs text-gray-500 dark:text-gray-400">
-                  {task.subtasks.map((st, idx) => (
-                    <li key={idx} className={st.done ? 'line-through text-gray-400' : ''}>
-                      {st.title} {st.done && '✅'}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
           </div>
         )}
       </div>
@@ -821,15 +865,18 @@ const PersonalTasks = () => {
   const [updateFolder, { isLoading: isUpdatingFolder }] = useUpdatePersonalFolderMutation();
   const [deleteFolder, { isLoading: isDeletingFolder }] = useDeletePersonalFolderMutation();
 
+  // ─── Subtask mutations ──────────────────────────────────────────────
+  const [addSubtask] = useAddPersonalSubTaskMutation();
+  const [toggleSubtask] = useTogglePersonalSubTaskMutation();
+  const [deleteSubtaskMutation] = useDeletePersonalSubTaskMutation();
+
   const [confirmDelete, setConfirmDelete] = useState(null);
 
   // ─── Local state for optimistic reordering ──────────────────────────
   const [localTasks, setLocalTasks] = useState([]);
-  const [isReordering, setIsReordering] = useState(false);
 
   // ─── Drag state ─────────────────────────────────────────────────────
   const [draggedId, setDraggedId] = useState(null);
-  const [dragOverId, setDragOverId] = useState(null);
 
   // ─── Update local tasks when server data arrives ──────────────────
   useEffect(() => {
@@ -933,6 +980,34 @@ const PersonalTasks = () => {
     }
   }, [deleteFolder, refetchFolders, refetchTasks]);
 
+  // ─── Subtask handlers ────────────────────────────────────────────
+  const handleAddSubtask = useCallback(async (taskId, title) => {
+    try {
+      await addSubtask({ taskId, data: { title } }).unwrap();
+      refetchTasks();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to add subtask');
+    }
+  }, [addSubtask, refetchTasks]);
+
+  const handleToggleSubtask = useCallback(async (taskId, subTaskIndex, currentDone) => {
+    try {
+      await toggleSubtask({ taskId, subTaskIndex, done: !currentDone }).unwrap();
+      refetchTasks();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to update subtask');
+    }
+  }, [toggleSubtask, refetchTasks]);
+
+  const handleDeleteSubtask = useCallback(async (taskId, subTaskIndex) => {
+    try {
+      await deleteSubtaskMutation({ taskId, subTaskIndex }).unwrap();
+      refetchTasks();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to delete subtask');
+    }
+  }, [deleteSubtaskMutation, refetchTasks]);
+
   // ─── Drag‑and‑drop handlers ────────────────────────────────────────
   const handleDragStart = useCallback((e, taskId) => {
     setDraggedId(taskId);
@@ -940,67 +1015,49 @@ const PersonalTasks = () => {
     e.dataTransfer.setData('text/plain', taskId);
   }, []);
 
-  const handleDragOver = useCallback((e, taskId) => {
+  const handleDragOver = useCallback((e) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    if (draggedId && draggedId !== taskId) {
-      setDragOverId(taskId);
-    }
-  }, [draggedId]);
-
-  const handleDragLeave = useCallback(() => {
-    setDragOverId(null);
   }, []);
 
   const handleDrop = useCallback(async (e, targetId) => {
     e.preventDefault();
     const sourceId = e.dataTransfer.getData('text/plain') || draggedId;
-    setDragOverId(null);
     setDraggedId(null);
 
     if (!sourceId || sourceId === targetId) return;
 
-    // ── Find indices ──
     const sourceIndex = localTasks.findIndex(t => t._id === sourceId);
     const targetIndex = localTasks.findIndex(t => t._id === targetId);
     if (sourceIndex === -1 || targetIndex === -1) return;
 
-    // ── Build new order ──
     const newOrder = [...localTasks];
     const [moved] = newOrder.splice(sourceIndex, 1);
     newOrder.splice(targetIndex, 0, moved);
     const orderedIds = newOrder.map(t => t._id);
 
-    // ── Optimistic UI update ──
     setLocalTasks(newOrder);
 
-    // ── Persist reorder via backend (assuming an `order` field exists) ──
     try {
-      // We'll send the new order by updating each task's `order` field
-      // This is a placeholder – ideally you'd have a dedicated reorder endpoint.
-      // For now, we'll loop through the new order and update each task.
-      // In a production app, you'd call a single endpoint like `reorderPersonalTasks`.
       const updatePromises = orderedIds.map((id, index) =>
         updateTask({ taskId: id, data: { order: index } }).unwrap()
       );
       await Promise.all(updatePromises);
       toast.success('Tasks reordered');
-      refetchTasks(); // sync with server
+      refetchTasks();
     } catch (err) {
       toast.error('Failed to reorder tasks');
-      setLocalTasks(tasks); // revert
+      setLocalTasks(tasks);
     }
   }, [draggedId, localTasks, tasks, updateTask, refetchTasks]);
 
   const handleDragEnd = useCallback(() => {
     setDraggedId(null);
-    setDragOverId(null);
   }, []);
 
   // ─── Memoised filtered and sorted tasks ────────────────────────────
   const displayedTasks = useMemo(() => {
     let filtered = localTasks.filter(task => {
-      // Filter by folder if not 'all'
       if (filters.folderId && task.folder?._id !== filters.folderId) return false;
       if (filters.status && task.status !== filters.status) return false;
       if (filters.priority && task.priority !== filters.priority) return false;
@@ -1009,12 +1066,10 @@ const PersonalTasks = () => {
       return true;
     });
 
-    // Sort by due date (or by order if available)
     filtered.sort((a, b) => {
       const orderA = a.order !== undefined ? a.order : 0;
       const orderB = b.order !== undefined ? b.order : 0;
       if (orderA !== orderB) return orderA - orderB;
-      // fallback to due date
       const dateA = a.dueDate ? new Date(a.dueDate) : new Date(8640000000000000);
       const dateB = b.dueDate ? new Date(b.dueDate) : new Date(8640000000000000);
       return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
@@ -1080,7 +1135,6 @@ const PersonalTasks = () => {
 
             {/* ─── Folder Tabs (Chrome-style) ───────────────────── */}
             <div className="px-3 pb-1 flex items-center gap-1 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-700">
-              {/* "All" tab */}
               <div
                 onClick={handleAllTabClick}
                 className={`flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-t-lg cursor-pointer transition ${
@@ -1092,7 +1146,6 @@ const PersonalTasks = () => {
                 All
               </div>
 
-              {/* Folder tabs */}
               {folders.map((folder) => (
                 <div
                   key={folder._id}
@@ -1111,7 +1164,6 @@ const PersonalTasks = () => {
                 </div>
               ))}
 
-              {/* "+" to create folder */}
               <button
                 onClick={() => setShowFolderModal(true)}
                 className="flex-shrink-0 p-1 text-gray-400 hover:text-teal-500 transition rounded-full hover:bg-gray-100 dark:hover:bg-[#2a2a2a]"
@@ -1119,7 +1171,6 @@ const PersonalTasks = () => {
                 <FaPlus className="text-xs" />
               </button>
 
-              {/* "Archived" tab */}
               <div
                 onClick={handleArchivedTabClick}
                 className={`flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-t-lg cursor-pointer transition ${
@@ -1154,6 +1205,9 @@ const PersonalTasks = () => {
                   onRestore={handleRestore}
                   onDelete={handleDelete}
                   onStatusToggle={handleStatusToggle}
+                  onAddSubtask={handleAddSubtask}
+                  onToggleSubtask={handleToggleSubtask}
+                  onDeleteSubtask={handleDeleteSubtask}
                   onDragStart={handleDragStart}
                   onDragOver={handleDragOver}
                   onDrop={handleDrop}

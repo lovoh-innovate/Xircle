@@ -1385,7 +1385,7 @@ export const EditTaskModal = React.memo(({ isOpen, onClose, task, brandColor, as
   const removeNew = (i) => setAttachments(prev => prev.filter((_, idx) => idx !== i));
   const removeExisting = (i) => setExistingAttachments(prev => prev.filter((_, idx) => idx !== i));
 
-  const handleSubmit = async (e) => {
+    const handleSubmit = async (e) => {
     e.preventDefault();
     if (!title.trim()) { toast.error('Title required'); return; }
     setLoading(true);
@@ -1395,17 +1395,18 @@ export const EditTaskModal = React.memo(({ isOpen, onClose, task, brandColor, as
       fd.append('description', description.trim());
       fd.append('priority', priority);
       fd.append('status', status);
+      fd.append('assigneeId', assigneeId || '');
       fd.append('estimatedHours', estimatedHours || '');
       fd.append('bufferTime', bufferTime.toString());
       fd.append('allowAssigneeEditSubtasks', allowAssigneeEditSubtasks ? 'true' : 'false');
-      if (startDate) fd.append('startDate', startDate);
-      if (dueDate) fd.append('dueDate', dueDate);
-      if (folderId) fd.append('folderId', folderId);
+      fd.append('startDate', startDate || '');
+      fd.append('dueDate', dueDate || '');
+      fd.append('folderId', folderId || '');
       fd.append('recurrenceType', recurrenceType);
       if (recurrenceType === 'weekly') {
         fd.append('recurrenceDays', JSON.stringify(recurrenceDays));
       }
-      if (recurrenceEndDate) fd.append('recurrenceEndDate', recurrenceEndDate);
+      fd.append('recurrenceEndDate', recurrenceEndDate || '');
       linksText.split('\n').map(l => l.trim()).filter(Boolean).forEach(l => fd.append('links', l));
       attachments.forEach(f => fd.append('attachments', f));
       await updateTask({ taskId: task._id, data: fd }).unwrap();

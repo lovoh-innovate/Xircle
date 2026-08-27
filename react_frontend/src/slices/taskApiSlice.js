@@ -368,7 +368,7 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // ─── Task & Sub‑task reordering (NEW) ────────────────────────
+    // ─── Task & Sub‑task reordering ────────────────────────────────
     reorderTasks: builder.mutation({
       query: ({ projectId, orderedTaskIds }) => ({
         url: `${TASKS_URL}/project/${projectId}/reorder`,
@@ -387,6 +387,66 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (result, error, { taskId }) => [
         { type: 'Task', id: taskId },
         'Task',
+      ],
+    }),
+
+    // ─── Personal sub‑tasks (NEW) ──────────────────────────────────
+    addPersonalSubTask: builder.mutation({
+      query: ({ taskId, data }) => ({
+        url: `${TASKS_URL}/personal/${taskId}/subtasks`,
+        method: 'POST',
+        body: data,
+      }),
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'Task', id: taskId },
+        { type: 'Task', id: 'MY_TASKS' },
+      ],
+    }),
+
+    updatePersonalSubTask: builder.mutation({
+      query: ({ taskId, subTaskIndex, data }) => ({
+        url: `${TASKS_URL}/personal/${taskId}/subtasks/${subTaskIndex}`,
+        method: 'PUT',
+        body: data,
+      }),
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'Task', id: taskId },
+        { type: 'Task', id: 'MY_TASKS' },
+      ],
+    }),
+
+    togglePersonalSubTask: builder.mutation({
+      query: ({ taskId, subTaskIndex, done }) => ({
+        url: `${TASKS_URL}/personal/${taskId}/subtasks/${subTaskIndex}/toggle`,
+        method: 'PATCH',
+        body: { done },
+      }),
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'Task', id: taskId },
+        { type: 'Task', id: 'MY_TASKS' },
+      ],
+    }),
+
+    deletePersonalSubTask: builder.mutation({
+      query: ({ taskId, subTaskIndex }) => ({
+        url: `${TASKS_URL}/personal/${taskId}/subtasks/${subTaskIndex}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'Task', id: taskId },
+        { type: 'Task', id: 'MY_TASKS' },
+      ],
+    }),
+
+    reorderPersonalSubTasks: builder.mutation({
+      query: ({ taskId, orderedSubTaskIndices }) => ({
+        url: `${TASKS_URL}/personal/${taskId}/subtasks/reorder`,
+        method: 'PATCH',
+        body: { orderedSubTaskIndices },
+      }),
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'Task', id: taskId },
+        { type: 'Task', id: 'MY_TASKS' },
       ],
     }),
   }),
@@ -424,7 +484,12 @@ export const {
   useDeleteFolderMutation,
   useAddFolderReadOnlyMutation,
   useRemoveFolderReadOnlyMutation,
-  // NEW
   useReorderTasksMutation,
   useReorderSubTasksMutation,
+  // Personal sub‑tasks (NEW)
+  useAddPersonalSubTaskMutation,
+  useUpdatePersonalSubTaskMutation,
+  useTogglePersonalSubTaskMutation,
+  useDeletePersonalSubTaskMutation,
+  useReorderPersonalSubTasksMutation,
 } = taskApiSlice;

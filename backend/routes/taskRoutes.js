@@ -34,11 +34,17 @@ import {
   // Folder read‑only access
   addFolderReadOnly,
   removeFolderReadOnly,
-  // New reorder endpoints
+  // Reorder endpoints
   reorderTasks,
   reorderSubTasks,
   // Urgent tasks
   getAllUrgentTasks,
+  // Personal sub‑tasks (NEW)
+  addPersonalSubTask,
+  updatePersonalSubTask,
+  togglePersonalSubTask,
+  deletePersonalSubTask,
+  reorderPersonalSubTasks,
 } from '../controllers/taskController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import upload from '../middleware/uploadMiddleware.js';
@@ -50,6 +56,13 @@ router.get('/all-urgent', protect, getAllUrgentTasks);
 
 // ── Personal tasks (already above /:taskId) ──
 router.get('/my-tasks', protect, getMyTasks);
+
+// ── Personal sub‑task endpoints (NEW — must be above /:taskId) ──
+router.post('/personal/:taskId/subtasks', protect, addPersonalSubTask);
+router.put('/personal/:taskId/subtasks/:subTaskIndex', protect, updatePersonalSubTask);
+router.patch('/personal/:taskId/subtasks/:subTaskIndex/toggle', protect, togglePersonalSubTask);
+router.delete('/personal/:taskId/subtasks/:subTaskIndex', protect, deletePersonalSubTask);
+router.patch('/personal/:taskId/subtasks/reorder', protect, reorderPersonalSubTasks);
 
 // ── Folder management (project‑scoped) ──
 router.get('/project/:projectId/folders', protect, getProjectFolders);
