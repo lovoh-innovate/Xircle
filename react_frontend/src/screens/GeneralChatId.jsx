@@ -1625,23 +1625,30 @@ const GeneralChatId = () => {
           // 2. Find a temporary message to replace
           let tempIdx = -1;
           if (isOwn) {
-            // Try to find by _tempId first (most reliable)
-            tempIdx = next.findIndex((m) => m._tempId === incoming._id);
+            // 🔴 PRIMARY: match by clientMsgId — exact, collision-proof,
+            // works even if you send the same text twice in a row.
+            if (incoming.clientMsgId) {
+              tempIdx = next.findIndex(
+                (m) => m._tempId === incoming.clientMsgId,
+              );
+            }
+            // Fallback for older in-flight messages sent before this deploy
             if (tempIdx === -1) {
-              // Fallback: find by content + timestamp for text messages
+              tempIdx = next.findIndex((m) => m._tempId === incoming._id);
+            }
+            // Last-resort fallback (kept only for pre-deploy safety net)
+            if (tempIdx === -1) {
               const incomingContent = incoming.content || "";
               const incomingTime = new Date(incoming.createdAt).getTime();
               tempIdx = next.findIndex((m) => {
                 if (!m._temp) return false;
-                // For text messages: match content and close timestamp
                 if (m.content !== undefined && m.content === incomingContent) {
                   const mTime = new Date(m.createdAt).getTime();
-                  return Math.abs(mTime - incomingTime) < 10000; // 10s window
+                  return Math.abs(mTime - incomingTime) < 10000;
                 }
-                // For media messages: match mediaName and close timestamp
                 if (m.mediaName && m.mediaName === incoming.mediaName) {
                   const mTime = new Date(m.createdAt).getTime();
-                  return Math.abs(mTime - incomingTime) < 20000; // 20s window
+                  return Math.abs(mTime - incomingTime) < 20000;
                 }
                 return false;
               });
@@ -1982,7 +1989,7 @@ const GeneralChatId = () => {
         messageType: "text",
         mentions: [],
         replyToId,
-        clientMsgId: tempId, // ADD THIS — send it to backend for dedup (see note below)
+        clientMsgId: tempId, // ADD THIS LINE
       },
       (response) => {
         isSendingRef.current = false;
