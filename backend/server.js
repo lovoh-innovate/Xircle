@@ -29,8 +29,14 @@ import {
   startClockInScheduler,
   startAutoClockOutScheduler,
   sendMonthlyLeaderboardForAllWorkspaces,
-  closeAllOpenRecordsFromPreviousDays,   // 👈 new import
+  // closeAllOpenRecordsFromPreviousDays,   // ❌ removed – now handled separately
 } from "./controllers/clockInController.js";
+
+// 👇 New standalone cleanup script
+import {
+  startClockOutPreviousDayScheduler,
+  runClockOutPreviousDayForAllWorkspaces,
+} from "./scripts/clockOutPreviousDay.js";
 
 dotenv.config();
 
@@ -99,12 +105,12 @@ app.use(errorHandler);
 // ── Start server ──
 mongoose
   .connect(MONGO_URL)
-  .then(async () => {   // make the callback async to use await
+  .then(async () => {
     console.log("✅ Connected to MongoDB");
 
     // ─── 1. Startup cleanup: close all open records from previous days ──
     // This runs once, immediately, so users can clock in today.
-    await closeAllOpenRecordsFromPreviousDays();
+    await runClockOutPreviousDayForAllWorkspaces();   // 👈 new cleanup
 
     // ─── 2. Initialize Socket.io ──────────────────────────────────────
     const io = initSocket(server);
@@ -136,11 +142,15 @@ mongoose
     startClockInScheduler();
     console.log('⏰ Clock‑in reminder scheduler started.');
 
-    // ─── 6. Start auto clock‑out scheduler (includes cleanup logic) ─
+    // ─── 6. Start auto clock‑out scheduler (at closing time only) ───
     startAutoClockOutScheduler();
     console.log('⏰ Auto clock‑out scheduler started.');
 
-    // ─── 7. Schedule monthly leaderboard email (1st of month, 9 AM) ─
+    // ─── 7. Start previous‑day cleanup scheduler (10 min before clock‑in) ─
+    startClockOutPreviousDayScheduler();   // 👈 new scheduler
+    console.log('⏰ Previous‑day cleanup scheduler started.');
+
+    // ─── 8. Schedule monthly leaderboard email (1st of month, 9 AM) ─
     cron.schedule('0 9 1 * *', async () => {
       console.log('📊 Running monthly leaderboard email job...');
       try {

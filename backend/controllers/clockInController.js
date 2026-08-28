@@ -159,6 +159,11 @@ export const setClockInSettings = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const { workspaceId } = req.params;
 
+  console.log("\n🔧 [setClockInSettings] ── INCOMING REQUEST ──────────");
+  console.log("🔧 workspaceId:", workspaceId);
+  console.log("🔧 userId:", userId);
+  console.log("🔧 raw req.body:", JSON.stringify(req.body, null, 2));
+
   const {
     clockInStart,
     clockInEnd,
@@ -166,6 +171,8 @@ export const setClockInSettings = asyncHandler(async (req, res) => {
     clockInEnabled,
     autoClockoutEnabled,
   } = req.body;
+
+  console.log("🔧 destructured autoClockoutEnabled:", autoClockoutEnabled, "| typeof:", typeof autoClockoutEnabled);
 
   if (clockInStart && !TIME_REGEX.test(clockInStart)) {
     return res.status(400).json({
@@ -198,13 +205,17 @@ export const setClockInSettings = asyncHandler(async (req, res) => {
   const workspace = await Workspace.findById(workspaceId);
 
   if (!workspace) {
+    console.log("🔧 ❌ Workspace not found for id:", workspaceId);
     return res.status(404).json({
       success: false,
       message: "Workspace not found.",
     });
   }
 
+  console.log("🔧 BEFORE update — workspace.autoClockoutEnabled:", workspace.autoClockoutEnabled);
+
   if (!isManager(workspace, userId)) {
+    console.log("🔧 ❌ User is not manager (owner/admin). Blocked.");
     return res.status(403).json({
       success: false,
       message:
@@ -229,10 +240,23 @@ export const setClockInSettings = asyncHandler(async (req, res) => {
   }
 
   if (autoClockoutEnabled !== undefined) {
+    console.log("🔧 ✅ Setting workspace.autoClockoutEnabled to:", autoClockoutEnabled);
     workspace.autoClockoutEnabled = autoClockoutEnabled;
+  } else {
+    console.log("🔧 ⚠️ autoClockoutEnabled is undefined in req.body — NOT touching the field. This is why it stays unchanged if the frontend didn't send it.");
   }
 
-  await workspace.save();
+  console.log("🔧 AFTER assignment (pre-save) — workspace.autoClockoutEnabled:", workspace.autoClockoutEnabled);
+  console.log("🔧 workspace.isModified('autoClockoutEnabled'):", workspace.isModified("autoClockoutEnabled"));
+
+  const saved = await workspace.save();
+
+  console.log("🔧 AFTER save() — saved.autoClockoutEnabled:", saved.autoClockoutEnabled);
+
+  // Re-fetch fresh from DB to prove it actually persisted, not just in-memory
+  const verifyDoc = await Workspace.findById(workspaceId).select("autoClockoutEnabled").lean();
+  console.log("🔧 VERIFY — fresh read from DB:", verifyDoc.autoClockoutEnabled);
+  console.log("🔧 ── END setClockInSettings ──────────────────────\n");
 
   res.status(200).json({
     success: true,
@@ -264,6 +288,8 @@ export const getClockInSettings = asyncHandler(async (req, res) => {
       message: "Workspace not found.",
     });
   }
+
+  console.log("🔍 [getClockInSettings] returning autoClockoutEnabled:", workspace.autoClockoutEnabled);
 
   const isMember = workspace.members.some(
     (m) => m.user.toString() === userId && m.status === "active"

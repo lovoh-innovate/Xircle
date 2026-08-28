@@ -213,15 +213,15 @@ const BottomSheet = ({ isOpen, onClose, children }) => {
 };
 
 // ─── Settings Modal Content ──────────────────────────────────────────
-const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
-  const { data: settingsData, isLoading: settingsLoading, refetch: refetchSettings } = useGetClockInSettingsQuery(workspaceId);
+const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess, refetchSettings }) => {
+  const { data: settingsData, isLoading: settingsLoading, refetch: localRefetch } = useGetClockInSettingsQuery(workspaceId);
   const [setSettings, { isLoading: isSaving }] = useSetClockInSettingsMutation();
 
   const [clockInStart, setClockInStart] = useState('');
   const [clockInEnd, setClockInEnd] = useState('');
   const [closingTime, setClosingTime] = useState('');
   const [clockInEnabled, setClockInEnabled] = useState(false);
-  const [autoClockoutEnabled, setAutoClockoutEnabled] = useState(false); // new
+  const [autoClockoutEnabled, setAutoClockoutEnabled] = useState(false);
 
   useEffect(() => {
     if (settingsData?.settings) {
@@ -257,8 +257,10 @@ const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
         autoClockoutEnabled,
       }).unwrap();
       toast.success('Clock-in settings updated!');
-      await refetchSettings();
-      onSuccess();
+      // Refetch both the local and the parent's query
+      await localRefetch();
+      if (refetchSettings) await refetchSettings();
+      if (onSuccess) onSuccess();
       onClose();
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to update settings.');
@@ -602,7 +604,7 @@ const YourWorkspaceClockin = () => {
   const brandColor = workspace?.color || '#0d9488';
 
   // ─── Queries ────────────────────────────────────────────────────────
-  const { data: settingsData } = useGetClockInSettingsQuery(workspaceId);
+  const { data: settingsData, refetch: refetchSettings } = useGetClockInSettingsQuery(workspaceId);
   const clockInStart = settingsData?.settings?.clockInStart || settingsData?.settings?.clockInTime || null;
   const clockInEnd = settingsData?.settings?.clockInEnd || null;
   const closingTime = settingsData?.settings?.closingTime || null;
@@ -1056,6 +1058,7 @@ const YourWorkspaceClockin = () => {
             onSuccess={() => {
               refetchUserHistory();
             }}
+            refetchSettings={refetchSettings}
           />
         </BottomSheet>
       )}

@@ -17,11 +17,11 @@ export const clockInApiSlice = apiSlice.injectEndpoints({
     }),
 
     setClockInSettings: builder.mutation({
-      // 👇 FIX: clockOutEarliest was missing here before, so it never reached the backend
-      query: ({ workspaceId, clockInStart, clockInEnd, closingTime, clockOutEarliest, clockInEnabled }) => ({
+      // 👇 FIX: autoClockoutEnabled was missing here before, so it never reached the backend
+      query: ({ workspaceId, clockInStart, clockInEnd, closingTime, clockInEnabled, autoClockoutEnabled }) => ({
         url: `${CLOCKIN_URL}/${workspaceId}/clockin-settings`,
         method: 'PUT',
-        body: { clockInStart, clockInEnd, closingTime, clockOutEarliest, clockInEnabled },
+        body: { clockInStart, clockInEnd, closingTime, clockInEnabled, autoClockoutEnabled },
       }),
       invalidatesTags: (result, error, { workspaceId }) => [
         { type: 'ClockInSettings', id: workspaceId },

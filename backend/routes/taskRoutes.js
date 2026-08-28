@@ -16,6 +16,7 @@ import {
   deleteSubTask,
   markTaskCompleted,
   confirmTaskCompletion,
+  rejectTask,
   addComment,
   getTaskFeedback,
   sendTaskReminders,
@@ -39,7 +40,7 @@ import {
   reorderSubTasks,
   // Urgent tasks
   getAllUrgentTasks,
-  // Personal sub‑tasks (NEW)
+  // Personal sub‑tasks
   addPersonalSubTask,
   updatePersonalSubTask,
   togglePersonalSubTask,
@@ -133,8 +134,17 @@ router.delete('/:taskId/subtasks/:subTaskIndex', protect, deleteSubTask);
 router.patch('/:taskId/subtasks/reorder', protect, reorderSubTasks);
 
 // ── Main task completion flow ──
-router.patch('/:taskId/complete', protect, markTaskCompleted);
+// ✅ FIX: added upload middleware to parse multipart form data with completion attachments
+router.patch(
+  '/:taskId/complete',
+  protect,
+  upload.fields([{ name: 'completionAttachments', maxCount: 10 }]),
+  markTaskCompleted
+);
 router.patch('/:taskId/confirm-completion', protect, confirmTaskCompletion);
+
+// ── NEW: Reject task completion (manager/owner) ──
+router.post('/:taskId/reject', protect, rejectTask);  // body: { reason }
 
 // ── Reminder endpoints ──
 router.post('/reminders', protect, sendTaskReminders);

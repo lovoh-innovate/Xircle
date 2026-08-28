@@ -17,16 +17,6 @@ const isWorkspaceOwner = (workspace, userId) =>
     ? workspace.owner._id.toString() === userId
     : workspace.owner?.toString() === userId;
 
-/**
- * Check if user is workspace owner OR an active admin.
- */
-const canManageWorkspace = (workspace, userId) => {
-  if (isWorkspaceOwner(workspace, userId)) return true;
-  return workspace.members.some(
-    (m) => m.user.toString() === userId && m.role === 'Admin' && m.status === 'active'
-  );
-};
-
 const isProjectManager = (project, userId) =>
   project.projectManagers.some((pm) => {
     const id = pm._id ? pm._id.toString() : pm?.toString();
@@ -40,9 +30,11 @@ const isProjectMember = (project, userId) =>
     return memberId === userId && tm.status === 'active';
   });
 
-// Updated: workspace owner OR admin OR project manager
+// 🔥 NEW PERMISSION LOGIC: workspace owner, project creator, OR project manager
 const canManageTasks = (workspace, project, userId) =>
-  canManageWorkspace(workspace, userId) || isProjectManager(project, userId);
+  isWorkspaceOwner(workspace, userId) ||
+  (project.createdBy && project.createdBy.toString() === userId) ||
+  isProjectManager(project, userId);
 
 const getVisibleFolderIdsForUser = async (projectId, userId) => {
   const assignedFolders = await Task.distinct('folder', {
@@ -213,7 +205,6 @@ const notifyUsers = async (
 
 // ─── Task progress helpers ──────────────────────────────────────
 
-// 🔧 UPDATED: handle tasks with no sub‑tasks
 const updateTaskProgress = async (taskId, { preserveStatus = false } = {}) => {
   const task = await Task.findById(taskId);
   if (!task) return;
@@ -222,7 +213,6 @@ const updateTaskProgress = async (taskId, { preserveStatus = false } = {}) => {
 
   if (total === 0) {
     if (preserveStatus) {
-      // Respect a manually-set status; just derive a sane progress number from it
       task.progress = ['completed', 'confirmed_completed', 'ready_for_completion'].includes(task.status)
         ? 100
         : 0;
@@ -249,8 +239,6 @@ const updateTaskProgress = async (taskId, { preserveStatus = false } = {}) => {
   await task.save();
   await updateProjectProgress(task.project);
 };
-
-
 
 const updateProjectProgress = async (projectId) => {
   const project = await Project.findById(projectId);
@@ -319,7 +307,7 @@ export const createTask = async (req, res) => {
     if (!canManageTasks(workspace, project, userId)) {
       return res.status(403).json({
         success: false,
-        message: 'Only the workspace owner, admins, or project managers can create tasks.',
+        message: 'Only the workspace owner, project creator, or project managers can create tasks.',
       });
     }
 
@@ -1005,11 +993,13 @@ export const deleteSubTask = async (req, res) => {
   }
 };
 
+// ─── NEW / UPDATED: Task completion with submission form ──────────
+
 export const markTaskCompleted = async (req, res) => {
   try {
     const userId = req.user.id;
     const { taskId } = req.params;
-    const { notes } = req.body;
+    const { notes, links, attachments } = req.body;
 
     const task = await Task.findOne({ _id: taskId, isDeleted: false });
     if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
@@ -1022,6 +1012,27 @@ export const markTaskCompleted = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Task is not ready for completion.' });
     }
 
+    // Store submitted links and attachments
+    const parsedLinks = parseArrayField(links);
+    let uploadedFiles = [];
+    if (req.files && req.files.completionAttachments) {
+      uploadedFiles = normalizeAttachments(req.files.completionAttachments);
+    }
+    const attachmentUrls = parseArrayField(attachments);
+    let allAttachments = [...uploadedFiles];
+    attachmentUrls.forEach(item => {
+      if (typeof item === 'string') {
+        allAttachments.push({ url: item, name: 'Attachment' });
+      } else if (item && typeof item === 'object' && item.url) {
+        allAttachments.push(item);
+      }
+    });
+
+    task.completionNotes = notes || '';
+    task.finalLinks = parsedLinks;
+    task.finalAttachments = allAttachments;
+
+    // Recurrence handling (unchanged)
     const hasRecurrence = task.recurrenceType && task.recurrenceType !== 'none';
     if (hasRecurrence) {
       const nextDue = calculateNextDueDate(task, task.dueDate);
@@ -1029,7 +1040,6 @@ export const markTaskCompleted = async (req, res) => {
         task.status = 'completed';
         task.completedBy = userId;
         task.completedAt = new Date();
-        if (notes) task.completionNotes = notes;
         await task.save();
 
         const newTaskData = task.toObject();
@@ -1102,7 +1112,6 @@ export const markTaskCompleted = async (req, res) => {
         task.status = 'completed';
         task.completedBy = userId;
         task.completedAt = new Date();
-        if (notes) task.completionNotes = notes;
         task.recurrenceType = 'none';
         await task.save();
       }
@@ -1110,10 +1119,10 @@ export const markTaskCompleted = async (req, res) => {
       task.status = 'completed';
       task.completedBy = userId;
       task.completedAt = new Date();
-      if (notes) task.completionNotes = notes;
       await task.save();
     }
 
+    // Notify managers for confirmation
     const project = await Project.findById(task.project);
     const managerIds = project.projectManagers.map((pm) => pm.toString());
     const workspace = await Workspace.findById(project.workspace);
@@ -1124,7 +1133,7 @@ export const markTaskCompleted = async (req, res) => {
     if (recipients.length > 0) {
       notifyUsers(recipients, {
         title: `Task completed: "${task.title}"`,
-        body: `${req.user.name || 'Assignee'} marked task "${task.title}" as completed. Please confirm.`,
+        body: `${req.user.name || 'Assignee'} marked task "${task.title}" as completed. Please confirm or reject.`,
         data: {
           notificationType: 'task',
           taskId: task._id.toString(),
@@ -1149,6 +1158,8 @@ export const markTaskCompleted = async (req, res) => {
   }
 };
 
+// ─── Confirm task completion (approve) with self‑confirmation support ──
+
 export const confirmTaskCompletion = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1165,8 +1176,10 @@ export const confirmTaskCompletion = async (req, res) => {
     const project = await Project.findById(task.project);
     const workspace = await Workspace.findById(project.workspace);
 
-    if (!canManageTasks(workspace, project, userId)) {
-      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    // Self‑assignment check: allow if assignee == creator == current user
+    const isSelfAssigned = task.assignee?.toString() === userId && task.createdBy?.toString() === userId;
+    if (!canManageTasks(workspace, project, userId) && !isSelfAssigned) {
+      return res.status(403).json({ success: false, message: 'Not authorized to confirm this task.' });
     }
 
     task.status = 'confirmed_completed';
@@ -1179,7 +1192,7 @@ export const confirmTaskCompletion = async (req, res) => {
 
     await task.save();
 
-    if (task.assignee) {
+    if (task.assignee && task.assignee.toString() !== userId) {
       notifyUsers(task.assignee.toString(), {
         title: `Task completion confirmed: "${task.title}"`,
         body: `Your task "${task.title}" has been confirmed as complete by ${req.user.name}.`,
@@ -1205,6 +1218,66 @@ export const confirmTaskCompletion = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// ─── NEW: Reject task completion (decline) ──────────────────────────
+
+export const rejectTask = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { taskId } = req.params;
+    const { reason = '' } = req.body;
+
+    const task = await Task.findOne({ _id: taskId, isDeleted: false });
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
+
+    if (task.status !== 'completed') {
+      return res.status(400).json({ success: false, message: 'Task must be marked completed before rejection.' });
+    }
+
+    const project = await Project.findById(task.project);
+    const workspace = await Workspace.findById(project.workspace);
+
+    if (!canManageTasks(workspace, project, userId)) {
+      return res.status(403).json({ success: false, message: 'Not authorized to reject this task.' });
+    }
+
+    task.status = 'pending';
+    task.rejectedBy = userId;
+    task.rejectedAt = new Date();
+    task.rejectionReason = reason;
+    task.completedBy = null;
+    task.completedAt = null;
+
+    await task.save();
+
+    if (task.assignee) {
+      notifyUsers(task.assignee.toString(), {
+        title: `Task rejected: "${task.title}"`,
+        body: `Your task "${task.title}" was rejected. ${reason ? `Reason: ${reason}` : ''}`,
+        data: {
+          notificationType: 'task',
+          taskId: task._id.toString(),
+          projectId: project._id.toString(),
+          workspaceId: project.workspace.toString(),
+        },
+        emailEventType: 'taskUpdate',
+      });
+    }
+
+    const updated = await Task.findById(taskId)
+      .populate('assignee', 'name email profile')
+      .populate('createdBy', 'name email profile');
+
+    res.status(200).json({ success: true, message: 'Task rejected', task: updated });
+  } catch (error) {
+    console.error('❌ Reject task error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// Existing GET / DELETE / etc. (unchanged, permissions already use canManageTasks)
+// ─────────────────────────────────────────────────────────────────────
 
 export const getProjectTasks = async (req, res) => {
   try {
@@ -1562,6 +1635,8 @@ export const sendManualReminder = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// ─── Folder endpoints ──────────────────────────────────────────────
 
 export const createFolder = async (req, res) => {
   try {
@@ -2037,7 +2112,7 @@ export const permanentlyDeleteTrashedTasks = async () => {
 export const reorderTasks = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const { orderedTaskIds } = req.body; // array of task _ids in new order
+    const { orderedTaskIds } = req.body;
     const userId = req.user.id;
 
     const project = await Project.findById(projectId);
@@ -2047,7 +2122,6 @@ export const reorderTasks = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Not authorized' });
     }
 
-    // Update each task's order
     const updates = orderedTaskIds.map((id, index) => ({
       updateOne: { filter: { _id: id, project: projectId }, update: { $set: { order: index } } }
     }));
@@ -2063,7 +2137,7 @@ export const reorderTasks = async (req, res) => {
 export const reorderSubTasks = async (req, res) => {
   try {
     const { taskId } = req.params;
-    const { orderedSubTaskIndices } = req.body; // array of current indices (0‑based)
+    const { orderedSubTaskIndices } = req.body;
     const userId = req.user.id;
 
     const task = await Task.findOne({ _id: taskId, isDeleted: false });
@@ -2078,10 +2152,8 @@ export const reorderSubTasks = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Not authorized to reorder sub‑tasks' });
     }
 
-    // Reorder the subTasks array according to the given indices
     const newSubTasks = orderedSubTaskIndices.map(i => task.subTasks[i]);
     task.subTasks = newSubTasks;
-    // Update the order field for each sub‑task (optional, but good for consistency)
     task.subTasks.forEach((st, idx) => st.order = idx);
 
     await task.save();
@@ -2092,20 +2164,17 @@ export const reorderSubTasks = async (req, res) => {
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────
+// PERSONAL SUB‑TASK ENDPOINTS (unchanged)
+// ─────────────────────────────────────────────────────────────────────
 
-
-//Personal Subtaks..........................................
-//............................................................................................
-// ─── Personal task status helper ──────────────────────────────────
-// Derives status from subtask completion, mirroring updateTaskProgress
-// but simplified: single owner, no confirm step, no progress %.
 const updatePersonalTaskStatus = async (taskId) => {
   const task = await PersonalTask.findById(taskId);
   if (!task) return;
-  if (task.isArchived || task.isTrash) return; // don't touch archived/trashed
+  if (task.isArchived || task.isTrash) return;
 
   const total = task.subtasks.length;
-  if (total === 0) return; // nothing to derive from, leave status as-is
+  if (total === 0) return;
 
   const doneCount = task.subtasks.filter((st) => st.done).length;
   if (doneCount === total) {
@@ -2120,11 +2189,6 @@ const updatePersonalTaskStatus = async (taskId) => {
   }
   await task.save();
 };
-
-// ─────────────────────────────────────────────────────────────────────
-// ADD PERSONAL SUB‑TASK
-// POST /api/personal-tasks/:taskId/subtasks
-// ─────────────────────────────────────────────────────────────────────
 
 export const addPersonalSubTask = async (req, res) => {
   try {
@@ -2166,11 +2230,6 @@ export const addPersonalSubTask = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
-
-// ─────────────────────────────────────────────────────────────────────
-// UPDATE PERSONAL SUB‑TASK
-// PUT /api/personal-tasks/:taskId/subtasks/:subTaskIndex
-// ─────────────────────────────────────────────────────────────────────
 
 export const updatePersonalSubTask = async (req, res) => {
   try {
@@ -2217,13 +2276,6 @@ export const updatePersonalSubTask = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// TOGGLE PERSONAL SUB‑TASK DONE/UNDONE
-// PATCH /api/personal-tasks/:taskId/subtasks/:subTaskIndex/toggle
-// Body: { done?: boolean } — if omitted, flips current value.
-// If a recurring subtask is freshly marked done, spawns the next occurrence.
-// ─────────────────────────────────────────────────────────────────────
-
 export const togglePersonalSubTask = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -2246,7 +2298,6 @@ export const togglePersonalSubTask = async (req, res) => {
     const newDone = done !== undefined ? (done === true || done === 'true') : !subtask.done;
 
     if (newDone && !subtask.done) {
-      // Freshly marking as done — check for recurrence before we set it
       const hasRecurrence = subtask.recurrenceType && subtask.recurrenceType !== 'none';
       subtask.done = true;
 
@@ -2262,7 +2313,6 @@ export const togglePersonalSubTask = async (req, res) => {
             recurrenceEndDate: subtask.recurrenceEndDate,
           });
         } else {
-          // Recurrence window ended — this was the last occurrence
           subtask.recurrenceType = 'none';
         }
       }
@@ -2281,11 +2331,6 @@ export const togglePersonalSubTask = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
-
-// ─────────────────────────────────────────────────────────────────────
-// DELETE PERSONAL SUB‑TASK
-// DELETE /api/personal-tasks/:taskId/subtasks/:subTaskIndex
-// ─────────────────────────────────────────────────────────────────────
 
 export const deletePersonalSubTask = async (req, res) => {
   try {
@@ -2316,12 +2361,6 @@ export const deletePersonalSubTask = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
-
-// ─────────────────────────────────────────────────────────────────────
-// REORDER PERSONAL SUB‑TASKS
-// PUT /api/personal-tasks/:taskId/subtasks/reorder
-// Body: { orderedSubTaskIndices: number[] } — current indices in new order
-// ─────────────────────────────────────────────────────────────────────
 
 export const reorderPersonalSubTasks = async (req, res) => {
   try {
