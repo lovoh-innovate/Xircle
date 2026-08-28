@@ -1915,11 +1915,9 @@ const GeneralChatId = () => {
     setPendingMedia(null);
 
     try {
-      const result = await sendMessageApi({ chatId, data: formData }).unwrap();
-      toast.success(`${messageType === "image" ? "Image" : "File"} sent!`);
+      await sendMessageApi({ chatId, data: formData }).unwrap();
     } catch (err) {
       setLocalMessages((prev) => prev.filter((m) => m._tempId !== tempId));
-      toast.error(err?.data?.message || "Failed to send media");
     } finally {
       isSendingRef.current = false;
       setIsSending(false);
@@ -2435,11 +2433,9 @@ const GeneralChatId = () => {
     setReplyToMessage(null);
 
     try {
-      const result = await sendMessageApi({ chatId, data: formData }).unwrap();
-      toast.success("Voice note sent!");
+      await sendMessageApi({ chatId, data: formData }).unwrap();
     } catch (err) {
       setLocalMessages((prev) => prev.filter((m) => m._tempId !== tempId));
-      toast.error(err?.data?.message || "Failed to send voice note");
     } finally {
       isSendingRef.current = false;
       setIsSending(false);
