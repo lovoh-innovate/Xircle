@@ -9,6 +9,7 @@ import {
   FaCheckDouble, FaBell, FaCalendarAlt, FaCommentDots,
   FaUserLock, FaFolderOpen, FaTrashRestore, FaArchive, FaUndo,
   FaCopy, FaPen, FaLock, FaLockOpen, FaTasks, FaChartLine,
+  FaCamera,
 } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 import {
@@ -20,6 +21,7 @@ import {
   useDeleteSubTaskMutation,
 } from '../slices/taskApiSlice';
 import { useAddTeamMemberMutation } from '../slices/projectApiSlice';
+import { useMediaPicker } from '../hooks/useMediaPicker'; // <-- import custom hook
 
 // ─── Format helpers ──────────────────────────────────────────────
 export const formatDate = (date) => {
@@ -203,16 +205,8 @@ export const DeleteTaskConfirmModal = React.memo(({ isOpen, onClose, onConfirm, 
 export const MarkCompleteModal = React.memo(({ isOpen, onClose, task, brandColor, onSubmit }) => {
   const [notes, setNotes] = useState('');
   const [linksText, setLinksText] = useState('');
-  const [attachments, setAttachments] = useState([]);
+  const { files, pickMedia, setFiles } = useMediaPicker();
   const [loading, setLoading] = useState(false);
-
-  const handleFileChange = (e) => {
-    setAttachments([...e.target.files]);
-    e.target.value = '';
-  };
-  const removeFile = (index) => {
-    setAttachments(prev => prev.filter((_, i) => i !== index));
-  };
 
   const handleSubmit = async () => {
     setLoading(true);
@@ -221,12 +215,12 @@ export const MarkCompleteModal = React.memo(({ isOpen, onClose, task, brandColor
       await onSubmit({
         notes: notes.trim(),
         links,
-        attachments,
+        attachments: files,
       });
       onClose();
       setNotes('');
       setLinksText('');
-      setAttachments([]);
+      setFiles([]);
     } catch (err) {
       // error handled in parent
     } finally {
@@ -270,18 +264,19 @@ export const MarkCompleteModal = React.memo(({ isOpen, onClose, task, brandColor
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Attachments (optional)</label>
-            <input
-              type="file"
-              multiple
-              onChange={handleFileChange}
-              className="w-full text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-[#0d9488]/20 file:text-[#0d9488]"
-            />
-            {attachments.length > 0 && (
+            <button
+              type="button"
+              onClick={() => pickMedia({ multiple: true })}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 transition"
+            >
+              <FaCamera className="text-xs" /> Choose Files
+            </button>
+            {files.length > 0 && (
               <div className="mt-2 space-y-1">
-                {attachments.map((f, i) => (
+                {files.map((f, i) => (
                   <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5">
                     <span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span>
-                    <button type="button" onClick={() => removeFile(i)} className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300">
+                    <button type="button" onClick={() => setFiles(prev => prev.filter((_, idx) => idx !== i))} className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300">
                       <FaTrashAlt className="text-xs" />
                     </button>
                   </div>
@@ -313,19 +308,11 @@ export const ConfirmCompletionModal = React.memo(({
   const [feedback, setFeedback] = useState('');
   const [finalHours, setFinalHours] = useState('');
   const [finalLinksText, setFinalLinksText] = useState('');
-  const [finalAttachments, setFinalAttachments] = useState([]);
+  const { files, pickMedia, setFiles } = useMediaPicker();
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [rejectLoading, setRejectLoading] = useState(false);
   const [showReject, setShowReject] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
-
-  const handleFileChange = (e) => {
-    setFinalAttachments([...e.target.files]);
-    e.target.value = '';
-  };
-  const removeFile = (index) => {
-    setFinalAttachments(prev => prev.filter((_, i) => i !== index));
-  };
 
   const handleSubmit = async () => {
     if (typeof onSubmit !== 'function') {
@@ -339,7 +326,7 @@ export const ConfirmCompletionModal = React.memo(({
         feedback: feedback.trim(),
         finalHours: finalHours ? parseFloat(finalHours) : undefined,
         finalLinks: links.length ? links : undefined,
-        finalAttachments,
+        finalAttachments: files,
       });
       onClose();
       resetForm();
@@ -377,7 +364,7 @@ export const ConfirmCompletionModal = React.memo(({
     setFeedback('');
     setFinalHours('');
     setFinalLinksText('');
-    setFinalAttachments([]);
+    setFiles([]);
     setRejectReason('');
     setShowReject(false);
     setConfirmLoading(false);
@@ -465,18 +452,19 @@ export const ConfirmCompletionModal = React.memo(({
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Final Attachments (optional)</label>
-            <input
-              type="file"
-              multiple
-              onChange={handleFileChange}
-              className="w-full text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-[#0d9488]/20 file:text-[#0d9488]"
-            />
-            {finalAttachments.length > 0 && (
+            <button
+              type="button"
+              onClick={() => pickMedia({ multiple: true })}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 transition"
+            >
+              <FaCamera className="text-xs" /> Choose Files
+            </button>
+            {files.length > 0 && (
               <div className="mt-2 space-y-1">
-                {finalAttachments.map((f, i) => (
+                {files.map((f, i) => (
                   <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5">
                     <span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span>
-                    <button type="button" onClick={() => removeFile(i)} className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300">
+                    <button type="button" onClick={() => setFiles(prev => prev.filter((_, idx) => idx !== i))} className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300">
                       <FaTrashAlt className="text-xs" />
                     </button>
                   </div>
@@ -752,7 +740,7 @@ export const SubTaskItem = React.memo(({
   const [showDoneForm, setShowDoneForm] = useState(false);
   const [doneNotes, setDoneNotes] = useState('');
   const [doneLinks, setDoneLinks] = useState('');
-  const [doneFiles, setDoneFiles] = useState([]);
+  const { files: doneFiles, pickMedia: pickDoneFiles, setFiles: setDoneFiles } = useMediaPicker();
   const [showConfirmForm, setShowConfirmForm] = useState(false);
   const [confirmFeedback, setConfirmFeedback] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
@@ -773,7 +761,9 @@ export const SubTaskItem = React.memo(({
       await markDone({ taskId, subTaskIndex: index, data: fd }).unwrap();
       toast.success('Sub‑task marked done');
       setShowDoneForm(false);
-      setDoneNotes(''); setDoneLinks(''); setDoneFiles([]);
+      setDoneNotes('');
+      setDoneLinks('');
+      setDoneFiles([]);
       onRefresh();
     } catch (e) { toast.error(e?.data?.message || 'Failed'); }
     finally { setUpdating(false); }
@@ -879,10 +869,26 @@ export const SubTaskItem = React.memo(({
             <textarea placeholder="Add notes (optional)" value={doneNotes} onChange={(e) => setDoneNotes(e.target.value)} rows={2} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-[#0d9488] outline-none mb-2" />
             <textarea placeholder="Links (one per line)" value={doneLinks} onChange={(e) => setDoneLinks(e.target.value)} rows={2} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-[#0d9488] outline-none mb-2" />
             <div className="flex items-center gap-2 mb-2">
-              <input type="file" multiple onChange={(e) => setDoneFiles([...e.target.files])} className="text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-[#0d9488]/20 file:text-[#0d9488]" />
+              <button
+                type="button"
+                onClick={() => pickDoneFiles({ multiple: true })}
+                className="flex items-center gap-2 px-4 py-1.5 bg-gray-200 dark:bg-[#2a2a2a] hover:bg-gray-300 dark:hover:bg-gray-700 rounded-lg text-xs text-gray-700 dark:text-gray-300 transition"
+              >
+                <FaCamera className="text-xs" /> Choose Files
+              </button>
               {doneFiles.length > 0 && <span className="text-xs text-gray-500 dark:text-gray-500">{doneFiles.length} file(s)</span>}
             </div>
-            <div className="flex gap-2">
+            {doneFiles.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {doneFiles.map((f, i) => (
+                  <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5">
+                    <span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span>
+                    <button type="button" onClick={() => setDoneFiles(prev => prev.filter((_, idx) => idx !== i))} className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"><FaTrashAlt className="text-xs" /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2 mt-2">
               <button onClick={submitDone} disabled={updating} className="px-3 py-1.5 bg-[#0d9488] text-white text-xs rounded-lg hover:bg-[#0f9e96] transition">{updating ? 'Saving...' : 'Submit Done'}</button>
               <button onClick={cancelDone} className="px-3 py-1.5 bg-gray-300 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs rounded-lg hover:bg-gray-400 dark:hover:bg-gray-600 transition">Cancel</button>
             </div>
@@ -935,7 +941,7 @@ export const CreateTaskForm = React.memo(({ projectId, brandColor, assignableMem
   const [allowAssigneeEditSubtasks, setAllowAssigneeEditSubtasks] = useState(false);
   const [folderId, setFolderId] = useState(null);
   const [dailyReminderTime, setDailyReminderTime] = useState('');
-  const [attachments, setAttachments] = useState([]);
+  const { files: attachments, pickMedia, setFiles: setAttachments } = useMediaPicker();
   const [loading, setLoading] = useState(false);
   const [createTask] = useCreateTaskMutation();
   const [recurrenceType, setRecurrenceType] = useState('none');
@@ -1026,7 +1032,26 @@ export const CreateTaskForm = React.memo(({ projectId, brandColor, assignableMem
           )}
           {(recurrenceType === 'daily' || recurrenceType === 'weekly') && (<div><label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">End Date (optional)</label><input type="datetime-local" value={recurrenceEndDate} onChange={(e) => setRecurrenceEndDate(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" /></div>)}
           <div><label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Links (one per line)</label><textarea value={links} onChange={e => setLinks(e.target.value)} rows={2} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" placeholder="https://..." /></div>
-          <div><label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Attachments</label><input type="file" multiple onChange={e => setAttachments([...e.target.files])} className="text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-[#0d9488]/20 file:text-[#0d9488]" /></div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Attachments</label>
+            <button
+              type="button"
+              onClick={() => pickMedia({ multiple: true })}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 transition"
+            >
+              <FaCamera className="text-xs" /> Choose Files
+            </button>
+            {attachments.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {attachments.map((f, i) => (
+                  <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5">
+                    <span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span>
+                    <button type="button" onClick={() => setAttachments(prev => prev.filter((_, idx) => idx !== i))} className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"><FaTrashAlt className="text-xs" /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="flex items-center gap-2"><input type="checkbox" id="allowAssigneeEditSubtasks" checked={allowAssigneeEditSubtasks} onChange={e => setAllowAssigneeEditSubtasks(e.target.checked)} className="w-4 h-4 rounded border-gray-300 dark:border-gray-700 text-[#0d9488] focus:ring-[#0d9488]" /><label htmlFor="allowAssigneeEditSubtasks" className="text-xs text-gray-700 dark:text-gray-300">Allow assignee to add/edit sub‑tasks</label></div>
           <div><label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Daily Reminder Time</label><input type="time" value={dailyReminderTime} onChange={e => setDailyReminderTime(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" /></div>
         </>
@@ -1054,7 +1079,7 @@ export const EditTaskForm = React.memo(({ task, brandColor, assignableMembers, f
   const [allowAssigneeEditSubtasks, setAllowAssigneeEditSubtasks] = useState(task?.allowAssigneeEditSubtasks || false);
   const [folderId, setFolderId] = useState(task?.folder?._id || null);
   const [dailyReminderTime, setDailyReminderTime] = useState(task?.dailyReminderTime || '');
-  const [attachments, setAttachments] = useState([]);
+  const { files: attachments, pickMedia, setFiles: setAttachments } = useMediaPicker();
   const [loading, setLoading] = useState(false);
   const [updateTask] = useUpdateTaskMutation();
   const [recurrenceType, setRecurrenceType] = useState(task?.recurrenceType || 'none');
@@ -1126,7 +1151,26 @@ export const EditTaskForm = React.memo(({ task, brandColor, assignableMembers, f
       )}
       {(recurrenceType === 'daily' || recurrenceType === 'weekly') && (<div><label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">End Date (optional)</label><input type="datetime-local" value={recurrenceEndDate} onChange={(e) => setRecurrenceEndDate(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" /></div>)}
       <div><label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Links (one per line)</label><textarea value={links} onChange={e => setLinks(e.target.value)} rows={2} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" placeholder="https://..." /></div>
-      <div><label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Attachments</label><input type="file" multiple onChange={e => setAttachments([...e.target.files])} className="text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-[#0d9488]/20 file:text-[#0d9488]" /></div>
+      <div>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Attachments</label>
+        <button
+          type="button"
+          onClick={() => pickMedia({ multiple: true })}
+          className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 transition"
+        >
+          <FaCamera className="text-xs" /> Choose Files
+        </button>
+        {attachments.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {attachments.map((f, i) => (
+              <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5">
+                <span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span>
+                <button type="button" onClick={() => setAttachments(prev => prev.filter((_, idx) => idx !== i))} className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"><FaTrashAlt className="text-xs" /></button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
       <div className="flex items-center gap-2"><input type="checkbox" id="allowAssigneeEditSubtasks-edit" checked={allowAssigneeEditSubtasks} onChange={e => setAllowAssigneeEditSubtasks(e.target.checked)} className="w-4 h-4 rounded border-gray-300 dark:border-gray-700 text-[#0d9488] focus:ring-[#0d9488]" /><label htmlFor="allowAssigneeEditSubtasks-edit" className="text-xs text-gray-700 dark:text-gray-300">Allow assignee to add/edit sub‑tasks</label></div>
       <div><label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Daily Reminder Time</label><input type="time" value={dailyReminderTime} onChange={e => setDailyReminderTime(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" /></div>
       <div className="flex gap-3 pt-2">

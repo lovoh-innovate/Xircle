@@ -8,11 +8,13 @@ import {
   FaEllipsisV, FaEdit, FaPlus, FaGripVertical, FaRedo,
   FaCheckDouble, FaBell, FaCalendarAlt, FaCommentDots,
   FaUserLock, FaFolderOpen, FaTrashRestore, FaArchive, FaUndo, FaTasks,
+  FaCamera, FaImage,
 } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 import { useCreateFolderMutation, useUpdateFolderMutation, useDeleteFolderMutation, useAddFolderReadOnlyMutation, useRemoveFolderReadOnlyMutation } from '../slices/taskApiSlice';
 import { useAddTeamMemberMutation } from '../slices/projectApiSlice';
 import { useUpdateTaskMutation } from '../slices/taskApiSlice';
+import { useMediaPicker } from '../hooks/useMediaPicker'; // <-- import custom hook
 
 // ─── Format helpers ──────────────────────────────────────────────
 export const formatDate = (date) => {
@@ -259,16 +261,8 @@ export const RejectReasonModal = React.memo(({ isOpen, onClose, onConfirm }) => 
 export const MarkCompleteModal = React.memo(({ isOpen, onClose, task, brandColor, onSubmit }) => {
   const [notes, setNotes] = useState('');
   const [linksText, setLinksText] = useState('');
-  const [attachments, setAttachments] = useState([]);
+  const { files, pickMedia, setFiles } = useMediaPicker();
   const [loading, setLoading] = useState(false);
-
-  const handleFileChange = (e) => {
-    setAttachments([...e.target.files]);
-    e.target.value = '';
-  };
-  const removeFile = (index) => {
-    setAttachments(prev => prev.filter((_, i) => i !== index));
-  };
 
   const handleSubmit = async () => {
     setLoading(true);
@@ -277,12 +271,12 @@ export const MarkCompleteModal = React.memo(({ isOpen, onClose, task, brandColor
       await onSubmit({
         notes: notes.trim(),
         links,
-        attachments,
+        attachments: files,
       });
       onClose();
       setNotes('');
       setLinksText('');
-      setAttachments([]);
+      setFiles([]);
     } catch (err) {
       // Error handled in parent
     } finally {
@@ -326,18 +320,19 @@ export const MarkCompleteModal = React.memo(({ isOpen, onClose, task, brandColor
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Attachments (optional)</label>
-            <input
-              type="file"
-              multiple
-              onChange={handleFileChange}
-              className="w-full text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-teal-50 dark:file:bg-[#0d9488]/20 file:text-teal-600 dark:file:text-[#0d9488]"
-            />
-            {attachments.length > 0 && (
+            <button
+              type="button"
+              onClick={() => pickMedia({ multiple: true })}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 transition"
+            >
+              <FaCamera className="text-xs" /> Choose Files
+            </button>
+            {files.length > 0 && (
               <div className="mt-2 space-y-1">
-                {attachments.map((f, i) => (
+                {files.map((f, i) => (
                   <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5">
                     <span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span>
-                    <button type="button" onClick={() => removeFile(i)} className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"><FaTrashAlt className="text-xs" /></button>
+                    <button type="button" onClick={() => setFiles(prev => prev.filter((_, idx) => idx !== i))} className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"><FaTrashAlt className="text-xs" /></button>
                   </div>
                 ))}
               </div>
@@ -365,18 +360,10 @@ export const ConfirmCompletionModal = React.memo(({ isOpen, onClose, task, brand
   const [feedback, setFeedback] = useState('');
   const [finalHours, setFinalHours] = useState('');
   const [finalLinksText, setFinalLinksText] = useState('');
-  const [finalAttachments, setFinalAttachments] = useState([]);
+  const { files, pickMedia, setFiles } = useMediaPicker();
   const [loading, setLoading] = useState(false);
   const [showReject, setShowReject] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
-
-  const handleFileChange = (e) => {
-    setFinalAttachments([...e.target.files]);
-    e.target.value = '';
-  };
-  const removeFile = (index) => {
-    setFinalAttachments(prev => prev.filter((_, i) => i !== index));
-  };
 
   const handleSubmit = async () => {
     setLoading(true);
@@ -386,7 +373,7 @@ export const ConfirmCompletionModal = React.memo(({ isOpen, onClose, task, brand
         feedback: feedback.trim(),
         finalHours: finalHours ? parseFloat(finalHours) : undefined,
         finalLinks: links.length ? links : undefined,
-        finalAttachments,
+        finalAttachments: files,
       });
       onClose();
       resetForm();
@@ -419,7 +406,7 @@ export const ConfirmCompletionModal = React.memo(({ isOpen, onClose, task, brand
     setFeedback('');
     setFinalHours('');
     setFinalLinksText('');
-    setFinalAttachments([]);
+    setFiles([]);
     setRejectReason('');
     setShowReject(false);
   };
@@ -493,18 +480,19 @@ export const ConfirmCompletionModal = React.memo(({ isOpen, onClose, task, brand
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Final Attachments (optional)</label>
-            <input
-              type="file"
-              multiple
-              onChange={handleFileChange}
-              className="w-full text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-teal-50 dark:file:bg-[#0d9488]/20 file:text-teal-600 dark:file:text-[#0d9488]"
-            />
-            {finalAttachments.length > 0 && (
+            <button
+              type="button"
+              onClick={() => pickMedia({ multiple: true })}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 transition"
+            >
+              <FaCamera className="text-xs" /> Choose Files
+            </button>
+            {files.length > 0 && (
               <div className="mt-2 space-y-1">
-                {finalAttachments.map((f, i) => (
+                {files.map((f, i) => (
                   <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5">
                     <span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span>
-                    <button type="button" onClick={() => removeFile(i)} className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"><FaTrashAlt className="text-xs" /></button>
+                    <button type="button" onClick={() => setFiles(prev => prev.filter((_, idx) => idx !== i))} className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"><FaTrashAlt className="text-xs" /></button>
                   </div>
                 ))}
               </div>
@@ -1161,7 +1149,7 @@ export const CreateTaskModal = React.memo(({ isOpen, onClose, projectId, brandCo
   const [bufferTime, setBufferTime] = useState(0);
   const [allowAssigneeEditSubtasks, setAllowAssigneeEditSubtasks] = useState(false);
   const [linksText, setLinksText] = useState('');
-  const [attachments, setAttachments] = useState([]);
+  const { files, pickMedia, setFiles } = useMediaPicker();
   const [folderId, setFolderId] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -1229,9 +1217,6 @@ export const CreateTaskModal = React.memo(({ isOpen, onClose, projectId, brandCo
     ...folders.map(f => ({ value: f._id, label: f.name, icon: <FaFolder className="text-gray-400" /> })),
   ];
 
-  const handleFile = (e) => { setAttachments(prev => [...prev, ...Array.from(e.target.files)]); e.target.value = ''; };
-  const removeFile = (i) => setAttachments(prev => prev.filter((_, idx) => idx !== i));
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!title.trim()) { toast.error('Title required'); return; }
@@ -1252,7 +1237,7 @@ export const CreateTaskModal = React.memo(({ isOpen, onClose, projectId, brandCo
       recurrenceDays: recurrenceType === 'weekly' ? recurrenceDays : undefined,
       recurrenceEndDate: recurrenceEndDate || undefined,
       links: linksText.split('\n').map(l => l.trim()).filter(Boolean),
-      attachments,
+      attachments: files,
     };
 
     setLoading(true);
@@ -1269,13 +1254,12 @@ export const CreateTaskModal = React.memo(({ isOpen, onClose, projectId, brandCo
       setBufferTime(0);
       setAllowAssigneeEditSubtasks(false);
       setLinksText('');
-      setAttachments([]);
+      setFiles([]);
       setFolderId('');
       setRecurrenceType('none');
       setRecurrenceDays([]);
       setRecurrenceEndDate('');
       setShowDetails(false);
-      toast.success('Task created (optimistic)');
     } catch (err) {
       toast.error(err?.message || 'Failed to create task');
     } finally {
@@ -1405,13 +1389,19 @@ export const CreateTaskModal = React.memo(({ isOpen, onClose, projectId, brandCo
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaPaperclip className="inline mr-1" /> Attachments <span className="text-gray-400 text-xs">(optional)</span></label>
-                <input type="file" multiple onChange={handleFile} className="w-full text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-teal-50 dark:file:bg-[#0d9488]/20 file:text-teal-600 dark:file:text-[#0d9488]" />
-                {attachments.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => pickMedia({ multiple: true })}
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 transition"
+                >
+                  <FaCamera className="text-xs" /> Choose Files
+                </button>
+                {files.length > 0 && (
                   <div className="mt-2 space-y-1">
-                    {attachments.map((f, i) => (
+                    {files.map((f, i) => (
                       <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5">
                         <span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span>
-                        <button type="button" onClick={() => removeFile(i)} className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"><FaTrashAlt className="text-xs" /></button>
+                        <button type="button" onClick={() => setFiles(prev => prev.filter((_, idx) => idx !== i))} className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"><FaTrashAlt className="text-xs" /></button>
                       </div>
                     ))}
                   </div>
@@ -1443,7 +1433,7 @@ export const EditTaskModal = React.memo(({ isOpen, onClose, task, brandColor, as
   const [bufferTime, setBufferTime] = useState(task?.bufferTime || 0);
   const [allowAssigneeEditSubtasks, setAllowAssigneeEditSubtasks] = useState(task?.allowAssigneeEditSubtasks || false);
   const [linksText, setLinksText] = useState(task?.links?.join('\n') || '');
-  const [attachments, setAttachments] = useState([]);
+  const { files, pickMedia, setFiles } = useMediaPicker();
   const [existingAttachments, setExistingAttachments] = useState(task?.attachments || []);
   const [folderId, setFolderId] = useState(task?.folder?._id || '');
   const [loading, setLoading] = useState(false);
@@ -1516,11 +1506,7 @@ export const EditTaskModal = React.memo(({ isOpen, onClose, task, brandColor, as
     ...folders.map(f => ({ value: f._id, label: f.name, icon: <FaFolder className="text-gray-400" /> })),
   ];
 
-  const handleFile = (e) => { setAttachments(prev => [...prev, ...Array.from(e.target.files)]); e.target.value = ''; };
-  const removeNew = (i) => setAttachments(prev => prev.filter((_, idx) => idx !== i));
-  const removeExisting = (i) => setExistingAttachments(prev => prev.filter((_, idx) => idx !== i));
-
-    const handleSubmit = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!title.trim()) { toast.error('Title required'); return; }
     setLoading(true);
@@ -1543,7 +1529,7 @@ export const EditTaskModal = React.memo(({ isOpen, onClose, task, brandColor, as
       }
       fd.append('recurrenceEndDate', recurrenceEndDate || '');
       linksText.split('\n').map(l => l.trim()).filter(Boolean).forEach(l => fd.append('links', l));
-      attachments.forEach(f => fd.append('attachments', f));
+      files.forEach(f => fd.append('attachments', f));
       await updateTask({ taskId: task._id, data: fd }).unwrap();
       toast.success('Task updated');
       onSuccess();
@@ -1657,19 +1643,25 @@ export const EditTaskModal = React.memo(({ isOpen, onClose, task, brandColor, as
                 {existingAttachments.map((f, i) => (
                   <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5">
                     <span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span>
-                    <button type="button" onClick={() => removeExisting(i)} className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"><FaTrashAlt className="text-xs" /></button>
+                    <button type="button" onClick={() => setExistingAttachments(prev => prev.filter((_, idx) => idx !== i))} className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"><FaTrashAlt className="text-xs" /></button>
                   </div>
                 ))}
               </div>
             )}
-            <input type="file" multiple onChange={handleFile} className="w-full text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-teal-50 dark:file:bg-[#0d9488]/20 file:text-teal-600 dark:file:text-[#0d9488]" />
-            {attachments.length > 0 && (
+            <button
+              type="button"
+              onClick={() => pickMedia({ multiple: true })}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 transition"
+            >
+              <FaCamera className="text-xs" /> Choose Files
+            </button>
+            {files.length > 0 && (
               <div className="mt-2 space-y-1">
                 <p className="text-xs text-gray-500 dark:text-gray-500">New:</p>
-                {attachments.map((f, i) => (
+                {files.map((f, i) => (
                   <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5">
                     <span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span>
-                    <button type="button" onClick={() => removeNew(i)} className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"><FaTrashAlt className="text-xs" /></button>
+                    <button type="button" onClick={() => setFiles(prev => prev.filter((_, idx) => idx !== i))} className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"><FaTrashAlt className="text-xs" /></button>
                   </div>
                 ))}
               </div>

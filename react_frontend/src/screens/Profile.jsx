@@ -25,6 +25,8 @@ import {
   FaTimes,
   FaCamera,
 } from 'react-icons/fa';
+import { Capacitor } from '@capacitor/core';
+import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 
 const Profile = () => {
   const dispatch = useDispatch();
@@ -34,7 +36,7 @@ const Profile = () => {
   const [activeTab, setActiveTab] = useState('about');
   const [editMode, setEditMode] = useState(false);
 
-  // ── Fetch fresh user data (ensures we have createdAt) ──
+  // ── Fetch fresh user data ──
   const {
     data: freshUser,
     isLoading: userLoading,
@@ -43,28 +45,27 @@ const Profile = () => {
     skip: !userInfo?._id,
   });
 
-  // When fresh user data arrives, update Redux store
   useEffect(() => {
-  if (freshUser) {
-    dispatch(
-      setCredentials({
-        ...freshUser,
-        token: userInfo?.token,
-      })
-    );
-  }
-}, [freshUser, userInfo?.token, dispatch]);
+    if (freshUser) {
+      dispatch(
+        setCredentials({
+          ...freshUser,
+          token: userInfo?.token,
+        })
+      );
+    }
+  }, [freshUser, userInfo?.token, dispatch]);
 
-  // Local form state for editing
+  // ── Local state for editing ──
   const [formData, setFormData] = useState({
     name: userInfo?.name || '',
     phone: userInfo?.phone || '',
-    profile: null,
+    profile: null, // will hold the File or base64 string
   });
   const [previewUrl, setPreviewUrl] = useState(userInfo?.profile || '');
   const fileInputRef = useRef(null);
 
-  // Workspaces data
+  // ── Workspaces ──
   const { data, isLoading: workspacesLoading } = useGetMyWorkspacesQuery(undefined, {
     pollingInterval: 30000,
   });
@@ -97,6 +98,45 @@ const Profile = () => {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  // ─── Capacitor Camera / Gallery ──────────────────────────────────
+
+  const handleProfileImagePick = async () => {
+    try {
+      let image;
+      // On native (iOS/Android), use Capacitor Camera
+      if (Capacitor.isNativePlatform()) {
+        image = await Camera.getPhoto({
+          quality: 90,
+          allowEditing: true,
+          resultType: CameraResultType.Uri,
+          source: CameraSource.Prompt, // allows user to choose camera or gallery
+        });
+      } else {
+        // Fallback for web: use file input
+        fileInputRef.current?.click();
+        return;
+      }
+
+      // For Capacitor, we get a webPath or base64 string
+      if (image && image.webPath) {
+        setPreviewUrl(image.webPath);
+        // Convert to File or Blob to send via FormData
+        const response = await fetch(image.webPath);
+        const blob = await response.blob();
+        const file = new File([blob], 'profile.jpg', { type: blob.type });
+        setFormData((prev) => ({ ...prev, profile: file }));
+        toast.success('Image selected!');
+      }
+    } catch (error) {
+      if (error.message !== 'User cancelled photos app') {
+        console.error('Camera error:', error);
+        toast.error('Failed to pick image');
+      }
+    }
+  };
+
+  // ─── Handle file input change (web fallback) ────────────────────
+
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -106,6 +146,8 @@ const Profile = () => {
       reader.readAsDataURL(file);
     }
   };
+
+  // ─── Save Profile ──────────────────────────────────────────────────
 
   const handleSave = async () => {
     const formDataToSend = new FormData();
@@ -117,9 +159,7 @@ const Profile = () => {
 
     try {
       const updatedUser = await updateProfile(formDataToSend).unwrap();
-      // Update Redux auth state (includes createdAt)
       dispatch(setCredentials(updatedUser));
-      // Also trigger a refetch of the fresh user data
       refetch();
       toast.success('Profile updated successfully!');
       setEditMode(false);
@@ -128,7 +168,7 @@ const Profile = () => {
     }
   };
 
-  // ─── Nuclear Logout ──────────────────────────────────────────────
+  // ─── Logout ────────────────────────────────────────────────────────
 
   const handleLogout = async () => {
     try {
@@ -157,7 +197,6 @@ const Profile = () => {
       .toUpperCase();
   };
 
-  // Safely format the join date – fallback to a readable string if missing
   const formatJoinDate = (dateString) => {
     if (!dateString) return 'Recently joined';
     const date = new Date(dateString);
@@ -236,7 +275,7 @@ const Profile = () => {
               className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 dark:bg-gray-800/50 hover:bg-gray-200 dark:hover:bg-gray-700/50 rounded-full text-sm font-medium text-gray-700 dark:text-gray-200 transition"
             >
               <FaCog className="text-xs" />
-              Settings
+              <span className="hidden sm:inline">Settings</span>
             </button>
             {editMode ? (
               <>
@@ -253,7 +292,7 @@ const Profile = () => {
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-200 dark:bg-gray-700/50 hover:bg-gray-300 dark:hover:bg-gray-600/50 rounded-full text-sm font-medium text-gray-700 dark:text-gray-200 transition"
                 >
                   <FaTimes className="text-xs" />
-                  Cancel
+                  <span className="hidden xs:inline">Cancel</span>
                 </button>
               </>
             ) : (
@@ -262,7 +301,7 @@ const Profile = () => {
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-100 dark:bg-[#0d9488]/20 hover:bg-teal-200 dark:hover:bg-[#0d9488]/30 rounded-full text-sm font-medium text-teal-600 dark:text-[#0d9488] transition"
               >
                 <FaEdit className="text-xs" />
-                Edit
+                <span className="hidden xs:inline">Edit</span>
               </button>
             )}
           </div>
@@ -307,32 +346,34 @@ const Profile = () => {
       <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6 pb-24 md:pb-6">
         {/* Profile Card */}
         <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-5 mb-6">
-          <div className="flex items-center gap-4">
+          <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
             {/* Profile Picture */}
             <div className="relative flex-shrink-0 group">
               {previewUrl ? (
                 <img
                   src={previewUrl}
                   alt={userInfo.name}
-                  className="w-16 h-16 rounded-full object-cover border-2 border-gray-200 dark:border-gray-700/60"
+                  className="w-20 h-20 rounded-full object-cover border-2 border-gray-200 dark:border-gray-700/60"
                 />
               ) : (
                 <div
-                  className="w-16 h-16 rounded-full flex items-center justify-center text-white text-xl font-bold"
+                  className="w-20 h-20 rounded-full flex items-center justify-center text-white text-2xl font-bold"
                   style={{ backgroundColor: brandColor }}
                 >
                   {getInitials(userInfo.name)}
                 </div>
               )}
+              {/* Camera overlay – visible when editMode is true */}
               {editMode && (
                 <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={handleProfileImagePick}
+                  className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full transition hover:bg-black/60"
                   type="button"
                 >
-                  <FaCamera className="text-white text-lg" />
+                  <FaCamera className="text-white text-xl" />
                 </button>
               )}
+              {/* Hidden file input as fallback for web */}
               <input
                 type="file"
                 ref={fileInputRef}
@@ -342,15 +383,15 @@ const Profile = () => {
               />
             </div>
 
-            <div className="flex-1">
+            <div className="flex-1 w-full min-w-0">
               {editMode ? (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <input
                     type="text"
                     name="name"
                     value={formData.name}
                     onChange={handleInputChange}
-                    className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-[#1e1e24] text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-teal-500 outline-none"
+                    className="w-full px-4 py-2 text-sm border border-gray-300 dark:border-gray-700 rounded-xl bg-white dark:bg-[#1e1e24] text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-teal-500 outline-none"
                     placeholder="Full Name"
                   />
                   <input
@@ -358,20 +399,21 @@ const Profile = () => {
                     name="phone"
                     value={formData.phone}
                     onChange={handleInputChange}
-                    className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-[#1e1e24] text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-teal-500 outline-none"
+                    className="w-full px-4 py-2 text-sm border border-gray-300 dark:border-gray-700 rounded-xl bg-white dark:bg-[#1e1e24] text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-teal-500 outline-none"
                     placeholder="Phone Number"
                   />
                 </div>
               ) : (
                 <>
-                  <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200">{userInfo.name}</h2>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">@{userInfo.username || 'user'}</p>
-                  {userInfo.bio && <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">{userInfo.bio}</p>}
+                  <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200 text-center sm:text-left">{userInfo.name}</h2>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center sm:text-left">@{userInfo.username || 'user'}</p>
+                  {userInfo.bio && <p className="text-sm text-gray-600 dark:text-gray-300 mt-1 text-center sm:text-left">{userInfo.bio}</p>}
                 </>
               )}
             </div>
           </div>
 
+          {/* Info rows */}
           <div className="mt-4 pt-4 border-t border-gray-200/60 dark:border-gray-800/40 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-400">
               <FaEnvelope className="text-gray-400 dark:text-gray-500 flex-shrink-0" />
@@ -383,7 +425,6 @@ const Profile = () => {
             </div>
             <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-400">
               <FaCalendarAlt className="text-gray-400 dark:text-gray-500 flex-shrink-0" />
-              {/* Now uses fresh user data with actual createdAt */}
               <span>{formatJoinDate(userInfo.createdAt)}</span>
             </div>
             <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-400">
