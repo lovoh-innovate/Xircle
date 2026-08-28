@@ -2432,7 +2432,7 @@ const GeneralChatId = () => {
     setRecordingTime(0);
     setReplyToMessage(null);
 
-    try {
+      try {
   const res = await sendMessageApi({ chatId, data: formData }).unwrap();
   const realMsg = res.message;
 
@@ -2462,6 +2462,7 @@ const GeneralChatId = () => {
   isSendingRef.current = false;
   setIsSending(false);
 }
+  };
 
   // ─── Send message (text) ──────────────────────────────────────
 
