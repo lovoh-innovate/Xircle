@@ -1585,6 +1585,7 @@ const GeneralChatId = () => {
             const existing = next[existingIdx];
             const updated = {
               ...incoming,
+              createdAt: existing.createdAt, // 🔴 never let a status update reorder an already-placed message
               _sent: existing._sent || false,
               _pending: existing._pending || false,
               _failed: existing._failed || false,
@@ -1658,8 +1659,10 @@ const GeneralChatId = () => {
           if (tempIdx > -1) {
             if (!mutated) next = [...next];
             mutated = true;
+            const tempMsg = next[tempIdx];
             const realMsg = {
               ...incoming,
+              createdAt: tempMsg.createdAt, // 🔴 KEEP the click-time timestamp — the server race can never scramble your own send order again
               _sent: true,
               _pending: false,
               _failed: false,
