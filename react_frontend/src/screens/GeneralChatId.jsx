@@ -267,7 +267,7 @@ const MediaPickerModal = ({
   );
 };
 
-// ─── Audio Waveform (replaced with a seekable audio player) ────────
+// ─── Audio Player (seekable) ────────────────────────────────────────
 const AudioPlayer = ({
   src,
   isOwn,
@@ -452,7 +452,7 @@ const QuotedReplyBlock = ({ replyData, isOwn, onJump }) => {
 };
 
 // ─── Media Preview Component ──────────────────────────────────────
-const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor }) => {
+const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending }) => {
   const [preview, setPreview] = useState(null);
   const [type, setType] = useState(null);
 
@@ -498,7 +498,8 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor }) => {
       </div>
       <button
         onClick={() => onSend(mediaFile)}
-        className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition text-sm font-medium flex-shrink-0"
+        disabled={isSending}
+        className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition text-sm font-medium flex-shrink-0 disabled:opacity-50"
         style={{ backgroundColor: brandColor || "#0d9488" }}
       >
         <FaPaperPlane className="inline mr-1 text-xs" /> Send
@@ -549,9 +550,7 @@ const MediaMessage = ({
   }
 
   const time = safeFormatTime(message.createdAt);
-  const [isPlaying, setIsPlaying] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
-  const audioRef = useRef(null);
   const longPressTimer = useRef(null);
   const isLongPress = useRef(false);
   const touchStartRef = useRef({ x: 0, y: 0 });
@@ -1552,6 +1551,25 @@ const GeneralChatId = () => {
     }
   }, [message]);
 
+  // ─── Duplicate detection helper ──────────────────────────────────
+  const isRecentDuplicateMedia = useCallback(
+    (signature) => {
+      const now = Date.now();
+      return localMessages.some((m) => {
+        // Only check own messages
+        const isOwnMsg =
+          m.sender?._id === userInfo?._id || m.sender === userInfo?._id;
+        if (!isOwnMsg) return false;
+        // Must be a media message with the same signature
+        if (!m.mediaSignature) return false;
+        if (m.mediaSignature !== signature) return false;
+        const msgTime = new Date(m.createdAt).getTime();
+        return now - msgTime < 4000;
+      });
+    },
+    [localMessages, userInfo],
+  );
+
   // ─── Message handling ──────────────────────────────────────────
   const mergeMessagesIntoState = useCallback(
     (incomingList) => {
@@ -1568,7 +1586,7 @@ const GeneralChatId = () => {
             const existing = next[existingIdx];
             const updated = {
               ...incoming,
-              createdAt: existing.createdAt, // 🔴 never let a status update reorder an already-placed message
+              createdAt: existing.createdAt, // keep client order
               _sent: existing._sent || false,
               _pending: existing._pending || false,
               _failed: existing._failed || false,
@@ -1609,18 +1627,17 @@ const GeneralChatId = () => {
           // 2. Find a temporary message to replace
           let tempIdx = -1;
           if (isOwn) {
-            // 🔴 PRIMARY: match by clientMsgId — exact, collision-proof,
-            // works even if you send the same text twice in a row.
+            // PRIMARY: match by clientMsgId
             if (incoming.clientMsgId) {
               tempIdx = next.findIndex(
                 (m) => m._tempId === incoming.clientMsgId,
               );
             }
-            // Fallback for older in-flight messages sent before this deploy
+            // Fallback for older in-flight messages
             if (tempIdx === -1) {
               tempIdx = next.findIndex((m) => m._tempId === incoming._id);
             }
-            // Last-resort fallback (kept only for pre-deploy safety net)
+            // Last-resort fallback (content + time) – kept for safety
             if (tempIdx === -1) {
               const incomingContent = incoming.content || "";
               const incomingTime = new Date(incoming.createdAt).getTime();
@@ -1645,7 +1662,7 @@ const GeneralChatId = () => {
             const tempMsg = next[tempIdx];
             const realMsg = {
               ...incoming,
-              createdAt: tempMsg.createdAt, // 🔴 KEEP the click-time timestamp — the server race can never scramble your own send order again
+              createdAt: tempMsg.createdAt, // preserve client order
               _sent: true,
               _pending: false,
               _failed: false,
@@ -1833,9 +1850,21 @@ const GeneralChatId = () => {
     return () => observer.disconnect();
   }, [localMessages, markMessageAsRead, userInfo]);
 
-  // ─── Handle media send (optimistic) ────────────────────────────
+  // ─── Handle media send (with duplicate prevention) ──────────────
   const handleSendMedia = async (file) => {
     if (!file) return;
+    if (isSendingRef.current) return;
+
+    // Prevent duplicate sends of the same file within 4 seconds
+    const signature = `${file.name}-${file.size}-${file.lastModified}`;
+    if (isRecentDuplicateMedia(signature)) {
+      console.warn("Blocked duplicate media send:", file.name);
+      return;
+    }
+
+    isSendingRef.current = true;
+    setIsSending(true);
+
     const formData = new FormData();
     formData.append("media", file);
     const messageType = file.type.startsWith("image/") ? "image" : "file";
@@ -1849,11 +1878,14 @@ const GeneralChatId = () => {
     };
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // Add clientMsgId to formData so backend can echo it back
+    formData.append("clientMsgId", tempId);
+
     const optimisticMsg = {
       _id: tempId,
       _tempId: tempId,
       _temp: true,
-      _pending: false,    // no spinner
+      _pending: false,
       _sent: false,
       _failed: false,
       _delivered: false,
@@ -1876,6 +1908,7 @@ const GeneralChatId = () => {
       mediaName: file.name,
       mediaSize: file.size,
       mediaDuration: null,
+      mediaSignature: signature, // for duplicate detection
     };
     setLocalMessages((prev) => [...prev, optimisticMsg]);
     setReplyToMessage(null);
@@ -1883,12 +1916,13 @@ const GeneralChatId = () => {
 
     try {
       const result = await sendMessageApi({ chatId, data: formData }).unwrap();
-      // The server will broadcast 'new-message' – we rely on that to replace the temporary.
       toast.success(`${messageType === "image" ? "Image" : "File"} sent!`);
     } catch (err) {
-      // On error, remove the optimistic message (like text)
       setLocalMessages((prev) => prev.filter((m) => m._tempId !== tempId));
       toast.error(err?.data?.message || "Failed to send media");
+    } finally {
+      isSendingRef.current = false;
+      setIsSending(false);
     }
   };
 
@@ -2329,8 +2363,20 @@ const GeneralChatId = () => {
     }
   };
 
-  // ─── Send audio message (optimistic) ────────────────────────────
+  // ─── Send audio message (with duplicate prevention) ──────────────
   const sendAudioMessage = async (audioBlob) => {
+    if (!audioBlob) return;
+    if (isSendingRef.current) return;
+
+    const signature = `${audioBlob.size}-${recordingTime}`;
+    if (isRecentDuplicateMedia(signature)) {
+      console.warn("Blocked duplicate voice note send");
+      return;
+    }
+
+    isSendingRef.current = true;
+    setIsSending(true);
+
     const formData = new FormData();
     const mimeType = isNative ? "audio/m4a" : "audio/webm";
     const extension = isNative ? "m4a" : "webm";
@@ -2351,11 +2397,13 @@ const GeneralChatId = () => {
     };
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    formData.append("clientMsgId", tempId);
+
     const optimisticMsg = {
       _id: tempId,
       _tempId: tempId,
       _temp: true,
-      _pending: false,    // no spinner
+      _pending: false,
       _sent: false,
       _failed: false,
       _delivered: false,
@@ -2378,6 +2426,7 @@ const GeneralChatId = () => {
       mediaName: "Voice note",
       mediaSize: audioBlob.size,
       mediaDuration: recordingTime,
+      mediaSignature: signature,
     };
     setLocalMessages((prev) => [...prev, optimisticMsg]);
     setRecordingBlob(null);
@@ -2387,11 +2436,13 @@ const GeneralChatId = () => {
 
     try {
       const result = await sendMessageApi({ chatId, data: formData }).unwrap();
-      // Rely on 'new-message' event to replace temporary
       toast.success("Voice note sent!");
     } catch (err) {
       setLocalMessages((prev) => prev.filter((m) => m._tempId !== tempId));
       toast.error(err?.data?.message || "Failed to send voice note");
+    } finally {
+      isSendingRef.current = false;
+      setIsSending(false);
     }
   };
 
@@ -2688,6 +2739,7 @@ const GeneralChatId = () => {
                     onRemove={clearPendingMedia}
                     onSend={handleSendMedia}
                     brandColor="#0d9488"
+                    isSending={isSending}
                   />
                 )}
 
@@ -2716,7 +2768,8 @@ const GeneralChatId = () => {
                       </button>
                       <button
                         onClick={() => sendAudioMessage(recordingBlob)}
-                        className="px-3 py-1 bg-green-600 dark:bg-green-700 text-white rounded text-xs hover:bg-green-700 dark:hover:bg-green-800 transition"
+                        disabled={isSending}
+                        className="px-3 py-1 bg-green-600 dark:bg-green-700 text-white rounded text-xs hover:bg-green-700 dark:hover:bg-green-800 transition disabled:opacity-50"
                       >
                         Send
                       </button>
