@@ -154,14 +154,11 @@ const SkeletonMessage = ({ isOwn }) => {
 const SkeletonMessages = ({ count = 6 }) => {
   return (
     <div className="space-y-4 pt-4">
-      {/* Date divider skeleton */}
       <div className="flex justify-center my-3">
         <div className="w-24 h-5 bg-gray-200 dark:bg-gray-700 rounded-full animate-pulse" />
       </div>
       {Array.from({ length: count }).map((_, i) => {
-        // Alternate between own and other messages
         const isOwn = i % 2 === 0;
-        // Add extra padding between message groups
         if (i === 3) {
           return (
             <React.Fragment key={i}>
@@ -270,42 +267,114 @@ const MediaPickerModal = ({
   );
 };
 
-// ─── Audio waveform ──────────────────────────────────────────────────
-const WAVEFORM_BARS = [
-  6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6,
-  10,
-];
-const AudioWaveform = ({ isOwn, isPlaying }) => (
-  <div className="flex items-center gap-[2px] h-6 flex-1">
-    {WAVEFORM_BARS.map((h, i) => (
-      <span
-        key={i}
-        className="w-[2.5px] rounded-full transition-opacity"
+// ─── Audio Waveform (replaced with a seekable audio player) ────────
+const AudioPlayer = ({
+  src,
+  isOwn,
+  duration: initialDuration,
+  onDurationReady,
+}) => {
+  const audioRef = useRef(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(initialDuration || 0);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
+    const handleLoadedMetadata = () => {
+      const dur = audio.duration;
+      if (dur && !isNaN(dur)) {
+        setDuration(dur);
+        onDurationReady?.(dur);
+      }
+    };
+    const handleEnded = () => setIsPlaying(false);
+
+    audio.addEventListener("timeupdate", handleTimeUpdate);
+    audio.addEventListener("loadedmetadata", handleLoadedMetadata);
+    audio.addEventListener("ended", handleEnded);
+
+    return () => {
+      audio.removeEventListener("timeupdate", handleTimeUpdate);
+      audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      audio.removeEventListener("ended", handleEnded);
+    };
+  }, [onDurationReady]);
+
+  const togglePlay = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (isPlaying) {
+      audio.pause();
+    } else {
+      audio.play().catch(() => {});
+    }
+    setIsPlaying(!isPlaying);
+  };
+
+  const handleSeek = (e) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const newTime = parseFloat(e.target.value);
+    audio.currentTime = newTime;
+    setCurrentTime(newTime);
+  };
+
+  const formatTimeDisplay = (sec) => {
+    if (!sec || isNaN(sec)) return "0:00";
+    return formatTime(sec);
+  };
+
+  return (
+    <div className="flex items-center gap-2.5 min-w-[220px] py-0.5">
+      <button
+        onClick={togglePlay}
+        className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
         style={{
-          height: `${h * 2}px`,
-          backgroundColor: isOwn ? "rgba(255,255,255,0.85)" : "#0d9488",
-          opacity: isPlaying ? 1 : 0.55,
+          backgroundColor: isOwn ? "rgba(255,255,255,0.2)" : "#0d9488",
         }}
-      />
-    ))}
-  </div>
-);
+      >
+        {isPlaying ? (
+          <FaPause className="text-xs text-white" />
+        ) : (
+          <FaPlay className="text-xs text-white ml-0.5" />
+        )}
+      </button>
+
+      <div className="flex-1 flex items-center gap-2">
+        <input
+          type="range"
+          min="0"
+          max={duration || 1}
+          step="0.01"
+          value={currentTime}
+          onChange={handleSeek}
+          className="flex-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-full appearance-none cursor-pointer"
+          style={{
+            background: isOwn
+              ? `linear-gradient(to right, rgba(255,255,255,0.7) ${(currentTime / (duration || 1)) * 100}%, rgba(255,255,255,0.3) ${(currentTime / (duration || 1)) * 100}%)`
+              : `linear-gradient(to right, #0d9488 ${(currentTime / (duration || 1)) * 100}%, #d1d5db ${(currentTime / (duration || 1)) * 100}%)`,
+          }}
+        />
+        <span
+          className={`text-[10px] flex-shrink-0 ${isOwn ? "text-white/70" : "text-gray-500 dark:text-gray-400"}`}
+        >
+          {formatTimeDisplay(currentTime)} / {formatTimeDisplay(duration)}
+        </span>
+      </div>
+
+      <audio ref={audioRef} src={src} className="hidden" />
+    </div>
+  );
+};
 
 // ─── Message Ticks ──────────────────────────────────────────────────
 const MessageTicks = ({ message, isOwn }) => {
   if (!isOwn) return null;
 
-  // ── TEXT MESSAGES: always show clock until sent, no failed icon ──
-  if (message.messageType === "text") {
-    if (!message._sent) {
-      return (
-        <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />
-      );
-    }
-    // if sent, fall through to normal ticks
-  }
-
-  // ── MEDIA MESSAGES: keep existing pending/failed logic ──────────
   if (message._pending) {
     return (
       <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />
@@ -320,7 +389,6 @@ const MessageTicks = ({ message, isOwn }) => {
     );
   }
 
-  // ── Sent → delivered / read ──────────────────────────────────────
   if (!message._delivered && !message._read) {
     return <FaCheck className="text-[10px] text-gray-400 dark:text-gray-500" />;
   }
@@ -459,47 +527,6 @@ const MediaMessage = ({
   onJumpToMessage,
   resolveSender,
 }) => {
-  // ── For text messages: skip pending/failed blocks ────────────────
-  if (message.messageType !== "text") {
-    // ── Pending state (only for media) ──
-    if (message._pending) {
-      return (
-        <div
-          className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
-        >
-          {!isOwn && (
-            <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
-              <FaUser className="text-gray-400 dark:text-gray-500" />
-            </div>
-          )}
-          <div className="bg-gray-200 dark:bg-gray-700/50 px-4 py-2 rounded-2xl flex items-center gap-2 text-gray-500 dark:text-gray-400">
-            <FaSpinner className="animate-spin text-sm" />
-            <span>Sending...</span>
-          </div>
-        </div>
-      );
-    }
-
-    // ── Failed state (only for media) ──
-    if (message._failed) {
-      return (
-        <div
-          className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
-        >
-          {!isOwn && (
-            <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
-              <FaUser className="text-gray-400 dark:text-gray-500" />
-            </div>
-          )}
-          <div className="bg-red-100 dark:bg-red-900/30 px-4 py-2 rounded-2xl flex items-center gap-2 text-red-600 dark:text-red-400">
-            <FaExclamationTriangle className="text-sm" />
-            <span>Failed to send</span>
-          </div>
-        </div>
-      );
-    }
-  }
-
   // ── Deleted state (same for all) ──
   if (message.isDeleted) {
     return (
@@ -659,46 +686,14 @@ const MediaMessage = ({
         );
       case "audio":
         return (
-          <div className="flex items-center gap-2.5 min-w-[220px] py-0.5">
-            <button
-              onClick={() => {
-                if (audioRef.current) {
-                  isPlaying
-                    ? audioRef.current.pause()
-                    : audioRef.current.play();
-                  setIsPlaying(!isPlaying);
-                }
-              }}
-              className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
-              style={{
-                backgroundColor: isOwn ? "rgba(255,255,255,0.2)" : "#0d9488",
-              }}
-            >
-              {isPlaying ? (
-                <FaPause className="text-xs text-white" />
-              ) : (
-                <FaPlay className="text-xs text-white ml-0.5" />
-              )}
-            </button>
-            <AudioWaveform isOwn={isOwn} isPlaying={isPlaying} />
-            <span
-              className={`text-[10px] flex-shrink-0 ${
-                isOwn ? "text-white/70" : "text-gray-500 dark:text-gray-400"
-              }`}
-            >
-              {message.mediaDuration
-                ? formatTime(message.mediaDuration)
-                : "0:00"}
-            </span>
-            <audio
-              ref={audioRef}
-              src={message.mediaUrl}
-              onEnded={() => setIsPlaying(false)}
-              onPause={() => setIsPlaying(false)}
-              onPlay={() => setIsPlaying(true)}
-              className="hidden"
-            />
-          </div>
+          <AudioPlayer
+            src={message.mediaUrl}
+            isOwn={isOwn}
+            duration={message.mediaDuration}
+            onDurationReady={(dur) => {
+              // Optionally update message.mediaDuration if needed
+            }}
+          />
         );
       case "file":
         return (
@@ -990,9 +985,7 @@ const MediaMessage = ({
             {renderMediaContent()}
           </div>
           <div
-            className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 ${
-              isOwn ? "flex-row-reverse" : ""
-            }`}
+            className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 ${isOwn ? "flex-row-reverse" : ""}`}
           >
             <span>{time}</span>
             <MessageTicks message={message} isOwn={isOwn} />
@@ -1409,7 +1402,7 @@ const GeneralChatId = () => {
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
   const isSendingRef = useRef(false);
-  const [isSending, setIsSending] = useState(false); // ADD THIS LINE
+  const [isSending, setIsSending] = useState(false);
   const [previewImage, setPreviewImage] = useState(null);
   const [replyToMessage, setReplyToMessage] = useState(null);
   const [localMessages, setLocalMessages] = useState([]);
@@ -1422,7 +1415,6 @@ const GeneralChatId = () => {
 
   const { socket, isConnected } = useSocket();
 
-  // ✅ fetch chat list with loading state
   const {
     data: chatListData,
     isLoading: chatsListLoading,
@@ -1445,7 +1437,6 @@ const GeneralChatId = () => {
   const displayName = otherParticipant?.name || "Unknown";
   const displayAvatar = otherParticipant?.profile || null;
 
-  // ─── ONLINE STATUS: initialise as null (unknown) ────────────────
   const [otherUserOnline, setOtherUserOnline] = useState(null);
 
   useEffect(() => {
@@ -1454,7 +1445,6 @@ const GeneralChatId = () => {
     }
   }, [otherParticipant]);
 
-  // ─── Request presence when socket connects and we have a participant ──
   useEffect(() => {
     if (!socket || !isConnected || !otherParticipant?._id) return;
     socket.emit(
@@ -1468,7 +1458,6 @@ const GeneralChatId = () => {
     );
   }, [socket, isConnected, otherParticipant?._id]);
 
-  // ─── Build user map for sender resolution ──────────────────────────
   const userMapRef = useRef(new Map());
   useEffect(() => {
     const map = new Map();
@@ -1477,7 +1466,6 @@ const GeneralChatId = () => {
     userMapRef.current = map;
   }, [otherParticipant, userInfo]);
 
-  // ─── Robust resolveSender ──────────────────────────────────────────
   const resolveSender = useCallback((senderField) => {
     if (!senderField) return { name: "Unknown", profile: null };
     if (typeof senderField === "string") {
@@ -1510,10 +1498,7 @@ const GeneralChatId = () => {
     refetch: refetchMessages,
   } = useGetChatMessagesQuery(
     { chatId, page: 1, limit: 50 },
-    { skip: !chatId }, // ✅ cache-first: reopening a chat shows what's
-    // already in RTK cache instantly instead of blocking on a refetch.
-    // Socket keeps it in sync; the 15s disconnect-fallback poll you
-    // already have still covers the "socket down" case.
+    { skip: !chatId },
   );
   const [sendMessageApi] = useSendMessageMutation();
   const [deleteMessageApi] = useDeleteMessageMutation();
@@ -1534,7 +1519,6 @@ const GeneralChatId = () => {
     message: null,
   });
 
-  // ─── Scroll / bottom detection ─────────────────────────────────
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showScrollDown, setShowScrollDown] = useState(false);
 
@@ -1561,7 +1545,6 @@ const GeneralChatId = () => {
     }
   }, [localMessages.length]);
 
-  // ─── Auto-resize textarea ──────────────────────────────────────────
   useEffect(() => {
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
@@ -1805,20 +1788,17 @@ const GeneralChatId = () => {
     otherParticipant?._id,
   ]);
 
-  // ─── Auto-refresh polling ──────────────────────────────────────
   useEffect(() => {
     if (!chatId) return;
     const interval = setInterval(() => {
       if (!isConnected) {
-        // socket is down — poll as a fallback until it reconnects
         refetchMessages();
         refetchChats();
       }
-    }, 15000); // 15s, not 3s
+    }, 15000);
     return () => clearInterval(interval);
   }, [chatId, isConnected, refetchMessages, refetchChats]);
 
-  // ─── Mark message as read when visible ───────────────────────────
   const markMessageAsRead = useCallback(
     (messageId) => {
       if (!socket || !isConnected) return;
@@ -1873,7 +1853,7 @@ const GeneralChatId = () => {
       _id: tempId,
       _tempId: tempId,
       _temp: true,
-      _pending: true,
+      _pending: false,    // no spinner
       _sent: false,
       _failed: false,
       _delivered: false,
@@ -1904,15 +1884,10 @@ const GeneralChatId = () => {
     try {
       const result = await sendMessageApi({ chatId, data: formData }).unwrap();
       // The server will broadcast 'new-message' – we rely on that to replace the temporary.
-      // We don't update state here; the new-message handler will do it.
       toast.success(`${messageType === "image" ? "Image" : "File"} sent!`);
     } catch (err) {
-      // On error, mark the temporary as failed (red cross) and show error
-      setLocalMessages((prev) =>
-        prev.map((m) =>
-          m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m,
-        ),
-      );
+      // On error, remove the optimistic message (like text)
+      setLocalMessages((prev) => prev.filter((m) => m._tempId !== tempId));
       toast.error(err?.data?.message || "Failed to send media");
     }
   };
@@ -1922,10 +1897,8 @@ const GeneralChatId = () => {
     e.preventDefault();
     const trimmed = message.trim();
     if (!trimmed || !socket) return;
-    if (isSendingRef.current) return; // ref guard (sync, catches same-tick double calls)
+    if (isSendingRef.current) return;
 
-    // 🔴 Hard duplicate guard — blocks identical content from the same sender
-    // sent within the last 4s, no matter what triggered the second call.
     const now = Date.now();
     const isDuplicate = localMessages.some((m) => {
       if (m.messageType !== "text") return false;
@@ -1942,7 +1915,7 @@ const GeneralChatId = () => {
     }
 
     isSendingRef.current = true;
-    setIsSending(true); // ADD THIS LINE
+    setIsSending(true);
 
     const senderWithName = {
       ...userInfo,
@@ -1992,11 +1965,11 @@ const GeneralChatId = () => {
         messageType: "text",
         mentions: [],
         replyToId,
-        clientMsgId: tempId, // ADD THIS LINE
+        clientMsgId: tempId,
       },
       (response) => {
         isSendingRef.current = false;
-        setIsSending(false); // ADD THIS LINE
+        setIsSending(false);
         if (response?.error) {
           setLocalMessages((prev) => prev.filter((m) => m._id !== tempId));
           toast.error(response.error);
@@ -2114,7 +2087,6 @@ const GeneralChatId = () => {
     e.target.value = "";
   }, []);
 
-  // ─── Handle paste ──────────────────────────────────────────────────
   const handlePaste = (e) => {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -2177,7 +2149,6 @@ const GeneralChatId = () => {
     }
   };
 
-  // Native recording
   const startNativeRecording = async () => {
     try {
       const { value: hasPermission } =
@@ -2252,7 +2223,6 @@ const GeneralChatId = () => {
     stopTimer();
   };
 
-  // Web recording
   const startWebRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -2385,7 +2355,7 @@ const GeneralChatId = () => {
       _id: tempId,
       _tempId: tempId,
       _temp: true,
-      _pending: true,
+      _pending: false,    // no spinner
       _sent: false,
       _failed: false,
       _delivered: false,
@@ -2420,11 +2390,7 @@ const GeneralChatId = () => {
       // Rely on 'new-message' event to replace temporary
       toast.success("Voice note sent!");
     } catch (err) {
-      setLocalMessages((prev) =>
-        prev.map((m) =>
-          m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m,
-        ),
-      );
+      setLocalMessages((prev) => prev.filter((m) => m._tempId !== tempId));
       toast.error(err?.data?.message || "Failed to send voice note");
     }
   };
@@ -2529,9 +2495,8 @@ const GeneralChatId = () => {
   }, []);
   const clearPendingMedia = () => setPendingMedia(null);
 
-  // ─── Render messages with dividers (NOW WITH SKELETON) ────────────
+  // ─── Render messages with dividers ────────────────────────────────
   const renderMessagesWithDividers = () => {
-    // ─── Show skeleton while loading ────────────────────────────────
     if (messagesLoading) {
       return <SkeletonMessages count={6} />;
     }
@@ -2602,8 +2567,6 @@ const GeneralChatId = () => {
 
   // ─── Render ────────────────────────────────────────────────────
   if (!chat) {
-    // ✅ Still waiting on the first-ever chat list fetch — show a spinner,
-    // never claim "not found" until the list has actually resolved.
     if (chatsListLoading) {
       return (
         <div className="h-dvh flex items-center justify-center bg-white dark:bg-[#0f0f12]">
@@ -2837,7 +2800,7 @@ const GeneralChatId = () => {
                     onPaste={handlePaste}
                     onKeyDown={(e) => {
                       if (isMobile) return;
-                      if (isSendingRef.current) return; // ADD THIS LINE
+                      if (isSendingRef.current) return;
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
                         handleSendMessage(e);
@@ -2851,7 +2814,7 @@ const GeneralChatId = () => {
                   {message.trim() ? (
                     <button
                       type="submit"
-                      disabled={!isConnected || isSending} // CHANGED: added isSending
+                      disabled={!isConnected || isSending}
                       className="p-2 rounded-full text-white disabled:opacity-50 flex-shrink-0 transition hover:opacity-80 mb-1"
                       style={{ backgroundColor: "#0d9488" }}
                     >
