@@ -267,7 +267,7 @@ const MediaPickerModal = ({
   );
 };
 
-// ─── Audio Player (seekable) ────────────────────────────────────────
+// ─── Audio Player with waveform (seekable) ────────────────────────
 const AudioPlayer = ({
   src,
   isOwn,
@@ -279,11 +279,25 @@ const AudioPlayer = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(initialDuration || 0);
 
+  // Waveform bars – same as original
+  const WAVEFORM_BARS = [
+    6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6,
+    10,
+  ];
+
+  // Refs for drag/seek
+  const waveformContainerRef = useRef(null);
+  const isDraggingRef = useRef(false);
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
-    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
+    const handleTimeUpdate = () => {
+      if (!isDraggingRef.current) {
+        setCurrentTime(audio.currentTime);
+      }
+    };
     const handleLoadedMetadata = () => {
       const dur = audio.duration;
       if (dur && !isNaN(dur)) {
@@ -315,18 +329,54 @@ const AudioPlayer = ({
     setIsPlaying(!isPlaying);
   };
 
-  const handleSeek = (e) => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    const newTime = parseFloat(e.target.value);
-    audio.currentTime = newTime;
-    setCurrentTime(newTime);
+  // Seek helpers
+  const getSeekPosition = (clientX) => {
+    const container = waveformContainerRef.current;
+    if (!container) return 0;
+    const rect = container.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const percent = Math.min(Math.max(x / rect.width, 0), 1);
+    return percent * duration;
   };
 
-  const formatTimeDisplay = (sec) => {
-    if (!sec || isNaN(sec)) return "0:00";
-    return formatTime(sec);
+  const handleSeekStart = (e) => {
+    const clientX = e.clientX ?? e.touches?.[0]?.clientX;
+    if (clientX == null) return;
+    isDraggingRef.current = true;
+    const newTime = getSeekPosition(clientX);
+    if (audioRef.current) {
+      audioRef.current.currentTime = newTime;
+      setCurrentTime(newTime);
+    }
   };
+
+  const handleSeekMove = (e) => {
+    if (!isDraggingRef.current) return;
+    const clientX = e.clientX ?? e.touches?.[0]?.clientX;
+    if (clientX == null) return;
+    const newTime = getSeekPosition(clientX);
+    if (audioRef.current) {
+      audioRef.current.currentTime = newTime;
+      setCurrentTime(newTime);
+    }
+  };
+
+  const handleSeekEnd = () => {
+    isDraggingRef.current = false;
+  };
+
+  // Click on waveform to seek
+  const handleWaveformClick = (e) => {
+    const clientX = e.clientX ?? e.touches?.[0]?.clientX;
+    if (clientX == null) return;
+    const newTime = getSeekPosition(clientX);
+    if (audioRef.current) {
+      audioRef.current.currentTime = newTime;
+      setCurrentTime(newTime);
+    }
+  };
+
+  const progressPercent = duration ? (currentTime / duration) * 100 : 0;
 
   return (
     <div className="flex items-center gap-2.5 min-w-[220px] py-0.5">
@@ -344,27 +394,51 @@ const AudioPlayer = ({
         )}
       </button>
 
-      <div className="flex-1 flex items-center gap-2">
-        <input
-          type="range"
-          min="0"
-          max={duration || 1}
-          step="0.01"
-          value={currentTime}
-          onChange={handleSeek}
-          className="flex-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-full appearance-none cursor-pointer"
-          style={{
-            background: isOwn
-              ? `linear-gradient(to right, rgba(255,255,255,0.7) ${(currentTime / (duration || 1)) * 100}%, rgba(255,255,255,0.3) ${(currentTime / (duration || 1)) * 100}%)`
-              : `linear-gradient(to right, #0d9488 ${(currentTime / (duration || 1)) * 100}%, #d1d5db ${(currentTime / (duration || 1)) * 100}%)`,
-          }}
-        />
-        <span
-          className={`text-[10px] flex-shrink-0 ${isOwn ? "text-white/70" : "text-gray-500 dark:text-gray-400"}`}
-        >
-          {formatTimeDisplay(currentTime)} / {formatTimeDisplay(duration)}
-        </span>
+      {/* Waveform container – click/drag to seek */}
+      <div
+        ref={waveformContainerRef}
+        className="flex-1 flex items-center h-6 relative cursor-pointer"
+        onClick={handleWaveformClick}
+        onMouseDown={handleSeekStart}
+        onMouseMove={handleSeekMove}
+        onMouseUp={handleSeekEnd}
+        onMouseLeave={handleSeekEnd}
+        onTouchStart={handleSeekStart}
+        onTouchMove={handleSeekMove}
+        onTouchEnd={handleSeekEnd}
+      >
+        <div className="flex items-center gap-[2px] h-full w-full">
+          {WAVEFORM_BARS.map((h, i) => {
+            // Determine if this bar is within the progress portion
+            const barIndex = i / WAVEFORM_BARS.length;
+            const isFilled = barIndex <= progressPercent / 100;
+            return (
+              <span
+                key={i}
+                className="w-[2.5px] rounded-full transition-all"
+                style={{
+                  height: `${h * 2}px`,
+                  backgroundColor: isOwn
+                    ? isFilled
+                      ? "rgba(255,255,255,0.9)"
+                      : "rgba(255,255,255,0.3)"
+                    : isFilled
+                      ? "#0d9488"
+                      : "#d1d5db",
+                  opacity: isFilled ? 1 : 0.4,
+                }}
+              />
+            );
+          })}
+        </div>
+        {/* Optional small progress handle – not necessary but can be added */}
       </div>
+
+      <span
+        className={`text-[10px] flex-shrink-0 ${isOwn ? "text-white/70" : "text-gray-500 dark:text-gray-400"}`}
+      >
+        {formatTime(currentTime)} / {formatTime(duration)}
+      </span>
 
       <audio ref={audioRef} src={src} className="hidden" />
     </div>
@@ -2432,39 +2506,37 @@ const GeneralChatId = () => {
     setRecordingTime(0);
     setReplyToMessage(null);
 
-      try {
-  const res = await sendMessageApi({ chatId, data: formData }).unwrap();
-  const realMsg = res.message;
+    try {
+      const res = await sendMessageApi({ chatId, data: formData }).unwrap();
+      const realMsg = res.message;
 
-  setLocalMessages((prev) => {
-    if (prev.some((m) => m._id === realMsg._id)) {
-      return prev.filter((m) => m._tempId !== tempId);
+      setLocalMessages((prev) => {
+        if (prev.some((m) => m._id === realMsg._id)) {
+          return prev.filter((m) => m._tempId !== tempId);
+        }
+        return prev.map((m) =>
+          m._tempId === tempId
+            ? {
+                ...realMsg,
+                createdAt: m.createdAt,
+                _sent: true,
+                _pending: false,
+                _failed: false,
+                _delivered: true,
+                _read: false,
+                _temp: false,
+                _tempId: undefined,
+              }
+            : m
+        );
+      });
+    } catch (err) {
+      setLocalMessages((prev) => prev.filter((m) => m._tempId !== tempId));
+    } finally {
+      isSendingRef.current = false;
+      setIsSending(false);
     }
-    return prev.map((m) =>
-      m._tempId === tempId
-        ? {
-            ...realMsg,
-            createdAt: m.createdAt,
-            _sent: true,
-            _pending: false,
-            _failed: false,
-            _delivered: true,
-            _read: false,
-            _temp: false,
-            _tempId: undefined,
-          }
-        : m
-    );
-  });
-} catch (err) {
-  setLocalMessages((prev) => prev.filter((m) => m._tempId !== tempId));
-} finally {
-  isSendingRef.current = false;
-  setIsSending(false);
-}
   };
-
-  // ─── Send message (text) ──────────────────────────────────────
 
   // ─── Mic button handlers ────────────────────────────────────────
   const handleMicPointerDown = (e) => {
