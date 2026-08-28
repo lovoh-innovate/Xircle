@@ -32,10 +32,11 @@ const MyWorkspaceProjectTaskId = ({
   onRefresh,
   canManage,
   onSendReminder,
-  onConfirmCompletion,
-  onReject,                   // passed to ConfirmCompletionModal
+  // ─── Renamed to match parent ────────────────────────────
+  onMarkCompleteClick,          // <-- was onMarkComplete
+  onConfirmCompletionClick,     // <-- was onConfirmCompletion
+  onReject,
   onAssignTask,
-  onMarkComplete,
   onSetReadyForCompletion,
   onArchiveTask,
   onUnarchiveTask,
@@ -92,6 +93,9 @@ const MyWorkspaceProjectTaskId = ({
   const showRejection = task.rejectedBy && task.rejectedAt;
   const hasRejectionData = task.rejectedBy || task.rejectionReason;
 
+  // ─── Self‑assigned check ────────────────────────────────────────
+  const isSelfAssigned = task.assignee?._id === userInfo?._id && task.createdBy?._id === userInfo?._id;
+
   const handleAddSubTask = async () => {
     if (!newSubTaskTitle.trim()) { toast.error('Sub‑task title required'); return; }
     setAddingSubTask(true);
@@ -132,7 +136,10 @@ const MyWorkspaceProjectTaskId = ({
 
   const showMarkComplete = isAssignee && !isReadOnly && task.status === 'ready_for_completion';
 
-  const showConfirmCompletion = !isReadOnly && canManage && task.status === 'completed';
+  // ✅ Allow self‑assigned users to confirm as well
+  const showConfirmCompletion = !isReadOnly && 
+    (canManage || isSelfAssigned) && 
+    task.status === 'completed';
 
   // ─── Render ──────────────────────────────────────────────────────
   return (
@@ -417,14 +424,14 @@ const MyWorkspaceProjectTaskId = ({
         onClose={() => setShowMarkCompleteModal(false)}
         task={task}
         brandColor={brandColor}
-        onSubmit={onMarkComplete}
+        onSubmit={onMarkCompleteClick}   // <-- corrected
       />
       <ConfirmCompletionModal
         isOpen={showConfirmCompletionModal}
         onClose={() => setShowConfirmCompletionModal(false)}
         task={task}
         brandColor={brandColor}
-        onSubmit={onConfirmCompletion}
+        onSubmit={onConfirmCompletionClick}   // <-- corrected
         onReject={onReject}
       />
     </div>

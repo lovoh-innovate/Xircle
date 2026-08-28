@@ -141,7 +141,21 @@ router.patch(
   upload.fields([{ name: 'completionAttachments', maxCount: 10 }]),
   markTaskCompleted
 );
-router.patch('/:taskId/confirm-completion', protect, confirmTaskCompletion);
+// ── Main task completion flow ──
+router.patch(
+  '/:taskId/complete',
+  protect,
+  upload.fields([{ name: 'completionAttachments', maxCount: 10 }]),
+  markTaskCompleted
+);
+
+// ✅ FIX: parse multipart/form-data fields (no files)
+router.patch(
+  '/:taskId/confirm-completion',
+  protect,
+  upload.none(),   // 👈 this parses text fields from FormData
+  confirmTaskCompletion
+);
 
 // ── NEW: Reject task completion (manager/owner) ──
 router.post('/:taskId/reject', protect, rejectTask);  // body: { reason }
