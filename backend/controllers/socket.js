@@ -166,13 +166,21 @@ export const initSocket = (server) => {
         await chat.save();
 
         const populatedMessage = await Message.findById(message._id)
-          .populate('sender', 'name email profile')
-          .populate('mentions', 'name email profile')
-          .populate('replyTo');
+  .populate('sender', 'name email profile')
+  .populate('mentions', 'name email profile')
+  .populate('replyTo');
 
-        // 🔴 Emit FIRST — everything below is background work.
-        io.to(`chat:${chatId}`).emit('new-message', populatedMessage);
-        callback({ success: true, message: populatedMessage });
+// 🔴 Attach the client's tempId so the sender's own UI can match
+// this real message back to the correct optimistic bubble —
+// no more matching by content, which collides on repeated text.
+const responseMessage = populatedMessage.toObject
+  ? populatedMessage.toObject()
+  : populatedMessage;
+responseMessage.clientMsgId = data.clientMsgId || null;
+
+// 🔴 Emit FIRST — everything below is background work.
+io.to(`chat:${chatId}`).emit('new-message', responseMessage);
+callback({ success: true, message: responseMessage });
 
         // Typing is socket-only now, nothing to clear in the DB.
         io.to(`chat:${chatId}`).emit('user-stopped-typing', {
