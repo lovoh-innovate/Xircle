@@ -238,81 +238,53 @@ const MediaPickerModal = ({ isOpen, onClose, onTakePhoto, onChooseFromGallery, b
   );
 };
 
-// ─── Attachment Preview Modal ─────────────────────────────────────
-const AttachmentPreviewModal = ({
-  isOpen,
-  onClose,
-  previewData,
-  onSend,
-  onRemove,
-  brandColor
-}) => {
-  if (!isOpen || !previewData) return null;
+// ─── Media Preview Component (small bar) ──────────────────────────
+const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending }) => {
+  const [preview, setPreview] = useState(null);
+  const [type, setType] = useState(null);
 
-  const { file, preview, type, name } = previewData;
-  const isImage = type === 'image';
-  const isVideo = type === 'video';
+  useEffect(() => {
+    if (mediaFile) {
+      const url = URL.createObjectURL(mediaFile);
+      setPreview(url);
+      setType(mediaFile.type.startsWith('image/') ? 'image' : 'file');
+      return () => URL.revokeObjectURL(url);
+    }
+  }, [mediaFile]);
+
+  if (!mediaFile || !preview) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 dark:bg-black/70 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-[#14141a] rounded-2xl max-w-lg w-full max-h-[90vh] overflow-hidden shadow-2xl">
-        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800/60">
-          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-            {isImage ? 'Image Preview' : isVideo ? 'Video Preview' : 'File Preview'}
-          </h3>
-          <button
-            onClick={onRemove}
-            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition"
-          >
-            <FaTimes className="text-sm" />
-          </button>
-        </div>
-
-        <div className="p-4 flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10] max-h-[60vh] overflow-auto">
-          {isImage && (
-            <img
-              src={preview}
-              alt="Preview"
-              className="max-w-full max-h-[50vh] object-contain rounded-lg"
-            />
-          )}
-          {isVideo && (
-            <video
-              src={preview}
-              controls
-              className="max-w-full max-h-[50vh] rounded-lg"
-            />
-          )}
-          {!isImage && !isVideo && (
-            <div className="flex flex-col items-center gap-3 py-8">
-              <div className="w-16 h-16 bg-gray-200 dark:bg-gray-800 rounded-xl flex items-center justify-center">
-                <FaFile className="text-3xl text-gray-500 dark:text-gray-400" />
-              </div>
-              <p className="text-sm text-gray-600 dark:text-gray-300">{name || 'File'}</p>
-              <p className="text-xs text-gray-400 dark:text-gray-500">
-                {file ? `${(file.size / 1024).toFixed(1)} KB` : ''}
-              </p>
-            </div>
-          )}
-        </div>
-
-        <div className="flex gap-3 p-4 border-t border-gray-200 dark:border-gray-800/60">
-          <button
-            onClick={onRemove}
-            className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => onSend(previewData)}
-            disabled={false}
-            className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80"
-            style={{ backgroundColor: brandColor }}
-          >
-            Send
-          </button>
-        </div>
+    <div className="flex items-center gap-3 p-3 mb-2 bg-gray-50 dark:bg-gray-800/30 rounded-xl border border-gray-200 dark:border-gray-700/60">
+      <div className="relative flex-shrink-0">
+        {type === 'image' ? (
+          <img src={preview} alt="Preview" className="w-16 h-16 rounded-lg object-cover" />
+        ) : (
+          <div className="w-16 h-16 rounded-lg bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-2xl">
+            📄
+          </div>
+        )}
+        <button
+          onClick={onRemove}
+          className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition text-xs"
+        >
+          <FaTimes />
+        </button>
       </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{mediaFile.name}</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          {(mediaFile.size / 1024).toFixed(1)} KB
+        </p>
+      </div>
+      <button
+        onClick={() => onSend(mediaFile)}
+        disabled={isSending}
+        className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition text-sm font-medium flex-shrink-0 disabled:opacity-50"
+        style={{ backgroundColor: brandColor || '#0d9488' }}
+      >
+        <FaPaperPlane className="inline mr-1 text-xs" /> Send
+      </button>
     </div>
   );
 };
@@ -1348,6 +1320,71 @@ const MediaMessage = ({
   );
 };
 
+// ─── Fullscreen image preview modal (same as GeneralChannelId) ──
+const ImagePreviewModal = ({ imageUrl, onClose, senderName, time }) => {
+  const [imageError, setImageError] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const handleDownload = () => {
+    if (imageUrl) {
+      const link = document.createElement('a');
+      link.href = imageUrl;
+      link.download = 'image';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
+
+  useEffect(() => {
+    setImageError(false);
+    setLoading(true);
+  }, [imageUrl]);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black flex flex-col" onClick={onClose}>
+      <div className="flex items-center justify-between px-4 py-3 bg-black/70 text-white flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-3 min-w-0">
+          <button onClick={onClose} className="p-1 hover:bg-white/10 rounded-lg transition">
+            <FaArrowLeft />
+          </button>
+          <div className="min-w-0">
+            <p className="text-sm font-medium truncate">{senderName || 'Photo'}</p>
+            {time && <p className="text-[11px] text-white/60">{time}</p>}
+          </div>
+        </div>
+        {imageUrl && (
+          <button onClick={handleDownload} className="p-2 hover:bg-white/10 rounded-lg transition">
+            <FaDownload />
+          </button>
+        )}
+      </div>
+      <div className="flex-1 flex items-center justify-center overflow-hidden p-4">
+        {loading && (
+          <div className="flex flex-col items-center text-white/60">
+            <FaSpinner className="animate-spin text-4xl mb-2" />
+            <span className="text-sm">Loading...</span>
+          </div>
+        )}
+        {imageError || !imageUrl ? (
+          <div className="flex flex-col items-center text-white/60">
+            <FaExclamationTriangle className="text-4xl mb-2" />
+            <span className="text-sm">Image not available</span>
+          </div>
+        ) : (
+          <img
+            src={imageUrl}
+            alt="Preview"
+            className="max-w-full max-h-full object-contain"
+            onLoad={() => setLoading(false)}
+            onError={() => { setLoading(false); setImageError(true); }}
+          />
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ─── Chat Details Bottom Sheet ────────────────────────────────────
 const ChatDetailsSheet = ({
   isOpen,
@@ -1580,8 +1617,8 @@ const YourWorkspaceChannelId = () => {
   const [previewImage, setPreviewImage] = useState(null);
   const [showDetailsSheet, setShowDetailsSheet] = useState(false);
 
-  const [attachmentPreview, setAttachmentPreview] = useState(null);
-  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  // ── Changed: use pendingMedia for small preview bar ──
+  const [pendingMedia, setPendingMedia] = useState(null);
   const [showMediaPicker, setShowMediaPicker] = useState(false);
 
   const isMobile = useMediaQuery('(max-width: 768px)');
@@ -2434,17 +2471,7 @@ const YourWorkspaceChannelId = () => {
         const mimeType = `image/${photo.format || 'jpeg'}`;
         const fileName = `photo-${Date.now()}.${photo.format || 'jpg'}`;
         const file = base64ToFile(photo.base64String, fileName, mimeType);
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          setAttachmentPreview({
-            file: file,
-            preview: event.target.result,
-            type: 'image',
-            name: fileName,
-          });
-          setIsPreviewOpen(true);
-        };
-        reader.readAsDataURL(file);
+        setPendingMedia(file);
       }
     } catch (err) {
       const msg = (err?.message || '').toLowerCase();
@@ -2467,17 +2494,7 @@ const YourWorkspaceChannelId = () => {
         const mimeType = `image/${photo.format || 'jpeg'}`;
         const fileName = `photo-${Date.now()}.${photo.format || 'jpg'}`;
         const file = base64ToFile(photo.base64String, fileName, mimeType);
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          setAttachmentPreview({
-            file: file,
-            preview: event.target.result,
-            type: 'image',
-            name: fileName,
-          });
-          setIsPreviewOpen(true);
-        };
-        reader.readAsDataURL(file);
+        setPendingMedia(file);
       }
     } catch (err) {
       const msg = (err?.message || '').toLowerCase();
@@ -2506,17 +2523,7 @@ const YourWorkspaceChannelId = () => {
         toast.error('Could not read selected file');
         return;
       }
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        setAttachmentPreview({
-          file: file,
-          preview: event.target.result,
-          type: 'file',
-          name: fileName,
-        });
-        setIsPreviewOpen(true);
-      };
-      reader.readAsDataURL(file);
+      setPendingMedia(file);
     } catch (err) {
       const msg = (err?.message || '').toLowerCase();
       if (!msg.includes('cancel')) {
@@ -2551,18 +2558,7 @@ const YourWorkspaceChannelId = () => {
       toast.error('No file selected');
       return;
     }
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const type = file.type.startsWith('image/') ? 'image' : 'file';
-      setAttachmentPreview({
-        file: file,
-        preview: event.target.result,
-        type: type,
-        name: file.name,
-      });
-      setIsPreviewOpen(true);
-    };
-    reader.readAsDataURL(file);
+    setPendingMedia(file);
     e.target.value = '';
   }, []);
 
@@ -2575,17 +2571,7 @@ const YourWorkspaceChannelId = () => {
         e.preventDefault();
         const file = item.getAsFile();
         if (file) {
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            setAttachmentPreview({
-              file: file,
-              preview: event.target.result,
-              type: 'image',
-              name: file.name || 'image.png',
-            });
-            setIsPreviewOpen(true);
-          };
-          reader.readAsDataURL(file);
+          setPendingMedia(file);
         }
         return;
       }
@@ -2600,8 +2586,7 @@ const YourWorkspaceChannelId = () => {
     }
   }, []);
 
-  const handleSendAttachment = async (previewData) => {
-    const { file, type } = previewData;
+  const handleSendMedia = async (file) => {
     if (!file) return;
     if (isSendingRef.current) return;
 
@@ -2616,7 +2601,7 @@ const YourWorkspaceChannelId = () => {
 
     const formData = new FormData();
     formData.append('media', file);
-    const messageType = type === 'image' ? 'image' : 'file';
+    const messageType = file.type.startsWith('image/') ? 'image' : 'file';
     formData.append('messageType', messageType);
     if (pendingMentions.length > 0) {
       formData.append('mentions', JSON.stringify(pendingMentions));
@@ -2656,8 +2641,7 @@ const YourWorkspaceChannelId = () => {
     };
     setLocalMessages(prev => [...prev, optimisticMsg]);
     setReplyToMessage(null);
-    setIsPreviewOpen(false);
-    setAttachmentPreview(null);
+    setPendingMedia(null);
 
     try {
       await sendMessageApi({ chatId, data: formData }).unwrap();
@@ -2670,10 +2654,7 @@ const YourWorkspaceChannelId = () => {
     }
   };
 
-  const handleRemoveAttachment = () => {
-    setIsPreviewOpen(false);
-    setAttachmentPreview(null);
-  };
+  const clearPendingMedia = () => setPendingMedia(null);
 
   // ─── Message action handlers ──────────────────────────────────────
   const handleDeleteMessage = useCallback((msg) => {
@@ -3171,15 +3152,6 @@ const YourWorkspaceChannelId = () => {
         />
       )}
 
-      <AttachmentPreviewModal
-        isOpen={isPreviewOpen}
-        onClose={handleRemoveAttachment}
-        previewData={attachmentPreview}
-        onSend={handleSendAttachment}
-        onRemove={handleRemoveAttachment}
-        brandColor={brandColor}
-      />
-
       <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
         <YourWorkspaceSidebar workspace={workspace} chats={chatsData?.chats || []} />
       </div>
@@ -3275,6 +3247,16 @@ const YourWorkspaceChannelId = () => {
             brandColor={brandColor}
             resolveSender={resolveSender}
           />
+
+          {pendingMedia && (
+            <MediaPreview
+              mediaFile={pendingMedia}
+              onRemove={clearPendingMedia}
+              onSend={handleSendMedia}
+              brandColor={brandColor}
+              isSending={isSending}
+            />
+          )}
 
           {showRecordedPreview && recordingBlob && (
             <div className="flex items-center justify-between px-3 py-2 mb-2 bg-green-50 dark:bg-green-900/30 rounded-lg border border-green-200 dark:border-green-700/40">
