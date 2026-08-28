@@ -305,6 +305,7 @@ const AttachmentPreviewModal = ({
           </button>
           <button
             onClick={() => onSend(previewData)}
+            disabled={false}
             className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80"
             style={{ backgroundColor: brandColor }}
           >
@@ -632,12 +633,6 @@ const MessageActionModal = ({
 const MessageTicks = ({ message, isOwn }) => {
   if (!isOwn) return null;
 
-  if (message.messageType === 'text') {
-    if (!message._sent) {
-      return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
-    }
-  }
-
   if (message._pending) {
     return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
   }
@@ -667,58 +662,179 @@ const MessageTicks = ({ message, isOwn }) => {
   );
 };
 
-// ─── Audio waveform ────────────────────────────────────────────────
-const WAVEFORM_BARS = [6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6, 10];
+// ─── Audio Player with waveform (seekable) ────────────────────────
+const AudioPlayer = ({
+  src,
+  isOwn,
+  duration: initialDuration,
+  onDurationReady,
+  brandColor,
+}) => {
+  const audioRef = useRef(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(initialDuration || 0);
 
-const AudioWaveform = ({ isOwn, isPlaying, brandColor }) => (
-  <div className="flex items-center gap-[2px] h-6 flex-1">
-    {WAVEFORM_BARS.map((h, i) => (
-      <span
-        key={i}
-        className="w-[2.5px] rounded-full transition-opacity"
-        style={{
-          height: `${h * 2}px`,
-          backgroundColor: isOwn ? 'rgba(255,255,255,0.85)' : brandColor,
-          opacity: isPlaying ? 1 : 0.55,
-        }}
-      />
-    ))}
-  </div>
-);
+  // Waveform bars – same as original
+  const WAVEFORM_BARS = [
+    6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6,
+    10,
+  ];
 
-// ─── Fullscreen image viewer ──────────────────────────────────────
-const ImagePreviewModal = ({ imageUrl, onClose, senderName, time }) => {
-  const handleDownload = () => {
-    const link = document.createElement('a');
-    link.href = imageUrl;
-    link.download = 'image';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  // Refs for drag/seek
+  const waveformContainerRef = useRef(null);
+  const isDraggingRef = useRef(false);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const handleTimeUpdate = () => {
+      if (!isDraggingRef.current) {
+        setCurrentTime(audio.currentTime);
+      }
+    };
+    const handleLoadedMetadata = () => {
+      const dur = audio.duration;
+      if (dur && !isNaN(dur)) {
+        setDuration(dur);
+        onDurationReady?.(dur);
+      }
+    };
+    const handleEnded = () => setIsPlaying(false);
+
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('ended', handleEnded);
+
+    return () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('ended', handleEnded);
+    };
+  }, [onDurationReady]);
+
+  const togglePlay = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (isPlaying) {
+      audio.pause();
+    } else {
+      audio.play().catch(() => {});
+    }
+    setIsPlaying(!isPlaying);
   };
 
+  // Seek helpers
+  const getSeekPosition = (clientX) => {
+    const container = waveformContainerRef.current;
+    if (!container) return 0;
+    const rect = container.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const percent = Math.min(Math.max(x / rect.width, 0), 1);
+    return percent * duration;
+  };
+
+  const handleSeekStart = (e) => {
+    const clientX = e.clientX ?? e.touches?.[0]?.clientX;
+    if (clientX == null) return;
+    isDraggingRef.current = true;
+    const newTime = getSeekPosition(clientX);
+    if (audioRef.current) {
+      audioRef.current.currentTime = newTime;
+      setCurrentTime(newTime);
+    }
+  };
+
+  const handleSeekMove = (e) => {
+    if (!isDraggingRef.current) return;
+    const clientX = e.clientX ?? e.touches?.[0]?.clientX;
+    if (clientX == null) return;
+    const newTime = getSeekPosition(clientX);
+    if (audioRef.current) {
+      audioRef.current.currentTime = newTime;
+      setCurrentTime(newTime);
+    }
+  };
+
+  const handleSeekEnd = () => {
+    isDraggingRef.current = false;
+  };
+
+  // Click on waveform to seek
+  const handleWaveformClick = (e) => {
+    const clientX = e.clientX ?? e.touches?.[0]?.clientX;
+    if (clientX == null) return;
+    const newTime = getSeekPosition(clientX);
+    if (audioRef.current) {
+      audioRef.current.currentTime = newTime;
+      setCurrentTime(newTime);
+    }
+  };
+
+  const progressPercent = duration ? (currentTime / duration) * 100 : 0;
+
   return (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col" onClick={onClose}>
-      <div
-        className="flex items-center justify-between px-4 py-3 bg-black/70 text-white flex-shrink-0"
-        onClick={(e) => e.stopPropagation()}
+    <div className="flex items-center gap-2.5 min-w-[220px] py-0.5">
+      <button
+        onClick={togglePlay}
+        className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+        style={{
+          backgroundColor: isOwn ? 'rgba(255,255,255,0.2)' : brandColor,
+        }}
       >
-        <div className="flex items-center gap-3 min-w-0">
-          <button onClick={onClose} className="p-1">
-            <FaArrowLeft />
-          </button>
-          <div className="min-w-0">
-            <p className="text-sm font-medium truncate">{senderName || 'Photo'}</p>
-            {time && <p className="text-[11px] text-white/60">{time}</p>}
-          </div>
+        {isPlaying ? (
+          <FaPause className="text-xs text-white" />
+        ) : (
+          <FaPlay className="text-xs text-white ml-0.5" />
+        )}
+      </button>
+
+      {/* Waveform container – click/drag to seek */}
+      <div
+        ref={waveformContainerRef}
+        className="flex-1 flex items-center h-6 relative cursor-pointer"
+        onClick={handleWaveformClick}
+        onMouseDown={handleSeekStart}
+        onMouseMove={handleSeekMove}
+        onMouseUp={handleSeekEnd}
+        onMouseLeave={handleSeekEnd}
+        onTouchStart={handleSeekStart}
+        onTouchMove={handleSeekMove}
+        onTouchEnd={handleSeekEnd}
+      >
+        <div className="flex items-center gap-[2px] h-full w-full">
+          {WAVEFORM_BARS.map((h, i) => {
+            const barIndex = i / WAVEFORM_BARS.length;
+            const isFilled = barIndex <= progressPercent / 100;
+            return (
+              <span
+                key={i}
+                className="w-[2.5px] rounded-full transition-all"
+                style={{
+                  height: `${h * 2}px`,
+                  backgroundColor: isOwn
+                    ? isFilled
+                      ? 'rgba(255,255,255,0.9)'
+                      : 'rgba(255,255,255,0.3)'
+                    : isFilled
+                      ? brandColor
+                      : '#d1d5db',
+                  opacity: isFilled ? 1 : 0.4,
+                }}
+              />
+            );
+          })}
         </div>
-        <button onClick={handleDownload} className="p-2">
-          <FaDownload />
-        </button>
       </div>
-      <div className="flex-1 flex items-center justify-center overflow-hidden">
-        <img src={imageUrl} alt="Preview" className="max-w-full max-h-full object-contain" />
-      </div>
+
+      <span
+        className={`text-[10px] flex-shrink-0 ${isOwn ? 'text-white/70' : 'text-gray-500 dark:text-gray-400'}`}
+      >
+        {formatTime(currentTime)} / {formatTime(duration)}
+      </span>
+
+      <audio ref={audioRef} src={src} className="hidden" />
     </div>
   );
 };
@@ -811,40 +927,7 @@ const MediaMessage = ({
   onJumpToMessage,
   resolveSender,
 }) => {
-  if (message.messageType !== 'text') {
-    if (message._pending) {
-      return (
-        <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
-          {!isOwn && (
-            <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
-              <FaUser className="text-gray-400 dark:text-gray-500" />
-            </div>
-          )}
-          <div className="bg-gray-200 dark:bg-gray-700/50 px-4 py-2 rounded-2xl flex items-center gap-2 text-gray-500 dark:text-gray-400">
-            <FaSpinner className="animate-spin text-sm" />
-            <span>Sending...</span>
-          </div>
-        </div>
-      );
-    }
-
-    if (message._failed) {
-      return (
-        <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
-          {!isOwn && (
-            <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
-              <FaUser className="text-gray-400 dark:text-gray-500" />
-            </div>
-          )}
-          <div className="bg-red-100 dark:bg-red-900/30 px-4 py-2 rounded-2xl flex items-center gap-2 text-red-600 dark:text-red-400">
-            <FaExclamationTriangle className="text-sm" />
-            <span>Failed to send</span>
-          </div>
-        </div>
-      );
-    }
-  }
-
+  // ── Deleted state (same for all) ──
   if (message.isDeleted) {
     return (
       <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
@@ -862,9 +945,7 @@ const MediaMessage = ({
   }
 
   const time = safeFormatTime(message.createdAt);
-  const [isPlaying, setIsPlaying] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
-  const audioRef = useRef(null);
   const longPressTimer = useRef(null);
   const isLongPress = useRef(false);
 
@@ -980,32 +1061,15 @@ const MediaMessage = ({
 
       case 'audio':
         return (
-          <div className="flex items-center gap-2.5 min-w-[220px] py-0.5">
-            <button
-              onClick={() => {
-                if (audioRef.current) {
-                  isPlaying ? audioRef.current.pause() : audioRef.current.play();
-                  setIsPlaying(!isPlaying);
-                }
-              }}
-              className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
-              style={{ backgroundColor: isOwn ? 'rgba(255,255,255,0.2)' : brandColor }}
-            >
-              {isPlaying ? <FaPause className="text-xs text-white" /> : <FaPlay className="text-xs text-white ml-0.5" />}
-            </button>
-            <AudioWaveform isOwn={isOwn} isPlaying={isPlaying} brandColor={brandColor} />
-            <span className={`text-[10px] flex-shrink-0 ${isOwn ? 'text-white/70' : 'text-gray-500 dark:text-gray-400'}`}>
-              {message.mediaDuration ? formatTime(message.mediaDuration) : '0:00'}
-            </span>
-            <audio
-              ref={audioRef}
-              src={message.mediaUrl}
-              onEnded={() => setIsPlaying(false)}
-              onPause={() => setIsPlaying(false)}
-              onPlay={() => setIsPlaying(true)}
-              className="hidden"
-            />
-          </div>
+          <AudioPlayer
+            src={message.mediaUrl}
+            isOwn={isOwn}
+            duration={message.mediaDuration}
+            brandColor={brandColor}
+            onDurationReady={(dur) => {
+              // Optionally update message.mediaDuration if needed
+            }}
+          />
         );
 
       case 'file':
@@ -1568,6 +1632,10 @@ const YourWorkspaceChannelId = () => {
   const isRecordingRef = useRef(false);
   const isNative = Capacitor.isNativePlatform();
 
+  // ─── Sending lock ────────────────────────────────────────────────────
+  const isSendingRef = useRef(false);
+  const [isSending, setIsSending] = useState(false);
+
   const { socket, isConnected } = useSocket();
   const [localMessages, setLocalMessages] = useState([]);
 
@@ -1576,7 +1644,7 @@ const YourWorkspaceChannelId = () => {
 
   const { data: workspaceData, isLoading: workspaceLoading, error } = useGetWorkspaceQuery(workspaceId);
   const { data: chatsData, isLoading: chatsLoading, refetch: refetchChats } = useGetUserChatsQuery(workspaceId);
-    const {
+  const {
     data: messagesData,
     isLoading: messagesLoading,
     refetch: refetchMessages,
@@ -1750,8 +1818,7 @@ const YourWorkspaceChannelId = () => {
         let mutated = false;
 
         incomingList.forEach((incoming) => {
-          const isOwn = incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
-
+          // 1. Check if this message already exists by real _id
           const existingIdx = next.findIndex(m => m._id === incoming._id);
           if (existingIdx > -1) {
             if (!mutated) next = [...next];
@@ -1759,12 +1826,14 @@ const YourWorkspaceChannelId = () => {
             const existing = next[existingIdx];
             const updated = {
               ...incoming,
+              createdAt: existing.createdAt, // keep client order
               _sent: existing._sent || false,
               _pending: existing._pending || false,
               _failed: existing._failed || false,
               _delivered: true,
               _read: false,
             };
+            const isOwn = incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
             if (isOwn) {
               const otherIds = participants.map(p => p.user?._id || p.user).filter(id => id !== userInfo?._id);
               if (otherIds.some(id => incoming.readBy?.some(r => r.user === id || r.user?._id === id))) {
@@ -1779,35 +1848,68 @@ const YourWorkspaceChannelId = () => {
             return;
           }
 
+          const isOwn = incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
+
+          // 2. Find a temporary message to replace
+          let tempIdx = -1;
           if (isOwn) {
-            let tempIdx = next.findIndex(m => m._tempId === incoming._id);
-            if (tempIdx === -1) {
-              tempIdx = next.findIndex(
-                m => m._temp && m.content === incoming.content && Math.abs(new Date(m.createdAt) - new Date(incoming.createdAt)) < 10000
-              );
+            // PRIMARY: match by clientMsgId
+            if (incoming.clientMsgId) {
+              tempIdx = next.findIndex((m) => m._tempId === incoming.clientMsgId);
             }
-            if (tempIdx > -1) {
-              if (!mutated) next = [...next];
-              mutated = true;
-              const realMsg = {
-                ...incoming,
-                _temp: false,
-                _tempId: undefined,
-                _pending: false,
-                _failed: false,
-                _sent: true,
-                _delivered: true,
-                _read: false,
-              };
+            // Fallback: match by _tempId (legacy)
+            if (tempIdx === -1) {
+              tempIdx = next.findIndex((m) => m._tempId === incoming._id);
+            }
+            // Last-resort fallback (content + time)
+            if (tempIdx === -1) {
+              const incomingContent = incoming.content || '';
+              const incomingTime = new Date(incoming.createdAt).getTime();
+              tempIdx = next.findIndex((m) => {
+                if (!m._temp) return false;
+                if (m.content !== undefined && m.content === incomingContent) {
+                  const mTime = new Date(m.createdAt).getTime();
+                  return Math.abs(mTime - incomingTime) < 10000;
+                }
+                if (m.mediaName && m.mediaName === incoming.mediaName) {
+                  const mTime = new Date(m.createdAt).getTime();
+                  return Math.abs(mTime - incomingTime) < 20000;
+                }
+                return false;
+              });
+            }
+          }
+
+          if (tempIdx > -1) {
+            if (!mutated) next = [...next];
+            mutated = true;
+            const tempMsg = next[tempIdx];
+            const realMsg = {
+              ...incoming,
+              createdAt: tempMsg.createdAt, // preserve client order
+              _sent: true,
+              _pending: false,
+              _failed: false,
+              _delivered: true,
+              _read: false,
+              _temp: false,
+              _tempId: undefined,
+            };
+            if (isOwn) {
               const otherIds = participants.map(p => p.user?._id || p.user).filter(id => id !== userInfo?._id);
               if (otherIds.some(id => incoming.readBy?.some(r => r.user === id || r.user?._id === id))) {
                 realMsg._read = true;
               }
-              next[tempIdx] = realMsg;
-              return;
+            } else {
+              if (incoming.readBy?.some(r => r.user === userInfo?._id || r.user?._id === userInfo?._id)) {
+                realMsg._read = true;
+              }
             }
+            next[tempIdx] = realMsg;
+            return;
           }
 
+          // 3. New message (not temporary)
           const msg = {
             ...incoming,
             _sent: true,
@@ -2121,8 +2223,37 @@ const YourWorkspaceChannelId = () => {
     }
   };
 
+  // ─── Duplicate detection helper ──────────────────────────────────
+  const isRecentDuplicateMedia = useCallback(
+    (signature) => {
+      const now = Date.now();
+      return localMessages.some((m) => {
+        const isOwnMsg =
+          m.sender?._id === userInfo?._id || m.sender === userInfo?._id;
+        if (!isOwnMsg) return false;
+        if (!m.mediaSignature) return false;
+        if (m.mediaSignature !== signature) return false;
+        const msgTime = new Date(m.createdAt).getTime();
+        return now - msgTime < 4000;
+      });
+    },
+    [localMessages, userInfo]
+  );
+
   // ─── Optimistic sendAudioMessage ──────────────────────────────────
   const sendAudioMessage = async (audioBlob) => {
+    if (!audioBlob) return;
+    if (isSendingRef.current) return;
+
+    const signature = `${audioBlob.size}-${recordingTime}`;
+    if (isRecentDuplicateMedia(signature)) {
+      console.warn("Blocked duplicate voice note send");
+      return;
+    }
+
+    isSendingRef.current = true;
+    setIsSending(true);
+
     const formData = new FormData();
     const mimeType = isNative ? 'audio/m4a' : 'audio/webm';
     const extension = isNative ? 'm4a' : 'webm';
@@ -2145,11 +2276,13 @@ const YourWorkspaceChannelId = () => {
     };
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    formData.append('clientMsgId', tempId);
+
     const optimisticMsg = {
       _id: tempId,
       _tempId: tempId,
       _temp: true,
-      _pending: true,
+      _pending: false,
       _sent: false,
       _failed: false,
       _delivered: false,
@@ -2164,6 +2297,7 @@ const YourWorkspaceChannelId = () => {
       mediaName: 'Voice note',
       mediaSize: audioBlob.size,
       mediaDuration: recordingTime,
+      mediaSignature: signature,
     };
     setLocalMessages(prev => [...prev, optimisticMsg]);
     setRecordingBlob(null);
@@ -2172,11 +2306,35 @@ const YourWorkspaceChannelId = () => {
     setReplyToMessage(null);
 
     try {
-      const result = await sendMessageApi({ chatId, data: formData }).unwrap();
-      toast.success('Voice note sent!');
+      const res = await sendMessageApi({ chatId, data: formData }).unwrap();
+      const realMsg = res.message;
+
+      setLocalMessages((prev) => {
+        if (prev.some((m) => m._id === realMsg._id)) {
+          return prev.filter((m) => m._tempId !== tempId);
+        }
+        return prev.map((m) =>
+          m._tempId === tempId
+            ? {
+                ...realMsg,
+                createdAt: m.createdAt,
+                _sent: true,
+                _pending: false,
+                _failed: false,
+                _delivered: true,
+                _read: false,
+                _temp: false,
+                _tempId: undefined,
+              }
+            : m
+        );
+      });
     } catch (err) {
-      setLocalMessages(prev => prev.map(m => m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m));
+      setLocalMessages(prev => prev.filter((m) => m._tempId !== tempId));
       toast.error(err?.data?.message || 'Failed to send voice note');
+    } finally {
+      isSendingRef.current = false;
+      setIsSending(false);
     }
   };
 
@@ -2445,10 +2603,21 @@ const YourWorkspaceChannelId = () => {
   const handleSendAttachment = async (previewData) => {
     const { file, type } = previewData;
     if (!file) return;
+    if (isSendingRef.current) return;
+
+    const signature = `${file.name}-${file.size}-${file.lastModified}`;
+    if (isRecentDuplicateMedia(signature)) {
+      console.warn("Blocked duplicate media send:", file.name);
+      return;
+    }
+
+    isSendingRef.current = true;
+    setIsSending(true);
 
     const formData = new FormData();
     formData.append('media', file);
-    formData.append('messageType', type === 'image' ? 'image' : 'file');
+    const messageType = type === 'image' ? 'image' : 'file';
+    formData.append('messageType', messageType);
     if (pendingMentions.length > 0) {
       formData.append('mentions', JSON.stringify(pendingMentions));
     }
@@ -2462,12 +2631,13 @@ const YourWorkspaceChannelId = () => {
     };
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    const messageType = type === 'image' ? 'image' : 'file';
+    formData.append('clientMsgId', tempId);
+
     const optimisticMsg = {
       _id: tempId,
       _tempId: tempId,
       _temp: true,
-      _pending: true,
+      _pending: false,
       _sent: false,
       _failed: false,
       _delivered: false,
@@ -2482,6 +2652,7 @@ const YourWorkspaceChannelId = () => {
       mediaName: file.name,
       mediaSize: file.size,
       mediaDuration: null,
+      mediaSignature: signature,
     };
     setLocalMessages(prev => [...prev, optimisticMsg]);
     setReplyToMessage(null);
@@ -2489,11 +2660,13 @@ const YourWorkspaceChannelId = () => {
     setAttachmentPreview(null);
 
     try {
-      const result = await sendMessageApi({ chatId, data: formData }).unwrap();
-      toast.success(`${type === 'image' ? 'Image' : 'File'} sent!`);
+      await sendMessageApi({ chatId, data: formData }).unwrap();
     } catch (err) {
-      setLocalMessages(prev => prev.map(m => m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m));
+      setLocalMessages(prev => prev.filter((m) => m._tempId !== tempId));
       toast.error(err?.data?.message || 'Failed to send media');
+    } finally {
+      isSendingRef.current = false;
+      setIsSending(false);
     }
   };
 
@@ -2830,6 +3003,25 @@ const YourWorkspaceChannelId = () => {
     e.preventDefault();
     const trimmed = message.trim();
     if (!trimmed || !socket) return;
+    if (isSendingRef.current) return;
+
+    const now = Date.now();
+    const isDuplicate = localMessages.some((m) => {
+      if (m.messageType !== 'text') return false;
+      if (m.content !== trimmed) return false;
+      const isOwnMsg =
+        m.sender?._id === userInfo?._id || m.sender === userInfo?._id;
+      if (!isOwnMsg) return false;
+      const msgTime = new Date(m.createdAt).getTime();
+      return now - msgTime < 4000;
+    });
+    if (isDuplicate) {
+      console.warn('Blocked duplicate send:', trimmed);
+      return;
+    }
+
+    isSendingRef.current = true;
+    setIsSending(true);
 
     const senderWithName = {
       ...userInfo,
@@ -2874,28 +3066,31 @@ const YourWorkspaceChannelId = () => {
       inputRef.current.style.height = 'auto';
     }
 
-    socket.emit('send-message', {
-      chatId,
-      content: trimmed,
-      messageType: 'text',
-      mentions,
-      replyToId,
-      mediaUrl: null,
-      mediaName: null,
-      mediaSize: null,
-      mediaDuration: null,
-    }, (response) => {
-      if (response?.error) {
-        setLocalMessages((prev) => prev.filter((m) => m._id !== tempId));
-        toast.error(response.error);
-      } else {
-        setLocalMessages((prev) =>
-          prev.map((m) =>
-            m._id === tempId ? { ...m, _sent: true, _delivered: true } : m
-          )
-        );
+    socket.emit(
+      'send-message',
+      {
+        chatId,
+        content: trimmed,
+        messageType: 'text',
+        mentions,
+        replyToId,
+        clientMsgId: tempId,
+      },
+      (response) => {
+        isSendingRef.current = false;
+        setIsSending(false);
+        if (response?.error) {
+          setLocalMessages((prev) => prev.filter((m) => m._id !== tempId));
+          toast.error(response.error);
+        } else {
+          setLocalMessages((prev) =>
+            prev.map((m) =>
+              m._id === tempId ? { ...m, _sent: true, _delivered: true } : m
+            )
+          );
+        }
       }
-    });
+    );
   };
 
   // ─── Render messages with dividers ──────────────────────────────
@@ -3100,7 +3295,8 @@ const YourWorkspaceChannelId = () => {
                 </button>
                 <button
                   onClick={() => sendAudioMessage(recordingBlob)}
-                  className="px-3 py-1 bg-green-600 dark:bg-green-700 text-white rounded text-xs hover:bg-green-700 dark:hover:bg-green-800 transition"
+                  disabled={isSending}
+                  className="px-3 py-1 bg-green-600 dark:bg-green-700 text-white rounded text-xs hover:bg-green-700 dark:hover:bg-green-800 transition disabled:opacity-50"
                 >
                   Send
                 </button>
@@ -3201,6 +3397,7 @@ const YourWorkspaceChannelId = () => {
               onPaste={handlePaste}
               onKeyDown={(e) => {
                 if (isMobile) return;
+                if (isSendingRef.current) return;
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   handleSendMessage(e);
@@ -3218,7 +3415,7 @@ const YourWorkspaceChannelId = () => {
             {message.trim() ? (
               <button
                 type="submit"
-                disabled={!isConnected}
+                disabled={!isConnected || isSending}
                 className="p-2 rounded-full text-white disabled:opacity-50 flex-shrink-0 transition hover:opacity-80 mb-1"
                 style={{ backgroundColor: brandColor }}
               >
