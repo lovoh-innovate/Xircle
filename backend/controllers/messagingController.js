@@ -1093,6 +1093,7 @@ export const sendMessage = async (req, res) => {
       messageType = "text",
       mentions = [],
       replyToId,
+      clientMsgId,   // <-- ADDED: read the clientMsgId from body
     } = req.body;
 
     const isParticipant = await isChatParticipant(chatId, userId);
@@ -1170,12 +1171,18 @@ export const sendMessage = async (req, res) => {
         populate: { path: "sender", select: "name email profile username" },
       });
 
+    // 🔴 ATTACH the clientMsgId so the frontend can match the optimistic message
+    const responseMessage = populatedMessage.toObject
+      ? populatedMessage.toObject()
+      : populatedMessage;
+    responseMessage.clientMsgId = clientMsgId || null;
+
     await TypingIndicator.deleteOne({ chat: chatId, user: userId });
     console.log(`✅ Typing indicator cleared`);
 
     const io = getIO();
     if (io) {
-      io.to(`chat:${chatId}`).emit("new-message", populatedMessage);
+      io.to(`chat:${chatId}`).emit("new-message", responseMessage);
       console.log(`📡 Socket event emitted to chat:${chatId}`);
     } else {
       console.log(`⚠️ Socket.io not available`);
