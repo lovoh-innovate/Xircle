@@ -415,8 +415,9 @@ const SubtaskEditModal = ({ isOpen, onClose, subtask, index, onSave }) => {
 };
 
 // ─── Subtask Item ──────────────────────────────────────────────────
-const SubtaskItem = ({ subtask, index, onToggle, onLongPress, onOpenModal, isOverdue, formatDate, weekDays, isTouch, listeners, attributes }) => {
+const SubtaskItem = ({ subtask, index, onToggle, onLongPress, onOpenModal, isOverdue, formatDate, weekDays, listeners, attributes }) => {
   const [pressTimer, setPressTimer] = useState(null);
+  const isTouch = useIsTouchDevice();
 
   const handlePointerDown = (e) => {
     if (isTouch) {
@@ -434,10 +435,8 @@ const SubtaskItem = ({ subtask, index, onToggle, onLongPress, onOpenModal, isOve
     }
   };
 
-  // On touch, the whole item gets drag listeners; on desktop only the grip gets them.
-  // The grip is always present; we'll conditionally spread listeners.
-  const rootProps = isTouch ? { ...listeners, ...attributes } : {};
-  const gripProps = !isTouch ? { ...listeners, ...attributes } : {};
+  // Drag only on the grip
+  const gripProps = { ...listeners, ...attributes };
 
   return (
     <div
@@ -445,14 +444,13 @@ const SubtaskItem = ({ subtask, index, onToggle, onLongPress, onOpenModal, isOve
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
       onPointerLeave={handlePointerUp}
-      {...rootProps}
     >
       <div className="flex items-start gap-3">
         <div
-          className="flex-shrink-0 text-gray-400 cursor-grab mt-1 touch-none"
+          className="flex-shrink-0 text-gray-400 cursor-grab touch-none p-1 -ml-1 touch-action-none"
           {...gripProps}
         >
-          <FaGripVertical className="text-xs" />
+          <FaGripVertical className="text-sm" />
         </div>
         <button
           onClick={() => onToggle(index, subtask.done)}
@@ -510,8 +508,6 @@ const SortableSubtaskItem = ({ id, subtask, index, onToggle, onLongPress, onOpen
     isDragging,
   } = useSortable({ id });
 
-  const isTouch = useIsTouchDevice();
-
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -529,7 +525,6 @@ const SortableSubtaskItem = ({ id, subtask, index, onToggle, onLongPress, onOpen
         isOverdue={isOverdue}
         formatDate={formatDate}
         weekDays={weekDays}
-        isTouch={isTouch}
         listeners={listeners}
         attributes={attributes}
       />
@@ -606,7 +601,7 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
   const isOverdue = (due) => due && new Date(due) < new Date();
 
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, { activationConstraint: { distance: 10 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
@@ -623,73 +618,74 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
 
   return (
     <div className="flex-1 flex flex-col h-full bg-white dark:bg-[#0f0f12] overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-[#0f0f12] flex-shrink-0">
+      {/* Compact Header */}
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-[#0f0f12] flex-shrink-0">
         <button
           onClick={onBack}
-          className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition"
+          className="p-1.5 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition"
         >
-          <FaArrowLeft className="text-lg" />
+          <FaArrowLeft className="text-base" />
         </button>
         <div className="flex-1 min-w-0">
-          <h2 className="text-lg font-semibold text-gray-800 dark:text-white truncate">{task.title}</h2>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+          <h2 className="text-sm font-semibold text-gray-800 dark:text-white truncate">{task.title}</h2>
+          <div className="flex flex-wrap items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
             <span className="capitalize">{task.status}</span>
             {task.priority && <span className="capitalize">· {task.priority}</span>}
             {task.dueDate && (
               <span className={`flex items-center gap-1 ${isOverdue(task.dueDate) ? 'text-red-500' : ''}`}>
-                <FaCalendarAlt className="text-[10px]" /> {formatDate(task.dueDate)}
+                <FaCalendarAlt className="text-[9px]" /> {formatDate(task.dueDate)}
               </span>
             )}
             {task.folder && (
               <span className="flex items-center gap-1">
-                <FaFolder className="text-[10px]" /> {task.folder.name}
+                <FaFolder className="text-[9px]" /> {task.folder.name}
               </span>
             )}
             {task.recurrenceType && task.recurrenceType !== 'none' && (
               <span className="flex items-center gap-0.5 text-teal-600 dark:text-teal-400">
-                <FaRedo className="text-[10px]" /> {task.recurrenceType === 'daily' ? 'Daily' : 'Weekly'}
+                <FaRedo className="text-[9px]" /> {task.recurrenceType === 'daily' ? 'Daily' : 'Weekly'}
               </span>
             )}
           </div>
         </div>
-        <div className="flex gap-1">
+        {/* Archive and Delete buttons – hidden on mobile, visible on md+ */}
+        <div className="flex gap-0.5 hidden md:flex">
           {task.isArchived ? (
             <button
               onClick={() => onRestore(task._id)}
-              className="p-2 text-gray-400 hover:text-teal-500 transition rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800"
+              className="p-1.5 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
               title="Restore"
             >
-              <FaUndo />
+              <FaUndo className="text-sm" />
             </button>
           ) : (
             <button
               onClick={() => onArchive(task._id)}
-              className="p-2 text-gray-400 hover:text-teal-500 transition rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800"
+              className="p-1.5 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
               title="Archive"
             >
-              <FaArchive />
+              <FaArchive className="text-sm" />
             </button>
           )}
           <button
             onClick={() => onDelete(task._id)}
-            className="p-2 text-gray-400 hover:text-red-500 transition rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800"
+            className="p-1.5 text-gray-400 hover:text-red-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
             title="Delete"
           >
-            <FaTrashAlt />
+            <FaTrashAlt className="text-sm" />
           </button>
         </div>
       </div>
 
-      {/* Subtasks list */}
-      <div className="flex-1 overflow-y-auto px-4 py-4">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400">Subtasks</h3>
+      {/* Subtasks list with DnD */}
+      <div className="flex-1 overflow-y-auto px-4 py-3">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider">Subtasks</h3>
           <span className="text-xs text-gray-400 dark:text-gray-500">{task.subtasks?.length || 0}</span>
         </div>
 
         {(!task.subtasks || task.subtasks.length === 0) && (
-          <div className="text-center py-10 text-gray-400 dark:text-gray-500 text-sm">No subtasks yet.</div>
+          <div className="text-center py-8 text-gray-400 dark:text-gray-500 text-sm">No subtasks yet.</div>
         )}
 
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -697,7 +693,7 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
             items={task.subtasks.map((_, i) => String(i))}
             strategy={verticalListSortingStrategy}
           >
-            <div className="space-y-3">
+            <div className="space-y-2">
               {task.subtasks?.map((st, idx) => (
                 <SortableSubtaskItem
                   key={idx}
@@ -767,7 +763,7 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
 };
 
 // ─── Task Card ──────────────────────────────────────────────────────
-const TaskCard = React.memo(({ task, onClick, onOpenModal, isTouch, listeners, attributes }) => {
+const TaskCard = React.memo(({ task, onClick, onOpenModal, listeners, attributes }) => {
   const formatDate = (date) => {
     if (!date) return '';
     return new Date(date).toLocaleString('en-US', { month: 'short', day: 'numeric' });
@@ -776,7 +772,8 @@ const TaskCard = React.memo(({ task, onClick, onOpenModal, isTouch, listeners, a
   const subtaskCount = task.subtasks?.length || 0;
   const doneCount = task.subtasks?.filter(st => st.done).length || 0;
 
-  // Double‑tap detection for mobile (only when isTouch)
+  const isTouch = useIsTouchDevice();
+
   const lastTap = useRef(0);
   const handleCardClick = (e) => {
     if (e.target.closest('.task-more-btn')) return;
@@ -801,19 +798,17 @@ const TaskCard = React.memo(({ task, onClick, onOpenModal, isTouch, listeners, a
     }
   };
 
-  // For desktop, drag is only via grip; for mobile, whole card.
-  const rootProps = isTouch ? { ...listeners, ...attributes } : {};
-  const gripProps = !isTouch ? { ...listeners, ...attributes } : {};
+  // Drag only on the grip
+  const gripProps = { ...listeners, ...attributes };
 
   return (
     <div
       className="bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1e1e1e] transition cursor-pointer"
       onClick={handleCardClick}
-      {...rootProps}
     >
       <div className="flex items-center gap-3">
         <div
-          className="flex-shrink-0 text-gray-400 cursor-grab touch-none"
+          className="flex-shrink-0 text-gray-400 cursor-grab touch-none p-1 -ml-1 touch-action-none"
           {...gripProps}
         >
           <FaGripVertical className="text-sm" />
@@ -860,8 +855,6 @@ const SortableTaskItem = ({ id, task, onClick, onOpenModal }) => {
     isDragging,
   } = useSortable({ id });
 
-  const isTouch = useIsTouchDevice();
-
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -874,7 +867,6 @@ const SortableTaskItem = ({ id, task, onClick, onOpenModal }) => {
         task={task}
         onClick={onClick}
         onOpenModal={onOpenModal}
-        isTouch={isTouch}
         listeners={listeners}
         attributes={attributes}
       />
@@ -1235,14 +1227,25 @@ const PersonalTasks = () => {
 
   const [localTasks, setLocalTasks] = useState([]);
   const orderMap = useRef({});
+  const subtaskOrderMap = useRef({}); // { taskId: [order indices] }
 
+  // Sync with fetched data, applying stored orders
   useEffect(() => {
     if (tasksData?.tasks) {
       const fetched = tasksData.tasks;
+      // Apply task order
       const sorted = [...fetched].sort((a, b) => {
         const orderA = orderMap.current[a._id] ?? a.order ?? 0;
         const orderB = orderMap.current[b._id] ?? b.order ?? 0;
         return orderA - orderB;
+      });
+      // Apply subtask order for each task
+      sorted.forEach(task => {
+        const storedOrder = subtaskOrderMap.current[task._id];
+        if (storedOrder && storedOrder.length === task.subtasks.length) {
+          const reordered = storedOrder.map(i => task.subtasks[i]);
+          task.subtasks = reordered;
+        }
       });
       setLocalTasks(sorted);
     }
@@ -1345,6 +1348,7 @@ const PersonalTasks = () => {
     const prevTasks = [...localTasks];
     setLocalTasks(prev => prev.filter(t => t._id !== taskId));
     delete orderMap.current[taskId];
+    delete subtaskOrderMap.current[taskId];
     try {
       await deleteTask(taskId).unwrap();
       toast.success('Moved to trash');
@@ -1483,10 +1487,12 @@ const PersonalTasks = () => {
       }
       return t;
     }));
+    subtaskOrderMap.current[taskId] = orderedIndices;
     try {
       await reorderSubtasks({ taskId, orderedSubTaskIndices: orderedIndices }).unwrap();
     } catch (err) {
       setLocalTasks(prevTasks);
+      delete subtaskOrderMap.current[taskId];
       toast.error(err?.data?.message || 'Failed to reorder subtasks');
     }
   };
@@ -1536,7 +1542,7 @@ const PersonalTasks = () => {
   // ─── Reorder tasks (drag & drop) ─────────────────────────────
 
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, { activationConstraint: { distance: 10 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
