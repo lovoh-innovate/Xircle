@@ -12,14 +12,13 @@ import {
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 import toast, { Toaster } from 'react-hot-toast';
-import PreloadAppData from './components/PreloadAppData.jsx';
 
+// ─── NEW: SQLite & sync imports ──────────────────────────────────────
+import { getDatabase } from './database/database';
+import { syncManager } from './sync/syncManager';
+
+// ─── Existing imports ────────────────────────────────────────────────
 import './index.css';
-// ─── CHANGED: store.js no longer exports `persistor` — no redux-persist
-// layer anymore. authSlice reads/writes localStorage synchronously and
-// directly, which is the entire persistence layer now (matches the
-// known-working reference implementation, and removes the async
-// REHYDRATE race that was overwriting a valid token with a stale one).
 import store from './store';
 
 import PrivateRoute from './components/PrivateRoute.jsx';
@@ -60,7 +59,6 @@ import MyWorkspaceUpdateProject from './workspaceScreens/MyWorkspaceUpdateProjec
 import MyWorkspaceClockin from './workspaceScreens/MyWorkspaceClockin.jsx';
 import MyWorkspaceNotifications from './workspaceScreens/MyWorkspaceNotifications.jsx';
 
-
 import YourWorkspaceChannels from './screens/YourWorkspaceChannels.jsx';
 import YourWorkspaceChannelId from './screens/YourWorkspaceChannelId.jsx';
 import YourWorkspaceDMs from './screens/YourWorkspaceDMs.jsx';
@@ -83,9 +81,58 @@ import UploadApp from './screens/UploadApp.jsx';
 
 import { PushNotificationProvider, usePushNotificationContext } from './contexts/PushNotificationContext.jsx';
 
+// ─── NEW: AppInitializer – initializes SQLite and starts sync ──────
+const AppInitializer = ({ children }) => {
+  const { userInfo } = useSelector((state) => state.auth);
+  const [dbReady, setDbReady] = useState(false);
+  const initialSyncDone = useRef(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const init = async () => {
+      try {
+        // 1. Open SQLite (creates tables if needed)
+        await getDatabase();
+        if (mounted) setDbReady(true);
+
+        // 2. If user is logged in and we haven't synced yet, do initial sync
+        if (userInfo?.token && !initialSyncDone.current) {
+          initialSyncDone.current = true;
+          await syncManager.initialSync();
+          // Start background sync (every 30s) and outbox processing
+          syncManager.startBackgroundSync(30000);
+        }
+      } catch (error) {
+        console.error('❌ AppInitializer failed:', error);
+        // Even on error, we set dbReady to true so the app renders
+        if (mounted) setDbReady(true);
+      }
+    };
+
+    init();
+
+    return () => {
+      mounted = false;
+      syncManager.stopBackgroundSync();
+    };
+  }, [userInfo?.token]); // re-run when auth changes (login/logout)
+
+  // Show nothing until DB is ready (you could show a splash screen here)
+  if (!dbReady) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-[#0b0b10]">
+        <div className="text-teal-400 text-xl">Loading...</div>
+      </div>
+    );
+  }
+
+  return children;
+};
+
 // ─── Global Pull‑to‑Refresh Component ──────────────────────────────
 const PullToRefresh = ({ children }) => {
-  const { refreshAll } = useRefresh();
+  const { refreshAll } = useRefresh(); // we'll keep using refreshAll, but it will call syncManager via RefreshContext later
   const [refreshing, setRefreshing] = useState(false);
   const startY = useRef(0);
   const pullDistance = useRef(0);
@@ -309,14 +356,23 @@ const RootLayout = () => {
   const navigate = useNavigate();
   const { setIncomingCallFromPush, socket } = useSocket();
   const { isDarkMode } = useTheme();
-  const { refreshAll } = useRefresh();
+  const { refreshAll } = useRefresh(); // keep for pull-to-refresh but socket will use syncManager
 
   useEffect(() => {
     if (!socket) return;
 
-    const handleDataChange = (data) => {
+    // ─── CHANGED: socket 'data-changed' now triggers background sync ──
+    const handleDataChange = async (data) => {
       console.log('🔄 Real‑time data update received:', data);
-      refreshAll();
+      // Instead of refreshAll() (which forces full refetch), we use
+      // syncManager to fetch only changes and update SQLite.
+      // This avoids unnecessary network load and improves speed.
+      try {
+        await syncManager.backgroundSync();
+        await syncManager.processOutbox();
+      } catch (err) {
+        console.error('Background sync failed:', err);
+      }
     };
 
     socket.on('data-changed', handleDataChange);
@@ -324,8 +380,9 @@ const RootLayout = () => {
     return () => {
       socket.off('data-changed', handleDataChange);
     };
-  }, [socket, refreshAll]);
+  }, [socket, refreshAll]); // refreshAll dependency kept but not used
 
+  // ── Push notification handlers (unchanged) ────────────────────────
   useEffect(() => {
     const handlePushReceived = (event) => {
       const notification = event.detail;
@@ -422,7 +479,8 @@ const RootLayout = () => {
     <div className="bg-gray-50 dark:bg-[#0b0b10] min-h-screen w-full transition-colors duration-300">
       <GlobalNavigator />
 
-      <PreloadAppData />
+      {/* ─── REMOVED: PreloadAppData – initial sync now handled by AppInitializer ── */}
+      {/* <PreloadAppData /> */}
 
       <PullToRefresh>
         <Outlet />
@@ -542,20 +600,19 @@ const AppRoot = () => {
   return (
     <SocketProvider token={token}>
       <PushNotificationProvider>
-        <ServiceWorkerRegister />
-        <PushNotificationInitializer />
-        <WebPushInitializer />
-        <RouterProvider router={router} />
+        {/* ─── NEW: Wrap with AppInitializer ──────────────────────── */}
+        <AppInitializer>
+          <ServiceWorkerRegister />
+          <PushNotificationInitializer />
+          <WebPushInitializer />
+          <RouterProvider router={router} />
+        </AppInitializer>
       </PushNotificationProvider>
     </SocketProvider>
   );
 };
 
-// ─── Main render — no PersistGate ──────────────────────────────────
-// authSlice's initialState reads localStorage synchronously, so
-// store.getState().auth.userInfo is correct on the very first render.
-// There's no async rehydration step left to gate behind a loading
-// screen, so AppRoot mounts directly.
+// ─── Main render ────────────────────────────────────────────────────
 createRoot(document.getElementById('root')).render(
   <Provider store={store}>
     <StrictMode>

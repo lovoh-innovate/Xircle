@@ -255,19 +255,36 @@ export const RejectReasonModal = React.memo(({ isOpen, onClose, onConfirm }) => 
   );
 });
 
-// ─── Mark Task Complete Modal ──────────────────────────────────────
+// ─── Mark Task Complete Modal (with links & attachments) ──────────
 export const MarkCompleteModal = React.memo(({ isOpen, onClose, task, brandColor, onSubmit }) => {
   const [notes, setNotes] = useState('');
+  const [linksText, setLinksText] = useState('');
+  const [attachments, setAttachments] = useState([]);
   const [loading, setLoading] = useState(false);
+
+  const handleFileChange = (e) => {
+    setAttachments([...e.target.files]);
+    e.target.value = '';
+  };
+  const removeFile = (index) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
+  };
 
   const handleSubmit = async () => {
     setLoading(true);
     try {
-      await onSubmit({ notes: notes.trim() });
+      const links = linksText.split('\n').map(l => l.trim()).filter(Boolean);
+      await onSubmit({
+        notes: notes.trim(),
+        links,
+        attachments,
+      });
       onClose();
       setNotes('');
+      setLinksText('');
+      setAttachments([]);
     } catch (err) {
-      // Error already handled in parent
+      // Error handled in parent
     } finally {
       setLoading(false);
     }
@@ -277,22 +294,57 @@ export const MarkCompleteModal = React.memo(({ isOpen, onClose, task, brandColor
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto shadow-xl">
         <div className="flex justify-between mb-4">
           <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Mark Task Complete</h2>
           <button onClick={onClose} className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"><FaTimes /></button>
         </div>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-          Confirm you have completed "{task?.title}". Add any final notes (optional).
+          Confirm you have completed <span className="font-medium text-gray-800 dark:text-gray-200">"{task?.title}"</span>.
+          You may provide additional info below.
         </p>
-        <textarea
-          placeholder="Completion notes (optional)"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          rows={3}
-          className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none mb-4"
-        />
-        <div className="flex gap-3">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Notes (optional)</label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none"
+              placeholder="Completion notes..."
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Links (one per line, optional)</label>
+            <textarea
+              value={linksText}
+              onChange={(e) => setLinksText(e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none"
+              placeholder="https://example.com"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Attachments (optional)</label>
+            <input
+              type="file"
+              multiple
+              onChange={handleFileChange}
+              className="w-full text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-teal-50 dark:file:bg-[#0d9488]/20 file:text-teal-600 dark:file:text-[#0d9488]"
+            />
+            {attachments.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {attachments.map((f, i) => (
+                  <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5">
+                    <span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span>
+                    <button type="button" onClick={() => removeFile(i)} className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"><FaTrashAlt className="text-xs" /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="flex gap-3 mt-4">
           <button onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
           <button
             onClick={handleSubmit}
@@ -308,19 +360,20 @@ export const MarkCompleteModal = React.memo(({ isOpen, onClose, task, brandColor
   );
 });
 
-// ─── Confirm Completion Modal ──────────────────────────────────────
-export const ConfirmCompletionModal = React.memo(({ isOpen, onClose, task, brandColor, onSubmit }) => {
+// ─── Confirm Completion Modal (with reject) ──────────────────────
+export const ConfirmCompletionModal = React.memo(({ isOpen, onClose, task, brandColor, onSubmit, onReject }) => {
   const [feedback, setFeedback] = useState('');
   const [finalHours, setFinalHours] = useState('');
   const [finalLinksText, setFinalLinksText] = useState('');
   const [finalAttachments, setFinalAttachments] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [showReject, setShowReject] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
 
   const handleFileChange = (e) => {
     setFinalAttachments([...e.target.files]);
     e.target.value = '';
   };
-
   const removeFile = (index) => {
     setFinalAttachments(prev => prev.filter((_, i) => i !== index));
   };
@@ -336,15 +389,39 @@ export const ConfirmCompletionModal = React.memo(({ isOpen, onClose, task, brand
         finalAttachments,
       });
       onClose();
-      setFeedback('');
-      setFinalHours('');
-      setFinalLinksText('');
-      setFinalAttachments([]);
+      resetForm();
     } catch (err) {
       // Error handled in parent
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleReject = async () => {
+    if (!rejectReason.trim()) {
+      toast.error('Please provide a reason for rejection.');
+      return;
+    }
+    setLoading(true);
+    try {
+      await onReject(task._id, rejectReason.trim());
+      onClose();
+      resetForm();
+      setShowReject(false);
+    } catch (err) {
+      // Error handled in parent
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetForm = () => {
+    setFeedback('');
+    setFinalHours('');
+    setFinalLinksText('');
+    setFinalAttachments([]);
+    setRejectReason('');
+    setShowReject(false);
   };
 
   if (!isOpen) return null;
@@ -353,14 +430,36 @@ export const ConfirmCompletionModal = React.memo(({ isOpen, onClose, task, brand
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
       <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto shadow-xl">
         <div className="flex justify-between mb-4">
-          <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Confirm Task Completion</h2>
+          <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Confirm or Reject Task</h2>
           <button onClick={onClose} className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"><FaTimes /></button>
         </div>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-          Provide final details for "{task?.title}" before confirming completion.
+          Review the submission for <span className="font-medium text-gray-800 dark:text-gray-200">"{task?.title}"</span> and either confirm or reject it.
         </p>
 
-        <div className="space-y-4">
+        {/* Show submitted info if any */}
+        {task?.finalLinks && task.finalLinks.length > 0 && (
+          <div className="mb-3 text-sm text-gray-700 dark:text-gray-300">
+            <span className="font-medium">Submitted links:</span>
+            <ul className="list-disc pl-5 mt-1">
+              {task.finalLinks.map((link, i) => (
+                <li key={i}><a href={link} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] underline break-all">{link}</a></li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {task?.finalAttachments && task.finalAttachments.length > 0 && (
+          <div className="mb-3 text-sm text-gray-700 dark:text-gray-300">
+            <span className="font-medium">Submitted attachments:</span>
+            <ul className="list-disc pl-5 mt-1">
+              {task.finalAttachments.map((att, i) => (
+                <li key={i}><a href={att.url} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] underline break-all">{att.name || 'file'}</a></li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="space-y-4 mt-4">
           <div>
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Feedback (optional)</label>
             <textarea
@@ -371,7 +470,6 @@ export const ConfirmCompletionModal = React.memo(({ isOpen, onClose, task, brand
               placeholder="Any feedback for the assignee..."
             />
           </div>
-
           <div>
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Actual Hours (optional)</label>
             <input
@@ -383,7 +481,6 @@ export const ConfirmCompletionModal = React.memo(({ isOpen, onClose, task, brand
               placeholder="e.g. 2.5"
             />
           </div>
-
           <div>
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Final Links (one per line, optional)</label>
             <textarea
@@ -394,7 +491,6 @@ export const ConfirmCompletionModal = React.memo(({ isOpen, onClose, task, brand
               placeholder="https://example.com"
             />
           </div>
-
           <div>
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Final Attachments (optional)</label>
             <input
@@ -414,18 +510,57 @@ export const ConfirmCompletionModal = React.memo(({ isOpen, onClose, task, brand
               </div>
             )}
           </div>
+
+          {showReject && (
+            <div className="border-t border-gray-200 dark:border-gray-800/60 pt-4">
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Reason for rejection *</label>
+              <input
+                type="text"
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-red-500 outline-none"
+                placeholder="Enter reason..."
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex gap-3 mt-4">
           <button onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80 disabled:opacity-50"
-            style={{ backgroundColor: brandColor }}
-          >
-            {loading ? 'Submitting...' : 'Confirm'}
-          </button>
+          {!showReject ? (
+            <>
+              <button
+                onClick={() => setShowReject(true)}
+                className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-medium transition"
+              >
+                Reject
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={loading}
+                className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80 disabled:opacity-50"
+                style={{ backgroundColor: brandColor }}
+              >
+                {loading ? 'Confirming...' : 'Confirm'}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => setShowReject(false)}
+                className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+              >
+                Back
+              </button>
+              <button
+                onClick={handleReject}
+                disabled={loading}
+                className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-medium transition disabled:opacity-50"
+              >
+                {loading ? 'Rejecting...' : 'Confirm Rejection'}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

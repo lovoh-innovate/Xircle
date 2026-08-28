@@ -22,6 +22,7 @@ import {
   useDeleteSubTaskMutation,
   useMarkTaskCompletedMutation,
   useConfirmTaskCompletionMutation,
+  useRejectTaskMutation,              // <-- ADDED
   useSendManualReminderMutation,
   useGetTaskFeedbackQuery,
   useAssignTaskMutation,
@@ -41,7 +42,7 @@ import {
 } from '../slices/taskApiSlice';
 import MyWorkspaceSidebar from '../workspaceComponents/MyWorkspaceSidebar';
 import MyWorkspaceBottombar from '../workspaceComponents/MyWorkspaceBottombar';
-import { FaCommentDots, FaUser, FaEdit, FaTimes } from 'react-icons/fa';
+import { FaCommentDots, FaUser, FaEdit, FaTimes, FaTasks, FaUserPlus } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 
 // ─── Import the four components ──────────────────────────────────────
@@ -61,7 +62,7 @@ import {
   AddMemberForm,
   AssignForm,
   CustomDropdown,
-  MarkCompleteModal,        // <-- add this
+  MarkCompleteModal,
   ConfirmCompletionModal,
 } from '../workspaceComponents/ProjectHelpers';
 
@@ -113,6 +114,7 @@ const MyWorkspaceProjectId = () => {
   const containerRef = useRef(null);
   const isMd = useMediaQuery('(min-width: 768px)');
 
+  // ─── Completion modal states ──────────────────────────────────────
   const [showMarkCompleteModal, setShowMarkCompleteModal] = useState(false);
   const [showConfirmCompletionModal, setShowConfirmCompletionModal] = useState(false);
 
@@ -130,6 +132,7 @@ const MyWorkspaceProjectId = () => {
   const [deleteTask] = useDeleteTaskMutation();
   const [sendManualReminder] = useSendManualReminderMutation();
   const [confirmTaskCompletion] = useConfirmTaskCompletionMutation();
+  const [rejectTask] = useRejectTaskMutation();                      // <-- ADDED
   const [assignTask] = useAssignTaskMutation();
   const [archiveTask] = useArchiveTaskMutation();
   const [restoreTask] = useRestoreTaskMutation();
@@ -284,8 +287,20 @@ const MyWorkspaceProjectId = () => {
     try { await sendManualReminder({ taskId: task._id, message: '' }).unwrap(); toast.success('Reminder sent'); } catch (e) { toast.error(e?.data?.message || 'Failed'); }
   }, [sendManualReminder]);
 
-  const handleMarkComplete = useCallback(async (notes) => {
-    try { await markTaskCompleted({ taskId: activeTask._id, notes }).unwrap(); toast.success('Task marked as complete'); refreshAll(); } catch (err) { toast.error(err?.data?.message || 'Failed to mark task complete'); throw err; }
+  // ─── Completion handlers ────────────────────────────────────────────
+  const handleMarkComplete = useCallback(async (data) => {
+    try {
+      const fd = new FormData();
+      fd.append('notes', data.notes || '');
+      if (data.links) { data.links.forEach(l => fd.append('links', l)); }
+      if (data.attachments) { data.attachments.forEach(f => fd.append('completionAttachments', f)); }
+      await markTaskCompleted({ taskId: activeTask._id, data: fd }).unwrap();
+      toast.success('Task marked as complete');
+      refreshAll();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to mark task complete');
+      throw err;
+    }
   }, [activeTask, markTaskCompleted, refreshAll]);
 
   const handleConfirmCompletion = useCallback(async (data) => {
@@ -298,8 +313,26 @@ const MyWorkspaceProjectId = () => {
       await confirmTaskCompletion({ taskId: activeTask._id, data: fd }).unwrap();
       toast.success('Task completion confirmed');
       refreshAll();
-    } catch (err) { toast.error(err?.data?.message || 'Failed to confirm completion'); throw err; }
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to confirm completion');
+      throw err;
+    }
   }, [activeTask, confirmTaskCompletion, refreshAll]);
+
+  const handleRejectTask = useCallback(async (taskId, reason) => {
+    try {
+      await rejectTask({ taskId, reason }).unwrap();
+      toast.success('Task rejected');
+      refreshAll();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to reject task');
+      throw err;
+    }
+  }, [rejectTask, refreshAll]);
+
+  // ─── Modal open handlers ────────────────────────────────────────────
+  const handleMarkCompleteClick = useCallback(() => setShowMarkCompleteModal(true), []);
+  const handleConfirmCompletionClick = useCallback(() => setShowConfirmCompletionModal(true), []);
 
   const handleSetReadyForCompletion = useCallback(async () => {
     const previousStatus = activeTask.status;
@@ -639,33 +672,34 @@ const MyWorkspaceProjectId = () => {
           {/* Right panel – Task Detail */}
           <div className={`flex flex-col flex-1 h-full bg-gray-50 dark:bg-[#0f0f12] ${!isMd && !mobileShowDetail ? 'hidden' : ''}`}>
             {activeTask ? (
-              <MyWorkspaceProjectTaskId
-                task={activeTask}
-                brandColor={brandColor}
-                userInfo={userInfo}
-                onBack={handleBackToList}
-                onEdit={handleEditTask}
-                onDelete={handleDeleteTask}
-                onRefresh={refreshAll}
-                canManage={canManage}
-                onSendReminder={handleSendManualReminder}
-                onConfirmCompletion={handleConfirmCompletion}
-                onAssignTask={openAssignModal}
-                onMarkComplete={handleMarkComplete}
-                onSetReadyForCompletion={handleSetReadyForCompletion}
-                onArchiveTask={handleArchiveTask}
-                onUnarchiveTask={handleUnarchiveTask}
-                onPermanentDelete={handlePermanentDeleteTask}
-                onCopyClick={openCopyModal}
-                onMoveClick={openMoveModal}
-                isReadOnly={activeFolderId ? isFolderReadOnly(activeFolderId) : false}
-                subDragStart={canReorderSub() ? handleSubDragStart : null}
-                subDragEnd={handleSubDragEnd}
-                subDragOver={canReorderSub() ? handleSubDragOver : null}
-                subDrop={canReorderSub() ? handleSubDrop : null}
-                subDragLeave={handleSubDragLeave}
-                subDragOverIndex={dragOverSubIdx}
-              />
+             <MyWorkspaceProjectTaskId
+  task={activeTask}
+  brandColor={brandColor}
+  userInfo={userInfo}
+  onBack={handleBackToList}
+  onEdit={handleEditTask}
+  onDelete={handleDeleteTask}
+  onRefresh={refreshAll}
+  canManage={canManage}
+  onSendReminder={handleSendManualReminder}
+  onAssignTask={openAssignModal}
+  onMarkCompleteClick={handleMarkCompleteClick}
+  onConfirmCompletionClick={handleConfirmCompletionClick}
+  onSetReadyForCompletion={handleSetReadyForCompletion}
+  onArchiveTask={handleArchiveTask}
+  onUnarchiveTask={handleUnarchiveTask}
+  onPermanentDelete={handlePermanentDeleteTask}
+  onCopyClick={openCopyModal}
+  onMoveClick={openMoveModal}
+  onReject={handleRejectTask}              // <-- ADD THIS
+  isReadOnly={activeFolderId ? isFolderReadOnly(activeFolderId) : false}
+  subDragStart={canReorderSub() ? handleSubDragStart : null}
+  subDragEnd={handleSubDragEnd}
+  subDragOver={canReorderSub() ? handleSubDragOver : null}
+  subDrop={canReorderSub() ? handleSubDrop : null}
+  subDragLeave={handleSubDragLeave}
+  subDragOverIndex={dragOverSubIdx}
+/>
             ) : (
               <div className="flex-1 flex items-center justify-center text-gray-500 dark:text-gray-500">
                 <div className="text-center">
@@ -863,8 +897,21 @@ const MyWorkspaceProjectId = () => {
       />
 
       {/* Completion modals */}
-      <MarkCompleteModal isOpen={showMarkCompleteModal} onClose={() => setShowMarkCompleteModal(false)} task={activeTask} brandColor={brandColor} onSubmit={handleMarkComplete} />
-      <ConfirmCompletionModal isOpen={showConfirmCompletionModal} onClose={() => setShowConfirmCompletionModal(false)} task={activeTask} brandColor={brandColor} onSubmit={handleConfirmCompletion} />
+      <MarkCompleteModal
+        isOpen={showMarkCompleteModal}
+        onClose={() => setShowMarkCompleteModal(false)}
+        task={activeTask}
+        brandColor={brandColor}
+        onSubmit={handleMarkComplete}
+      />
+      <ConfirmCompletionModal
+        isOpen={showConfirmCompletionModal}
+        onClose={() => setShowConfirmCompletionModal(false)}
+        task={activeTask}
+        brandColor={brandColor}
+        onSubmit={handleConfirmCompletion}
+        onReject={handleRejectTask}
+      />
     </div>
   );
 };

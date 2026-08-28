@@ -27,6 +27,7 @@ import {
   useDeleteSubTaskMutation,
   useMarkTaskCompletedMutation,
   useConfirmTaskCompletionMutation,
+  useRejectTaskMutation,           // <-- NEW
   useSendManualReminderMutation,
   useGetTaskFeedbackQuery,
   useAssignTaskMutation,
@@ -65,6 +66,8 @@ import {
   FolderFormModal,
   FolderReadOnlyModal,
   CustomDropdown,
+  MarkCompleteModal,          // <-- NEW
+  ConfirmCompletionModal,     // <-- NEW
 } from '../components/ProjectHelpers';
 
 // ─── Main Component ────────────────────────────────────────────────────
@@ -110,6 +113,10 @@ const YourWorkspaceProjectId = () => {
     managerId: '',
   });
 
+  // ─── NEW: Modals for task completion flow ─────────────────────────
+  const [showMarkCompleteModal, setShowMarkCompleteModal] = useState(false);
+  const [showConfirmCompletionModal, setShowConfirmCompletionModal] = useState(false);
+
   const [folderMenuOpen, setFolderMenuOpen] = useState(null);
   const longPressTimer = useRef(null);
 
@@ -143,6 +150,7 @@ const YourWorkspaceProjectId = () => {
   const [deleteFolder] = useDeleteFolderMutation();
   const [markTaskCompleted] = useMarkTaskCompletedMutation();
   const [updateTask] = useUpdateTaskMutation();
+  const [rejectTask] = useRejectTaskMutation();               // <-- NEW
 
   // ─── Local state (optimistic updates) ──────────────────────────────
   const [localTasks, setLocalTasks] = useState([]);
@@ -495,17 +503,28 @@ const YourWorkspaceProjectId = () => {
     } catch (e) { toast.error(e?.data?.message || 'Failed to send reminder'); }
   }, [sendManualReminder]);
 
-  const handleMarkComplete = useCallback(async (notes) => {
+  // ─── NEW: Mark complete handler (submits notes, links, attachments) ──
+  const handleMarkComplete = useCallback(async ({ notes, links, attachments }) => {
     try {
-      await markTaskCompleted({ taskId: activeTask._id, notes }).unwrap();
-      toast.success('Task marked as complete');
+      const fd = new FormData();
+      fd.append('notes', notes || '');
+      if (links && links.length) {
+        links.forEach(l => fd.append('links', l));
+      }
+      if (attachments && attachments.length) {
+        attachments.forEach(f => fd.append('completionAttachments', f));
+      }
+      await markTaskCompleted({ taskId: activeTask._id, data: fd }).unwrap();
+      toast.success('Task submitted for review');
       refreshAll();
+      setShowMarkCompleteModal(false);
     } catch (err) {
-      toast.error(err?.data?.message || 'Failed to mark task complete');
+      toast.error(err?.data?.message || 'Failed to submit task');
       throw err;
     }
   }, [activeTask, markTaskCompleted, refreshAll]);
 
+  // ─── Confirm completion handler (already exists, but we'll pass to modal) ──
   const handleConfirmCompletion = useCallback(async (data) => {
     try {
       const fd = new FormData();
@@ -520,11 +539,25 @@ const YourWorkspaceProjectId = () => {
       await confirmTaskCompletion({ taskId: activeTask._id, data: fd }).unwrap();
       toast.success('Task completion confirmed');
       refreshAll();
+      setShowConfirmCompletionModal(false);
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to confirm completion');
       throw err;
     }
   }, [activeTask, confirmTaskCompletion, refreshAll]);
+
+  // ─── NEW: Reject handler ─────────────────────────────────────────────
+  const handleRejectTask = useCallback(async (taskId, reason) => {
+    try {
+      await rejectTask({ taskId, reason }).unwrap();
+      toast.success('Task rejected – returned to pending');
+      refreshAll();
+      setShowConfirmCompletionModal(false);
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to reject task');
+      throw err;
+    }
+  }, [rejectTask, refreshAll]);
 
   const handleSetReadyForCompletion = useCallback(async (task) => {
     const previousStatus = task.status;
@@ -841,7 +874,8 @@ const YourWorkspaceProjectId = () => {
                 onSendReminder={handleSendManualReminder}
                 onConfirmCompletion={handleConfirmCompletion}
                 onAssignTask={openAssignModal}
-                onMarkComplete={handleMarkComplete}
+                onMarkCompleteClick={() => setShowMarkCompleteModal(true)}          // <-- NEW
+                onConfirmCompletionClick={() => setShowConfirmCompletionModal(true)} // <-- NEW
                 onSetReadyForCompletion={handleSetReadyForCompletion}
                 subDragStart={handleSubDragStart}
                 subDragEnd={handleSubDragEnd}
@@ -1002,6 +1036,25 @@ const YourWorkspaceProjectId = () => {
         title="Add Manager"
         message={`Are you sure you want to add ${addManagerConfirm.managerName} as manager?`}
         danger={false}
+      />
+
+      {/* ─── NEW: Mark Complete Modal ────────────────────────────────── */}
+      <MarkCompleteModal
+        isOpen={showMarkCompleteModal}
+        onClose={() => setShowMarkCompleteModal(false)}
+        task={activeTask}
+        brandColor={brandColor}
+        onSubmit={handleMarkComplete}
+      />
+
+      {/* ─── NEW: Confirm/Reject Completion Modal ───────────────────── */}
+      <ConfirmCompletionModal
+        isOpen={showConfirmCompletionModal}
+        onClose={() => setShowConfirmCompletionModal(false)}
+        task={activeTask}
+        brandColor={brandColor}
+        onSubmit={handleConfirmCompletion}
+        onReject={handleRejectTask}
       />
     </div>
   );

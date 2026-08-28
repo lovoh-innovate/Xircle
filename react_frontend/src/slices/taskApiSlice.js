@@ -217,11 +217,12 @@ export const taskApiSlice = apiSlice.injectEndpoints({
     }),
 
     // ─── Main task completion flow ────────────────────────────────
+    // UPDATED: accepts FormData (data) to include notes, links, attachments
     markTaskCompleted: builder.mutation({
-      query: ({ taskId, notes }) => ({
+      query: ({ taskId, data }) => ({
         url: `${TASKS_URL}/${taskId}/complete`,
         method: 'PATCH',
-        body: { notes },
+        body: data,
       }),
       invalidatesTags: (result, error, { taskId }) => [
         { type: 'Task', id: taskId },
@@ -230,17 +231,26 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    // UPDATED: accepts FormData (data) for feedback, finalHours, finalLinks, finalAttachments
     confirmTaskCompletion: builder.mutation({
-      query: ({
-        taskId,
-        feedback,
-        finalHours,
-        finalLinks,
-        finalAttachments,
-      }) => ({
+      query: ({ taskId, data }) => ({
         url: `${TASKS_URL}/${taskId}/confirm-completion`,
         method: 'PATCH',
-        body: { feedback, finalHours, finalLinks, finalAttachments },
+        body: data,
+      }),
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'Task', id: taskId },
+        'Task',
+        'Project',
+      ],
+    }),
+
+    // ─── NEW: Reject task completion ──────────────────────────────
+    rejectTask: builder.mutation({
+      query: ({ taskId, reason }) => ({
+        url: `${TASKS_URL}/${taskId}/reject`,
+        method: 'POST',
+        body: { reason },
       }),
       invalidatesTags: (result, error, { taskId }) => [
         { type: 'Task', id: taskId },
@@ -390,7 +400,7 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // ─── Personal sub‑tasks (NEW) ──────────────────────────────────
+    // ─── Personal sub‑tasks ──────────────────────────────────────
     addPersonalSubTask: builder.mutation({
       query: ({ taskId, data }) => ({
         url: `${TASKS_URL}/personal/${taskId}/subtasks`,
@@ -473,6 +483,7 @@ export const {
   useDeleteSubTaskMutation,
   useMarkTaskCompletedMutation,
   useConfirmTaskCompletionMutation,
+  useRejectTaskMutation,                  // <-- NEW
   useTriggerTaskRemindersMutation,
   useSendManualReminderMutation,
   useAddCommentMutation,
@@ -486,7 +497,7 @@ export const {
   useRemoveFolderReadOnlyMutation,
   useReorderTasksMutation,
   useReorderSubTasksMutation,
-  // Personal sub‑tasks (NEW)
+  // Personal sub‑tasks
   useAddPersonalSubTaskMutation,
   useUpdatePersonalSubTaskMutation,
   useTogglePersonalSubTaskMutation,

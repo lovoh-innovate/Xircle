@@ -1,5 +1,5 @@
 // src/components/YourWorkspaceProjectTaskId.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   FaArrowLeft, FaTasks, FaPlus, FaEdit, FaTrashAlt,
   FaCalendarAlt, FaClock, FaFolder, FaEllipsisV,
@@ -13,8 +13,6 @@ import {
   CustomDropdown,
   ConfirmModal,
   RejectReasonModal,
-  MarkCompleteModal,
-  ConfirmCompletionModal,
   formatDateTime,
 } from './ProjectHelpers';
 import {
@@ -59,7 +57,6 @@ const SubTaskItem = React.memo(({
   const [isExpanded, setIsExpanded] = useState(false);
 
   const [showRejectModal, setShowRejectModal] = useState(false);
-  const [rejectReason, setRejectReason] = useState('');
 
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
@@ -401,9 +398,9 @@ const TaskDetailView = React.memo(({
   onRefresh,
   canManage,
   onSendReminder,
-  onConfirmCompletion,
   onAssignTask,
-  onMarkComplete,
+  onMarkCompleteClick,
+  onConfirmCompletionClick,
   onSetReadyForCompletion,
   subDragStart,
   subDragEnd,
@@ -421,8 +418,9 @@ const TaskDetailView = React.memo(({
   const [adding, setAdding] = useState(false);
   const [addSubTask] = useAddSubTaskMutation();
 
-  const [showMarkCompleteModal, setShowMarkCompleteModal] = useState(false);
-  const [showConfirmCompletionModal, setShowConfirmCompletionModal] = useState(false);
+  // ─── Collapsible states ──────────────────────────────────────────
+  const [submissionExpanded, setSubmissionExpanded] = useState(false);
+  const [rejectionExpanded, setRejectionExpanded] = useState(false);
 
   const hasRecurrence = task.recurrenceType && task.recurrenceType !== 'none';
   const recurrenceLabel = task.recurrenceType === 'daily' ? 'Daily' : task.recurrenceType === 'weekly' ? 'Weekly' : '';
@@ -456,65 +454,32 @@ const TaskDetailView = React.memo(({
   const canReorderSub = canManage || (isAssignee && task.allowAssigneeEditSubtasks);
   const isReadOnly = task.isArchived || task.isTrash || false;
 
-  const handleMarkCompleteClick = () => setShowMarkCompleteModal(true);
-
-  const handleMarkCompleteSubmit = async ({ notes }) => {
-    try {
-      await onMarkComplete(notes);
-      setShowMarkCompleteModal(false);
-    } catch (err) {}
-  };
-
-  const handleConfirmCompletionClick = () => setShowConfirmCompletionModal(true);
-
-  const handleConfirmCompletionSubmit = async (data) => {
-    try {
-      await onConfirmCompletion(data);
-      setShowConfirmCompletionModal(false);
-    } catch (err) {}
-  };
-
   const handleSetReadyClick = () => onSetReadyForCompletion(task);
 
-  const showFinalDetails = task.status === 'confirmed_completed';
-  const finalDetails = showFinalDetails ? (
-    <div className="mt-4 bg-gray-50 dark:bg-[#1a1a24] p-3 rounded-xl border border-gray-200 dark:border-gray-800/40 space-y-1">
-      <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Final Details</p>
-      {task.completionFeedback && <div><span className="font-medium text-gray-600 dark:text-gray-400">Feedback:</span> {task.completionFeedback}</div>}
-      {task.actualHours !== undefined && task.actualHours !== null && <div><span className="font-medium text-gray-600 dark:text-gray-400">Actual Hours:</span> {task.actualHours}</div>}
-      {task.finalLinks && task.finalLinks.length > 0 && (
-        <div>
-          <span className="font-medium text-gray-600 dark:text-gray-400">Final Links:</span>
-          <div className="flex flex-wrap items-center gap-1 mt-0.5">
-            {task.finalLinks.map((l, i) => (
-              <React.Fragment key={i}>
-                <a href={l} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] underline break-all">{l}</a>
-                {i < task.finalLinks.length - 1 && <span className="text-gray-400 dark:text-gray-500">,</span>}
-              </React.Fragment>
-            ))}
-          </div>
-        </div>
-      )}
-      {task.finalAttachments && task.finalAttachments.length > 0 && (
-        <div>
-          <span className="font-medium text-gray-600 dark:text-gray-400">Final Attachments:</span>
-          <div className="flex flex-wrap items-center gap-1 mt-0.5">
-            {task.finalAttachments.map((att, i) => (
-              <React.Fragment key={i}>
-                <a href={att.url} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] underline break-all">{att.name || 'file'}</a>
-                {i < task.finalAttachments.length - 1 && <span className="text-gray-400 dark:text-gray-500">,</span>}
-              </React.Fragment>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  ) : null;
+  // ─── Check if we have submission data (regardless of status) ──────
+  const hasSubmissionData = task.completionNotes ||
+    (task.finalLinks && task.finalLinks.length > 0) ||
+    (task.finalAttachments && task.finalAttachments.length > 0) ||
+    task.completedBy;
+
+  // ─── Check if we have rejection data ──────────────────────────────
+  const showRejection = task.rejectedBy && task.rejectedAt;
+  const hasRejectionData = task.rejectedBy || task.rejectionReason;
+
+  // ─── Auto‑expand rejection when it exists ──────────────────────────
+  useEffect(() => {
+    if (showRejection && hasRejectionData) {
+      setRejectionExpanded(true);
+    }
+  }, [showRejection, hasRejectionData]);
 
   const showSetReady = canManage && !isReadOnly &&
     task.status !== 'ready_for_completion' &&
     task.status !== 'completed' &&
     task.status !== 'confirmed_completed';
+
+  const showMarkComplete = isAssignee && !isReadOnly && task.status === 'ready_for_completion';
+  const showConfirmCompletion = !isReadOnly && canManage && task.status === 'completed';
 
   return (
     <div className="flex flex-col h-full bg-gray-50 dark:bg-[#0f0f12]">
@@ -587,7 +552,134 @@ const TaskDetailView = React.memo(({
             </span>
           )}
         </div>
-        {finalDetails}
+
+        {/* ─── SUBMISSION DETAILS (always show if data exists) ────── */}
+        {hasSubmissionData && (
+          <div className="mt-2">
+            <button
+              onClick={() => setSubmissionExpanded(!submissionExpanded)}
+              className="flex items-center justify-between w-full text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/30 px-2 py-1.5 rounded-lg transition"
+            >
+              <span className="flex items-center gap-1.5">
+                <FaCheckDouble className="text-teal-500 text-[10px]" />
+                Submission Details
+              </span>
+              <FaAngleDown className={`text-gray-400 dark:text-gray-500 transition-transform text-[10px] ${submissionExpanded ? 'rotate-180' : ''}`} />
+            </button>
+            {submissionExpanded && (
+              <div className="mt-1 bg-gray-50 dark:bg-[#1a1a24] p-3 rounded-xl border border-gray-200 dark:border-gray-800/40 space-y-1 text-xs">
+                {task.completionNotes && (
+                  <div className="text-gray-600 dark:text-gray-400">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Notes:</span> {task.completionNotes}
+                  </div>
+                )}
+                {task.finalLinks && task.finalLinks.length > 0 && (
+                  <div>
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Links:</span>
+                    <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                      {task.finalLinks.map((l, i) => (
+                        <React.Fragment key={i}>
+                          <a href={l} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] underline break-all">{l}</a>
+                          {i < task.finalLinks.length - 1 && <span className="text-gray-400 dark:text-gray-500">,</span>}
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {task.finalAttachments && task.finalAttachments.length > 0 && (
+                  <div>
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Attachments:</span>
+                    <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                      {task.finalAttachments.map((att, i) => (
+                        <React.Fragment key={i}>
+                          <a href={att.url} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] underline break-all">{att.name || 'file'}</a>
+                          {i < task.finalAttachments.length - 1 && <span className="text-gray-400 dark:text-gray-500">,</span>}
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {task.completedBy && (
+                  <div className="text-gray-600 dark:text-gray-400">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Submitted by:</span> {task.completedBy.name || 'Unknown'} on {formatDateTime(task.completedAt)}
+                  </div>
+                )}
+                {task.status === 'confirmed_completed' && task.completionFeedback && (
+                  <div className="text-gray-600 dark:text-gray-400">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Confirmation feedback:</span> {task.completionFeedback}
+                  </div>
+                )}
+                {task.status === 'confirmed_completed' && task.actualHours !== undefined && task.actualHours !== null && (
+                  <div className="text-gray-600 dark:text-gray-400">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Actual hours:</span> {task.actualHours}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ─── REJECTION DETAILS ────────────────────────────────── */}
+        {showRejection && hasRejectionData && (
+          <div className="mt-2">
+            <button
+              onClick={() => setRejectionExpanded(!rejectionExpanded)}
+              className="flex items-center justify-between w-full text-xs font-medium text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/10 hover:bg-red-100 dark:hover:bg-red-900/20 px-2 py-1.5 rounded-lg transition"
+            >
+              <span className="flex items-center gap-1.5">
+                <FaTimes className="text-[10px]" />
+                Task Rejected
+              </span>
+              <FaAngleDown className={`text-gray-400 dark:text-gray-500 transition-transform text-[10px] ${rejectionExpanded ? 'rotate-180' : ''}`} />
+            </button>
+            {rejectionExpanded && (
+              <div className="mt-1 bg-red-50 dark:bg-red-900/10 p-3 rounded-xl border border-red-200 dark:border-red-800/30 space-y-1 text-xs">
+                {task.rejectedBy && (
+                  <div className="text-gray-700 dark:text-gray-300">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Rejected by:</span> {task.rejectedBy.name || 'Unknown'} on {formatDateTime(task.rejectedAt)}
+                  </div>
+                )}
+                {task.rejectionReason && (
+                  <div className="text-gray-700 dark:text-gray-300">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Reason:</span> {task.rejectionReason}
+                  </div>
+                )}
+                {/* Also show the submitted data inside rejection for clarity */}
+                {task.completionNotes && (
+                  <div className="text-gray-600 dark:text-gray-400 pt-1 border-t border-red-200 dark:border-red-800/30">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Submitted notes:</span> {task.completionNotes}
+                  </div>
+                )}
+                {task.finalLinks && task.finalLinks.length > 0 && (
+                  <div>
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Submitted links:</span>
+                    <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                      {task.finalLinks.map((l, i) => (
+                        <React.Fragment key={i}>
+                          <a href={l} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] underline break-all">{l}</a>
+                          {i < task.finalLinks.length - 1 && <span className="text-gray-400 dark:text-gray-500">,</span>}
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {task.finalAttachments && task.finalAttachments.length > 0 && (
+                  <div>
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Submitted attachments:</span>
+                    <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                      {task.finalAttachments.map((att, i) => (
+                        <React.Fragment key={i}>
+                          <a href={att.url} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] underline break-all">{att.name || 'file'}</a>
+                          {i < task.finalAttachments.length - 1 && <span className="text-gray-400 dark:text-gray-500">,</span>}
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Sub‑tasks area */}
@@ -674,46 +766,30 @@ const TaskDetailView = React.memo(({
             <FaCheckCircle className="text-sm" /> Set Ready for Completion
           </button>
         )}
-        {isAssignee && !isReadOnly && task.status === 'ready_for_completion' && (
+        {showMarkComplete && (
           <button
-            onClick={handleMarkCompleteClick}
+            onClick={onMarkCompleteClick}
             className="w-full py-2 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 transition hover:opacity-80"
             style={{ backgroundColor: brandColor }}
           >
             <FaCheckDouble className="text-sm" /> Mark as Complete
           </button>
         )}
-        {!isReadOnly && canManage && task.status === 'completed' && task.status !== 'confirmed_completed' && (
+        {showConfirmCompletion && (
           <button
-            onClick={handleConfirmCompletionClick}
+            onClick={onConfirmCompletionClick}
             className="w-full py-2 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 transition hover:opacity-80"
             style={{ backgroundColor: brandColor }}
           >
             <FaCheckDouble className="text-sm" /> Confirm Completion
           </button>
         )}
-        {!showSetReady && !(isAssignee && task.status === 'ready_for_completion') && !(canManage && task.status === 'completed' && task.status !== 'confirmed_completed') && (
+        {!showSetReady && !showMarkComplete && !showConfirmCompletion && (
           <p className="text-center text-xs text-gray-500 dark:text-gray-400">
             {task.status === 'confirmed_completed' ? 'Task confirmed' : 'No actions available'}
           </p>
         )}
       </div>
-
-      {/* Modals */}
-      <MarkCompleteModal
-        isOpen={showMarkCompleteModal}
-        onClose={() => setShowMarkCompleteModal(false)}
-        task={task}
-        brandColor={brandColor}
-        onSubmit={handleMarkCompleteSubmit}
-      />
-      <ConfirmCompletionModal
-        isOpen={showConfirmCompletionModal}
-        onClose={() => setShowConfirmCompletionModal(false)}
-        task={task}
-        brandColor={brandColor}
-        onSubmit={handleConfirmCompletionSubmit}
-      />
     </div>
   );
 });

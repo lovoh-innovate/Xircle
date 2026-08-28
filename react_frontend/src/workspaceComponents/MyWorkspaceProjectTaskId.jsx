@@ -1,5 +1,5 @@
 // src/workspaceComponents/MyWorkspaceProjectTaskId.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   FaArrowLeft, FaTasks, FaPlus, FaEdit, FaTrashAlt,
   FaCalendarAlt, FaClock, FaFolder, FaEllipsisV,
@@ -33,6 +33,7 @@ const MyWorkspaceProjectTaskId = ({
   canManage,
   onSendReminder,
   onConfirmCompletion,
+  onReject,                   // passed to ConfirmCompletionModal
   onAssignTask,
   onMarkComplete,
   onSetReadyForCompletion,
@@ -41,7 +42,7 @@ const MyWorkspaceProjectTaskId = ({
   onPermanentDelete,
   onCopyClick,
   onMoveClick,
-  isReadOnly,
+  isReadOnly: isReadOnlyProp,
   subDragStart,
   subDragEnd,
   subDragOver,
@@ -64,9 +65,32 @@ const MyWorkspaceProjectTaskId = ({
   const [showMarkCompleteModal, setShowMarkCompleteModal] = useState(false);
   const [showConfirmCompletionModal, setShowConfirmCompletionModal] = useState(false);
 
+  // ─── Collapsible states for submission & rejection ──────────────
+  const [submissionExpanded, setSubmissionExpanded] = useState(false);
+  const [rejectionExpanded, setRejectionExpanded] = useState(false);
+
+  // Auto‑expand rejection if data exists
+  useEffect(() => {
+    if (task.rejectedBy && task.rejectedAt) {
+      setRejectionExpanded(true);
+    }
+  }, [task.rejectedBy, task.rejectedAt]);
+
   const isAssignee = task.assignee?._id === userInfo?._id;
   const hasRecurrence = task.recurrenceType && task.recurrenceType !== 'none';
   const recurrenceLabel = task.recurrenceType === 'daily' ? 'Daily' : task.recurrenceType === 'weekly' ? 'Weekly' : '';
+
+  // Read‑only if explicitly passed or task is archived
+  const isReadOnly = isReadOnlyProp || task.isArchived || false;
+
+  // ─── Submission / Rejection data flags ──────────────────────────
+  const hasSubmissionData = task.completionNotes ||
+    (task.finalLinks && task.finalLinks.length > 0) ||
+    (task.finalAttachments && task.finalAttachments.length > 0) ||
+    task.completedBy;
+
+  const showRejection = task.rejectedBy && task.rejectedAt;
+  const hasRejectionData = task.rejectedBy || task.rejectionReason;
 
   const handleAddSubTask = async () => {
     if (!newSubTaskTitle.trim()) { toast.error('Sub‑task title required'); return; }
@@ -98,21 +122,19 @@ const MyWorkspaceProjectTaskId = ({
   const total = task.subTasks?.length || 0;
   const confirmed = (task.subTasks || []).filter(st => st.status === 'confirmed').length || 0;
 
-  const canReorderSub = !isReadOnly && !task.isArchived && (canManage || (isAssignee && task.allowAssigneeEditSubtasks));
+  const canReorderSub = !isReadOnly && (canManage || (isAssignee && task.allowAssigneeEditSubtasks));
 
-  const showFinalDetails = task.status === 'confirmed_completed';
-  const finalDetails = showFinalDetails ? (
-    <div className="mt-3 bg-gray-50 dark:bg-[#1a1a24] p-3 rounded-xl border border-gray-200 dark:border-gray-800/40 space-y-1">
-      <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Final Details</p>
-      {task.completionFeedback && <div><span className="font-medium text-gray-600 dark:text-gray-400">Feedback:</span> {task.completionFeedback}</div>}
-      {task.actualHours !== undefined && task.actualHours !== null && <div><span className="font-medium text-gray-600 dark:text-gray-400">Actual Hours:</span> {task.actualHours}</div>}
-      {task.finalLinks && task.finalLinks.length > 0 && (<div><span className="font-medium text-gray-600 dark:text-gray-400">Final Links:</span> <div className="flex flex-wrap items-center gap-1 mt-0.5">{task.finalLinks.map((l, i) => (<React.Fragment key={i}><a href={l} target="_blank" rel="noopener noreferrer" className="text-[#0d9488] underline break-all">{l}</a>{i < task.finalLinks.length - 1 && <span className="text-gray-500">,</span>}</React.Fragment>))}</div></div>)}
-      {task.finalAttachments && task.finalAttachments.length > 0 && (<div><span className="font-medium text-gray-600 dark:text-gray-400">Final Attachments:</span> <div className="flex flex-wrap items-center gap-1 mt-0.5">{task.finalAttachments.map((att, i) => (<React.Fragment key={i}><a href={att.url} target="_blank" rel="noopener noreferrer" className="text-[#0d9488] underline break-all">{att.name || 'file'}</a>{i < task.finalAttachments.length - 1 && <span className="text-gray-500">,</span>}</React.Fragment>))}</div></div>)}
-    </div>
-  ) : null;
+  // ─── Bottom action bar conditions ──────────────────────────────
+  const showSetReady = canManage && !isReadOnly &&
+    task.status !== 'ready_for_completion' &&
+    task.status !== 'completed' &&
+    task.status !== 'confirmed_completed';
 
-  const showSetReady = canManage && !isReadOnly && !task.isArchived && task.status !== 'ready_for_completion' && task.status !== 'completed' && task.status !== 'confirmed_completed';
+  const showMarkComplete = isAssignee && !isReadOnly && task.status === 'ready_for_completion';
 
+  const showConfirmCompletion = !isReadOnly && canManage && task.status === 'completed';
+
+  // ─── Render ──────────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -168,16 +190,147 @@ const MyWorkspaceProjectTaskId = ({
         </div>
         <div className="flex items-center justify-between mt-2 text-xs text-gray-500 dark:text-gray-500">
           <span>{confirmed}/{total} sub‑tasks confirmed</span>
-          {task.dueDate && <span className="flex items-center gap-1"><FaCalendarAlt className="text-[10px]" /> Due: {formatDateTime(task.dueDate)}</span>}
+          {task.dueDate && (
+            <span className={`flex items-center gap-1 ${new Date(task.dueDate) < new Date() && task.status !== 'completed' && task.status !== 'confirmed_completed' ? 'text-red-500 dark:text-red-400' : ''}`}>
+              <FaCalendarAlt className="text-[10px]" /> Due: {formatDateTime(task.dueDate)}
+            </span>
+          )}
         </div>
-        {finalDetails}
+
+        {/* ─── SUBMISSION DETAILS ────────────────────────────────── */}
+        {hasSubmissionData && (
+          <div className="mt-2">
+            <button
+              onClick={() => setSubmissionExpanded(!submissionExpanded)}
+              className="flex items-center justify-between w-full text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/30 px-2 py-1.5 rounded-lg transition"
+            >
+              <span className="flex items-center gap-1.5">
+                <FaCheckDouble className="text-teal-500 text-[10px]" />
+                Submission Details
+              </span>
+              <FaAngleDown className={`text-gray-400 dark:text-gray-500 transition-transform text-[10px] ${submissionExpanded ? 'rotate-180' : ''}`} />
+            </button>
+            {submissionExpanded && (
+              <div className="mt-1 bg-gray-50 dark:bg-[#1a1a24] p-3 rounded-xl border border-gray-200 dark:border-gray-800/40 space-y-1 text-xs">
+                {task.completionNotes && (
+                  <div className="text-gray-600 dark:text-gray-400">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Notes:</span> {task.completionNotes}
+                  </div>
+                )}
+                {task.finalLinks && task.finalLinks.length > 0 && (
+                  <div>
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Links:</span>
+                    <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                      {task.finalLinks.map((l, i) => (
+                        <React.Fragment key={i}>
+                          <a href={l} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] underline break-all">{l}</a>
+                          {i < task.finalLinks.length - 1 && <span className="text-gray-400 dark:text-gray-500">,</span>}
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {task.finalAttachments && task.finalAttachments.length > 0 && (
+                  <div>
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Attachments:</span>
+                    <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                      {task.finalAttachments.map((att, i) => (
+                        <React.Fragment key={i}>
+                          <a href={att.url} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] underline break-all">{att.name || 'file'}</a>
+                          {i < task.finalAttachments.length - 1 && <span className="text-gray-400 dark:text-gray-500">,</span>}
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {task.completedBy && (
+                  <div className="text-gray-600 dark:text-gray-400">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Submitted by:</span> {task.completedBy.name || 'Unknown'} on {formatDateTime(task.completedAt)}
+                  </div>
+                )}
+                {task.status === 'confirmed_completed' && task.completionFeedback && (
+                  <div className="text-gray-600 dark:text-gray-400">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Confirmation feedback:</span> {task.completionFeedback}
+                  </div>
+                )}
+                {task.status === 'confirmed_completed' && task.actualHours !== undefined && task.actualHours !== null && (
+                  <div className="text-gray-600 dark:text-gray-400">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Actual hours:</span> {task.actualHours}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ─── REJECTION DETAILS ────────────────────────────────── */}
+        {showRejection && hasRejectionData && (
+          <div className="mt-2">
+            <button
+              onClick={() => setRejectionExpanded(!rejectionExpanded)}
+              className="flex items-center justify-between w-full text-xs font-medium text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/10 hover:bg-red-100 dark:hover:bg-red-900/20 px-2 py-1.5 rounded-lg transition"
+            >
+              <span className="flex items-center gap-1.5">
+                <FaTimes className="text-[10px]" />
+                Task Rejected
+              </span>
+              <FaAngleDown className={`text-gray-400 dark:text-gray-500 transition-transform text-[10px] ${rejectionExpanded ? 'rotate-180' : ''}`} />
+            </button>
+            {rejectionExpanded && (
+              <div className="mt-1 bg-red-50 dark:bg-red-900/10 p-3 rounded-xl border border-red-200 dark:border-red-800/30 space-y-1 text-xs">
+                {task.rejectedBy && (
+                  <div className="text-gray-700 dark:text-gray-300">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Rejected by:</span> {task.rejectedBy.name || 'Unknown'} on {formatDateTime(task.rejectedAt)}
+                  </div>
+                )}
+                {task.rejectionReason && (
+                  <div className="text-gray-700 dark:text-gray-300">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Reason:</span> {task.rejectionReason}
+                  </div>
+                )}
+                {/* Show submitted data inside rejection for context */}
+                {task.completionNotes && (
+                  <div className="text-gray-600 dark:text-gray-400 pt-1 border-t border-red-200 dark:border-red-800/30">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Submitted notes:</span> {task.completionNotes}
+                  </div>
+                )}
+                {task.finalLinks && task.finalLinks.length > 0 && (
+                  <div>
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Submitted links:</span>
+                    <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                      {task.finalLinks.map((l, i) => (
+                        <React.Fragment key={i}>
+                          <a href={l} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] underline break-all">{l}</a>
+                          {i < task.finalLinks.length - 1 && <span className="text-gray-400 dark:text-gray-500">,</span>}
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {task.finalAttachments && task.finalAttachments.length > 0 && (
+                  <div>
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Submitted attachments:</span>
+                    <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                      {task.finalAttachments.map((att, i) => (
+                        <React.Fragment key={i}>
+                          <a href={att.url} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] underline break-all">{att.name || 'file'}</a>
+                          {i < task.finalAttachments.length - 1 && <span className="text-gray-400 dark:text-gray-500">,</span>}
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Sub‑tasks area */}
       <div className="flex-1 overflow-y-auto px-4 py-3 pb-24 md:pb-6">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2"><FaTasks className="text-[#0d9488]" /> Sub‑tasks</h3>
-          {!isReadOnly && !task.isArchived && ((isAssignee && task.allowAssigneeEditSubtasks) || canManage) && (
+          {!isReadOnly && ((isAssignee && task.allowAssigneeEditSubtasks) || canManage) && (
             <button onClick={() => setAddSubTaskOpen(!addSubTaskOpen)} className="text-xs text-[#0d9488] font-medium flex items-center gap-1 hover:text-[#14b8a6] transition"><FaPlus className="text-xs" /> Add</button>
           )}
         </div>
@@ -219,7 +372,7 @@ const MyWorkspaceProjectTaskId = ({
                 canManage={canManage}
                 onRefresh={onRefresh}
                 brandColor={brandColor}
-                readOnly={isReadOnly || task.isArchived}
+                readOnly={isReadOnly}
                 onDragStart={canReorderSub ? subDragStart : null}
                 onDragOver={canReorderSub ? subDragOver : null}
                 onDrop={canReorderSub ? subDrop : null}
@@ -233,31 +386,47 @@ const MyWorkspaceProjectTaskId = ({
       </div>
 
       {/* Bottom action bar */}
-      {!isReadOnly && !task.isArchived && (
+      {!isReadOnly && (
         <div className="border-t border-gray-200 dark:border-gray-800/40 bg-white dark:bg-[#14141a] px-3 py-2 flex-shrink-0 sticky bottom-0 space-y-2">
           {showSetReady && (
             <button onClick={onSetReadyForCompletion} className="w-full py-2 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 transition hover:opacity-80" style={{ backgroundColor: brandColor }}>
               <FaCheckCircle className="text-sm" /> Set Ready for Completion
             </button>
           )}
-          {isAssignee && task.status === 'ready_for_completion' && (
+          {showMarkComplete && (
             <button onClick={() => setShowMarkCompleteModal(true)} className="w-full py-2 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 transition hover:opacity-80" style={{ backgroundColor: brandColor }}>
               <FaCheckDouble className="text-sm" /> Mark as Complete
             </button>
           )}
-          {canManage && task.status === 'completed' && task.status !== 'confirmed_completed' && (
+          {showConfirmCompletion && (
             <button onClick={() => setShowConfirmCompletionModal(true)} className="w-full py-2 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 transition hover:opacity-80" style={{ backgroundColor: brandColor }}>
               <FaCheckDouble className="text-sm" /> Confirm Completion
             </button>
           )}
-          {!showSetReady && !(isAssignee && task.status === 'ready_for_completion') && !(canManage && task.status === 'completed' && task.status !== 'confirmed_completed') && (
-            <p className="text-center text-xs text-gray-500 dark:text-gray-400">{task.status === 'confirmed_completed' ? 'Task confirmed' : 'No actions available'}</p>
+          {!showSetReady && !showMarkComplete && !showConfirmCompletion && (
+            <p className="text-center text-xs text-gray-500 dark:text-gray-400">
+              {task.status === 'confirmed_completed' ? 'Task confirmed' : 'No actions available'}
+            </p>
           )}
         </div>
       )}
-      {/* Modals */}
-      <MarkCompleteModal isOpen={showMarkCompleteModal} onClose={() => setShowMarkCompleteModal(false)} task={task} brandColor={brandColor} onSubmit={onMarkComplete} />
-      <ConfirmCompletionModal isOpen={showConfirmCompletionModal} onClose={() => setShowConfirmCompletionModal(false)} task={task} brandColor={brandColor} onSubmit={onConfirmCompletion} />
+
+      {/* ─── Modals ────────────────────────────────────────────── */}
+      <MarkCompleteModal
+        isOpen={showMarkCompleteModal}
+        onClose={() => setShowMarkCompleteModal(false)}
+        task={task}
+        brandColor={brandColor}
+        onSubmit={onMarkComplete}
+      />
+      <ConfirmCompletionModal
+        isOpen={showConfirmCompletionModal}
+        onClose={() => setShowConfirmCompletionModal(false)}
+        task={task}
+        brandColor={brandColor}
+        onSubmit={onConfirmCompletion}
+        onReject={onReject}
+      />
     </div>
   );
 };

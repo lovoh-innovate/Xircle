@@ -1,25 +1,16 @@
 // contexts/RefreshContext.jsx
 import React, { createContext, useContext, useCallback } from 'react';
-import { useDispatch } from 'react-redux';
-import { apiSlice } from '../slices/apiSlice'; // ✅ correct named import
+import { syncManager } from '../sync/syncManager';
 
 const RefreshContext = createContext(null);
 
 export const RefreshProvider = ({ children }) => {
-  const dispatch = useDispatch();
-
-  const refreshAll = useCallback(() => {
-    // Invalidate all common tags using the apiSlice utility
-    dispatch(apiSlice.util.invalidateTags([
-      'Workspace',
-      'Project',
-      'Task',
-      'Chat',
-      'Member',
-      'Message',
-      'Team',
-    ]));
-  }, [dispatch]);
+  const refreshAll = useCallback(async () => {
+    // 1. Fetch latest changes from server
+    await syncManager.backgroundSync();
+    // 2. Process any pending outgoing operations (outbox)
+    await syncManager.processOutbox();
+  }, []);
 
   return (
     <RefreshContext.Provider value={{ refreshAll }}>
