@@ -2433,14 +2433,37 @@ const GeneralChatId = () => {
     setReplyToMessage(null);
 
     try {
-      await sendMessageApi({ chatId, data: formData }).unwrap();
-    } catch (err) {
-      setLocalMessages((prev) => prev.filter((m) => m._tempId !== tempId));
-    } finally {
-      isSendingRef.current = false;
-      setIsSending(false);
+  const res = await sendMessageApi({ chatId, data: formData }).unwrap();
+  const realMsg = res.message;
+
+  setLocalMessages((prev) => {
+    if (prev.some((m) => m._id === realMsg._id)) {
+      return prev.filter((m) => m._tempId !== tempId);
     }
-  };
+    return prev.map((m) =>
+      m._tempId === tempId
+        ? {
+            ...realMsg,
+            createdAt: m.createdAt,
+            _sent: true,
+            _pending: false,
+            _failed: false,
+            _delivered: true,
+            _read: false,
+            _temp: false,
+            _tempId: undefined,
+          }
+        : m
+    );
+  });
+} catch (err) {
+  setLocalMessages((prev) => prev.filter((m) => m._tempId !== tempId));
+} finally {
+  isSendingRef.current = false;
+  setIsSending(false);
+}
+
+  // ─── Send message (text) ──────────────────────────────────────
 
   // ─── Mic button handlers ────────────────────────────────────────
   const handleMicPointerDown = (e) => {
