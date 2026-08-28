@@ -20,7 +20,6 @@ import {
   FaArrowLeft,
   FaPhone,
   FaVideo,
-  FaInfoCircle,
   FaComment,
   FaPaperPlane,
   FaPaperclip,
@@ -33,9 +32,6 @@ import {
   FaCheckCircle,
   FaEllipsisV,
   FaTrashAlt,
-  FaLock,
-  FaChevronUp,
-  FaChevronDown,
   FaReply,
   FaCheck,
   FaRegClock,
@@ -414,23 +410,176 @@ const MessageTicks = ({ message, isOwn }) => {
   );
 };
 
-// ─── Audio Waveform ──────────────────────────────────────────────────
-const WAVEFORM_BARS = [6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6, 10];
-const AudioWaveform = ({ isOwn, isPlaying, brandColor }) => (
-  <div className="flex items-center gap-[2px] h-6 flex-1">
-    {WAVEFORM_BARS.map((h, i) => (
-      <span
-        key={i}
-        className="w-[2.5px] rounded-full transition-opacity"
+// ─── Full AudioPlayer (seekable) ──────────────────────────────────
+const AudioPlayer = ({
+  src,
+  isOwn,
+  duration: initialDuration,
+  onDurationReady,
+  brandColor,
+}) => {
+  const audioRef = useRef(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(initialDuration || 0);
+
+  const WAVEFORM_BARS = [
+    6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6, 10,
+  ];
+
+  const waveformContainerRef = useRef(null);
+  const isDraggingRef = useRef(false);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const handleTimeUpdate = () => {
+      if (!isDraggingRef.current) {
+        setCurrentTime(audio.currentTime);
+      }
+    };
+    const handleLoadedMetadata = () => {
+      const dur = audio.duration;
+      if (dur && !isNaN(dur)) {
+        setDuration(dur);
+        onDurationReady?.(dur);
+      }
+    };
+    const handleEnded = () => setIsPlaying(false);
+
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('ended', handleEnded);
+
+    return () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('ended', handleEnded);
+    };
+  }, [onDurationReady]);
+
+  const togglePlay = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (isPlaying) {
+      audio.pause();
+    } else {
+      audio.play().catch(() => {});
+    }
+    setIsPlaying(!isPlaying);
+  };
+
+  const getSeekPosition = (clientX) => {
+    const container = waveformContainerRef.current;
+    if (!container) return 0;
+    const rect = container.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const percent = Math.min(Math.max(x / rect.width, 0), 1);
+    return percent * duration;
+  };
+
+  const handleSeekStart = (e) => {
+    const clientX = e.clientX ?? e.touches?.[0]?.clientX;
+    if (clientX == null) return;
+    isDraggingRef.current = true;
+    const newTime = getSeekPosition(clientX);
+    if (audioRef.current) {
+      audioRef.current.currentTime = newTime;
+      setCurrentTime(newTime);
+    }
+  };
+
+  const handleSeekMove = (e) => {
+    if (!isDraggingRef.current) return;
+    const clientX = e.clientX ?? e.touches?.[0]?.clientX;
+    if (clientX == null) return;
+    const newTime = getSeekPosition(clientX);
+    if (audioRef.current) {
+      audioRef.current.currentTime = newTime;
+      setCurrentTime(newTime);
+    }
+  };
+
+  const handleSeekEnd = () => {
+    isDraggingRef.current = false;
+  };
+
+  const handleWaveformClick = (e) => {
+    const clientX = e.clientX ?? e.touches?.[0]?.clientX;
+    if (clientX == null) return;
+    const newTime = getSeekPosition(clientX);
+    if (audioRef.current) {
+      audioRef.current.currentTime = newTime;
+      setCurrentTime(newTime);
+    }
+  };
+
+  const progressPercent = duration ? (currentTime / duration) * 100 : 0;
+
+  return (
+    <div className="flex items-center gap-2.5 min-w-[220px] py-0.5">
+      <button
+        onClick={togglePlay}
+        className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
         style={{
-          height: `${h * 2}px`,
-          backgroundColor: isOwn ? "rgba(255,255,255,0.85)" : brandColor,
-          opacity: isPlaying ? 1 : 0.55,
+          backgroundColor: isOwn ? 'rgba(255,255,255,0.2)' : brandColor,
         }}
-      />
-    ))}
-  </div>
-);
+      >
+        {isPlaying ? (
+          <FaPause className="text-xs text-white" />
+        ) : (
+          <FaPlay className="text-xs text-white ml-0.5" />
+        )}
+      </button>
+
+      <div
+        ref={waveformContainerRef}
+        className="flex-1 flex items-center h-6 relative cursor-pointer"
+        onClick={handleWaveformClick}
+        onMouseDown={handleSeekStart}
+        onMouseMove={handleSeekMove}
+        onMouseUp={handleSeekEnd}
+        onMouseLeave={handleSeekEnd}
+        onTouchStart={handleSeekStart}
+        onTouchMove={handleSeekMove}
+        onTouchEnd={handleSeekEnd}
+      >
+        <div className="flex items-center gap-[2px] h-full w-full">
+          {WAVEFORM_BARS.map((h, i) => {
+            const barIndex = i / WAVEFORM_BARS.length;
+            const isFilled = barIndex <= progressPercent / 100;
+            return (
+              <span
+                key={i}
+                className="w-[2.5px] rounded-full transition-all"
+                style={{
+                  height: `${h * 2}px`,
+                  backgroundColor: isOwn
+                    ? isFilled
+                      ? 'rgba(255,255,255,0.9)'
+                      : 'rgba(255,255,255,0.3)'
+                    : isFilled
+                      ? brandColor
+                      : '#d1d5db',
+                  opacity: isFilled ? 1 : 0.4,
+                }}
+              />
+            );
+          })}
+        </div>
+      </div>
+
+      <span
+        className={`text-[10px] flex-shrink-0 ${isOwn ? 'text-white/70' : 'text-gray-500 dark:text-gray-400'}`}
+      >
+        {formatTime(currentTime)} / {formatTime(duration)}
+      </span>
+
+      <audio ref={audioRef} src={src} className="hidden" />
+    </div>
+  );
+};
 
 // ─── Image Preview Modal ────────────────────────────────────────────
 const ImagePreviewModal = ({ imageUrl, onClose, senderName, time }) => {
@@ -591,9 +740,7 @@ const MediaMessage = ({
   }
 
   const time = safeFormatTime(message.createdAt);
-  const [isPlaying, setIsPlaying] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
-  const audioRef = useRef(null);
   const longPressTimer = useRef(null);
   const isLongPress = useRef(false);
   const touchStartRef = useRef({ x: 0, y: 0 });
@@ -712,32 +859,15 @@ const MediaMessage = ({
         return <video src={message.mediaUrl} controls className="max-w-full rounded-lg max-h-80" />;
       case "audio":
         return (
-          <div className="flex items-center gap-2.5 min-w-[220px] py-0.5">
-            <button
-              onClick={() => {
-                if (audioRef.current) {
-                  isPlaying ? audioRef.current.pause() : audioRef.current.play();
-                  setIsPlaying(!isPlaying);
-                }
-              }}
-              className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
-              style={{ backgroundColor: isOwn ? "rgba(255,255,255,0.2)" : brandColor }}
-            >
-              {isPlaying ? <FaPause className="text-xs text-white" /> : <FaPlay className="text-xs text-white ml-0.5" />}
-            </button>
-            <AudioWaveform isOwn={isOwn} isPlaying={isPlaying} brandColor={brandColor} />
-            <span className={`text-[10px] flex-shrink-0 ${isOwn ? "text-white/70" : "text-gray-500 dark:text-gray-400"}`}>
-              {message.mediaDuration ? formatTime(message.mediaDuration) : "0:00"}
-            </span>
-            <audio
-              ref={audioRef}
-              src={message.mediaUrl}
-              onEnded={() => setIsPlaying(false)}
-              onPause={() => setIsPlaying(false)}
-              onPlay={() => setIsPlaying(true)}
-              className="hidden"
-            />
-          </div>
+          <AudioPlayer
+            src={message.mediaUrl}
+            isOwn={isOwn}
+            duration={message.mediaDuration}
+            brandColor={brandColor}
+            onDurationReady={(dur) => {
+              // optionally update message.mediaDuration if needed
+            }}
+          />
         );
       case "file":
         return (
