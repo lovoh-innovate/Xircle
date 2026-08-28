@@ -1408,7 +1408,8 @@ const GeneralChatId = () => {
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
-  const isSendingRef = useRef(false); // 🔴 guards against double-send
+  const isSendingRef = useRef(false);
+  const [isSending, setIsSending] = useState(false); // ADD THIS LINE
   const [previewImage, setPreviewImage] = useState(null);
   const [replyToMessage, setReplyToMessage] = useState(null);
   const [localMessages, setLocalMessages] = useState([]);
@@ -1911,8 +1912,28 @@ const GeneralChatId = () => {
     e.preventDefault();
     const trimmed = message.trim();
     if (!trimmed || !socket) return;
-    if (isSendingRef.current) return;
+    if (isSendingRef.current) return; // ref guard (sync, catches same-tick double calls)
+
+    // 🔴 Hard duplicate guard — blocks identical content from the same sender
+    // sent within the last 4s, no matter what triggered the second call.
+    const now = Date.now();
+    const isDuplicate = localMessages.some((m) => {
+      if (m.messageType !== "text") return false;
+      if (m.content !== trimmed) return false;
+      const isOwnMsg =
+        m.sender?._id === userInfo?._id || m.sender === userInfo?._id;
+      if (!isOwnMsg) return false;
+      const msgTime = new Date(m.createdAt).getTime();
+      return now - msgTime < 4000;
+    });
+    if (isDuplicate) {
+      console.warn("Blocked duplicate send:", trimmed);
+      return;
+    }
+
     isSendingRef.current = true;
+    setIsSending(true); // ADD THIS LINE
+
     const senderWithName = {
       ...userInfo,
       name:
@@ -1920,13 +1941,12 @@ const GeneralChatId = () => {
     };
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    // For text: no pending spinner, just set _sent: false → clock
     const optimisticMsg = {
       _id: tempId,
       _tempId: tempId,
       _temp: true,
-      _pending: false, // no spinner
-      _sent: false, // clock will show
+      _pending: false,
+      _sent: false,
       _failed: false,
       _delivered: false,
       _read: false,
@@ -1962,9 +1982,11 @@ const GeneralChatId = () => {
         messageType: "text",
         mentions: [],
         replyToId,
+        clientMsgId: tempId, // ADD THIS — send it to backend for dedup (see note below)
       },
       (response) => {
-        isSendingRef.current = false; // 🔴 ADD THIS LINE — was missing
+        isSendingRef.current = false;
+        setIsSending(false); // ADD THIS LINE
         if (response?.error) {
           setLocalMessages((prev) => prev.filter((m) => m._id !== tempId));
           toast.error(response.error);
@@ -2805,6 +2827,7 @@ const GeneralChatId = () => {
                     onPaste={handlePaste}
                     onKeyDown={(e) => {
                       if (isMobile) return;
+                      if (isSendingRef.current) return; // ADD THIS LINE
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
                         handleSendMessage(e);
@@ -2818,7 +2841,7 @@ const GeneralChatId = () => {
                   {message.trim() ? (
                     <button
                       type="submit"
-                      disabled={!isConnected}
+                      disabled={!isConnected || isSending} // CHANGED: added isSending
                       className="p-2 rounded-full text-white disabled:opacity-50 flex-shrink-0 transition hover:opacity-80 mb-1"
                       style={{ backgroundColor: "#0d9488" }}
                     >
