@@ -267,12 +267,6 @@ const AudioWaveform = ({ isOwn, isPlaying }) => (
 const MessageTicks = ({ message, isOwn }) => {
   if (!isOwn) return null;
 
-  if (message.messageType === 'text') {
-    if (!message._sent) {
-      return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
-    }
-  }
-
   if (message._pending) {
     return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
   }
@@ -320,11 +314,10 @@ const QuotedReplyBlock = ({ replyData, isOwn, onJump }) => {
     <button
       type="button"
       onClick={(e) => { e.stopPropagation(); onJump && onJump(replyData.id); }}
-      className={`block w-full text-left mb-1.5 px-2.5 py-1.5 rounded-lg border-l-2 text-xs cursor-pointer transition ${
-        isOwn
+      className={`block w-full text-left mb-1.5 px-2.5 py-1.5 rounded-lg border-l-2 text-xs cursor-pointer transition ${isOwn
           ? 'bg-black/10 border-white/60 hover:bg-black/20'
           : 'bg-black/[0.04] dark:bg-white/[0.06] hover:bg-black/[0.07] dark:hover:bg-white/[0.1]'
-      }`}
+        }`}
       style={!isOwn ? { borderLeftColor: '#0d9488' } : {}}
     >
       <p className={`font-semibold truncate ${isOwn ? 'text-white/90' : ''}`} style={isOwn ? {} : { color: '#0d9488' }}>
@@ -336,7 +329,7 @@ const QuotedReplyBlock = ({ replyData, isOwn, onJump }) => {
 };
 
 // ─── Media Preview Component ──────────────────────────────────────
-const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor }) => {
+const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending }) => {
   const [preview, setPreview] = useState(null);
   const [type, setType] = useState(null);
 
@@ -376,7 +369,8 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor }) => {
       </div>
       <button
         onClick={() => onSend(mediaFile)}
-        className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition text-sm font-medium flex-shrink-0"
+        disabled={isSending}
+        className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition text-sm font-medium flex-shrink-0 disabled:opacity-50"
         style={{ backgroundColor: brandColor || '#0d9488' }}
       >
         <FaPaperPlane className="inline mr-1 text-xs" /> Send
@@ -407,40 +401,7 @@ const MediaMessage = ({
   onJumpToMessage,
   resolveSender,
 }) => {
-  if (message.messageType !== 'text') {
-    if (message._pending) {
-      return (
-        <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
-          {!isOwn && (
-            <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
-              <FaUser className="text-gray-400 dark:text-gray-500" />
-            </div>
-          )}
-          <div className="bg-gray-200 dark:bg-gray-700/50 px-4 py-2 rounded-2xl flex items-center gap-2 text-gray-500 dark:text-gray-400">
-            <FaSpinner className="animate-spin text-sm" />
-            <span>Sending...</span>
-          </div>
-        </div>
-      );
-    }
-
-    if (message._failed) {
-      return (
-        <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
-          {!isOwn && (
-            <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
-              <FaUser className="text-gray-400 dark:text-gray-500" />
-            </div>
-          )}
-          <div className="bg-red-100 dark:bg-red-900/30 px-4 py-2 rounded-2xl flex items-center gap-2 text-red-600 dark:text-red-400">
-            <FaExclamationTriangle className="text-sm" />
-            <span>Failed to send</span>
-          </div>
-        </div>
-      );
-    }
-  }
-
+  // ── Deleted state (same for all) ──
   if (message.isDeleted) {
     return (
       <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
@@ -798,11 +759,10 @@ const MediaMessage = ({
             </button>
           )}
           <div
-            className={`px-4 py-2.5 rounded-2xl text-sm break-words w-full ${
-              isOwn
+            className={`px-4 py-2.5 rounded-2xl text-sm break-words w-full ${isOwn
                 ? 'text-white'
                 : 'bg-gray-100 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200'
-            }`}
+              }`}
             style={isOwn ? { backgroundColor: '#0d9488' } : {}}
           >
             {replyPreview && <QuotedReplyBlock replyData={replyPreview} isOwn={isOwn} onJump={onJumpToMessage} />}
@@ -1501,6 +1461,8 @@ const GeneralChannelId = () => {
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
+  const isSendingRef = useRef(false);
+  const [isSending, setIsSending] = useState(false);
   const [previewImage, setPreviewImage] = useState(null);
   const [replyToMessage, setReplyToMessage] = useState(null);
   const [localMessages, setLocalMessages] = useState([]);
@@ -1577,7 +1539,7 @@ const GeneralChannelId = () => {
   const [exitGroupChat] = useExitGroupChatMutation();
 
   // ─── Confirm modal state ───────────────────────────────────────────
-  const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {}, danger: false });
+  const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: () => { }, danger: false });
 
   const openConfirm = (title, message, onConfirm, danger = false) => {
     setConfirmModal({ isOpen: true, title, message, onConfirm, danger });
@@ -1652,14 +1614,14 @@ const GeneralChannelId = () => {
   });
   const pendingCount = joinRequestsData?.requests?.length || 0;
 
- const {
-  data: messagesData,
-  isLoading: messagesLoading,
-  refetch: refetchMessages,
-} = useGetChatMessagesQuery(
-  { chatId, page: 1, limit: 50 },
-  { skip: !chatId }
-);
+  const {
+    data: messagesData,
+    isLoading: messagesLoading,
+    refetch: refetchMessages,
+  } = useGetChatMessagesQuery(
+    { chatId, page: 1, limit: 50 },
+    { skip: !chatId }
+  );
   const [sendMessageApi] = useSendMessageMutation();
   const [deleteMessageApi] = useDeleteMessageMutation();
   const [archiveMessage] = useArchiveMessageMutation();
@@ -1669,6 +1631,23 @@ const GeneralChannelId = () => {
 
   const [createDirectChat] = useCreatePublicDirectChatMutation();
   const [actionModal, setActionModal] = useState({ isOpen: false, message: null });
+
+  // ─── Duplicate detection helper ──────────────────────────────────
+  const isRecentDuplicateMedia = useCallback(
+    (signature) => {
+      const now = Date.now();
+      return localMessages.some((m) => {
+        const isOwnMsg =
+          m.sender?._id === userInfo?._id || m.sender === userInfo?._id;
+        if (!isOwnMsg) return false;
+        if (!m.mediaSignature) return false;
+        if (m.mediaSignature !== signature) return false;
+        const msgTime = new Date(m.createdAt).getTime();
+        return now - msgTime < 4000;
+      });
+    },
+    [localMessages, userInfo]
+  );
 
   // ─── Scroll / bottom detection ─────────────────────────────────
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -1704,7 +1683,7 @@ const GeneralChannelId = () => {
     }
   }, [message]);
 
-  // ─── Message handling (optimistic merge with _tempId) ────────────
+  // ─── Message handling (optimistic merge with clientMsgId) ──────────
   const mergeMessagesIntoState = useCallback((incomingList) => {
     if (!incomingList || incomingList.length === 0) return;
     setLocalMessages((prev) => {
@@ -1719,6 +1698,7 @@ const GeneralChannelId = () => {
           const existing = next[existingIdx];
           const updated = {
             ...incoming,
+            createdAt: existing.createdAt, // keep client order
             _sent: existing._sent || false,
             _pending: existing._pending || false,
             _failed: existing._failed || false,
@@ -1742,27 +1722,31 @@ const GeneralChannelId = () => {
 
         const isOwn = incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
 
-        // 2. Try to match a temporary message we sent
+        // 2. Find a temporary message to replace
         let tempIdx = -1;
         if (isOwn) {
-          // First, try by _tempId (most reliable)
-          tempIdx = next.findIndex((m) => m._tempId === incoming._id);
+          // PRIMARY: match by clientMsgId
+          if (incoming.clientMsgId) {
+            tempIdx = next.findIndex((m) => m._tempId === incoming.clientMsgId);
+          }
+          // Fallback for older in-flight messages (before clientMsgId was added)
           if (tempIdx === -1) {
-            // Fallback: content + timestamp for text, mediaName + timestamp for media
+            tempIdx = next.findIndex((m) => m._tempId === incoming._id);
+          }
+          // Last-resort fallback (content + time) – kept for safety
+          if (tempIdx === -1) {
             const incomingContent = incoming.content || '';
             const incomingMedia = incoming.mediaName || '';
             const incomingTime = new Date(incoming.createdAt).getTime();
             tempIdx = next.findIndex((m) => {
               if (!m._temp) return false;
-              // For text: match content
-              if (incomingContent && m.content === incomingContent) {
+              if (m.content !== undefined && m.content === incomingContent) {
                 const mTime = new Date(m.createdAt).getTime();
-                return Math.abs(mTime - incomingTime) < 10000; // 10s window
+                return Math.abs(mTime - incomingTime) < 10000;
               }
-              // For media: match mediaName
-              if (incomingMedia && m.mediaName === incomingMedia) {
+              if (m.mediaName && m.mediaName === incomingMedia) {
                 const mTime = new Date(m.createdAt).getTime();
-                return Math.abs(mTime - incomingTime) < 20000; // 20s window
+                return Math.abs(mTime - incomingTime) < 20000;
               }
               return false;
             });
@@ -1772,8 +1756,10 @@ const GeneralChannelId = () => {
         if (tempIdx > -1) {
           if (!mutated) next = [...next];
           mutated = true;
+          const tempMsg = next[tempIdx];
           const realMsg = {
             ...incoming,
+            createdAt: tempMsg.createdAt, // preserve client order
             _sent: true,
             _pending: false,
             _failed: false,
@@ -1918,9 +1904,21 @@ const GeneralChannelId = () => {
     return () => observer.disconnect();
   }, [localMessages, markMessageAsRead, userInfo]);
 
-  // ─── Handle media send ────────────────────────────────────────────
+  // ─── Handle media send (with duplicate prevention) ──────────────
   const handleSendMedia = async (file) => {
     if (!file) return;
+    if (isSendingRef.current) return;
+
+    // Prevent duplicate sends of the same file within 4 seconds
+    const signature = `${file.name}-${file.size}-${file.lastModified}`;
+    if (isRecentDuplicateMedia(signature)) {
+      console.warn("Blocked duplicate media send:", file.name);
+      return;
+    }
+
+    isSendingRef.current = true;
+    setIsSending(true);
+
     const formData = new FormData();
     formData.append('media', file);
     const messageType = file.type.startsWith('image/') ? 'image' : 'file';
@@ -1933,11 +1931,13 @@ const GeneralChannelId = () => {
     };
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    formData.append('clientMsgId', tempId);
+
     const optimisticMsg = {
       _id: tempId,
       _tempId: tempId,
       _temp: true,
-      _pending: true,
+      _pending: false,
       _sent: false,
       _failed: false,
       _delivered: false,
@@ -1952,25 +1952,47 @@ const GeneralChannelId = () => {
       mediaName: file.name,
       mediaSize: file.size,
       mediaDuration: null,
+      mediaSignature: signature,
     };
     setLocalMessages(prev => [...prev, optimisticMsg]);
     setReplyToMessage(null);
     setPendingMedia(null);
 
     try {
-      const result = await sendMessageApi({ chatId, data: formData }).unwrap();
-      toast.success(`${messageType === 'image' ? 'Image' : 'File'} sent!`);
+      await sendMessageApi({ chatId, data: formData }).unwrap();
     } catch (err) {
-      setLocalMessages(prev => prev.map(m => m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m));
+      setLocalMessages(prev => prev.filter((m) => m._tempId !== tempId));
       toast.error(err?.data?.message || 'Failed to send media');
+    } finally {
+      isSendingRef.current = false;
+      setIsSending(false);
     }
   };
 
-  // ─── Send message (text) with _tempId and immediate sent flag ──
+  // ─── Send message (text) with clientMsgId ──────────────────────
   const handleSendMessage = (e) => {
     e.preventDefault();
     const trimmed = message.trim();
     if (!trimmed || !socket) return;
+    if (isSendingRef.current) return;
+
+    const now = Date.now();
+    const isDuplicate = localMessages.some((m) => {
+      if (m.messageType !== 'text') return false;
+      if (m.content !== trimmed) return false;
+      const isOwnMsg =
+        m.sender?._id === userInfo?._id || m.sender === userInfo?._id;
+      if (!isOwnMsg) return false;
+      const msgTime = new Date(m.createdAt).getTime();
+      return now - msgTime < 4000;
+    });
+    if (isDuplicate) {
+      console.warn('Blocked duplicate send:', trimmed);
+      return;
+    }
+
+    isSendingRef.current = true;
+    setIsSending(true);
 
     const senderWithName = {
       ...userInfo,
@@ -2003,25 +2025,31 @@ const GeneralChannelId = () => {
       inputRef.current.style.height = 'auto';
     }
 
-    socket.emit('send-message', {
-      chatId,
-      content: trimmed,
-      messageType: 'text',
-      mentions: [],
-      replyToId,
-    }, (response) => {
-      if (response?.error) {
-        setLocalMessages((prev) => prev.filter((m) => m._id !== tempId));
-        toast.error(response.error);
-      } else {
-        // ✅ Mark as sent and delivered immediately
-        setLocalMessages((prev) =>
-          prev.map((m) =>
-            m._id === tempId ? { ...m, _sent: true, _delivered: true } : m
-          )
-        );
+    socket.emit(
+      'send-message',
+      {
+        chatId,
+        content: trimmed,
+        messageType: 'text',
+        mentions: [],
+        replyToId,
+        clientMsgId: tempId,
+      },
+      (response) => {
+        isSendingRef.current = false;
+        setIsSending(false);
+        if (response?.error) {
+          setLocalMessages((prev) => prev.filter((m) => m._id !== tempId));
+          toast.error(response.error);
+        } else {
+          setLocalMessages((prev) =>
+            prev.map((m) =>
+              m._id === tempId ? { ...m, _sent: true, _delivered: true } : m
+            )
+          );
+        }
       }
-    });
+    );
   };
 
   // ─── File / image: Native plugins ──────────────────────────────
@@ -2113,7 +2141,7 @@ const GeneralChannelId = () => {
         imageInputRef.current?.click();
       }
     },
-    [handlePickFile],
+    [handlePickFile]
   );
 
   const handleFileChange = useCallback((e) => {
@@ -2146,26 +2174,23 @@ const GeneralChannelId = () => {
     }
   };
 
-  // ─── Open private DM (FIXED: check existing chat first) ──────────
+  // ─── Open private DM (check existing chat first) ──────────────
   const handleOpenDM = useCallback(async (userId) => {
     if (!userId) {
       toast.error('User ID is required to start a chat');
       return;
     }
 
-    // First, check if a direct chat already exists with this user
-    const existingChat = chatListData?.chats?.find(c => 
-      c.type === 'direct' && 
+    const existingChat = chatListData?.chats?.find(c =>
+      c.type === 'direct' &&
       c.participants?.some(p => (p.user?._id === userId || p.user === userId))
     );
 
     if (existingChat) {
-      // Navigate to existing DM
       navigate(`/chats/${existingChat._id}`);
       return;
     }
 
-    // No existing chat – create a new one
     try {
       const result = await createDirectChat({ userId }).unwrap();
       if (result.chat?._id) {
@@ -2198,7 +2223,7 @@ const GeneralChannelId = () => {
     return () => {
       if (mediaRecorderRef.current && isRecordingRef.current) {
         if (isNative) {
-          VoiceRecorder.stopRecording().catch(() => {});
+          VoiceRecorder.stopRecording().catch(() => { });
         } else {
           mediaRecorderRef.current.stop();
         }
@@ -2285,7 +2310,7 @@ const GeneralChannelId = () => {
   const cancelNativeRecording = async () => {
     try {
       await VoiceRecorder.stopRecording();
-    } catch (_) {}
+    } catch (_) { }
     setRecordingBlob(null);
     setShowRecordedPreview(false);
     setRecordingTime(0);
@@ -2391,8 +2416,20 @@ const GeneralChannelId = () => {
     }
   };
 
-  // ─── Send audio message ──────────────────────────────────────────
+  // ─── Send audio message (with duplicate prevention) ──────────────
   const sendAudioMessage = async (audioBlob) => {
+    if (!audioBlob) return;
+    if (isSendingRef.current) return;
+
+    const signature = `${audioBlob.size}-${recordingTime}`;
+    if (isRecentDuplicateMedia(signature)) {
+      console.warn("Blocked duplicate voice note send");
+      return;
+    }
+
+    isSendingRef.current = true;
+    setIsSending(true);
+
     const formData = new FormData();
     const mimeType = isNative ? 'audio/m4a' : 'audio/webm';
     const extension = isNative ? 'm4a' : 'webm';
@@ -2412,11 +2449,13 @@ const GeneralChannelId = () => {
     };
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    formData.append('clientMsgId', tempId);
+
     const optimisticMsg = {
       _id: tempId,
       _tempId: tempId,
       _temp: true,
-      _pending: true,
+      _pending: false,
       _sent: false,
       _failed: false,
       _delivered: false,
@@ -2431,6 +2470,7 @@ const GeneralChannelId = () => {
       mediaName: 'Voice note',
       mediaSize: audioBlob.size,
       mediaDuration: recordingTime,
+      mediaSignature: signature,
     };
     setLocalMessages(prev => [...prev, optimisticMsg]);
     setRecordingBlob(null);
@@ -2439,11 +2479,35 @@ const GeneralChannelId = () => {
     setReplyToMessage(null);
 
     try {
-      const result = await sendMessageApi({ chatId, data: formData }).unwrap();
-      toast.success('Voice note sent!');
+      const res = await sendMessageApi({ chatId, data: formData }).unwrap();
+      const realMsg = res.message;
+
+      setLocalMessages((prev) => {
+        if (prev.some((m) => m._id === realMsg._id)) {
+          return prev.filter((m) => m._tempId !== tempId);
+        }
+        return prev.map((m) =>
+          m._tempId === tempId
+            ? {
+              ...realMsg,
+              createdAt: m.createdAt,
+              _sent: true,
+              _pending: false,
+              _failed: false,
+              _delivered: true,
+              _read: false,
+              _temp: false,
+              _tempId: undefined,
+            }
+            : m
+        );
+      });
     } catch (err) {
-      setLocalMessages(prev => prev.map(m => m._tempId === tempId ? { ...m, _pending: false, _failed: true } : m));
+      setLocalMessages(prev => prev.filter((m) => m._tempId !== tempId));
       toast.error(err?.data?.message || 'Failed to send voice note');
+    } finally {
+      isSendingRef.current = false;
+      setIsSending(false);
     }
   };
 
@@ -2635,6 +2699,7 @@ const GeneralChannelId = () => {
                     onRemove={clearPendingMedia}
                     onSend={handleSendMedia}
                     brandColor="#0d9488"
+                    isSending={isSending}
                   />
                 )}
 
@@ -2647,7 +2712,7 @@ const GeneralChannelId = () => {
                     </div>
                     <div className="flex gap-1">
                       <button onClick={() => { const audio = new Audio(URL.createObjectURL(recordingBlob)); audio.play(); }} className="p-1 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white"><FaPlay className="text-xs" /></button>
-                      <button onClick={() => sendAudioMessage(recordingBlob)} className="px-3 py-1 bg-green-600 dark:bg-green-700 text-white rounded text-xs hover:bg-green-700 dark:hover:bg-green-800 transition">Send</button>
+                      <button onClick={() => sendAudioMessage(recordingBlob)} disabled={isSending} className="px-3 py-1 bg-green-600 dark:bg-green-700 text-white rounded text-xs hover:bg-green-700 dark:hover:bg-green-800 transition disabled:opacity-50">Send</button>
                       <button onClick={cancelRecording} className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white"><FaTimes className="text-xs" /></button>
                     </div>
                   </div>
@@ -2687,6 +2752,7 @@ const GeneralChannelId = () => {
                     onPaste={handlePaste}
                     onKeyDown={(e) => {
                       if (isMobile) return;
+                      if (isSendingRef.current) return;
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
                         handleSendMessage(e);
@@ -2698,7 +2764,7 @@ const GeneralChannelId = () => {
                     style={{ minHeight: '42px', lineHeight: '1.5' }}
                   />
                   {message.trim() ? (
-                    <button type="submit" disabled={!isConnected} className="p-2 rounded-full text-white disabled:opacity-50 flex-shrink-0 transition hover:opacity-80 mb-1" style={{ backgroundColor: '#0d9488' }}><FaPaperPlane className="text-sm" /></button>
+                    <button type="submit" disabled={!isConnected || isSending} className="p-2 rounded-full text-white disabled:opacity-50 flex-shrink-0 transition hover:opacity-80 mb-1" style={{ backgroundColor: '#0d9488' }}><FaPaperPlane className="text-sm" /></button>
                   ) : (
                     <button type="button" onPointerDown={handleMicPointerDown} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerUp} className="p-2 rounded-full text-white flex-shrink-0 transition hover:opacity-80 mb-1" style={{ backgroundColor: '#0d9488' }}><FaMicrophone className="text-sm" /></button>
                   )}
