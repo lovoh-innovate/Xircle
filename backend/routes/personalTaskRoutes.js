@@ -1,16 +1,23 @@
-// routes/personalTaskRoutes.js
 import express from 'express';
 import {
+  // Folder management
   createPersonalFolder,
   getPersonalFolders,
   updatePersonalFolder,
   deletePersonalFolder,
+  // Personal task CRUD
   createPersonalTask,
   getPersonalTasks,
   updatePersonalTask,
   archivePersonalTask,
   restorePersonalTask,
   deletePersonalTask,
+  // Personal sub‑task endpoints
+  addPersonalSubTask,
+  updatePersonalSubTask,
+  togglePersonalSubTask,
+  deletePersonalSubTask,
+  reorderPersonalSubTasks,
 } from '../controllers/personalTaskController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
@@ -34,5 +41,12 @@ router.put('/:taskId', updatePersonalTask);
 router.patch('/:taskId/archive', archivePersonalTask);
 router.patch('/:taskId/restore', restorePersonalTask);
 router.delete('/:taskId', deletePersonalTask);            // soft‑delete → trash
+
+// ── Personal Sub‑tasks ────────────────────────────────────────────
+router.post('/:taskId/subtasks', protect, addPersonalSubTask);
+router.put('/:taskId/subtasks/:subTaskIndex', protect, updatePersonalSubTask);
+router.patch('/:taskId/subtasks/:subTaskIndex/toggle', protect, togglePersonalSubTask);
+router.delete('/:taskId/subtasks/:subTaskIndex', protect, deletePersonalSubTask);
+router.patch('/:taskId/subtasks/reorder', protect, reorderPersonalSubTasks);
 
 export default router;

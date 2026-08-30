@@ -1,10 +1,11 @@
+// slices/taskApiSlice.js
 import { apiSlice } from './apiSlice';
 
 const TASKS_URL = '/tasks';
 
 export const taskApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
-    // ─── All urgent tasks (project + personal) ────────────────────
+    // ─── All urgent tasks (project only) ──────────────────────────
     getAllUrgentTasks: builder.query({
       query: () => ({
         url: `${TASKS_URL}/all-urgent`,
@@ -61,13 +62,11 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // Soft‑delete → trash (PM/Owner)
     deleteTask: builder.mutation({
       query: (taskId) => ({ url: `${TASKS_URL}/${taskId}`, method: 'DELETE' }),
       invalidatesTags: ['Task', 'Project'],
     }),
 
-    // Permanent delete (PM/Owner)
     permanentlyDeleteTask: builder.mutation({
       query: (taskId) => ({
         url: `${TASKS_URL}/${taskId}/permanent`,
@@ -76,7 +75,6 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['Task', 'Project'],
     }),
 
-    // Archive / restore
     archiveTask: builder.mutation({
       query: (taskId) => ({
         url: `${TASKS_URL}/${taskId}/archive`,
@@ -101,7 +99,6 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // Copy / Move (PM/Owner only)
     copyTask: builder.mutation({
       query: ({ taskId, targetFolderId }) => ({
         url: `${TASKS_URL}/${taskId}/copy`,
@@ -124,7 +121,6 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // ─── Assign task (PM/Owner only) ──────────────────────────────
     assignTask: builder.mutation({
       query: ({ taskId, assigneeId }) => ({
         url: `${TASKS_URL}/${taskId}/assign`,
@@ -138,7 +134,7 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // ─── Sub‑tasks ────────────────────────────────────────────────
+    // ─── Sub‑tasks (for project tasks) ────────────────────────────
     addSubTask: builder.mutation({
       query: ({ taskId, data }) => ({
         url: `${TASKS_URL}/${taskId}/subtasks`,
@@ -217,7 +213,6 @@ export const taskApiSlice = apiSlice.injectEndpoints({
     }),
 
     // ─── Main task completion flow ────────────────────────────────
-    // UPDATED: accepts FormData (data) to include notes, links, attachments
     markTaskCompleted: builder.mutation({
       query: ({ taskId, data }) => ({
         url: `${TASKS_URL}/${taskId}/complete`,
@@ -231,7 +226,6 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // UPDATED: accepts FormData (data) for feedback, finalHours, finalLinks, finalAttachments
     confirmTaskCompletion: builder.mutation({
       query: ({ taskId, data }) => ({
         url: `${TASKS_URL}/${taskId}/confirm-completion`,
@@ -245,7 +239,6 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // ─── NEW: Reject task completion ──────────────────────────────
     rejectTask: builder.mutation({
       query: ({ taskId, reason }) => ({
         url: `${TASKS_URL}/${taskId}/reject`,
@@ -348,10 +341,9 @@ export const taskApiSlice = apiSlice.injectEndpoints({
         url: `${TASKS_URL}/folders/${folderId}`,
         method: 'DELETE',
       }),
-      invalidatesTags: ['Folder', 'Task'], // tasks become unlinked
+      invalidatesTags: ['Folder', 'Task'],
     }),
 
-    // ─── Folder read‑only access management ──────────────────────
     addFolderReadOnly: builder.mutation({
       query: ({ folderId, users }) => ({
         url: `${TASKS_URL}/folders/${folderId}/read-only`,
@@ -361,7 +353,7 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (result, error, { folderId }) => [
         { type: 'Folder', id: folderId },
         'Folder',
-        'Task', // tasks visibility may change
+        'Task',
       ],
     }),
 
@@ -374,7 +366,7 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (result, error, { folderId }) => [
         { type: 'Folder', id: folderId },
         'Folder',
-        'Task', // tasks visibility may change
+        'Task',
       ],
     }),
 
@@ -397,66 +389,6 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (result, error, { taskId }) => [
         { type: 'Task', id: taskId },
         'Task',
-      ],
-    }),
-
-    // ─── Personal sub‑tasks ──────────────────────────────────────
-    addPersonalSubTask: builder.mutation({
-      query: ({ taskId, data }) => ({
-        url: `${TASKS_URL}/personal/${taskId}/subtasks`,
-        method: 'POST',
-        body: data,
-      }),
-      invalidatesTags: (result, error, { taskId }) => [
-        { type: 'Task', id: taskId },
-        { type: 'Task', id: 'MY_TASKS' },
-      ],
-    }),
-
-    updatePersonalSubTask: builder.mutation({
-      query: ({ taskId, subTaskIndex, data }) => ({
-        url: `${TASKS_URL}/personal/${taskId}/subtasks/${subTaskIndex}`,
-        method: 'PUT',
-        body: data,
-      }),
-      invalidatesTags: (result, error, { taskId }) => [
-        { type: 'Task', id: taskId },
-        { type: 'Task', id: 'MY_TASKS' },
-      ],
-    }),
-
-    togglePersonalSubTask: builder.mutation({
-      query: ({ taskId, subTaskIndex, done }) => ({
-        url: `${TASKS_URL}/personal/${taskId}/subtasks/${subTaskIndex}/toggle`,
-        method: 'PATCH',
-        body: { done },
-      }),
-      invalidatesTags: (result, error, { taskId }) => [
-        { type: 'Task', id: taskId },
-        { type: 'Task', id: 'MY_TASKS' },
-      ],
-    }),
-
-    deletePersonalSubTask: builder.mutation({
-      query: ({ taskId, subTaskIndex }) => ({
-        url: `${TASKS_URL}/personal/${taskId}/subtasks/${subTaskIndex}`,
-        method: 'DELETE',
-      }),
-      invalidatesTags: (result, error, { taskId }) => [
-        { type: 'Task', id: taskId },
-        { type: 'Task', id: 'MY_TASKS' },
-      ],
-    }),
-
-    reorderPersonalSubTasks: builder.mutation({
-      query: ({ taskId, orderedSubTaskIndices }) => ({
-        url: `${TASKS_URL}/personal/${taskId}/subtasks/reorder`,
-        method: 'PATCH',
-        body: { orderedSubTaskIndices },
-      }),
-      invalidatesTags: (result, error, { taskId }) => [
-        { type: 'Task', id: taskId },
-        { type: 'Task', id: 'MY_TASKS' },
       ],
     }),
   }),
@@ -483,7 +415,7 @@ export const {
   useDeleteSubTaskMutation,
   useMarkTaskCompletedMutation,
   useConfirmTaskCompletionMutation,
-  useRejectTaskMutation,                  // <-- NEW
+  useRejectTaskMutation,
   useTriggerTaskRemindersMutation,
   useSendManualReminderMutation,
   useAddCommentMutation,
@@ -497,10 +429,4 @@ export const {
   useRemoveFolderReadOnlyMutation,
   useReorderTasksMutation,
   useReorderSubTasksMutation,
-  // Personal sub‑tasks
-  useAddPersonalSubTaskMutation,
-  useUpdatePersonalSubTaskMutation,
-  useTogglePersonalSubTaskMutation,
-  useDeletePersonalSubTaskMutation,
-  useReorderPersonalSubTasksMutation,
 } = taskApiSlice;

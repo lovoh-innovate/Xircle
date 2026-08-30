@@ -12,14 +12,13 @@ import {
   useCreatePersonalFolderMutation,
   useUpdatePersonalFolderMutation,
   useDeletePersonalFolderMutation,
-} from '../slices/personalTaskApiSlice';
-import {
+  // ─── Personal sub‑task mutations moved here ──────────────────
   useAddPersonalSubTaskMutation,
   useTogglePersonalSubTaskMutation,
   useDeletePersonalSubTaskMutation,
   useUpdatePersonalSubTaskMutation,
   useReorderPersonalSubTasksMutation,
-} from '../slices/taskApiSlice';
+} from '../slices/personalTaskApiSlice';
 import toast from 'react-hot-toast';
 import {
   FaPlus,
@@ -35,6 +34,7 @@ import {
   FaCheck,
   FaExclamationCircle,
   FaRedo,
+  FaBell,
   FaCalendarAlt,
   FaChevronDown,
   FaSortAmountDown,
@@ -67,6 +67,11 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+
+// ─── Helper: is this task a Reminder (recurring) rather than a
+// one-off Personal Task? Reminders recur forever (or until an end
+// date) so they never get a "Complete" action — they just repeat.
+const isReminderTask = (task) => !!(task?.recurrenceType && task.recurrenceType !== 'none');
 
 // ─── Touch detection hook ──────────────────────────────────────
 const useIsTouchDevice = () => {
@@ -187,14 +192,23 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, danger = fal
 };
 
 // ─── Task Action Modal ────────────────────────────────────────────
+// Reminders never show a "Complete" action — they recur, they don't finish.
 const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, onDelete, onStatusToggle }) => {
   if (!isOpen || !task) return null;
   const isArchived = task.isArchived;
   const isCompleted = task.status === 'completed';
+  const isReminder = isReminderTask(task);
   return (
     <BottomSheet isOpen={isOpen} onClose={onClose}>
       <div className="p-6 space-y-3">
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-white truncate">{task.title}</h3>
+        <div>
+          <h3 className="text-lg font-semibold text-gray-800 dark:text-white truncate">{task.title}</h3>
+          {isReminder && (
+            <span className="inline-flex items-center gap-1 text-xs text-teal-600 dark:text-teal-400 mt-1">
+              <FaBell className="text-[10px]" /> Reminder · {task.recurrenceType === 'daily' ? 'Everyday' : 'Weekly'}
+            </span>
+          )}
+        </div>
         <div className="grid grid-cols-2 gap-2">
           <button
             onClick={() => { onEdit(); onClose(); }}
@@ -202,7 +216,7 @@ const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, 
           >
             <FaEdit /> Edit
           </button>
-          {!isArchived && !isCompleted && (
+          {!isArchived && !isCompleted && !isReminder && (
             <button
               onClick={() => { onStatusToggle(task._id, 'completed'); onClose(); }}
               className="flex items-center justify-center gap-2 px-4 py-3 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 rounded-xl hover:bg-green-100 dark:hover:bg-green-900/30 transition"
@@ -543,6 +557,7 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
   const [actionSubtaskIndex, setActionSubtaskIndex] = useState(null);
 
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const isReminder = isReminderTask(task);
 
   const handleAddSubtask = async (e) => {
     e.preventDefault();
@@ -605,13 +620,15 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
+  // Moves the ORIGINAL indices (not the reordered array's own position
+  // markers) so the backend knows exactly which old slot goes where.
   const handleDragEnd = (event) => {
     const { active, over } = event;
-    if (active.id !== over.id) {
+    if (over && active.id !== over.id) {
       const oldIndex = parseInt(active.id);
       const newIndex = parseInt(over.id);
-      const reordered = arrayMove(task.subtasks, oldIndex, newIndex);
-      const indices = reordered.map((_, i) => i);
+      const originalIndices = task.subtasks.map((_, i) => i);
+      const indices = arrayMove(originalIndices, oldIndex, newIndex);
       onReorderSubtasks(task._id, indices);
     }
   };
@@ -629,9 +646,9 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
         <div className="flex-1 min-w-0">
           <h2 className="text-sm font-semibold text-gray-800 dark:text-white truncate">{task.title}</h2>
           <div className="flex flex-wrap items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
-            <span className="capitalize">{task.status}</span>
-            {task.priority && <span className="capitalize">· {task.priority}</span>}
-            {task.dueDate && (
+            {!isReminder && <span className="capitalize">{task.status}</span>}
+            {!isReminder && task.priority && <span className="capitalize">· {task.priority}</span>}
+            {!isReminder && task.dueDate && (
               <span className={`flex items-center gap-1 ${isOverdue(task.dueDate) ? 'text-red-500' : ''}`}>
                 <FaCalendarAlt className="text-[9px]" /> {formatDate(task.dueDate)}
               </span>
@@ -641,9 +658,9 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
                 <FaFolder className="text-[9px]" /> {task.folder.name}
               </span>
             )}
-            {task.recurrenceType && task.recurrenceType !== 'none' && (
+            {isReminder && (
               <span className="flex items-center gap-0.5 text-teal-600 dark:text-teal-400">
-                <FaRedo className="text-[9px]" /> {task.recurrenceType === 'daily' ? 'Daily' : 'Weekly'}
+                <FaBell className="text-[9px]" /> Reminder · {task.recurrenceType === 'daily' ? 'Everyday' : 'Weekly'}
               </span>
             )}
           </div>
@@ -763,12 +780,17 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
 };
 
 // ─── Task Card ──────────────────────────────────────────────────────
-const TaskCard = React.memo(({ task, onClick, onOpenModal, listeners, attributes }) => {
+// Non-reminder tasks get a tappable status circle on the left, mirroring
+// the subtask checkbox. Reminders show a static bell instead — they don't
+// have a "done" state, they just keep recurring.
+const TaskCard = React.memo(({ task, onClick, onOpenModal, onToggleStatus, listeners, attributes }) => {
   const formatDate = (date) => {
     if (!date) return '';
     return new Date(date).toLocaleString('en-US', { month: 'short', day: 'numeric' });
   };
-  const isOverdue = task.dueDate && new Date(task.dueDate) < new Date() && task.status !== 'completed';
+  const isReminder = isReminderTask(task);
+  const isOverdue = !isReminder && task.dueDate && new Date(task.dueDate) < new Date() && task.status !== 'completed';
+  const isCompleted = task.status === 'completed';
   const subtaskCount = task.subtasks?.length || 0;
   const doneCount = task.subtasks?.filter(st => st.done).length || 0;
 
@@ -776,7 +798,7 @@ const TaskCard = React.memo(({ task, onClick, onOpenModal, listeners, attributes
 
   const lastTap = useRef(0);
   const handleCardClick = (e) => {
-    if (e.target.closest('.task-more-btn')) return;
+    if (e.target.closest('.task-more-btn') || e.target.closest('.task-status-btn')) return;
     if (isTouch) {
       const now = Date.now();
       const diff = now - lastTap.current;
@@ -813,17 +835,44 @@ const TaskCard = React.memo(({ task, onClick, onOpenModal, listeners, attributes
         >
           <FaGripVertical className="text-sm" />
         </div>
+
+        {isReminder ? (
+          <div
+            className="flex-shrink-0 w-5 h-5 flex items-center justify-center text-teal-500 dark:text-teal-400"
+            title="Reminder — repeats automatically"
+          >
+            <FaBell className="text-xs" />
+          </div>
+        ) : (
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggleStatus(task); }}
+            className={`task-status-btn w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition ${
+              isCompleted
+                ? 'bg-teal-500 border-teal-500 text-white'
+                : 'border-gray-300 dark:border-gray-600 hover:border-teal-500'
+            }`}
+            aria-label={isCompleted ? 'Mark as not done' : 'Mark as done'}
+          >
+            {isCompleted && <FaCheck className="text-[10px]" />}
+          </button>
+        )}
+
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-800 dark:text-white truncate">{task.title}</span>
-            {task.recurrenceType && task.recurrenceType !== 'none' && (
-              <FaRedo className="text-[10px] text-teal-500 dark:text-teal-400 flex-shrink-0" />
-            )}
+            <span className={`text-sm font-medium truncate ${isCompleted ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-800 dark:text-white'}`}>
+              {task.title}
+            </span>
             {isOverdue && <FaExclamationCircle className="text-xs text-red-500 flex-shrink-0" />}
           </div>
           <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            <span className="capitalize">{task.status}</span>
-            {task.dueDate && <span>{formatDate(task.dueDate)}</span>}
+            {isReminder ? (
+              <span className="capitalize text-teal-600 dark:text-teal-400">
+                {task.recurrenceType === 'daily' ? 'Everyday' : 'Weekly'}
+              </span>
+            ) : (
+              <span className="capitalize">{task.status}</span>
+            )}
+            {!isReminder && task.dueDate && <span>{formatDate(task.dueDate)}</span>}
             {subtaskCount > 0 && <span>{doneCount}/{subtaskCount}</span>}
           </div>
         </div>
@@ -845,7 +894,7 @@ const TaskCard = React.memo(({ task, onClick, onOpenModal, listeners, attributes
 });
 
 // ─── Sortable Task Item ──────────────────────────────────────────
-const SortableTaskItem = ({ id, task, onClick, onOpenModal }) => {
+const SortableTaskItem = ({ id, task, onClick, onOpenModal, onToggleStatus }) => {
   const {
     attributes,
     listeners,
@@ -867,6 +916,7 @@ const SortableTaskItem = ({ id, task, onClick, onOpenModal }) => {
         task={task}
         onClick={onClick}
         onOpenModal={onOpenModal}
+        onToggleStatus={onToggleStatus}
         listeners={listeners}
         attributes={attributes}
       />
@@ -983,18 +1033,30 @@ const FolderModal = ({ isOpen, onClose, folders, onSave, onDelete, isLoading }) 
 };
 
 // ─── Task Form ──────────────────────────────────────────────────────
-const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading }) => {
+// Layout order: Title → Description → "Set as Reminder" (checkbox, right
+// after description, always visible) → optional details (Priority, Folder,
+// Due Date, Notify time) which are disabled while "Set as Reminder" is on,
+// since a recurring reminder doesn't use those fields the way a one-off
+// task does.
+const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, presetReminder = false }) => {
+  const taskIsReminder = isReminderTask(task);
+
   const [title, setTitle] = useState(task?.title || '');
   const [description, setDescription] = useState(task?.description || '');
   const [priority, setPriority] = useState(task?.priority || 'medium');
   const [dueDate, setDueDate] = useState(task?.dueDate ? new Date(task.dueDate).toISOString().slice(0, 16) : '');
   const [dailyReminderTime, setDailyReminderTime] = useState(task?.dailyReminderTime || '');
   const [folderId, setFolderId] = useState(task?.folder?._id || task?.folder || '');
-  const [recurrenceType, setRecurrenceType] = useState(task?.recurrenceType || 'none');
+
+  // "Set as Reminder" state: a checkbox plus a frequency choice, replacing
+  // the old bare "Recurrence" dropdown.
+  const [isReminder, setIsReminder] = useState(task ? taskIsReminder : presetReminder);
+  const [frequency, setFrequency] = useState(taskIsReminder ? task.recurrenceType : 'daily');
   const [recurrenceDays, setRecurrenceDays] = useState(task?.recurrenceDays || []);
   const [recurrenceEndDate, setRecurrenceEndDate] = useState(
     task?.recurrenceEndDate ? new Date(task.recurrenceEndDate).toISOString().slice(0, 16) : ''
   );
+
   const [showDetails, setShowDetails] = useState(isEditing);
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -1012,6 +1074,10 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading }) => 
       toast.error('Title is required');
       return;
     }
+    if (isReminder && frequency === 'weekly' && recurrenceDays.length === 0) {
+      toast.error('Pick at least one day for a weekly reminder');
+      return;
+    }
     onSave({
       title: title.trim(),
       description: description.trim(),
@@ -1019,22 +1085,27 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading }) => 
       dueDate: dueDate || null,
       dailyReminderTime: dailyReminderTime || null,
       folderId: folderId || null,
-      recurrenceType,
-      recurrenceDays: recurrenceType === 'weekly' ? recurrenceDays : [],
-      recurrenceEndDate: recurrenceEndDate || null,
+      recurrenceType: isReminder ? frequency : 'none',
+      recurrenceDays: isReminder && frequency === 'weekly' ? recurrenceDays : [],
+      recurrenceEndDate: isReminder ? (recurrenceEndDate || null) : null,
     });
   };
+
+  const disabledFieldClass = isReminder ? 'opacity-50 cursor-not-allowed' : '';
 
   return (
     <form onSubmit={handleSubmit} className="p-6 space-y-4">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-bold text-gray-800 dark:text-white">
-          {isEditing ? 'Edit Task' : 'New Personal Task'}
+          {isEditing
+            ? (isReminder ? 'Edit Reminder' : 'Edit Task')
+            : (isReminder ? 'New Reminder' : 'New Personal Task')}
         </h2>
         <button type="button" onClick={onCancel} className="text-gray-400 hover:text-gray-600 dark:hover:text-white transition">
           <FaTimes />
         </button>
       </div>
+
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Title *</label>
         <input
@@ -1045,6 +1116,99 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading }) => 
           required
         />
       </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={2}
+          className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white placeholder-gray-400"
+        />
+      </div>
+
+      {/* ─── Set as Reminder ─────────────────────────────────────── */}
+      <div className={`border rounded-xl p-3 transition ${isReminder ? 'border-teal-400 dark:border-teal-600 bg-teal-50/40 dark:bg-teal-900/10' : 'border-gray-200 dark:border-gray-700'}`}>
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={isReminder}
+            onChange={(e) => setIsReminder(e.target.checked)}
+            className="w-4 h-4 rounded accent-teal-600 cursor-pointer"
+          />
+          <span className="text-sm font-medium text-gray-800 dark:text-white flex items-center gap-1.5">
+            <FaBell className="text-teal-500 text-xs" /> Set as Reminder
+          </span>
+        </label>
+        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 pl-6">
+          Reminders repeat automatically and don't have a "Complete" state.
+        </p>
+
+        {isReminder && (
+          <div className="mt-3 space-y-3 pl-6">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Repeat</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFrequency('daily')}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${
+                    frequency === 'daily'
+                      ? 'bg-teal-500 text-white'
+                      : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  Everyday
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFrequency('weekly')}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${
+                    frequency === 'weekly'
+                      ? 'bg-teal-500 text-white'
+                      : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  Weekly
+                </button>
+              </div>
+            </div>
+
+            {frequency === 'weekly' && (
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">On these days</label>
+                <div className="flex flex-wrap gap-2">
+                  {weekDays.map((day, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => toggleDay(idx)}
+                      className={`px-3 py-1 rounded-full text-xs font-medium transition ${
+                        recurrenceDays.includes(idx)
+                          ? 'bg-teal-500 text-white'
+                          : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'
+                      }`}
+                    >
+                      {day}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">End Date (optional)</label>
+              <input
+                type="datetime-local"
+                value={recurrenceEndDate}
+                onChange={(e) => setRecurrenceEndDate(e.target.value)}
+                className="w-full px-4 py-2 bg-white dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 outline-none text-sm"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
       <button
         type="button"
         onClick={() => setShowDetails(!showDetails)}
@@ -1053,24 +1217,17 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading }) => 
         <FaAngleDown className={`transition-transform ${showDetails ? 'rotate-180' : ''}`} />
         {showDetails ? 'Hide details' : 'Add more details'}
       </button>
+
       {showDetails && (
         <>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={2}
-              className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white placeholder-gray-400"
-            />
-          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Priority</label>
               <select
                 value={priority}
                 onChange={(e) => setPriority(e.target.value)}
-                className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
+                disabled={isReminder}
+                className={`w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white ${disabledFieldClass}`}
               >
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
@@ -1083,7 +1240,8 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading }) => 
               <select
                 value={folderId}
                 onChange={(e) => setFolderId(e.target.value)}
-                className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
+                disabled={isReminder}
+                className={`w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white ${disabledFieldClass}`}
               >
                 <option value="">No Folder</option>
                 {folders.map((f) => (
@@ -1098,67 +1256,23 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading }) => 
               type="datetime-local"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
-              className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none"
+              disabled={isReminder}
+              className={`w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none ${disabledFieldClass}`}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Daily Reminder Time (HH:MM)</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Daily Notify Time (HH:MM)</label>
             <input
               type="time"
               value={dailyReminderTime}
               onChange={(e) => setDailyReminderTime(e.target.value)}
-              className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none"
+              disabled={isReminder}
+              className={`w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none ${disabledFieldClass}`}
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Recurrence</label>
-            <select
-              value={recurrenceType}
-              onChange={(e) => {
-                setRecurrenceType(e.target.value);
-                if (e.target.value !== 'weekly') setRecurrenceDays([]);
-              }}
-              className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
-            >
-              <option value="none">None</option>
-              <option value="daily">Daily</option>
-              <option value="weekly">Weekly</option>
-            </select>
-          </div>
-          {recurrenceType === 'weekly' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Repeat on</label>
-              <div className="flex flex-wrap gap-2">
-                {weekDays.map((day, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => toggleDay(idx)}
-                    className={`px-3 py-1 rounded-full text-xs font-medium transition ${
-                      recurrenceDays.includes(idx)
-                        ? 'bg-teal-500 text-white'
-                        : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'
-                    }`}
-                  >
-                    {day}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          {(recurrenceType === 'daily' || recurrenceType === 'weekly') && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">End Date (optional)</label>
-              <input
-                type="datetime-local"
-                value={recurrenceEndDate}
-                onChange={(e) => setRecurrenceEndDate(e.target.value)}
-                className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none"
-              />
-            </div>
-          )}
         </>
       )}
+
       <div className="flex gap-3 pt-2">
         <button
           type="button"
@@ -1191,6 +1305,8 @@ const PersonalTasks = () => {
   const [showActionModal, setShowActionModal] = useState(false);
   const [actionTask, setActionTask] = useState(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  // Top-level view: 'tasks' (one-off Personal Tasks) or 'reminders' (recurring)
+  const [viewMode, setViewMode] = useState('tasks');
 
   const {
     data: tasksData,
@@ -1227,25 +1343,19 @@ const PersonalTasks = () => {
 
   const [localTasks, setLocalTasks] = useState([]);
   const orderMap = useRef({});
-  const subtaskOrderMap = useRef({}); // { taskId: [order indices] }
 
-  // Sync with fetched data, applying stored orders
+  // Sync with fetched data, applying stored task order. Subtask order is
+  // NOT re-applied here — the backend persists it (reorderPersonalSubTasks),
+  // and mutating objects from the RTK Query cache directly throws in dev
+  // (cache results are frozen) while also stomping the server's correct
+  // order with a stale local mapping.
   useEffect(() => {
     if (tasksData?.tasks) {
       const fetched = tasksData.tasks;
-      // Apply task order
       const sorted = [...fetched].sort((a, b) => {
         const orderA = orderMap.current[a._id] ?? a.order ?? 0;
         const orderB = orderMap.current[b._id] ?? b.order ?? 0;
         return orderA - orderB;
-      });
-      // Apply subtask order for each task
-      sorted.forEach(task => {
-        const storedOrder = subtaskOrderMap.current[task._id];
-        if (storedOrder && storedOrder.length === task.subtasks.length) {
-          const reordered = storedOrder.map(i => task.subtasks[i]);
-          task.subtasks = reordered;
-        }
       });
       setLocalTasks(sorted);
     }
@@ -1286,7 +1396,7 @@ const PersonalTasks = () => {
       const index = orderMap.current[tempId];
       delete orderMap.current[tempId];
       if (index !== undefined) orderMap.current[realTask._id] = index;
-      toast.success('Task created!');
+      toast.success(payload.recurrenceType !== 'none' ? 'Reminder created!' : 'Task created!');
       setShowCreateModal(false);
       refetchTasks();
     } catch (err) {
@@ -1302,7 +1412,7 @@ const PersonalTasks = () => {
     setLocalTasks(prev => prev.map(t => t._id === taskId ? { ...t, ...payload } : t));
     try {
       await updateTask({ taskId, data: payload }).unwrap();
-      toast.success('Task updated!');
+      toast.success(payload.recurrenceType !== 'none' ? 'Reminder updated!' : 'Task updated!');
       setShowCreateModal(false);
       setEditingTask(null);
       refetchTasks();
@@ -1348,7 +1458,6 @@ const PersonalTasks = () => {
     const prevTasks = [...localTasks];
     setLocalTasks(prev => prev.filter(t => t._id !== taskId));
     delete orderMap.current[taskId];
-    delete subtaskOrderMap.current[taskId];
     try {
       await deleteTask(taskId).unwrap();
       toast.success('Moved to trash');
@@ -1366,12 +1475,20 @@ const PersonalTasks = () => {
     setLocalTasks(prev => prev.map(t => t._id === taskId ? { ...t, status: newStatus } : t));
     try {
       await updateTask({ taskId, data: { status: newStatus } }).unwrap();
-      toast.success(`Task ${newStatus === 'completed' ? 'completed' : 'reopened'}`);
+      toast.success(newStatus === 'completed' ? 'Task completed' : 'Task reopened');
       refetchTasks();
     } catch (err) {
       setLocalTasks(prevTasks);
       toast.error(err?.data?.message || 'Failed to update status');
     }
+  };
+
+  // Left-circle tap on the task list — toggles completed/pending directly.
+  // Reminders never reach this: TaskCard shows a static bell for them
+  // instead of a tappable circle.
+  const handleCardStatusToggle = (task) => {
+    const newStatus = task.status === 'completed' ? 'pending' : 'completed';
+    handleStatusToggle(task._id, newStatus);
   };
 
   const handleSaveFolder = async (data, folderId) => {
@@ -1420,12 +1537,16 @@ const PersonalTasks = () => {
     }
   };
 
+  // Builds a brand new subtask object instead of mutating the existing one —
+  // subtask objects inside RTK Query's cached array are frozen in dev, so
+  // `subtasks[i].done = done` throws "Cannot assign to read only property".
   const handleToggleSubtask = async (taskId, subTaskIndex, done) => {
     const prevTasks = [...localTasks];
     setLocalTasks(prev => prev.map(t => {
       if (t._id === taskId) {
-        const subtasks = [...(t.subtasks || [])];
-        if (subtasks[subTaskIndex]) subtasks[subTaskIndex].done = done;
+        const subtasks = (t.subtasks || []).map((st, i) =>
+          i === subTaskIndex ? { ...st, done } : st
+        );
         return { ...t, subtasks };
       }
       return t;
@@ -1478,6 +1599,10 @@ const PersonalTasks = () => {
     }
   };
 
+  // Optimistic update shows the new order immediately; the backend persists
+  // the real order; the subsequent refetch (from cache tag invalidation)
+  // brings back that same correct order — nothing else needs to be
+  // remembered locally.
   const handleReorderSubtasks = async (taskId, orderedIndices) => {
     const prevTasks = [...localTasks];
     setLocalTasks(prev => prev.map(t => {
@@ -1487,12 +1612,10 @@ const PersonalTasks = () => {
       }
       return t;
     }));
-    subtaskOrderMap.current[taskId] = orderedIndices;
     try {
       await reorderSubtasks({ taskId, orderedSubTaskIndices: orderedIndices }).unwrap();
     } catch (err) {
       setLocalTasks(prevTasks);
-      delete subtaskOrderMap.current[taskId];
       toast.error(err?.data?.message || 'Failed to reorder subtasks');
     }
   };
@@ -1521,6 +1644,9 @@ const PersonalTasks = () => {
 
   const displayedTasks = useMemo(() => {
     let filtered = localTasks.filter(task => {
+      const taskIsReminder = isReminderTask(task);
+      if (viewMode === 'reminders' && !taskIsReminder) return false;
+      if (viewMode === 'tasks' && taskIsReminder) return false;
       if (filters.folderId && task.folder?._id !== filters.folderId) return false;
       if (filters.status && task.status !== filters.status) return false;
       if (filters.priority && task.priority !== filters.priority) return false;
@@ -1537,7 +1663,7 @@ const PersonalTasks = () => {
       return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
     });
     return filtered;
-  }, [localTasks, filters, sortOrder]);
+  }, [localTasks, filters, sortOrder, viewMode]);
 
   // ─── Reorder tasks (drag & drop) ─────────────────────────────
 
@@ -1546,22 +1672,27 @@ const PersonalTasks = () => {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
+  // Resolves both drag indices against the SAME array (localTasks) by
+  // matching _id, rather than mixing an index from `displayedTasks` (the
+  // filtered/sorted view) with a splice into `localTasks` (the raw list) —
+  // those two arrays don't line up 1:1 whenever a folder/archived/view
+  // filter is active, which silently reordered the wrong tasks. Also
+  // guards against `over` being null (dropped outside any droppable zone).
   const handleTaskDragEnd = (event) => {
     const { active, over } = event;
-    if (active.id !== over.id) {
-      const oldIndex = displayedTasks.findIndex(t => t._id === active.id);
-      const newIndex = displayedTasks.findIndex(t => t._id === over.id);
-      const reordered = arrayMove(displayedTasks, oldIndex, newIndex);
+    if (!over || active.id === over.id) return;
+
+    setLocalTasks(prev => {
+      const oldIndex = prev.findIndex(t => t._id === active.id);
+      const newIndex = prev.findIndex(t => t._id === over.id);
+      if (oldIndex === -1 || newIndex === -1) return prev;
+
+      const reordered = arrayMove(prev, oldIndex, newIndex);
       reordered.forEach((t, i) => {
         orderMap.current[t._id] = i;
       });
-      setLocalTasks(prev => {
-        const newList = [...prev];
-        const [moved] = newList.splice(oldIndex, 1);
-        newList.splice(newIndex, 0, moved);
-        return newList;
-      });
-    }
+      return reordered;
+    });
   };
 
   // ─── Tabs ──────────────────────────────────────────────────────
@@ -1625,6 +1756,30 @@ const PersonalTasks = () => {
                   </div>
                 </div>
 
+                {/* View mode: Personal Tasks vs Reminders */}
+                <div className="px-3 pb-2 flex items-center gap-2">
+                  <button
+                    onClick={() => setViewMode('tasks')}
+                    className={`flex-1 sm:flex-none px-4 py-1.5 rounded-full text-xs font-semibold transition ${
+                      viewMode === 'tasks'
+                        ? 'bg-teal-600 text-white shadow-sm'
+                        : 'bg-gray-100 dark:bg-[#2a2a2a] text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700/50'
+                    }`}
+                  >
+                    Personal Tasks
+                  </button>
+                  <button
+                    onClick={() => setViewMode('reminders')}
+                    className={`flex-1 sm:flex-none px-4 py-1.5 rounded-full text-xs font-semibold transition flex items-center justify-center gap-1.5 ${
+                      viewMode === 'reminders'
+                        ? 'bg-teal-600 text-white shadow-sm'
+                        : 'bg-gray-100 dark:bg-[#2a2a2a] text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700/50'
+                    }`}
+                  >
+                    <FaBell className="text-[10px]" /> Reminders
+                  </button>
+                </div>
+
                 <div className="px-3 pb-1 flex items-center gap-1 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-700">
                   <div
                     onClick={handleAllTabClick}
@@ -1672,9 +1827,19 @@ const PersonalTasks = () => {
               <main className="flex-1 overflow-y-auto">
                 {displayedTasks.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500 p-8">
-                    <FaTasks className="text-4xl mb-2 opacity-30" />
-                    <p className="text-sm font-medium">No tasks found</p>
-                    <p className="text-xs">Create a new task to get started.</p>
+                    {viewMode === 'reminders' ? (
+                      <>
+                        <FaBell className="text-4xl mb-2 opacity-30" />
+                        <p className="text-sm font-medium">No reminders found</p>
+                        <p className="text-xs">Set a reminder to get started.</p>
+                      </>
+                    ) : (
+                      <>
+                        <FaTasks className="text-4xl mb-2 opacity-30" />
+                        <p className="text-sm font-medium">No tasks found</p>
+                        <p className="text-xs">Create a new task to get started.</p>
+                      </>
+                    )}
                   </div>
                 ) : (
                   <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleTaskDragEnd}>
@@ -1687,6 +1852,7 @@ const PersonalTasks = () => {
                             task={task}
                             onClick={handleTaskClick}
                             onOpenModal={handleOpenTaskModal}
+                            onToggleStatus={handleCardStatusToggle}
                           />
                         ))}
                       </div>
@@ -1711,6 +1877,7 @@ const PersonalTasks = () => {
           onCancel={() => { setShowCreateModal(false); setEditingTask(null); }}
           isEditing={!!editingTask}
           isLoading={isCreating || isUpdating}
+          presetReminder={!editingTask && viewMode === 'reminders'}
         />
       </BottomSheet>
 

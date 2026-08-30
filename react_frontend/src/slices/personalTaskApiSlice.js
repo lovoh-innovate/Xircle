@@ -1,4 +1,4 @@
-// features/personalTask/personalTaskApiSlice.js
+// slices/personalTaskApiSlice.js
 import { apiSlice } from './apiSlice';
 
 const PERSONAL_TASKS_URL = '/personal-tasks';
@@ -23,7 +23,7 @@ export const personalTaskApiSlice = apiSlice.injectEndpoints({
       query: (data) => ({
         url: `${PERSONAL_TASKS_URL}/folders`,
         method: 'POST',
-        body: data, // { name, color }
+        body: data,
       }),
       invalidatesTags: ['PersonalFolder'],
     }),
@@ -32,7 +32,7 @@ export const personalTaskApiSlice = apiSlice.injectEndpoints({
       query: ({ folderId, data }) => ({
         url: `${PERSONAL_TASKS_URL}/folders/${folderId}`,
         method: 'PUT',
-        body: data, // { name, color }
+        body: data,
       }),
       invalidatesTags: (result, error, { folderId }) => [
         { type: 'PersonalFolder', id: folderId },
@@ -45,7 +45,7 @@ export const personalTaskApiSlice = apiSlice.injectEndpoints({
         url: `${PERSONAL_TASKS_URL}/folders/${folderId}`,
         method: 'DELETE',
       }),
-      invalidatesTags: ['PersonalFolder', 'PersonalTask'], // tasks become unlinked
+      invalidatesTags: ['PersonalFolder', 'PersonalTask'],
     }),
 
     // ─── Personal Tasks ────────────────────────────────────────────
@@ -70,7 +70,7 @@ export const personalTaskApiSlice = apiSlice.injectEndpoints({
       query: (data) => ({
         url: PERSONAL_TASKS_URL,
         method: 'POST',
-        body: data, // { folderId, title, description, priority, dueDate, dailyReminderTime, subtasks, notes }
+        body: data,
       }),
       invalidatesTags: ['PersonalTask'],
     }),
@@ -116,6 +116,66 @@ export const personalTaskApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: ['PersonalTask'],
     }),
+
+    // ─── Personal Sub‑tasks ────────────────────────────────────────
+    addPersonalSubTask: builder.mutation({
+      query: ({ taskId, data }) => ({
+        url: `${PERSONAL_TASKS_URL}/${taskId}/subtasks`,
+        method: 'POST',
+        body: data,
+      }),
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'PersonalTask', id: taskId },
+        'PersonalTask',
+      ],
+    }),
+
+    updatePersonalSubTask: builder.mutation({
+      query: ({ taskId, subTaskIndex, data }) => ({
+        url: `${PERSONAL_TASKS_URL}/${taskId}/subtasks/${subTaskIndex}`,
+        method: 'PUT',
+        body: data,
+      }),
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'PersonalTask', id: taskId },
+        'PersonalTask',
+      ],
+    }),
+
+    togglePersonalSubTask: builder.mutation({
+      query: ({ taskId, subTaskIndex, done }) => ({
+        url: `${PERSONAL_TASKS_URL}/${taskId}/subtasks/${subTaskIndex}/toggle`,
+        method: 'PATCH',
+        body: { done },
+      }),
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'PersonalTask', id: taskId },
+        'PersonalTask',
+      ],
+    }),
+
+    deletePersonalSubTask: builder.mutation({
+      query: ({ taskId, subTaskIndex }) => ({
+        url: `${PERSONAL_TASKS_URL}/${taskId}/subtasks/${subTaskIndex}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'PersonalTask', id: taskId },
+        'PersonalTask',
+      ],
+    }),
+
+    reorderPersonalSubTasks: builder.mutation({
+      query: ({ taskId, orderedSubTaskIndices }) => ({
+        url: `${PERSONAL_TASKS_URL}/${taskId}/subtasks/reorder`,
+        method: 'PATCH',
+        body: { orderedSubTaskIndices },
+      }),
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'PersonalTask', id: taskId },
+        'PersonalTask',
+      ],
+    }),
   }),
 });
 
@@ -130,4 +190,9 @@ export const {
   useArchivePersonalTaskMutation,
   useRestorePersonalTaskMutation,
   useDeletePersonalTaskMutation,
+  useAddPersonalSubTaskMutation,
+  useUpdatePersonalSubTaskMutation,
+  useTogglePersonalSubTaskMutation,
+  useDeletePersonalSubTaskMutation,
+  useReorderPersonalSubTasksMutation,
 } = personalTaskApiSlice;

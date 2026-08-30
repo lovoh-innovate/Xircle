@@ -1,10 +1,12 @@
+// controllers/personalTaskController.js
 import PersonalTask from '../models/personalTaskModel.js';
 import PersonalFolder from '../models/personalFolderModel.js';
 import { createAndSendNotification } from './notificationController.js';
 
 // ─────────────────────────────────────────────────────────────────────
-// HELPERS (internal – not exported)
+// HELPERS (internal)
 // ─────────────────────────────────────────────────────────────────────
+
 const notifyUser = async (userId, { title, body, data = {} }) => {
   if (!userId) return;
   createAndSendNotification({
@@ -83,9 +85,32 @@ const parseRecurrence = (body) => {
   };
 };
 
+const updatePersonalTaskStatus = async (taskId) => {
+  const task = await PersonalTask.findById(taskId);
+  if (!task) return;
+  if (task.isArchived || task.isTrash) return;
+
+  const total = task.subtasks ? task.subtasks.length : 0;
+  if (total === 0) return;
+
+  const doneCount = task.subtasks.filter((st) => st.done).length;
+  if (doneCount === total) {
+    task.status = 'completed';
+    task.completedAt = new Date();
+  } else if (doneCount > 0) {
+    task.status = 'in-progress';
+    task.completedAt = null;
+  } else {
+    task.status = 'pending';
+    task.completedAt = null;
+  }
+  await task.save();
+};
+
 // ─────────────────────────────────────────────────────────────────────
 // FOLDER CRUD
 // ─────────────────────────────────────────────────────────────────────
+
 export const createPersonalFolder = async (req, res) => {
   try {
     const { name, color } = req.body;
@@ -138,6 +163,7 @@ export const deletePersonalFolder = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────
 // PERSONAL TASK CRUD
 // ─────────────────────────────────────────────────────────────────────
+
 export const createPersonalTask = async (req, res) => {
   try {
     const {
@@ -329,6 +355,262 @@ export const deletePersonalTask = async (req, res) => {
     await task.save();
     res.status(200).json({ success: true, message: 'Task moved to trash (auto‑delete in 30 days).' });
   } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// PERSONAL SUB‑TASK ENDPOINTS
+// ─────────────────────────────────────────────────────────────────────
+
+export const addPersonalSubTask = async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { title, dueDate } = req.body;
+
+    if (!title?.trim()) {
+      return res.status(400).json({ success: false, message: 'Sub‑task title is required.' });
+    }
+
+    const task = await PersonalTask.findOne({ _id: taskId, isTrash: { $ne: true } });
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
+
+    if (task.user.toString() !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    let recurrenceData;
+    try {
+      recurrenceData = parseRecurrence(req.body);
+    } catch (err) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+
+    task.subtasks.push({
+      title: title.trim(),
+      done: false,
+      dueDate: dueDate || null,
+      recurrenceType: recurrenceData.recurrenceType,
+      recurrenceDays: recurrenceData.recurrenceDays,
+      recurrenceEndDate: recurrenceData.recurrenceEndDate,
+    });
+    await task.save();
+
+    res.status(201).json({ success: true, message: 'Sub‑task added', task });
+  } catch (error) {
+    console.error('❌ Add personal sub‑task error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const updatePersonalSubTask = async (req, res) => {
+  try {
+    const { taskId, subTaskIndex } = req.params;
+    const { title, dueDate } = req.body;
+
+    const task = await PersonalTask.findOne({ _id: taskId, isTrash: { $ne: true } });
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
+
+    if (task.user.toString() !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    const index = parseInt(subTaskIndex);
+    if (isNaN(index) || index < 0 || index >= task.subtasks.length) {
+      return res.status(400).json({ success: false, message: 'Invalid sub‑task index.' });
+    }
+
+    let recurrenceData = null;
+    if (req.body.recurrenceType !== undefined) {
+      try {
+        recurrenceData = parseRecurrence(req.body);
+      } catch (err) {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+    }
+
+    const subtask = task.subtasks[index];
+    if (title !== undefined) subtask.title = title.trim();
+    if (dueDate !== undefined) subtask.dueDate = dueDate || null;
+    if (recurrenceData) {
+      subtask.recurrenceType = recurrenceData.recurrenceType;
+      subtask.recurrenceDays = recurrenceData.recurrenceDays;
+      subtask.recurrenceEndDate = recurrenceData.recurrenceEndDate;
+    }
+
+    await task.save();
+    res.status(200).json({ success: true, message: 'Sub‑task updated', task });
+  } catch (error) {
+    console.error('❌ Update personal sub‑task error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const togglePersonalSubTask = async (req, res) => {
+  try {
+    const { taskId, subTaskIndex } = req.params;
+    const { done } = req.body;
+
+    const task = await PersonalTask.findOne({ _id: taskId, isTrash: { $ne: true } });
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
+
+    if (task.user.toString() !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    const index = parseInt(subTaskIndex);
+    if (isNaN(index) || index < 0 || index >= task.subtasks.length) {
+      return res.status(400).json({ success: false, message: 'Invalid sub‑task index.' });
+    }
+
+    const subtask = task.subtasks[index];
+    const newDone = done !== undefined ? (done === true || done === 'true') : !subtask.done;
+
+    if (newDone && !subtask.done) {
+      const hasRecurrence = subtask.recurrenceType && subtask.recurrenceType !== 'none';
+      subtask.done = true;
+
+      if (hasRecurrence) {
+        const nextDue = calculateNextDueDate(subtask, subtask.dueDate);
+        if (nextDue) {
+          task.subtasks.splice(index + 1, 0, {
+            title: subtask.title,
+            done: false,
+            dueDate: nextDue,
+            recurrenceType: subtask.recurrenceType,
+            recurrenceDays: subtask.recurrenceDays,
+            recurrenceEndDate: subtask.recurrenceEndDate,
+          });
+        } else {
+          subtask.recurrenceType = 'none';
+        }
+      }
+    } else {
+      subtask.done = newDone;
+    }
+
+    await task.save();
+    await updatePersonalTaskStatus(taskId);
+
+    const updated = await PersonalTask.findById(taskId);
+    res.status(200).json({ success: true, message: 'Sub‑task toggled', task: updated });
+  } catch (error) {
+    console.error('❌ Toggle personal sub‑task error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const deletePersonalSubTask = async (req, res) => {
+  try {
+    const { taskId, subTaskIndex } = req.params;
+
+    const task = await PersonalTask.findOne({ _id: taskId, isTrash: { $ne: true } });
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
+
+    if (task.user.toString() !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    const index = parseInt(subTaskIndex);
+    if (isNaN(index) || index < 0 || index >= task.subtasks.length) {
+      return res.status(400).json({ success: false, message: 'Invalid sub‑task index.' });
+    }
+
+    task.subtasks.splice(index, 1);
+    await task.save();
+    await updatePersonalTaskStatus(taskId);
+
+    const updated = await PersonalTask.findById(taskId);
+    res.status(200).json({ success: true, message: 'Sub‑task deleted', task: updated });
+  } catch (error) {
+    console.error('❌ Delete personal sub‑task error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// controllers/personalTaskController.js (or wherever this function lives)
+
+export const reorderPersonalSubTasks = async (req, res) => {
+  try {
+    console.log('🔁 reorderPersonalSubTasks called');
+    console.log('  - params:', req.params);
+    console.log('  - body:', req.body);
+    console.log('  - user:', req.user?.id);
+
+    const userId = req.user.id;
+    const { taskId } = req.params;
+    const { orderedSubTaskIndices } = req.body;
+
+    // 1. Validate input
+    if (!taskId) {
+      console.log('❌ Missing taskId');
+      return res.status(400).json({ success: false, message: 'Task ID required.' });
+    }
+
+    if (!Array.isArray(orderedSubTaskIndices)) {
+      console.log('❌ orderedSubTaskIndices is not an array');
+      return res.status(400).json({ success: false, message: 'orderedSubTaskIndices must be an array.' });
+    }
+
+    // 2. Find the personal task
+    const task = await PersonalTask.findOne({ _id: taskId, isTrash: { $ne: true } });
+    if (!task) {
+      console.log('❌ Task not found');
+      return res.status(404).json({ success: false, message: 'Task not found.' });
+    }
+    console.log('✅ Task found, current subtasks:', task.subtasks.map(st => st.title));
+
+    // 3. Authorization: only task owner can reorder
+    if (task.user.toString() !== userId) {
+      console.log('❌ Unauthorized – task.user:', task.user, 'userId:', userId);
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    // 4. Validate indices length matches subtask count
+    const currentLength = task.subtasks.length;
+    if (orderedSubTaskIndices.length !== currentLength) {
+      console.log(`❌ Index length mismatch: expected ${currentLength}, got ${orderedSubTaskIndices.length}`);
+      return res.status(400).json({
+        success: false,
+        message: `Order array length (${orderedSubTaskIndices.length}) does not match subtask count (${currentLength}).`,
+      });
+    }
+
+    // 5. Ensure all indices are valid (0..length-1) and no duplicates
+    const validIndices = new Set(orderedSubTaskIndices);
+    if (validIndices.size !== currentLength) {
+      console.log('❌ Duplicate or missing indices');
+      return res.status(400).json({ success: false, message: 'Indices must be unique and cover all subtasks.' });
+    }
+    for (const idx of orderedSubTaskIndices) {
+      if (typeof idx !== 'number' || idx < 0 || idx >= currentLength) {
+        console.log(`❌ Invalid index: ${idx}`);
+        return res.status(400).json({ success: false, message: `Invalid index: ${idx}` });
+      }
+    }
+
+    // 6. Reorder subtasks
+    const originalSubtasks = task.subtasks.slice(); // copy for logging
+    console.log('🔄 Before reorder:', originalSubtasks.map(st => st.title));
+
+    const reordered = orderedSubTaskIndices.map((idx) => task.subtasks[idx]);
+    task.subtasks = reordered;
+
+    console.log('🔄 After reorder:', reordered.map(st => st.title));
+
+    // 7. Save
+    await task.save();
+    console.log('✅ Save successful');
+
+    // 8. Return updated task
+    const updated = await PersonalTask.findById(taskId);
+    res.status(200).json({
+      success: true,
+      message: 'Sub‑tasks reordered',
+      task: updated,
+    });
+  } catch (error) {
+    console.error('❌ reorderPersonalSubTasks error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

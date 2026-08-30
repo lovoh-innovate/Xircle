@@ -1,6 +1,5 @@
 import express from 'express';
 import {
-  // Existing
   createTask,
   getProjectTasks,
   getMyTasks,
@@ -21,31 +20,20 @@ import {
   getTaskFeedback,
   sendTaskReminders,
   sendManualReminder,
-  // Copy / Move / Archive / Restore / Permanent delete
   copyTask,
   moveTask,
   archiveTask,
   restoreTask,
   permanentlyDeleteTask,
-  // Folder management
   createFolder,
   updateFolder,
   deleteFolder,
   getProjectFolders,
-  // Folder read‑only access
   addFolderReadOnly,
   removeFolderReadOnly,
-  // Reorder endpoints
   reorderTasks,
   reorderSubTasks,
-  // Urgent tasks
   getAllUrgentTasks,
-  // Personal sub‑tasks
-  addPersonalSubTask,
-  updatePersonalSubTask,
-  togglePersonalSubTask,
-  deletePersonalSubTask,
-  reorderPersonalSubTasks,
 } from '../controllers/taskController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import upload from '../middleware/uploadMiddleware.js';
@@ -55,15 +43,8 @@ const router = express.Router();
 // ── All urgent tasks (must be above /:taskId) ──
 router.get('/all-urgent', protect, getAllUrgentTasks);
 
-// ── Personal tasks (already above /:taskId) ──
+// ── My tasks (assigned to the user) ──
 router.get('/my-tasks', protect, getMyTasks);
-
-// ── Personal sub‑task endpoints (NEW — must be above /:taskId) ──
-router.post('/personal/:taskId/subtasks', protect, addPersonalSubTask);
-router.put('/personal/:taskId/subtasks/:subTaskIndex', protect, updatePersonalSubTask);
-router.patch('/personal/:taskId/subtasks/:subTaskIndex/toggle', protect, togglePersonalSubTask);
-router.delete('/personal/:taskId/subtasks/:subTaskIndex', protect, deletePersonalSubTask);
-router.patch('/personal/:taskId/subtasks/reorder', protect, reorderPersonalSubTasks);
 
 // ── Folder management (project‑scoped) ──
 router.get('/project/:projectId/folders', protect, getProjectFolders);
@@ -99,15 +80,15 @@ router.post('/:taskId/copy', protect, copyTask);          // body: { targetFolde
 router.patch('/:taskId/move', protect, moveTask);         // body: { targetFolderId }
 
 // ── Archive / Trash / Permanent delete ──
-router.patch('/:taskId/archive', protect, archiveTask);    // personal archive
-router.patch('/:taskId/restore', protect, restoreTask);    // restore from trash/archive
+router.patch('/:taskId/archive', protect, archiveTask);
+router.patch('/:taskId/restore', protect, restoreTask);
 router.delete('/:taskId', protect, deleteTask);             // soft‑delete (trash)
 router.delete('/:taskId/permanent', protect, permanentlyDeleteTask); // hard delete
 
 // ── Assign / Unassign task (PM/Owner only) ──
 router.patch('/:taskId/assign', protect, assignTask);
 
-// ── Sub‑task endpoints ──
+// ── Sub‑task endpoints (for project tasks) ──
 router.post(
   '/:taskId/subtasks',
   protect,
@@ -134,14 +115,6 @@ router.delete('/:taskId/subtasks/:subTaskIndex', protect, deleteSubTask);
 router.patch('/:taskId/subtasks/reorder', protect, reorderSubTasks);
 
 // ── Main task completion flow ──
-// ✅ FIX: added upload middleware to parse multipart form data with completion attachments
-router.patch(
-  '/:taskId/complete',
-  protect,
-  upload.fields([{ name: 'completionAttachments', maxCount: 10 }]),
-  markTaskCompleted
-);
-// ── Main task completion flow ──
 router.patch(
   '/:taskId/complete',
   protect,
@@ -149,15 +122,15 @@ router.patch(
   markTaskCompleted
 );
 
-// ✅ FIX: parse multipart/form-data fields (no files)
+// Confirm completion (approve) – parses text fields from FormData
 router.patch(
   '/:taskId/confirm-completion',
   protect,
-  upload.none(),   // 👈 this parses text fields from FormData
+  upload.none(),
   confirmTaskCompletion
 );
 
-// ── NEW: Reject task completion (manager/owner) ──
+// ── Reject task completion (manager/owner) ──
 router.post('/:taskId/reject', protect, rejectTask);  // body: { reason }
 
 // ── Reminder endpoints ──

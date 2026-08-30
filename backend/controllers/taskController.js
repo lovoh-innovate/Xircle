@@ -3,7 +3,6 @@ import Task from '../models/taskModel.js';
 import Project from '../models/projectModel.js';
 import Workspace from '../models/workspaceModel.js';
 import Folder from '../models/folderModel.js';
-import PersonalTask from '../models/personalTaskModel.js';
 import Feedback from '../models/feedbackModel.js';
 import { v2 as cloudinary } from 'cloudinary';
 import { createAndSendNotification } from './notificationController.js';
@@ -30,7 +29,7 @@ const isProjectMember = (project, userId) =>
     return memberId === userId && tm.status === 'active';
   });
 
-// 🔥 NEW PERMISSION LOGIC: workspace owner, project creator, OR project manager
+// Permission: workspace owner, project creator, or project manager
 const canManageTasks = (workspace, project, userId) =>
   isWorkspaceOwner(workspace, userId) ||
   (project.createdBy && project.createdBy.toString() === userId) ||
@@ -993,7 +992,7 @@ export const deleteSubTask = async (req, res) => {
   }
 };
 
-// ─── NEW / UPDATED: Task completion with submission form ──────────
+// ─── Task completion with submission form ─────────────────────────
 
 export const markTaskCompleted = async (req, res) => {
   try {
@@ -1012,7 +1011,6 @@ export const markTaskCompleted = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Task is not ready for completion.' });
     }
 
-    // Store submitted links and attachments
     const parsedLinks = parseArrayField(links);
     let uploadedFiles = [];
     if (req.files && req.files.completionAttachments) {
@@ -1032,7 +1030,6 @@ export const markTaskCompleted = async (req, res) => {
     task.finalLinks = parsedLinks;
     task.finalAttachments = allAttachments;
 
-    // Recurrence handling (unchanged)
     const hasRecurrence = task.recurrenceType && task.recurrenceType !== 'none';
     if (hasRecurrence) {
       const nextDue = calculateNextDueDate(task, task.dueDate);
@@ -1122,7 +1119,6 @@ export const markTaskCompleted = async (req, res) => {
       await task.save();
     }
 
-    // Notify managers for confirmation
     const project = await Project.findById(task.project);
     const managerIds = project.projectManagers.map((pm) => pm.toString());
     const workspace = await Workspace.findById(project.workspace);
@@ -1158,7 +1154,7 @@ export const markTaskCompleted = async (req, res) => {
   }
 };
 
-// ─── Confirm task completion (approve) with self‑confirmation support ──
+// ─── Confirm task completion (approve) ─────────────────────────
 
 export const confirmTaskCompletion = async (req, res) => {
   try {
@@ -1176,7 +1172,6 @@ export const confirmTaskCompletion = async (req, res) => {
     const project = await Project.findById(task.project);
     const workspace = await Workspace.findById(project.workspace);
 
-    // Self‑assignment check: allow if assignee == creator == current user
     const isSelfAssigned = task.assignee?.toString() === userId && task.createdBy?.toString() === userId;
     if (!canManageTasks(workspace, project, userId) && !isSelfAssigned) {
       return res.status(403).json({ success: false, message: 'Not authorized to confirm this task.' });
@@ -1219,7 +1214,7 @@ export const confirmTaskCompletion = async (req, res) => {
   }
 };
 
-// ─── NEW: Reject task completion (decline) ──────────────────────────
+// ─── Reject task completion ─────────────────────────────────────
 
 export const rejectTask = async (req, res) => {
   try {
@@ -1276,7 +1271,7 @@ export const rejectTask = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// Existing GET / DELETE / etc. (unchanged, permissions already use canManageTasks)
+// GET / DELETE / etc.
 // ─────────────────────────────────────────────────────────────────────
 
 export const getProjectTasks = async (req, res) => {
@@ -1934,56 +1929,31 @@ export const getAllUrgentTasks = async (req, res) => {
       .populate('folder', 'name')
       .lean();
 
-    const personalTasks = await PersonalTask.find({
-      user: userId,
-      isTrash: { $ne: true },
-      isArchived: { $ne: true },
-      status: { $ne: 'completed' },
-    })
-      .populate('folder', 'name')
-      .lean();
-
     const now = new Date();
     const priorityWeight = { urgent: 100, high: 75, medium: 50, low: 25 };
 
-    const scoreTask = (task, isPersonal = false) => {
+    const scoreTask = (task) => {
       let score = 0;
-      if (!isPersonal) {
-        score += priorityWeight[task.priority] || 0;
-        if (task.dueDate) {
-          const diffHours = (new Date(task.dueDate) - now) / (1000 * 60 * 60);
-          if (diffHours <= 0) score += 200;
-          else if (diffHours < 24) score += 100;
-          else if (diffHours < 72) score += 50;
-        }
-        if (task.status === 'ready_for_completion') score += 30;
-      } else {
-        score += priorityWeight[task.priority] || 0;
-        if (task.dueDate) {
-          const diffHours = (new Date(task.dueDate) - now) / (1000 * 60 * 60);
-          if (diffHours <= 0) score += 200;
-          else if (diffHours < 24) score += 100;
-          else if (diffHours < 72) score += 50;
-        }
+      score += priorityWeight[task.priority] || 0;
+      if (task.dueDate) {
+        const diffHours = (new Date(task.dueDate) - now) / (1000 * 60 * 60);
+        if (diffHours <= 0) score += 200;
+        else if (diffHours < 24) score += 100;
+        else if (diffHours < 72) score += 50;
       }
+      if (task.status === 'ready_for_completion') score += 30;
       return score;
     };
 
-    const enrichedProjectTasks = projectTasks.map((t) => ({
+    const enrichedTasks = projectTasks.map((t) => ({
       ...t,
       source: 'project',
       urgency: scoreTask(t),
     }));
-    const enrichedPersonalTasks = personalTasks.map((t) => ({
-      ...t,
-      source: 'personal',
-      urgency: scoreTask(t, true),
-    }));
 
-    const allTasks = [...enrichedProjectTasks, ...enrichedPersonalTasks];
-    allTasks.sort((a, b) => b.urgency - a.urgency);
+    enrichedTasks.sort((a, b) => b.urgency - a.urgency);
 
-    res.status(200).json({ success: true, tasks: allTasks, count: allTasks.length });
+    res.status(200).json({ success: true, tasks: enrichedTasks, count: enrichedTasks.length });
   } catch (error) {
     console.error('❌ All urgent tasks error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -2058,33 +2028,6 @@ export const checkAndSendReminders = async () => {
     }
   }
 
-  const personalTasks = await PersonalTask.find({
-    isTrash: { $ne: true },
-    status: { $ne: 'completed' },
-    dailyReminderTime: currentTime,
-    $or: [
-      { lastDailyReminderSent: { $lt: new Date(now.toDateString()) } },
-      { lastDailyReminderSent: null },
-    ],
-  }).populate('user', 'name email');
-
-  for (const ptask of personalTasks) {
-    if (ptask.user) {
-      await notifyUsers(ptask.user._id, {
-        title: `📅 Personal reminder: "${ptask.title}"`,
-        body: `Your daily reminder for personal task "${ptask.title}".`,
-        data: {
-          notificationType: 'personal_task',
-          personalTaskId: ptask._id.toString(),
-        },
-        emailEventType: 'taskUpdate',
-      });
-      ptask.lastDailyReminderSent = now;
-      await ptask.save();
-      reminderCount++;
-    }
-  }
-
   return reminderCount;
 };
 
@@ -2098,14 +2041,6 @@ export const permanentlyDeleteTrashedTasks = async () => {
       if (att.publicId) cloudinary.uploader.destroy(att.publicId).catch(() => {});
     }
     await Task.findByIdAndDelete(task._id);
-  }
-
-  const trashedPersonal = await PersonalTask.find({
-    isTrash: true,
-    trashedAt: { $lte: thirtyDaysAgo },
-  });
-  for (const ptask of trashedPersonal) {
-    await PersonalTask.findByIdAndDelete(ptask._id);
   }
 };
 
@@ -2160,231 +2095,6 @@ export const reorderSubTasks = async (req, res) => {
     res.status(200).json({ success: true, message: 'Sub‑tasks reordered' });
   } catch (error) {
     console.error('Reorder sub‑tasks error:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// ─────────────────────────────────────────────────────────────────────
-// PERSONAL SUB‑TASK ENDPOINTS (unchanged)
-// ─────────────────────────────────────────────────────────────────────
-
-const updatePersonalTaskStatus = async (taskId) => {
-  const task = await PersonalTask.findById(taskId);
-  if (!task) return;
-  if (task.isArchived || task.isTrash) return;
-
-  const total = task.subtasks.length;
-  if (total === 0) return;
-
-  const doneCount = task.subtasks.filter((st) => st.done).length;
-  if (doneCount === total) {
-    task.status = 'completed';
-    task.completedAt = new Date();
-  } else if (doneCount > 0) {
-    task.status = 'in-progress';
-    task.completedAt = null;
-  } else {
-    task.status = 'pending';
-    task.completedAt = null;
-  }
-  await task.save();
-};
-
-export const addPersonalSubTask = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { taskId } = req.params;
-    const { title, dueDate = null } = req.body;
-
-    if (!title?.trim()) {
-      return res.status(400).json({ success: false, message: 'Sub‑task title is required.' });
-    }
-
-    const task = await PersonalTask.findOne({ _id: taskId, isTrash: { $ne: true } });
-    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
-
-    if (task.user.toString() !== userId) {
-      return res.status(403).json({ success: false, message: 'Not authorized.' });
-    }
-
-    let recurrenceData;
-    try {
-      recurrenceData = parseRecurrence(req.body);
-    } catch (err) {
-      return res.status(400).json({ success: false, message: err.message });
-    }
-
-    task.subtasks.push({
-      title: title.trim(),
-      done: false,
-      dueDate: dueDate || null,
-      recurrenceType: recurrenceData.recurrenceType,
-      recurrenceDays: recurrenceData.recurrenceDays,
-      recurrenceEndDate: recurrenceData.recurrenceEndDate,
-    });
-    await task.save();
-
-    res.status(201).json({ success: true, message: 'Sub‑task added', task });
-  } catch (error) {
-    console.error('❌ Add personal sub‑task error:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-export const updatePersonalSubTask = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { taskId, subTaskIndex } = req.params;
-    const { title, dueDate } = req.body;
-
-    const task = await PersonalTask.findOne({ _id: taskId, isTrash: { $ne: true } });
-    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
-
-    if (task.user.toString() !== userId) {
-      return res.status(403).json({ success: false, message: 'Not authorized.' });
-    }
-
-    const index = parseInt(subTaskIndex);
-    if (isNaN(index) || index < 0 || index >= task.subtasks.length) {
-      return res.status(400).json({ success: false, message: 'Invalid sub‑task index.' });
-    }
-
-    let recurrenceData = null;
-    if (req.body.recurrenceType !== undefined) {
-      try {
-        recurrenceData = parseRecurrence(req.body);
-      } catch (err) {
-        return res.status(400).json({ success: false, message: err.message });
-      }
-    }
-
-    const subtask = task.subtasks[index];
-    if (title !== undefined) subtask.title = title.trim();
-    if (dueDate !== undefined) subtask.dueDate = dueDate || null;
-    if (recurrenceData) {
-      subtask.recurrenceType = recurrenceData.recurrenceType;
-      subtask.recurrenceDays = recurrenceData.recurrenceDays;
-      subtask.recurrenceEndDate = recurrenceData.recurrenceEndDate;
-    }
-
-    await task.save();
-
-    res.status(200).json({ success: true, message: 'Sub‑task updated', task });
-  } catch (error) {
-    console.error('❌ Update personal sub‑task error:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-export const togglePersonalSubTask = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { taskId, subTaskIndex } = req.params;
-    const { done } = req.body;
-
-    const task = await PersonalTask.findOne({ _id: taskId, isTrash: { $ne: true } });
-    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
-
-    if (task.user.toString() !== userId) {
-      return res.status(403).json({ success: false, message: 'Not authorized.' });
-    }
-
-    const index = parseInt(subTaskIndex);
-    if (isNaN(index) || index < 0 || index >= task.subtasks.length) {
-      return res.status(400).json({ success: false, message: 'Invalid sub‑task index.' });
-    }
-
-    const subtask = task.subtasks[index];
-    const newDone = done !== undefined ? (done === true || done === 'true') : !subtask.done;
-
-    if (newDone && !subtask.done) {
-      const hasRecurrence = subtask.recurrenceType && subtask.recurrenceType !== 'none';
-      subtask.done = true;
-
-      if (hasRecurrence) {
-        const nextDue = calculateNextDueDate(subtask, subtask.dueDate);
-        if (nextDue) {
-          task.subtasks.splice(index + 1, 0, {
-            title: subtask.title,
-            done: false,
-            dueDate: nextDue,
-            recurrenceType: subtask.recurrenceType,
-            recurrenceDays: subtask.recurrenceDays,
-            recurrenceEndDate: subtask.recurrenceEndDate,
-          });
-        } else {
-          subtask.recurrenceType = 'none';
-        }
-      }
-    } else {
-      subtask.done = newDone;
-    }
-
-    await task.save();
-    await updatePersonalTaskStatus(taskId);
-
-    const updated = await PersonalTask.findById(taskId);
-
-    res.status(200).json({ success: true, message: 'Sub‑task toggled', task: updated });
-  } catch (error) {
-    console.error('❌ Toggle personal sub‑task error:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-export const deletePersonalSubTask = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { taskId, subTaskIndex } = req.params;
-
-    const task = await PersonalTask.findOne({ _id: taskId, isTrash: { $ne: true } });
-    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
-
-    if (task.user.toString() !== userId) {
-      return res.status(403).json({ success: false, message: 'Not authorized.' });
-    }
-
-    const index = parseInt(subTaskIndex);
-    if (isNaN(index) || index < 0 || index >= task.subtasks.length) {
-      return res.status(400).json({ success: false, message: 'Invalid sub‑task index.' });
-    }
-
-    task.subtasks.splice(index, 1);
-    await task.save();
-    await updatePersonalTaskStatus(taskId);
-
-    const updated = await PersonalTask.findById(taskId);
-
-    res.status(200).json({ success: true, message: 'Sub‑task deleted', task: updated });
-  } catch (error) {
-    console.error('❌ Delete personal sub‑task error:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-export const reorderPersonalSubTasks = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { taskId } = req.params;
-    const { orderedSubTaskIndices } = req.body;
-
-    const task = await PersonalTask.findOne({ _id: taskId, isTrash: { $ne: true } });
-    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
-
-    if (task.user.toString() !== userId) {
-      return res.status(403).json({ success: false, message: 'Not authorized.' });
-    }
-
-    if (!Array.isArray(orderedSubTaskIndices) || orderedSubTaskIndices.length !== task.subtasks.length) {
-      return res.status(400).json({ success: false, message: 'Invalid order array.' });
-    }
-
-    task.subtasks = orderedSubTaskIndices.map((i) => task.subtasks[i]);
-    await task.save();
-
-    res.status(200).json({ success: true, message: 'Sub‑tasks reordered', task });
-  } catch (error) {
-    console.error('❌ Reorder personal sub‑tasks error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
