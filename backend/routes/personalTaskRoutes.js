@@ -12,6 +12,7 @@ import {
   archivePersonalTask,
   restorePersonalTask,
   deletePersonalTask,
+  reorderPersonalTasks,
   // Personal sub‑task endpoints
   addPersonalSubTask,
   updatePersonalSubTask,
@@ -35,6 +36,13 @@ router.delete('/folders/:folderId', deletePersonalFolder);
 // ── Personal Tasks ────────────────────────────────────────────────
 router.get('/', getPersonalTasks);                       // supports ?folderId, ?status, ?priority, ?archived
 router.post('/', createPersonalTask);
+
+// IMPORTANT: this must come before `/:taskId` — otherwise Express treats
+// "reorder" as a :taskId value and routes it into updatePersonalTask/PUT
+// instead (which doesn't exist for PATCH anyway, but the ordering still
+// matters for any future PATCH added under /:taskId).
+router.patch('/reorder', reorderPersonalTasks);
+
 router.put('/:taskId', updatePersonalTask);
 
 // ── Archive / Restore / Trash ────────────────────────────────────

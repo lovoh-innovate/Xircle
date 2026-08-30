@@ -38,6 +38,12 @@ const personalTaskSchema = new mongoose.Schema(
       default: null,
       index: true, // for reminder queries
     },
+    // ─── Manual ordering (drag & drop) ──────────────────────
+    order: {
+      type: Number,
+      default: 0,
+      index: true,
+    },
     // ─── Recurrence ──────────────────────────────────────────
     recurrenceType: {
       type: String,
@@ -122,6 +128,8 @@ const personalTaskSchema = new mongoose.Schema(
 
 // Compound index for efficient reminder queries
 personalTaskSchema.index({ dueDate: 1, reminderSentAt: 1, status: 1, isArchived: 1, isTrash: 1 });
+// Compound index for efficient list ordering
+personalTaskSchema.index({ user: 1, order: 1 });
 
 const PersonalTask = mongoose.model('PersonalTask', personalTaskSchema);
 export default PersonalTask;

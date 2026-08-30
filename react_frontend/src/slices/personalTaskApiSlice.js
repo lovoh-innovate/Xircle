@@ -117,6 +117,19 @@ export const personalTaskApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['PersonalTask'],
     }),
 
+    // Whole-list reorder for top-level Personal Tasks/Reminders. Unlike
+    // subtasks (embedded array reordered in one document), this touches
+    // many documents, so it takes an ordered array of task ids rather
+    // than indices.
+    reorderPersonalTasks: builder.mutation({
+      query: ({ orderedTaskIds }) => ({
+        url: `${PERSONAL_TASKS_URL}/reorder`,
+        method: 'PATCH',
+        body: { orderedTaskIds },
+      }),
+      invalidatesTags: ['PersonalTask'],
+    }),
+
     // ─── Personal Sub‑tasks ────────────────────────────────────────
     addPersonalSubTask: builder.mutation({
       query: ({ taskId, data }) => ({
@@ -190,6 +203,7 @@ export const {
   useArchivePersonalTaskMutation,
   useRestorePersonalTaskMutation,
   useDeletePersonalTaskMutation,
+  useReorderPersonalTasksMutation,
   useAddPersonalSubTaskMutation,
   useUpdatePersonalSubTaskMutation,
   useTogglePersonalSubTaskMutation,

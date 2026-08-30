@@ -9,6 +9,7 @@ import {
   useArchivePersonalTaskMutation,
   useRestorePersonalTaskMutation,
   useDeletePersonalTaskMutation,
+  useReorderPersonalTasksMutation,
   useCreatePersonalFolderMutation,
   useUpdatePersonalFolderMutation,
   useDeletePersonalFolderMutation,
@@ -58,6 +59,7 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  useDroppable,
 } from '@dnd-kit/core';
 import {
   arrayMove,
@@ -67,6 +69,10 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+
+// Prefix used to tell "drop onto a folder tab" apart from "drop onto
+// another task row" inside the same DndContext's onDragEnd.
+const FOLDER_DROP_PREFIX = 'folder-drop-';
 
 // ─── Helper: is this task a Reminder (recurring) rather than a
 // one-off Personal Task? Reminders recur forever (or until an end
@@ -83,7 +89,10 @@ const useIsTouchDevice = () => {
 };
 
 // ─── Custom Select ────────────────────────────────────────────────
-const CustomSelect = ({ value, onChange, options, placeholder, icon: Icon, className = '' }) => {
+// Used everywhere a native <select> would otherwise appear — Priority,
+// Folder, Recurrence, etc. — so every dropdown in this file shares the
+// same look instead of falling back to the OS's system select styling.
+const CustomSelect = ({ value, onChange, options, placeholder, icon: Icon, className = '', disabled = false }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
   useEffect(() => {
@@ -98,14 +107,17 @@ const CustomSelect = ({ value, onChange, options, placeholder, icon: Icon, class
     <div ref={dropdownRef} className={`relative ${className}`}>
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center gap-1.5 px-3 py-2 bg-gray-100 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700/50 transition focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none"
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        disabled={disabled}
+        className={`w-full flex items-center gap-1.5 px-3 py-2 bg-gray-100 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700/50 transition focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none ${
+          disabled ? 'opacity-50 cursor-not-allowed hover:bg-gray-100 dark:hover:bg-[#2a2a2a]' : ''
+        }`}
       >
         {Icon && <Icon className="text-xs text-gray-400" />}
         <span className="flex-1 text-left truncate">{selected ? selected.label : placeholder}</span>
         <FaAngleDown className={`text-xs text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
-      {isOpen && (
+      {isOpen && !disabled && (
         <div className="absolute top-full left-0 mt-1 min-w-full w-max bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg py-1 z-50 max-h-48 overflow-y-auto">
           {options.map((opt) => (
             <button
@@ -162,38 +174,78 @@ const BottomSheet = ({ isOpen, onClose, children }) => {
   );
 };
 
-// ─── Confirm Modal ──────────────────────────────────────────────────
-const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, danger = false }) => {
+// ─── Type-to-confirm Delete Modal ──────────────────────────────────
+// Every delete in this file (task, subtask, folder) routes through this
+// instead of a plain Confirm/Cancel modal — the person must type the
+// exact name of the thing they're deleting before the Delete button
+// enables, so a stray tap can't wipe out a task/folder by accident.
+const TypeToConfirmModal = ({ isOpen, onClose, onConfirm, itemLabel, itemName, message }) => {
+  const [value, setValue] = useState('');
+
+  useEffect(() => {
+    if (isOpen) setValue('');
+  }, [isOpen]);
+
   if (!isOpen) return null;
+
+  const target = (itemName || '').trim();
+  const matches = target.length > 0 && value.trim() === target;
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (matches) {
+      onConfirm();
+      onClose();
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">{title}</h3>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{message}</p>
+      <form
+        onSubmit={handleSubmit}
+        className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl"
+      >
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center gap-2">
+          <FaTrashAlt className="text-red-500 text-sm" /> Delete {itemLabel}
+        </h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">
+          {message || "This can't be undone."}
+        </p>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+          Type <span className="font-semibold text-gray-800 dark:text-gray-200">{itemName}</span> to confirm.
+        </p>
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={itemName}
+          autoFocus
+          className="w-full px-4 py-2 mb-4 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-red-500 focus:ring-2 focus:ring-red-500/20 outline-none text-gray-800 dark:text-white"
+        />
         <div className="flex gap-3">
           <button
+            type="button"
             onClick={onClose}
             className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
           >
             Cancel
           </button>
           <button
-            onClick={() => { onConfirm(); onClose(); }}
-            className={`flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80 ${
-              danger ? 'bg-red-600 hover:bg-red-700' : 'bg-teal-600 hover:bg-teal-700'
-            }`}
+            type="submit"
+            disabled={!matches}
+            className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-red-600"
           >
-            Confirm
+            Delete
           </button>
         </div>
-      </div>
+      </form>
     </div>
   );
 };
 
 // ─── Task Action Modal ────────────────────────────────────────────
 // Reminders never show a "Complete" action — they recur, they don't finish.
-const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, onDelete, onStatusToggle }) => {
+const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, onDelete, onStatusToggle, onMove }) => {
   if (!isOpen || !task) return null;
   const isArchived = task.isArchived;
   const isCompleted = task.status === 'completed';
@@ -224,6 +276,13 @@ const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, 
               <FaCheck /> Complete
             </button>
           )}
+          {/* ─── Move to Folder ────────────────────────────────── */}
+          <button
+            onClick={() => { onMove(task); onClose(); }}
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 rounded-xl hover:bg-purple-100 dark:hover:bg-purple-900/30 transition"
+          >
+            <FaFolderOpen /> Move
+          </button>
           {isArchived ? (
             <button
               onClick={() => { onRestore(task._id); onClose(); }}
@@ -240,7 +299,7 @@ const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, 
             </button>
           )}
           <button
-            onClick={() => { onDelete(task._id); onClose(); }}
+            onClick={() => { onDelete(task); onClose(); }}
             className="flex items-center justify-center gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/30 transition"
           >
             <FaTrashAlt /> Delete
@@ -252,6 +311,68 @@ const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, 
         >
           Cancel
         </button>
+      </div>
+    </BottomSheet>
+  );
+};
+
+// ─── Move Task Modal ──────────────────────────────────────────────
+// A bottom sheet that lists all folders and an "Uncategorized" option.
+// Clicking a folder moves the task there and closes the modal.
+const MoveTaskModal = ({ isOpen, onClose, task, folders, onMoveTask }) => {
+  if (!isOpen || !task) return null;
+
+  const currentFolderId = task.folder?._id || task.folder || null;
+
+  const handleSelect = (folderId) => {
+    if (folderId === currentFolderId) {
+      onClose();
+      return;
+    }
+    onMoveTask(task._id, folderId);
+    onClose();
+  };
+
+  // Build options: "Uncategorized" (null) + each folder
+  const folderOptions = [
+    { _id: null, name: 'Uncategorized', color: '#9ca3af' },
+    ...folders,
+  ];
+
+  return (
+    <BottomSheet isOpen={isOpen} onClose={onClose}>
+      <div className="p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-800 dark:text-white flex items-center gap-2">
+            <FaFolderOpen className="text-purple-500" /> Move to Folder
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-white transition">
+            <FaTimes />
+          </button>
+        </div>
+        <div className="space-y-1">
+          {folderOptions.map((folder) => {
+            const isCurrent = folder._id === currentFolderId;
+            return (
+              <button
+                key={folder._id === null ? 'null' : folder._id}
+                onClick={() => handleSelect(folder._id)}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition ${
+                  isCurrent
+                    ? 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300'
+                    : 'hover:bg-gray-100 dark:hover:bg-[#2a2a2a] text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                <span
+                  className="w-3 h-3 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: folder.color || '#4f46e5' }}
+                />
+                <span className="flex-1 text-left text-sm font-medium">{folder.name}</span>
+                {isCurrent && <FaCheck className="text-purple-500 text-xs" />}
+              </button>
+            );
+          })}
+        </div>
       </div>
     </BottomSheet>
   );
@@ -299,6 +420,12 @@ const SubtaskEditModal = ({ isOpen, onClose, subtask, index, onSave }) => {
     subtask?.recurrenceEndDate ? new Date(subtask.recurrenceEndDate).toISOString().slice(0, 16) : ''
   );
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  const recurrenceOptions = [
+    { value: 'none', label: 'None' },
+    { value: 'daily', label: 'Daily' },
+    { value: 'weekly', label: 'Weekly' },
+  ];
 
   useEffect(() => {
     if (subtask) {
@@ -363,18 +490,15 @@ const SubtaskEditModal = ({ isOpen, onClose, subtask, index, onSave }) => {
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Recurrence</label>
-          <select
+          <CustomSelect
             value={recurrenceType}
-            onChange={(e) => {
-              setRecurrenceType(e.target.value);
-              if (e.target.value !== 'weekly') setRecurrenceDays([]);
+            onChange={(val) => {
+              setRecurrenceType(val);
+              if (val !== 'weekly') setRecurrenceDays([]);
             }}
-            className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 outline-none"
-          >
-            <option value="none">None</option>
-            <option value="daily">Daily</option>
-            <option value="weekly">Weekly</option>
-          </select>
+            options={recurrenceOptions}
+            placeholder="Recurrence"
+          />
         </div>
         {recurrenceType === 'weekly' && (
           <div>
@@ -633,6 +757,8 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
     }
   };
 
+  const subtaskToDeleteName = confirmDeleteIndex !== null ? task.subtasks[confirmDeleteIndex]?.title : '';
+
   return (
     <div className="flex-1 flex flex-col h-full bg-white dark:bg-[#0f0f12] overflow-hidden">
       {/* Compact Header */}
@@ -685,7 +811,7 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
             </button>
           )}
           <button
-            onClick={() => onDelete(task._id)}
+            onClick={() => onDelete(task)}
             className="p-1.5 text-gray-400 hover:text-red-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
             title="Delete"
           >
@@ -766,14 +892,14 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
         onSave={handleSaveEdit}
       />
 
-      {/* Confirm Delete Subtask */}
-      <ConfirmModal
+      {/* Delete Subtask — type-to-confirm */}
+      <TypeToConfirmModal
         isOpen={confirmDeleteIndex !== null}
         onClose={() => setConfirmDeleteIndex(null)}
         onConfirm={confirmDelete}
-        title="Delete Subtask"
+        itemLabel="Subtask"
+        itemName={subtaskToDeleteName}
         message="This subtask will be permanently deleted."
-        danger
       />
     </div>
   );
@@ -874,6 +1000,11 @@ const TaskCard = React.memo(({ task, onClick, onOpenModal, onToggleStatus, liste
             )}
             {!isReminder && task.dueDate && <span>{formatDate(task.dueDate)}</span>}
             {subtaskCount > 0 && <span>{doneCount}/{subtaskCount}</span>}
+            {task.folder?.name && (
+              <span className="flex items-center gap-1">
+                <FaFolder className="text-[9px]" style={{ color: task.folder.color || undefined }} /> {task.folder.name}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex-shrink-0 flex items-center gap-1">
@@ -924,12 +1055,36 @@ const SortableTaskItem = ({ id, task, onClick, onOpenModal, onToggleStatus }) =>
   );
 };
 
+// ─── Droppable Folder Tab ─────────────────────────────────────────
+// Wraps a folder chip in the header row as a drop target — dragging a
+// task card here (by its grip handle) and releasing moves that task
+// into this folder. `isOver` drives the highlight while something is
+// hovering above it, so it's obvious it's a valid drop zone mid-drag.
+const DroppableFolderTab = ({ folder, isActive, onClick, children }) => {
+  const { isOver, setNodeRef } = useDroppable({ id: `${FOLDER_DROP_PREFIX}${folder._id}` });
+  return (
+    <div
+      ref={setNodeRef}
+      onClick={onClick}
+      className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-t-lg cursor-pointer transition ${
+        isOver
+          ? 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300 ring-2 ring-teal-400 scale-105'
+          : isActive
+          ? 'bg-gray-100 dark:bg-[#2a2a2a] text-teal-600 dark:text-teal-400 border-b-2 border-teal-500'
+          : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#2a2a2a]'
+      }`}
+    >
+      {children}
+    </div>
+  );
+};
+
 // ─── Folder Modal ──────────────────────────────────────────────────
 const FolderModal = ({ isOpen, onClose, folders, onSave, onDelete, isLoading }) => {
   const [name, setName] = useState('');
   const [color, setColor] = useState('#4f46e5');
   const [editingId, setEditingId] = useState(null);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null); // { _id, name }
 
   const reset = () => {
     setName('');
@@ -952,13 +1107,14 @@ const FolderModal = ({ isOpen, onClose, folders, onSave, onDelete, isLoading }) 
     setEditingId(folder._id);
   };
 
-  const handleDelete = (folderId) => {
-    setShowDeleteConfirm(folderId);
+  const handleDelete = (folder) => {
+    setDeleteTarget(folder);
   };
 
   const confirmDelete = () => {
-    onDelete(showDeleteConfirm);
-    setShowDeleteConfirm(null);
+    if (!deleteTarget) return;
+    onDelete(deleteTarget._id);
+    setDeleteTarget(null);
     reset();
   };
 
@@ -1009,7 +1165,7 @@ const FolderModal = ({ isOpen, onClose, folders, onSave, onDelete, isLoading }) 
                 <button onClick={() => handleEdit(folder)} className="text-gray-400 hover:text-teal-500 transition">
                   <FaEdit />
                 </button>
-                <button onClick={() => handleDelete(folder._id)} className="text-gray-400 hover:text-red-500 transition">
+                <button onClick={() => handleDelete(folder)} className="text-gray-400 hover:text-red-500 transition">
                   <FaTrashAlt />
                 </button>
               </div>
@@ -1019,13 +1175,13 @@ const FolderModal = ({ isOpen, onClose, folders, onSave, onDelete, isLoading }) 
             <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">No folders yet</p>
           )}
         </div>
-        <ConfirmModal
-          isOpen={!!showDeleteConfirm}
-          onClose={() => setShowDeleteConfirm(null)}
+        <TypeToConfirmModal
+          isOpen={!!deleteTarget}
+          onClose={() => setDeleteTarget(null)}
           onConfirm={confirmDelete}
-          title="Delete Folder"
-          message="All tasks in this folder will be unlinked. Are you sure?"
-          danger
+          itemLabel="Folder"
+          itemName={deleteTarget?.name}
+          message="All tasks in this folder will be unlinked, not deleted."
         />
       </div>
     </BottomSheet>
@@ -1060,6 +1216,18 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
   const [showDetails, setShowDetails] = useState(isEditing);
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+  const priorityOptions = [
+    { value: 'low', label: 'Low' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'high', label: 'High' },
+    { value: 'urgent', label: 'Urgent' },
+  ];
+
+  const folderOptions = [
+    { value: '', label: 'No Folder' },
+    ...folders.map((f) => ({ value: f._id, label: f.name })),
+  ];
+
   const toggleDay = (day) => {
     if (recurrenceDays.includes(day)) {
       setRecurrenceDays(recurrenceDays.filter(d => d !== day));
@@ -1090,8 +1258,6 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
       recurrenceEndDate: isReminder ? (recurrenceEndDate || null) : null,
     });
   };
-
-  const disabledFieldClass = isReminder ? 'opacity-50 cursor-not-allowed' : '';
 
   return (
     <form onSubmit={handleSubmit} className="p-6 space-y-4">
@@ -1223,31 +1389,24 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Priority</label>
-              <select
+              <CustomSelect
                 value={priority}
-                onChange={(e) => setPriority(e.target.value)}
+                onChange={setPriority}
+                options={priorityOptions}
+                placeholder="Priority"
                 disabled={isReminder}
-                className={`w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white ${disabledFieldClass}`}
-              >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </select>
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Folder</label>
-              <select
+              <CustomSelect
                 value={folderId}
-                onChange={(e) => setFolderId(e.target.value)}
+                onChange={setFolderId}
+                options={folderOptions}
+                placeholder="No Folder"
+                icon={FaFolder}
                 disabled={isReminder}
-                className={`w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white ${disabledFieldClass}`}
-              >
-                <option value="">No Folder</option>
-                {folders.map((f) => (
-                  <option key={f._id} value={f._id}>{f.name}</option>
-                ))}
-              </select>
+              />
             </div>
           </div>
           <div>
@@ -1257,7 +1416,7 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
               disabled={isReminder}
-              className={`w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none ${disabledFieldClass}`}
+              className={`w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none ${isReminder ? 'opacity-50 cursor-not-allowed' : ''}`}
             />
           </div>
           <div>
@@ -1267,7 +1426,7 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
               value={dailyReminderTime}
               onChange={(e) => setDailyReminderTime(e.target.value)}
               disabled={isReminder}
-              className={`w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none ${disabledFieldClass}`}
+              className={`w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none ${isReminder ? 'opacity-50 cursor-not-allowed' : ''}`}
             />
           </div>
         </>
@@ -1304,9 +1463,13 @@ const PersonalTasks = () => {
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [showActionModal, setShowActionModal] = useState(false);
   const [actionTask, setActionTask] = useState(null);
-  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null); // { _id, title }
   // Top-level view: 'tasks' (one-off Personal Tasks) or 'reminders' (recurring)
   const [viewMode, setViewMode] = useState('tasks');
+
+  // ─── Move to folder state ────────────────────────────────────
+  const [showMoveModal, setShowMoveModal] = useState(false);
+  const [moveTask, setMoveTask] = useState(null);
 
   const {
     data: tasksData,
@@ -1331,6 +1494,7 @@ const PersonalTasks = () => {
   const [archiveTask] = useArchivePersonalTaskMutation();
   const [restoreTask] = useRestorePersonalTaskMutation();
   const [deleteTask] = useDeletePersonalTaskMutation();
+  const [reorderTasks] = useReorderPersonalTasksMutation();
   const [createFolder, { isLoading: isCreatingFolder }] = useCreatePersonalFolderMutation();
   const [updateFolder, { isLoading: isUpdatingFolder }] = useUpdatePersonalFolderMutation();
   const [deleteFolder, { isLoading: isDeletingFolder }] = useDeletePersonalFolderMutation();
@@ -1449,12 +1613,20 @@ const PersonalTasks = () => {
     }
   };
 
-  const handleDelete = (taskId) => {
-    setDeleteConfirmId(taskId);
+  // Kept generic on task-or-id so it works whether it's called with the
+  // full task object (list view / action modal) or just an id.
+  const handleDelete = (taskOrId) => {
+    if (typeof taskOrId === 'string') {
+      const found = localTasks.find(t => t._id === taskOrId);
+      setDeleteTarget(found ? { _id: found._id, title: found.title } : { _id: taskOrId, title: '' });
+    } else {
+      setDeleteTarget({ _id: taskOrId._id, title: taskOrId.title });
+    }
   };
 
   const confirmDeleteTask = async () => {
-    const taskId = deleteConfirmId;
+    if (!deleteTarget) return;
+    const taskId = deleteTarget._id;
     const prevTasks = [...localTasks];
     setLocalTasks(prev => prev.filter(t => t._id !== taskId));
     delete orderMap.current[taskId];
@@ -1462,7 +1634,7 @@ const PersonalTasks = () => {
       await deleteTask(taskId).unwrap();
       toast.success('Moved to trash');
       if (selectedTaskId === taskId) setSelectedTaskId(null);
-      setDeleteConfirmId(null);
+      setDeleteTarget(null);
       refetchTasks();
     } catch (err) {
       setLocalTasks(prevTasks);
@@ -1489,6 +1661,31 @@ const PersonalTasks = () => {
   const handleCardStatusToggle = (task) => {
     const newStatus = task.status === 'completed' ? 'pending' : 'completed';
     handleStatusToggle(task._id, newStatus);
+  };
+
+  // Dropping a task card onto a folder tab. Reuses updatePersonalTask
+  // (folderId is already handled there) — no new endpoint needed.
+  const handleMoveTaskToFolder = async (taskId, folderId) => {
+    const task = localTasks.find(t => t._id === taskId);
+    if (!task) return;
+    const currentFolderId = task.folder?._id || task.folder || null;
+    if (currentFolderId === folderId) return; // already in this folder
+
+    const folderObj = folders.find(f => f._id === folderId);
+    const prevTasks = [...localTasks];
+    setLocalTasks(prev => prev.map(t =>
+      t._id === taskId
+        ? { ...t, folder: folderObj ? { _id: folderObj._id, name: folderObj.name, color: folderObj.color } : null }
+        : t
+    ));
+    try {
+      await updateTask({ taskId, data: { folderId } }).unwrap();
+      toast.success(`Moved to ${folderObj?.name || 'folder'}`);
+      refetchTasks();
+    } catch (err) {
+      setLocalTasks(prevTasks);
+      toast.error(err?.data?.message || 'Failed to move task');
+    }
   };
 
   const handleSaveFolder = async (data, folderId) => {
@@ -1638,6 +1835,13 @@ const PersonalTasks = () => {
     }
   };
 
+  // ─── Move handlers ────────────────────────────────────────────
+  const handleMoveFromModal = (task) => {
+    setMoveTask(task);
+    setShowMoveModal(true);
+    setShowActionModal(false);
+  };
+
   const selectedTask = useMemo(() => localTasks.find(t => t._id === selectedTaskId), [localTasks, selectedTaskId]);
 
   // ─── Filtering & sorting ──────────────────────────────────────
@@ -1665,34 +1869,54 @@ const PersonalTasks = () => {
     return filtered;
   }, [localTasks, filters, sortOrder, viewMode]);
 
-  // ─── Reorder tasks (drag & drop) ─────────────────────────────
+  // ─── Reorder tasks / move into folder (drag & drop) ───────────
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 10 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  // Resolves both drag indices against the SAME array (localTasks) by
-  // matching _id, rather than mixing an index from `displayedTasks` (the
-  // filtered/sorted view) with a splice into `localTasks` (the raw list) —
-  // those two arrays don't line up 1:1 whenever a folder/archived/view
-  // filter is active, which silently reordered the wrong tasks. Also
-  // guards against `over` being null (dropped outside any droppable zone).
-  const handleTaskDragEnd = (event) => {
+  // Single onDragEnd for the whole non-detail view: dropping onto a task
+  // row reorders (resolved against localTasks by _id, not the filtered
+  // displayedTasks array, so folder/archived/view filters can't scramble
+  // the wrong tasks — see prior note); dropping onto a folder tab (id
+  // prefixed with FOLDER_DROP_PREFIX) moves the dragged task into that
+  // folder instead. Guards against `over` being null (dropped outside
+  // any droppable zone).
+  const handleDragEnd = async (event) => {
     const { active, over } = event;
-    if (!over || active.id === over.id) return;
+    if (!over) return;
 
-    setLocalTasks(prev => {
-      const oldIndex = prev.findIndex(t => t._id === active.id);
-      const newIndex = prev.findIndex(t => t._id === over.id);
-      if (oldIndex === -1 || newIndex === -1) return prev;
+    const overId = String(over.id);
 
-      const reordered = arrayMove(prev, oldIndex, newIndex);
-      reordered.forEach((t, i) => {
+    if (overId.startsWith(FOLDER_DROP_PREFIX)) {
+      const folderId = overId.slice(FOLDER_DROP_PREFIX.length);
+      await handleMoveTaskToFolder(active.id, folderId);
+      return;
+    }
+
+    if (active.id === over.id) return;
+
+    const oldIndex = localTasks.findIndex(t => t._id === active.id);
+    const newIndex = localTasks.findIndex(t => t._id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const prevTasks = [...localTasks];
+    const reordered = arrayMove(localTasks, oldIndex, newIndex);
+    reordered.forEach((t, i) => {
+      orderMap.current[t._id] = i;
+    });
+    setLocalTasks(reordered);
+
+    try {
+      await reorderTasks({ orderedTaskIds: reordered.map(t => t._id) }).unwrap();
+    } catch (err) {
+      setLocalTasks(prevTasks);
+      prevTasks.forEach((t, i) => {
         orderMap.current[t._id] = i;
       });
-      return reordered;
-    });
+      toast.error(err?.data?.message || 'Failed to reorder tasks');
+    }
   };
 
   // ─── Tabs ──────────────────────────────────────────────────────
@@ -1734,7 +1958,7 @@ const PersonalTasks = () => {
               onEditSubtask={handleEditSubtask}
             />
           ) : (
-            <>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <header className="bg-white dark:bg-[#0f0f12] border-b border-gray-100 dark:border-gray-800 sticky top-0 z-10">
                 <div className="px-3 sm:px-6 h-12 flex items-center justify-between gap-2">
                   <h1 className="text-sm font-semibold text-gray-800 dark:text-white flex items-center gap-2">
@@ -1780,6 +2004,8 @@ const PersonalTasks = () => {
                   </button>
                 </div>
 
+                {/* Folder tabs double as drop zones — drag a task's grip
+                    handle onto one to move that task into that folder. */}
                 <div className="px-3 pb-1 flex items-center gap-1 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-700">
                   <div
                     onClick={handleAllTabClick}
@@ -1792,18 +2018,15 @@ const PersonalTasks = () => {
                     All
                   </div>
                   {folders.map((folder) => (
-                    <div
+                    <DroppableFolderTab
                       key={folder._id}
+                      folder={folder}
+                      isActive={filters.folderId === folder._id && !filters.archived}
                       onClick={() => handleTabClick(folder._id)}
-                      className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-t-lg cursor-pointer transition ${
-                        filters.folderId === folder._id && !filters.archived
-                          ? 'bg-gray-100 dark:bg-[#2a2a2a] text-teal-600 dark:text-teal-400 border-b-2 border-teal-500'
-                          : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#2a2a2a]'
-                      }`}
                     >
                       <span className="w-2 h-2 rounded-full" style={{ backgroundColor: folder.color || '#4f46e5' }} />
                       {folder.name}
-                    </div>
+                    </DroppableFolderTab>
                   ))}
                   <button
                     onClick={() => setShowFolderModal(true)}
@@ -1842,27 +2065,25 @@ const PersonalTasks = () => {
                     )}
                   </div>
                 ) : (
-                  <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleTaskDragEnd}>
-                    <SortableContext items={displayedTasks.map(t => t._id)} strategy={verticalListSortingStrategy}>
-                      <div>
-                        {displayedTasks.map((task) => (
-                          <SortableTaskItem
-                            key={task._id}
-                            id={task._id}
-                            task={task}
-                            onClick={handleTaskClick}
-                            onOpenModal={handleOpenTaskModal}
-                            onToggleStatus={handleCardStatusToggle}
-                          />
-                        ))}
-                      </div>
-                    </SortableContext>
-                  </DndContext>
+                  <SortableContext items={displayedTasks.map(t => t._id)} strategy={verticalListSortingStrategy}>
+                    <div>
+                      {displayedTasks.map((task) => (
+                        <SortableTaskItem
+                          key={task._id}
+                          id={task._id}
+                          task={task}
+                          onClick={handleTaskClick}
+                          onOpenModal={handleOpenTaskModal}
+                          onToggleStatus={handleCardStatusToggle}
+                        />
+                      ))}
+                    </div>
+                  </SortableContext>
                 )}
               </main>
 
               <GeneralBottombar />
-            </>
+            </DndContext>
           )}
         </div>
       </div>
@@ -1890,13 +2111,13 @@ const PersonalTasks = () => {
         isLoading={isCreatingFolder || isUpdatingFolder || isDeletingFolder}
       />
 
-      <ConfirmModal
-        isOpen={!!deleteConfirmId}
-        onClose={() => setDeleteConfirmId(null)}
+      <TypeToConfirmModal
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
         onConfirm={confirmDeleteTask}
-        title="Delete Task"
-        message="This task will be moved to trash. It will be permanently deleted after 30 days."
-        danger
+        itemLabel={isReminderTask(deleteTarget) ? 'Reminder' : 'Task'}
+        itemName={deleteTarget?.title}
+        message="This will be moved to trash and permanently deleted after 30 days."
       />
 
       <TaskActionModal
@@ -1908,6 +2129,16 @@ const PersonalTasks = () => {
         onRestore={handleRestore}
         onDelete={handleDelete}
         onStatusToggle={handleStatusToggle}
+        onMove={handleMoveFromModal}
+      />
+
+      {/* ─── Move Task Modal ──────────────────────────────────────── */}
+      <MoveTaskModal
+        isOpen={showMoveModal}
+        onClose={() => { setShowMoveModal(false); setMoveTask(null); }}
+        task={moveTask}
+        folders={folders}
+        onMoveTask={handleMoveTaskToFolder}
       />
 
       {!selectedTask && (

@@ -193,6 +193,14 @@ export const createPersonalTask = async (req, res) => {
       return res.status(400).json({ success: false, message: err.message });
     }
 
+    // New tasks go to the top of the user's ordering (order 0), pushing
+    // everything else down — mirrors how the frontend optimistically
+    // unshifts a newly created task to the top of localTasks.
+    await PersonalTask.updateMany(
+      { user: req.user.id, isTrash: { $ne: true } },
+      { $inc: { order: 1 } }
+    );
+
     const task = await PersonalTask.create({
       user: req.user.id,
       folder: folderId || null,
@@ -207,6 +215,7 @@ export const createPersonalTask = async (req, res) => {
       recurrenceDays: recurrenceData.recurrenceDays,
       recurrenceEndDate: recurrenceData.recurrenceEndDate,
       reminderSentAt: null,
+      order: 0,
     });
 
     res.status(201).json({ success: true, task });
@@ -231,7 +240,7 @@ export const getPersonalTasks = async (req, res) => {
 
     const tasks = await PersonalTask.find(query)
       .populate('folder', 'name color')
-      .sort({ createdAt: -1 });
+      .sort({ order: 1, createdAt: -1 });
 
     res.status(200).json({ success: true, tasks, count: tasks.length });
   } catch (error) {
@@ -355,6 +364,57 @@ export const deletePersonalTask = async (req, res) => {
     await task.save();
     res.status(200).json({ success: true, message: 'Task moved to trash (auto‑delete in 30 days).' });
   } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// PERSONAL TASK REORDER (top-level, whole-list drag & drop)
+// ─────────────────────────────────────────────────────────────────────
+//
+// Unlike subtasks (which live inside a single document as an embedded
+// array, so reordering is just re-assigning that array), personal tasks
+// are separate top-level documents. There's no array to reorder — each
+// task needs its own `order` field persisted, so on reload the sort
+// (`{ order: 1, createdAt: -1 }` in getPersonalTasks) reflects the drag.
+//
+// Body: { orderedTaskIds: [ '<id at position 0>', '<id at position 1>', ... ] }
+// Every id must belong to req.user — this endpoint never touches tasks
+// owned by anyone else, even if an id is passed in.
+export const reorderPersonalTasks = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { orderedTaskIds } = req.body;
+
+    if (!Array.isArray(orderedTaskIds) || orderedTaskIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'orderedTaskIds must be a non-empty array.' });
+    }
+
+    // Verify every id actually belongs to this user before writing anything.
+    const ownedCount = await PersonalTask.countDocuments({
+      _id: { $in: orderedTaskIds },
+      user: userId,
+    });
+    if (ownedCount !== orderedTaskIds.length) {
+      return res.status(403).json({ success: false, message: 'One or more tasks not found or not authorized.' });
+    }
+
+    const bulkOps = orderedTaskIds.map((id, index) => ({
+      updateOne: {
+        filter: { _id: id, user: userId },
+        update: { $set: { order: index } },
+      },
+    }));
+
+    await PersonalTask.bulkWrite(bulkOps);
+
+    const tasks = await PersonalTask.find({ user: userId, isTrash: { $ne: true } })
+      .populate('folder', 'name color')
+      .sort({ order: 1, createdAt: -1 });
+
+    res.status(200).json({ success: true, message: 'Tasks reordered', tasks });
+  } catch (error) {
+    console.error('❌ reorderPersonalTasks error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -528,81 +588,52 @@ export const deletePersonalSubTask = async (req, res) => {
   }
 };
 
-// controllers/personalTaskController.js (or wherever this function lives)
-
 export const reorderPersonalSubTasks = async (req, res) => {
   try {
-    console.log('🔁 reorderPersonalSubTasks called');
-    console.log('  - params:', req.params);
-    console.log('  - body:', req.body);
-    console.log('  - user:', req.user?.id);
-
     const userId = req.user.id;
     const { taskId } = req.params;
     const { orderedSubTaskIndices } = req.body;
 
-    // 1. Validate input
     if (!taskId) {
-      console.log('❌ Missing taskId');
       return res.status(400).json({ success: false, message: 'Task ID required.' });
     }
 
     if (!Array.isArray(orderedSubTaskIndices)) {
-      console.log('❌ orderedSubTaskIndices is not an array');
       return res.status(400).json({ success: false, message: 'orderedSubTaskIndices must be an array.' });
     }
 
-    // 2. Find the personal task
     const task = await PersonalTask.findOne({ _id: taskId, isTrash: { $ne: true } });
     if (!task) {
-      console.log('❌ Task not found');
       return res.status(404).json({ success: false, message: 'Task not found.' });
     }
-    console.log('✅ Task found, current subtasks:', task.subtasks.map(st => st.title));
 
-    // 3. Authorization: only task owner can reorder
     if (task.user.toString() !== userId) {
-      console.log('❌ Unauthorized – task.user:', task.user, 'userId:', userId);
       return res.status(403).json({ success: false, message: 'Not authorized.' });
     }
 
-    // 4. Validate indices length matches subtask count
     const currentLength = task.subtasks.length;
     if (orderedSubTaskIndices.length !== currentLength) {
-      console.log(`❌ Index length mismatch: expected ${currentLength}, got ${orderedSubTaskIndices.length}`);
       return res.status(400).json({
         success: false,
         message: `Order array length (${orderedSubTaskIndices.length}) does not match subtask count (${currentLength}).`,
       });
     }
 
-    // 5. Ensure all indices are valid (0..length-1) and no duplicates
     const validIndices = new Set(orderedSubTaskIndices);
     if (validIndices.size !== currentLength) {
-      console.log('❌ Duplicate or missing indices');
       return res.status(400).json({ success: false, message: 'Indices must be unique and cover all subtasks.' });
     }
     for (const idx of orderedSubTaskIndices) {
       if (typeof idx !== 'number' || idx < 0 || idx >= currentLength) {
-        console.log(`❌ Invalid index: ${idx}`);
         return res.status(400).json({ success: false, message: `Invalid index: ${idx}` });
       }
     }
 
-    // 6. Reorder subtasks
-    const originalSubtasks = task.subtasks.slice(); // copy for logging
-    console.log('🔄 Before reorder:', originalSubtasks.map(st => st.title));
-
     const reordered = orderedSubTaskIndices.map((idx) => task.subtasks[idx]);
     task.subtasks = reordered;
 
-    console.log('🔄 After reorder:', reordered.map(st => st.title));
-
-    // 7. Save
     await task.save();
-    console.log('✅ Save successful');
 
-    // 8. Return updated task
     const updated = await PersonalTask.findById(taskId);
     res.status(200).json({
       success: true,
