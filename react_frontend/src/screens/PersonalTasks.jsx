@@ -1118,7 +1118,7 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description (Optional)</label>
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
