@@ -16,6 +16,7 @@ import {
   FiPackage,
   FiAlertCircle,
   FiArrowUp,
+  FiFile, // ✅ Added for Notes
 } from "react-icons/fi";
 import { FaTimes, FaExclamationTriangle } from "react-icons/fa";
 
@@ -37,7 +38,7 @@ const ChatIcon = ({ className }) => (
   </svg>
 );
 
-// ─── Small unread-count pill ─────────────────────────────────────
+// ─── Small unread‑count pill ─────────────────────────────────────
 const UnreadBadge = ({ count, className = "" }) => {
   if (!count) return null;
   return (
@@ -87,7 +88,7 @@ const GeneralBottombar = () => {
       skip: !token,
       refetchOnMountOrArgChange: true,
       refetchOnFocus: true,
-      pollingInterval: 60000, // Check every minute
+      pollingInterval: 60000,
     },
   );
   const hasUpdate = updateData?.hasUpdate || false;
@@ -116,6 +117,12 @@ const GeneralBottombar = () => {
 
   // ── Drawer items ──
   const drawerItems = [
+    // ✅ Notes link added here
+    {
+      to: "/notes",
+      icon: FiFile,
+      label: "Notes",
+    },
     {
       to: "/notifications",
       icon: FiBell,
@@ -247,7 +254,6 @@ const GeneralBottombar = () => {
                   }`}
                   style={{ color: isRequired ? "#ef4444" : "#fb923c" }}
                 />
-                {/* Pulsing ring */}
                 <span
                   className={`absolute -top-1 -right-1 w-3 h-3 rounded-full ${
                     isRequired ? "border-red-500" : "border-orange-400"
