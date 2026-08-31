@@ -214,15 +214,15 @@ const PermanentDeleteModal = ({ isOpen, onClose, onConfirm, itemName, isBulk = f
   let description = '';
 
   if (isBulk) {
-    target = 'I want to Permanently delete All tasks';
-    placeholder = target;
+    target = 'DELETE ALL';
+    placeholder = 'DELETE ALL';
     title = `Permanently Delete ${itemName || 'All Tasks'}`;
-    description = `This permanently deletes ${itemName || 'the selected tasks'} — it can't be recovered. Type the confirmation phrase below.`;
+    description = `This permanently deletes ${itemName || 'the selected tasks'} — it can't be recovered. Type "${target}" below to confirm.`;
   } else {
     target = 'DELETE';
     placeholder = 'DELETE';
     title = `Permanently Delete "${itemName}"`;
-    description = `This permanently deletes "${itemName}" — it can't be recovered. Type "DELETE" to confirm.`;
+    description = `This permanently deletes "${itemName}" — it can't be recovered. Type "${target}" to confirm.`;
   }
 
   const matches = value.trim() === target;
@@ -673,22 +673,8 @@ const SubtaskItem = ({
         }
       }, 300);
     } else {
-      // Desktop: single click -> if selection mode active, toggle selection; else open modal on double click? Actually desktop users have the three-dot menu, but we can still allow single click to toggle selection if selection mode is active.
       if (selectionMode) {
         if (onTap) onTap(index);
-      } else {
-        // Single click on desktop: maybe open modal? But we have the three-dot. We'll keep it as is.
-        // We'll do nothing on single click desktop to avoid confusion.
-        // Actually we can still open modal on single click for desktop? But then double tap wouldn't work.
-        // We'll keep it consistent: double tap for modal, single tap toggles selection if selection mode.
-        // On desktop we don't have double tap, but we have the more button.
-        // So we'll just call onTap if selectionMode, else nothing.
-        // We'll also allow double click? but not needed.
-        // We'll just keep it as is: onClick just calls onTap (which parent handles).
-        // But we also need to open modal on double click. Not needed.
-        // So we'll just use the same logic as touch: double tap for modal, single tap for selection (if mode active).
-        // Since desktop users have the more button, they can also use that.
-        // We'll implement the same logic for both.
       }
     }
   };
@@ -1296,19 +1282,21 @@ const TaskCard = React.memo(({
     <div
       className={`bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1e1e1e] transition cursor-pointer ${
         isSelected ? 'bg-teal-50/70 dark:bg-teal-900/30' : ''
-      }`}
+      } ${selectionMode && !isSelected ? 'hover:ring-1 hover:ring-teal-300 dark:hover:ring-teal-700' : ''}`}
       onClick={handleCardClick}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
       onTouchMove={handleTouchMove}
     >
       <div className="flex items-start gap-3">
-        <div
-          className={`flex-shrink-0 text-gray-400 p-1 -ml-1 mt-0.5 touch-none touch-action-none ${isTrash ? 'opacity-30' : 'cursor-grab'}`}
-          {...gripProps}
-        >
-          <FaGripVertical className="text-sm" />
-        </div>
+        {!isTrash && (
+          <div
+            className="flex-shrink-0 text-gray-400 p-1 -ml-1 mt-0.5 touch-none touch-action-none cursor-grab"
+            {...gripProps}
+          >
+            <FaGripVertical className="text-sm" />
+          </div>
+        )}
 
         {isTrash ? (
           <div
@@ -1801,48 +1789,8 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
   );
 };
 
-// ─── Gesture Instruction Modal (unchanged) ────────────────────
-const GestureInstructionModal = ({ show, onDismiss }) => {
-  if (!show) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <motion.div
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.9, opacity: 0 }}
-        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-        className="bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-xl max-w-sm w-full p-6 text-center"
-      >
-        <div className="flex justify-center mb-4">
-          <div className="w-16 h-16 bg-teal-100 dark:bg-teal-900/30 rounded-full flex items-center justify-center text-teal-600 dark:text-teal-400">
-            <FaHandPointer className="text-3xl" />
-          </div>
-        </div>
-        <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2">Quick Actions</h3>
-        <div className="text-sm text-gray-600 dark:text-gray-300 space-y-3">
-          <p className="flex items-start gap-2">
-            <span className="text-teal-500 font-bold">↯</span>
-            <span><strong>Double‑tap</strong> a task (or click the three dots) to see all options: edit, archive, delete, etc.</span>
-          </p>
-          <p className="flex items-start gap-2">
-            <span className="text-teal-500 font-bold">☰</span>
-            <span><strong>Long‑press</strong> (mobile) or use the <strong>"Select"</strong> button from the three‑dot menu to enter selection mode. Then tap other tasks to select/deselect them. Perform bulk actions from the top bar.</span>
-          </p>
-        </div>
-        <button
-          onClick={onDismiss}
-          className="mt-6 w-full py-2.5 bg-teal-600 dark:bg-teal-500 text-white rounded-xl text-sm font-medium hover:bg-teal-700 dark:hover:bg-teal-600 transition"
-        >
-          Got it
-        </button>
-      </motion.div>
-    </div>
-  );
-};
-
-// ─── Bulk Action Toolbar (top bar) ─────────────────────────────
-// ─── FIX: Responsive bulk toolbar ──────────────────────────────
-const BulkActionToolbar = ({ selectedCount, onCancel, onDelete, onPermanentDelete, onArchive, onComplete, onRestore, isTrashView }) => {
+// ─── Bulk Action Toolbar (updated with Uncheck) ──────────────
+const BulkActionToolbar = ({ selectedCount, onCancel, onDelete, onPermanentDelete, onArchive, onComplete, onUncheck, onRestore, isTrashView, isArchivedView }) => {
   return (
     <motion.div
       initial={{ opacity: 0, y: -20 }}
@@ -1870,6 +1818,21 @@ const BulkActionToolbar = ({ selectedCount, onCancel, onDelete, onPermanentDelet
               <FaTrashAlt className="text-[10px] sm:text-xs" /> Delete Forever
             </button>
           </>
+        ) : isArchivedView ? (
+          <>
+            <button
+              onClick={onRestore}
+              className="px-2 sm:px-3 py-1 text-[11px] sm:text-xs font-medium bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition flex items-center gap-1"
+            >
+              <FaUndo className="text-[10px] sm:text-xs" /> Restore
+            </button>
+            <button
+              onClick={onDelete}
+              className="px-2 sm:px-3 py-1 text-[11px] sm:text-xs font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 transition flex items-center gap-1"
+            >
+              <FaTrashAlt className="text-[10px] sm:text-xs" /> Delete
+            </button>
+          </>
         ) : (
           <>
             <button
@@ -1877,6 +1840,12 @@ const BulkActionToolbar = ({ selectedCount, onCancel, onDelete, onPermanentDelet
               className="px-2 sm:px-3 py-1 text-[11px] sm:text-xs font-medium bg-green-600 text-white rounded-lg hover:bg-green-700 transition flex items-center gap-1"
             >
               <FaCheckDouble className="text-[10px] sm:text-xs" /> Done
+            </button>
+            <button
+              onClick={onUncheck}
+              className="px-2 sm:px-3 py-1 text-[11px] sm:text-xs font-medium bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition flex items-center gap-1"
+            >
+              <FaUndo className="text-[10px] sm:text-xs" /> Uncheck
             </button>
             <button
               onClick={onArchive}
@@ -1916,7 +1885,6 @@ const PersonalTasks = () => {
   const [actionTask, setActionTask] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [permanentDeleteTarget, setPermanentDeleteTarget] = useState(null);
-  const [viewMode, setViewMode] = useState('tasks');
 
   // ─── Selection state ──────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -1927,8 +1895,8 @@ const PersonalTasks = () => {
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [moveTask, setMoveTask] = useState(null);
 
-  // ─── Gesture instruction state ──────────────────────────────
-  const [showGesture, setShowGesture] = useState(false);
+  // ─── Gesture instruction toast already shown? ──────────────
+  const gestureShownRef = useRef(false);
 
   const {
     data: tasksData,
@@ -2037,7 +2005,6 @@ const PersonalTasks = () => {
 
   const bulkDelete = () => {
     if (filters.trash) {
-      // In trash view, delete means permanent delete
       setPermanentDeleteTarget({ _id: 'bulk', title: `${selectedIds.size} tasks` });
     } else {
       bulkAction(
@@ -2058,11 +2025,43 @@ const PersonalTasks = () => {
     'Failed to archive some tasks'
   );
 
-  const bulkComplete = () => bulkAction(
-    (id) => updateTask({ taskId: id, data: { status: 'completed' } }).unwrap(),
-    'Completed',
-    'Failed to complete some tasks'
-  );
+  // Bulk complete: set status to 'completed' for selected pending tasks only
+  const bulkComplete = () => {
+    const ids = Array.from(selectedIds);
+    const pendingIds = ids.filter(id => {
+      const task = localTasks.find(t => t._id === id);
+      return task && task.status !== 'completed';
+    });
+    if (pendingIds.length === 0) {
+      toast.info('No pending tasks selected to complete.');
+      clearSelection();
+      return;
+    }
+    bulkAction(
+      (id) => updateTask({ taskId: id, data: { status: 'completed' } }).unwrap(),
+      'Completed',
+      'Failed to complete some tasks'
+    );
+  };
+
+  // Bulk uncheck: set status to 'pending' for selected completed tasks only
+  const bulkUncheck = () => {
+    const ids = Array.from(selectedIds);
+    const completedIds = ids.filter(id => {
+      const task = localTasks.find(t => t._id === id);
+      return task && task.status === 'completed';
+    });
+    if (completedIds.length === 0) {
+      toast.info('No completed tasks selected to uncheck.');
+      clearSelection();
+      return;
+    }
+    bulkAction(
+      (id) => updateTask({ taskId: id, data: { status: 'pending' } }).unwrap(),
+      'Unchecked',
+      'Failed to uncheck some tasks'
+    );
+  };
 
   const bulkRestore = () => bulkAction(
     (id) => restoreTask(id).unwrap(),
@@ -2097,13 +2096,29 @@ const PersonalTasks = () => {
     refetchTasks();
   };
 
-  // ─── Show gesture instruction on first task creation ────────
-  const showGestureInstruction = () => {
-    if (!sessionStorage.getItem('gestureShown')) {
-      setShowGesture(true);
-      sessionStorage.setItem('gestureShown', 'true');
-      setTimeout(() => setShowGesture(false), 5000);
-    }
+  // ─── Show gesture instruction as toast ──────────────────────
+  const showGestureToast = () => {
+    if (gestureShownRef.current) return;
+    gestureShownRef.current = true;
+    toast.custom(
+      (t) => (
+        <div
+          className={`${
+            t.visible ? 'animate-slideDown' : 'animate-fadeOut'
+          } w-full bg-teal-600 dark:bg-teal-700 text-white px-4 py-3 text-sm shadow-lg flex items-center justify-between`}
+          style={{ transition: 'all 0.3s' }}
+        >
+          <div className="flex items-center gap-3">
+            <FaHandPointer className="text-lg" />
+            <span><strong>Double‑tap</strong> a task for options · <strong>Long‑press</strong> to select multiple tasks</span>
+          </div>
+          <button onClick={() => toast.dismiss(t.id)} className="text-white/80 hover:text-white">
+            <FaTimes />
+          </button>
+        </div>
+      ),
+      { duration: 6000, position: 'top-center' }
+    );
   };
 
   // ─── Handlers ──────────────────────────────────────────────────
@@ -2138,7 +2153,7 @@ const PersonalTasks = () => {
       toast.success(payload.recurrenceType !== 'none' ? 'Reminder created!' : 'Task created!');
       setShowCreateModal(false);
       refetchTasks();
-      showGestureInstruction();
+      showGestureToast();
     } catch (err) {
       setLocalTasks(prev => prev.filter(t => t._id !== tempId));
       delete orderMap.current[tempId];
@@ -2411,11 +2426,9 @@ const PersonalTasks = () => {
 
   const handleTaskClick = (task) => {
     if (selectionMode) {
-      // If selection mode is active, toggle selection (including trash)
       toggleSelection(task._id);
       return;
     }
-    // If not selection mode, open task detail or modal for trash
     if (task.isTrash) {
       handleOpenTaskModal(task);
       return;
@@ -2460,15 +2473,12 @@ const PersonalTasks = () => {
   const selectedTask = useMemo(() => localTasks.find(t => t._id === selectedTaskId), [localTasks, selectedTaskId]);
 
   // ─── Filtering & sorting ──────────────────────────────────────
-
+  // Sort by orderMap first, then by dueDate as tie-breaker
   const displayedTasks = useMemo(() => {
     let filtered = localTasks.filter(task => {
       if (filters.trash) return task.isTrash === true;
       if (task.isTrash) return false;
 
-      const taskIsReminder = isReminderTask(task);
-      if (viewMode === 'reminders' && !taskIsReminder) return false;
-      if (viewMode === 'tasks' && taskIsReminder) return false;
       if (filters.folderId && task.folder?._id !== filters.folderId) return false;
       if (filters.status && task.status !== filters.status) return false;
       if (filters.priority && task.priority !== filters.priority) return false;
@@ -2476,16 +2486,24 @@ const PersonalTasks = () => {
       if (!filters.archived && task.isArchived) return false;
       return true;
     });
+
+    // Primary sort by orderMap
     filtered.sort((a, b) => {
       const orderA = orderMap.current[a._id] ?? a.order ?? 0;
       const orderB = orderMap.current[b._id] ?? b.order ?? 0;
       if (orderA !== orderB) return orderA - orderB;
-      const dateA = a.dueDate ? new Date(a.dueDate) : new Date(8640000000000000);
-      const dateB = b.dueDate ? new Date(b.dueDate) : new Date(8640000000000000);
+      // Secondary sort by dueDate if order is equal
+      const getDate = (task) => task.dueDate ? new Date(task.dueDate) : null;
+      const dateA = getDate(a);
+      const dateB = getDate(b);
+      if (dateA === null && dateB === null) return 0;
+      if (dateA === null) return 1;
+      if (dateB === null) return -1;
       return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
     });
+
     return filtered;
-  }, [localTasks, filters, sortOrder, viewMode]);
+  }, [localTasks, filters, sortOrder]);
 
   // ─── Reorder tasks / move into folder (drag & drop) ───────────
 
@@ -2566,6 +2584,7 @@ const PersonalTasks = () => {
   }
 
   const isTrashView = filters.trash;
+  const isArchivedView = filters.archived && !filters.trash;
 
   return (
     <>
@@ -2597,8 +2616,10 @@ const PersonalTasks = () => {
                     onPermanentDelete={bulkPermanentDelete}
                     onArchive={bulkArchive}
                     onComplete={bulkComplete}
+                    onUncheck={bulkUncheck}
                     onRestore={bulkRestore}
                     isTrashView={isTrashView}
+                    isArchivedView={isArchivedView}
                   />
                 ) : (
                   <>
@@ -2634,29 +2655,6 @@ const PersonalTasks = () => {
                           <FaTrashAlt className="text-sm" />
                         </button>
                       </div>
-                    </div>
-
-                    <div className="px-3 pb-2 flex items-center gap-2">
-                      <button
-                        onClick={() => setViewMode('tasks')}
-                        className={`flex-1 sm:flex-none px-4 py-1.5 rounded-full text-xs font-semibold transition ${
-                          viewMode === 'tasks'
-                            ? 'bg-teal-600 text-white shadow-sm'
-                            : 'bg-gray-100 dark:bg-[#2a2a2a] text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700/50'
-                        }`}
-                      >
-                        Personal Tasks
-                      </button>
-                      <button
-                        onClick={() => setViewMode('reminders')}
-                        className={`flex-1 sm:flex-none px-4 py-1.5 rounded-full text-xs font-semibold transition flex items-center justify-center gap-1.5 ${
-                          viewMode === 'reminders'
-                            ? 'bg-teal-600 text-white shadow-sm'
-                            : 'bg-gray-100 dark:bg-[#2a2a2a] text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700/50'
-                        }`}
-                      >
-                        <FaBell className="text-[10px]" /> Reminders
-                      </button>
                     </div>
 
                     <div className="px-3 pb-1 flex items-center gap-1 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-700">
@@ -2700,12 +2698,6 @@ const PersonalTasks = () => {
                         <FaTrashAlt className="text-4xl mb-2 opacity-30" />
                         <p className="text-sm font-medium">Trash is empty</p>
                         <p className="text-xs">Deleted tasks and reminders show up here.</p>
-                      </>
-                    ) : viewMode === 'reminders' ? (
-                      <>
-                        <FaBell className="text-4xl mb-2 opacity-30" />
-                        <p className="text-sm font-medium">No reminders found</p>
-                        <p className="text-xs">Set a reminder to get started.</p>
                       </>
                     ) : (
                       <>
@@ -2753,7 +2745,7 @@ const PersonalTasks = () => {
           onCancel={() => { setShowCreateModal(false); setEditingTask(null); }}
           isEditing={!!editingTask}
           isLoading={isCreating || isUpdating}
-          presetReminder={!editingTask && viewMode === 'reminders'}
+          presetReminder={false}
         />
       </BottomSheet>
 
@@ -2783,7 +2775,6 @@ const PersonalTasks = () => {
         isBulk={false}
       />
 
-      {/* Bulk permanent delete confirmation */}
       <PermanentDeleteModal
         isOpen={permanentDeleteTarget?._id === 'bulk'}
         onClose={() => setPermanentDeleteTarget(null)}
@@ -2822,9 +2813,6 @@ const PersonalTasks = () => {
           <FaPlus className="text-xl" />
         </button>
       )}
-
-      {/* ─── Gesture Instruction Modal ────────────────────────── */}
-      <GestureInstructionModal show={showGesture} onDismiss={() => setShowGesture(false)} />
 
       {/* ─── Bulk loading overlay ──────────────────────────────── */}
       {bulkLoading && (

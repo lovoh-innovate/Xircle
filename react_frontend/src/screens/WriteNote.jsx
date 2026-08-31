@@ -12,6 +12,7 @@ import {
   useCreateNoteMutation,
   useUpdateNoteMutation,
   useDeleteNoteMutation,
+  useGetNotesQuery,
 } from '../slices/personalNoteApiSlice';
 import toast from 'react-hot-toast';
 import {
@@ -22,7 +23,12 @@ import {
   FaEdit,
   FaCheck,
   FaCloudUploadAlt,
+  FaFileAlt,
+  FaUserPlus,
+  FaFile,
+  FaPlus,
 } from 'react-icons/fa';
+import { formatDistanceToNow } from 'date-fns';
 
 // ─── Toolbar ──────────────────────────────────────────────────────────────
 const ToolbarButton = ({ onClick, active, children, title }) => (
@@ -111,9 +117,7 @@ const Toolbar = ({ editor }) => {
         🖼️
       </ToolbarButton>
 
-      <ToolbarButton title="Clear formatting" onClick={() => editor.chain().focus().unsetAllMarks().run()}>
-        ✕
-      </ToolbarButton>
+      {/* Clear formatting button removed */}
     </div>
   );
 };
@@ -194,6 +198,54 @@ const SaveStatus = ({ status }) => {
   );
 };
 
+// ─── Sidebar Note Item ────────────────────────────────────────────────
+const SidebarNoteItem = ({ note, isActive, onClick }) => {
+  const stripHtml = (html) => {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    return tmp.textContent || tmp.innerText || '';
+  };
+  const preview = stripHtml(note.content || '').slice(0, 60);
+  const formatDate = (date) => formatDistanceToNow(new Date(date), { addSuffix: true });
+
+  return (
+    <div
+      onClick={() => onClick(note._id)}
+      className={`px-3 py-2.5 border-b border-gray-100 dark:border-gray-800 cursor-pointer transition ${
+        isActive
+          ? 'bg-teal-50 dark:bg-teal-900/20 border-l-4 border-teal-500'
+          : 'hover:bg-gray-50 dark:hover:bg-[#1e1e1e]'
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        <FaFileAlt className="text-teal-500 text-sm flex-shrink-0" />
+        <span className="text-sm font-medium text-gray-800 dark:text-white truncate flex-1">
+          {note.title || 'Untitled'}
+        </span>
+        {note.isPublic && (
+          <span className="text-[10px] bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded-full flex-shrink-0">
+            Public
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{preview || 'Empty note'}</p>
+      <div className="flex items-center gap-3 text-[10px] text-gray-400 dark:text-gray-500 mt-1">
+        <span>{formatDate(note.updatedAt)}</span>
+        {note.attachments?.length > 0 && (
+          <span className="flex items-center gap-1">
+            <FaFile className="text-[9px]" /> {note.attachments.length}
+          </span>
+        )}
+        {note.collaborators?.length > 0 && (
+          <span className="flex items-center gap-1">
+            <FaUserPlus className="text-[9px]" /> {note.collaborators.length}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ─── Main Component ────────────────────────────────────────────────────
 const AUTOSAVE_DELAY = 900;
 
@@ -202,32 +254,34 @@ const WriteNote = () => {
   const navigate = useNavigate();
   const isNew = noteId === 'new';
 
+  // ── State ──
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [isPublic, setIsPublic] = useState(false);
   const [isEditing, setIsEditing] = useState(isNew);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [saveStatus, setSaveStatus] = useState('idle'); // idle | saving | saved | error
+  const [saveStatus, setSaveStatus] = useState('idle');
+  const [sidebarWidth, setSidebarWidth] = useState(280);
+  const [isResizing, setIsResizing] = useState(false);
 
-  const { data: noteData, isLoading: isFetching } = useGetNoteQuery(noteId, {
-    skip: isNew,
-  });
-
+  // ── API ──
+  const { data: noteData, isLoading: isFetching } = useGetNoteQuery(noteId, { skip: isNew });
+  const { data: notesData, isLoading: isNotesLoading } = useGetNotesQuery();
   const [createNote] = useCreateNoteMutation();
   const [updateNote] = useUpdateNoteMutation();
   const [deleteNote] = useDeleteNoteMutation();
 
-  // Tracks which note's content is currently loaded into the editor.
+  const notes = notesData?.notes || [];
+
+  // ── Refs ──
   const loadedNoteRef = useRef(null);
-  // The actual persisted id — starts null for a brand-new, unsaved note.
-  // Once the first autosave fires for a new note, this becomes the real id
-  // and every save after that is an update instead of a create.
   const currentNoteIdRef = useRef(isNew ? null : noteId);
-  // Skip the autosave effect on the render right after we load a note in,
-  // so loading a note doesn't immediately trigger a "save".
   const suppressAutosaveRef = useRef(true);
   const debounceRef = useRef(null);
+  const sidebarRef = useRef(null);
+  const dragRef = useRef(null);
 
+  // ── Editor ──
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
@@ -244,12 +298,40 @@ const WriteNote = () => {
     },
   });
 
+  // ── Sidebar resizing ──
+  const startResize = useCallback((e) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+
+  useEffect(() => {
+    const onMouseMove = (e) => {
+      if (!isResizing) return;
+      const newWidth = e.clientX - sidebarRef.current.getBoundingClientRect().left;
+      if (newWidth > 150 && newWidth < 500) {
+        setSidebarWidth(newWidth);
+      }
+    };
+    const onMouseUp = () => setIsResizing(false);
+    if (isResizing) {
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    } else {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    }
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+  }, [isResizing]);
+
+  // ── Load note data ──
   useEffect(() => {
     setIsEditing(isNew);
     currentNoteIdRef.current = isNew ? null : noteId;
   }, [noteId, isNew]);
 
-  // Load note data into local state + editor exactly once per note.
   useEffect(() => {
     if (!editor) return;
 
@@ -284,8 +366,9 @@ const WriteNote = () => {
     if (isEditing) editor.commands.focus('end');
   }, [editor, isEditing]);
 
+  // ── Persist ──
   const persist = useCallback(async () => {
-    if (!title.trim()) return; // don't autosave a note with no title yet
+    if (!title.trim()) return;
 
     setSaveStatus('saving');
     try {
@@ -306,7 +389,7 @@ const WriteNote = () => {
     }
   }, [title, content, isPublic, createNote, updateNote, navigate]);
 
-  // Autosave: debounce on every change to title / content / isPublic.
+  // Autosave
   useEffect(() => {
     if (suppressAutosaveRef.current) {
       suppressAutosaveRef.current = false;
@@ -320,10 +403,9 @@ const WriteNote = () => {
     }, AUTOSAVE_DELAY);
 
     return () => clearTimeout(debounceRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, content, isPublic]);
+  }, [title, content, isPublic, isEditing, persist]);
 
-  // Save immediately when leaving edit mode, don't wait for the debounce.
+  // ── Handlers ──
   const handleDoneEditing = () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     persist();
@@ -341,23 +423,68 @@ const WriteNote = () => {
     }
   };
 
-  if (isFetching) {
+  const handleNoteSelect = (id) => {
+    if (id === noteId) return;
+    navigate(`/notes/${id}`);
+  };
+
+  // ── Loading ──
+  if (isFetching || isNotesLoading) {
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="flex items-center justify-center h-screen bg-white dark:bg-[#0f0f12]">
         <FaSpinner className="animate-spin text-teal-500 text-3xl" />
       </div>
     );
   }
 
-  return (
-    <div className="flex-1 flex flex-col h-full w-full bg-white dark:bg-[#0f0f12] overflow-hidden">
+  // ── Render ──
+  const renderSidebar = () => (
+    <div
+      ref={sidebarRef}
+      className="h-full bg-white dark:bg-[#131316] border-r border-gray-200 dark:border-gray-800 flex flex-col overflow-hidden"
+      style={{ width: sidebarWidth }}
+    >
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
+        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+          <FaFileAlt className="text-teal-500" /> Notes
+        </h2>
+        <button
+          onClick={() => navigate('/notes/new')}
+          className="p-1.5 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+        >
+          <FaPlus className="text-sm" />
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        {notes.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500 p-4">
+            <FaFileAlt className="text-2xl mb-1 opacity-30" />
+            <p className="text-xs">No notes yet</p>
+          </div>
+        ) : (
+          notes.map((note) => (
+            <SidebarNoteItem
+              key={note._id}
+              note={note}
+              isActive={note._id === currentNoteIdRef.current}
+              onClick={handleNoteSelect}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+
+  const renderMain = () => (
+    <div className="flex-1 flex flex-col h-full min-w-0 bg-white dark:bg-[#0f0f12] overflow-hidden">
       {/* ─── Header ──────────────────────────────────────────────────── */}
       <div className="flex-shrink-0 w-full border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-[#0f0f12]">
-        {/* row 1: back, title, status */}
+        {/* Top row: back (mobile), title, status */}
         <div className="flex items-center gap-2 px-3 sm:px-6 py-2.5">
+          {/* Mobile back button */}
           <button
             onClick={() => navigate('/notes')}
-            className="p-2 -ml-1 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition flex-shrink-0"
+            className="md:hidden p-2 -ml-1 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition flex-shrink-0"
           >
             <FaArrowLeft className="text-sm" />
           </button>
@@ -368,11 +495,11 @@ const WriteNote = () => {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Note title..."
-              className="flex-1 min-w-0 bg-transparent border-none outline-none text-base sm:text-lg font-semibold text-gray-800 dark:text-white placeholder-gray-400"
+              className="flex-1 min-w-0 bg-transparent border-none outline-none text-lg sm:text-xl font-semibold text-gray-800 dark:text-white placeholder-gray-400"
               autoFocus={isNew}
             />
           ) : (
-            <h1 className="flex-1 min-w-0 text-base sm:text-lg font-semibold text-gray-800 dark:text-white truncate">
+            <h1 className="flex-1 min-w-0 text-lg sm:text-2xl font-bold text-gray-800 dark:text-white truncate">
               {title || 'Untitled Note'}
             </h1>
           )}
@@ -380,9 +507,9 @@ const WriteNote = () => {
           <SaveStatus status={isEditing ? saveStatus : 'idle'} />
         </div>
 
-        {/* row 2: actions — wraps cleanly on small screens instead of jamming row 1 */}
+        {/* Second row: public toggle + action buttons */}
         <div className="flex items-center justify-between gap-2 px-3 sm:px-6 pb-2.5">
-          <div>
+          <div className="flex items-center gap-3">
             {isEditing && <Toggle checked={isPublic} onChange={setIsPublic} label="Public" />}
           </div>
 
@@ -417,40 +544,70 @@ const WriteNote = () => {
         </div>
       </div>
 
-      {/* ─── Editor ──────────────────────────────────────────────────── */}
+      {/* ─── Editor / Content ──────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto w-full">
         {isEditing && <Toolbar editor={editor} />}
 
-        <div className="w-full px-4 sm:px-10 lg:px-16 py-6">
-          <EditorContent
-            editor={editor}
-            className="
-              max-w-none w-full
-              text-[15px] sm:text-base leading-relaxed
-              text-gray-800 dark:text-gray-100
-              [&_.ProseMirror]:outline-none
-              [&_.ProseMirror_p]:my-3
-              [&_.ProseMirror_h1]:text-3xl [&_.ProseMirror_h1]:font-bold [&_.ProseMirror_h1]:mt-6 [&_.ProseMirror_h1]:mb-3
-              [&_.ProseMirror_h2]:text-2xl [&_.ProseMirror_h2]:font-bold [&_.ProseMirror_h2]:mt-5 [&_.ProseMirror_h2]:mb-2
-              [&_.ProseMirror_h3]:text-xl [&_.ProseMirror_h3]:font-semibold [&_.ProseMirror_h3]:mt-4 [&_.ProseMirror_h3]:mb-2
-              [&_.ProseMirror_ul]:list-disc [&_.ProseMirror_ul]:pl-6 [&_.ProseMirror_ul]:my-3 [&_.ProseMirror_ul]:space-y-1
-              [&_.ProseMirror_ol]:list-decimal [&_.ProseMirror_ol]:pl-6 [&_.ProseMirror_ol]:my-3 [&_.ProseMirror_ol]:space-y-1
-              [&_.ProseMirror_li]:pl-1
-              [&_.ProseMirror_li_p]:my-0
-              [&_.ProseMirror_a]:text-teal-600 [&_.ProseMirror_a]:underline
-              [&_.ProseMirror_img]:rounded-lg [&_.ProseMirror_img]:max-w-full [&_.ProseMirror_img]:my-3
-              [&_.ProseMirror_strong]:font-bold
-              [&_.ProseMirror_p.is-editor-empty:first-child::before]:content-[attr(data-placeholder)]
-              [&_.ProseMirror_p.is-editor-empty:first-child::before]:text-gray-400
-              [&_.ProseMirror_p.is-editor-empty:first-child::before]:float-left
-              [&_.ProseMirror_p.is-editor-empty:first-child::before]:pointer-events-none
-              [&_.ProseMirror_p.is-editor-empty:first-child::before]:h-0
-            "
-          />
+        <div className="w-full px-3 sm:px-6 py-6">
+          {!isEditing && !isNew && (
+            <div className="prose prose-sm sm:prose-base dark:prose-invert max-w-none">
+              <div
+                className="[&_h1]:text-3xl [&_h2]:text-2xl [&_h3]:text-xl [&_ul]:list-disc [&_ol]:list-decimal [&_a]:text-teal-600 [&_a]:underline [&_img]:rounded-lg [&_img]:max-w-full"
+                dangerouslySetInnerHTML={{ __html: content }}
+              />
+            </div>
+          )}
+          {isEditing && (
+            <EditorContent
+              editor={editor}
+              className="
+                max-w-none w-full
+                text-[15px] sm:text-base leading-relaxed
+                text-gray-800 dark:text-gray-100
+                [&_.ProseMirror]:outline-none
+                [&_.ProseMirror_p]:my-3
+                [&_.ProseMirror_h1]:text-3xl [&_.ProseMirror_h1]:font-bold [&_.ProseMirror_h1]:mt-6 [&_.ProseMirror_h1]:mb-3
+                [&_.ProseMirror_h2]:text-2xl [&_.ProseMirror_h2]:font-bold [&_.ProseMirror_h2]:mt-5 [&_.ProseMirror_h2]:mb-2
+                [&_.ProseMirror_h3]:text-xl [&_.ProseMirror_h3]:font-semibold [&_.ProseMirror_h3]:mt-4 [&_.ProseMirror_h3]:mb-2
+                [&_.ProseMirror_ul]:list-disc [&_.ProseMirror_ul]:pl-6 [&_.ProseMirror_ul]:my-3 [&_.ProseMirror_ul]:space-y-1
+                [&_.ProseMirror_ol]:list-decimal [&_.ProseMirror_ol]:pl-6 [&_.ProseMirror_ol]:my-3 [&_.ProseMirror_ol]:space-y-1
+                [&_.ProseMirror_li]:pl-1
+                [&_.ProseMirror_li_p]:my-0
+                [&_.ProseMirror_a]:text-teal-600 [&_.ProseMirror_a]:underline
+                [&_.ProseMirror_img]:rounded-lg [&_.ProseMirror_img]:max-w-full [&_.ProseMirror_img]:my-3
+                [&_.ProseMirror_strong]:font-bold
+                [&_.ProseMirror_p.is-editor-empty:first-child::before]:content-[attr(data-placeholder)]
+                [&_.ProseMirror_p.is-editor-empty:first-child::before]:text-gray-400
+                [&_.ProseMirror_p.is-editor-empty:first-child::before]:float-left
+                [&_.ProseMirror_p.is-editor-empty:first-child::before]:pointer-events-none
+                [&_.ProseMirror_p.is-editor-empty:first-child::before]:h-0
+              "
+            />
+          )}
         </div>
       </div>
+    </div>
+  );
 
-      {/* ─── Confirm Modal ───────────────────────────────────────────── */}
+  return (
+    <div className="h-screen w-full bg-white dark:bg-[#0f0f12] flex overflow-hidden">
+      {/* ─── Desktop Sidebar (hidden on mobile) ───────────────────── */}
+      <div className="hidden md:flex flex-shrink-0 h-full relative">
+        {renderSidebar()}
+        {/* Resize handle */}
+        <div
+          ref={dragRef}
+          onMouseDown={startResize}
+          className="w-1 cursor-col-resize hover:bg-teal-500/50 transition-colors absolute right-0 top-0 bottom-0 z-10"
+        />
+      </div>
+
+      {/* ─── Main Content ──────────────────────────────────────────── */}
+      <div className="flex-1 flex flex-col h-full min-w-0">
+        {renderMain()}
+      </div>
+
+      {/* ─── Confirm Modal ──────────────────────────────────────────── */}
       <ConfirmModal
         isOpen={showDeleteModal}
         onClose={() => setShowDeleteModal(false)}
