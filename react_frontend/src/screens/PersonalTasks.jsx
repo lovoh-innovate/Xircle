@@ -140,7 +140,7 @@ const CustomSelect = ({ value, onChange, options, placeholder, icon: Icon, class
   );
 };
 
-// ─── Bottom Sheet ──────────────────────────────────────────────────
+// ─── Bottom Sheet (now centered modal) ────────────────────────────
 const BottomSheet = ({ isOpen, onClose, children }) => {
   const [visible, setVisible] = useState(false);
   const [animating, setAnimating] = useState(false);
@@ -157,14 +157,14 @@ const BottomSheet = ({ isOpen, onClose, children }) => {
   if (!visible) return null;
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/50 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <motion.div
-        initial={{ y: '100%', opacity: 0 }}
-        animate={{ y: animating ? 0 : '100%', opacity: animating ? 1 : 0 }}
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: animating ? 1 : 0.9, opacity: animating ? 1 : 0 }}
         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-        className="w-full md:max-w-md md:rounded-2xl rounded-t-2xl bg-white dark:bg-[#1a1a1a] shadow-xl max-h-[90vh] overflow-y-auto"
+        className="w-full max-w-md bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-xl max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {children}
