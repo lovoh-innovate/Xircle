@@ -1841,6 +1841,7 @@ const GestureInstructionModal = ({ show, onDismiss }) => {
 };
 
 // ─── Bulk Action Toolbar (top bar) ─────────────────────────────
+// ─── FIX: Responsive bulk toolbar ──────────────────────────────
 const BulkActionToolbar = ({ selectedCount, onCancel, onDelete, onPermanentDelete, onArchive, onComplete, onRestore, isTrashView }) => {
   return (
     <motion.div
@@ -1848,52 +1849,52 @@ const BulkActionToolbar = ({ selectedCount, onCancel, onDelete, onPermanentDelet
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
       transition={{ duration: 0.2 }}
-      className="bg-white dark:bg-[#0f0f12] border-b border-gray-100 dark:border-gray-800 px-3 sm:px-6 h-12 flex items-center justify-between gap-2"
+      className="bg-white dark:bg-[#0f0f12] border-b border-gray-100 dark:border-gray-800 px-2 sm:px-6 min-h-12 py-1.5 flex flex-wrap items-center justify-between gap-1.5"
     >
-      <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+      <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
         <span className="font-semibold">{selectedCount}</span> selected
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-1.5">
         {isTrashView ? (
           <>
             <button
               onClick={onRestore}
-              className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700 transition flex items-center gap-1"
+              className="px-2 sm:px-3 py-1 text-[11px] sm:text-xs font-medium bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition flex items-center gap-1"
             >
-              <FaUndo className="text-xs" /> Restore
+              <FaUndo className="text-[10px] sm:text-xs" /> Restore
             </button>
             <button
               onClick={onPermanentDelete}
-              className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-700 transition flex items-center gap-1"
+              className="px-2 sm:px-3 py-1 text-[11px] sm:text-xs font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 transition flex items-center gap-1"
             >
-              <FaTrashAlt className="text-xs" /> Delete Forever
+              <FaTrashAlt className="text-[10px] sm:text-xs" /> Delete Forever
             </button>
           </>
         ) : (
           <>
             <button
               onClick={onComplete}
-              className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition flex items-center gap-1"
+              className="px-2 sm:px-3 py-1 text-[11px] sm:text-xs font-medium bg-green-600 text-white rounded-lg hover:bg-green-700 transition flex items-center gap-1"
             >
-              <FaCheckDouble className="text-xs" /> Done
+              <FaCheckDouble className="text-[10px] sm:text-xs" /> Done
             </button>
             <button
               onClick={onArchive}
-              className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 transition flex items-center gap-1"
+              className="px-2 sm:px-3 py-1 text-[11px] sm:text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center gap-1"
             >
-              <FaArchive className="text-xs" /> Archive
+              <FaArchive className="text-[10px] sm:text-xs" /> Archive
             </button>
             <button
               onClick={onDelete}
-              className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-700 transition flex items-center gap-1"
+              className="px-2 sm:px-3 py-1 text-[11px] sm:text-xs font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 transition flex items-center gap-1"
             >
-              <FaTrashAlt className="text-xs" /> Delete
+              <FaTrashAlt className="text-[10px] sm:text-xs" /> Delete
             </button>
           </>
         )}
         <button
           onClick={onCancel}
-          className="px-3 py-1.5 border border-gray-300 dark:border-gray-700 rounded-lg text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+          className="px-2 sm:px-3 py-1 text-[11px] sm:text-xs font-medium border border-gray-300 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
         >
           Cancel
         </button>
