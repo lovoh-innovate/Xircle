@@ -91,9 +91,6 @@ const useIsTouchDevice = () => {
 };
 
 // ─── Custom Select ────────────────────────────────────────────────
-// Used everywhere a native <select> would otherwise appear — Priority,
-// Folder, Recurrence, etc. — so every dropdown in this file shares the
-// same look instead of falling back to the OS's system select styling.
 const CustomSelect = ({ value, onChange, options, placeholder, icon: Icon, className = '', disabled = false }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
@@ -177,17 +174,13 @@ const BottomSheet = ({ isOpen, onClose, children }) => {
 };
 
 // ─── Confirm Modal ──────────────────────────────────────────────────
-// Plain Confirm/Cancel for reversible or low-risk deletes: soft-deleting
-// a task (it just goes to trash — recoverable), deleting a subtask,
-// deleting a folder (tasks are only unlinked, not deleted). Nothing here
-// is unrecoverable, so a single confirm click is enough friction.
 const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, danger = false }) => {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
       <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">{title}</h3>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{message}</p>
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2 break-words">{title}</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6 break-words">{message}</p>
         <div className="flex gap-3">
           <button
             onClick={onClose}
@@ -210,10 +203,6 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, danger = fal
 };
 
 // ─── Permanent Delete Modal ────────────────────────────────────────
-// The ONLY delete in this file that requires typing anything. Reserved
-// for "Delete Forever" from Trash — the one action that's genuinely
-// unrecoverable. Requires typing the exact sentence
-// "I want to permanently delete <name>" before the button enables.
 const PermanentDeleteModal = ({ isOpen, onClose, onConfirm, itemName }) => {
   const [value, setValue] = useState('');
 
@@ -242,9 +231,9 @@ const PermanentDeleteModal = ({ isOpen, onClose, onConfirm, itemName }) => {
         className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl"
       >
         <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center gap-2">
-          <FaTrashAlt className="text-red-500 text-sm" /> Delete Forever
+          <FaTrashAlt className="text-red-500 text-sm flex-shrink-0" /> Delete Forever
         </h3>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 break-words">
           This permanently deletes <span className="font-semibold text-gray-800 dark:text-gray-200">{itemName}</span> — it can't be recovered.
           Type <span className="font-semibold text-gray-800 dark:text-gray-200">{target}</span> to confirm.
         </p>
@@ -278,9 +267,6 @@ const PermanentDeleteModal = ({ isOpen, onClose, onConfirm, itemName }) => {
 };
 
 // ─── Task Action Modal ────────────────────────────────────────────
-// Trashed tasks get a completely different action set — Restore and
-// Delete Forever only. Everything else (Edit/Complete/Move/Archive/
-// soft-Delete) doesn't make sense once a task is already in trash.
 const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, onDelete, onStatusToggle, onMove, onPermanentDelete }) => {
   if (!isOpen || !task) return null;
   const isTrash = task.isTrash;
@@ -293,7 +279,7 @@ const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, 
       <BottomSheet isOpen={isOpen} onClose={onClose}>
         <div className="p-6 space-y-3">
           <div>
-            <h3 className="text-lg font-semibold text-gray-800 dark:text-white truncate">{task.title}</h3>
+            <h3 className="text-lg font-semibold text-gray-800 dark:text-white break-words">{task.title}</h3>
             <span className="inline-flex items-center gap-1 text-xs text-red-500 dark:text-red-400 mt-1">
               <FaTrashAlt className="text-[10px]" /> In Trash
             </span>
@@ -327,7 +313,7 @@ const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, 
     <BottomSheet isOpen={isOpen} onClose={onClose}>
       <div className="p-6 space-y-3">
         <div>
-          <h3 className="text-lg font-semibold text-gray-800 dark:text-white truncate">{task.title}</h3>
+          <h3 className="text-lg font-semibold text-gray-800 dark:text-white break-words">{task.title}</h3>
           {isReminder && (
             <span className="inline-flex items-center gap-1 text-xs text-teal-600 dark:text-teal-400 mt-1">
               <FaBell className="text-[10px]" /> Reminder · {task.recurrenceType === 'daily' ? 'Everyday' : 'Weekly'}
@@ -390,8 +376,6 @@ const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, 
 };
 
 // ─── Move Task Modal ──────────────────────────────────────────────
-// A bottom sheet that lists all folders and an "Uncategorized" option.
-// Clicking a folder moves the task there and closes the modal.
 const MoveTaskModal = ({ isOpen, onClose, task, folders, onMoveTask }) => {
   if (!isOpen || !task) return null;
 
@@ -406,7 +390,6 @@ const MoveTaskModal = ({ isOpen, onClose, task, folders, onMoveTask }) => {
     onClose();
   };
 
-  // Build options: "Uncategorized" (null) + each folder
   const folderOptions = [
     { _id: null, name: 'Uncategorized', color: '#9ca3af' },
     ...folders,
@@ -440,8 +423,8 @@ const MoveTaskModal = ({ isOpen, onClose, task, folders, onMoveTask }) => {
                   className="w-3 h-3 rounded-full flex-shrink-0"
                   style={{ backgroundColor: folder.color || '#4f46e5' }}
                 />
-                <span className="flex-1 text-left text-sm font-medium">{folder.name}</span>
-                {isCurrent && <FaCheck className="text-purple-500 text-xs" />}
+                <span className="flex-1 text-left text-sm font-medium break-words">{folder.name}</span>
+                {isCurrent && <FaCheck className="text-purple-500 text-xs flex-shrink-0" />}
               </button>
             );
           })}
@@ -457,7 +440,7 @@ const SubtaskActionModal = ({ isOpen, onClose, subtask, index, onEdit, onDelete 
   return (
     <BottomSheet isOpen={isOpen} onClose={onClose}>
       <div className="p-6 space-y-3">
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-white truncate">{subtask.title}</h3>
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-white break-words">{subtask.title}</h3>
         <div className="grid grid-cols-2 gap-2">
           <button
             onClick={() => { onEdit(index); onClose(); }}
@@ -663,8 +646,13 @@ const SubtaskItem = ({ subtask, index, onToggle, onLongPress, onOpenModal, isOve
         >
           <FaGripVertical className="text-sm" />
         </div>
+        {/* ─── FIX: was passing subtask.done (the CURRENT value)
+            straight back to onToggle, so the "new" state sent to the
+            optimistic update AND the backend was identical to the old
+            one — nothing ever flipped. Now sends the negated target
+            state, matching what togglePersonalSubTask expects. ───── */}
         <button
-          onClick={() => onToggle(index, subtask.done)}
+          onClick={() => onToggle(index, !subtask.done)}
           className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition ${
             subtask.done
               ? 'bg-teal-500 border-teal-500 text-white'
@@ -674,13 +662,13 @@ const SubtaskItem = ({ subtask, index, onToggle, onLongPress, onOpenModal, isOve
           {subtask.done && <FaCheck className="text-[10px]" />}
         </button>
         <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between">
-            <span className={`text-sm text-gray-800 dark:text-white ${subtask.done ? 'line-through text-gray-400 dark:text-gray-500' : ''}`}>
+          <div className="flex items-start justify-between gap-2">
+            <span className={`text-sm text-gray-800 dark:text-white break-words ${subtask.done ? 'line-through text-gray-400 dark:text-gray-500' : ''}`}>
               {subtask.title}
             </span>
             <button
               onClick={(e) => { e.stopPropagation(); onOpenModal(index); }}
-              className="hidden md:flex p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+              className="hidden md:flex p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition flex-shrink-0"
               aria-label="More actions"
             >
               <FaEllipsisV className="text-sm" />
@@ -770,6 +758,9 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
     }
   };
 
+  // ─── done is now the correctly-negated target state passed up
+  // from SubtaskItem — forward it straight through, no re-derivation
+  // needed here.
   const handleToggle = (idx, done) => {
     onToggleSubtask(task._id, idx, done);
   };
@@ -817,8 +808,6 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  // Moves the ORIGINAL indices (not the reordered array's own position
-  // markers) so the backend knows exactly which old slot goes where.
   const handleDragEnd = (event) => {
     const { active, over } = event;
     if (over && active.id !== over.id) {
@@ -836,12 +825,12 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
       <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-[#0f0f12] flex-shrink-0">
         <button
           onClick={onBack}
-          className="p-1.5 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition"
+          className="p-1.5 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition flex-shrink-0"
         >
           <FaArrowLeft className="text-base" />
         </button>
         <div className="flex-1 min-w-0">
-          <h2 className="text-sm font-semibold text-gray-800 dark:text-white truncate">{task.title}</h2>
+          <h2 className="text-sm font-semibold text-gray-800 dark:text-white break-words">{task.title}</h2>
           <div className="flex flex-wrap items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
             {!isReminder && <span className="capitalize">{task.status}</span>}
             {!isReminder && task.priority && <span className="capitalize">· {task.priority}</span>}
@@ -863,7 +852,7 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
           </div>
         </div>
         {/* Archive and Delete buttons – hidden on mobile, visible on md+ */}
-        <div className="flex gap-0.5 hidden md:flex">
+        <div className="flex gap-0.5 hidden md:flex flex-shrink-0">
           {task.isArchived ? (
             <button
               onClick={() => onRestore(task._id)}
@@ -978,10 +967,6 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
 };
 
 // ─── Task Card ──────────────────────────────────────────────────────
-// Non-reminder tasks get a tappable status circle on the left, mirroring
-// the subtask checkbox. Reminders show a static bell instead. Trashed
-// tasks show a static trash icon instead — no status, no drag (moving
-// into a folder or reordering a trashed task doesn't make sense).
 const TaskCard = React.memo(({ task, onClick, onOpenModal, onToggleStatus, listeners, attributes }) => {
   const formatDate = (date) => {
     if (!date) return '';
@@ -1028,9 +1013,9 @@ const TaskCard = React.memo(({ task, onClick, onOpenModal, onToggleStatus, liste
       className="bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1e1e1e] transition cursor-pointer"
       onClick={handleCardClick}
     >
-      <div className="flex items-center gap-3">
+      <div className="flex items-start gap-3">
         <div
-          className={`flex-shrink-0 text-gray-400 p-1 -ml-1 touch-none touch-action-none ${isTrash ? 'opacity-30' : 'cursor-grab'}`}
+          className={`flex-shrink-0 text-gray-400 p-1 -ml-1 mt-0.5 touch-none touch-action-none ${isTrash ? 'opacity-30' : 'cursor-grab'}`}
           {...gripProps}
         >
           <FaGripVertical className="text-sm" />
@@ -1038,14 +1023,14 @@ const TaskCard = React.memo(({ task, onClick, onOpenModal, onToggleStatus, liste
 
         {isTrash ? (
           <div
-            className="flex-shrink-0 w-5 h-5 flex items-center justify-center text-red-400"
+            className="flex-shrink-0 w-5 h-5 flex items-center justify-center text-red-400 mt-0.5"
             title="In Trash"
           >
             <FaTrashAlt className="text-xs" />
           </div>
         ) : isReminder ? (
           <div
-            className="flex-shrink-0 w-5 h-5 flex items-center justify-center text-teal-500 dark:text-teal-400"
+            className="flex-shrink-0 w-5 h-5 flex items-center justify-center text-teal-500 dark:text-teal-400 mt-0.5"
             title="Reminder — repeats automatically"
           >
             <FaBell className="text-xs" />
@@ -1053,7 +1038,7 @@ const TaskCard = React.memo(({ task, onClick, onOpenModal, onToggleStatus, liste
         ) : (
           <button
             onClick={(e) => { e.stopPropagation(); onToggleStatus(task); }}
-            className={`task-status-btn w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition ${
+            className={`task-status-btn w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition ${
               isCompleted
                 ? 'bg-teal-500 border-teal-500 text-white'
                 : 'border-gray-300 dark:border-gray-600 hover:border-teal-500'
@@ -1065,13 +1050,17 @@ const TaskCard = React.memo(({ task, onClick, onOpenModal, onToggleStatus, liste
         )}
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className={`text-sm font-medium truncate ${isCompleted ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-800 dark:text-white'}`}>
+          <div className="flex items-start gap-2">
+            {/* ─── FIX: was `truncate` (forces single line + ellipsis,
+                which is why long titles looked cut off / cramped).
+                Now wraps onto additional lines, breaking only at word
+                boundaries via break-words — never mid-word. ────────── */}
+            <span className={`text-sm font-medium break-words ${isCompleted ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-800 dark:text-white'}`}>
               {task.title}
             </span>
-            {isOverdue && <FaExclamationCircle className="text-xs text-red-500 flex-shrink-0" />}
+            {isOverdue && <FaExclamationCircle className="text-xs text-red-500 flex-shrink-0 mt-0.5" />}
           </div>
-          <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+          <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             {isTrash ? (
               <span className="text-red-500 dark:text-red-400">In Trash</span>
             ) : isReminder ? (
@@ -1139,10 +1128,6 @@ const SortableTaskItem = ({ id, task, onClick, onOpenModal, onToggleStatus }) =>
 };
 
 // ─── Droppable Folder Tab ─────────────────────────────────────────
-// Wraps a folder chip in the header row as a drop target — dragging a
-// task card here (by its grip handle) and releasing moves that task
-// into this folder. `isOver` drives the highlight while something is
-// hovering above it, so it's obvious it's a valid drop zone mid-drag.
 const DroppableFolderTab = ({ folder, isActive, onClick, children }) => {
   const { isOver, setNodeRef } = useDroppable({ id: `${FOLDER_DROP_PREFIX}${folder._id}` });
   return (
@@ -1239,12 +1224,12 @@ const FolderModal = ({ isOpen, onClose, folders, onSave, onDelete, isLoading }) 
         </div>
         <div className="space-y-2 max-h-60 overflow-y-auto">
           {folders.map((folder) => (
-            <div key={folder._id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-[#2a2a2a] rounded-xl">
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded-full" style={{ backgroundColor: folder.color || '#4f46e5' }} />
-                <span className="text-gray-800 dark:text-white font-medium">{folder.name}</span>
+            <div key={folder._id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-[#2a2a2a] rounded-xl gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: folder.color || '#4f46e5' }} />
+                <span className="text-gray-800 dark:text-white font-medium break-words">{folder.name}</span>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-shrink-0">
                 <button onClick={() => handleEdit(folder)} className="text-gray-400 hover:text-teal-500 transition">
                   <FaEdit />
                 </button>
@@ -1273,11 +1258,6 @@ const FolderModal = ({ isOpen, onClose, folders, onSave, onDelete, isLoading }) 
 };
 
 // ─── Task Form ──────────────────────────────────────────────────────
-// Layout order: Title → Description → "Set as Reminder" (checkbox, right
-// after description, always visible) → optional details (Priority, Folder,
-// Due Date, Notify time) which are disabled while "Set as Reminder" is on,
-// since a recurring reminder doesn't use those fields the way a one-off
-// task does.
 const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, presetReminder = false }) => {
   const taskIsReminder = isReminderTask(task);
 
@@ -1288,8 +1268,6 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
   const [dailyReminderTime, setDailyReminderTime] = useState(task?.dailyReminderTime || '');
   const [folderId, setFolderId] = useState(task?.folder?._id || task?.folder || '');
 
-  // "Set as Reminder" state: a checkbox plus a frequency choice, replacing
-  // the old bare "Recurrence" dropdown.
   const [isReminder, setIsReminder] = useState(task ? taskIsReminder : presetReminder);
   const [frequency, setFrequency] = useState(taskIsReminder ? task.recurrenceType : 'daily');
   const [recurrenceDays, setRecurrenceDays] = useState(task?.recurrenceDays || []);
@@ -1595,11 +1573,6 @@ const PersonalTasks = () => {
   const [localTasks, setLocalTasks] = useState([]);
   const orderMap = useRef({});
 
-  // Sync with fetched data, applying stored task order. Subtask order is
-  // NOT re-applied here — the backend persists it (reorderPersonalSubTasks),
-  // and mutating objects from the RTK Query cache directly throws in dev
-  // (cache results are frozen) while also stomping the server's correct
-  // order with a stale local mapping.
   useEffect(() => {
     if (tasksData?.tasks) {
       const fetched = tasksData.tasks;
@@ -1687,8 +1660,6 @@ const PersonalTasks = () => {
     }
   };
 
-  // Works for both "restore from archive" and "restore from trash" —
-  // the backend endpoint clears both isArchived and isTrash either way.
   const handleRestore = async (taskId) => {
     const prevTasks = [...localTasks];
     setLocalTasks(prev => prev.filter(t => !(filters.trash && t._id === taskId)).map(t =>
@@ -1704,8 +1675,6 @@ const PersonalTasks = () => {
     }
   };
 
-  // Kept generic on task-or-id so it works whether it's called with the
-  // full task object (list view / action modal) or just an id.
   const handleDelete = (taskOrId) => {
     if (typeof taskOrId === 'string') {
       const found = localTasks.find(t => t._id === taskOrId);
@@ -1715,8 +1684,6 @@ const PersonalTasks = () => {
     }
   };
 
-  // Soft delete → moves to trash. Plain confirm, no typing — it's
-  // recoverable from the Trash tab.
   const confirmDeleteTask = async () => {
     if (!deleteTarget) return;
     const taskId = deleteTarget._id;
@@ -1735,8 +1702,6 @@ const PersonalTasks = () => {
     }
   };
 
-  // Hard delete from Trash — this is the only action in the whole file
-  // that goes through PermanentDeleteModal's type-to-confirm.
   const handlePermanentDelete = (task) => {
     setPermanentDeleteTarget({ _id: task._id, title: task.title });
   };
@@ -1771,16 +1736,11 @@ const PersonalTasks = () => {
     }
   };
 
-  // Left-circle tap on the task list — toggles completed/pending directly.
-  // Reminders never reach this: TaskCard shows a static bell for them
-  // instead of a tappable circle.
   const handleCardStatusToggle = (task) => {
     const newStatus = task.status === 'completed' ? 'pending' : 'completed';
     handleStatusToggle(task._id, newStatus);
   };
 
-  // Dropping a task card onto a folder tab. Reuses updatePersonalTask
-  // (folderId is already handled there) — no new endpoint needed.
   const handleMoveTaskToFolder = async (taskId, folderId) => {
     const task = localTasks.find(t => t._id === taskId);
     if (!task) return;
@@ -1850,9 +1810,11 @@ const PersonalTasks = () => {
     }
   };
 
-  // Builds a brand new subtask object instead of mutating the existing one —
-  // subtask objects inside RTK Query's cached array are frozen in dev, so
-  // `subtasks[i].done = done` throws "Cannot assign to read only property".
+  // ─── FIX: this already builds a fresh object per subtask (correct,
+  // avoids mutating the frozen RTK Query cache) — the actual bug was
+  // upstream in SubtaskItem sending the wrong `done` value. `done`
+  // arriving here is now already the correct target state, so the
+  // optimistic update and the API call both apply it as-is. ─────────
   const handleToggleSubtask = async (taskId, subTaskIndex, done) => {
     const prevTasks = [...localTasks];
     setLocalTasks(prev => prev.map(t => {
@@ -1912,10 +1874,6 @@ const PersonalTasks = () => {
     }
   };
 
-  // Optimistic update shows the new order immediately; the backend persists
-  // the real order; the subsequent refetch (from cache tag invalidation)
-  // brings back that same correct order — nothing else needs to be
-  // remembered locally.
   const handleReorderSubtasks = async (taskId, orderedIndices) => {
     const prevTasks = [...localTasks];
     setLocalTasks(prev => prev.map(t => {
@@ -1935,9 +1893,6 @@ const PersonalTasks = () => {
 
   // ─── Task list handlers ──────────────────────────────────────
 
-  // Trashed tasks open the action modal (Restore / Delete Forever)
-  // directly instead of navigating into the detail view — editing
-  // subtasks/details on something already in the bin doesn't make sense.
   const handleTaskClick = (task) => {
     if (task.isTrash) {
       handleOpenTaskModal(task);
@@ -1973,15 +1928,7 @@ const PersonalTasks = () => {
 
   const displayedTasks = useMemo(() => {
     let filtered = localTasks.filter(task => {
-      // Trash view: hard-filter on isTrash regardless of what the query
-      // returned. If the backend's `trash=true` param isn't filtering
-      // correctly, this shows an EMPTY trash instead of silently leaking
-      // active tasks into the tab — much easier to catch and debug than
-      // a wrong-but-populated list.
       if (filters.trash) return task.isTrash === true;
-
-      // Non-trash views must never show a trashed task, even if one is
-      // still sitting in localTasks from a stale fetch mid-transition.
       if (task.isTrash) return false;
 
       const taskIsReminder = isReminderTask(task);
@@ -2012,13 +1959,6 @@ const PersonalTasks = () => {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  // Single onDragEnd for the whole non-detail view: dropping onto a task
-  // row reorders (resolved against localTasks by _id, not the filtered
-  // displayedTasks array, so folder/archived/view filters can't scramble
-  // the wrong tasks); dropping onto a folder tab (id prefixed with
-  // FOLDER_DROP_PREFIX) moves the dragged task into that folder instead.
-  // Trashed tasks are non-draggable (see SortableTaskItem), so neither
-  // branch ever fires for them. Guards against `over` being null.
   const handleDragEnd = async (event) => {
     const { active, over } = event;
     if (!over) return;
@@ -2117,8 +2057,6 @@ const PersonalTasks = () => {
                   </div>
                 </div>
 
-                {/* View mode: Personal Tasks vs Reminders — ignored while
-                    the Trash tab is active (trash shows both). */}
                 <div className="px-3 pb-2 flex items-center gap-2">
                   <button
                     onClick={() => setViewMode('tasks')}
@@ -2142,8 +2080,6 @@ const PersonalTasks = () => {
                   </button>
                 </div>
 
-                {/* Folder tabs double as drop zones — drag a task's grip
-                    handle onto one to move that task into that folder. */}
                 <div className="px-3 pb-1 flex items-center gap-1 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-700">
                   <div
                     onClick={handleAllTabClick}
