@@ -27,17 +27,90 @@ import {
   FaUserPlus,
   FaFile,
   FaPlus,
+  FaLink,
+  FaImage,
+  FaLock,
+  FaUnlock,
 } from 'react-icons/fa';
 import { formatDistanceToNow } from 'date-fns';
 
+// ─── Custom Modal for Link/Image ──────────────────────────────────────
+const InputModal = ({ isOpen, onClose, onConfirm, title, placeholder, icon }) => {
+  const [value, setValue] = useState('');
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setValue('');
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (value.trim()) {
+      onConfirm(value.trim());
+      onClose();
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl max-w-md w-full p-6 shadow-xl border border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-800 dark:text-white flex items-center gap-2">
+            {icon} {title}
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-white transition">
+            <FaTimes />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <input
+            ref={inputRef}
+            type="text"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={placeholder}
+            className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#0f0f12] text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-teal-500 transition"
+          />
+          <div className="flex gap-3 mt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="flex-1 py-2 bg-teal-600 text-white rounded-xl text-sm font-medium hover:bg-teal-700 transition"
+            >
+              Insert
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 // ─── Toolbar ──────────────────────────────────────────────────────────────
-const ToolbarButton = ({ onClick, active, children, title }) => (
+const ToolbarButton = ({ onClick, active, disabled, children, title }) => (
   <button
     onClick={onClick}
     title={title}
     type="button"
+    disabled={disabled}
     className={`px-2.5 py-1.5 rounded-lg text-sm font-medium transition ${
-      active
+      disabled
+        ? 'text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-60'
+        : active
         ? 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300'
         : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/60'
     }`}
@@ -46,51 +119,106 @@ const ToolbarButton = ({ onClick, active, children, title }) => (
   </button>
 );
 
-const Toolbar = ({ editor }) => {
+const Toolbar = ({ editor, onLinkClick, onImageClick, disabled }) => {
   if (!editor) return null;
 
   return (
     <div className="flex flex-wrap items-center gap-1 px-3 sm:px-6 py-2 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#161619] sticky top-0 z-10 overflow-x-auto">
-      <ToolbarButton title="Bold" onClick={() => editor.chain().focus().toggleBold().run()} active={editor.isActive('bold')}>
+      <ToolbarButton
+        title="Bold"
+        onClick={() => editor.chain().focus().toggleBold().run()}
+        active={editor.isActive('bold')}
+        disabled={disabled}
+      >
         <strong>B</strong>
       </ToolbarButton>
-      <ToolbarButton title="Italic" onClick={() => editor.chain().focus().toggleItalic().run()} active={editor.isActive('italic')}>
+      <ToolbarButton
+        title="Italic"
+        onClick={() => editor.chain().focus().toggleItalic().run()}
+        active={editor.isActive('italic')}
+        disabled={disabled}
+      >
         <em>I</em>
       </ToolbarButton>
-      <ToolbarButton title="Strikethrough" onClick={() => editor.chain().focus().toggleStrike().run()} active={editor.isActive('strike')}>
+      <ToolbarButton
+        title="Strikethrough"
+        onClick={() => editor.chain().focus().toggleStrike().run()}
+        active={editor.isActive('strike')}
+        disabled={disabled}
+      >
         <s>S</s>
       </ToolbarButton>
 
       <span className="w-px h-6 bg-gray-300 dark:bg-gray-700 mx-1 flex-shrink-0" />
 
-      <ToolbarButton title="Heading 1" onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} active={editor.isActive('heading', { level: 1 })}>
+      <ToolbarButton
+        title="Heading 1"
+        onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+        active={editor.isActive('heading', { level: 1 })}
+        disabled={disabled}
+      >
         H1
       </ToolbarButton>
-      <ToolbarButton title="Heading 2" onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} active={editor.isActive('heading', { level: 2 })}>
+      <ToolbarButton
+        title="Heading 2"
+        onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+        active={editor.isActive('heading', { level: 2 })}
+        disabled={disabled}
+      >
         H2
       </ToolbarButton>
-      <ToolbarButton title="Heading 3" onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} active={editor.isActive('heading', { level: 3 })}>
+      <ToolbarButton
+        title="Heading 3"
+        onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+        active={editor.isActive('heading', { level: 3 })}
+        disabled={disabled}
+      >
         H3
       </ToolbarButton>
 
       <span className="w-px h-6 bg-gray-300 dark:bg-gray-700 mx-1 flex-shrink-0" />
 
-      <ToolbarButton title="Bullet list" onClick={() => editor.chain().focus().toggleBulletList().run()} active={editor.isActive('bulletList')}>
+      <ToolbarButton
+        title="Bullet list"
+        onClick={() => editor.chain().focus().toggleBulletList().run()}
+        active={editor.isActive('bulletList')}
+        disabled={disabled}
+      >
         • List
       </ToolbarButton>
-      <ToolbarButton title="Numbered list" onClick={() => editor.chain().focus().toggleOrderedList().run()} active={editor.isActive('orderedList')}>
+      <ToolbarButton
+        title="Numbered list"
+        onClick={() => editor.chain().focus().toggleOrderedList().run()}
+        active={editor.isActive('orderedList')}
+        disabled={disabled}
+      >
         1. List
       </ToolbarButton>
 
       <span className="w-px h-6 bg-gray-300 dark:bg-gray-700 mx-1 flex-shrink-0" />
 
-      <ToolbarButton title="Align left" onClick={() => editor.chain().focus().setTextAlign('left').run()} active={editor.isActive({ textAlign: 'left' })}>
+      <ToolbarButton
+        title="Align left"
+        onClick={() => editor.chain().focus().setTextAlign('left').run()}
+        active={editor.isActive({ textAlign: 'left' })}
+        disabled={disabled}
+      >
         ←
       </ToolbarButton>
-      <ToolbarButton title="Align center" onClick={() => editor.chain().focus().setTextAlign('center').run()} active={editor.isActive({ textAlign: 'center' })}>
+      <ToolbarButton
+        title="Align center"
+        onClick={() => editor.chain().focus().setTextAlign('center').run()}
+        active={editor.isActive({ textAlign: 'center' })}
+        disabled={disabled}
+      >
         ↔
       </ToolbarButton>
-      <ToolbarButton title="Align right" onClick={() => editor.chain().focus().setTextAlign('right').run()} active={editor.isActive({ textAlign: 'right' })}>
+      <ToolbarButton
+        title="Align right"
+        onClick={() => editor.chain().focus().setTextAlign('right').run()}
+        active={editor.isActive({ textAlign: 'right' })}
+        disabled={disabled}
+      >
         →
       </ToolbarButton>
 
@@ -98,52 +226,23 @@ const Toolbar = ({ editor }) => {
 
       <ToolbarButton
         title="Insert link"
-        onClick={() => {
-          const url = window.prompt('Enter the link URL');
-          if (url) editor.chain().focus().setLink({ href: url }).run();
-        }}
+        onClick={onLinkClick}
         active={editor.isActive('link')}
+        disabled={disabled}
       >
-        🔗
+        <FaLink className="text-xs" />
       </ToolbarButton>
 
       <ToolbarButton
         title="Insert image"
-        onClick={() => {
-          const url = window.prompt('Enter the image URL');
-          if (url) editor.chain().focus().setImage({ src: url }).run();
-        }}
+        onClick={onImageClick}
+        disabled={disabled}
       >
-        🖼️
+        <FaImage className="text-xs" />
       </ToolbarButton>
-
-      {/* Clear formatting button removed */}
     </div>
   );
 };
-
-// ─── Toggle Switch ─────────────────────────────────────────────────────
-const Toggle = ({ checked, onChange, label }) => (
-  <label className="flex items-center gap-2 cursor-pointer select-none">
-    <span className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">{label}</span>
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors ${
-        checked ? 'bg-teal-600' : 'bg-gray-300 dark:bg-gray-700'
-      }`}
-    >
-      <span
-        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
-          checked ? 'translate-x-4.5' : 'translate-x-1'
-        }`}
-        style={{ transform: checked ? 'translateX(18px)' : 'translateX(2px)' }}
-      />
-    </button>
-  </label>
-);
 
 // ─── Confirm Modal ──────────────────────────────────────────────────────
 const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => {
@@ -263,6 +362,8 @@ const WriteNote = () => {
   const [saveStatus, setSaveStatus] = useState('idle');
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const [isResizing, setIsResizing] = useState(false);
+  const [linkModalOpen, setLinkModalOpen] = useState(false);
+  const [imageModalOpen, setImageModalOpen] = useState(false);
 
   // ── API ──
   const { data: noteData, isLoading: isFetching } = useGetNoteQuery(noteId, { skip: isNew });
@@ -428,6 +529,26 @@ const WriteNote = () => {
     navigate(`/notes/${id}`);
   };
 
+  // ── Custom modals for link and image ──
+  const handleInsertLink = (url) => {
+    if (editor) {
+      editor.chain().focus().setLink({ href: url }).run();
+    }
+  };
+
+  const handleInsertImage = (url) => {
+    if (editor) {
+      editor.chain().focus().setImage({ src: url }).run();
+    }
+  };
+
+  // ── Toggle public status ──
+  const togglePublic = () => {
+    if (isEditing) {
+      setIsPublic(!isPublic);
+    }
+  };
+
   // ── Loading ──
   if (isFetching || isNotesLoading) {
     return (
@@ -481,7 +602,6 @@ const WriteNote = () => {
       <div className="flex-shrink-0 w-full border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-[#0f0f12]">
         {/* Top row: back (mobile), title, status */}
         <div className="flex items-center gap-2 px-3 sm:px-6 py-2.5">
-          {/* Mobile back button */}
           <button
             onClick={() => navigate('/notes')}
             className="md:hidden p-2 -ml-1 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition flex-shrink-0"
@@ -499,21 +619,40 @@ const WriteNote = () => {
               autoFocus={isNew}
             />
           ) : (
-            <h1 className="flex-1 min-w-0 text-lg sm:text-2xl font-bold text-gray-800 dark:text-white truncate">
-              {title || 'Untitled Note'}
-            </h1>
+            <div className="flex-1 min-w-0 flex items-center gap-3">
+              <h1 className="text-lg sm:text-2xl font-bold text-gray-800 dark:text-white truncate">
+                {title || 'Untitled Note'}
+              </h1>
+              {!isNew && (
+                <span className="text-xs bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 px-2.5 py-0.5 rounded-full font-medium flex-shrink-0">
+                  {isPublic ? 'Public' : 'Private'}
+                </span>
+              )}
+            </div>
           )}
 
           <SaveStatus status={isEditing ? saveStatus : 'idle'} />
         </div>
 
-        {/* Second row: public toggle + action buttons */}
-        <div className="flex items-center justify-between gap-2 px-3 sm:px-6 pb-2.5">
-          <div className="flex items-center gap-3">
-            {isEditing && <Toggle checked={isPublic} onChange={setIsPublic} label="Public" />}
+        {/* Second row: public toggle (edit only) + action buttons */}
+        <div className="flex items-center justify-between gap-2 px-3 sm:px-6 pb-2.5 flex-wrap">
+          <div className="flex items-center gap-3 min-w-0">
+            {isEditing && (
+              <button
+                onClick={togglePublic}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition ${
+                  isPublic
+                    ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                }`}
+              >
+                {isPublic ? <FaUnlock className="text-[10px]" /> : <FaLock className="text-[10px]" />}
+                {isPublic ? 'Public' : 'Private'}
+              </button>
+            )}
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-shrink-0">
             {isEditing ? (
               <button
                 onClick={handleDoneEditing}
@@ -525,7 +664,7 @@ const WriteNote = () => {
             ) : (
               <button
                 onClick={() => setIsEditing(true)}
-                className="px-3 py-1.5 border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition flex items-center gap-1.5 text-xs sm:text-sm font-medium"
+                className="px-3 py-1.5 bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition flex items-center gap-1.5 text-xs sm:text-sm font-medium"
               >
                 <FaEdit className="text-xs" />
                 Edit
@@ -546,7 +685,12 @@ const WriteNote = () => {
 
       {/* ─── Editor / Content ──────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto w-full">
-        {isEditing && <Toolbar editor={editor} />}
+        <Toolbar
+          editor={editor}
+          onLinkClick={() => setLinkModalOpen(true)}
+          onImageClick={() => setImageModalOpen(true)}
+          disabled={!isEditing}
+        />
 
         <div className="w-full px-3 sm:px-6 py-6">
           {!isEditing && !isNew && (
@@ -591,10 +735,9 @@ const WriteNote = () => {
 
   return (
     <div className="h-screen w-full bg-white dark:bg-[#0f0f12] flex overflow-hidden">
-      {/* ─── Desktop Sidebar (hidden on mobile) ───────────────────── */}
+      {/* ─── Desktop Sidebar ───────────────────────────────────────── */}
       <div className="hidden md:flex flex-shrink-0 h-full relative">
         {renderSidebar()}
-        {/* Resize handle */}
         <div
           ref={dragRef}
           onMouseDown={startResize}
@@ -607,13 +750,31 @@ const WriteNote = () => {
         {renderMain()}
       </div>
 
-      {/* ─── Confirm Modal ──────────────────────────────────────────── */}
+      {/* ─── Modals ────────────────────────────────────────────────── */}
       <ConfirmModal
         isOpen={showDeleteModal}
         onClose={() => setShowDeleteModal(false)}
         onConfirm={handleDelete}
         title="Delete Note"
         message="This note will be permanently deleted. This action cannot be undone."
+      />
+
+      <InputModal
+        isOpen={linkModalOpen}
+        onClose={() => setLinkModalOpen(false)}
+        onConfirm={handleInsertLink}
+        title="Insert Link"
+        placeholder="Enter URL (e.g., https://example.com)"
+        icon={<FaLink className="text-teal-500" />}
+      />
+
+      <InputModal
+        isOpen={imageModalOpen}
+        onClose={() => setImageModalOpen(false)}
+        onConfirm={handleInsertImage}
+        title="Insert Image"
+        placeholder="Enter image URL (e.g., https://example.com/image.jpg)"
+        icon={<FaImage className="text-teal-500" />}
       />
     </div>
   );
