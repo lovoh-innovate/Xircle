@@ -14,7 +14,6 @@ import {
   useCreatePersonalFolderMutation,
   useUpdatePersonalFolderMutation,
   useDeletePersonalFolderMutation,
-  // ─── Personal sub‑task mutations moved here ──────────────────
   useAddPersonalSubTaskMutation,
   useTogglePersonalSubTaskMutation,
   useDeletePersonalSubTaskMutation,
@@ -54,7 +53,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import GeneralSidebar from '../components/GeneralSidebar';
 import GeneralBottombar from '../components/GeneralBottombar';
 
-// ─── DnD ──────────────────────────────────────────────────────────
 import {
   DndContext,
   closestCenter,
@@ -73,16 +71,10 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
-// Prefix used to tell "drop onto a folder tab" apart from "drop onto
-// another task row" inside the same DndContext's onDragEnd.
 const FOLDER_DROP_PREFIX = 'folder-drop-';
 
-// ─── Helper: is this task a Reminder (recurring) rather than a
-// one-off Personal Task? Reminders recur forever (or until an end
-// date) so they never get a "Complete" action — they just repeat.
 const isReminderTask = (task) => !!(task?.recurrenceType && task.recurrenceType !== 'none');
 
-// ─── Touch detection hook ──────────────────────────────────────
 const useIsTouchDevice = () => {
   const [isTouch, setIsTouch] = useState(false);
   useEffect(() => {
@@ -141,7 +133,7 @@ const CustomSelect = ({ value, onChange, options, placeholder, icon: Icon, class
   );
 };
 
-// ─── Bottom Sheet (now centered modal) ────────────────────────────
+// ─── Bottom Sheet (centered modal) ──────────────────────────────
 const BottomSheet = ({ isOpen, onClose, children }) => {
   const [visible, setVisible] = useState(false);
   const [animating, setAnimating] = useState(false);
@@ -336,7 +328,6 @@ const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, 
               <FaCheck /> Complete
             </button>
           )}
-          {/* ─── Move to Folder ────────────────────────────────── */}
           <button
             onClick={() => { onMove(task); onClose(); }}
             className="flex items-center justify-center gap-2 px-4 py-3 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 rounded-xl hover:bg-purple-100 dark:hover:bg-purple-900/30 transition"
@@ -614,27 +605,23 @@ const SubtaskItem = ({ subtask, index, onToggle, onOpenModal, isOverdue, formatD
   const isTouch = useIsTouchDevice();
   const lastTap = useRef(0);
 
-  // ─── Double-tap to open modal (like task cards) ─────────────────
   const handleRowClick = (e) => {
     if (e.target.closest('.subtask-toggle-btn') || e.target.closest('.subtask-more-btn')) return;
 
     const now = Date.now();
     const diff = now - lastTap.current;
     if (diff < 300 && diff > 0) {
-      // Double tap detected
       onOpenModal(index);
       lastTap.current = 0;
       e.stopPropagation();
       return;
     }
     lastTap.current = now;
-    // Clean up after a short timeout so we don't accumulate taps
     setTimeout(() => {
       if (lastTap.current === now) lastTap.current = 0;
     }, 300);
   };
 
-  // Drag only on the grip
   const gripProps = { ...listeners, ...attributes };
 
   return (
@@ -810,7 +797,6 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
 
   return (
     <div className="flex-1 flex flex-col h-full bg-white dark:bg-[#0f0f12] overflow-hidden">
-      {/* Compact Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-[#0f0f12] flex-shrink-0">
         <button
           onClick={onBack}
@@ -840,7 +826,6 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
             )}
           </div>
         </div>
-        {/* Archive and Delete buttons – hidden on mobile, visible on md+ */}
         <div className="flex gap-0.5 hidden md:flex flex-shrink-0">
           {task.isArchived ? (
             <button
@@ -869,7 +854,6 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
         </div>
       </div>
 
-      {/* Subtasks list with DnD */}
       <div className="flex-1 overflow-y-auto px-4 py-3">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider">Subtasks</h3>
@@ -921,7 +905,6 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
         </form>
       </div>
 
-      {/* Subtask Action Modal */}
       <SubtaskActionModal
         isOpen={showSubtaskAction}
         onClose={() => { setShowSubtaskAction(false); setActionSubtaskIndex(null); }}
@@ -931,7 +914,6 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
         onDelete={handleDeleteSubtask}
       />
 
-      {/* Edit Subtask Modal */}
       <SubtaskEditModal
         isOpen={showEditModal}
         onClose={() => { setShowEditModal(false); setSubtaskToEdit(null); }}
@@ -940,8 +922,6 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
         onSave={handleSaveEdit}
       />
 
-      {/* Delete Subtask — plain confirm, it's reversible-in-spirit (a
-          mistake here is cheap; no typing needed) */}
       <ConfirmModal
         isOpen={confirmDeleteIndex !== null}
         onClose={() => setConfirmDeleteIndex(null)}
@@ -988,12 +968,10 @@ const TaskCard = React.memo(({ task, onClick, onOpenModal, onToggleStatus, liste
         }, 300);
       }
     } else {
-      // Desktop: single click navigates
       onClick(task);
     }
   };
 
-  // Drag only on the grip — disabled entirely for trashed tasks.
   const gripProps = isTrash ? {} : { ...listeners, ...attributes };
 
   return (
@@ -1136,7 +1114,7 @@ const FolderModal = ({ isOpen, onClose, folders, onSave, onDelete, isLoading }) 
   const [name, setName] = useState('');
   const [color, setColor] = useState('#4f46e5');
   const [editingId, setEditingId] = useState(null);
-  const [deleteTarget, setDeleteTarget] = useState(null); // { _id, name }
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
   const reset = () => {
     setName('');
@@ -1227,7 +1205,6 @@ const FolderModal = ({ isOpen, onClose, folders, onSave, onDelete, isLoading }) 
             <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">No folders yet</p>
           )}
         </div>
-        {/* Plain confirm — folder delete only unlinks tasks, doesn't delete them */}
         <ConfirmModal
           isOpen={!!deleteTarget}
           onClose={() => setDeleteTarget(null)}
@@ -1339,7 +1316,6 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
         />
       </div>
 
-      {/* ─── Set as Reminder ─────────────────────────────────────── */}
       <div className={`border rounded-xl p-3 transition ${isReminder ? 'border-teal-400 dark:border-teal-600 bg-teal-50/40 dark:bg-teal-900/10' : 'border-gray-200 dark:border-gray-700'}`}>
         <label className="flex items-center gap-2 cursor-pointer select-none">
           <input
@@ -1498,35 +1474,26 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
   );
 };
 
-// ─── Onboarding Gesture Hint (mobile only, subtle) ──────────────
-const GestureHint = () => {
-  const isTouch = useIsTouchDevice();
-  const [show, setShow] = useState(false);
-
-  useEffect(() => {
-    if (!isTouch) return;
-    const hasSeen = localStorage.getItem('personalTasksGestureHintSeen');
-    if (!hasSeen) {
-      setShow(true);
-      localStorage.setItem('personalTasksGestureHintSeen', 'true');
-      const timer = setTimeout(() => setShow(false), 4000);
-      return () => clearTimeout(timer);
-    }
-  }, [isTouch]);
-
+// ─── Gesture Instruction Banner (top, shows on first task creation of the day) ──
+const GestureBanner = ({ show, onDismiss }) => {
   if (!show) return null;
-
   return (
     <AnimatePresence>
       <motion.div
-        initial={{ opacity: 0, y: 10, scale: 0.95 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 10, scale: 0.95 }}
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -20 }}
         transition={{ duration: 0.3 }}
-        className="fixed bottom-20 left-1/2 -translate-x-1/2 z-30 bg-gray-900/80 dark:bg-gray-800/80 text-white text-[11px] px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1.5 backdrop-blur-sm pointer-events-none"
+        className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-teal-600 dark:bg-teal-700 text-white px-4 py-3 rounded-xl shadow-lg max-w-sm mx-auto flex items-center gap-3"
       >
-        <FaHandPointer className="text-teal-400 text-xs" />
-        <span>Double‑tap for options</span>
+        <FaHandPointer className="text-white text-lg" />
+        <div>
+          <p className="text-sm font-medium">Double‑tap for options</p>
+          <p className="text-xs opacity-80">Tasks & subtasks — more actions</p>
+        </div>
+        <button onClick={onDismiss} className="ml-auto text-white/70 hover:text-white">
+          <FaTimes className="text-sm" />
+        </button>
       </motion.div>
     </AnimatePresence>
   );
@@ -1543,10 +1510,12 @@ const PersonalTasks = () => {
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [showActionModal, setShowActionModal] = useState(false);
   const [actionTask, setActionTask] = useState(null);
-  const [deleteTarget, setDeleteTarget] = useState(null); // { _id, title } — soft delete (to trash)
-  const [permanentDeleteTarget, setPermanentDeleteTarget] = useState(null); // { _id, title } — hard delete
-  // Top-level view: 'tasks' (one-off Personal Tasks) or 'reminders' (recurring)
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [permanentDeleteTarget, setPermanentDeleteTarget] = useState(null);
   const [viewMode, setViewMode] = useState('tasks');
+
+  // ─── Gesture hint state ──────────────────────────────────────
+  const [showGesture, setShowGesture] = useState(false);
 
   // ─── Move to folder state ────────────────────────────────────
   const [showMoveModal, setShowMoveModal] = useState(false);
@@ -1609,6 +1578,18 @@ const PersonalTasks = () => {
     });
   };
 
+  // ─── Gesture logic: show only on first task creation of the day ──
+  const checkAndShowGesture = () => {
+    const today = new Date().toDateString();
+    const lastShown = localStorage.getItem('personalTasksGestureLastShown');
+    if (lastShown !== today) {
+      setShowGesture(true);
+      localStorage.setItem('personalTasksGestureLastShown', today);
+      // Auto-dismiss after 4 seconds
+      setTimeout(() => setShowGesture(false), 4000);
+    }
+  };
+
   // ─── Handlers ──────────────────────────────────────────────────
 
   const handleCreateTask = async (payload) => {
@@ -1641,6 +1622,9 @@ const PersonalTasks = () => {
       toast.success(payload.recurrenceType !== 'none' ? 'Reminder created!' : 'Task created!');
       setShowCreateModal(false);
       refetchTasks();
+
+      // ─── Show gesture hint on first task creation of the day ──
+      checkAndShowGesture();
     } catch (err) {
       setLocalTasks(prev => prev.filter(t => t._id !== tempId));
       delete orderMap.current[tempId];
@@ -1763,7 +1747,7 @@ const PersonalTasks = () => {
     const task = localTasks.find(t => t._id === taskId);
     if (!task) return;
     const currentFolderId = task.folder?._id || task.folder || null;
-    if (currentFolderId === folderId) return; // already in this folder
+    if (currentFolderId === folderId) return;
 
     const folderObj = folders.find(f => f._id === folderId);
     const prevTasks = [...localTasks];
@@ -1928,7 +1912,6 @@ const PersonalTasks = () => {
     }
   };
 
-  // ─── Move handlers ────────────────────────────────────────────
   const handleMoveFromModal = (task) => {
     setMoveTask(task);
     setShowMoveModal(true);
@@ -2214,7 +2197,6 @@ const PersonalTasks = () => {
         isLoading={isCreatingFolder || isUpdatingFolder || isDeletingFolder}
       />
 
-      {/* Soft delete (→ trash) — plain confirm, recoverable */}
       <ConfirmModal
         isOpen={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
@@ -2224,7 +2206,6 @@ const PersonalTasks = () => {
         danger
       />
 
-      {/* Permanent delete from Trash — the only type-to-confirm delete */}
       <PermanentDeleteModal
         isOpen={!!permanentDeleteTarget}
         onClose={() => setPermanentDeleteTarget(null)}
@@ -2245,7 +2226,6 @@ const PersonalTasks = () => {
         onPermanentDelete={handlePermanentDelete}
       />
 
-      {/* ─── Move Task Modal ──────────────────────────────────────── */}
       <MoveTaskModal
         isOpen={showMoveModal}
         onClose={() => { setShowMoveModal(false); setMoveTask(null); }}
@@ -2255,16 +2235,16 @@ const PersonalTasks = () => {
       />
 
       {!selectedTask && (
-        <>
-          <button
-            onClick={() => { setEditingTask(null); setShowCreateModal(true); }}
-            className="fixed right-4 sm:right-6 bottom-20 md:bottom-6 z-20 w-12 h-12 bg-teal-600 dark:bg-teal-500 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-teal-700 dark:hover:bg-teal-600 transition active:scale-95"
-          >
-            <FaPlus className="text-xl" />
-          </button>
-          <GestureHint />
-        </>
+        <button
+          onClick={() => { setEditingTask(null); setShowCreateModal(true); }}
+          className="fixed right-4 sm:right-6 bottom-20 md:bottom-6 z-20 w-12 h-12 bg-teal-600 dark:bg-teal-500 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-teal-700 dark:hover:bg-teal-600 transition active:scale-95"
+        >
+          <FaPlus className="text-xl" />
+        </button>
       )}
+
+      {/* ─── Gesture Banner ──────────────────────────────────────── */}
+      <GestureBanner show={showGesture} onDismiss={() => setShowGesture(false)} />
     </>
   );
 };
