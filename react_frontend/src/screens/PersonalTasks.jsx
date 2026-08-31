@@ -39,8 +39,6 @@ import {
   FaBell,
   FaCalendarAlt,
   FaChevronDown,
-  FaSortAmountDown,
-  FaSortAmountUp,
   FaAngleDown,
   FaGripVertical,
   FaArrowLeft,
@@ -817,8 +815,8 @@ const SortableSubtaskItem = ({
   );
 };
 
-// ─── Subtask Bulk Toolbar (inside TaskDetailView) ──────────────
-const SubtaskBulkToolbar = ({ selectedCount, onCancel, onDelete, onComplete }) => {
+// ─── Subtask Bulk Toolbar (updated with Uncheck) ──────────────
+const SubtaskBulkToolbar = ({ selectedCount, onCancel, onDelete, onComplete, onUncheck }) => {
   return (
     <motion.div
       initial={{ opacity: 0, y: -20 }}
@@ -830,12 +828,18 @@ const SubtaskBulkToolbar = ({ selectedCount, onCancel, onDelete, onComplete }) =
       <div className="text-sm text-gray-700 dark:text-gray-300">
         <span className="font-semibold">{selectedCount}</span> selected
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <button
           onClick={onComplete}
           className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition flex items-center gap-1"
         >
           <FaCheckDouble className="text-xs" /> Done
+        </button>
+        <button
+          onClick={onUncheck}
+          className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700 transition flex items-center gap-1"
+        >
+          <FaUndo className="text-xs" /> Uncheck
         </button>
         <button
           onClick={onDelete}
@@ -854,7 +858,7 @@ const SubtaskBulkToolbar = ({ selectedCount, onCancel, onDelete, onComplete }) =
   );
 };
 
-// ─── Task Detail View (updated with subtask selection) ────────
+// ─── Task Detail View (updated with subtask selection & uncheck) ────────
 const TaskDetailView = ({
   task,
   onBack,
@@ -940,10 +944,42 @@ const TaskDetailView = ({
   };
 
   const bulkSubtaskComplete = () => {
+    // Only complete undone subtasks
+    const indices = Array.from(selectedSubtaskIndices);
+    const undoneIndices = indices.filter(idx => !task.subtasks[idx]?.done);
+    if (undoneIndices.length === 0) {
+      toast.info('No undone subtasks selected to complete.');
+      clearSubtaskSelection();
+      return;
+    }
+    // We need to pass only undone indices to bulkAction, but we already have selectedSubtaskIndices.
+    // We'll modify to handle only undone ones.
+    // Instead we'll temporarily override selectedSubtaskIndices.
+    const originalSelected = new Set(selectedSubtaskIndices);
+    setSelectedSubtaskIndices(new Set(undoneIndices));
     bulkSubtaskAction(
       (idx) => onToggleSubtask(task._id, idx, true),
       'Completed subtasks',
       'Failed to complete some subtasks'
+    );
+    // Restore original selection? Actually after bulk action we clear selection anyway.
+  };
+
+  const bulkSubtaskUncheck = () => {
+    // Only uncheck done subtasks
+    const indices = Array.from(selectedSubtaskIndices);
+    const doneIndices = indices.filter(idx => task.subtasks[idx]?.done);
+    if (doneIndices.length === 0) {
+      toast.info('No completed subtasks selected to uncheck.');
+      clearSubtaskSelection();
+      return;
+    }
+    const originalSelected = new Set(selectedSubtaskIndices);
+    setSelectedSubtaskIndices(new Set(doneIndices));
+    bulkSubtaskAction(
+      (idx) => onToggleSubtask(task._id, idx, false),
+      'Unchecked subtasks',
+      'Failed to uncheck some subtasks'
     );
   };
 
@@ -1101,6 +1137,7 @@ const TaskDetailView = ({
             onCancel={clearSubtaskSelection}
             onDelete={bulkSubtaskDelete}
             onComplete={bulkSubtaskComplete}
+            onUncheck={bulkSubtaskUncheck}
           />
         )}
 
@@ -1879,7 +1916,6 @@ const PersonalTasks = () => {
   const [showFolderModal, setShowFolderModal] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [filters, setFilters] = useState({ folderId: '', status: '', priority: '', archived: false, trash: false });
-  const [sortOrder, setSortOrder] = useState('desc');
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [showActionModal, setShowActionModal] = useState(false);
   const [actionTask, setActionTask] = useState(null);
@@ -2025,7 +2061,6 @@ const PersonalTasks = () => {
     'Failed to archive some tasks'
   );
 
-  // Bulk complete: set status to 'completed' for selected pending tasks only
   const bulkComplete = () => {
     const ids = Array.from(selectedIds);
     const pendingIds = ids.filter(id => {
@@ -2044,7 +2079,6 @@ const PersonalTasks = () => {
     );
   };
 
-  // Bulk uncheck: set status to 'pending' for selected completed tasks only
   const bulkUncheck = () => {
     const ids = Array.from(selectedIds);
     const completedIds = ids.filter(id => {
@@ -2473,7 +2507,7 @@ const PersonalTasks = () => {
   const selectedTask = useMemo(() => localTasks.find(t => t._id === selectedTaskId), [localTasks, selectedTaskId]);
 
   // ─── Filtering & sorting ──────────────────────────────────────
-  // Sort by orderMap first, then by dueDate as tie-breaker
+  // Primary sort by orderMap only
   const displayedTasks = useMemo(() => {
     let filtered = localTasks.filter(task => {
       if (filters.trash) return task.isTrash === true;
@@ -2487,23 +2521,15 @@ const PersonalTasks = () => {
       return true;
     });
 
-    // Primary sort by orderMap
+    // Sort only by orderMap
     filtered.sort((a, b) => {
       const orderA = orderMap.current[a._id] ?? a.order ?? 0;
       const orderB = orderMap.current[b._id] ?? b.order ?? 0;
-      if (orderA !== orderB) return orderA - orderB;
-      // Secondary sort by dueDate if order is equal
-      const getDate = (task) => task.dueDate ? new Date(task.dueDate) : null;
-      const dateA = getDate(a);
-      const dateB = getDate(b);
-      if (dateA === null && dateB === null) return 0;
-      if (dateA === null) return 1;
-      if (dateB === null) return -1;
-      return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
+      return orderA - orderB;
     });
 
     return filtered;
-  }, [localTasks, filters, sortOrder]);
+  }, [localTasks, filters]);
 
   // ─── Reorder tasks / move into folder (drag & drop) ───────────
 
@@ -2633,12 +2659,6 @@ const PersonalTasks = () => {
                           className="p-1.5 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
                         >
                           <FaFolderOpen className="text-sm" />
-                        </button>
-                        <button
-                          onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-                          className="p-1.5 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
-                        >
-                          {sortOrder === 'asc' ? <FaSortAmountUp className="text-sm" /> : <FaSortAmountDown className="text-sm" />}
                         </button>
                         <button
                           onClick={handleArchivedTabClick}
