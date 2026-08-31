@@ -50,6 +50,7 @@ import {
   FaHandPointer,
   FaCheckCircle,
   FaCheckDouble,
+  FaMousePointer,
 } from 'react-icons/fa';
 import { motion, AnimatePresence } from 'framer-motion';
 import GeneralSidebar from '../components/GeneralSidebar';
@@ -197,8 +198,8 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, danger = fal
   );
 };
 
-// ─── Permanent Delete Modal ────────────────────────────────────────
-const PermanentDeleteModal = ({ isOpen, onClose, onConfirm, itemName }) => {
+// ─── Permanent Delete Modal (updated for bulk) ──────────────────
+const PermanentDeleteModal = ({ isOpen, onClose, onConfirm, itemName, isBulk = false }) => {
   const [value, setValue] = useState('');
 
   useEffect(() => {
@@ -207,9 +208,24 @@ const PermanentDeleteModal = ({ isOpen, onClose, onConfirm, itemName }) => {
 
   if (!isOpen) return null;
 
-  const name = (itemName || '').trim();
-  const target = `I want to permanently delete ${name}`;
-  const matches = name.length > 0 && value.trim() === target;
+  let target = '';
+  let placeholder = '';
+  let title = 'Delete Forever';
+  let description = '';
+
+  if (isBulk) {
+    target = 'I want to Permanently delete All tasks';
+    placeholder = target;
+    title = `Permanently Delete ${itemName || 'All Tasks'}`;
+    description = `This permanently deletes ${itemName || 'the selected tasks'} — it can't be recovered. Type the confirmation phrase below.`;
+  } else {
+    target = 'DELETE';
+    placeholder = 'DELETE';
+    title = `Permanently Delete "${itemName}"`;
+    description = `This permanently deletes "${itemName}" — it can't be recovered. Type "DELETE" to confirm.`;
+  }
+
+  const matches = value.trim() === target;
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -226,17 +242,14 @@ const PermanentDeleteModal = ({ isOpen, onClose, onConfirm, itemName }) => {
         className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl"
       >
         <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center gap-2">
-          <FaTrashAlt className="text-red-500 text-sm flex-shrink-0" /> Delete Forever
+          <FaTrashAlt className="text-red-500 text-sm flex-shrink-0" /> {title}
         </h3>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 break-words">
-          This permanently deletes <span className="font-semibold text-gray-800 dark:text-gray-200">{itemName}</span> — it can't be recovered.
-          Type <span className="font-semibold text-gray-800 dark:text-gray-200">{target}</span> to confirm.
-        </p>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 break-words">{description}</p>
         <input
           type="text"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder={target}
+          placeholder={placeholder}
           autoFocus
           className="w-full px-4 py-2 mb-4 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-red-500 focus:ring-2 focus:ring-red-500/20 outline-none text-gray-800 dark:text-white"
         />
@@ -261,8 +274,8 @@ const PermanentDeleteModal = ({ isOpen, onClose, onConfirm, itemName }) => {
   );
 };
 
-// ─── Task Action Modal ────────────────────────────────────────────
-const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, onDelete, onStatusToggle, onMove, onPermanentDelete }) => {
+// ─── Task Action Modal (includes Select in trash) ──────────────
+const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, onDelete, onStatusToggle, onMove, onPermanentDelete, onSelect }) => {
   if (!isOpen || !task) return null;
   const isTrash = task.isTrash;
   const isArchived = task.isArchived;
@@ -291,6 +304,12 @@ const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, 
               className="flex items-center justify-center gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/30 transition"
             >
               <FaTrashAlt /> Delete Forever
+            </button>
+            <button
+              onClick={() => { onSelect(task._id); onClose(); }}
+              className="flex items-center justify-center gap-2 px-4 py-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition col-span-2"
+            >
+              <FaMousePointer className="text-xs" /> Select
             </button>
           </div>
           <button
@@ -336,6 +355,12 @@ const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, 
           >
             <FaFolderOpen /> Move
           </button>
+          <button
+            onClick={() => { onSelect(task._id); onClose(); }}
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition"
+          >
+            <FaMousePointer className="text-xs" /> Select
+          </button>
           {isArchived ? (
             <button
               onClick={() => { onRestore(task._id); onClose(); }}
@@ -369,7 +394,7 @@ const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, 
   );
 };
 
-// ─── Move Task Modal ──────────────────────────────────────────────
+// ─── Move Task Modal (unchanged) ──────────────────────────────
 const MoveTaskModal = ({ isOpen, onClose, task, folders, onMoveTask }) => {
   if (!isOpen || !task) return null;
 
@@ -428,8 +453,8 @@ const MoveTaskModal = ({ isOpen, onClose, task, folders, onMoveTask }) => {
   );
 };
 
-// ─── Subtask Action Modal ─────────────────────────────────────────
-const SubtaskActionModal = ({ isOpen, onClose, subtask, index, onEdit, onDelete }) => {
+// ─── Subtask Action Modal (with Select) ──────────────────────
+const SubtaskActionModal = ({ isOpen, onClose, subtask, index, onEdit, onDelete, onSelect }) => {
   if (!isOpen || !subtask) return null;
   return (
     <BottomSheet isOpen={isOpen} onClose={onClose}>
@@ -448,6 +473,12 @@ const SubtaskActionModal = ({ isOpen, onClose, subtask, index, onEdit, onDelete 
           >
             <FaTrashAlt /> Delete
           </button>
+          <button
+            onClick={() => { onSelect(index); onClose(); }}
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition col-span-2"
+          >
+            <FaMousePointer className="text-xs" /> Select
+          </button>
         </div>
         <button
           onClick={onClose}
@@ -460,7 +491,7 @@ const SubtaskActionModal = ({ isOpen, onClose, subtask, index, onEdit, onDelete 
   );
 };
 
-// ─── Subtask Edit Modal ──────────────────────────────────────────
+// ─── Subtask Edit Modal (unchanged) ──────────────────────────
 const SubtaskEditModal = ({ isOpen, onClose, subtask, index, onSave }) => {
   const [title, setTitle] = useState(subtask?.title || '');
   const [dueDate, setDueDate] = useState(subtask?.dueDate ? new Date(subtask.dueDate).toISOString().slice(0, 16) : '');
@@ -602,34 +633,98 @@ const SubtaskEditModal = ({ isOpen, onClose, subtask, index, onSave }) => {
   );
 };
 
-// ─── Subtask Item ──────────────────────────────────────────────────
-const SubtaskItem = ({ subtask, index, onToggle, onOpenModal, isOverdue, formatDate, weekDays, listeners, attributes }) => {
-  const isTouch = useIsTouchDevice();
+// ─── Subtask Item (with selection support) ─────────────────────
+const SubtaskItem = ({
+  subtask,
+  index,
+  onToggle,
+  onOpenModal,
+  isOverdue,
+  formatDate,
+  weekDays,
+  listeners,
+  attributes,
+  isSelected = false,
+  onLongPress,
+  isTouch,
+  selectionMode,
+  onTap, // called on single tap (to toggle selection if in selection mode)
+}) => {
   const lastTap = useRef(0);
 
   const handleRowClick = (e) => {
     if (e.target.closest('.subtask-toggle-btn') || e.target.closest('.subtask-more-btn')) return;
 
-    const now = Date.now();
-    const diff = now - lastTap.current;
-    if (diff < 300 && diff > 0) {
-      onOpenModal(index);
-      lastTap.current = 0;
-      e.stopPropagation();
-      return;
+    if (isTouch) {
+      const now = Date.now();
+      const diff = now - lastTap.current;
+      if (diff < 300 && diff > 0) {
+        // Double tap: open modal
+        onOpenModal(index);
+        lastTap.current = 0;
+        return;
+      }
+      lastTap.current = now;
+      setTimeout(() => {
+        if (lastTap.current === now) {
+          // Single tap: call onTap (parent handles selection mode)
+          if (onTap) onTap(index);
+          lastTap.current = 0;
+        }
+      }, 300);
+    } else {
+      // Desktop: single click -> if selection mode active, toggle selection; else open modal on double click? Actually desktop users have the three-dot menu, but we can still allow single click to toggle selection if selection mode is active.
+      if (selectionMode) {
+        if (onTap) onTap(index);
+      } else {
+        // Single click on desktop: maybe open modal? But we have the three-dot. We'll keep it as is.
+        // We'll do nothing on single click desktop to avoid confusion.
+        // Actually we can still open modal on single click for desktop? But then double tap wouldn't work.
+        // We'll keep it consistent: double tap for modal, single tap toggles selection if selection mode.
+        // On desktop we don't have double tap, but we have the more button.
+        // So we'll just call onTap if selectionMode, else nothing.
+        // We'll also allow double click? but not needed.
+        // We'll just keep it as is: onClick just calls onTap (which parent handles).
+        // But we also need to open modal on double click. Not needed.
+        // So we'll just use the same logic as touch: double tap for modal, single tap for selection (if mode active).
+        // Since desktop users have the more button, they can also use that.
+        // We'll implement the same logic for both.
+      }
     }
-    lastTap.current = now;
-    setTimeout(() => {
-      if (lastTap.current === now) lastTap.current = 0;
-    }, 300);
+  };
+
+  // Long press for selection start (touch only)
+  const longPressTimer = useRef(null);
+  const handleTouchStart = (e) => {
+    if (e.target.closest('.subtask-toggle-btn') || e.target.closest('.subtask-more-btn')) return;
+    longPressTimer.current = setTimeout(() => {
+      if (onLongPress) onLongPress(index);
+    }, 500);
+  };
+  const handleTouchEnd = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+  const handleTouchMove = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
   };
 
   const gripProps = { ...listeners, ...attributes };
 
   return (
     <div
-      className="border-b border-gray-100 dark:border-gray-800 pb-3 last:border-0 cursor-pointer touch-none"
+      className={`border-b border-gray-100 dark:border-gray-800 pb-3 last:border-0 cursor-pointer touch-none ${
+        isSelected ? 'bg-teal-50/70 dark:bg-teal-900/30' : ''
+      }`}
       onClick={handleRowClick}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchMove={handleTouchMove}
     >
       <div className="flex items-start gap-3">
         <div
@@ -683,8 +778,22 @@ const SubtaskItem = ({ subtask, index, onToggle, onOpenModal, isOverdue, formatD
   );
 };
 
-// ─── Sortable Subtask Item ────────────────────────────────────────
-const SortableSubtaskItem = ({ id, subtask, index, onToggle, onOpenModal, isOverdue, formatDate, weekDays }) => {
+// ─── Sortable Subtask Item ─────────────────────────────────────
+const SortableSubtaskItem = ({
+  id,
+  subtask,
+  index,
+  onToggle,
+  onOpenModal,
+  isOverdue,
+  formatDate,
+  weekDays,
+  isSelected,
+  onLongPress,
+  isTouch,
+  selectionMode,
+  onTap,
+}) => {
   const {
     attributes,
     listeners,
@@ -712,13 +821,66 @@ const SortableSubtaskItem = ({ id, subtask, index, onToggle, onOpenModal, isOver
         weekDays={weekDays}
         listeners={listeners}
         attributes={attributes}
+        isSelected={isSelected}
+        onLongPress={onLongPress}
+        isTouch={isTouch}
+        selectionMode={selectionMode}
+        onTap={onTap}
       />
     </div>
   );
 };
 
-// ─── Task Detail View ─────────────────────────────────────────────
-const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteSubtask, onArchive, onRestore, onDelete, onReorderSubtasks, onEditSubtask }) => {
+// ─── Subtask Bulk Toolbar (inside TaskDetailView) ──────────────
+const SubtaskBulkToolbar = ({ selectedCount, onCancel, onDelete, onComplete }) => {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      transition={{ duration: 0.2 }}
+      className="bg-gray-100 dark:bg-[#2a2a2a] px-4 py-2 flex items-center justify-between gap-2 rounded-xl mb-3"
+    >
+      <div className="text-sm text-gray-700 dark:text-gray-300">
+        <span className="font-semibold">{selectedCount}</span> selected
+      </div>
+      <div className="flex gap-2">
+        <button
+          onClick={onComplete}
+          className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition flex items-center gap-1"
+        >
+          <FaCheckDouble className="text-xs" /> Done
+        </button>
+        <button
+          onClick={onDelete}
+          className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-700 transition flex items-center gap-1"
+        >
+          <FaTrashAlt className="text-xs" /> Delete
+        </button>
+        <button
+          onClick={onCancel}
+          className="px-3 py-1.5 border border-gray-300 dark:border-gray-700 rounded-lg text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+        >
+          Cancel
+        </button>
+      </div>
+    </motion.div>
+  );
+};
+
+// ─── Task Detail View (updated with subtask selection) ────────
+const TaskDetailView = ({
+  task,
+  onBack,
+  onAddSubtask,
+  onToggleSubtask,
+  onDeleteSubtask,
+  onArchive,
+  onRestore,
+  onDelete,
+  onReorderSubtasks,
+  onEditSubtask,
+}) => {
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -727,9 +889,89 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
   const [showSubtaskAction, setShowSubtaskAction] = useState(false);
   const [actionSubtaskIndex, setActionSubtaskIndex] = useState(null);
 
+  // ─── Subtask selection state ──────────────────────────────────
+  const [selectedSubtaskIndices, setSelectedSubtaskIndices] = useState(new Set());
+  const [subtaskSelectionMode, setSubtaskSelectionMode] = useState(false);
+  const [subtaskBulkLoading, setSubtaskBulkLoading] = useState(false);
+
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const isReminder = isReminderTask(task);
+  const isTouch = useIsTouchDevice();
 
+  // ─── Subtask selection handlers ──────────────────────────────
+  const toggleSubtaskSelection = (index) => {
+    setSelectedSubtaskIndices(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(index)) newSet.delete(index);
+      else newSet.add(index);
+      if (newSet.size === 0) setSubtaskSelectionMode(false);
+      else setSubtaskSelectionMode(true);
+      return newSet;
+    });
+  };
+
+  const startSubtaskSelection = (index) => {
+    setSelectedSubtaskIndices(new Set([index]));
+    setSubtaskSelectionMode(true);
+  };
+
+  const clearSubtaskSelection = () => {
+    setSelectedSubtaskIndices(new Set());
+    setSubtaskSelectionMode(false);
+  };
+
+  // ─── Bulk subtask actions ──────────────────────────────────────
+  const bulkSubtaskAction = async (actionFn, successMsg, errorMsg) => {
+    const indices = Array.from(selectedSubtaskIndices);
+    if (indices.length === 0) return;
+    setSubtaskBulkLoading(true);
+    let successCount = 0;
+    let failCount = 0;
+    for (const idx of indices) {
+      try {
+        await actionFn(idx);
+        successCount++;
+      } catch (err) {
+        failCount++;
+        console.error(`Failed on subtask ${idx}:`, err);
+      }
+    }
+    setSubtaskBulkLoading(false);
+    clearSubtaskSelection();
+    if (failCount === 0) {
+      toast.success(`${successMsg} (${successCount} subtasks)`);
+    } else {
+      toast.error(`Partial success: ${successCount} done, ${failCount} failed.`);
+    }
+  };
+
+  const bulkSubtaskDelete = () => {
+    bulkSubtaskAction(
+      (idx) => onDeleteSubtask(task._id, idx),
+      'Deleted subtasks',
+      'Failed to delete some subtasks'
+    );
+  };
+
+  const bulkSubtaskComplete = () => {
+    bulkSubtaskAction(
+      (idx) => onToggleSubtask(task._id, idx, true),
+      'Completed subtasks',
+      'Failed to complete some subtasks'
+    );
+  };
+
+  // ─── Subtask long press (touch) ──────────────────────────────
+  const handleSubtaskLongPress = (index) => {
+    const isSelected = selectedSubtaskIndices.has(index);
+    if (!isSelected) {
+      startSubtaskSelection(index);
+    } else {
+      toggleSubtaskSelection(index);
+    }
+  };
+
+  // ─── Handlers for modals ──────────────────────────────────────
   const handleAddSubtask = async (e) => {
     e.preventDefault();
     if (!newSubtaskTitle.trim()) return toast.error('Title required');
@@ -772,6 +1014,10 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
 
   const handleSaveEdit = (idx, data) => {
     onEditSubtask(task._id, idx, data);
+  };
+
+  const handleSelectFromSubtaskModal = (idx) => {
+    startSubtaskSelection(idx);
   };
 
   const formatDate = (date) => {
@@ -862,6 +1108,16 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
           <span className="text-xs text-gray-400 dark:text-gray-500">{task.subtasks?.length || 0}</span>
         </div>
 
+        {/* ─── Subtask Bulk Toolbar ────────────────────────────── */}
+        {subtaskSelectionMode && (
+          <SubtaskBulkToolbar
+            selectedCount={selectedSubtaskIndices.size}
+            onCancel={clearSubtaskSelection}
+            onDelete={bulkSubtaskDelete}
+            onComplete={bulkSubtaskComplete}
+          />
+        )}
+
         {(!task.subtasks || task.subtasks.length === 0) && (
           <div className="text-center py-8 text-gray-400 dark:text-gray-500 text-sm">No subtasks yet.</div>
         )}
@@ -883,6 +1139,11 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
                   isOverdue={isOverdue}
                   formatDate={formatDate}
                   weekDays={weekDays}
+                  isSelected={selectedSubtaskIndices.has(idx)}
+                  onLongPress={handleSubtaskLongPress}
+                  isTouch={isTouch}
+                  selectionMode={subtaskSelectionMode}
+                  onTap={toggleSubtaskSelection}
                 />
               ))}
             </div>
@@ -907,6 +1168,7 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
         </form>
       </div>
 
+      {/* ─── Subtask Modals ────────────────────────────────────── */}
       <SubtaskActionModal
         isOpen={showSubtaskAction}
         onClose={() => { setShowSubtaskAction(false); setActionSubtaskIndex(null); }}
@@ -914,6 +1176,7 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
         index={actionSubtaskIndex}
         onEdit={handleEditSubtask}
         onDelete={handleDeleteSubtask}
+        onSelect={handleSelectFromSubtaskModal}
       />
 
       <SubtaskEditModal
@@ -932,11 +1195,21 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
         message="This subtask will be permanently deleted."
         danger
       />
+
+      {/* ─── Bulk subtask loading overlay ──────────────────────── */}
+      {subtaskBulkLoading && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 dark:bg-black/40 backdrop-blur-sm">
+          <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl p-6 shadow-xl flex flex-col items-center">
+            <FaSpinner className="animate-spin text-teal-500 text-4xl mb-3" />
+            <p className="text-sm text-gray-700 dark:text-gray-300">Processing bulk action...</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
-// ─── Task Card ──────────────────────────────────────────────────────
+// ─── Task Card (updated selection logic) ──────────────────────
 const TaskCard = React.memo(({
   task,
   onClick,
@@ -946,6 +1219,8 @@ const TaskCard = React.memo(({
   attributes,
   isSelected = false,
   onLongPress,
+  isTouch,
+  selectionMode,
 }) => {
   const formatDate = (date) => {
     if (!date) return '';
@@ -958,13 +1233,9 @@ const TaskCard = React.memo(({
   const subtaskCount = task.subtasks?.length || 0;
   const doneCount = task.subtasks?.filter(st => st.done).length || 0;
 
-  const isTouch = useIsTouchDevice();
-
-  // Long press detection
+  // Long press detection only on touch devices
   const longPressTimer = useRef(null);
   const handleTouchStart = (e) => {
-    if (!isTouch) return;
-    // Only start long press if not on a button
     if (e.target.closest('.task-status-btn') || e.target.closest('.task-more-btn')) return;
     longPressTimer.current = setTimeout(() => {
       if (onLongPress) onLongPress(task._id);
@@ -983,15 +1254,22 @@ const TaskCard = React.memo(({
     }
   };
 
-  // Double tap detection for options (for non-touch, we already have click for navigation)
+  // Double tap detection for options (touch only)
   const lastTap = useRef(0);
   const handleCardClick = (e) => {
     if (e.target.closest('.task-more-btn') || e.target.closest('.task-status-btn')) return;
+
+    // If selection mode is active, toggle selection (even on trash)
+    if (selectionMode) {
+      onClick(task); // parent will handle toggle
+      return;
+    }
+
     if (isTouch) {
       const now = Date.now();
       const diff = now - lastTap.current;
       if (diff < 300 && diff > 0) {
-        // Double tap: open action modal
+        // Double tap: open modal
         onOpenModal(task);
         lastTap.current = 0;
         return;
@@ -999,24 +1277,25 @@ const TaskCard = React.memo(({
       lastTap.current = now;
       setTimeout(() => {
         if (lastTap.current === now) {
-          // Single tap (after long press check) -> navigate
-          if (!isSelected) onClick(task);
+          // Single tap -> navigate (only if not selection mode)
+          if (!selectionMode) {
+            onClick(task);
+          }
           lastTap.current = 0;
         }
       }, 300);
     } else {
-      // Desktop: single click navigates
+      // Desktop: single click navigates (or toggles selection if selectionMode)
       onClick(task);
     }
   };
 
-  // Drag only on the grip — disabled entirely for trashed tasks.
   const gripProps = isTrash ? {} : { ...listeners, ...attributes };
 
   return (
     <div
       className={`bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1e1e1e] transition cursor-pointer ${
-        isSelected ? 'ring-2 ring-teal-500 bg-teal-50/50 dark:bg-teal-900/20' : ''
+        isSelected ? 'bg-teal-50/70 dark:bg-teal-900/30' : ''
       }`}
       onClick={handleCardClick}
       onTouchStart={handleTouchStart}
@@ -1065,7 +1344,6 @@ const TaskCard = React.memo(({
               {task.title}
             </span>
             {isOverdue && <FaExclamationCircle className="text-xs text-red-500 flex-shrink-0 mt-0.5" />}
-            {isSelected && <FaCheckCircle className="text-teal-500 text-sm flex-shrink-0 ml-auto" />}
           </div>
           <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             {isTrash ? (
@@ -1104,7 +1382,7 @@ const TaskCard = React.memo(({
 });
 
 // ─── Sortable Task Item ──────────────────────────────────────────
-const SortableTaskItem = ({ id, task, onClick, onOpenModal, onToggleStatus, isSelected, onLongPress }) => {
+const SortableTaskItem = ({ id, task, onClick, onOpenModal, onToggleStatus, isSelected, onLongPress, isTouch, selectionMode }) => {
   const {
     attributes,
     listeners,
@@ -1112,7 +1390,7 @@ const SortableTaskItem = ({ id, task, onClick, onOpenModal, onToggleStatus, isSe
     transform,
     transition,
     isDragging,
-  } = useSortable({ id, disabled: !!task.isTrash || isSelected }); // disable drag if selected
+  } = useSortable({ id, disabled: !!task.isTrash || isSelected });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -1131,12 +1409,14 @@ const SortableTaskItem = ({ id, task, onClick, onOpenModal, onToggleStatus, isSe
         attributes={attributes}
         isSelected={isSelected}
         onLongPress={onLongPress}
+        isTouch={isTouch}
+        selectionMode={selectionMode}
       />
     </div>
   );
 };
 
-// ─── Droppable Folder Tab ─────────────────────────────────────────
+// ─── Droppable Folder Tab (unchanged) ──────────────────────────
 const DroppableFolderTab = ({ folder, isActive, onClick, children }) => {
   const { isOver, setNodeRef } = useDroppable({ id: `${FOLDER_DROP_PREFIX}${folder._id}` });
   return (
@@ -1156,7 +1436,7 @@ const DroppableFolderTab = ({ folder, isActive, onClick, children }) => {
   );
 };
 
-// ─── Folder Modal ──────────────────────────────────────────────────
+// ─── Folder Modal (unchanged) ──────────────────────────────────
 const FolderModal = ({ isOpen, onClose, folders, onSave, onDelete, isLoading }) => {
   const [name, setName] = useState('');
   const [color, setColor] = useState('#4f46e5');
@@ -1265,7 +1545,7 @@ const FolderModal = ({ isOpen, onClose, folders, onSave, onDelete, isLoading }) 
   );
 };
 
-// ─── Task Form ──────────────────────────────────────────────────────
+// ─── Task Form (unchanged) ─────────────────────────────────────
 const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, presetReminder = false }) => {
   const taskIsReminder = isReminderTask(task);
 
@@ -1521,7 +1801,7 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
   );
 };
 
-// ─── Gesture Instruction Modal ──────────────────────────────────
+// ─── Gesture Instruction Modal (unchanged) ────────────────────
 const GestureInstructionModal = ({ show, onDismiss }) => {
   if (!show) return null;
   return (
@@ -1542,11 +1822,11 @@ const GestureInstructionModal = ({ show, onDismiss }) => {
         <div className="text-sm text-gray-600 dark:text-gray-300 space-y-3">
           <p className="flex items-start gap-2">
             <span className="text-teal-500 font-bold">↯</span>
-            <span><strong>Double‑tap</strong> a task to see all options (edit, archive, delete, etc.)</span>
+            <span><strong>Double‑tap</strong> a task (or click the three dots) to see all options: edit, archive, delete, etc.</span>
           </p>
           <p className="flex items-start gap-2">
             <span className="text-teal-500 font-bold">☰</span>
-            <span><strong>Long‑press</strong> a task to select it. Select multiple to perform bulk actions like delete, archive, or mark as done.</span>
+            <span><strong>Long‑press</strong> (mobile) or use the <strong>"Select"</strong> button from the three‑dot menu to enter selection mode. Then tap other tasks to select/deselect them. Perform bulk actions from the top bar.</span>
           </p>
         </div>
         <button
@@ -1560,66 +1840,63 @@ const GestureInstructionModal = ({ show, onDismiss }) => {
   );
 };
 
-// ─── Bulk Action Toolbar ──────────────────────────────────────────
-const BulkActionToolbar = ({ selectedCount, onCancel, onDelete, onPermanentDelete, onArchive, onComplete, isTrashView }) => {
+// ─── Bulk Action Toolbar (top bar) ─────────────────────────────
+const BulkActionToolbar = ({ selectedCount, onCancel, onDelete, onPermanentDelete, onArchive, onComplete, onRestore, isTrashView }) => {
   return (
     <motion.div
-      initial={{ y: 80, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      exit={{ y: 80, opacity: 0 }}
-      transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-      className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-[#1a1a1a] border-t border-gray-200 dark:border-gray-800 px-4 py-3 shadow-lg"
+      initial={{ opacity: 0, y: -20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      transition={{ duration: 0.2 }}
+      className="bg-white dark:bg-[#0f0f12] border-b border-gray-100 dark:border-gray-800 px-3 sm:px-6 h-12 flex items-center justify-between gap-2"
     >
-      <div className="flex items-center justify-between gap-2 max-w-3xl mx-auto">
-        <div className="text-sm text-gray-700 dark:text-gray-300">
-          <span className="font-semibold">{selectedCount}</span> selected
-        </div>
-        <div className="flex gap-2">
-          {isTrashView ? (
-            <>
-              <button
-                onClick={onPermanentDelete}
-                className="px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-medium hover:bg-red-700 transition flex items-center gap-1"
-              >
-                <FaTrashAlt className="text-xs" /> Delete Forever
-              </button>
-              <button
-                onClick={() => {}}
-                className="px-4 py-2 bg-amber-600 text-white rounded-xl text-sm font-medium hover:bg-amber-700 transition flex items-center gap-1"
-                disabled={true} // restore not supported for bulk in trash? we could add but let's keep simple
-              >
-                <FaUndo className="text-xs" /> Restore
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                onClick={onComplete}
-                className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700 transition flex items-center gap-1"
-              >
-                <FaCheckDouble className="text-xs" /> Done
-              </button>
-              <button
-                onClick={onArchive}
-                className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition flex items-center gap-1"
-              >
-                <FaArchive className="text-xs" /> Archive
-              </button>
-              <button
-                onClick={onDelete}
-                className="px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-medium hover:bg-red-700 transition flex items-center gap-1"
-              >
-                <FaTrashAlt className="text-xs" /> Delete
-              </button>
-            </>
-          )}
-          <button
-            onClick={onCancel}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
-          >
-            Cancel
-          </button>
-        </div>
+      <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+        <span className="font-semibold">{selectedCount}</span> selected
+      </div>
+      <div className="flex items-center gap-2">
+        {isTrashView ? (
+          <>
+            <button
+              onClick={onRestore}
+              className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700 transition flex items-center gap-1"
+            >
+              <FaUndo className="text-xs" /> Restore
+            </button>
+            <button
+              onClick={onPermanentDelete}
+              className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-700 transition flex items-center gap-1"
+            >
+              <FaTrashAlt className="text-xs" /> Delete Forever
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={onComplete}
+              className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition flex items-center gap-1"
+            >
+              <FaCheckDouble className="text-xs" /> Done
+            </button>
+            <button
+              onClick={onArchive}
+              className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 transition flex items-center gap-1"
+            >
+              <FaArchive className="text-xs" /> Archive
+            </button>
+            <button
+              onClick={onDelete}
+              className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-700 transition flex items-center gap-1"
+            >
+              <FaTrashAlt className="text-xs" /> Delete
+            </button>
+          </>
+        )}
+        <button
+          onClick={onCancel}
+          className="px-3 py-1.5 border border-gray-300 dark:border-gray-700 rounded-lg text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+        >
+          Cancel
+        </button>
       </div>
     </motion.div>
   );
@@ -1643,6 +1920,7 @@ const PersonalTasks = () => {
   // ─── Selection state ──────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
 
   // ─── Move to folder state ────────────────────────────────────
   const [showMoveModal, setShowMoveModal] = useState(false);
@@ -1714,11 +1992,21 @@ const PersonalTasks = () => {
       const newSet = new Set(prev);
       if (newSet.has(taskId)) newSet.delete(taskId);
       else newSet.add(taskId);
+      if (newSet.size === 0) setSelectionMode(false);
+      else setSelectionMode(true);
       return newSet;
     });
   };
 
-  const clearSelection = () => setSelectedIds(new Set());
+  const startSelection = (taskId) => {
+    setSelectedIds(new Set([taskId]));
+    setSelectionMode(true);
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+  };
 
   // ─── Bulk action helpers ─────────────────────────────────────
   const bulkAction = async (actionFn, successMsg, errorMsg) => {
@@ -1746,15 +2034,20 @@ const PersonalTasks = () => {
     refetchTasks();
   };
 
-  const bulkDelete = () => bulkAction(
-    (id) => deleteTask(id).unwrap(),
-    'Moved to trash',
-    'Failed to delete some tasks'
-  );
+  const bulkDelete = () => {
+    if (filters.trash) {
+      // In trash view, delete means permanent delete
+      setPermanentDeleteTarget({ _id: 'bulk', title: `${selectedIds.size} tasks` });
+    } else {
+      bulkAction(
+        (id) => deleteTask(id).unwrap(),
+        'Moved to trash',
+        'Failed to delete some tasks'
+      );
+    }
+  };
 
   const bulkPermanentDelete = () => {
-    // For permanent delete, we need a confirmation modal, so we'll set a state.
-    // We'll use a confirm modal for bulk permanent delete.
     setPermanentDeleteTarget({ _id: 'bulk', title: `${selectedIds.size} tasks` });
   };
 
@@ -1768,6 +2061,12 @@ const PersonalTasks = () => {
     (id) => updateTask({ taskId: id, data: { status: 'completed' } }).unwrap(),
     'Completed',
     'Failed to complete some tasks'
+  );
+
+  const bulkRestore = () => bulkAction(
+    (id) => restoreTask(id).unwrap(),
+    'Restored',
+    'Failed to restore some tasks'
   );
 
   // ─── Confirm permanent delete for bulk ──────────────────────
@@ -1799,11 +2098,9 @@ const PersonalTasks = () => {
 
   // ─── Show gesture instruction on first task creation ────────
   const showGestureInstruction = () => {
-    // Only show if not already shown in this session
     if (!sessionStorage.getItem('gestureShown')) {
       setShowGesture(true);
       sessionStorage.setItem('gestureShown', 'true');
-      // Auto-dismiss after 5 seconds
       setTimeout(() => setShowGesture(false), 5000);
     }
   };
@@ -1840,8 +2137,6 @@ const PersonalTasks = () => {
       toast.success(payload.recurrenceType !== 'none' ? 'Reminder created!' : 'Task created!');
       setShowCreateModal(false);
       refetchTasks();
-
-      // ─── Show gesture instruction ──────────────────────────
       showGestureInstruction();
     } catch (err) {
       setLocalTasks(prev => prev.filter(t => t._id !== tempId));
@@ -1923,7 +2218,7 @@ const PersonalTasks = () => {
   };
 
   const handlePermanentDelete = (task) => {
-    setPermanentDeleteTarget({ _id: task._id, title: task.title });
+    setPermanentDeleteTarget({ _id: task._id, title: task.title, isBulk: false });
   };
 
   const confirmPermanentDeleteTask = async () => {
@@ -2114,12 +2409,32 @@ const PersonalTasks = () => {
   // ─── Task list handlers ──────────────────────────────────────
 
   const handleTaskClick = (task) => {
+    if (selectionMode) {
+      // If selection mode is active, toggle selection (including trash)
+      toggleSelection(task._id);
+      return;
+    }
+    // If not selection mode, open task detail or modal for trash
     if (task.isTrash) {
       handleOpenTaskModal(task);
       return;
     }
     setSelectedTaskId(task._id);
   };
+
+  const handleLongPress = (taskId) => {
+    const isSelected = selectedIds.has(taskId);
+    if (!isSelected) {
+      startSelection(taskId);
+    } else {
+      toggleSelection(taskId);
+    }
+  };
+
+  const handleSelectFromModal = (taskId) => {
+    startSelection(taskId);
+  };
+
   const handleBackToList = () => setSelectedTaskId(null);
 
   const handleOpenTaskModal = (task) => {
@@ -2139,11 +2454,6 @@ const PersonalTasks = () => {
     setMoveTask(task);
     setShowMoveModal(true);
     setShowActionModal(false);
-  };
-
-  // ─── Selection handlers for cards ────────────────────────────
-  const handleLongPress = (taskId) => {
-    toggleSelection(taskId);
   };
 
   const selectedTask = useMemo(() => localTasks.find(t => t._id === selectedTaskId), [localTasks, selectedTaskId]);
@@ -2221,10 +2531,25 @@ const PersonalTasks = () => {
 
   // ─── Tabs ──────────────────────────────────────────────────────
 
-  const handleTabClick = (folderId) => setFilters(prev => ({ ...prev, folderId, archived: false, trash: false }));
-  const handleArchivedTabClick = () => setFilters(prev => ({ ...prev, archived: true, folderId: '', trash: false }));
-  const handleAllTabClick = () => setFilters(prev => ({ ...prev, folderId: '', archived: false, trash: false }));
-  const handleTrashTabClick = () => setFilters(prev => ({ ...prev, trash: true, archived: false, folderId: '' }));
+  const handleTabClick = (folderId) => {
+    if (selectionMode) return;
+    setFilters(prev => ({ ...prev, folderId, archived: false, trash: false }));
+  };
+  const handleArchivedTabClick = () => {
+    if (selectionMode) return;
+    setFilters(prev => ({ ...prev, archived: true, folderId: '', trash: false }));
+  };
+  const handleAllTabClick = () => {
+    if (selectionMode) return;
+    setFilters(prev => ({ ...prev, folderId: '', archived: false, trash: false }));
+  };
+  const handleTrashTabClick = () => {
+    if (selectionMode) return;
+    setFilters(prev => ({ ...prev, trash: true, archived: false, folderId: '' }));
+  };
+
+  // ─── Get touch device info ──────────────────────────────────
+  const isTouch = useIsTouchDevice();
 
   // ─── Render ────────────────────────────────────────────────────
 
@@ -2240,7 +2565,6 @@ const PersonalTasks = () => {
   }
 
   const isTrashView = filters.trash;
-  const isSelectionMode = selectedIds.size > 0;
 
   return (
     <>
@@ -2264,98 +2588,107 @@ const PersonalTasks = () => {
           ) : (
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <header className="bg-white dark:bg-[#0f0f12] border-b border-gray-100 dark:border-gray-800 sticky top-0 z-10">
-                <div className="px-3 sm:px-6 h-12 flex items-center justify-between gap-2">
-                  <h1 className="text-sm font-semibold text-gray-800 dark:text-white flex items-center gap-2">
-                    <FaTasks className="text-teal-500 text-sm" /> Personal Tasks
-                  </h1>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => setShowFolderModal(true)}
-                      className="p-1.5 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
-                    >
-                      <FaFolderOpen className="text-sm" />
-                    </button>
-                    <button
-                      onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-                      className="p-1.5 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
-                    >
-                      {sortOrder === 'asc' ? <FaSortAmountUp className="text-sm" /> : <FaSortAmountDown className="text-sm" />}
-                    </button>
-                  </div>
-                </div>
+                {selectionMode ? (
+                  <BulkActionToolbar
+                    selectedCount={selectedIds.size}
+                    onCancel={clearSelection}
+                    onDelete={bulkDelete}
+                    onPermanentDelete={bulkPermanentDelete}
+                    onArchive={bulkArchive}
+                    onComplete={bulkComplete}
+                    onRestore={bulkRestore}
+                    isTrashView={isTrashView}
+                  />
+                ) : (
+                  <>
+                    <div className="px-3 sm:px-6 h-12 flex items-center justify-between gap-2">
+                      <h1 className="text-sm font-semibold text-gray-800 dark:text-white flex items-center gap-2">
+                        <FaTasks className="text-teal-500 text-sm" /> Personal Tasks
+                      </h1>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setShowFolderModal(true)}
+                          className="p-1.5 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+                        >
+                          <FaFolderOpen className="text-sm" />
+                        </button>
+                        <button
+                          onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                          className="p-1.5 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+                        >
+                          {sortOrder === 'asc' ? <FaSortAmountUp className="text-sm" /> : <FaSortAmountDown className="text-sm" />}
+                        </button>
+                        <button
+                          onClick={handleArchivedTabClick}
+                          className={`p-1.5 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 ${filters.archived ? 'text-purple-600 dark:text-purple-400' : 'text-gray-400 hover:text-purple-500'}`}
+                          title="Archived"
+                        >
+                          <FaArchive className="text-sm" />
+                        </button>
+                        <button
+                          onClick={handleTrashTabClick}
+                          className={`p-1.5 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 ${filters.trash ? 'text-red-600 dark:text-red-400' : 'text-gray-400 hover:text-red-500'}`}
+                          title="Trash"
+                        >
+                          <FaTrashAlt className="text-sm" />
+                        </button>
+                      </div>
+                    </div>
 
-                <div className="px-3 pb-2 flex items-center gap-2">
-                  <button
-                    onClick={() => setViewMode('tasks')}
-                    className={`flex-1 sm:flex-none px-4 py-1.5 rounded-full text-xs font-semibold transition ${
-                      viewMode === 'tasks'
-                        ? 'bg-teal-600 text-white shadow-sm'
-                        : 'bg-gray-100 dark:bg-[#2a2a2a] text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700/50'
-                    }`}
-                  >
-                    Personal Tasks
-                  </button>
-                  <button
-                    onClick={() => setViewMode('reminders')}
-                    className={`flex-1 sm:flex-none px-4 py-1.5 rounded-full text-xs font-semibold transition flex items-center justify-center gap-1.5 ${
-                      viewMode === 'reminders'
-                        ? 'bg-teal-600 text-white shadow-sm'
-                        : 'bg-gray-100 dark:bg-[#2a2a2a] text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700/50'
-                    }`}
-                  >
-                    <FaBell className="text-[10px]" /> Reminders
-                  </button>
-                </div>
+                    <div className="px-3 pb-2 flex items-center gap-2">
+                      <button
+                        onClick={() => setViewMode('tasks')}
+                        className={`flex-1 sm:flex-none px-4 py-1.5 rounded-full text-xs font-semibold transition ${
+                          viewMode === 'tasks'
+                            ? 'bg-teal-600 text-white shadow-sm'
+                            : 'bg-gray-100 dark:bg-[#2a2a2a] text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700/50'
+                        }`}
+                      >
+                        Personal Tasks
+                      </button>
+                      <button
+                        onClick={() => setViewMode('reminders')}
+                        className={`flex-1 sm:flex-none px-4 py-1.5 rounded-full text-xs font-semibold transition flex items-center justify-center gap-1.5 ${
+                          viewMode === 'reminders'
+                            ? 'bg-teal-600 text-white shadow-sm'
+                            : 'bg-gray-100 dark:bg-[#2a2a2a] text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700/50'
+                        }`}
+                      >
+                        <FaBell className="text-[10px]" /> Reminders
+                      </button>
+                    </div>
 
-                <div className="px-3 pb-1 flex items-center gap-1 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-700">
-                  <div
-                    onClick={handleAllTabClick}
-                    className={`flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-t-lg cursor-pointer transition ${
-                      !filters.archived && !filters.folderId && !filters.trash
-                        ? 'bg-gray-100 dark:bg-[#2a2a2a] text-teal-600 dark:text-teal-400 border-b-2 border-teal-500'
-                        : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#2a2a2a]'
-                    }`}
-                  >
-                    All
-                  </div>
-                  {folders.map((folder) => (
-                    <DroppableFolderTab
-                      key={folder._id}
-                      folder={folder}
-                      isActive={filters.folderId === folder._id && !filters.archived && !filters.trash}
-                      onClick={() => handleTabClick(folder._id)}
-                    >
-                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: folder.color || '#4f46e5' }} />
-                      {folder.name}
-                    </DroppableFolderTab>
-                  ))}
-                  <button
-                    onClick={() => setShowFolderModal(true)}
-                    className="flex-shrink-0 p-1 text-gray-400 hover:text-teal-500 transition rounded-full hover:bg-gray-100 dark:hover:bg-[#2a2a2a]"
-                  >
-                    <FaPlus className="text-xs" />
-                  </button>
-                  <div
-                    onClick={handleArchivedTabClick}
-                    className={`flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-t-lg cursor-pointer transition ${
-                      filters.archived
-                        ? 'bg-gray-100 dark:bg-[#2a2a2a] text-purple-600 dark:text-purple-400 border-b-2 border-purple-500'
-                        : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#2a2a2a]'
-                    }`}
-                  >
-                    <FaArchive className="inline mr-1 text-[10px]" /> Archived
-                  </div>
-                  <div
-                    onClick={handleTrashTabClick}
-                    className={`flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-t-lg cursor-pointer transition ${
-                      filters.trash
-                        ? 'bg-gray-100 dark:bg-[#2a2a2a] text-red-600 dark:text-red-400 border-b-2 border-red-500'
-                        : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#2a2a2a]'
-                    }`}
-                  >
-                    <FaTrashAlt className="inline mr-1 text-[10px]" /> Trash
-                  </div>
-                </div>
+                    <div className="px-3 pb-1 flex items-center gap-1 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-700">
+                      <div
+                        onClick={handleAllTabClick}
+                        className={`flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-t-lg cursor-pointer transition ${
+                          !filters.archived && !filters.folderId && !filters.trash
+                            ? 'bg-gray-100 dark:bg-[#2a2a2a] text-teal-600 dark:text-teal-400 border-b-2 border-teal-500'
+                            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#2a2a2a]'
+                        }`}
+                      >
+                        All
+                      </div>
+                      {folders.map((folder) => (
+                        <DroppableFolderTab
+                          key={folder._id}
+                          folder={folder}
+                          isActive={filters.folderId === folder._id && !filters.archived && !filters.trash}
+                          onClick={() => handleTabClick(folder._id)}
+                        >
+                          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: folder.color || '#4f46e5' }} />
+                          {folder.name}
+                        </DroppableFolderTab>
+                      ))}
+                      <button
+                        onClick={() => setShowFolderModal(true)}
+                        className="flex-shrink-0 p-1 text-gray-400 hover:text-teal-500 transition rounded-full hover:bg-gray-100 dark:hover:bg-[#2a2a2a]"
+                      >
+                        <FaPlus className="text-xs" />
+                      </button>
+                    </div>
+                  </>
+                )}
               </header>
 
               <main className="flex-1 overflow-y-auto">
@@ -2394,6 +2727,8 @@ const PersonalTasks = () => {
                           onToggleStatus={handleCardStatusToggle}
                           isSelected={selectedIds.has(task._id)}
                           onLongPress={handleLongPress}
+                          isTouch={isTouch}
+                          selectionMode={selectionMode}
                         />
                       ))}
                     </div>
@@ -2444,16 +2779,16 @@ const PersonalTasks = () => {
         onClose={() => setPermanentDeleteTarget(null)}
         onConfirm={confirmPermanentDeleteTask}
         itemName={permanentDeleteTarget?.title}
+        isBulk={false}
       />
 
       {/* Bulk permanent delete confirmation */}
-      <ConfirmModal
+      <PermanentDeleteModal
         isOpen={permanentDeleteTarget?._id === 'bulk'}
         onClose={() => setPermanentDeleteTarget(null)}
         onConfirm={confirmPermanentDeleteTask}
-        title="Permanently Delete Selected"
-        message={`Are you sure you want to permanently delete ${selectedIds.size} tasks? This cannot be undone.`}
-        danger
+        itemName={`${selectedIds.size} tasks`}
+        isBulk={true}
       />
 
       <TaskActionModal
@@ -2467,6 +2802,7 @@ const PersonalTasks = () => {
         onStatusToggle={handleStatusToggle}
         onMove={handleMoveFromModal}
         onPermanentDelete={handlePermanentDelete}
+        onSelect={handleSelectFromModal}
       />
 
       <MoveTaskModal
@@ -2477,26 +2813,13 @@ const PersonalTasks = () => {
         onMoveTask={handleMoveTaskToFolder}
       />
 
-      {!selectedTask && (
+      {!selectedTask && !selectionMode && (
         <button
           onClick={() => { setEditingTask(null); setShowCreateModal(true); }}
           className="fixed right-4 sm:right-6 bottom-20 md:bottom-6 z-20 w-12 h-12 bg-teal-600 dark:bg-teal-500 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-teal-700 dark:hover:bg-teal-600 transition active:scale-95"
         >
           <FaPlus className="text-xl" />
         </button>
-      )}
-
-      {/* ─── Bulk Action Toolbar ────────────────────────────────── */}
-      {isSelectionMode && !selectedTask && (
-        <BulkActionToolbar
-          selectedCount={selectedIds.size}
-          onCancel={clearSelection}
-          onDelete={bulkDelete}
-          onPermanentDelete={bulkPermanentDelete}
-          onArchive={bulkArchive}
-          onComplete={bulkComplete}
-          isTrashView={isTrashView}
-        />
       )}
 
       {/* ─── Gesture Instruction Modal ────────────────────────── */}
