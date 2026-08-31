@@ -9,6 +9,7 @@ import {
   useArchivePersonalTaskMutation,
   useRestorePersonalTaskMutation,
   useDeletePersonalTaskMutation,
+  usePermanentlyDeletePersonalTaskMutation,
   useReorderPersonalTasksMutation,
   useCreatePersonalFolderMutation,
   useUpdatePersonalFolderMutation,
@@ -28,6 +29,7 @@ import {
   FaFolder,
   FaFolderOpen,
   FaTrashAlt,
+  FaTrashRestore,
   FaArchive,
   FaUndo,
   FaEdit,
@@ -174,12 +176,45 @@ const BottomSheet = ({ isOpen, onClose, children }) => {
   );
 };
 
-// ─── Type-to-confirm Delete Modal ──────────────────────────────────
-// Every delete in this file (task, subtask, folder) routes through this
-// instead of a plain Confirm/Cancel modal — the person must type the
-// exact name of the thing they're deleting before the Delete button
-// enables, so a stray tap can't wipe out a task/folder by accident.
-const TypeToConfirmModal = ({ isOpen, onClose, onConfirm, itemLabel, itemName, message }) => {
+// ─── Confirm Modal ──────────────────────────────────────────────────
+// Plain Confirm/Cancel for reversible or low-risk deletes: soft-deleting
+// a task (it just goes to trash — recoverable), deleting a subtask,
+// deleting a folder (tasks are only unlinked, not deleted). Nothing here
+// is unrecoverable, so a single confirm click is enough friction.
+const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, danger = false }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">{title}</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{message}</p>
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => { onConfirm(); onClose(); }}
+            className={`flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80 ${
+              danger ? 'bg-red-600 hover:bg-red-700' : 'bg-teal-600 hover:bg-teal-700'
+            }`}
+          >
+            Confirm
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Permanent Delete Modal ────────────────────────────────────────
+// The ONLY delete in this file that requires typing anything. Reserved
+// for "Delete Forever" from Trash — the one action that's genuinely
+// unrecoverable. Requires typing the exact sentence
+// "I want to permanently delete <name>" before the button enables.
+const PermanentDeleteModal = ({ isOpen, onClose, onConfirm, itemName }) => {
   const [value, setValue] = useState('');
 
   useEffect(() => {
@@ -188,8 +223,9 @@ const TypeToConfirmModal = ({ isOpen, onClose, onConfirm, itemLabel, itemName, m
 
   if (!isOpen) return null;
 
-  const target = (itemName || '').trim();
-  const matches = target.length > 0 && value.trim() === target;
+  const name = (itemName || '').trim();
+  const target = `I want to permanently delete ${name}`;
+  const matches = name.length > 0 && value.trim() === target;
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -206,19 +242,17 @@ const TypeToConfirmModal = ({ isOpen, onClose, onConfirm, itemLabel, itemName, m
         className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl"
       >
         <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center gap-2">
-          <FaTrashAlt className="text-red-500 text-sm" /> Delete {itemLabel}
+          <FaTrashAlt className="text-red-500 text-sm" /> Delete Forever
         </h3>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">
-          {message || "This can't be undone."}
-        </p>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-          Type <span className="font-semibold text-gray-800 dark:text-gray-200">{itemName}</span> to confirm.
+          This permanently deletes <span className="font-semibold text-gray-800 dark:text-gray-200">{itemName}</span> — it can't be recovered.
+          Type <span className="font-semibold text-gray-800 dark:text-gray-200">{target}</span> to confirm.
         </p>
         <input
           type="text"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder={itemName}
+          placeholder={target}
           autoFocus
           className="w-full px-4 py-2 mb-4 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-red-500 focus:ring-2 focus:ring-red-500/20 outline-none text-gray-800 dark:text-white"
         />
@@ -235,7 +269,7 @@ const TypeToConfirmModal = ({ isOpen, onClose, onConfirm, itemLabel, itemName, m
             disabled={!matches}
             className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-red-600"
           >
-            Delete
+            Delete Forever
           </button>
         </div>
       </form>
@@ -244,12 +278,51 @@ const TypeToConfirmModal = ({ isOpen, onClose, onConfirm, itemLabel, itemName, m
 };
 
 // ─── Task Action Modal ────────────────────────────────────────────
-// Reminders never show a "Complete" action — they recur, they don't finish.
-const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, onDelete, onStatusToggle, onMove }) => {
+// Trashed tasks get a completely different action set — Restore and
+// Delete Forever only. Everything else (Edit/Complete/Move/Archive/
+// soft-Delete) doesn't make sense once a task is already in trash.
+const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, onDelete, onStatusToggle, onMove, onPermanentDelete }) => {
   if (!isOpen || !task) return null;
+  const isTrash = task.isTrash;
   const isArchived = task.isArchived;
   const isCompleted = task.status === 'completed';
   const isReminder = isReminderTask(task);
+
+  if (isTrash) {
+    return (
+      <BottomSheet isOpen={isOpen} onClose={onClose}>
+        <div className="p-6 space-y-3">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-800 dark:text-white truncate">{task.title}</h3>
+            <span className="inline-flex items-center gap-1 text-xs text-red-500 dark:text-red-400 mt-1">
+              <FaTrashAlt className="text-[10px]" /> In Trash
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => { onRestore(task._id); onClose(); }}
+              className="flex items-center justify-center gap-2 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-xl hover:bg-amber-100 dark:hover:bg-amber-900/30 transition"
+            >
+              <FaUndo /> Restore
+            </button>
+            <button
+              onClick={() => { onPermanentDelete(task); onClose(); }}
+              className="flex items-center justify-center gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/30 transition"
+            >
+              <FaTrashAlt /> Delete Forever
+            </button>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-full py-2 text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition"
+          >
+            Cancel
+          </button>
+        </div>
+      </BottomSheet>
+    );
+  }
+
   return (
     <BottomSheet isOpen={isOpen} onClose={onClose}>
       <div className="p-6 space-y-3">
@@ -757,8 +830,6 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
     }
   };
 
-  const subtaskToDeleteName = confirmDeleteIndex !== null ? task.subtasks[confirmDeleteIndex]?.title : '';
-
   return (
     <div className="flex-1 flex flex-col h-full bg-white dark:bg-[#0f0f12] overflow-hidden">
       {/* Compact Header */}
@@ -892,14 +963,15 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
         onSave={handleSaveEdit}
       />
 
-      {/* Delete Subtask — type-to-confirm */}
-      <TypeToConfirmModal
+      {/* Delete Subtask — plain confirm, it's reversible-in-spirit (a
+          mistake here is cheap; no typing needed) */}
+      <ConfirmModal
         isOpen={confirmDeleteIndex !== null}
         onClose={() => setConfirmDeleteIndex(null)}
         onConfirm={confirmDelete}
-        itemLabel="Subtask"
-        itemName={subtaskToDeleteName}
+        title="Delete Subtask"
         message="This subtask will be permanently deleted."
+        danger
       />
     </div>
   );
@@ -907,15 +979,17 @@ const TaskDetailView = ({ task, onBack, onAddSubtask, onToggleSubtask, onDeleteS
 
 // ─── Task Card ──────────────────────────────────────────────────────
 // Non-reminder tasks get a tappable status circle on the left, mirroring
-// the subtask checkbox. Reminders show a static bell instead — they don't
-// have a "done" state, they just keep recurring.
+// the subtask checkbox. Reminders show a static bell instead. Trashed
+// tasks show a static trash icon instead — no status, no drag (moving
+// into a folder or reordering a trashed task doesn't make sense).
 const TaskCard = React.memo(({ task, onClick, onOpenModal, onToggleStatus, listeners, attributes }) => {
   const formatDate = (date) => {
     if (!date) return '';
     return new Date(date).toLocaleString('en-US', { month: 'short', day: 'numeric' });
   };
+  const isTrash = !!task.isTrash;
   const isReminder = isReminderTask(task);
-  const isOverdue = !isReminder && task.dueDate && new Date(task.dueDate) < new Date() && task.status !== 'completed';
+  const isOverdue = !isTrash && !isReminder && task.dueDate && new Date(task.dueDate) < new Date() && task.status !== 'completed';
   const isCompleted = task.status === 'completed';
   const subtaskCount = task.subtasks?.length || 0;
   const doneCount = task.subtasks?.filter(st => st.done).length || 0;
@@ -946,8 +1020,8 @@ const TaskCard = React.memo(({ task, onClick, onOpenModal, onToggleStatus, liste
     }
   };
 
-  // Drag only on the grip
-  const gripProps = { ...listeners, ...attributes };
+  // Drag only on the grip — disabled entirely for trashed tasks.
+  const gripProps = isTrash ? {} : { ...listeners, ...attributes };
 
   return (
     <div
@@ -956,13 +1030,20 @@ const TaskCard = React.memo(({ task, onClick, onOpenModal, onToggleStatus, liste
     >
       <div className="flex items-center gap-3">
         <div
-          className="flex-shrink-0 text-gray-400 cursor-grab touch-none p-1 -ml-1 touch-action-none"
+          className={`flex-shrink-0 text-gray-400 p-1 -ml-1 touch-none touch-action-none ${isTrash ? 'opacity-30' : 'cursor-grab'}`}
           {...gripProps}
         >
           <FaGripVertical className="text-sm" />
         </div>
 
-        {isReminder ? (
+        {isTrash ? (
+          <div
+            className="flex-shrink-0 w-5 h-5 flex items-center justify-center text-red-400"
+            title="In Trash"
+          >
+            <FaTrashAlt className="text-xs" />
+          </div>
+        ) : isReminder ? (
           <div
             className="flex-shrink-0 w-5 h-5 flex items-center justify-center text-teal-500 dark:text-teal-400"
             title="Reminder — repeats automatically"
@@ -991,16 +1072,18 @@ const TaskCard = React.memo(({ task, onClick, onOpenModal, onToggleStatus, liste
             {isOverdue && <FaExclamationCircle className="text-xs text-red-500 flex-shrink-0" />}
           </div>
           <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            {isReminder ? (
+            {isTrash ? (
+              <span className="text-red-500 dark:text-red-400">In Trash</span>
+            ) : isReminder ? (
               <span className="capitalize text-teal-600 dark:text-teal-400">
                 {task.recurrenceType === 'daily' ? 'Everyday' : 'Weekly'}
               </span>
             ) : (
               <span className="capitalize">{task.status}</span>
             )}
-            {!isReminder && task.dueDate && <span>{formatDate(task.dueDate)}</span>}
+            {!isTrash && !isReminder && task.dueDate && <span>{formatDate(task.dueDate)}</span>}
             {subtaskCount > 0 && <span>{doneCount}/{subtaskCount}</span>}
-            {task.folder?.name && (
+            {!isTrash && task.folder?.name && (
               <span className="flex items-center gap-1">
                 <FaFolder className="text-[9px]" style={{ color: task.folder.color || undefined }} /> {task.folder.name}
               </span>
@@ -1033,7 +1116,7 @@ const SortableTaskItem = ({ id, task, onClick, onOpenModal, onToggleStatus }) =>
     transform,
     transition,
     isDragging,
-  } = useSortable({ id });
+  } = useSortable({ id, disabled: !!task.isTrash });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -1175,13 +1258,14 @@ const FolderModal = ({ isOpen, onClose, folders, onSave, onDelete, isLoading }) 
             <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">No folders yet</p>
           )}
         </div>
-        <TypeToConfirmModal
+        {/* Plain confirm — folder delete only unlinks tasks, doesn't delete them */}
+        <ConfirmModal
           isOpen={!!deleteTarget}
           onClose={() => setDeleteTarget(null)}
           onConfirm={confirmDelete}
-          itemLabel="Folder"
-          itemName={deleteTarget?.name}
-          message="All tasks in this folder will be unlinked, not deleted."
+          title="Delete Folder"
+          message="All tasks in this folder will be unlinked, not deleted. Are you sure?"
+          danger
         />
       </div>
     </BottomSheet>
@@ -1458,12 +1542,13 @@ const PersonalTasks = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showFolderModal, setShowFolderModal] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
-  const [filters, setFilters] = useState({ folderId: '', status: '', priority: '', archived: false });
+  const [filters, setFilters] = useState({ folderId: '', status: '', priority: '', archived: false, trash: false });
   const [sortOrder, setSortOrder] = useState('desc');
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [showActionModal, setShowActionModal] = useState(false);
   const [actionTask, setActionTask] = useState(null);
-  const [deleteTarget, setDeleteTarget] = useState(null); // { _id, title }
+  const [deleteTarget, setDeleteTarget] = useState(null); // { _id, title } — soft delete (to trash)
+  const [permanentDeleteTarget, setPermanentDeleteTarget] = useState(null); // { _id, title } — hard delete
   // Top-level view: 'tasks' (one-off Personal Tasks) or 'reminders' (recurring)
   const [viewMode, setViewMode] = useState('tasks');
 
@@ -1476,10 +1561,11 @@ const PersonalTasks = () => {
     isLoading: tasksLoading,
     refetch: refetchTasks,
   } = useGetPersonalTasksQuery({
-    folderId: filters.folderId || undefined,
-    status: filters.status || undefined,
-    priority: filters.priority || undefined,
-    archived: filters.archived ? 'true' : undefined,
+    folderId: filters.trash ? undefined : (filters.folderId || undefined),
+    status: filters.trash ? undefined : (filters.status || undefined),
+    priority: filters.trash ? undefined : (filters.priority || undefined),
+    archived: filters.trash ? undefined : (filters.archived ? 'true' : undefined),
+    trash: filters.trash ? 'true' : undefined,
   });
   const {
     data: foldersData,
@@ -1494,6 +1580,7 @@ const PersonalTasks = () => {
   const [archiveTask] = useArchivePersonalTaskMutation();
   const [restoreTask] = useRestorePersonalTaskMutation();
   const [deleteTask] = useDeletePersonalTaskMutation();
+  const [permanentlyDeleteTask] = usePermanentlyDeletePersonalTaskMutation();
   const [reorderTasks] = useReorderPersonalTasksMutation();
   const [createFolder, { isLoading: isCreatingFolder }] = useCreatePersonalFolderMutation();
   const [updateFolder, { isLoading: isUpdatingFolder }] = useUpdatePersonalFolderMutation();
@@ -1600,9 +1687,13 @@ const PersonalTasks = () => {
     }
   };
 
+  // Works for both "restore from archive" and "restore from trash" —
+  // the backend endpoint clears both isArchived and isTrash either way.
   const handleRestore = async (taskId) => {
     const prevTasks = [...localTasks];
-    setLocalTasks(prev => prev.map(t => t._id === taskId ? { ...t, isArchived: false } : t));
+    setLocalTasks(prev => prev.filter(t => !(filters.trash && t._id === taskId)).map(t =>
+      t._id === taskId ? { ...t, isArchived: false, isTrash: false } : t
+    ));
     try {
       await restoreTask(taskId).unwrap();
       toast.success('Restored');
@@ -1624,6 +1715,8 @@ const PersonalTasks = () => {
     }
   };
 
+  // Soft delete → moves to trash. Plain confirm, no typing — it's
+  // recoverable from the Trash tab.
   const confirmDeleteTask = async () => {
     if (!deleteTarget) return;
     const taskId = deleteTarget._id;
@@ -1639,6 +1732,29 @@ const PersonalTasks = () => {
     } catch (err) {
       setLocalTasks(prevTasks);
       toast.error(err?.data?.message || 'Failed to delete');
+    }
+  };
+
+  // Hard delete from Trash — this is the only action in the whole file
+  // that goes through PermanentDeleteModal's type-to-confirm.
+  const handlePermanentDelete = (task) => {
+    setPermanentDeleteTarget({ _id: task._id, title: task.title });
+  };
+
+  const confirmPermanentDeleteTask = async () => {
+    if (!permanentDeleteTarget) return;
+    const taskId = permanentDeleteTarget._id;
+    const prevTasks = [...localTasks];
+    setLocalTasks(prev => prev.filter(t => t._id !== taskId));
+    delete orderMap.current[taskId];
+    try {
+      await permanentlyDeleteTask(taskId).unwrap();
+      toast.success('Permanently deleted');
+      setPermanentDeleteTarget(null);
+      refetchTasks();
+    } catch (err) {
+      setLocalTasks(prevTasks);
+      toast.error(err?.data?.message || 'Failed to permanently delete');
     }
   };
 
@@ -1819,7 +1935,16 @@ const PersonalTasks = () => {
 
   // ─── Task list handlers ──────────────────────────────────────
 
-  const handleTaskClick = (task) => setSelectedTaskId(task._id);
+  // Trashed tasks open the action modal (Restore / Delete Forever)
+  // directly instead of navigating into the detail view — editing
+  // subtasks/details on something already in the bin doesn't make sense.
+  const handleTaskClick = (task) => {
+    if (task.isTrash) {
+      handleOpenTaskModal(task);
+      return;
+    }
+    setSelectedTaskId(task._id);
+  };
   const handleBackToList = () => setSelectedTaskId(null);
 
   const handleOpenTaskModal = (task) => {
@@ -1848,6 +1973,17 @@ const PersonalTasks = () => {
 
   const displayedTasks = useMemo(() => {
     let filtered = localTasks.filter(task => {
+      // Trash view: hard-filter on isTrash regardless of what the query
+      // returned. If the backend's `trash=true` param isn't filtering
+      // correctly, this shows an EMPTY trash instead of silently leaking
+      // active tasks into the tab — much easier to catch and debug than
+      // a wrong-but-populated list.
+      if (filters.trash) return task.isTrash === true;
+
+      // Non-trash views must never show a trashed task, even if one is
+      // still sitting in localTasks from a stale fetch mid-transition.
+      if (task.isTrash) return false;
+
       const taskIsReminder = isReminderTask(task);
       if (viewMode === 'reminders' && !taskIsReminder) return false;
       if (viewMode === 'tasks' && taskIsReminder) return false;
@@ -1879,10 +2015,10 @@ const PersonalTasks = () => {
   // Single onDragEnd for the whole non-detail view: dropping onto a task
   // row reorders (resolved against localTasks by _id, not the filtered
   // displayedTasks array, so folder/archived/view filters can't scramble
-  // the wrong tasks — see prior note); dropping onto a folder tab (id
-  // prefixed with FOLDER_DROP_PREFIX) moves the dragged task into that
-  // folder instead. Guards against `over` being null (dropped outside
-  // any droppable zone).
+  // the wrong tasks); dropping onto a folder tab (id prefixed with
+  // FOLDER_DROP_PREFIX) moves the dragged task into that folder instead.
+  // Trashed tasks are non-draggable (see SortableTaskItem), so neither
+  // branch ever fires for them. Guards against `over` being null.
   const handleDragEnd = async (event) => {
     const { active, over } = event;
     if (!over) return;
@@ -1921,9 +2057,10 @@ const PersonalTasks = () => {
 
   // ─── Tabs ──────────────────────────────────────────────────────
 
-  const handleTabClick = (folderId) => setFilters(prev => ({ ...prev, folderId, archived: false }));
-  const handleArchivedTabClick = () => setFilters(prev => ({ ...prev, archived: true, folderId: '' }));
-  const handleAllTabClick = () => setFilters(prev => ({ ...prev, folderId: '', archived: false }));
+  const handleTabClick = (folderId) => setFilters(prev => ({ ...prev, folderId, archived: false, trash: false }));
+  const handleArchivedTabClick = () => setFilters(prev => ({ ...prev, archived: true, folderId: '', trash: false }));
+  const handleAllTabClick = () => setFilters(prev => ({ ...prev, folderId: '', archived: false, trash: false }));
+  const handleTrashTabClick = () => setFilters(prev => ({ ...prev, trash: true, archived: false, folderId: '' }));
 
   // ─── Render ────────────────────────────────────────────────────
 
@@ -1980,7 +2117,8 @@ const PersonalTasks = () => {
                   </div>
                 </div>
 
-                {/* View mode: Personal Tasks vs Reminders */}
+                {/* View mode: Personal Tasks vs Reminders — ignored while
+                    the Trash tab is active (trash shows both). */}
                 <div className="px-3 pb-2 flex items-center gap-2">
                   <button
                     onClick={() => setViewMode('tasks')}
@@ -2010,7 +2148,7 @@ const PersonalTasks = () => {
                   <div
                     onClick={handleAllTabClick}
                     className={`flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-t-lg cursor-pointer transition ${
-                      !filters.archived && !filters.folderId
+                      !filters.archived && !filters.folderId && !filters.trash
                         ? 'bg-gray-100 dark:bg-[#2a2a2a] text-teal-600 dark:text-teal-400 border-b-2 border-teal-500'
                         : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#2a2a2a]'
                     }`}
@@ -2021,7 +2159,7 @@ const PersonalTasks = () => {
                     <DroppableFolderTab
                       key={folder._id}
                       folder={folder}
-                      isActive={filters.folderId === folder._id && !filters.archived}
+                      isActive={filters.folderId === folder._id && !filters.archived && !filters.trash}
                       onClick={() => handleTabClick(folder._id)}
                     >
                       <span className="w-2 h-2 rounded-full" style={{ backgroundColor: folder.color || '#4f46e5' }} />
@@ -2044,13 +2182,29 @@ const PersonalTasks = () => {
                   >
                     <FaArchive className="inline mr-1 text-[10px]" /> Archived
                   </div>
+                  <div
+                    onClick={handleTrashTabClick}
+                    className={`flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-t-lg cursor-pointer transition ${
+                      filters.trash
+                        ? 'bg-gray-100 dark:bg-[#2a2a2a] text-red-600 dark:text-red-400 border-b-2 border-red-500'
+                        : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#2a2a2a]'
+                    }`}
+                  >
+                    <FaTrashAlt className="inline mr-1 text-[10px]" /> Trash
+                  </div>
                 </div>
               </header>
 
               <main className="flex-1 overflow-y-auto">
                 {displayedTasks.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500 p-8">
-                    {viewMode === 'reminders' ? (
+                    {filters.trash ? (
+                      <>
+                        <FaTrashAlt className="text-4xl mb-2 opacity-30" />
+                        <p className="text-sm font-medium">Trash is empty</p>
+                        <p className="text-xs">Deleted tasks and reminders show up here.</p>
+                      </>
+                    ) : viewMode === 'reminders' ? (
                       <>
                         <FaBell className="text-4xl mb-2 opacity-30" />
                         <p className="text-sm font-medium">No reminders found</p>
@@ -2111,13 +2265,22 @@ const PersonalTasks = () => {
         isLoading={isCreatingFolder || isUpdatingFolder || isDeletingFolder}
       />
 
-      <TypeToConfirmModal
+      {/* Soft delete (→ trash) — plain confirm, recoverable */}
+      <ConfirmModal
         isOpen={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onConfirm={confirmDeleteTask}
-        itemLabel={isReminderTask(deleteTarget) ? 'Reminder' : 'Task'}
-        itemName={deleteTarget?.title}
-        message="This will be moved to trash and permanently deleted after 30 days."
+        title={isReminderTask(deleteTarget) ? 'Delete Reminder' : 'Delete Task'}
+        message="This will be moved to trash. You can restore it from the Trash tab, or it's permanently deleted after 30 days."
+        danger
+      />
+
+      {/* Permanent delete from Trash — the only type-to-confirm delete */}
+      <PermanentDeleteModal
+        isOpen={!!permanentDeleteTarget}
+        onClose={() => setPermanentDeleteTarget(null)}
+        onConfirm={confirmPermanentDeleteTask}
+        itemName={permanentDeleteTarget?.title}
       />
 
       <TaskActionModal
@@ -2130,6 +2293,7 @@ const PersonalTasks = () => {
         onDelete={handleDelete}
         onStatusToggle={handleStatusToggle}
         onMove={handleMoveFromModal}
+        onPermanentDelete={handlePermanentDelete}
       />
 
       {/* ─── Move Task Modal ──────────────────────────────────────── */}

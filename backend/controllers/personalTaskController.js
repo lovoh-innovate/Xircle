@@ -224,16 +224,22 @@ export const createPersonalTask = async (req, res) => {
   }
 };
 
+// Add trash param support to the existing getPersonalTasks:
 export const getPersonalTasks = async (req, res) => {
   try {
-    const { folderId, status, priority, archived } = req.query;
+    const { folderId, status, priority, archived, trash } = req.query;
     const query = { user: req.user.id };
 
     if (folderId) query.folder = folderId;
     if (status) query.status = status;
     if (priority) query.priority = priority;
-    if (archived === 'true') query.isArchived = true;
-    else {
+
+    if (trash === 'true') {
+      query.isTrash = true;
+    } else if (archived === 'true') {
+      query.isArchived = true;
+      query.isTrash = { $ne: true };
+    } else {
       query.isArchived = { $ne: true };
       query.isTrash = { $ne: true };
     }
@@ -243,6 +249,21 @@ export const getPersonalTasks = async (req, res) => {
       .sort({ order: 1, createdAt: -1 });
 
     res.status(200).json({ success: true, tasks, count: tasks.length });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// New: permanently delete a task that's already in trash.
+export const permanentlyDeletePersonalTask = async (req, res) => {
+  try {
+    const task = await PersonalTask.findOne({ _id: req.params.taskId, user: req.user.id });
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
+    if (!task.isTrash) {
+      return res.status(400).json({ success: false, message: 'Task must be in trash before it can be permanently deleted.' });
+    }
+    await PersonalTask.findByIdAndDelete(task._id);
+    res.status(200).json({ success: true, message: 'Task permanently deleted.' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

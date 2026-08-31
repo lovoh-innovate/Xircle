@@ -12,6 +12,7 @@ import {
   archivePersonalTask,
   restorePersonalTask,
   deletePersonalTask,
+  permanentlyDeletePersonalTask,
   reorderPersonalTasks,
   // Personal sub‑task endpoints
   addPersonalSubTask,
@@ -49,6 +50,7 @@ router.put('/:taskId', updatePersonalTask);
 router.patch('/:taskId/archive', archivePersonalTask);
 router.patch('/:taskId/restore', restorePersonalTask);
 router.delete('/:taskId', deletePersonalTask);            // soft‑delete → trash
+router.delete('/:taskId/permanent', permanentlyDeletePersonalTask);
 
 // ── Personal Sub‑tasks ────────────────────────────────────────────
 router.post('/:taskId/subtasks', protect, addPersonalSubTask);

@@ -50,9 +50,9 @@ export const personalTaskApiSlice = apiSlice.injectEndpoints({
 
     // ─── Personal Tasks ────────────────────────────────────────────
     getPersonalTasks: builder.query({
-      query: ({ folderId, status, priority, archived } = {}) => ({
+      query: ({ folderId, status, priority, archived, trash } = {}) => ({
         url: PERSONAL_TASKS_URL,
-        params: { folderId, status, priority, archived },
+        params: { folderId, status, priority, archived, trash },
       }),
       providesTags: (result) =>
         result
@@ -117,10 +117,14 @@ export const personalTaskApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['PersonalTask'],
     }),
 
-    // Whole-list reorder for top-level Personal Tasks/Reminders. Unlike
-    // subtasks (embedded array reordered in one document), this touches
-    // many documents, so it takes an ordered array of task ids rather
-    // than indices.
+    permanentlyDeletePersonalTask: builder.mutation({
+      query: (taskId) => ({
+        url: `${PERSONAL_TASKS_URL}/${taskId}/permanent`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['PersonalTask'],
+    }),
+
     reorderPersonalTasks: builder.mutation({
       query: ({ orderedTaskIds }) => ({
         url: `${PERSONAL_TASKS_URL}/reorder`,
@@ -203,6 +207,7 @@ export const {
   useArchivePersonalTaskMutation,
   useRestorePersonalTaskMutation,
   useDeletePersonalTaskMutation,
+  usePermanentlyDeletePersonalTaskMutation,
   useReorderPersonalTasksMutation,
   useAddPersonalSubTaskMutation,
   useUpdatePersonalSubTaskMutation,
