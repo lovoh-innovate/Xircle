@@ -335,6 +335,12 @@ export const createTask = async (req, res) => {
       return res.status(400).json({ success: false, message: err.message });
     }
 
+    // ─── Determine next order value so new tasks land at the end ───
+    const lastOrderedTask = await Task.findOne({ project: projectId })
+      .sort({ order: -1 })
+      .select('order');
+    const nextOrder = (lastOrderedTask?.order ?? -1) + 1;
+
     const task = await Task.create({
       project: projectId,
       workspace: project.workspace,
@@ -359,6 +365,7 @@ export const createTask = async (req, res) => {
       status: 'pending',
       progress: 0,
       reminderSent: false,
+      order: nextOrder,
       recurrenceType: recurrenceData.recurrenceType,
       recurrenceDays: recurrenceData.recurrenceDays,
       recurrenceEndDate: recurrenceData.recurrenceEndDate,
@@ -1323,7 +1330,7 @@ export const getProjectTasks = async (req, res) => {
       .populate('assignee', 'name email profile')
       .populate('createdBy', 'name email profile')
       .populate('folder', 'name')
-      .sort({ createdAt: -1 });
+      .sort({ order: 1, createdAt: -1 });
 
     res.status(200).json({ success: true, tasks, count: tasks.length });
   } catch (error) {

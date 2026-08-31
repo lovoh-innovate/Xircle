@@ -44,7 +44,7 @@ import {
 } from '../slices/taskApiSlice';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
 import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
-import { FaCommentDots, FaUser } from 'react-icons/fa';
+import { FaCommentDots, FaUser, FaTimes } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 
 // ─── Import the four components ──────────────────────────────────────
