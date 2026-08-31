@@ -20,6 +20,8 @@ import notificationRoutes from './routes/notificationRoutes.js';
 import personalTaskRoutes from './routes/personalTaskRoutes.js';
 import appRoutes from './routes/appRoutes.js';
 import clockInRoutes from './routes/clockInRoutes.js';
+import personalNoteRoutes from "./routes/personalNoteRoutes.js";
+import workspaceNoteRoutes from "./routes/workspaceNoteRoutes.js";
 
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 import { initSocket } from "./controllers/socket.js";
@@ -97,6 +99,10 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/personal-tasks', personalTaskRoutes);
 app.use('/api/app', appRoutes);
 app.use('/api/clockin', clockInRoutes);
+
+//note routes
+app.use("/api/personal-notes", personalNoteRoutes);
+app.use("/api/workspace-notes", workspaceNoteRoutes);
 
 // ── Error middleware ──
 app.use(notFound);

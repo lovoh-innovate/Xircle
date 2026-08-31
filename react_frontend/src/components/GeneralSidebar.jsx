@@ -13,12 +13,14 @@ import {
   messagingApiSlice,
 } from '../slices/messagingApiSlice';
 import { useCheckAppUpdateQuery } from '../slices/appApiSlice';
+import { personalNoteApiSlice } from '../slices/personalNoteApiSlice';
 import {
   FiHome,
   FiCheckSquare,
   FiUsers,
   FiUpload,
   FiPackage,
+  FiFile,
 } from 'react-icons/fi';
 import {
   FaExclamationCircle,
@@ -98,8 +100,10 @@ const GeneralSidebar = () => {
     archived: false,
   });
 
+  // ─── Prefetch hooks ──────────────────────────────────────────────
   const prefetchAllTasks = personalTaskApiSlice.usePrefetch('getPersonalTasks');
   const prefetchAllChats = messagingApiSlice.usePrefetch('getUserChats');
+  const prefetchAllNotes = personalNoteApiSlice.usePrefetch('getNotes');
 
   const recentChats = useMemo(() => {
     if (!chatsData?.chats) return [];
@@ -185,9 +189,9 @@ const GeneralSidebar = () => {
           {[
             { to: '/my-workspaces', icon: FiHome, label: 'Home' },
             { to: '/personal-tasks', icon: FiCheckSquare, label: 'My Tasks', onHover: prefetchAllTasks },
+            { to: '/notes', icon: FiFile, label: 'Notes', onHover: prefetchAllNotes }, // ✅ NEW
             { to: '/chat', icon: ChatIcon, label: 'Chat', onHover: prefetchAllChats },
             { to: '/channels', icon: FiUsers, label: 'Channels' },
-            // ─── App Versions (for ALL users) ──
             { to: '/app-versions', icon: FiPackage, label: 'App Versions' },
           ].map(({ to, icon: Icon, label, onHover }) => (
             <li key={to}>
