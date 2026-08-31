@@ -614,39 +614,24 @@ const SubtaskItem = ({ subtask, index, onToggle, onOpenModal, isOverdue, formatD
   const isTouch = useIsTouchDevice();
   const lastTap = useRef(0);
 
+  // ─── Double-tap to open modal (like task cards) ─────────────────
   const handleRowClick = (e) => {
-    // Ignore if click originated from the toggle button or more button
     if (e.target.closest('.subtask-toggle-btn') || e.target.closest('.subtask-more-btn')) return;
 
-    if (isTouch) {
-      const now = Date.now();
-      const diff = now - lastTap.current;
-      if (diff < 300) {
-        // Double tap detected
-        onOpenModal(index);
-        lastTap.current = 0;
-      } else {
-        lastTap.current = now;
-        // Single tap: do nothing (we don't navigate)
-        // But we clear after a short timeout to avoid phantom double tap later
-        setTimeout(() => {
-          if (lastTap.current === now) {
-            lastTap.current = 0;
-          }
-        }, 300);
-      }
-    } else {
-      // On desktop, we might want a single click to open modal? 
-      // But we already have a more button for that, so we do nothing on single click desktop.
-      // To keep consistent, we could open modal on double click for desktop too.
-      // But we'll keep it as double click for desktop as well, for consistency.
-      // So for desktop, we also implement double click.
-      // However, desktop users have the more button, but double click works too.
-      // We'll implement double click for all.
-      // The above logic already works with pointer events, but we're using onClick.
-      // Let's adjust: we'll use onClick with the same double-tap logic for all.
-      // Since we have the isTouch check, we can use the same for both.
+    const now = Date.now();
+    const diff = now - lastTap.current;
+    if (diff < 300 && diff > 0) {
+      // Double tap detected
+      onOpenModal(index);
+      lastTap.current = 0;
+      e.stopPropagation();
+      return;
     }
+    lastTap.current = now;
+    // Clean up after a short timeout so we don't accumulate taps
+    setTimeout(() => {
+      if (lastTap.current === now) lastTap.current = 0;
+    }, 300);
   };
 
   // Drag only on the grip
@@ -654,7 +639,7 @@ const SubtaskItem = ({ subtask, index, onToggle, onOpenModal, isOverdue, formatD
 
   return (
     <div
-      className="border-b border-gray-100 dark:border-gray-800 pb-3 last:border-0"
+      className="border-b border-gray-100 dark:border-gray-800 pb-3 last:border-0 cursor-pointer touch-none"
       onClick={handleRowClick}
     >
       <div className="flex items-start gap-3">
@@ -1513,34 +1498,36 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
   );
 };
 
-// ─── Onboarding Gesture Hint ──────────────────────────────────────
+// ─── Onboarding Gesture Hint (mobile only, subtle) ──────────────
 const GestureHint = () => {
+  const isTouch = useIsTouchDevice();
   const [show, setShow] = useState(false);
 
   useEffect(() => {
+    if (!isTouch) return;
     const hasSeen = localStorage.getItem('personalTasksGestureHintSeen');
     if (!hasSeen) {
       setShow(true);
       localStorage.setItem('personalTasksGestureHintSeen', 'true');
-      const timer = setTimeout(() => setShow(false), 6000);
+      const timer = setTimeout(() => setShow(false), 4000);
       return () => clearTimeout(timer);
     }
-  }, []);
+  }, [isTouch]);
+
+  if (!show) return null;
 
   return (
     <AnimatePresence>
-      {show && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -20 }}
-          transition={{ duration: 0.5 }}
-          className="fixed bottom-24 md:bottom-8 left-1/2 -translate-x-1/2 z-30 bg-gray-900/90 dark:bg-gray-800/90 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 text-sm backdrop-blur-sm pointer-events-none"
-        >
-          <FaHandPointer className="text-teal-400" />
-          <span>Double‑tap a task or subtask for more options</span>
-        </motion.div>
-      )}
+      <motion.div
+        initial={{ opacity: 0, y: 10, scale: 0.95 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 10, scale: 0.95 }}
+        transition={{ duration: 0.3 }}
+        className="fixed bottom-20 left-1/2 -translate-x-1/2 z-30 bg-gray-900/80 dark:bg-gray-800/80 text-white text-[11px] px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1.5 backdrop-blur-sm pointer-events-none"
+      >
+        <FaHandPointer className="text-teal-400 text-xs" />
+        <span>Double‑tap for options</span>
+      </motion.div>
     </AnimatePresence>
   );
 };
