@@ -88,23 +88,20 @@
   --ck-color-split-button-hover-border: #2a2a30;
 }
 
-/* Editable content area — text color + no stray white background */
+/* ─── Editable content area — dark mode text/background ─── */
 .dark .ck-content,
 .dark .ck.ck-editor__editable {
   color: #e5e7eb;
   background: transparent;
 }
 
-/* Toolbar slot container styling handled in JSX via Tailwind classes;
-   this just strips any leftover border CKEditor puts on the toolbar
-   itself so it doesn't double up with our container's border. */
+/* ─── Toolbar slot: remove CKEditor's built‑in borders, keep ours ─── */
 .ck-toolbar-slot .ck.ck-toolbar {
   border: none !important;
   background: transparent !important;
 }
 
-/* Give the editable region comfortable breathing room + a visible
-   boundary so it doesn't feel like it's floating in the page. */
+/* ─── Editor editable area ─── */
 .ck-note-editor-wrapper .ck.ck-editor__editable_inline {
   min-height: 50vh;
   padding: 0 !important;
@@ -115,29 +112,116 @@
   border: none !important;
 }
 
-/* ─── FORCE DROPDOWN TO OPEN UPWARD ON MOBILE ─── */
-
-/* 1. Stop clipping */
+/* ================================================
+   FIX 1: Stop clipping dropdowns & panels
+   ================================================ */
 .ck-toolbar-slot,
 .ck-toolbar-slot .ck-toolbar,
-.ck-toolbar-slot .ck-toolbar__items {
+.ck-toolbar-slot .ck-toolbar__items,
+.ck-toolbar-slot * {
   overflow: visible !important;
 }
 
-/* 2. High z-index */
+/* ================================================
+   FIX 2: High z‑index for all dropdown panels
+   ================================================ */
 .ck-dropdown__panel {
   z-index: 999999 !important;
 }
 
-/* 3. On mobile (≤768px), make dropdown appear ABOVE the button */
+/* ================================================
+   FIX 3: On mobile, force EVERY dropdown to open UPWARD
+   This includes the main "more" dropdown AND any
+   nested dropdowns inside it (color, font, highlight, etc.)
+   ================================================ */
 @media (max-width: 768px) {
-  .ck-toolbar-slot .ck-dropdown__panel {
+  /* All dropdown panels inside the toolbar slot */
+  .ck-toolbar-slot .ck-dropdown__panel,
+  .ck-toolbar-slot .ck-dropdown .ck-dropdown__panel,
+  .ck-toolbar-slot .ck-toolbar .ck-dropdown__panel,
+  .ck-toolbar-slot .ck-dropdown__panel .ck-dropdown__panel {
     top: auto !important;
-    bottom: 100% !important;        /* opens upward */
-    max-height: 60vh !important;    /* don't overflow screen */
+    bottom: 100% !important;
+    max-height: 55vh !important;
+    overflow-y: auto !important;
+  }
+
+  /* Extra safety: any panel that might still be absolute */
+  .ck-dropdown__panel {
+    top: auto !important;
+    bottom: 100% !important;
+    max-height: 55vh !important;
     overflow-y: auto !important;
   }
 }
 
-/* 4. If dropdown still gets cut off, uncomment next line: */
-/* .ck-dropdown__panel { position: fixed !important; } */
+/* ================================================
+   FIX 4: List styles inside the editor (edit mode)
+   Ensures bullets/numbers appear with proper indentation
+   and spacing while you type.
+   ================================================ */
+.ck-editor__editable ul,
+.ck-editor__editable ol {
+  padding-left: 1.5rem !important;
+  margin-top: 0.5rem !important;
+  margin-bottom: 0.5rem !important;
+}
+.ck-editor__editable ul {
+  list-style-type: disc !important;
+}
+.ck-editor__editable ol {
+  list-style-type: decimal !important;
+}
+.ck-editor__editable li {
+  margin-top: 0.25rem !important;
+  margin-bottom: 0.25rem !important;
+}
+
+/* ================================================
+   FIX 5: Heading styles inside the editor (edit mode)
+   So H1/H2/H3 are visibly different while typing.
+   ================================================ */
+.ck-editor__editable h1 {
+  font-size: 2rem !important;
+  font-weight: 700 !important;
+  margin-top: 1.2rem !important;
+  margin-bottom: 0.6rem !important;
+  line-height: 1.3 !important;
+}
+.ck-editor__editable h2 {
+  font-size: 1.6rem !important;
+  font-weight: 700 !important;
+  margin-top: 1rem !important;
+  margin-bottom: 0.5rem !important;
+  line-height: 1.3 !important;
+}
+.ck-editor__editable h3 {
+  font-size: 1.3rem !important;
+  font-weight: 600 !important;
+  margin-top: 0.8rem !important;
+  margin-bottom: 0.4rem !important;
+  line-height: 1.3 !important;
+}
+
+/* Normal paragraph spacing */
+.ck-editor__editable p {
+  margin-top: 0.5rem !important;
+  margin-bottom: 0.5rem !important;
+}
+
+/* ================================================
+   FIX 6: Ensure inline formatting is visible
+   (Bold, italic, underline, strikethrough)
+   ================================================ */
+.ck-editor__editable strong {
+  font-weight: bold !important;
+}
+.ck-editor__editable em {
+  font-style: italic !important;
+}
+.ck-editor__editable u {
+  text-decoration: underline !important;
+}
+.ck-editor__editable s {
+  text-decoration: line-through !important;
+}

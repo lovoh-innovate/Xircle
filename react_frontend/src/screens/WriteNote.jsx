@@ -40,7 +40,7 @@ import {
   WordCount,
 } from 'ckeditor5';
 import 'ckeditor5/ckeditor5.css';
-import './WriteNote.css'; // ← MUST contain the CSS overrides below
+import './WriteNote.css';
 import {
   useGetNoteQuery,
   useCreateNoteMutation,
@@ -183,12 +183,8 @@ const EDITOR_CONFIG = {
     allow: [{ name: /.*/, attributes: true, classes: true, styles: true }],
   },
   placeholder: 'Start writing your note...',
-
-  // ─── FORCE DROPDOWNS TO OPEN UPWARD ON MOBILE ────────────────────
   ui: {
-    viewportOffset: {
-      bottom: 200, // reserve 200px at the bottom → dropdowns flip upward
-    },
+    viewportOffset: { bottom: 200 },
   },
 };
 
@@ -302,7 +298,6 @@ const WriteNote = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // ── State ──
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [isPublic, setIsPublic] = useState(false);
@@ -321,7 +316,6 @@ const WriteNote = () => {
   );
   const [keyboardOffset, setKeyboardOffset] = useState(0);
 
-  // ── API ──
   const { data: noteData, isLoading: isFetching } = useGetNoteQuery(noteId, { skip: !noteId });
   const { data: notesData, isLoading: isNotesLoading } = useGetNotesQuery();
   const [createNote] = useCreateNoteMutation();
@@ -332,7 +326,6 @@ const WriteNote = () => {
 
   const notes = notesData?.notes || [];
 
-  // ── Refs ──
   const loadedNoteRef = useRef(null);
   const currentNoteIdRef = useRef(noteId || null);
   const suppressAutosaveRef = useRef(true);
@@ -344,14 +337,14 @@ const WriteNote = () => {
   const mobileToolbarSlotRef = useRef(null);
   const isCreatingRef = useRef(false);
 
-  // ── Mobile detection ──
+  // Mobile detection
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // ── Keyboard offset via visualViewport ──
+  // Keyboard offset via visualViewport
   useEffect(() => {
     if (!isMobile || typeof window === 'undefined' || !window.visualViewport) {
       setKeyboardOffset(0);
@@ -371,7 +364,7 @@ const WriteNote = () => {
     };
   }, [isMobile]);
 
-  // ── Toolbar attachment ──
+  // Toolbar attachment
   const attachToolbar = useCallback((mobile) => {
     const editor = editorInstanceRef.current;
     if (!editor) return;
@@ -392,12 +385,99 @@ const WriteNote = () => {
     attachToolbar(isMobile);
   }, [isMobile, isEditing, attachToolbar]);
 
+  // ─── FIX: Force NESTED dropdown panels (font color, font size, highlight,
+  // table properties — the ones that open from inside "More") to open
+  // upward on mobile. CKEditor positions these panels in JS using
+  // window.innerHeight, which ignores the on-screen keyboard, so they drop
+  // downward and end up hidden behind it. The top-level "More" panel is
+  // left untouched here since the existing CSS already positions it
+  // correctly — we only step in for panels nested inside another open panel.
+  useEffect(() => {
+    if (!isMobile) return;
+
+    const repositionPanel = (panel) => {
+      const isNested = panel.parentElement?.closest('.ck-dropdown__panel');
+      if (!isNested) return;
+
+      const dropdown = panel.closest('.ck-dropdown');
+      const button = dropdown?.querySelector(
+        ':scope > .ck-dropdown__button, :scope > .ck-button'
+      );
+      if (!button) return;
+
+      // Hide it the instant it appears — otherwise it briefly renders at
+      // CKEditor's own (wrong) position, which can sit right on top of a
+      // neighboring toolbar button (e.g. Subscript) and swallow the very
+      // first tap before we've had a chance to move it.
+      panel.style.setProperty('visibility', 'hidden', 'important');
+
+      const place = () => {
+        const btnRect = button.getBoundingClientRect();
+        const margin = 8;
+
+        // Never let the panel be wider than the screen.
+        panel.style.setProperty('max-width', `${window.innerWidth - margin * 2}px`, 'important');
+        panel.style.setProperty('box-sizing', 'border-box', 'important');
+
+        const panelWidth = panel.getBoundingClientRect().width;
+        let left = btnRect.left;
+        if (left + panelWidth > window.innerWidth - margin) {
+          left = window.innerWidth - margin - panelWidth;
+        }
+        if (left < margin) left = margin;
+
+        panel.style.setProperty('position', 'fixed', 'important');
+        panel.style.setProperty('top', 'auto', 'important');
+        panel.style.setProperty(
+          'bottom',
+          `${window.innerHeight - btnRect.top + keyboardOffset + 4}px`,
+          'important'
+        );
+        panel.style.setProperty('left', `${left}px`, 'important');
+        panel.style.setProperty('right', 'auto', 'important');
+        panel.style.setProperty('max-height', '50vh', 'important');
+        panel.style.setProperty('overflow-y', 'auto', 'important');
+        panel.style.setProperty('visibility', 'visible', 'important');
+      };
+
+      // Two frames: let layout settle (max-width applied) before measuring
+      // width for the left-edge clamp, then reveal it in its final spot.
+      requestAnimationFrame(() => requestAnimationFrame(place));
+    };
+
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((m) => {
+        m.addedNodes.forEach((node) => {
+          if (!(node instanceof HTMLElement)) return;
+          if (node.matches?.('.ck-dropdown__panel, .ck-balloon-panel')) {
+            repositionPanel(node);
+          }
+          node
+            .querySelectorAll?.('.ck-dropdown__panel, .ck-balloon-panel')
+            .forEach(repositionPanel);
+        });
+      });
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [isMobile, keyboardOffset]);
+
+  // ─── FIX: Keep keyboard open after dropdown closes ───
   const handleEditorReady = (editor) => {
     editorInstanceRef.current = editor;
+    // Re-focus editor after any dropdown closes (keeps keyboard on mobile)
+    editor.ui.on('change:isOpen', (evt, name, isOpen) => {
+      if (!isOpen) {
+        setTimeout(() => {
+          editor.editing.view.focus();
+        }, 50);
+      }
+    });
     setTimeout(() => attachToolbar(isMobile), 0);
   };
 
-  // ── Sidebar resizing ──
+  // Sidebar resizing
   const startResize = useCallback((e) => {
     e.preventDefault();
     setIsResizing(true);
@@ -425,7 +505,7 @@ const WriteNote = () => {
     };
   }, [isResizing]);
 
-  // ── Create new note ──
+  // Create new note
   const handleCreateNote = useCallback(async () => {
     if (isCreatingRef.current) return;
     isCreatingRef.current = true;
@@ -441,14 +521,13 @@ const WriteNote = () => {
     }
   }, [createNote, navigate]);
 
-  // ── Route change ──
+  // Route change
   useEffect(() => {
     setIsEditing(Boolean(location.state?.justCreated));
     currentNoteIdRef.current = noteId || null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [noteId]);
 
-  // ── Load note data ──
+  // Load note data
   useEffect(() => {
     if (!noteId) return;
 
@@ -468,7 +547,7 @@ const WriteNote = () => {
     }
   }, [noteData, noteId]);
 
-  // ── Persist ──
+  // Persist
   const persist = useCallback(async () => {
     if (!currentNoteIdRef.current) return;
     setSaveStatus('saving');
@@ -483,7 +562,7 @@ const WriteNote = () => {
     }
   }, [title, content, isPublic, updateNote]);
 
-  // ── Autosave ──
+  // Autosave
   useEffect(() => {
     if (suppressAutosaveRef.current) {
       suppressAutosaveRef.current = false;
@@ -499,7 +578,7 @@ const WriteNote = () => {
     return () => clearTimeout(debounceRef.current);
   }, [title, content, isPublic, isEditing, persist]);
 
-  // ── Handlers ──
+  // Handlers
   const handleDoneEditing = () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     persist();
@@ -572,7 +651,7 @@ const WriteNote = () => {
     setCharCount(getCharCount(html));
   };
 
-  // ── Loading ──
+  // Loading
   if (isFetching || isNotesLoading || !noteId) {
     return (
       <div className="flex items-center justify-center h-screen bg-white dark:bg-[#0f0f12]">
@@ -581,7 +660,7 @@ const WriteNote = () => {
     );
   }
 
-  // ── Render ──
+  // ─── RENDER ────────────────────────────────────────────────────────
   const renderSidebar = () => (
     <div
       ref={sidebarRef}
@@ -736,7 +815,7 @@ const WriteNote = () => {
           {!isEditing && (
             <div className="prose prose-sm sm:prose-base dark:prose-invert max-w-none">
               <div
-                className="[&_h1]:text-3xl [&_h2]:text-2xl [&_h3]:text-xl [&_ul]:list-disc [&_ol]:list-decimal [&_a]:text-teal-600 [&_a]:underline [&_img]:rounded-lg [&_img]:max-w-full [&_table]:border-collapse [&_table]:w-full [&_th]:border [&_th]:border-gray-300 [&_th]:p-2 [&_td]:border [&_td]:border-gray-300 [&_td]:p-2"
+                className="[&_h1]:text-3xl [&_h2]:text-2xl [&_h3]:text-xl [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:mt-1 [&_li]:mb-1 [&_a]:text-teal-600 [&_a]:underline [&_img]:rounded-lg [&_img]:max-w-full [&_table]:border-collapse [&_table]:w-full [&_th]:border [&_th]:border-gray-300 [&_th]:p-2 [&_td]:border [&_td]:border-gray-300 [&_td]:p-2"
                 dangerouslySetInnerHTML={{ __html: content }}
               />
             </div>
