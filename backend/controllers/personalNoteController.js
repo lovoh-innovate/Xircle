@@ -18,14 +18,18 @@ const getUserName = async (userId) => {
 
 // ─── Create Personal Note ──────────────────────────────────────────────
 // POST /api/personal-notes
+// Empty notes are allowed on creation — title defaults to "Untitled" and
+// content defaults to a placeholder string if not supplied.
+// IMPORTANT: shareLink must be `undefined` (not `null`) when the note isn't
+// public. `shareLink` has a sparse unique index — sparse only skips docs
+// where the field is *missing*, not docs where it's explicitly `null`, so
+// setting it to `null` on every private note collides on the second one.
 export const createNote = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const { title, content, isPublic = false } = req.body;
 
-  if (!title?.trim() || !content?.trim()) {
-    res.status(400);
-    throw new Error('Title and content are required.');
-  }
+  const noteTitle = title?.trim() ? title.trim() : 'Untitled';
+  const noteContent = content?.trim() ? content.trim() : 'Write your note here...';
 
   const attachments = req.files?.map(file => ({
     filename: file.originalname,
@@ -34,12 +38,12 @@ export const createNote = asyncHandler(async (req, res) => {
     mimeType: file.mimetype,
   })) || [];
 
-  const shareLink = isPublic ? uuidv4() : null;
+  const shareLink = isPublic ? uuidv4() : undefined;
 
   const note = await PersonalNote.create({
     user: userId,
-    title: title.trim(),
-    content: content.trim(),
+    title: noteTitle,
+    content: noteContent,
     isPublic,
     shareLink,
     attachments,
@@ -84,6 +88,11 @@ export const getNote = asyncHandler(async (req, res) => {
 
 // ─── Update Personal Note ────────────────────────────────────────────────
 // PUT /api/personal-notes/:id
+// NOTE: uses `!== undefined` checks (not truthiness) so that saving an
+// intentionally-emptied title/content (e.g. user deleted everything in the
+// editor) actually persists instead of being silently skipped.
+// Also: shareLink is unset with `undefined`, never `null` — see createNote
+// comment above for why.
 export const updateNote = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const { title, content, isPublic } = req.body;
@@ -104,14 +113,14 @@ export const updateNote = asyncHandler(async (req, res) => {
     throw new Error('You do not have permission to edit this note.');
   }
 
-  if (title) note.title = title.trim();
-  if (content) note.content = content.trim();
+  if (title !== undefined) note.title = title.trim() || 'Untitled';
+  if (content !== undefined) note.content = content.trim();
   if (isPublic !== undefined) {
     note.isPublic = isPublic;
     if (isPublic && !note.shareLink) {
       note.shareLink = uuidv4();
     } else if (!isPublic) {
-      note.shareLink = null;
+      note.shareLink = undefined;
     }
   }
 
@@ -173,7 +182,7 @@ export const togglePublic = asyncHandler(async (req, res) => {
   if (isPublic) {
     note.shareLink = note.shareLink || uuidv4();
   } else {
-    note.shareLink = null;
+    note.shareLink = undefined;
   }
   await note.save();
 

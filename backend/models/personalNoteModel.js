@@ -14,11 +14,13 @@ const personalNoteSchema = new mongoose.Schema(
       required: [true, 'Title is required'],
       trim: true,
       maxlength: 200,
+      default: 'untitled', // 👈 default title
     },
     content: {
       type: String,
       required: [true, 'Content is required'],
       trim: true,
+      default: 'Type your content here', // 👈 default content (change to '' if you prefer empty)
     },
     isPublic: {
       type: Boolean,
@@ -74,7 +76,6 @@ personalNoteSchema.index({ shareLink: 1 });
 personalNoteSchema.index({ isPublic: 1, createdAt: -1 });
 
 // 4. For finding notes shared with a specific collaborator (array field)
-//    This helps queries like: { collaborators: { $elemMatch: { user: userId } } }
 personalNoteSchema.index({ 'collaborators.user': 1 });
 
 // 5. Compound index for collaborators + permission (if needed)

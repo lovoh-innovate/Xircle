@@ -4,6 +4,7 @@ import { useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import {
   useGetNotesQuery,
+  useCreateNoteMutation,
   useDeleteNoteMutation,
   useTogglePublicMutation,
 } from '../slices/personalNoteApiSlice';
@@ -151,8 +152,11 @@ const Notes = () => {
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [isCreatingNote, setIsCreatingNote] = useState(false);
+  const isCreatingRef = useRef(false); // guards against double-fire on fast double-clicks/taps
 
   const { data: notesData, isLoading, refetch } = useGetNotesQuery();
+  const [createNote] = useCreateNoteMutation();
   const [deleteNote] = useDeleteNoteMutation();
   const [togglePublic] = useTogglePublicMutation();
 
@@ -186,9 +190,25 @@ const Notes = () => {
   };
 
   // Notes always open read-only first — the note's own "Enable Editing"
-  // button (in WriteNote) is what flips it into edit mode. New notes go
-  // straight to /notes/new, which WriteNote treats as edit mode by default.
+  // button (in WriteNote) is what flips it into edit mode.
   const openNote = (noteId) => navigate(`/notes/${noteId}`);
+
+  // Creates the note in the DB first, then navigates straight to its real
+  // id — /notes/new is never visited.
+  const handleCreateNote = async () => {
+    if (isCreatingRef.current) return;
+    isCreatingRef.current = true;
+    setIsCreatingNote(true);
+    try {
+      const result = await createNote({ title: 'Untitled', content: '' }).unwrap();
+      navigate(`/notes/${result.note._id}`, { state: { justCreated: true } });
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to create note');
+    } finally {
+      isCreatingRef.current = false;
+      setIsCreatingNote(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -213,10 +233,15 @@ const Notes = () => {
                 <FaFileAlt className="text-teal-500 text-sm" /> Personal Notes
               </h1>
               <button
-                onClick={() => navigate('/notes/new')}
-                className="p-1.5 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+                onClick={handleCreateNote}
+                disabled={isCreatingNote}
+                className="p-1.5 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <FaPlus className="text-sm" />
+                {isCreatingNote ? (
+                  <FaSpinner className="text-sm animate-spin" />
+                ) : (
+                  <FaPlus className="text-sm" />
+                )}
               </button>
             </div>
           </header>
@@ -249,10 +274,15 @@ const Notes = () => {
 
       {/* Floating action button */}
       <button
-        onClick={() => navigate('/notes/new')}
-        className="fixed right-4 sm:right-6 bottom-20 md:bottom-6 z-20 w-12 h-12 bg-teal-600 dark:bg-teal-500 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-teal-700 dark:hover:bg-teal-600 transition active:scale-95"
+        onClick={handleCreateNote}
+        disabled={isCreatingNote}
+        className="fixed right-4 sm:right-6 bottom-20 md:bottom-6 z-20 w-12 h-12 bg-teal-600 dark:bg-teal-500 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-teal-700 dark:hover:bg-teal-600 transition active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
       >
-        <FaPlus className="text-xl" />
+        {isCreatingNote ? (
+          <FaSpinner className="text-xl animate-spin" />
+        ) : (
+          <FaPlus className="text-xl" />
+        )}
       </button>
 
       {/* ─── Inline Confirm Modal ───────────────────────────────────── */}

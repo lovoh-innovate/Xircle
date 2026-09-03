@@ -1,0 +1,116 @@
+/*
+  CKEditor 5 themes itself using CSS custom properties (--ck-color-*).
+  It has no idea your app has a "dark" class toggle — Tailwind's dark:
+  variants never touch these internal variables. This file overrides
+  them so CKEditor matches your app's dark palette.
+
+  Assumes Tailwind's class-based dark mode puts `class="dark"` on <html>
+  (the standard setup). CKEditor's floating panels (color pickers, table
+  properties, dropdowns) get attached directly to <body>, not inside
+  your component tree — so we scope the override to `.dark` generally
+  rather than nesting it under a specific wrapper, otherwise those
+  floating panels would stay white even with everything else fixed.
+*/
+
+.dark {
+  --ck-color-base-foreground: #202024;
+  --ck-color-base-background: #0f0f12;
+  --ck-color-base-border: #2a2a30;
+  --ck-color-base-action: #14b8a6;
+  --ck-color-base-focus: #14b8a6;
+  --ck-color-base-text: #e5e7eb;
+  --ck-color-base-active: #14b8a6;
+  --ck-color-base-active-focus: #0d9488;
+  --ck-color-focus-border: #14b8a6;
+  --ck-color-text: #e5e7eb;
+
+  --ck-color-shadow-drop: rgba(0, 0, 0, 0.35);
+  --ck-color-shadow-inner: rgba(0, 0, 0, 0.25);
+
+  --ck-color-button-default-background: transparent;
+  --ck-color-button-default-hover-background: #1f2937;
+  --ck-color-button-default-active-background: #27272e;
+  --ck-color-button-default-disabled-background: transparent;
+  --ck-color-button-on-background: rgba(20, 184, 166, 0.15);
+  --ck-color-button-on-hover-background: rgba(20, 184, 166, 0.25);
+  --ck-color-button-on-active-background: rgba(20, 184, 166, 0.3);
+  --ck-color-button-on-disabled-background: transparent;
+  --ck-color-button-on-color: #2dd4bf;
+  --ck-color-button-action-background: #0d9488;
+  --ck-color-button-save: #2dd4bf;
+  --ck-color-button-cancel: #f87171;
+
+  --ck-color-switch-button-off-background: #3f3f46;
+  --ck-color-switch-button-off-hover-background: #52525b;
+  --ck-color-switch-button-on-background: #14b8a6;
+  --ck-color-switch-button-on-hover-background: #0d9488;
+  --ck-color-switch-button-inner-background: #e5e7eb;
+
+  --ck-color-list-background: #16161a;
+  --ck-color-list-button-hover-background: #1f2937;
+  --ck-color-list-button-on-background: rgba(20, 184, 166, 0.15);
+  --ck-color-list-button-on-background-focus: rgba(20, 184, 166, 0.25);
+  --ck-color-list-button-on-text: #2dd4bf;
+
+  --ck-color-panel-background: #16161a;
+  --ck-color-panel-border: #2a2a30;
+
+  --ck-color-toolbar-background: #161619;
+  --ck-color-toolbar-border: #2a2a30;
+
+  --ck-color-tooltip-background: #27272e;
+  --ck-color-tooltip-text: #e5e7eb;
+
+  --ck-color-image-caption-background: #1f2937;
+  --ck-color-image-caption-text: #e5e7eb;
+
+  --ck-color-widget-blurred-border: #3f3f46;
+  --ck-color-widget-hover-border: #14b8a6;
+  --ck-color-widget-editable-focus-background: #0f0f12;
+
+  --ck-color-link-default: #2dd4bf;
+  --ck-color-link-selected-background: rgba(20, 184, 166, 0.25);
+
+  --ck-color-input-background: #0f0f12;
+  --ck-color-input-border: #2a2a30;
+  --ck-color-input-error-border: #f87171;
+  --ck-color-input-text: #e5e7eb;
+  --ck-color-input-disabled-background: #1a1a1a;
+  --ck-color-input-disabled-border: #2a2a30;
+  --ck-color-input-disabled-text: #6b7280;
+
+  --ck-color-labeled-field-label-background: #0f0f12;
+
+  --ck-color-dropdown-panel-background: #16161a;
+  --ck-color-dropdown-panel-border: #2a2a30;
+
+  --ck-color-split-button-hover-background: #1f2937;
+  --ck-color-split-button-hover-border: #2a2a30;
+}
+
+/* Editable content area — text color + no stray white background */
+.dark .ck-content,
+.dark .ck.ck-editor__editable {
+  color: #e5e7eb;
+  background: transparent;
+}
+
+/* Toolbar slot container styling handled in JSX via Tailwind classes;
+   this just strips any leftover border CKEditor puts on the toolbar
+   itself so it doesn't double up with our container's border. */
+.ck-toolbar-slot .ck.ck-toolbar {
+  border: none !important;
+  background: transparent !important;
+}
+
+/* Give the editable region comfortable breathing room + a visible
+   boundary so it doesn't feel like it's floating in the page. */
+.ck-note-editor-wrapper .ck.ck-editor__editable_inline {
+  min-height: 50vh;
+  padding: 0 !important;
+}
+
+.ck-note-editor-wrapper .ck.ck-editor__editable_inline:focus {
+  box-shadow: none !important;
+  border: none !important;
+}
