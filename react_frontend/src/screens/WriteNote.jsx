@@ -40,7 +40,7 @@ import {
   WordCount,
 } from 'ckeditor5';
 import 'ckeditor5/ckeditor5.css';
-import './WriteNote.css'; // dark-mode CSS variable overrides for CKEditor
+import './WriteNote.css'; // ← MUST contain the CSS overrides below
 import {
   useGetNoteQuery,
   useCreateNoteMutation,
@@ -70,7 +70,7 @@ import {
 } from 'react-icons/fa';
 import { formatDistanceToNow } from 'date-fns';
 
-// ─── Helpers ──────────────────────────────────────────────────────────
+// ─── HELPERS ──────────────────────────────────────────────────────────
 const stripHtml = (html) => {
   const tmp = document.createElement('div');
   tmp.innerHTML = html || '';
@@ -84,7 +84,7 @@ const getWordCount = (html) => {
 
 const getCharCount = (html) => stripHtml(html).length;
 
-// ─── CKEditor Config ──────────────────────────────────────────────────
+// ─── CKEDITOR CONFIG ──────────────────────────────────────────────────
 const EDITOR_CONFIG = {
   licenseKey: 'GPL',
   plugins: [
@@ -132,7 +132,7 @@ const EDITOR_CONFIG = {
       'alignment', 'bulletedList', 'numberedList', '|',
       'link', 'insertImage', 'insertTable',
     ],
-    shouldNotGroupWhenFull: false, // overflow items collapse into a "..." (show more) button when space runs out
+    shouldNotGroupWhenFull: false,
   },
   heading: {
     options: [
@@ -183,9 +183,16 @@ const EDITOR_CONFIG = {
     allow: [{ name: /.*/, attributes: true, classes: true, styles: true }],
   },
   placeholder: 'Start writing your note...',
+
+  // ─── FORCE DROPDOWNS TO OPEN UPWARD ON MOBILE ────────────────────
+  ui: {
+    viewportOffset: {
+      bottom: 200, // reserve 200px at the bottom → dropdowns flip upward
+    },
+  },
 };
 
-// ─── Confirm Modal ──────────────────────────────────────────────────────
+// ─── CONFIRM MODAL ──────────────────────────────────────────────────
 const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => {
   if (!isOpen) return null;
   return (
@@ -220,7 +227,7 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => {
   );
 };
 
-// ─── Sidebar Note Item ────────────────────────────────────────────────
+// ─── SIDEBAR NOTE ITEM ─────────────────────────────────────────────
 const SidebarNoteItem = ({ note, isActive, onClick }) => {
   const preview = stripHtml(note.content || '').slice(0, 60);
   const formatDate = (date) => formatDistanceToNow(new Date(date), { addSuffix: true });
@@ -263,7 +270,7 @@ const SidebarNoteItem = ({ note, isActive, onClick }) => {
   );
 };
 
-// ─── Save Status ──────────────────────────────────────────────────────
+// ─── SAVE STATUS ────────────────────────────────────────────────────
 const SaveStatus = ({ status, lastSaved }) => {
   if (status === 'idle' && !lastSaved) return null;
   const map = {
@@ -285,10 +292,10 @@ const SaveStatus = ({ status, lastSaved }) => {
   );
 };
 
-// ─── Main Component ────────────────────────────────────────────────────
+// ─── MAIN COMPONENT ─────────────────────────────────────────────────
 const AUTOSAVE_DELAY = 900;
 const MOBILE_BREAKPOINT = 768;
-const MOBILE_TOOLBAR_BASE_GAP = 96; // matches the old pb-24 spacing, stacked on top of any keyboard offset
+const MOBILE_TOOLBAR_BASE_GAP = 96;
 
 const WriteNote = () => {
   const { id: noteId } = useParams();
@@ -299,8 +306,6 @@ const WriteNote = () => {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [isPublic, setIsPublic] = useState(false);
-  // A brand-new note (created via the "+" button, see handleCreateNote) lands
-  // here already in edit mode, signalled via router state.
   const [isEditing, setIsEditing] = useState(Boolean(location.state?.justCreated));
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [saveStatus, setSaveStatus] = useState('idle');
@@ -310,19 +315,13 @@ const WriteNote = () => {
   const [wordCount, setWordCount] = useState(0);
   const [charCount, setCharCount] = useState(0);
   const [editorKey, setEditorKey] = useState(noteId || 'pending');
-  const [isCreatingNote, setIsCreatingNote] = useState(false); // "+" button in flight
+  const [isCreatingNote, setIsCreatingNote] = useState(false);
   const [isMobile, setIsMobile] = useState(
     typeof window !== 'undefined' ? window.innerWidth < MOBILE_BREAKPOINT : false
   );
-  // How much of the viewport the on-screen keyboard is currently covering.
-  // Tracked via the visualViewport API so the mobile toolbar can sit right
-  // above the keyboard instead of getting hidden behind it.
   const [keyboardOffset, setKeyboardOffset] = useState(0);
 
   // ── API ──
-  // noteId is always a real, already-created id now — the note is created
-  // up front by handleCreateNote before we ever navigate here, so there's
-  // no "/notes/new" placeholder route to special-case.
   const { data: noteData, isLoading: isFetching } = useGetNoteQuery(noteId, { skip: !noteId });
   const { data: notesData, isLoading: isNotesLoading } = useGetNotesQuery();
   const [createNote] = useCreateNoteMutation();
@@ -343,7 +342,7 @@ const WriteNote = () => {
   const editorInstanceRef = useRef(null);
   const desktopToolbarSlotRef = useRef(null);
   const mobileToolbarSlotRef = useRef(null);
-  const isCreatingRef = useRef(false); // guards handleCreateNote against double-fires (e.g. fast double-click)
+  const isCreatingRef = useRef(false);
 
   // ── Mobile detection ──
   useEffect(() => {
@@ -352,10 +351,7 @@ const WriteNote = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // ── Track the on-screen keyboard via visualViewport ──
-  // window.innerHeight stays put on most mobile browsers even when the
-  // keyboard opens, but window.visualViewport shrinks — the gap between the
-  // two IS the keyboard height. We use that to push the toolbar up above it.
+  // ── Keyboard offset via visualViewport ──
   useEffect(() => {
     if (!isMobile || typeof window === 'undefined' || !window.visualViewport) {
       setKeyboardOffset(0);
@@ -375,13 +371,7 @@ const WriteNote = () => {
     };
   }, [isMobile]);
 
-  // ── Move the CKEditor toolbar into the correct slot (top on desktop, bottom on mobile) ──
-  // Always clears BOTH slots before appending. Without this, a toolbar left
-  // behind by a previous CKEditor instance (e.g. right after switching notes
-  // via the "+" button, before the old instance finishes destroying) just
-  // sits there and the new toolbar gets appended alongside it — that's the
-  // "doubles / triples" bug. Clearing first guarantees exactly one toolbar
-  // is ever present, regardless of remount timing.
+  // ── Toolbar attachment ──
   const attachToolbar = useCallback((mobile) => {
     const editor = editorInstanceRef.current;
     if (!editor) return;
@@ -435,9 +425,7 @@ const WriteNote = () => {
     };
   }, [isResizing]);
 
-  // ── Create a new note directly, then navigate straight to /notes/:id ──
-  // No intermediate "/notes/new" route is ever visited — the note exists in
-  // the DB (titled "Untitled") before the URL changes at all.
+  // ── Create new note ──
   const handleCreateNote = useCallback(async () => {
     if (isCreatingRef.current) return;
     isCreatingRef.current = true;
@@ -453,7 +441,7 @@ const WriteNote = () => {
     }
   }, [createNote, navigate]);
 
-  // ── Route change: reset editing mode + current note id ──
+  // ── Route change ──
   useEffect(() => {
     setIsEditing(Boolean(location.state?.justCreated));
     currentNoteIdRef.current = noteId || null;
@@ -476,14 +464,13 @@ const WriteNote = () => {
       setCharCount(getCharCount(html));
       loadedNoteRef.current = noteData.note._id;
       currentNoteIdRef.current = noteData.note._id;
-      setEditorKey(noteData.note._id); // remount CKEditor with fresh initial data
+      setEditorKey(noteData.note._id);
     }
   }, [noteData, noteId]);
 
   // ── Persist ──
   const persist = useCallback(async () => {
-    if (!currentNoteIdRef.current) return; // shouldn't happen — note always exists before this page loads
-
+    if (!currentNoteIdRef.current) return;
     setSaveStatus('saving');
     try {
       const payload = { title: (title || 'Untitled').trim(), content: content || '', isPublic };
@@ -496,7 +483,7 @@ const WriteNote = () => {
     }
   }, [title, content, isPublic, updateNote]);
 
-  // Autosave
+  // ── Autosave ──
   useEffect(() => {
     if (suppressAutosaveRef.current) {
       suppressAutosaveRef.current = false;
@@ -586,9 +573,6 @@ const WriteNote = () => {
   };
 
   // ── Loading ──
-  // Covers: fetching an existing note, and fetching the sidebar list.
-  // Note creation (the "+" button) happens before navigation, so there is
-  // no in-between "creating…" screen to show here.
   if (isFetching || isNotesLoading || !noteId) {
     return (
       <div className="flex items-center justify-center h-screen bg-white dark:bg-[#0f0f12]">
@@ -643,7 +627,6 @@ const WriteNote = () => {
   const renderHeader = () => (
     <div className="flex-shrink-0 w-full border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-[#0f0f12]">
       <div className="px-3 sm:px-6 py-2 flex flex-wrap items-center gap-2">
-        {/* Back (mobile) */}
         <button
           onClick={() => navigate('/notes')}
           className="md:hidden p-2 -ml-1 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition flex-shrink-0"
@@ -651,7 +634,6 @@ const WriteNote = () => {
           <FaArrowLeft className="text-sm" />
         </button>
 
-        {/* Title */}
         {isEditing ? (
           <input
             type="text"
@@ -672,14 +654,12 @@ const WriteNote = () => {
           </div>
         )}
 
-        {/* Word & char counts */}
         <span className="text-[11px] text-gray-400 dark:text-gray-500 flex-shrink-0 hidden sm:inline">
           {wordCount} words · {charCount} chars
         </span>
 
         <SaveStatus status={isEditing ? saveStatus : 'idle'} lastSaved={lastSaved} />
 
-        {/* Action buttons */}
         <div className="flex items-center gap-1 flex-shrink-0">
           {isEditing ? (
             <button
@@ -735,10 +715,8 @@ const WriteNote = () => {
     </div>
   );
 
-  // ── Editor area ──
   const renderEditor = () => (
     <div className="flex-1 flex flex-col overflow-hidden w-full relative">
-      {/* Desktop toolbar slot — sticky at the top, separate from the text area */}
       {isEditing && !isMobile && (
         <div
           ref={desktopToolbarSlotRef}
@@ -778,10 +756,6 @@ const WriteNote = () => {
         </div>
       </div>
 
-      {/* Mobile toolbar slot — pinned just above the on-screen keyboard.
-          `position: fixed` + the visualViewport-derived keyboardOffset is
-          what actually keeps it above the keyboard; `sticky bottom-0` alone
-          can't react to the keyboard opening on mobile browsers. */}
       {isEditing && isMobile && (
         <div
           ref={mobileToolbarSlotRef}
@@ -799,7 +773,6 @@ const WriteNote = () => {
 
   return (
     <div className="h-screen w-full bg-white dark:bg-[#0f0f12] flex overflow-hidden">
-      {/* ─── Desktop Sidebar ───────────────────────────────────────── */}
       <div className="hidden md:flex flex-shrink-0 h-full relative">
         {renderSidebar()}
         <div
@@ -809,13 +782,11 @@ const WriteNote = () => {
         />
       </div>
 
-      {/* ─── Main Content ──────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col h-full min-w-0">
         {renderHeader()}
         {renderEditor()}
       </div>
 
-      {/* ─── Modals ────────────────────────────────────────────────── */}
       <ConfirmModal
         isOpen={showDeleteModal}
         onClose={() => setShowDeleteModal(false)}

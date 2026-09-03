@@ -114,3 +114,30 @@
   box-shadow: none !important;
   border: none !important;
 }
+
+/* ─── FORCE DROPDOWN TO OPEN UPWARD ON MOBILE ─── */
+
+/* 1. Stop clipping */
+.ck-toolbar-slot,
+.ck-toolbar-slot .ck-toolbar,
+.ck-toolbar-slot .ck-toolbar__items {
+  overflow: visible !important;
+}
+
+/* 2. High z-index */
+.ck-dropdown__panel {
+  z-index: 999999 !important;
+}
+
+/* 3. On mobile (≤768px), make dropdown appear ABOVE the button */
+@media (max-width: 768px) {
+  .ck-toolbar-slot .ck-dropdown__panel {
+    top: auto !important;
+    bottom: 100% !important;        /* opens upward */
+    max-height: 60vh !important;    /* don't overflow screen */
+    overflow-y: auto !important;
+  }
+}
+
+/* 4. If dropdown still gets cut off, uncomment next line: */
+/* .ck-dropdown__panel { position: fixed !important; } */
