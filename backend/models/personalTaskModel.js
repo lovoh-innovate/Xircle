@@ -14,6 +14,39 @@ const personalTaskSchema = new mongoose.Schema(
       ref: 'PersonalFolder',
       default: null,
     },
+    collaborators: [
+      {
+        user: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
+          default: null,
+        },
+        email: {
+          type: String,
+          required: true,
+          trim: true,
+          lowercase: true,
+        },
+        role: {
+          type: String,
+          enum: ['read', 'write'],
+          default: 'write',
+        },
+        accepted: {
+          type: Boolean,
+          default: false,
+        },
+        invitationToken: {
+          type: String,
+          required: true,
+          unique: true,
+        },
+        invitedAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
     title: {
       type: String,
       required: true,
@@ -33,47 +66,48 @@ const personalTaskSchema = new mongoose.Schema(
       enum: ['pending', 'in-progress', 'completed', 'archived'],
       default: 'pending',
     },
+    // ─── Who marked it as completed ──────────────────────────
+    completedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
     dueDate: {
       type: Date,
       default: null,
-      index: true, // for reminder queries
+      index: true,
     },
-    // ─── Manual ordering (drag & drop) ──────────────────────
     order: {
       type: Number,
       default: 0,
       index: true,
     },
-    // ─── Recurrence ──────────────────────────────────────────
     recurrenceType: {
       type: String,
       enum: ['none', 'daily', 'weekly'],
       default: 'none',
     },
     recurrenceDays: {
-      type: [Number], // 0=Sunday, 6=Saturday; used only for weekly
+      type: [Number],
       default: [],
     },
     recurrenceEndDate: {
       type: Date,
       default: null,
     },
-    // ─── Reminder tracking ──────────────────────────────────
     reminderSentAt: {
       type: Date,
       default: null,
-      index: true, // to find tasks that haven't been reminded
+      index: true,
     },
-    // ─── Legacy fields (kept for compatibility) ─────────────
     dailyReminderTime: {
-      type: String,           // HH:MM (24‑hour format)
+      type: String,
       default: null,
     },
     lastDailyReminderSent: {
       type: Date,
       default: null,
     },
-    // ─── Archiving & Trash ──────────────────────────────────
     isTrash: {
       type: Boolean,
       default: false,
@@ -96,18 +130,23 @@ const personalTaskSchema = new mongoose.Schema(
         title: { type: String, required: true },
         done: { type: Boolean, default: false },
         dueDate: Date,
-        // ─── Sub‑task recurrence ─────────────────────────────
         recurrenceType: {
           type: String,
           enum: ['none', 'daily', 'weekly'],
           default: 'none',
         },
         recurrenceDays: {
-          type: [Number], // 0=Sunday, 6=Saturday; used only for weekly
+          type: [Number],
           default: [],
         },
         recurrenceEndDate: {
           type: Date,
+          default: null,
+        },
+        // ─── Who toggled this subtask ─────────────────────────
+        toggledBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
           default: null,
         },
       },
@@ -126,10 +165,9 @@ const personalTaskSchema = new mongoose.Schema(
   }
 );
 
-// Compound index for efficient reminder queries
 personalTaskSchema.index({ dueDate: 1, reminderSentAt: 1, status: 1, isArchived: 1, isTrash: 1 });
-// Compound index for efficient list ordering
 personalTaskSchema.index({ user: 1, order: 1 });
+personalTaskSchema.index({ 'collaborators.user': 1 });
 
 const PersonalTask = mongoose.model('PersonalTask', personalTaskSchema);
 export default PersonalTask;

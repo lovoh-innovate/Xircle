@@ -19,6 +19,7 @@ import {
   useDeletePersonalSubTaskMutation,
   useUpdatePersonalSubTaskMutation,
   useReorderPersonalSubTasksMutation,
+  useAddCollaboratorMutation,
 } from '../slices/personalTaskApiSlice';
 import toast from 'react-hot-toast';
 import {
@@ -28,7 +29,6 @@ import {
   FaFolder,
   FaFolderOpen,
   FaTrashAlt,
-  FaTrashRestore,
   FaArchive,
   FaUndo,
   FaEdit,
@@ -42,15 +42,16 @@ import {
   FaAngleDown,
   FaGripVertical,
   FaArrowLeft,
-  FaClock,
   FaRegClock,
   FaEllipsisV,
   FaHandPointer,
-  FaCheckCircle,
   FaCheckDouble,
   FaMousePointer,
+  FaUsers,
+  FaUser,
+  FaUserPlus,
 } from 'react-icons/fa';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import GeneralSidebar from '../components/GeneralSidebar';
 import GeneralBottombar from '../components/GeneralBottombar';
 
@@ -134,7 +135,7 @@ const CustomSelect = ({ value, onChange, options, placeholder, icon: Icon, class
   );
 };
 
-// ─── Bottom Sheet (centered modal) ──────────────────────────────
+// ─── Bottom Sheet ──────────────────────────────────────────────
 const BottomSheet = ({ isOpen, onClose, children }) => {
   const [visible, setVisible] = useState(false);
   const [animating, setAnimating] = useState(false);
@@ -196,7 +197,7 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, danger = fal
   );
 };
 
-// ─── Permanent Delete Modal (updated for bulk) ──────────────────
+// ─── Permanent Delete Modal ──────────────────────────────────
 const PermanentDeleteModal = ({ isOpen, onClose, onConfirm, itemName, isBulk = false }) => {
   const [value, setValue] = useState('');
 
@@ -272,8 +273,92 @@ const PermanentDeleteModal = ({ isOpen, onClose, onConfirm, itemName, isBulk = f
   );
 };
 
-// ─── Task Action Modal (includes Select in trash) ──────────────
-const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, onDelete, onStatusToggle, onMove, onPermanentDelete, onSelect }) => {
+// ─── Collaborate Modal ──────────────────────────────────────────
+const CollaborateModal = ({ isOpen, onClose, onInvite, isLoading, taskTitle, isBulk = false }) => {
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState('write');
+
+  const roleOptions = [
+    { value: 'read', label: 'Read only' },
+    { value: 'write', label: 'Can edit' },
+  ];
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!email.trim()) {
+      toast.error('Email is required');
+      return;
+    }
+    onInvite({ email: email.trim(), role });
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      setEmail('');
+      setRole('write');
+    }
+  }, [isOpen]);
+
+  return (
+    <BottomSheet isOpen={isOpen} onClose={onClose}>
+      <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-gray-800 dark:text-white flex items-center gap-2">
+            <FaUserPlus className="text-teal-500" /> Add Collaborator
+          </h3>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-white">
+            <FaTimes />
+          </button>
+        </div>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          {isBulk
+            ? `Invite a collaborator to all ${taskTitle || 'selected'} tasks.`
+            : `Invite someone to collaborate on "${taskTitle || 'this task'}"`}
+        </p>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="collaborator@example.com"
+            className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
+            required
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Permission</label>
+          <CustomSelect
+            value={role}
+            onChange={setRole}
+            options={roleOptions}
+            placeholder="Select role"
+            className="w-full"
+          />
+        </div>
+        <div className="flex gap-3 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 py-2 border border-gray-200 dark:border-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-[#2a2a2a] transition"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="flex-1 py-2 bg-teal-600 dark:bg-teal-500 text-white rounded-xl text-sm font-medium hover:bg-teal-700 dark:hover:bg-teal-600 disabled:opacity-50 transition flex items-center justify-center gap-2"
+          >
+            {isLoading ? <FaSpinner className="animate-spin" /> : 'Invite'}
+          </button>
+        </div>
+      </form>
+    </BottomSheet>
+  );
+};
+
+// ─── Task Action Modal ──────────────────────────────────────────
+const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, onDelete, onStatusToggle, onMove, onPermanentDelete, onSelect, onCollaborate }) => {
   if (!isOpen || !task) return null;
   const isTrash = task.isTrash;
   const isArchived = task.isArchived;
@@ -380,6 +465,14 @@ const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, 
           >
             <FaTrashAlt /> Delete
           </button>
+          {!isArchived && !isTrash && !isReminder && (
+            <button
+              onClick={() => { onCollaborate(task); onClose(); }}
+              className="flex items-center justify-center gap-2 px-4 py-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition col-span-2"
+            >
+              <FaUserPlus className="text-xs" /> Collaborate
+            </button>
+          )}
         </div>
         <button
           onClick={onClose}
@@ -392,7 +485,7 @@ const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, 
   );
 };
 
-// ─── Move Task Modal (unchanged) ──────────────────────────────
+// ─── Move Task Modal ──────────────────────────────────────────
 const MoveTaskModal = ({ isOpen, onClose, task, folders, onMoveTask }) => {
   if (!isOpen || !task) return null;
 
@@ -451,7 +544,7 @@ const MoveTaskModal = ({ isOpen, onClose, task, folders, onMoveTask }) => {
   );
 };
 
-// ─── Checklist Action Modal (renamed from SubtaskActionModal) ──
+// ─── Checklist Action Modal ──────────────────────────────────
 const ChecklistActionModal = ({ isOpen, onClose, checklistItem, index, onEdit, onDelete, onSelect }) => {
   if (!isOpen || !checklistItem) return null;
   return (
@@ -489,7 +582,7 @@ const ChecklistActionModal = ({ isOpen, onClose, checklistItem, index, onEdit, o
   );
 };
 
-// ─── Checklist Edit Modal (renamed from SubtaskEditModal) ────
+// ─── Checklist Edit Modal ──────────────────────────────────
 const ChecklistEditModal = ({ isOpen, onClose, checklistItem, index, onSave }) => {
   const [title, setTitle] = useState(checklistItem?.title || '');
   const [dueDate, setDueDate] = useState(checklistItem?.dueDate ? new Date(checklistItem.dueDate).toISOString().slice(0, 16) : '');
@@ -631,7 +724,7 @@ const ChecklistEditModal = ({ isOpen, onClose, checklistItem, index, onSave }) =
   );
 };
 
-// ─── Checklist Item (renamed from SubtaskItem) ────────────────
+// ─── Checklist Item ──────────────────────────────────────────────
 const ChecklistItem = ({
   checklistItem,
   index,
@@ -646,7 +739,7 @@ const ChecklistItem = ({
   onLongPress,
   isTouch,
   selectionMode,
-  onTap, // called on single tap (to toggle selection if in selection mode)
+  onTap,
 }) => {
   const lastTap = useRef(0);
 
@@ -657,7 +750,6 @@ const ChecklistItem = ({
       const now = Date.now();
       const diff = now - lastTap.current;
       if (diff < 300 && diff > 0) {
-        // Double tap: open modal
         onOpenModal(index);
         lastTap.current = 0;
         return;
@@ -665,7 +757,6 @@ const ChecklistItem = ({
       lastTap.current = now;
       setTimeout(() => {
         if (lastTap.current === now) {
-          // Single tap: call onTap (parent handles selection mode)
           if (onTap) onTap(index);
           lastTap.current = 0;
         }
@@ -677,7 +768,6 @@ const ChecklistItem = ({
     }
   };
 
-  // Long press for selection start (touch only)
   const longPressTimer = useRef(null);
   const handleTouchStart = (e) => {
     if (e.target.closest('.checklist-toggle-btn') || e.target.closest('.checklist-more-btn')) return;
@@ -731,6 +821,11 @@ const ChecklistItem = ({
           <div className="flex items-start justify-between gap-2">
             <span className={`text-sm text-gray-800 dark:text-white break-words ${checklistItem.done ? 'line-through text-gray-400 dark:text-gray-500' : ''}`}>
               {checklistItem.title}
+              {checklistItem.done && checklistItem.toggledBy && (
+                <span className="text-[10px] text-gray-400 dark:text-gray-500 ml-1">
+                  by {checklistItem.toggledBy.name || 'someone'}
+                </span>
+              )}
             </span>
             <button
               onClick={(e) => { e.stopPropagation(); onOpenModal(index); }}
@@ -815,7 +910,7 @@ const SortableChecklistItem = ({
   );
 };
 
-// ─── Checklist Bulk Toolbar (renamed from SubtaskBulkToolbar) ──
+// ─── Checklist Bulk Toolbar ──────────────────────────────────
 const ChecklistBulkToolbar = ({ selectedCount, onCancel, onDelete, onComplete, onUncheck }) => {
   return (
     <motion.div
@@ -858,7 +953,7 @@ const ChecklistBulkToolbar = ({ selectedCount, onCancel, onDelete, onComplete, o
   );
 };
 
-// ─── Task Detail View (updated checklist selection & uncheck) ──
+// ─── Task Detail View ──────────────────────────────────────────
 const TaskDetailView = ({
   task,
   onBack,
@@ -879,7 +974,6 @@ const TaskDetailView = ({
   const [showChecklistAction, setShowChecklistAction] = useState(false);
   const [actionChecklistIndex, setActionChecklistIndex] = useState(null);
 
-  // ─── Checklist selection state ──────────────────────────────────
   const [selectedChecklistIndices, setSelectedChecklistIndices] = useState(new Set());
   const [checklistSelectionMode, setChecklistSelectionMode] = useState(false);
   const [checklistBulkLoading, setChecklistBulkLoading] = useState(false);
@@ -888,7 +982,6 @@ const TaskDetailView = ({
   const isReminder = isReminderTask(task);
   const isTouch = useIsTouchDevice();
 
-  // ─── Checklist selection handlers ──────────────────────────────
   const toggleChecklistSelection = (index) => {
     setSelectedChecklistIndices(prev => {
       const newSet = new Set(prev);
@@ -910,7 +1003,6 @@ const TaskDetailView = ({
     setChecklistSelectionMode(false);
   };
 
-  // ─── Bulk checklist actions ──────────────────────────────────────
   const bulkChecklistAction = async (actionFn, successMsg, errorMsg) => {
     const indices = Array.from(selectedChecklistIndices);
     if (indices.length === 0) return;
@@ -944,7 +1036,6 @@ const TaskDetailView = ({
   };
 
   const bulkChecklistComplete = () => {
-    // Only complete undone items
     const indices = Array.from(selectedChecklistIndices);
     const undoneIndices = indices.filter(idx => !task.subtasks[idx]?.done);
     if (undoneIndices.length === 0) {
@@ -952,19 +1043,15 @@ const TaskDetailView = ({
       clearChecklistSelection();
       return;
     }
-    // We'll temporarily override selectedChecklistIndices to only undone ones
-    const originalSelected = new Set(selectedChecklistIndices);
     setSelectedChecklistIndices(new Set(undoneIndices));
     bulkChecklistAction(
       (idx) => onToggleChecklist(task._id, idx, true),
       'Completed checklist items',
       'Failed to complete some checklist items'
     );
-    // Restore original selection? Actually after bulk action we clear selection anyway.
   };
 
   const bulkChecklistUncheck = () => {
-    // Only uncheck done items
     const indices = Array.from(selectedChecklistIndices);
     const doneIndices = indices.filter(idx => task.subtasks[idx]?.done);
     if (doneIndices.length === 0) {
@@ -972,7 +1059,6 @@ const TaskDetailView = ({
       clearChecklistSelection();
       return;
     }
-    const originalSelected = new Set(selectedChecklistIndices);
     setSelectedChecklistIndices(new Set(doneIndices));
     bulkChecklistAction(
       (idx) => onToggleChecklist(task._id, idx, false),
@@ -981,7 +1067,6 @@ const TaskDetailView = ({
     );
   };
 
-  // ─── Checklist long press (touch) ──────────────────────────────
   const handleChecklistLongPress = (index) => {
     const isSelected = selectedChecklistIndices.has(index);
     if (!isSelected) {
@@ -991,7 +1076,6 @@ const TaskDetailView = ({
     }
   };
 
-  // ─── Handlers for modals ──────────────────────────────────────
   const handleAddChecklist = async (e) => {
     e.preventDefault();
     if (!newChecklistTitle.trim()) return toast.error('Title required');
@@ -1128,7 +1212,6 @@ const TaskDetailView = ({
           <span className="text-xs text-gray-400 dark:text-gray-500">{task.subtasks?.length || 0}</span>
         </div>
 
-        {/* ─── Checklist Bulk Toolbar ────────────────────────────── */}
         {checklistSelectionMode && (
           <ChecklistBulkToolbar
             selectedCount={selectedChecklistIndices.size}
@@ -1189,7 +1272,6 @@ const TaskDetailView = ({
         </form>
       </div>
 
-      {/* ─── Checklist Modals ────────────────────────────────────── */}
       <ChecklistActionModal
         isOpen={showChecklistAction}
         onClose={() => { setShowChecklistAction(false); setActionChecklistIndex(null); }}
@@ -1217,7 +1299,6 @@ const TaskDetailView = ({
         danger
       />
 
-      {/* ─── Bulk checklist loading overlay ──────────────────────── */}
       {checklistBulkLoading && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 dark:bg-black/40 backdrop-blur-sm">
           <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl p-6 shadow-xl flex flex-col items-center">
@@ -1230,7 +1311,7 @@ const TaskDetailView = ({
   );
 };
 
-// ─── Task Card (updated selection logic) ──────────────────────
+// ─── Task Card ──────────────────────────────────────────────────
 const TaskCard = React.memo(({
   task,
   onClick,
@@ -1254,7 +1335,6 @@ const TaskCard = React.memo(({
   const checklistCount = task.subtasks?.length || 0;
   const doneCount = task.subtasks?.filter(st => st.done).length || 0;
 
-  // Long press detection only on touch devices
   const longPressTimer = useRef(null);
   const handleTouchStart = (e) => {
     if (e.target.closest('.task-status-btn') || e.target.closest('.task-more-btn')) return;
@@ -1275,14 +1355,12 @@ const TaskCard = React.memo(({
     }
   };
 
-  // Double tap detection for options (touch only)
   const lastTap = useRef(0);
   const handleCardClick = (e) => {
     if (e.target.closest('.task-more-btn') || e.target.closest('.task-status-btn')) return;
 
-    // If selection mode is active, toggle selection (even on trash)
     if (selectionMode) {
-      onClick(task); // parent will handle toggle
+      onClick(task);
       return;
     }
 
@@ -1290,7 +1368,6 @@ const TaskCard = React.memo(({
       const now = Date.now();
       const diff = now - lastTap.current;
       if (diff < 300 && diff > 0) {
-        // Double tap: open modal
         onOpenModal(task);
         lastTap.current = 0;
         return;
@@ -1298,7 +1375,6 @@ const TaskCard = React.memo(({
       lastTap.current = now;
       setTimeout(() => {
         if (lastTap.current === now) {
-          // Single tap -> navigate (only if not selection mode)
           if (!selectionMode) {
             onClick(task);
           }
@@ -1306,7 +1382,6 @@ const TaskCard = React.memo(({
         }
       }, 300);
     } else {
-      // Desktop: single click navigates (or toggles selection if selectionMode)
       onClick(task);
     }
   };
@@ -1376,7 +1451,14 @@ const TaskCard = React.memo(({
                 {task.recurrenceType === 'daily' ? 'Everyday' : 'Weekly'}
               </span>
             ) : (
-              <span className="capitalize">{task.status}</span>
+              <span className="capitalize flex items-center gap-1">
+                {task.status}
+                {isCompleted && task.completedBy && (
+                  <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                    by {task.completedBy.name || 'someone'}
+                  </span>
+                )}
+              </span>
             )}
             {!isTrash && !isReminder && task.dueDate && <span>{formatDate(task.dueDate)}</span>}
             {checklistCount > 0 && <span>{doneCount}/{checklistCount}</span>}
@@ -1439,7 +1521,7 @@ const SortableTaskItem = ({ id, task, onClick, onOpenModal, onToggleStatus, isSe
   );
 };
 
-// ─── Droppable Folder Tab (unchanged) ──────────────────────────
+// ─── Droppable Folder Tab ──────────────────────────────────────────
 const DroppableFolderTab = ({ folder, isActive, onClick, children }) => {
   const { isOver, setNodeRef } = useDroppable({ id: `${FOLDER_DROP_PREFIX}${folder._id}` });
   return (
@@ -1459,7 +1541,7 @@ const DroppableFolderTab = ({ folder, isActive, onClick, children }) => {
   );
 };
 
-// ─── Folder Modal (unchanged) ──────────────────────────────────
+// ─── Folder Modal ──────────────────────────────────────────────────
 const FolderModal = ({ isOpen, onClose, folders, onSave, onDelete, isLoading }) => {
   const [name, setName] = useState('');
   const [color, setColor] = useState('#4f46e5');
@@ -1568,7 +1650,7 @@ const FolderModal = ({ isOpen, onClose, folders, onSave, onDelete, isLoading }) 
   );
 };
 
-// ─── Task Form (unchanged) ─────────────────────────────────────
+// ─── Task Form ──────────────────────────────────────────────────
 const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, presetReminder = false }) => {
   const taskIsReminder = isReminderTask(task);
 
@@ -1824,8 +1906,10 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
   );
 };
 
-// ─── Bulk Action Toolbar (updated with Uncheck) ──────────────
-const BulkActionToolbar = ({ selectedCount, onCancel, onDelete, onPermanentDelete, onArchive, onComplete, onUncheck, onRestore, isTrashView, isArchivedView }) => {
+// ─── Bulk Action Toolbar ──────────────────────────────────────────
+const BulkActionToolbar = ({ selectedCount, onCancel, onDelete, onPermanentDelete, onArchive, onComplete, onUncheck, onRestore, isTrashView, isArchivedView, onCollaborate }) => {
+  const showCollaborate = !isTrashView && !isArchivedView;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: -20 }}
@@ -1894,6 +1978,14 @@ const BulkActionToolbar = ({ selectedCount, onCancel, onDelete, onPermanentDelet
             >
               <FaTrashAlt className="text-[10px] sm:text-xs" /> Delete
             </button>
+            {showCollaborate && (
+              <button
+                onClick={onCollaborate}
+                className="px-2 sm:px-3 py-1 text-[11px] sm:text-xs font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition flex items-center gap-1"
+              >
+                <FaUserPlus className="text-[10px] sm:text-xs" /> Collaborate
+              </button>
+            )}
           </>
         )}
         <button
@@ -1920,6 +2012,15 @@ const PersonalTasks = () => {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [permanentDeleteTarget, setPermanentDeleteTarget] = useState(null);
 
+  // ─── Collaboration state ──────────────────────────────────────
+  const [showCollaborateModal, setShowCollaborateModal] = useState(false);
+  const [collaborateTarget, setCollaborateTarget] = useState(null); // taskId or 'bulk'
+  const [collaborateLoading, setCollaborateLoading] = useState(false);
+  const [addCollaborator] = useAddCollaboratorMutation();
+
+  // ─── View type ──────────────────────────────────────────────
+  const [viewType, setViewType] = useState('personal');
+
   // ─── Selection state ──────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
@@ -1932,17 +2033,29 @@ const PersonalTasks = () => {
   // ─── Gesture instruction toast already shown? ──────────────
   const gestureShownRef = useRef(false);
 
+  // Build query params based on viewType
+  const getQueryParams = useCallback(() => {
+    const base = {
+      type: viewType === 'personal' ? 'owner' : 'collaborator',
+    };
+    if (viewType === 'personal') {
+      if (filters.trash) {
+        return { ...base, trash: 'true' };
+      }
+      if (filters.folderId) base.folderId = filters.folderId;
+      if (filters.status) base.status = filters.status;
+      if (filters.priority) base.priority = filters.priority;
+      if (filters.archived) base.archived = 'true';
+    }
+    return base;
+  }, [viewType, filters]);
+
   const {
     data: tasksData,
     isLoading: tasksLoading,
     refetch: refetchTasks,
-  } = useGetPersonalTasksQuery({
-    folderId: filters.trash ? undefined : (filters.folderId || undefined),
-    status: filters.trash ? undefined : (filters.status || undefined),
-    priority: filters.trash ? undefined : (filters.priority || undefined),
-    archived: filters.trash ? undefined : (filters.archived ? 'true' : undefined),
-    trash: filters.trash ? 'true' : undefined,
-  });
+  } = useGetPersonalTasksQuery(getQueryParams());
+
   const {
     data: foldersData,
     isLoading: foldersLoading,
@@ -2101,6 +2214,13 @@ const PersonalTasks = () => {
     'Failed to restore some tasks'
   );
 
+  // ─── Bulk collaborate ──────────────────────────────────────
+  const handleBulkCollaborate = () => {
+    if (selectedIds.size === 0) return;
+    setCollaborateTarget('bulk');
+    setShowCollaborateModal(true);
+  };
+
   // ─── Confirm permanent delete for bulk ──────────────────────
   const confirmBulkPermanentDelete = async () => {
     const ids = Array.from(selectedIds);
@@ -2153,8 +2273,47 @@ const PersonalTasks = () => {
     );
   };
 
-  // ─── Handlers ──────────────────────────────────────────────────
+  // ─── Collaboration handler ────────────────────────────────────
+  const handleCollaborateInvite = async ({ email, role }) => {
+    setCollaborateLoading(true);
+    try {
+      if (collaborateTarget === 'bulk') {
+        const ids = Array.from(selectedIds);
+        let successCount = 0;
+        let failCount = 0;
+        for (const taskId of ids) {
+          try {
+            await addCollaborator({ taskId, email, role }).unwrap();
+            successCount++;
+          } catch (err) {
+            failCount++;
+            console.error(`Failed to add collaborator to task ${taskId}:`, err);
+          }
+        }
+        if (failCount === 0) {
+          toast.success(`Collaborator invited to ${successCount} tasks.`);
+        } else {
+          toast.error(`Partial success: ${successCount} tasks, ${failCount} failed.`);
+        }
+        setShowCollaborateModal(false);
+        setCollaborateTarget(null);
+        clearSelection();
+        refetchTasks();
+      } else {
+        await addCollaborator({ taskId: collaborateTarget, email, role }).unwrap();
+        toast.success('Collaborator invited successfully!');
+        setShowCollaborateModal(false);
+        setCollaborateTarget(null);
+        refetchTasks();
+      }
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to invite collaborator');
+    } finally {
+      setCollaborateLoading(false);
+    }
+  };
 
+  // ─── Handlers ──────────────────────────────────────────────────
   const handleCreateTask = async (payload) => {
     const tempId = `temp-${Date.now()}`;
     const newTask = {
@@ -2358,7 +2517,7 @@ const PersonalTasks = () => {
     }
   };
 
-  // Checklist handlers (using the API mutation names, but we rename the local functions)
+  // Checklist handlers
   const handleAddChecklist = async (taskId, data) => {
     const prevTasks = [...localTasks];
     setLocalTasks(prev => prev.map(t => {
@@ -2455,7 +2614,6 @@ const PersonalTasks = () => {
   };
 
   // ─── Task list handlers ──────────────────────────────────────
-
   const handleTaskClick = (task) => {
     if (selectionMode) {
       toggleSelection(task._id);
@@ -2502,24 +2660,30 @@ const PersonalTasks = () => {
     setShowActionModal(false);
   };
 
+  const handleCollaborateFromModal = (task) => {
+    setCollaborateTarget(task._id);
+    setShowCollaborateModal(true);
+    setShowActionModal(false);
+  };
+
   const selectedTask = useMemo(() => localTasks.find(t => t._id === selectedTaskId), [localTasks, selectedTaskId]);
 
   // ─── Filtering & sorting ──────────────────────────────────────
-  // Primary sort by orderMap only
   const displayedTasks = useMemo(() => {
     let filtered = localTasks.filter(task => {
-      if (filters.trash) return task.isTrash === true;
+      if (filters.trash && viewType === 'personal') return task.isTrash === true;
       if (task.isTrash) return false;
 
-      if (filters.folderId && task.folder?._id !== filters.folderId) return false;
-      if (filters.status && task.status !== filters.status) return false;
-      if (filters.priority && task.priority !== filters.priority) return false;
-      if (filters.archived && !task.isArchived) return false;
-      if (!filters.archived && task.isArchived) return false;
+      if (viewType === 'personal') {
+        if (filters.folderId && task.folder?._id !== filters.folderId) return false;
+        if (filters.status && task.status !== filters.status) return false;
+        if (filters.priority && task.priority !== filters.priority) return false;
+        if (filters.archived && !task.isArchived) return false;
+        if (!filters.archived && task.isArchived) return false;
+      }
       return true;
     });
 
-    // Sort only by orderMap
     filtered.sort((a, b) => {
       const orderA = orderMap.current[a._id] ?? a.order ?? 0;
       const orderB = orderMap.current[b._id] ?? b.order ?? 0;
@@ -2527,16 +2691,16 @@ const PersonalTasks = () => {
     });
 
     return filtered;
-  }, [localTasks, filters]);
+  }, [localTasks, filters, viewType]);
 
-  // ─── Reorder tasks / move into folder (drag & drop) ───────────
-
+  // ─── Reorder tasks / move into folder ───────────────────────────
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 10 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
   const handleDragEnd = async (event) => {
+    if (viewType !== 'personal') return;
     const { active, over } = event;
     if (!over) return;
 
@@ -2573,13 +2737,12 @@ const PersonalTasks = () => {
   };
 
   // ─── Tabs ──────────────────────────────────────────────────────
-
   const handleTabClick = (folderId) => {
-    if (selectionMode) return;
+    if (selectionMode || viewType !== 'personal') return;
     setFilters(prev => ({ ...prev, folderId, archived: false, trash: false }));
   };
   const handleArchivedTabClick = () => {
-    if (selectionMode) return;
+    if (selectionMode || viewType !== 'personal') return;
     setFilters(prev => ({ ...prev, archived: true, folderId: '', trash: false }));
   };
   const handleAllTabClick = () => {
@@ -2587,14 +2750,20 @@ const PersonalTasks = () => {
     setFilters(prev => ({ ...prev, folderId: '', archived: false, trash: false }));
   };
   const handleTrashTabClick = () => {
-    if (selectionMode) return;
+    if (selectionMode || viewType !== 'personal') return;
     setFilters(prev => ({ ...prev, trash: true, archived: false, folderId: '' }));
   };
 
-  // ─── Get touch device info ──────────────────────────────────
-  const isTouch = useIsTouchDevice();
+  const handleViewTypeChange = (type) => {
+    if (type === viewType) return;
+    setViewType(type);
+    if (type === 'collab') {
+      setFilters({ folderId: '', status: '', priority: '', archived: false, trash: false });
+    }
+    clearSelection();
+  };
 
-  // ─── Render ────────────────────────────────────────────────────
+  const isTouch = useIsTouchDevice();
 
   if (tasksLoading || foldersLoading) {
     return (
@@ -2607,8 +2776,8 @@ const PersonalTasks = () => {
     );
   }
 
-  const isTrashView = filters.trash;
-  const isArchivedView = filters.archived && !filters.trash;
+  const isTrashView = filters.trash && viewType === 'personal';
+  const isArchivedView = filters.archived && !filters.trash && viewType === 'personal';
 
   return (
     <>
@@ -2644,66 +2813,95 @@ const PersonalTasks = () => {
                     onRestore={bulkRestore}
                     isTrashView={isTrashView}
                     isArchivedView={isArchivedView}
+                    onCollaborate={handleBulkCollaborate}
                   />
                 ) : (
                   <>
-                    <div className="px-3 sm:px-6 h-12 flex items-center justify-between gap-2">
-                      <h1 className="text-sm font-semibold text-gray-800 dark:text-white flex items-center gap-2">
-                        <FaTasks className="text-teal-500 text-sm" /> Personal Tasks
-                      </h1>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => setShowFolderModal(true)}
-                          className="p-1.5 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
-                        >
-                          <FaFolderOpen className="text-sm" />
-                        </button>
-                        <button
-                          onClick={handleArchivedTabClick}
-                          className={`p-1.5 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 ${filters.archived ? 'text-purple-600 dark:text-purple-400' : 'text-gray-400 hover:text-purple-500'}`}
-                          title="Archived"
-                        >
-                          <FaArchive className="text-sm" />
-                        </button>
-                        <button
-                          onClick={handleTrashTabClick}
-                          className={`p-1.5 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 ${filters.trash ? 'text-red-600 dark:text-red-400' : 'text-gray-400 hover:text-red-500'}`}
-                          title="Trash"
-                        >
-                          <FaTrashAlt className="text-sm" />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="px-3 pb-1 flex items-center gap-1 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-700">
-                      <div
-                        onClick={handleAllTabClick}
-                        className={`flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-t-lg cursor-pointer transition ${
-                          !filters.archived && !filters.folderId && !filters.trash
-                            ? 'bg-gray-100 dark:bg-[#2a2a2a] text-teal-600 dark:text-teal-400 border-b-2 border-teal-500'
+                    <div className="flex items-center gap-1 px-3 sm:px-6 pt-2">
+                      <button
+                        onClick={() => handleViewTypeChange('personal')}
+                        className={`flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium rounded-full transition ${
+                          viewType === 'personal'
+                            ? 'bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300'
                             : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#2a2a2a]'
                         }`}
                       >
-                        All
-                      </div>
-                      {folders.map((folder) => (
-                        <DroppableFolderTab
-                          key={folder._id}
-                          folder={folder}
-                          isActive={filters.folderId === folder._id && !filters.archived && !filters.trash}
-                          onClick={() => handleTabClick(folder._id)}
-                        >
-                          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: folder.color || '#4f46e5' }} />
-                          {folder.name}
-                        </DroppableFolderTab>
-                      ))}
+                        <FaUser className="text-[10px]" /> Personal
+                      </button>
                       <button
-                        onClick={() => setShowFolderModal(true)}
-                        className="flex-shrink-0 p-1 text-gray-400 hover:text-teal-500 transition rounded-full hover:bg-gray-100 dark:hover:bg-[#2a2a2a]"
+                        onClick={() => handleViewTypeChange('collab')}
+                        className={`flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium rounded-full transition ${
+                          viewType === 'collab'
+                            ? 'bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300'
+                            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#2a2a2a]'
+                        }`}
                       >
-                        <FaPlus className="text-xs" />
+                        <FaUsers className="text-[10px]" /> Collab
                       </button>
                     </div>
+
+                    <div className="px-3 sm:px-6 h-12 flex items-center justify-between gap-2">
+                      <h1 className="text-sm font-semibold text-gray-800 dark:text-white flex items-center gap-2">
+                        <FaTasks className="text-teal-500 text-sm" />
+                        {viewType === 'personal' ? 'Personal Tasks' : 'Collaborations'}
+                      </h1>
+                      {viewType === 'personal' && (
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setShowFolderModal(true)}
+                            className="p-1.5 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+                          >
+                            <FaFolderOpen className="text-sm" />
+                          </button>
+                          <button
+                            onClick={handleArchivedTabClick}
+                            className={`p-1.5 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 ${filters.archived ? 'text-purple-600 dark:text-purple-400' : 'text-gray-400 hover:text-purple-500'}`}
+                            title="Archived"
+                          >
+                            <FaArchive className="text-sm" />
+                          </button>
+                          <button
+                            onClick={handleTrashTabClick}
+                            className={`p-1.5 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 ${filters.trash ? 'text-red-600 dark:text-red-400' : 'text-gray-400 hover:text-red-500'}`}
+                            title="Trash"
+                          >
+                            <FaTrashAlt className="text-sm" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {viewType === 'personal' && (
+                      <div className="px-3 pb-1 flex items-center gap-1 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-700">
+                        <div
+                          onClick={handleAllTabClick}
+                          className={`flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-t-lg cursor-pointer transition ${
+                            !filters.archived && !filters.folderId && !filters.trash
+                              ? 'bg-gray-100 dark:bg-[#2a2a2a] text-teal-600 dark:text-teal-400 border-b-2 border-teal-500'
+                              : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#2a2a2a]'
+                          }`}
+                        >
+                          All
+                        </div>
+                        {folders.map((folder) => (
+                          <DroppableFolderTab
+                            key={folder._id}
+                            folder={folder}
+                            isActive={filters.folderId === folder._id && !filters.archived && !filters.trash}
+                            onClick={() => handleTabClick(folder._id)}
+                          >
+                            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: folder.color || '#4f46e5' }} />
+                            {folder.name}
+                          </DroppableFolderTab>
+                        ))}
+                        <button
+                          onClick={() => setShowFolderModal(true)}
+                          className="flex-shrink-0 p-1 text-gray-400 hover:text-teal-500 transition rounded-full hover:bg-gray-100 dark:hover:bg-[#2a2a2a]"
+                        >
+                          <FaPlus className="text-xs" />
+                        </button>
+                      </div>
+                    )}
                   </>
                 )}
               </header>
@@ -2716,6 +2914,12 @@ const PersonalTasks = () => {
                         <FaTrashAlt className="text-4xl mb-2 opacity-30" />
                         <p className="text-sm font-medium">Trash is empty</p>
                         <p className="text-xs">Deleted tasks and reminders show up here.</p>
+                      </>
+                    ) : viewType === 'collab' ? (
+                      <>
+                        <FaUsers className="text-4xl mb-2 opacity-30" />
+                        <p className="text-sm font-medium">No collaborations yet</p>
+                        <p className="text-xs">When someone invites you to collaborate, tasks will appear here.</p>
                       </>
                     ) : (
                       <>
@@ -2754,7 +2958,6 @@ const PersonalTasks = () => {
       </div>
 
       {/* ─── Modals ────────────────────────────────────────────────── */}
-
       <BottomSheet isOpen={showCreateModal} onClose={() => { setShowCreateModal(false); setEditingTask(null); }}>
         <TaskForm
           task={editingTask}
@@ -2813,6 +3016,7 @@ const PersonalTasks = () => {
         onMove={handleMoveFromModal}
         onPermanentDelete={handlePermanentDelete}
         onSelect={handleSelectFromModal}
+        onCollaborate={handleCollaborateFromModal}
       />
 
       <MoveTaskModal
@@ -2823,7 +3027,20 @@ const PersonalTasks = () => {
         onMoveTask={handleMoveTaskToFolder}
       />
 
-      {!selectedTask && !selectionMode && (
+      <CollaborateModal
+        isOpen={showCollaborateModal}
+        onClose={() => { setShowCollaborateModal(false); setCollaborateTarget(null); }}
+        onInvite={handleCollaborateInvite}
+        isLoading={collaborateLoading}
+        taskTitle={
+          collaborateTarget === 'bulk'
+            ? `${selectedIds.size} tasks`
+            : localTasks.find(t => t._id === collaborateTarget)?.title || 'task'
+        }
+        isBulk={collaborateTarget === 'bulk'}
+      />
+
+      {!selectedTask && !selectionMode && viewType === 'personal' && (
         <button
           onClick={() => { setEditingTask(null); setShowCreateModal(true); }}
           className="fixed right-4 sm:right-6 bottom-20 md:bottom-6 z-20 w-12 h-12 bg-teal-600 dark:bg-teal-500 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-teal-700 dark:hover:bg-teal-600 transition active:scale-95"
@@ -2832,7 +3049,6 @@ const PersonalTasks = () => {
         </button>
       )}
 
-      {/* ─── Bulk loading overlay ──────────────────────────────── */}
       {bulkLoading && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
           <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl p-6 shadow-xl flex flex-col items-center">

@@ -45,6 +45,7 @@ import AppVersions from './screens/AppVersions.jsx';
 import AuthCallback from './screens/AuthCallback.jsx';
 import Notes from './screens/Notes.jsx';
 import WriteNote from './screens/WriteNote.jsx';
+import AcceptTaskCollab from './screens/AcceptTaskCollab.jsx';
 
 import AllTasks from './screens/AllTasks.jsx';
 
@@ -585,6 +586,7 @@ const router = createBrowserRouter([
           {path: 'auth/google/callback', element: <AuthCallback />},
           {path: 'notes', element: <Notes />},
           {path: 'notes/:id', element: <WriteNote />},
+          {path: 'accept-task-collab', element: <AcceptTaskCollab />},
 
           { path: 'call/:roomId', element: <CallScreen /> },
 

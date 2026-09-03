@@ -20,6 +20,10 @@ import {
   togglePersonalSubTask,
   deletePersonalSubTask,
   reorderPersonalSubTasks,
+  // Collaboration endpoints
+  addCollaborator,
+  getPendingInvitations,
+  acceptInvitationWithToken,
 } from '../controllers/personalTaskController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
@@ -38,10 +42,7 @@ router.delete('/folders/:folderId', deletePersonalFolder);
 router.get('/', getPersonalTasks);                       // supports ?folderId, ?status, ?priority, ?archived
 router.post('/', createPersonalTask);
 
-// IMPORTANT: this must come before `/:taskId` — otherwise Express treats
-// "reorder" as a :taskId value and routes it into updatePersonalTask/PUT
-// instead (which doesn't exist for PATCH anyway, but the ordering still
-// matters for any future PATCH added under /:taskId).
+// IMPORTANT: reorder must come before `/:taskId` to avoid being matched as a task ID
 router.patch('/reorder', reorderPersonalTasks);
 
 router.put('/:taskId', updatePersonalTask);
@@ -52,11 +53,21 @@ router.patch('/:taskId/restore', restorePersonalTask);
 router.delete('/:taskId', deletePersonalTask);            // soft‑delete → trash
 router.delete('/:taskId/permanent', permanentlyDeletePersonalTask);
 
+// ── Collaboration ──────────────────────────────────────────────────
+// Add a collaborator to a specific task (owner only)
+router.post('/:taskId/collaborators', addCollaborator);
+
+// Get pending invitations for the current user
+router.get('/collaborators/pending', getPendingInvitations);
+
+// Accept an invitation using the token from email
+router.post('/collaborators/accept-token', acceptInvitationWithToken);
+
 // ── Personal Sub‑tasks ────────────────────────────────────────────
-router.post('/:taskId/subtasks', protect, addPersonalSubTask);
-router.put('/:taskId/subtasks/:subTaskIndex', protect, updatePersonalSubTask);
-router.patch('/:taskId/subtasks/:subTaskIndex/toggle', protect, togglePersonalSubTask);
-router.delete('/:taskId/subtasks/:subTaskIndex', protect, deletePersonalSubTask);
-router.patch('/:taskId/subtasks/reorder', protect, reorderPersonalSubTasks);
+router.post('/:taskId/subtasks', addPersonalSubTask);
+router.put('/:taskId/subtasks/:subTaskIndex', updatePersonalSubTask);
+router.patch('/:taskId/subtasks/:subTaskIndex/toggle', togglePersonalSubTask);
+router.delete('/:taskId/subtasks/:subTaskIndex', deletePersonalSubTask);
+router.patch('/:taskId/subtasks/reorder', reorderPersonalSubTasks);
 
 export default router;
