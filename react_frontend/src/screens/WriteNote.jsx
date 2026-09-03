@@ -385,82 +385,114 @@ const WriteNote = () => {
     attachToolbar(isMobile);
   }, [isMobile, isEditing, attachToolbar]);
 
-  // ─── FIX: Force NESTED dropdown panels (font color, font size, highlight,
-  // table properties — the ones that open from inside "More") to open
-  // upward on mobile. CKEditor positions these panels in JS using
-  // window.innerHeight, which ignores the on-screen keyboard, so they drop
-  // downward and end up hidden behind it. The top-level "More" panel is
-  // left untouched here since the existing CSS already positions it
-  // correctly — we only step in for panels nested inside another open panel.
+  // ─── FIX: Keep every nested dropdown panel (font color, size, highlight,
+  // alignment, table properties, etc.) fully on-screen on mobile.
+  //
+  // Why the earlier version failed: it tried to find each panel's toggle
+  // button by walking up the DOM from the panel (panel.closest('.ck-dropdown')).
+  // That only works for dropdowns whose panel stays nested under its button
+  // in the DOM — but CKEditor detaches some panel types (color pickers,
+  // table properties) and re-attaches them straight to <body>, breaking
+  // that lookup silently. Result: some dropdowns got fixed by luck, others
+  // (AI/font list, alignment) never got a button match and just kept
+  // whatever broken position CKEditor gave them — or, in the version that
+  // hid a panel while it "waited" for a button match that never arrived,
+  // got stuck invisible forever.
+  //
+  // Fix: don't infer the button from the panel's DOM position at all.
+  // Record the real screen position of whatever the user just tapped, and
+  // use that directly as the anchor for whatever panel opens next. This
+  // works regardless of how CKEditor structures that particular dropdown.
   useEffect(() => {
     if (!isMobile) return;
 
-    const repositionPanel = (panel) => {
-      const isNested = panel.parentElement?.closest('.ck-dropdown__panel');
-      if (!isNested) return;
+    const MARGIN = 8;
+    const ANCHOR_MAX_AGE = 800; // ms — ignore a stale anchor rather than guess wrong
+    let lastAnchorRect = null;
+    let lastAnchorTime = 0;
 
-      const dropdown = panel.closest('.ck-dropdown');
-      const button = dropdown?.querySelector(
-        ':scope > .ck-dropdown__button, :scope > .ck-button'
+    const recordAnchor = (e) => {
+      const trigger = e.target.closest?.(
+        '.ck-dropdown__button, .ck-splitbutton__arrow, .ck-splitbutton__action, .ck-button'
       );
-      if (!button) return;
-
-      // Hide it the instant it appears — otherwise it briefly renders at
-      // CKEditor's own (wrong) position, which can sit right on top of a
-      // neighboring toolbar button (e.g. Subscript) and swallow the very
-      // first tap before we've had a chance to move it.
-      panel.style.setProperty('visibility', 'hidden', 'important');
-
-      const place = () => {
-        const btnRect = button.getBoundingClientRect();
-        const margin = 8;
-
-        // Never let the panel be wider than the screen.
-        panel.style.setProperty('max-width', `${window.innerWidth - margin * 2}px`, 'important');
-        panel.style.setProperty('box-sizing', 'border-box', 'important');
-
-        const panelWidth = panel.getBoundingClientRect().width;
-        let left = btnRect.left;
-        if (left + panelWidth > window.innerWidth - margin) {
-          left = window.innerWidth - margin - panelWidth;
-        }
-        if (left < margin) left = margin;
-
-        panel.style.setProperty('position', 'fixed', 'important');
-        panel.style.setProperty('top', 'auto', 'important');
-        panel.style.setProperty(
-          'bottom',
-          `${window.innerHeight - btnRect.top + keyboardOffset + 4}px`,
-          'important'
-        );
-        panel.style.setProperty('left', `${left}px`, 'important');
-        panel.style.setProperty('right', 'auto', 'important');
-        panel.style.setProperty('max-height', '50vh', 'important');
-        panel.style.setProperty('overflow-y', 'auto', 'important');
-        panel.style.setProperty('visibility', 'visible', 'important');
-      };
-
-      // Two frames: let layout settle (max-width applied) before measuring
-      // width for the left-edge clamp, then reveal it in its final spot.
-      requestAnimationFrame(() => requestAnimationFrame(place));
+      if (!trigger) return;
+      const dropdown = trigger.closest('.ck-dropdown');
+      lastAnchorRect = (dropdown || trigger).getBoundingClientRect();
+      lastAnchorTime = Date.now();
     };
 
-    const observer = new MutationObserver((mutations) => {
-      mutations.forEach((m) => {
-        m.addedNodes.forEach((node) => {
-          if (!(node instanceof HTMLElement)) return;
-          if (node.matches?.('.ck-dropdown__panel, .ck-balloon-panel')) {
-            repositionPanel(node);
-          }
-          node
-            .querySelectorAll?.('.ck-dropdown__panel, .ck-balloon-panel')
-            .forEach(repositionPanel);
+    // Capture phase: record the tap's real position before CKEditor's own
+    // handler runs and (for some dropdown types) shifts layout.
+    document.addEventListener('pointerdown', recordAnchor, true);
+    document.addEventListener('click', recordAnchor, true);
+
+    const isVisible = (el) => {
+      if (!el.isConnected) return false;
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden') return false;
+      return el.offsetWidth > 0 || el.offsetHeight > 0;
+    };
+
+    const positionPanel = (panel) => {
+      // No recent tap to anchor to — leave it as CKEditor rendered it
+      // rather than place it somewhere worse.
+      if (!lastAnchorRect || Date.now() - lastAnchorTime > ANCHOR_MAX_AGE) return;
+      const anchor = lastAnchorRect;
+
+      panel.style.setProperty('max-width', `${window.innerWidth - MARGIN * 2}px`, 'important');
+      panel.style.setProperty('box-sizing', 'border-box', 'important');
+
+      const panelWidth = panel.getBoundingClientRect().width || 200;
+      let left = anchor.left;
+      if (left + panelWidth > window.innerWidth - MARGIN) {
+        left = window.innerWidth - MARGIN - panelWidth;
+      }
+      if (left < MARGIN) left = MARGIN;
+
+      // Never taller than the actual space between the top of the screen
+      // and the tapped button — this is what kept pushing panels above
+      // the screen on shorter phones.
+      const availableHeight = Math.max(120, anchor.top - MARGIN);
+
+      panel.style.setProperty('position', 'fixed', 'important');
+      panel.style.setProperty('top', 'auto', 'important');
+      panel.style.setProperty(
+        'bottom',
+        `${window.innerHeight - anchor.top + keyboardOffset + 4}px`,
+        'important'
+      );
+      panel.style.setProperty('left', `${left}px`, 'important');
+      panel.style.setProperty('right', 'auto', 'important');
+      panel.style.setProperty('max-height', `${availableHeight}px`, 'important');
+      panel.style.setProperty('overflow-y', 'auto', 'important');
+    };
+
+    const repositionOpenPanels = () => {
+      document
+        .querySelectorAll('.ck-dropdown__panel, .ck-balloon-panel')
+        .forEach((panel) => {
+          if (isVisible(panel)) positionPanel(panel);
         });
-      });
+    };
+
+    // Attribute changes matter as much as new nodes — CKEditor reuses and
+    // toggles visibility on some panel elements instead of re-creating
+    // them, and a childList-only observer misses that entirely.
+    const observer = new MutationObserver(() => {
+      requestAnimationFrame(repositionOpenPanels);
+    });
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'style'],
     });
 
-    observer.observe(document.body, { childList: true, subtree: true });
-    return () => observer.disconnect();
+    return () => {
+      document.removeEventListener('pointerdown', recordAnchor, true);
+      document.removeEventListener('click', recordAnchor, true);
+      observer.disconnect();
+    };
   }, [isMobile, keyboardOffset]);
 
   // ─── FIX: Keep keyboard open after dropdown closes ───

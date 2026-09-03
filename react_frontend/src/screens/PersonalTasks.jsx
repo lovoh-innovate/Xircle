@@ -451,13 +451,13 @@ const MoveTaskModal = ({ isOpen, onClose, task, folders, onMoveTask }) => {
   );
 };
 
-// ─── Subtask Action Modal (with Select) ──────────────────────
-const SubtaskActionModal = ({ isOpen, onClose, subtask, index, onEdit, onDelete, onSelect }) => {
-  if (!isOpen || !subtask) return null;
+// ─── Checklist Action Modal (renamed from SubtaskActionModal) ──
+const ChecklistActionModal = ({ isOpen, onClose, checklistItem, index, onEdit, onDelete, onSelect }) => {
+  if (!isOpen || !checklistItem) return null;
   return (
     <BottomSheet isOpen={isOpen} onClose={onClose}>
       <div className="p-6 space-y-3">
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-white break-words">{subtask.title}</h3>
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-white break-words">{checklistItem.title}</h3>
         <div className="grid grid-cols-2 gap-2">
           <button
             onClick={() => { onEdit(index); onClose(); }}
@@ -489,14 +489,14 @@ const SubtaskActionModal = ({ isOpen, onClose, subtask, index, onEdit, onDelete,
   );
 };
 
-// ─── Subtask Edit Modal (unchanged) ──────────────────────────
-const SubtaskEditModal = ({ isOpen, onClose, subtask, index, onSave }) => {
-  const [title, setTitle] = useState(subtask?.title || '');
-  const [dueDate, setDueDate] = useState(subtask?.dueDate ? new Date(subtask.dueDate).toISOString().slice(0, 16) : '');
-  const [recurrenceType, setRecurrenceType] = useState(subtask?.recurrenceType || 'none');
-  const [recurrenceDays, setRecurrenceDays] = useState(subtask?.recurrenceDays || []);
+// ─── Checklist Edit Modal (renamed from SubtaskEditModal) ────
+const ChecklistEditModal = ({ isOpen, onClose, checklistItem, index, onSave }) => {
+  const [title, setTitle] = useState(checklistItem?.title || '');
+  const [dueDate, setDueDate] = useState(checklistItem?.dueDate ? new Date(checklistItem.dueDate).toISOString().slice(0, 16) : '');
+  const [recurrenceType, setRecurrenceType] = useState(checklistItem?.recurrenceType || 'none');
+  const [recurrenceDays, setRecurrenceDays] = useState(checklistItem?.recurrenceDays || []);
   const [recurrenceEndDate, setRecurrenceEndDate] = useState(
-    subtask?.recurrenceEndDate ? new Date(subtask.recurrenceEndDate).toISOString().slice(0, 16) : ''
+    checklistItem?.recurrenceEndDate ? new Date(checklistItem.recurrenceEndDate).toISOString().slice(0, 16) : ''
   );
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -507,14 +507,14 @@ const SubtaskEditModal = ({ isOpen, onClose, subtask, index, onSave }) => {
   ];
 
   useEffect(() => {
-    if (subtask) {
-      setTitle(subtask.title || '');
-      setDueDate(subtask.dueDate ? new Date(subtask.dueDate).toISOString().slice(0, 16) : '');
-      setRecurrenceType(subtask.recurrenceType || 'none');
-      setRecurrenceDays(subtask.recurrenceDays || []);
-      setRecurrenceEndDate(subtask.recurrenceEndDate ? new Date(subtask.recurrenceEndDate).toISOString().slice(0, 16) : '');
+    if (checklistItem) {
+      setTitle(checklistItem.title || '');
+      setDueDate(checklistItem.dueDate ? new Date(checklistItem.dueDate).toISOString().slice(0, 16) : '');
+      setRecurrenceType(checklistItem.recurrenceType || 'none');
+      setRecurrenceDays(checklistItem.recurrenceDays || []);
+      setRecurrenceEndDate(checklistItem.recurrenceEndDate ? new Date(checklistItem.recurrenceEndDate).toISOString().slice(0, 16) : '');
     }
-  }, [subtask]);
+  }, [checklistItem]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -545,7 +545,7 @@ const SubtaskEditModal = ({ isOpen, onClose, subtask, index, onSave }) => {
     <BottomSheet isOpen={isOpen} onClose={onClose}>
       <form onSubmit={handleSubmit} className="p-6 space-y-4">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-semibold text-gray-800 dark:text-white">Edit Subtask</h3>
+          <h3 className="text-lg font-semibold text-gray-800 dark:text-white">Edit Checklist Item</h3>
           <button type="button" onClick={onClose}><FaTimes className="text-gray-400" /></button>
         </div>
         <div>
@@ -631,9 +631,9 @@ const SubtaskEditModal = ({ isOpen, onClose, subtask, index, onSave }) => {
   );
 };
 
-// ─── Subtask Item (with selection support) ─────────────────────
-const SubtaskItem = ({
-  subtask,
+// ─── Checklist Item (renamed from SubtaskItem) ────────────────
+const ChecklistItem = ({
+  checklistItem,
   index,
   onToggle,
   onOpenModal,
@@ -651,7 +651,7 @@ const SubtaskItem = ({
   const lastTap = useRef(0);
 
   const handleRowClick = (e) => {
-    if (e.target.closest('.subtask-toggle-btn') || e.target.closest('.subtask-more-btn')) return;
+    if (e.target.closest('.checklist-toggle-btn') || e.target.closest('.checklist-more-btn')) return;
 
     if (isTouch) {
       const now = Date.now();
@@ -680,7 +680,7 @@ const SubtaskItem = ({
   // Long press for selection start (touch only)
   const longPressTimer = useRef(null);
   const handleTouchStart = (e) => {
-    if (e.target.closest('.subtask-toggle-btn') || e.target.closest('.subtask-more-btn')) return;
+    if (e.target.closest('.checklist-toggle-btn') || e.target.closest('.checklist-more-btn')) return;
     longPressTimer.current = setTimeout(() => {
       if (onLongPress) onLongPress(index);
     }, 500);
@@ -718,42 +718,42 @@ const SubtaskItem = ({
           <FaGripVertical className="text-sm" />
         </div>
         <button
-          onClick={(e) => { e.stopPropagation(); onToggle(index, !subtask.done); }}
-          className={`subtask-toggle-btn w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition ${
-            subtask.done
+          onClick={(e) => { e.stopPropagation(); onToggle(index, !checklistItem.done); }}
+          className={`checklist-toggle-btn w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition ${
+            checklistItem.done
               ? 'bg-teal-500 border-teal-500 text-white'
               : 'border-gray-300 dark:border-gray-600 hover:border-teal-500'
           }`}
         >
-          {subtask.done && <FaCheck className="text-[10px]" />}
+          {checklistItem.done && <FaCheck className="text-[10px]" />}
         </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
-            <span className={`text-sm text-gray-800 dark:text-white break-words ${subtask.done ? 'line-through text-gray-400 dark:text-gray-500' : ''}`}>
-              {subtask.title}
+            <span className={`text-sm text-gray-800 dark:text-white break-words ${checklistItem.done ? 'line-through text-gray-400 dark:text-gray-500' : ''}`}>
+              {checklistItem.title}
             </span>
             <button
               onClick={(e) => { e.stopPropagation(); onOpenModal(index); }}
-              className="subtask-more-btn hidden md:flex p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition flex-shrink-0"
+              className="checklist-more-btn hidden md:flex p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition flex-shrink-0"
               aria-label="More actions"
             >
               <FaEllipsisV className="text-sm" />
             </button>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            {subtask.dueDate && (
-              <span className={`flex items-center gap-1 ${isOverdue(subtask.dueDate) ? 'text-red-500' : ''}`}>
-                <FaRegClock className="text-[10px]" /> {formatDate(subtask.dueDate)}
+            {checklistItem.dueDate && (
+              <span className={`flex items-center gap-1 ${isOverdue(checklistItem.dueDate) ? 'text-red-500' : ''}`}>
+                <FaRegClock className="text-[10px]" /> {formatDate(checklistItem.dueDate)}
               </span>
             )}
-            {subtask.recurrenceType && subtask.recurrenceType !== 'none' && (
+            {checklistItem.recurrenceType && checklistItem.recurrenceType !== 'none' && (
               <span className="flex items-center gap-0.5 text-teal-600 dark:text-teal-400">
-                <FaRedo className="text-[10px]" /> {subtask.recurrenceType === 'daily' ? 'Daily' : 'Weekly'}
-                {subtask.recurrenceDays?.length > 0 && ` (${subtask.recurrenceDays.map(d => weekDays[d]).join(', ')})`}
+                <FaRedo className="text-[10px]" /> {checklistItem.recurrenceType === 'daily' ? 'Daily' : 'Weekly'}
+                {checklistItem.recurrenceDays?.length > 0 && ` (${checklistItem.recurrenceDays.map(d => weekDays[d]).join(', ')})`}
               </span>
             )}
-            {subtask.recurrenceEndDate && (
-              <span className="text-gray-400 dark:text-gray-500">until {formatDate(subtask.recurrenceEndDate)}</span>
+            {checklistItem.recurrenceEndDate && (
+              <span className="text-gray-400 dark:text-gray-500">until {formatDate(checklistItem.recurrenceEndDate)}</span>
             )}
           </div>
         </div>
@@ -762,10 +762,10 @@ const SubtaskItem = ({
   );
 };
 
-// ─── Sortable Subtask Item ─────────────────────────────────────
-const SortableSubtaskItem = ({
+// ─── Sortable Checklist Item ─────────────────────────────────────
+const SortableChecklistItem = ({
   id,
-  subtask,
+  checklistItem,
   index,
   onToggle,
   onOpenModal,
@@ -795,8 +795,8 @@ const SortableSubtaskItem = ({
 
   return (
     <div ref={setNodeRef} style={style} className="touch-none">
-      <SubtaskItem
-        subtask={subtask}
+      <ChecklistItem
+        checklistItem={checklistItem}
         index={index}
         onToggle={onToggle}
         onOpenModal={onOpenModal}
@@ -815,8 +815,8 @@ const SortableSubtaskItem = ({
   );
 };
 
-// ─── Subtask Bulk Toolbar (updated with Uncheck) ──────────────
-const SubtaskBulkToolbar = ({ selectedCount, onCancel, onDelete, onComplete, onUncheck }) => {
+// ─── Checklist Bulk Toolbar (renamed from SubtaskBulkToolbar) ──
+const ChecklistBulkToolbar = ({ selectedCount, onCancel, onDelete, onComplete, onUncheck }) => {
   return (
     <motion.div
       initial={{ opacity: 0, y: -20 }}
@@ -858,63 +858,63 @@ const SubtaskBulkToolbar = ({ selectedCount, onCancel, onDelete, onComplete, onU
   );
 };
 
-// ─── Task Detail View (updated with subtask selection & uncheck) ────────
+// ─── Task Detail View (updated checklist selection & uncheck) ──
 const TaskDetailView = ({
   task,
   onBack,
-  onAddSubtask,
-  onToggleSubtask,
-  onDeleteSubtask,
+  onAddChecklist,
+  onToggleChecklist,
+  onDeleteChecklist,
   onArchive,
   onRestore,
   onDelete,
-  onReorderSubtasks,
-  onEditSubtask,
+  onReorderChecklist,
+  onEditChecklist,
 }) => {
-  const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
-  const [isAdding, setIsAdding] = useState(false);
+  const [newChecklistTitle, setNewChecklistTitle] = useState('');
+  const [isAddingChecklist, setIsAddingChecklist] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [subtaskToEdit, setSubtaskToEdit] = useState(null);
-  const [confirmDeleteIndex, setConfirmDeleteIndex] = useState(null);
-  const [showSubtaskAction, setShowSubtaskAction] = useState(false);
-  const [actionSubtaskIndex, setActionSubtaskIndex] = useState(null);
+  const [checklistToEdit, setChecklistToEdit] = useState(null);
+  const [confirmDeleteChecklistIndex, setConfirmDeleteChecklistIndex] = useState(null);
+  const [showChecklistAction, setShowChecklistAction] = useState(false);
+  const [actionChecklistIndex, setActionChecklistIndex] = useState(null);
 
-  // ─── Subtask selection state ──────────────────────────────────
-  const [selectedSubtaskIndices, setSelectedSubtaskIndices] = useState(new Set());
-  const [subtaskSelectionMode, setSubtaskSelectionMode] = useState(false);
-  const [subtaskBulkLoading, setSubtaskBulkLoading] = useState(false);
+  // ─── Checklist selection state ──────────────────────────────────
+  const [selectedChecklistIndices, setSelectedChecklistIndices] = useState(new Set());
+  const [checklistSelectionMode, setChecklistSelectionMode] = useState(false);
+  const [checklistBulkLoading, setChecklistBulkLoading] = useState(false);
 
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const isReminder = isReminderTask(task);
   const isTouch = useIsTouchDevice();
 
-  // ─── Subtask selection handlers ──────────────────────────────
-  const toggleSubtaskSelection = (index) => {
-    setSelectedSubtaskIndices(prev => {
+  // ─── Checklist selection handlers ──────────────────────────────
+  const toggleChecklistSelection = (index) => {
+    setSelectedChecklistIndices(prev => {
       const newSet = new Set(prev);
       if (newSet.has(index)) newSet.delete(index);
       else newSet.add(index);
-      if (newSet.size === 0) setSubtaskSelectionMode(false);
-      else setSubtaskSelectionMode(true);
+      if (newSet.size === 0) setChecklistSelectionMode(false);
+      else setChecklistSelectionMode(true);
       return newSet;
     });
   };
 
-  const startSubtaskSelection = (index) => {
-    setSelectedSubtaskIndices(new Set([index]));
-    setSubtaskSelectionMode(true);
+  const startChecklistSelection = (index) => {
+    setSelectedChecklistIndices(new Set([index]));
+    setChecklistSelectionMode(true);
   };
 
-  const clearSubtaskSelection = () => {
-    setSelectedSubtaskIndices(new Set());
-    setSubtaskSelectionMode(false);
+  const clearChecklistSelection = () => {
+    setSelectedChecklistIndices(new Set());
+    setChecklistSelectionMode(false);
   };
 
-  // ─── Bulk subtask actions ──────────────────────────────────────
-  const bulkSubtaskAction = async (actionFn, successMsg, errorMsg) => {
-    const indices = Array.from(selectedSubtaskIndices);
+  // ─── Bulk checklist actions ──────────────────────────────────────
+  const bulkChecklistAction = async (actionFn, successMsg, errorMsg) => {
+    const indices = Array.from(selectedChecklistIndices);
     if (indices.length === 0) return;
-    setSubtaskBulkLoading(true);
+    setChecklistBulkLoading(true);
     let successCount = 0;
     let failCount = 0;
     for (const idx of indices) {
@@ -923,123 +923,121 @@ const TaskDetailView = ({
         successCount++;
       } catch (err) {
         failCount++;
-        console.error(`Failed on subtask ${idx}:`, err);
+        console.error(`Failed on checklist item ${idx}:`, err);
       }
     }
-    setSubtaskBulkLoading(false);
-    clearSubtaskSelection();
+    setChecklistBulkLoading(false);
+    clearChecklistSelection();
     if (failCount === 0) {
-      toast.success(`${successMsg} (${successCount} subtasks)`);
+      toast.success(`${successMsg} (${successCount} checklist items)`);
     } else {
       toast.error(`Partial success: ${successCount} done, ${failCount} failed.`);
     }
   };
 
-  const bulkSubtaskDelete = () => {
-    bulkSubtaskAction(
-      (idx) => onDeleteSubtask(task._id, idx),
-      'Deleted subtasks',
-      'Failed to delete some subtasks'
+  const bulkChecklistDelete = () => {
+    bulkChecklistAction(
+      (idx) => onDeleteChecklist(task._id, idx),
+      'Deleted checklist items',
+      'Failed to delete some checklist items'
     );
   };
 
-  const bulkSubtaskComplete = () => {
-    // Only complete undone subtasks
-    const indices = Array.from(selectedSubtaskIndices);
+  const bulkChecklistComplete = () => {
+    // Only complete undone items
+    const indices = Array.from(selectedChecklistIndices);
     const undoneIndices = indices.filter(idx => !task.subtasks[idx]?.done);
     if (undoneIndices.length === 0) {
-      toast.info('No undone subtasks selected to complete.');
-      clearSubtaskSelection();
+      toast.info('No undone checklist items selected to complete.');
+      clearChecklistSelection();
       return;
     }
-    // We need to pass only undone indices to bulkAction, but we already have selectedSubtaskIndices.
-    // We'll modify to handle only undone ones.
-    // Instead we'll temporarily override selectedSubtaskIndices.
-    const originalSelected = new Set(selectedSubtaskIndices);
-    setSelectedSubtaskIndices(new Set(undoneIndices));
-    bulkSubtaskAction(
-      (idx) => onToggleSubtask(task._id, idx, true),
-      'Completed subtasks',
-      'Failed to complete some subtasks'
+    // We'll temporarily override selectedChecklistIndices to only undone ones
+    const originalSelected = new Set(selectedChecklistIndices);
+    setSelectedChecklistIndices(new Set(undoneIndices));
+    bulkChecklistAction(
+      (idx) => onToggleChecklist(task._id, idx, true),
+      'Completed checklist items',
+      'Failed to complete some checklist items'
     );
     // Restore original selection? Actually after bulk action we clear selection anyway.
   };
 
-  const bulkSubtaskUncheck = () => {
-    // Only uncheck done subtasks
-    const indices = Array.from(selectedSubtaskIndices);
+  const bulkChecklistUncheck = () => {
+    // Only uncheck done items
+    const indices = Array.from(selectedChecklistIndices);
     const doneIndices = indices.filter(idx => task.subtasks[idx]?.done);
     if (doneIndices.length === 0) {
-      toast.info('No completed subtasks selected to uncheck.');
-      clearSubtaskSelection();
+      toast.info('No completed checklist items selected to uncheck.');
+      clearChecklistSelection();
       return;
     }
-    const originalSelected = new Set(selectedSubtaskIndices);
-    setSelectedSubtaskIndices(new Set(doneIndices));
-    bulkSubtaskAction(
-      (idx) => onToggleSubtask(task._id, idx, false),
-      'Unchecked subtasks',
-      'Failed to uncheck some subtasks'
+    const originalSelected = new Set(selectedChecklistIndices);
+    setSelectedChecklistIndices(new Set(doneIndices));
+    bulkChecklistAction(
+      (idx) => onToggleChecklist(task._id, idx, false),
+      'Unchecked checklist items',
+      'Failed to uncheck some checklist items'
     );
   };
 
-  // ─── Subtask long press (touch) ──────────────────────────────
-  const handleSubtaskLongPress = (index) => {
-    const isSelected = selectedSubtaskIndices.has(index);
+  // ─── Checklist long press (touch) ──────────────────────────────
+  const handleChecklistLongPress = (index) => {
+    const isSelected = selectedChecklistIndices.has(index);
     if (!isSelected) {
-      startSubtaskSelection(index);
+      startChecklistSelection(index);
     } else {
-      toggleSubtaskSelection(index);
+      toggleChecklistSelection(index);
     }
   };
 
   // ─── Handlers for modals ──────────────────────────────────────
-  const handleAddSubtask = async (e) => {
+  const handleAddChecklist = async (e) => {
     e.preventDefault();
-    if (!newSubtaskTitle.trim()) return toast.error('Title required');
-    setIsAdding(true);
+    if (!newChecklistTitle.trim()) return toast.error('Title required');
+    setIsAddingChecklist(true);
     try {
-      await onAddSubtask(task._id, { title: newSubtaskTitle.trim() });
-      setNewSubtaskTitle('');
+      await onAddChecklist(task._id, { title: newChecklistTitle.trim() });
+      setNewChecklistTitle('');
     } catch (err) {
       // toast already handled in parent
     } finally {
-      setIsAdding(false);
+      setIsAddingChecklist(false);
     }
   };
 
   const handleToggle = (idx, done) => {
-    onToggleSubtask(task._id, idx, done);
+    onToggleChecklist(task._id, idx, done);
   };
 
-  const handleOpenSubtaskModal = (idx) => {
-    setActionSubtaskIndex(idx);
-    setShowSubtaskAction(true);
+  const handleOpenChecklistModal = (idx) => {
+    setActionChecklistIndex(idx);
+    setShowChecklistAction(true);
   };
 
-  const handleEditSubtask = (idx) => {
+  const handleEditChecklist = (idx) => {
     const st = task.subtasks[idx];
-    setSubtaskToEdit({ ...st, index: idx });
+    setChecklistToEdit({ ...st, index: idx });
     setShowEditModal(true);
   };
 
-  const handleDeleteSubtask = (idx) => {
-    setConfirmDeleteIndex(idx);
+  const handleDeleteChecklist = (idx) => {
+    setConfirmDeleteChecklistIndex(idx);
   };
 
   const confirmDelete = () => {
-    if (confirmDeleteIndex !== null) {
-      onDeleteSubtask(task._id, confirmDeleteIndex);
-      setConfirmDeleteIndex(null);
+    if (confirmDeleteChecklistIndex !== null) {
+      onDeleteChecklist(task._id, confirmDeleteChecklistIndex);
+      setConfirmDeleteChecklistIndex(null);
     }
   };
 
   const handleSaveEdit = (idx, data) => {
-    onEditSubtask(task._id, idx, data);
+    onEditChecklist(task._id, idx, data);
   };
 
-  const handleSelectFromSubtaskModal = (idx) => {
-    startSubtaskSelection(idx);
+  const handleSelectFromChecklistModal = (idx) => {
+    startChecklistSelection(idx);
   };
 
   const formatDate = (date) => {
@@ -1061,7 +1059,7 @@ const TaskDetailView = ({
       const newIndex = parseInt(over.id);
       const originalIndices = task.subtasks.map((_, i) => i);
       const indices = arrayMove(originalIndices, oldIndex, newIndex);
-      onReorderSubtasks(task._id, indices);
+      onReorderChecklist(task._id, indices);
     }
   };
 
@@ -1126,23 +1124,23 @@ const TaskDetailView = ({
 
       <div className="flex-1 overflow-y-auto px-4 py-3">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider">Subtasks</h3>
+          <h3 className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider">Checklist</h3>
           <span className="text-xs text-gray-400 dark:text-gray-500">{task.subtasks?.length || 0}</span>
         </div>
 
-        {/* ─── Subtask Bulk Toolbar ────────────────────────────── */}
-        {subtaskSelectionMode && (
-          <SubtaskBulkToolbar
-            selectedCount={selectedSubtaskIndices.size}
-            onCancel={clearSubtaskSelection}
-            onDelete={bulkSubtaskDelete}
-            onComplete={bulkSubtaskComplete}
-            onUncheck={bulkSubtaskUncheck}
+        {/* ─── Checklist Bulk Toolbar ────────────────────────────── */}
+        {checklistSelectionMode && (
+          <ChecklistBulkToolbar
+            selectedCount={selectedChecklistIndices.size}
+            onCancel={clearChecklistSelection}
+            onDelete={bulkChecklistDelete}
+            onComplete={bulkChecklistComplete}
+            onUncheck={bulkChecklistUncheck}
           />
         )}
 
         {(!task.subtasks || task.subtasks.length === 0) && (
-          <div className="text-center py-8 text-gray-400 dark:text-gray-500 text-sm">No subtasks yet.</div>
+          <div className="text-center py-8 text-gray-400 dark:text-gray-500 text-sm">No checklist items yet.</div>
         )}
 
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -1152,75 +1150,75 @@ const TaskDetailView = ({
           >
             <div className="space-y-2">
               {task.subtasks?.map((st, idx) => (
-                <SortableSubtaskItem
+                <SortableChecklistItem
                   key={idx}
                   id={String(idx)}
-                  subtask={st}
+                  checklistItem={st}
                   index={idx}
                   onToggle={handleToggle}
-                  onOpenModal={handleOpenSubtaskModal}
+                  onOpenModal={handleOpenChecklistModal}
                   isOverdue={isOverdue}
                   formatDate={formatDate}
                   weekDays={weekDays}
-                  isSelected={selectedSubtaskIndices.has(idx)}
-                  onLongPress={handleSubtaskLongPress}
+                  isSelected={selectedChecklistIndices.has(idx)}
+                  onLongPress={handleChecklistLongPress}
                   isTouch={isTouch}
-                  selectionMode={subtaskSelectionMode}
-                  onTap={toggleSubtaskSelection}
+                  selectionMode={checklistSelectionMode}
+                  onTap={toggleChecklistSelection}
                 />
               ))}
             </div>
           </SortableContext>
         </DndContext>
 
-        <form onSubmit={handleAddSubtask} className="mt-4 flex gap-2">
+        <form onSubmit={handleAddChecklist} className="mt-4 flex gap-2">
           <input
             type="text"
-            value={newSubtaskTitle}
-            onChange={(e) => setNewSubtaskTitle(e.target.value)}
-            placeholder="Add subtask..."
+            value={newChecklistTitle}
+            onChange={(e) => setNewChecklistTitle(e.target.value)}
+            placeholder="Add checklist item..."
             className="flex-1 px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl text-sm text-gray-800 dark:text-white placeholder-gray-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none"
           />
           <button
             type="submit"
-            disabled={isAdding}
+            disabled={isAddingChecklist}
             className="px-4 py-2 bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition disabled:opacity-50 flex items-center gap-1"
           >
-            {isAdding ? <FaSpinner className="animate-spin" /> : <FaPlus className="text-xs" />}
+            {isAddingChecklist ? <FaSpinner className="animate-spin" /> : <FaPlus className="text-xs" />}
           </button>
         </form>
       </div>
 
-      {/* ─── Subtask Modals ────────────────────────────────────── */}
-      <SubtaskActionModal
-        isOpen={showSubtaskAction}
-        onClose={() => { setShowSubtaskAction(false); setActionSubtaskIndex(null); }}
-        subtask={actionSubtaskIndex !== null ? task.subtasks[actionSubtaskIndex] : null}
-        index={actionSubtaskIndex}
-        onEdit={handleEditSubtask}
-        onDelete={handleDeleteSubtask}
-        onSelect={handleSelectFromSubtaskModal}
+      {/* ─── Checklist Modals ────────────────────────────────────── */}
+      <ChecklistActionModal
+        isOpen={showChecklistAction}
+        onClose={() => { setShowChecklistAction(false); setActionChecklistIndex(null); }}
+        checklistItem={actionChecklistIndex !== null ? task.subtasks[actionChecklistIndex] : null}
+        index={actionChecklistIndex}
+        onEdit={handleEditChecklist}
+        onDelete={handleDeleteChecklist}
+        onSelect={handleSelectFromChecklistModal}
       />
 
-      <SubtaskEditModal
+      <ChecklistEditModal
         isOpen={showEditModal}
-        onClose={() => { setShowEditModal(false); setSubtaskToEdit(null); }}
-        subtask={subtaskToEdit}
-        index={subtaskToEdit?.index}
+        onClose={() => { setShowEditModal(false); setChecklistToEdit(null); }}
+        checklistItem={checklistToEdit}
+        index={checklistToEdit?.index}
         onSave={handleSaveEdit}
       />
 
       <ConfirmModal
-        isOpen={confirmDeleteIndex !== null}
-        onClose={() => setConfirmDeleteIndex(null)}
+        isOpen={confirmDeleteChecklistIndex !== null}
+        onClose={() => setConfirmDeleteChecklistIndex(null)}
         onConfirm={confirmDelete}
-        title="Delete Subtask"
-        message="This subtask will be permanently deleted."
+        title="Delete Checklist Item"
+        message="This checklist item will be permanently deleted."
         danger
       />
 
-      {/* ─── Bulk subtask loading overlay ──────────────────────── */}
-      {subtaskBulkLoading && (
+      {/* ─── Bulk checklist loading overlay ──────────────────────── */}
+      {checklistBulkLoading && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 dark:bg-black/40 backdrop-blur-sm">
           <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl p-6 shadow-xl flex flex-col items-center">
             <FaSpinner className="animate-spin text-teal-500 text-4xl mb-3" />
@@ -1253,7 +1251,7 @@ const TaskCard = React.memo(({
   const isReminder = isReminderTask(task);
   const isOverdue = !isTrash && !isReminder && task.dueDate && new Date(task.dueDate) < new Date() && task.status !== 'completed';
   const isCompleted = task.status === 'completed';
-  const subtaskCount = task.subtasks?.length || 0;
+  const checklistCount = task.subtasks?.length || 0;
   const doneCount = task.subtasks?.filter(st => st.done).length || 0;
 
   // Long press detection only on touch devices
@@ -1381,7 +1379,7 @@ const TaskCard = React.memo(({
               <span className="capitalize">{task.status}</span>
             )}
             {!isTrash && !isReminder && task.dueDate && <span>{formatDate(task.dueDate)}</span>}
-            {subtaskCount > 0 && <span>{doneCount}/{subtaskCount}</span>}
+            {checklistCount > 0 && <span>{doneCount}/{checklistCount}</span>}
             {!isTrash && task.folder?.name && (
               <span className="flex items-center gap-1">
                 <FaFolder className="text-[9px]" style={{ color: task.folder.color || undefined }} /> {task.folder.name}
@@ -2360,14 +2358,14 @@ const PersonalTasks = () => {
     }
   };
 
-  // Subtask handlers
-  const handleAddSubtask = async (taskId, data) => {
+  // Checklist handlers (using the API mutation names, but we rename the local functions)
+  const handleAddChecklist = async (taskId, data) => {
     const prevTasks = [...localTasks];
     setLocalTasks(prev => prev.map(t => {
       if (t._id === taskId) {
         const subtasks = t.subtasks || [];
-        const newSubtask = { ...data, done: false, _id: `temp-${Date.now()}` };
-        return { ...t, subtasks: [...subtasks, newSubtask] };
+        const newItem = { ...data, done: false, _id: `temp-${Date.now()}` };
+        return { ...t, subtasks: [...subtasks, newItem] };
       }
       return t;
     }));
@@ -2376,11 +2374,11 @@ const PersonalTasks = () => {
       refetchTasks();
     } catch (err) {
       setLocalTasks(prevTasks);
-      toast.error(err?.data?.message || 'Failed to add subtask');
+      toast.error(err?.data?.message || 'Failed to add checklist item');
     }
   };
 
-  const handleToggleSubtask = async (taskId, subTaskIndex, done) => {
+  const handleToggleChecklist = async (taskId, subTaskIndex, done) => {
     const prevTasks = [...localTasks];
     setLocalTasks(prev => prev.map(t => {
       if (t._id === taskId) {
@@ -2396,11 +2394,11 @@ const PersonalTasks = () => {
       refetchTasks();
     } catch (err) {
       setLocalTasks(prevTasks);
-      toast.error(err?.data?.message || 'Failed to toggle subtask');
+      toast.error(err?.data?.message || 'Failed to toggle checklist item');
     }
   };
 
-  const handleDeleteSubtask = async (taskId, subTaskIndex) => {
+  const handleDeleteChecklist = async (taskId, subTaskIndex) => {
     const prevTasks = [...localTasks];
     setLocalTasks(prev => prev.map(t => {
       if (t._id === taskId) {
@@ -2415,11 +2413,11 @@ const PersonalTasks = () => {
       refetchTasks();
     } catch (err) {
       setLocalTasks(prevTasks);
-      toast.error(err?.data?.message || 'Failed to delete subtask');
+      toast.error(err?.data?.message || 'Failed to delete checklist item');
     }
   };
 
-  const handleEditSubtask = async (taskId, subTaskIndex, data) => {
+  const handleEditChecklist = async (taskId, subTaskIndex, data) => {
     const prevTasks = [...localTasks];
     setLocalTasks(prev => prev.map(t => {
       if (t._id === taskId) {
@@ -2431,15 +2429,15 @@ const PersonalTasks = () => {
     }));
     try {
       await updateSubtask({ taskId, subTaskIndex, data }).unwrap();
-      toast.success('Subtask updated');
+      toast.success('Checklist item updated');
       refetchTasks();
     } catch (err) {
       setLocalTasks(prevTasks);
-      toast.error(err?.data?.message || 'Failed to update subtask');
+      toast.error(err?.data?.message || 'Failed to update checklist item');
     }
   };
 
-  const handleReorderSubtasks = async (taskId, orderedIndices) => {
+  const handleReorderChecklist = async (taskId, orderedIndices) => {
     const prevTasks = [...localTasks];
     setLocalTasks(prev => prev.map(t => {
       if (t._id === taskId) {
@@ -2452,7 +2450,7 @@ const PersonalTasks = () => {
       await reorderSubtasks({ taskId, orderedSubTaskIndices: orderedIndices }).unwrap();
     } catch (err) {
       setLocalTasks(prevTasks);
-      toast.error(err?.data?.message || 'Failed to reorder subtasks');
+      toast.error(err?.data?.message || 'Failed to reorder checklist items');
     }
   };
 
@@ -2622,14 +2620,14 @@ const PersonalTasks = () => {
             <TaskDetailView
               task={selectedTask}
               onBack={handleBackToList}
-              onAddSubtask={handleAddSubtask}
-              onToggleSubtask={handleToggleSubtask}
-              onDeleteSubtask={handleDeleteSubtask}
+              onAddChecklist={handleAddChecklist}
+              onToggleChecklist={handleToggleChecklist}
+              onDeleteChecklist={handleDeleteChecklist}
               onArchive={handleArchive}
               onRestore={handleRestore}
               onDelete={handleDelete}
-              onReorderSubtasks={handleReorderSubtasks}
-              onEditSubtask={handleEditSubtask}
+              onReorderChecklist={handleReorderChecklist}
+              onEditChecklist={handleEditChecklist}
             />
           ) : (
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
