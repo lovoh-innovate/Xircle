@@ -495,6 +495,35 @@ const WriteNote = () => {
     };
   }, [isMobile, keyboardOffset]);
 
+  // ─── FIX: Never let a toolbar button or dropdown option steal focus
+  // away from the editable. Tapping any plain <button> normally moves
+  // focus to it — on mobile that's exactly what dismisses the on-screen
+  // keyboard the instant you open "More" or pick a dropdown option. This
+  // blocks that default focus-move (on mousedown/pointerdown, before the
+  // browser acts on it) for anything inside CKEditor's UI, while still
+  // leaving real inputs (font size box, link URL field, table dimensions,
+  // the editable itself) free to be focused and typed into normally. The
+  // click still fires as normal — only the unwanted focus-steal is
+  // blocked — so every button and option keeps working exactly as before.
+  useEffect(() => {
+    const preventFocusSteal = (e) => {
+      const target = e.target;
+      if (target.closest('input, textarea, select, [contenteditable="true"]')) {
+        return;
+      }
+      if (target.closest('.ck')) {
+        e.preventDefault();
+      }
+    };
+
+    document.addEventListener('mousedown', preventFocusSteal, true);
+    document.addEventListener('pointerdown', preventFocusSteal, true);
+    return () => {
+      document.removeEventListener('mousedown', preventFocusSteal, true);
+      document.removeEventListener('pointerdown', preventFocusSteal, true);
+    };
+  }, []);
+
   // ─── FIX: Keep keyboard open after dropdown closes ───
   const handleEditorReady = (editor) => {
     editorInstanceRef.current = editor;
