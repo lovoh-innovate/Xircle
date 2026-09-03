@@ -288,6 +288,7 @@ const SaveStatus = ({ status, lastSaved }) => {
 // ─── Main Component ────────────────────────────────────────────────────
 const AUTOSAVE_DELAY = 900;
 const MOBILE_BREAKPOINT = 768;
+const MOBILE_TOOLBAR_BASE_GAP = 96; // matches the old pb-24 spacing, stacked on top of any keyboard offset
 
 const WriteNote = () => {
   const { id: noteId } = useParams();
@@ -313,6 +314,10 @@ const WriteNote = () => {
   const [isMobile, setIsMobile] = useState(
     typeof window !== 'undefined' ? window.innerWidth < MOBILE_BREAKPOINT : false
   );
+  // How much of the viewport the on-screen keyboard is currently covering.
+  // Tracked via the visualViewport API so the mobile toolbar can sit right
+  // above the keyboard instead of getting hidden behind it.
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
 
   // ── API ──
   // noteId is always a real, already-created id now — the note is created
@@ -347,13 +352,48 @@ const WriteNote = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // ── Track the on-screen keyboard via visualViewport ──
+  // window.innerHeight stays put on most mobile browsers even when the
+  // keyboard opens, but window.visualViewport shrinks — the gap between the
+  // two IS the keyboard height. We use that to push the toolbar up above it.
+  useEffect(() => {
+    if (!isMobile || typeof window === 'undefined' || !window.visualViewport) {
+      setKeyboardOffset(0);
+      return;
+    }
+    const vv = window.visualViewport;
+    const updateOffset = () => {
+      const offset = window.innerHeight - (vv.height + vv.offsetTop);
+      setKeyboardOffset(offset > 0 ? Math.round(offset) : 0);
+    };
+    updateOffset();
+    vv.addEventListener('resize', updateOffset);
+    vv.addEventListener('scroll', updateOffset);
+    return () => {
+      vv.removeEventListener('resize', updateOffset);
+      vv.removeEventListener('scroll', updateOffset);
+    };
+  }, [isMobile]);
+
   // ── Move the CKEditor toolbar into the correct slot (top on desktop, bottom on mobile) ──
+  // Always clears BOTH slots before appending. Without this, a toolbar left
+  // behind by a previous CKEditor instance (e.g. right after switching notes
+  // via the "+" button, before the old instance finishes destroying) just
+  // sits there and the new toolbar gets appended alongside it — that's the
+  // "doubles / triples" bug. Clearing first guarantees exactly one toolbar
+  // is ever present, regardless of remount timing.
   const attachToolbar = useCallback((mobile) => {
     const editor = editorInstanceRef.current;
     if (!editor) return;
     const toolbarEl = editor.ui.view.toolbar.element;
+    if (!toolbarEl) return;
+
     const targetSlot = mobile ? mobileToolbarSlotRef.current : desktopToolbarSlotRef.current;
-    if (toolbarEl && targetSlot && toolbarEl.parentElement !== targetSlot) {
+    const otherSlot = mobile ? desktopToolbarSlotRef.current : mobileToolbarSlotRef.current;
+
+    if (otherSlot) otherSlot.innerHTML = '';
+    if (targetSlot) {
+      targetSlot.innerHTML = '';
       targetSlot.appendChild(toolbarEl);
     }
   }, []);
@@ -707,7 +747,14 @@ const WriteNote = () => {
       )}
 
       <div className="flex-1 overflow-y-auto w-full">
-        <div className={`w-full px-3 sm:px-6 py-6 ${isMobile && isEditing ? 'pb-24' : ''}`}>
+        <div
+          className="w-full px-3 sm:px-6 py-6"
+          style={
+            isMobile && isEditing
+              ? { paddingBottom: keyboardOffset + MOBILE_TOOLBAR_BASE_GAP }
+              : undefined
+          }
+        >
           {!isEditing && (
             <div className="prose prose-sm sm:prose-base dark:prose-invert max-w-none">
               <div
@@ -731,11 +778,20 @@ const WriteNote = () => {
         </div>
       </div>
 
-      {/* Mobile toolbar slot — pinned to the bottom, matches the old MobileToolbar position */}
+      {/* Mobile toolbar slot — pinned just above the on-screen keyboard.
+          `position: fixed` + the visualViewport-derived keyboardOffset is
+          what actually keeps it above the keyboard; `sticky bottom-0` alone
+          can't react to the keyboard opening on mobile browsers. */}
       {isEditing && isMobile && (
         <div
           ref={mobileToolbarSlotRef}
-          className="ck-toolbar-slot flex-shrink-0 border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-[#161619] sticky bottom-0 z-20"
+          className="ck-toolbar-slot flex-shrink-0 border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-[#161619] z-20"
+          style={{
+            position: 'fixed',
+            left: 0,
+            right: 0,
+            bottom: keyboardOffset,
+          }}
         />
       )}
     </div>
