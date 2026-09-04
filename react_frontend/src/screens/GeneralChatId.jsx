@@ -45,6 +45,12 @@ import {
   FaSmile,
   FaCopy,
   FaLink,
+  FaCrop,
+  FaPencilAlt,
+  FaArrowRight,
+  FaSave,
+  FaUndoAlt,
+  FaEraser,
 } from "react-icons/fa";
 import GeneralSidebar from "../components/GeneralSidebar";
 
@@ -691,7 +697,7 @@ const QuotedReplyBlock = ({ replyData, isOwn, onJump }) => {
 };
 
 // ─── Media Preview Component ──────────────────────────────────────
-const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending }) => {
+const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending, onEdit }) => {
   const [preview, setPreview] = useState(null);
   const [type, setType] = useState(null);
 
@@ -708,7 +714,7 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending }) =>
 
   return (
     <div className="flex items-center gap-3 p-3 mb-2 bg-gray-50 dark:bg-gray-800/30 rounded-xl border border-gray-200 dark:border-gray-700/60">
-      <div className="relative flex-shrink-0">
+      <div className="relative flex-shrink-0 group">
         {type === "image" ? (
           <img
             src={preview}
@@ -719,6 +725,14 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending }) =>
           <div className="w-16 h-16 rounded-lg bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-2xl">
             📄
           </div>
+        )}
+        {type === "image" && (
+          <button
+            onClick={onEdit}
+            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition rounded-lg text-white text-sm"
+          >
+            <FaPencilAlt className="text-lg" />
+          </button>
         )}
         <button
           onClick={onRemove}
@@ -1643,6 +1657,254 @@ const base64ToFile = (base64Data, fileName, mimeType) => {
   return new File([blob], fileName, { type: mimeType });
 };
 
+// ─── Image Editor Full‑Screen ──────────────────────────────────
+const ImageEditorScreen = ({ file, onSave, onCancel }) => {
+  const canvasRef = useRef(null);
+  const containerRef = useRef(null);
+  const [image, setImage] = useState(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [drawMode, setDrawMode] = useState("pencil");
+  const [lastPos, setLastPos] = useState({ x: 0, y: 0 });
+  const [cropStart, setCropStart] = useState(null);
+  const [cropEnd, setCropEnd] = useState(null);
+  const [imageLoaded, setImageLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        setImage(img);
+        setImageLoaded(true);
+        // Fit image to canvas
+        const container = containerRef.current;
+        if (container) {
+          const containerWidth = container.clientWidth - 40;
+          const containerHeight = container.clientHeight - 120;
+          const imgRatio = img.width / img.height;
+          let width = containerWidth;
+          let height = width / imgRatio;
+          if (height > containerHeight) {
+            height = containerHeight;
+            width = height * imgRatio;
+          }
+          const canvas = canvasRef.current;
+          if (canvas) {
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, width, height);
+          }
+        }
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }, [file]);
+
+  useEffect(() => {
+    if (!imageLoaded) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    if (drawMode === "crop" && cropStart && cropEnd) {
+      const x = Math.min(cropStart.x, cropEnd.x);
+      const y = Math.min(cropStart.y, cropEnd.y);
+      const w = Math.abs(cropEnd.x - cropStart.x);
+      const h = Math.abs(cropEnd.y - cropStart.y);
+      ctx.strokeStyle = "#0d9488";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, w, h);
+      ctx.fillStyle = "rgba(0,0,0,0.3)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(x, y, w, h);
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+      ctx.strokeRect(x, y, w, h);
+    }
+  }, [image, imageLoaded, drawMode, cropStart, cropEnd]);
+
+  const getCanvasCoords = (e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+    return { x, y };
+  };
+
+  const handleMouseDown = (e) => {
+    const coords = getCanvasCoords(e);
+    if (drawMode === "pencil") {
+      setIsDrawing(true);
+      setLastPos(coords);
+    } else if (drawMode === "crop") {
+      setCropStart(coords);
+      setCropEnd(coords);
+    } else if (drawMode === "arrow") {
+      if (lastPos.x && lastPos.y) {
+        drawArrow(lastPos, coords);
+        setLastPos({ x: 0, y: 0 });
+      } else {
+        setLastPos(coords);
+      }
+    }
+  };
+
+  const handleMouseMove = (e) => {
+    const coords = getCanvasCoords(e);
+    if (drawMode === "pencil" && isDrawing) {
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext("2d");
+      ctx.beginPath();
+      ctx.moveTo(lastPos.x, lastPos.y);
+      ctx.lineTo(coords.x, coords.y);
+      ctx.strokeStyle = "#ff0000";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      setLastPos(coords);
+    } else if (drawMode === "crop" && cropStart) {
+      setCropEnd(coords);
+    }
+  };
+
+  const handleMouseUp = () => {
+    if (drawMode === "pencil") setIsDrawing(false);
+  };
+
+  const drawArrow = (from, to) => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    const headlen = 10;
+    const angle = Math.atan2(to.y - from.y, to.x - from.x);
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.strokeStyle = "#ff0000";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(to.x, to.y);
+    ctx.lineTo(
+      to.x - headlen * Math.cos(angle - Math.PI / 6),
+      to.y - headlen * Math.sin(angle - Math.PI / 6)
+    );
+    ctx.moveTo(to.x, to.y);
+    ctx.lineTo(
+      to.x - headlen * Math.cos(angle + Math.PI / 6),
+      to.y - headlen * Math.sin(angle + Math.PI / 6)
+    );
+    ctx.stroke();
+  };
+
+  const handleSave = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    let croppedCanvas = canvas;
+    if (drawMode === "crop" && cropStart && cropEnd) {
+      const x = Math.min(cropStart.x, cropEnd.x);
+      const y = Math.min(cropStart.y, cropEnd.y);
+      const w = Math.abs(cropEnd.x - cropStart.x);
+      const h = Math.abs(cropEnd.y - cropStart.y);
+      if (w > 5 && h > 5) {
+        const tempCanvas = document.createElement("canvas");
+        tempCanvas.width = w;
+        tempCanvas.height = h;
+        const ctx = tempCanvas.getContext("2d");
+        ctx.drawImage(canvas, x, y, w, h, 0, 0, w, h);
+        croppedCanvas = tempCanvas;
+      }
+    }
+    croppedCanvas.toBlob((blob) => {
+      if (!blob) return;
+      const newFile = new File([blob], file.name, { type: file.type });
+      onSave(newFile);
+    }, file.type);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-white dark:bg-[#0f0f12] flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800/60 flex-shrink-0">
+        <button
+          onClick={onCancel}
+          className="p-1 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white transition"
+        >
+          <FaArrowLeft className="text-xl" />
+        </button>
+        <h3 className="font-semibold text-gray-800 dark:text-gray-200">Edit Image</h3>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setDrawMode("pencil")}
+            className={`p-2 rounded-lg transition ${
+              drawMode === "pencil"
+                ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
+                : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
+            }`}
+          >
+            <FaPencilAlt />
+          </button>
+          <button
+            onClick={() => setDrawMode("arrow")}
+            className={`p-2 rounded-lg transition ${
+              drawMode === "arrow"
+                ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
+                : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
+            }`}
+          >
+            <FaArrowRight />
+          </button>
+          <button
+            onClick={() => setDrawMode("crop")}
+            className={`p-2 rounded-lg transition ${
+              drawMode === "crop"
+                ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
+                : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
+            }`}
+          >
+            <FaCrop />
+          </button>
+          <button
+            onClick={() => {
+              setCropStart(null);
+              setCropEnd(null);
+              setLastPos({ x: 0, y: 0 });
+              const canvas = canvasRef.current;
+              if (canvas && image) {
+                const ctx = canvas.getContext("2d");
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+              }
+            }}
+            className="p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+          >
+            <FaUndoAlt />
+          </button>
+        </div>
+        <button
+          onClick={handleSave}
+          className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition text-sm font-medium flex items-center gap-2"
+        >
+          <FaSave /> Apply
+        </button>
+      </div>
+      {/* Canvas */}
+      <div ref={containerRef} className="flex-1 flex items-center justify-center p-2 overflow-hidden">
+        <canvas
+          ref={canvasRef}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          className="max-w-full max-h-full object-contain cursor-crosshair rounded-lg"
+        />
+      </div>
+    </div>
+  );
+};
+
 // ─── Main Component ──────────────────────────────────────────────────
 const GeneralChatId = () => {
   const { chatId } = useParams();
@@ -1671,6 +1933,339 @@ const GeneralChatId = () => {
 
   const [inputHeight, setInputHeight] = useState(0);
 
+  // Image editor states
+  const [imageToEdit, setImageToEdit] = useState(null);
+  const [imageEditorOpen, setImageEditorOpen] = useState(false);
+
+  // Voice quick send
+  const [recordingStarted, setRecordingStarted] = useState(false);
+  const [recordingBlob, setRecordingBlob] = useState(null);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [recordingPaused, setRecordingPaused] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const recordingTimerRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const isRecordingRef = useRef(false);
+  const isNative = Capacitor.isNativePlatform();
+
+  useEffect(() => {
+    isRecordingRef.current = recordingStarted;
+  }, [recordingStarted]);
+
+  useEffect(() => {
+    return () => {
+      if (mediaRecorderRef.current && isRecordingRef.current) {
+        if (isNative) {
+          VoiceRecorder.stopRecording().catch(() => {});
+        } else {
+          mediaRecorderRef.current.stop();
+        }
+      }
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    };
+  }, [isNative]);
+
+  const startTimer = () => {
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    recordingTimerRef.current = setInterval(
+      () => setRecordingTime((prev) => prev + 1),
+      1000,
+    );
+  };
+
+  const stopTimer = () => {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+  };
+
+  const startNativeRecording = async () => {
+    try {
+      const { value: hasPermission } =
+        await VoiceRecorder.hasAudioRecordingPermission();
+      if (!hasPermission) {
+        const { value: granted } =
+          await VoiceRecorder.requestAudioRecordingPermission();
+        if (!granted) {
+          toast.error("Microphone permission is required.");
+          return;
+        }
+      }
+      await VoiceRecorder.startRecording();
+      setRecordingStarted(true);
+      setRecordingPaused(false);
+      setRecordingTime(0);
+      setRecordingBlob(null);
+      startTimer();
+    } catch (err) {
+      console.error("Native recording error:", err);
+      toast.error("Failed to start recording: " + (err.message || ""));
+      setRecordingStarted(false);
+    }
+  };
+
+  const pauseNativeRecording = async () => {
+    try {
+      if (recordingPaused) {
+        await VoiceRecorder.resumeRecording();
+        setRecordingPaused(false);
+        startTimer();
+      } else {
+        await VoiceRecorder.pauseRecording();
+        setRecordingPaused(true);
+        stopTimer();
+      }
+    } catch (err) {
+      toast.error("Failed to pause/resume recording");
+    }
+  };
+
+  const stopNativeRecording = async () => {
+    try {
+      const result = await VoiceRecorder.stopRecording();
+      const base64 = result.value.recordDataBase64;
+      const byteCharacters = atob(base64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const audioBlob = new Blob([byteArray], { type: "audio/m4a" });
+      setRecordingBlob(audioBlob);
+      stopTimer();
+      setRecordingStarted(false);
+    } catch (err) {
+      console.error("Stop recording error:", err);
+      toast.error("Failed to stop recording");
+      setRecordingStarted(false);
+    }
+  };
+
+  const cancelNativeRecording = async () => {
+    try {
+      await VoiceRecorder.stopRecording();
+    } catch (_) {}
+    setRecordingBlob(null);
+    setRecordingTime(0);
+    setRecordingStarted(false);
+    stopTimer();
+  };
+
+  const startWebRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: "audio/webm",
+        });
+        setRecordingBlob(audioBlob);
+        stopTimer();
+        setRecordingStarted(false);
+        stream.getTracks().forEach((track) => track.stop());
+        mediaRecorderRef.current = null;
+      };
+      mediaRecorder.start();
+      setRecordingStarted(true);
+      setRecordingPaused(false);
+      setRecordingTime(0);
+      setRecordingBlob(null);
+      startTimer();
+    } catch (err) {
+      console.error("Web recording error:", err);
+      let msg = "Microphone access denied";
+      if (err.name === "NotAllowedError")
+        msg =
+          "Microphone permission denied. Please grant it in system settings.";
+      else if (err.name === "NotFoundError") msg = "No microphone found.";
+      else if (err.name === "NotReadableError")
+        msg = "Microphone busy — please try again.";
+      else if (err.name === "AbortError")
+        msg = "User canceled the permission prompt.";
+      toast.error(msg);
+      mediaRecorderRef.current = null;
+    }
+  };
+
+  const pauseWebRecording = () => {
+    if (mediaRecorderRef.current && recordingStarted) {
+      if (recordingPaused) {
+        mediaRecorderRef.current.resume();
+        setRecordingPaused(false);
+        startTimer();
+      } else {
+        mediaRecorderRef.current.pause();
+        setRecordingPaused(true);
+        stopTimer();
+      }
+    }
+  };
+
+  const stopWebRecording = () => {
+    if (mediaRecorderRef.current && recordingStarted) {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
+  const cancelWebRecording = () => {
+    if (mediaRecorderRef.current && recordingStarted) {
+      mediaRecorderRef.current.stop();
+    }
+    setRecordingBlob(null);
+    setRecordingTime(0);
+    setRecordingStarted(false);
+    stopTimer();
+  };
+
+  const startRecording = () => {
+    if (recordingStarted) return;
+    if (isNative) {
+      startNativeRecording();
+    } else {
+      startWebRecording();
+    }
+  };
+
+  const pauseRecording = () => {
+    if (isNative) {
+      pauseNativeRecording();
+    } else {
+      pauseWebRecording();
+    }
+  };
+
+  const stopRecording = () => {
+    if (isNative) {
+      stopNativeRecording();
+    } else {
+      stopWebRecording();
+    }
+  };
+
+  const cancelRecording = () => {
+    if (isNative) {
+      cancelNativeRecording();
+    } else {
+      cancelWebRecording();
+    }
+  };
+
+  // ─── Quick send audio ──────────────────────────────────────────
+  const handleQuickSendAudio = useCallback(() => {
+    if (!recordingBlob) return;
+    sendAudioMessage(recordingBlob);
+  }, [recordingBlob]);
+
+  // ─── Send audio message ──────────────────────────────────────
+  const sendAudioMessage = async (audioBlob) => {
+    if (!audioBlob) return;
+    if (isSendingRef.current) return;
+
+    const signature = `${audioBlob.size}-${recordingTime}`;
+    if (isRecentDuplicateMedia(signature)) {
+      console.warn("Blocked duplicate voice note send");
+      return;
+    }
+
+    isSendingRef.current = true;
+    setIsSending(true);
+
+    const formData = new FormData();
+    const mimeType = isNative ? "audio/m4a" : "audio/webm";
+    const extension = isNative ? "m4a" : "webm";
+    const audioFile = new File([audioBlob], `voice-note.${extension}`, {
+      type: mimeType,
+    });
+    formData.append("media", audioFile);
+    formData.append("messageType", "audio");
+    formData.append("mediaDuration", recordingTime.toString());
+    if (replyToMessage) {
+      formData.append("replyToId", replyToMessage._id);
+    }
+
+    const senderWithName = {
+      ...userInfo,
+      name:
+        userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
+    };
+
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    formData.append("clientMsgId", tempId);
+
+    const optimisticMsg = {
+      _id: tempId,
+      _tempId: tempId,
+      _temp: true,
+      _pending: false,
+      _sent: false,
+      _failed: false,
+      _delivered: false,
+      _read: false,
+      content: "",
+      sender: senderWithName,
+      createdAt: new Date().toISOString(),
+      messageType: "audio",
+      chat: chatId,
+      replyTo: replyToMessage
+        ? {
+            _id: replyToMessage._id,
+            sender: replyToMessage.sender,
+            content: replyToMessage.content,
+            mediaName: replyToMessage.mediaName,
+            messageType: replyToMessage.messageType,
+          }
+        : null,
+      mediaUrl: URL.createObjectURL(audioBlob),
+      mediaName: "Voice note",
+      mediaSize: audioBlob.size,
+      mediaDuration: recordingTime,
+      mediaSignature: signature,
+    };
+    setLocalMessages((prev) => [...prev, optimisticMsg]);
+    setRecordingBlob(null);
+    setRecordingTime(0);
+    setRecordingStarted(false);
+    setReplyToMessage(null);
+
+    try {
+      const res = await sendMessageApi({ chatId, data: formData }).unwrap();
+      const realMsg = res.message;
+
+      setLocalMessages((prev) => {
+        if (prev.some((m) => m._id === realMsg._id)) {
+          return prev.filter((m) => m._tempId !== tempId);
+        }
+        return prev.map((m) =>
+          m._tempId === tempId
+            ? {
+                ...realMsg,
+                createdAt: m.createdAt,
+                _sent: true,
+                _pending: false,
+                _failed: false,
+                _delivered: true,
+                _read: false,
+                _temp: false,
+                _tempId: undefined,
+              }
+            : m
+        );
+      });
+    } catch (err) {
+      setLocalMessages((prev) => prev.filter((m) => m._tempId !== tempId));
+    } finally {
+      isSendingRef.current = false;
+      setIsSending(false);
+    }
+  };
+
+  // ─── ResizeObserver for input height ────────────────────────────
   useEffect(() => {
     if (!inputAreaRef.current) return;
     const observer = new ResizeObserver((entries) => {
@@ -1836,24 +2431,21 @@ const GeneralChatId = () => {
   // ─── Insert emoji ──────────────────────────────────────────────────
   const handleEmojiSelect = (emoji) => {
     setMessage((prev) => prev + emoji);
-    // Keep emoji panel open and keyboard hidden – do NOT focus input
   };
 
   // ─── Toggle emoji picker ──────────────────────────────────────────
   const toggleEmoji = useCallback(() => {
     setShowEmojiPicker((prev) => {
       if (!prev) {
-        // opening: blur input to dismiss keyboard
         inputRef.current?.blur();
       } else {
-        // closing: focus input to show keyboard
         inputRef.current?.focus();
       }
       return !prev;
     });
   }, []);
 
-  // ─── Copy message content to clipboard ───────────────────────────
+  // ─── Copy message content ───────────────────────────────────────
   const handleCopyMessage = async (msg) => {
     try {
       const textToCopy = msg?.content || msg?.mediaName || "";
@@ -1873,11 +2465,9 @@ const GeneralChatId = () => {
     (signature) => {
       const now = Date.now();
       return localMessages.some((m) => {
-        // Only check own messages
         const isOwnMsg =
           m.sender?._id === userInfo?._id || m.sender === userInfo?._id;
         if (!isOwnMsg) return false;
-        // Must be a media message with the same signature
         if (!m.mediaSignature) return false;
         if (m.mediaSignature !== signature) return false;
         const msgTime = new Date(m.createdAt).getTime();
@@ -1895,7 +2485,6 @@ const GeneralChatId = () => {
         let next = prev;
         let mutated = false;
         incomingList.forEach((incoming) => {
-          // 1. Check if this message already exists by real _id
           const existingIdx = next.findIndex((m) => m._id === incoming._id);
           if (existingIdx > -1) {
             if (!mutated) next = [...next];
@@ -1903,7 +2492,7 @@ const GeneralChatId = () => {
             const existing = next[existingIdx];
             const updated = {
               ...incoming,
-              createdAt: existing.createdAt, // keep client order
+              createdAt: existing.createdAt,
               _sent: existing._sent || false,
               _pending: existing._pending || false,
               _failed: existing._failed || false,
@@ -1941,20 +2530,16 @@ const GeneralChatId = () => {
             incoming.sender?._id === userInfo?._id ||
             incoming.sender === userInfo?._id;
 
-          // 2. Find a temporary message to replace
           let tempIdx = -1;
           if (isOwn) {
-            // PRIMARY: match by clientMsgId
             if (incoming.clientMsgId) {
               tempIdx = next.findIndex(
                 (m) => m._tempId === incoming.clientMsgId,
               );
             }
-            // Fallback for older in-flight messages
             if (tempIdx === -1) {
               tempIdx = next.findIndex((m) => m._tempId === incoming._id);
             }
-            // Last-resort fallback (content + time) – kept for safety
             if (tempIdx === -1) {
               const incomingContent = incoming.content || "";
               const incomingTime = new Date(incoming.createdAt).getTime();
@@ -1979,7 +2564,7 @@ const GeneralChatId = () => {
             const tempMsg = next[tempIdx];
             const realMsg = {
               ...incoming,
-              createdAt: tempMsg.createdAt, // preserve client order
+              createdAt: tempMsg.createdAt,
               _sent: true,
               _pending: false,
               _failed: false,
@@ -2012,7 +2597,6 @@ const GeneralChatId = () => {
             return;
           }
 
-          // 3. It's a new message from someone else or our own that wasn't optimistically added
           const msg = {
             ...incoming,
             _sent: true,
@@ -2167,12 +2751,11 @@ const GeneralChatId = () => {
     return () => observer.disconnect();
   }, [localMessages, markMessageAsRead, userInfo]);
 
-  // ─── Handle media send (with duplicate prevention) ──────────────
+  // ─── Handle media send ──────────────────────────────────────────
   const handleSendMedia = async (file) => {
     if (!file) return;
     if (isSendingRef.current) return;
 
-    // Prevent duplicate sends of the same file within 4 seconds
     const signature = `${file.name}-${file.size}-${file.lastModified}`;
     if (isRecentDuplicateMedia(signature)) {
       console.warn("Blocked duplicate media send:", file.name);
@@ -2195,7 +2778,6 @@ const GeneralChatId = () => {
     };
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    // Add clientMsgId to formData so backend can echo it back
     formData.append("clientMsgId", tempId);
 
     const optimisticMsg = {
@@ -2225,7 +2807,7 @@ const GeneralChatId = () => {
       mediaName: file.name,
       mediaSize: file.size,
       mediaDuration: null,
-      mediaSignature: signature, // for duplicate detection
+      mediaSignature: signature,
     };
     setLocalMessages((prev) => [...prev, optimisticMsg]);
     setReplyToMessage(null);
@@ -2304,7 +2886,6 @@ const GeneralChatId = () => {
 
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
-      // keep focus after sending so keyboard stays open
       inputRef.current.focus();
     }
 
@@ -2347,7 +2928,8 @@ const GeneralChatId = () => {
       if (photo?.base64String) {
         const mimeType = `image/${photo.format || "jpeg"}`;
         const fileName = `photo-${Date.now()}.${photo.format || "jpg"}`;
-        setPendingMedia(base64ToFile(photo.base64String, fileName, mimeType));
+        const file = base64ToFile(photo.base64String, fileName, mimeType);
+        setPendingMedia(file);
       }
     } catch (err) {
       const msg = (err?.message || "").toLowerCase();
@@ -2369,7 +2951,8 @@ const GeneralChatId = () => {
       if (photo?.base64String) {
         const mimeType = `image/${photo.format || "jpeg"}`;
         const fileName = `photo-${Date.now()}.${photo.format || "jpg"}`;
-        setPendingMedia(base64ToFile(photo.base64String, fileName, mimeType));
+        const file = base64ToFile(photo.base64String, fileName, mimeType);
+        setPendingMedia(file);
       }
     } catch (err) {
       const msg = (err?.message || "").toLowerCase();
@@ -2398,7 +2981,11 @@ const GeneralChatId = () => {
         toast.error("Could not read selected file");
         return;
       }
-      setPendingMedia(file);
+      if (file.type.startsWith("image/")) {
+        setPendingMedia(file);
+      } else {
+        setPendingMedia(file);
+      }
     } catch (err) {
       const msg = (err?.message || "").toLowerCase();
       if (!msg.includes("cancel")) {
@@ -2456,345 +3043,45 @@ const GeneralChatId = () => {
     }
   };
 
-  // ─── Voice recording ──────────────────────────────────────────
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingTime, setRecordingTime] = useState(0);
-  const [recordingBlob, setRecordingBlob] = useState(null);
-  const [recordingPaused, setRecordingPaused] = useState(false);
-  const [showRecordedPreview, setShowRecordedPreview] = useState(false);
-  const mediaRecorderRef = useRef(null);
-  const recordingTimerRef = useRef(null);
-  const audioChunksRef = useRef([]);
-  const isRecordingRef = useRef(false);
-  const isNative = Capacitor.isNativePlatform();
-
-  useEffect(() => {
-    isRecordingRef.current = isRecording;
-  }, [isRecording]);
-
-  useEffect(() => {
-    return () => {
-      if (mediaRecorderRef.current && isRecordingRef.current) {
-        if (isNative) {
-          VoiceRecorder.stopRecording().catch(() => {});
-        } else {
-          mediaRecorderRef.current.stop();
-        }
-      }
-      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-    };
-  }, [isNative]);
-
-  const startTimer = () => {
-    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-    recordingTimerRef.current = setInterval(
-      () => setRecordingTime((prev) => prev + 1),
-      1000,
-    );
-  };
-
-  const stopTimer = () => {
-    if (recordingTimerRef.current) {
-      clearInterval(recordingTimerRef.current);
-      recordingTimerRef.current = null;
+  // ─── Image editor callbacks ───────────────────────────────────────
+  const handleImageEdit = () => {
+    if (pendingMedia) {
+      setImageToEdit(pendingMedia);
+      setImageEditorOpen(true);
     }
   };
 
-  const startNativeRecording = async () => {
-    try {
-      const { value: hasPermission } =
-        await VoiceRecorder.hasAudioRecordingPermission();
-      if (!hasPermission) {
-        const { value: granted } =
-          await VoiceRecorder.requestAudioRecordingPermission();
-        if (!granted) {
-          toast.error("Microphone permission is required.");
-          return;
-        }
-      }
-      await VoiceRecorder.startRecording();
-      setIsRecording(true);
-      setRecordingPaused(false);
-      setRecordingTime(0);
-      setShowRecordedPreview(false);
-      startTimer();
-    } catch (err) {
-      console.error("Native recording error:", err);
-      toast.error("Failed to start recording: " + (err.message || ""));
-      setIsRecording(false);
-    }
+  const handleImageEditorSave = (editedFile) => {
+    setPendingMedia(editedFile);
+    setImageEditorOpen(false);
+    setImageToEdit(null);
   };
 
-  const pauseNativeRecording = async () => {
-    try {
-      if (recordingPaused) {
-        await VoiceRecorder.resumeRecording();
-        setRecordingPaused(false);
-        startTimer();
-      } else {
-        await VoiceRecorder.pauseRecording();
-        setRecordingPaused(true);
-        stopTimer();
-      }
-    } catch (err) {
-      toast.error("Failed to pause/resume recording");
-    }
-  };
-
-  const stopNativeRecording = async () => {
-    try {
-      const result = await VoiceRecorder.stopRecording();
-      const base64 = result.value.recordDataBase64;
-      const byteCharacters = atob(base64);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      const audioBlob = new Blob([byteArray], { type: "audio/m4a" });
-      setRecordingBlob(audioBlob);
-      setShowRecordedPreview(true);
-      stopTimer();
-      setIsRecording(false);
-    } catch (err) {
-      console.error("Stop recording error:", err);
-      toast.error("Failed to stop recording");
-      setIsRecording(false);
-    }
-  };
-
-  const cancelNativeRecording = async () => {
-    try {
-      await VoiceRecorder.stopRecording();
-    } catch (_) {}
-    setRecordingBlob(null);
-    setShowRecordedPreview(false);
-    setRecordingTime(0);
-    setIsRecording(false);
-    stopTimer();
-  };
-
-  const startWebRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) audioChunksRef.current.push(event.data);
-      };
-      mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, {
-          type: "audio/webm",
-        });
-        setRecordingBlob(audioBlob);
-        setShowRecordedPreview(true);
-        stopTimer();
-        setIsRecording(false);
-        stream.getTracks().forEach((track) => track.stop());
-        mediaRecorderRef.current = null;
-      };
-      mediaRecorder.start();
-      setIsRecording(true);
-      setRecordingPaused(false);
-      setRecordingTime(0);
-      setShowRecordedPreview(false);
-      startTimer();
-    } catch (err) {
-      console.error("Web recording error:", err);
-      let msg = "Microphone access denied";
-      if (err.name === "NotAllowedError")
-        msg =
-          "Microphone permission denied. Please grant it in system settings.";
-      else if (err.name === "NotFoundError") msg = "No microphone found.";
-      else if (err.name === "NotReadableError")
-        msg = "Microphone busy — please try again.";
-      else if (err.name === "AbortError")
-        msg = "User canceled the permission prompt.";
-      toast.error(msg);
-      mediaRecorderRef.current = null;
-    }
-  };
-
-  const pauseWebRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      if (recordingPaused) {
-        mediaRecorderRef.current.resume();
-        setRecordingPaused(false);
-        startTimer();
-      } else {
-        mediaRecorderRef.current.pause();
-        setRecordingPaused(true);
-        stopTimer();
-      }
-    }
-  };
-
-  const stopWebRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-    }
-  };
-
-  const cancelWebRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-    }
-    setRecordingBlob(null);
-    setShowRecordedPreview(false);
-    setRecordingTime(0);
-    setIsRecording(false);
-    stopTimer();
-  };
-
-  const startRecording = () => {
-    if (isRecording) return;
-    if (isNative) {
-      startNativeRecording();
-    } else {
-      startWebRecording();
-    }
-  };
-
-  const pauseRecording = () => {
-    if (isNative) {
-      pauseNativeRecording();
-    } else {
-      pauseWebRecording();
-    }
-  };
-
-  const stopRecording = () => {
-    if (isNative) {
-      stopNativeRecording();
-    } else {
-      stopWebRecording();
-    }
-  };
-
-  const cancelRecording = () => {
-    if (isNative) {
-      cancelNativeRecording();
-    } else {
-      cancelWebRecording();
-    }
-  };
-
-  // ─── Send audio message (with duplicate prevention) ──────────────
-  const sendAudioMessage = async (audioBlob) => {
-    if (!audioBlob) return;
-    if (isSendingRef.current) return;
-
-    const signature = `${audioBlob.size}-${recordingTime}`;
-    if (isRecentDuplicateMedia(signature)) {
-      console.warn("Blocked duplicate voice note send");
-      return;
-    }
-
-    isSendingRef.current = true;
-    setIsSending(true);
-
-    const formData = new FormData();
-    const mimeType = isNative ? "audio/m4a" : "audio/webm";
-    const extension = isNative ? "m4a" : "webm";
-    const audioFile = new File([audioBlob], `voice-note.${extension}`, {
-      type: mimeType,
-    });
-    formData.append("media", audioFile);
-    formData.append("messageType", "audio");
-    formData.append("mediaDuration", recordingTime.toString());
-    if (replyToMessage) {
-      formData.append("replyToId", replyToMessage._id);
-    }
-
-    const senderWithName = {
-      ...userInfo,
-      name:
-        userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
-    };
-
-    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    formData.append("clientMsgId", tempId);
-
-    const optimisticMsg = {
-      _id: tempId,
-      _tempId: tempId,
-      _temp: true,
-      _pending: false,
-      _sent: false,
-      _failed: false,
-      _delivered: false,
-      _read: false,
-      content: "",
-      sender: senderWithName,
-      createdAt: new Date().toISOString(),
-      messageType: "audio",
-      chat: chatId,
-      replyTo: replyToMessage
-        ? {
-            _id: replyToMessage._id,
-            sender: replyToMessage.sender,
-            content: replyToMessage.content,
-            mediaName: replyToMessage.mediaName,
-            messageType: replyToMessage.messageType,
-          }
-        : null,
-      mediaUrl: URL.createObjectURL(audioBlob),
-      mediaName: "Voice note",
-      mediaSize: audioBlob.size,
-      mediaDuration: recordingTime,
-      mediaSignature: signature,
-    };
-    setLocalMessages((prev) => [...prev, optimisticMsg]);
-    setRecordingBlob(null);
-    setShowRecordedPreview(false);
-    setRecordingTime(0);
-    setReplyToMessage(null);
-
-    try {
-      const res = await sendMessageApi({ chatId, data: formData }).unwrap();
-      const realMsg = res.message;
-
-      setLocalMessages((prev) => {
-        if (prev.some((m) => m._id === realMsg._id)) {
-          return prev.filter((m) => m._tempId !== tempId);
-        }
-        return prev.map((m) =>
-          m._tempId === tempId
-            ? {
-                ...realMsg,
-                createdAt: m.createdAt,
-                _sent: true,
-                _pending: false,
-                _failed: false,
-                _delivered: true,
-                _read: false,
-                _temp: false,
-                _tempId: undefined,
-              }
-            : m
-        );
-      });
-    } catch (err) {
-      setLocalMessages((prev) => prev.filter((m) => m._tempId !== tempId));
-    } finally {
-      isSendingRef.current = false;
-      setIsSending(false);
-    }
+  const handleImageEditorCancel = () => {
+    setImageEditorOpen(false);
+    setImageToEdit(null);
   };
 
   // ─── Mic button handlers ────────────────────────────────────────
   const handleMicPointerDown = (e) => {
     if (message.trim()) return;
-    if (isRecording || mediaRecorderRef.current) return;
+    if (recordingStarted || mediaRecorderRef.current) return;
     e.currentTarget.setPointerCapture?.(e.pointerId);
     startRecording();
   };
 
   const handleMicPointerUp = (e) => {
     e.currentTarget.releasePointerCapture?.(e.pointerId);
-    if (isRecording && !recordingPaused) {
+    // Quick send: if recording and not paused, stop and send
+    if (recordingStarted && !recordingPaused) {
       stopRecording();
+      // After stopping, the recording blob will be ready; send it
+      // We'll use a small delay to allow the blob to be set
+      setTimeout(() => {
+        if (recordingBlob) {
+          handleQuickSendAudio();
+        }
+      }, 100);
     }
   };
 
@@ -3083,50 +3370,12 @@ const GeneralChatId = () => {
                     onSend={handleSendMedia}
                     brandColor="#0d9488"
                     isSending={isSending}
+                    onEdit={handleImageEdit}
                   />
                 )}
 
-                {showRecordedPreview && recordingBlob && (
-                  <div className="flex items-center justify-between px-3 py-2 mb-2 bg-green-50 dark:bg-green-900/30 rounded-lg border border-green-200 dark:border-green-700/40">
-                    <div className="flex items-center gap-2">
-                      <FaCheckCircle className="text-green-500 dark:text-green-400" />
-                      <span className="text-sm text-gray-700 dark:text-gray-200">
-                        Voice note ready
-                      </span>
-                      <span className="text-xs text-gray-500 dark:text-gray-400">
-                        {formatTime(recordingTime)}
-                      </span>
-                    </div>
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => {
-                          const audio = new Audio(
-                            URL.createObjectURL(recordingBlob),
-                          );
-                          audio.play();
-                        }}
-                        className="p-1 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white"
-                      >
-                        <FaPlay className="text-xs" />
-                      </button>
-                      <button
-                        onClick={() => sendAudioMessage(recordingBlob)}
-                        disabled={isSending}
-                        className="px-3 py-1 bg-green-600 dark:bg-green-700 text-white rounded text-xs hover:bg-green-700 dark:hover:bg-green-800 transition disabled:opacity-50"
-                      >
-                        Send
-                      </button>
-                      <button
-                        onClick={cancelRecording}
-                        className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white"
-                      >
-                        <FaTimes className="text-xs" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {isRecording && (
+                {/* Recording bar (red) */}
+                {recordingStarted && (
                   <div className="flex items-center justify-between px-3 py-2 mb-2 bg-red-50 dark:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-700/40">
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
@@ -3162,7 +3411,7 @@ const GeneralChatId = () => {
                   onSubmit={handleSendMessage}
                   className="flex items-end gap-2"
                 >
-                  {/* Emoji – outside the pill, extreme left, exactly like WhatsApp */}
+                  {/* Emoji */}
                   <div className="relative flex-shrink-0 mb-1" ref={emojiPickerRef}>
                     <button
                       type="button"
@@ -3171,7 +3420,6 @@ const GeneralChatId = () => {
                     >
                       <FaSmile className="text-xl" />
                     </button>
-                    {/* Desktop: floating popup above the bar */}
                     {showEmojiPicker && !isMobile && (
                       <div className="absolute bottom-12 left-0 z-30 w-72 max-h-56 overflow-y-auto bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl shadow-xl p-3 grid grid-cols-8 gap-1">
                         {EMOJI_LIST.map((emoji, idx) => (
@@ -3188,7 +3436,7 @@ const GeneralChatId = () => {
                     )}
                   </div>
 
-                  {/* Input pill – paperclip + camera live INSIDE it, like WhatsApp */}
+                  {/* Input pill */}
                   <div className="flex-1 min-w-0 relative flex items-end">
                     <textarea
                       ref={inputRef}
@@ -3240,12 +3488,22 @@ const GeneralChatId = () => {
                     />
                   </div>
 
-                  {/* Mic / send – outside the pill, extreme right, exactly like WhatsApp */}
+                  {/* Mic / send button – transforms during recording */}
                   {message.trim() ? (
                     <button
                       type="submit"
                       disabled={!isConnected || isSending}
                       className="p-3 rounded-full text-white disabled:opacity-50 flex-shrink-0 transition hover:opacity-80 mb-1"
+                      style={{ backgroundColor: "#0d9488" }}
+                    >
+                      <FaPaperPlane className="text-sm" />
+                    </button>
+                  ) : recordingStarted ? (
+                    <button
+                      type="button"
+                      onClick={handleQuickSendAudio}
+                      disabled={!recordingBlob}
+                      className="p-3 rounded-full text-white flex-shrink-0 transition hover:opacity-80 mb-1"
                       style={{ backgroundColor: "#0d9488" }}
                     >
                       <FaPaperPlane className="text-sm" />
@@ -3264,7 +3522,7 @@ const GeneralChatId = () => {
                   )}
                 </form>
 
-                {/* Mobile: emoji panel docks under the input, same footprint as the keyboard it replaces */}
+                {/* Mobile: emoji panel */}
                 {showEmojiPicker && isMobile && (
                   <div
                     className="w-full mt-2 overflow-y-auto bg-white dark:bg-[#14141a] border-t border-gray-200 dark:border-gray-800/60 rounded-t-xl grid grid-cols-8 gap-1 p-3"
@@ -3313,6 +3571,15 @@ const GeneralChatId = () => {
             />
           </div>
         </>
+      )}
+
+      {/* Image Editor Full‑Screen */}
+      {imageEditorOpen && imageToEdit && (
+        <ImageEditorScreen
+          file={imageToEdit}
+          onSave={handleImageEditorSave}
+          onCancel={handleImageEditorCancel}
+        />
       )}
 
       <ConfirmModal
