@@ -1654,7 +1654,7 @@ const GeneralChatId = () => {
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
-  const inputAreaRef = useRef(null); // NEW: ref for the fixed input area
+  const inputAreaRef = useRef(null);
   const isSendingRef = useRef(false);
   const [isSending, setIsSending] = useState(false);
   const [previewImage, setPreviewImage] = useState(null);
@@ -1669,10 +1669,8 @@ const GeneralChatId = () => {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const emojiPickerRef = useRef(null);
 
-  // NEW: state to hold the height of the input area
   const [inputHeight, setInputHeight] = useState(0);
 
-  // NEW: ResizeObserver to measure input area height
   useEffect(() => {
     if (!inputAreaRef.current) return;
     const observer = new ResizeObserver((entries) => {
@@ -1835,25 +1833,13 @@ const GeneralChatId = () => {
     return () => document.removeEventListener("mousedown", handler);
   }, [showEmojiPicker, isMobile]);
 
-  // ─── Insert emoji at cursor position ─────────────────────────────
+  // ─── Insert emoji ──────────────────────────────────────────────────
   const handleEmojiSelect = (emoji) => {
-    const el = inputRef.current;
-    if (!el) {
-      setMessage((prev) => prev + emoji);
-      return;
-    }
-    const start = el.selectionStart ?? message.length;
-    const end = el.selectionEnd ?? message.length;
-    const newValue = message.slice(0, start) + emoji + message.slice(end);
-    setMessage(newValue);
-    requestAnimationFrame(() => {
-      el.focus();
-      const cursor = start + emoji.length;
-      el.setSelectionRange(cursor, cursor);
-    });
+    setMessage((prev) => prev + emoji);
+    // Keep emoji panel open and keyboard hidden – do NOT focus input
   };
 
-  // NEW: toggle emoji picker with keyboard dismissal/restoration
+  // ─── Toggle emoji picker ──────────────────────────────────────────
   const toggleEmoji = useCallback(() => {
     setShowEmojiPicker((prev) => {
       if (!prev) {
