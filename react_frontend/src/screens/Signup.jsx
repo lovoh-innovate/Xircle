@@ -3,7 +3,6 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useDispatch } from 'react-redux';
 import { Capacitor } from '@capacitor/core';
-import { Browser } from '@capacitor/browser';
 import {
   useRegisterMutation,
   useVerifyEmailMutation,
@@ -49,41 +48,6 @@ const Signup = () => {
   const [resendOTP] = useResendOTPMutation();
 
   const isNative = Capacitor.isNativePlatform();
-
-  // ── Handle Google Signup for Capacitor ──
-  const handleGoogleSignup = async () => {
-    if (isNative) {
-      try {
-        setIsLoading(true);
-        toast.loading('Opening Google signup...', { duration: 5000 });
-
-        // Construct the Google OAuth URL for signup
-        const redirectUri = `https://xircle.lovohcreate.com/signup`;
-        const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
-          `client_id=${import.meta.env.VITE_GOOGLE_CLIENT_ID}&` +
-          `redirect_uri=${encodeURIComponent(redirectUri)}&` +
-          `response_type=code&` +
-          `scope=email%20profile&` +
-          `access_type=online`;
-
-        await Browser.open({
-          url: googleAuthUrl,
-          presentationStyle: 'fullscreen',
-          toolbarColor: '#0d9488',
-        });
-
-        toast.dismiss();
-      } catch (error) {
-        toast.dismiss();
-        console.error('Google signup error:', error);
-        toast.error('Failed to open Google signup. Please try again.');
-        setIsLoading(false);
-      }
-    } else {
-      // Web browser - GoogleLogin component will handle this
-      toast.info('Please use the Google signup button below');
-    }
-  };
 
   // ── Handle Registration ──
   const handleRegister = async (e) => {
@@ -538,43 +502,22 @@ const Signup = () => {
             </p>
           </div>
 
-          {step === 'register' && (
+          {/* Google Sign-Up – only on web */}
+          {step === 'register' && !isNative && (
             <>
               <div className="mb-6">
-                {isNative ? (
-                  // ── Capacitor Native - Custom Google Button ──
-                  <button
-                    onClick={handleGoogleSignup}
-                    disabled={isLoading}
-                    className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white dark:bg-[#1a1a24] text-gray-800 dark:text-gray-200 font-medium rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-[#2a2a35] focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all duration-200 disabled:opacity-70 disabled:cursor-not-allowed"
-                  >
-                    {isLoading ? (
-                      <div className="flex items-center gap-2">
-                        <div className="w-5 h-5 border-2 border-teal-600 border-t-transparent rounded-full animate-spin"></div>
-                        <span>Signing up...</span>
-                      </div>
-                    ) : (
-                      <>
-                        <FaGoogle className="text-xl text-red-500" />
-                        <span>Sign up with Google</span>
-                      </>
-                    )}
-                  </button>
-                ) : (
-                  // ── Web Browser - GoogleLogin Component ──
-                  <div className="flex justify-center">
-                    <GoogleLogin
-                      onSuccess={handleGoogleSuccess}
-                      onError={handleGoogleError}
-                      theme="filled_black"
-                      size="large"
-                      width="100%"
-                      text="signup_with"
-                      shape="rectangular"
-                      logo_alignment="center"
-                    />
-                  </div>
-                )}
+                <div className="flex justify-center">
+                  <GoogleLogin
+                    onSuccess={handleGoogleSuccess}
+                    onError={handleGoogleError}
+                    theme="filled_black"
+                    size="large"
+                    width="100%"
+                    text="signup_with"
+                    shape="rectangular"
+                    logo_alignment="center"
+                  />
+                </div>
               </div>
               <div className="relative mb-6">
                 <div className="absolute inset-0 flex items-center">

@@ -42,6 +42,9 @@ import {
   FaUser,
   FaInfoCircle,
   FaCamera,
+  FaSmile,
+  FaCopy,
+  FaLink,
 } from "react-icons/fa";
 import GeneralSidebar from "../components/GeneralSidebar";
 
@@ -101,6 +104,168 @@ const safeFormatTime = (dateString) => {
   } catch {
     return "";
   }
+};
+
+// ─── Emoji picker data & helpers ───────────────────────────────────
+const EMOJI_LIST = [
+  "😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😜", "🤔", "😎",
+  "😢", "😭", "😡", "🥳", "👍", "👎", "🙏", "👏", "💪", "🔥",
+  "❤️", "💔", "💯", "✨", "🎉", "😴", "🤗", "😇", "🙄", "😅",
+  "🤝", "👋", "🤞", "🫶", "😏", "🥺", "😱", "😳", "🤩", "🫡",
+  "💀", "👀", "😤", "🤦", "🤷", "🙈", "🙉", "🙊", "💃", "🕺",
+  "🍕", "☕", "🎂", "🌹", "⚽", "🏆", "💰", "📌", "✅", "❌",
+];
+
+// ─── Link detection / preview helpers ──────────────────────────────
+const URL_REGEX = /(https?:\/\/[^\s]+)/g;
+
+const extractFirstUrl = (text) => {
+  if (!text) return null;
+  const match = text.match(URL_REGEX);
+  return match ? match[0] : null;
+};
+
+const isUrlPart = (part) => /^https?:\/\//.test(part);
+
+const LinkifiedText = ({ text, isOwn }) => {
+  if (!text) return null;
+  const parts = text.split(URL_REGEX);
+  return (
+    <>
+      {parts.map((part, i) =>
+        isUrlPart(part) ? (
+          <a
+            key={i}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className={`underline break-all ${
+              isOwn ? "text-white" : "text-teal-600 dark:text-teal-400"
+            }`}
+          >
+            {part}
+          </a>
+        ) : (
+          <React.Fragment key={i}>{part}</React.Fragment>
+        ),
+      )}
+    </>
+  );
+};
+
+const linkPreviewCache = new Map();
+
+const LinkPreviewCard = ({ url, isOwn }) => {
+  const [data, setData] = useState(() => linkPreviewCache.get(url) || null);
+  const [loading, setLoading] = useState(!linkPreviewCache.has(url));
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (linkPreviewCache.has(url)) {
+      setData(linkPreviewCache.get(url));
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setFailed(false);
+    fetch(`https://api.microlink.io/?url=${encodeURIComponent(url)}`)
+      .then((res) => res.json())
+      .then((json) => {
+        if (cancelled) return;
+        if (json?.status === "success" && json?.data) {
+          linkPreviewCache.set(url, json.data);
+          setData(json.data);
+        } else {
+          setFailed(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [url]);
+
+  if (failed) return null;
+
+  let domain = "";
+  try {
+    domain = new URL(url).hostname.replace("www.", "");
+  } catch {
+    domain = url;
+  }
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      className={`block mt-1.5 rounded-xl overflow-hidden border ${
+        isOwn
+          ? "border-white/20 bg-black/10 hover:bg-black/20"
+          : "border-gray-200 dark:border-gray-700/60 bg-gray-50 dark:bg-gray-800/40 hover:bg-gray-100 dark:hover:bg-gray-800/60"
+      } transition`}
+    >
+      {loading ? (
+        <div className="p-3 animate-pulse">
+          <div
+            className={`h-3 w-2/3 rounded-full mb-2 ${
+              isOwn ? "bg-white/20" : "bg-gray-300 dark:bg-gray-700"
+            }`}
+          />
+          <div
+            className={`h-2 w-1/3 rounded-full ${
+              isOwn ? "bg-white/20" : "bg-gray-300 dark:bg-gray-700"
+            }`}
+          />
+        </div>
+      ) : data ? (
+        <>
+          {data.image?.url && (
+            <img
+              src={data.image.url}
+              alt={data.title || "Link preview"}
+              className="w-full max-h-40 object-cover"
+            />
+          )}
+          <div className="p-2.5">
+            {data.title && (
+              <p
+                className={`text-xs font-semibold line-clamp-1 ${
+                  isOwn ? "text-white" : "text-gray-800 dark:text-gray-200"
+                }`}
+              >
+                {data.title}
+              </p>
+            )}
+            {data.description && (
+              <p
+                className={`text-[11px] line-clamp-2 mt-0.5 ${
+                  isOwn ? "text-white/70" : "text-gray-500 dark:text-gray-400"
+                }`}
+              >
+                {data.description}
+              </p>
+            )}
+            <p
+              className={`text-[10px] mt-1 flex items-center gap-1 ${
+                isOwn ? "text-white/50" : "text-gray-400 dark:text-gray-500"
+              }`}
+            >
+              <FaLink className="text-[9px]" /> {domain}
+            </p>
+          </div>
+        </>
+      ) : null}
+    </a>
+  );
 };
 
 // ─── Skeleton Message Component ────────────────────────────────────────
@@ -664,6 +829,9 @@ const MediaMessage = ({
     };
   })();
 
+  // Link preview target (only relevant for text messages)
+  const firstUrl = extractFirstUrl(message.content);
+
   // Touch handlers for swipe reply
   const handleTouchStart = (e) => {
     if (!isMobile) return;
@@ -1052,9 +1220,10 @@ const MediaMessage = ({
             )}
             {message.content && (
               <p className="mb-2 whitespace-pre-wrap break-words">
-                {message.content}
+                <LinkifiedText text={message.content} isOwn={isOwn} />
               </p>
             )}
+            {firstUrl && <LinkPreviewCard url={firstUrl} isOwn={isOwn} />}
             {renderMediaContent()}
           </div>
           <div
@@ -1277,6 +1446,7 @@ const MessageActionModal = ({
   onStar,
   onUnstar,
   onReply,
+  onCopy,
 }) => {
   if (!isOpen || !message) return null;
   return (
@@ -1318,6 +1488,16 @@ const MessageActionModal = ({
           >
             <FaReply className="text-sm" />{" "}
             <span className="text-sm font-medium">Reply</span>
+          </button>
+          <button
+            onClick={() => {
+              onCopy(message);
+              onClose();
+            }}
+            className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+          >
+            <FaCopy className="text-sm" />{" "}
+            <span className="text-sm font-medium">Copy</span>
           </button>
           {isOwn && (
             <button
@@ -1474,6 +1654,7 @@ const GeneralChatId = () => {
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
+  const inputAreaRef = useRef(null); // NEW: ref for the fixed input area
   const isSendingRef = useRef(false);
   const [isSending, setIsSending] = useState(false);
   const [previewImage, setPreviewImage] = useState(null);
@@ -1485,6 +1666,23 @@ const GeneralChatId = () => {
   const isDesktop = !isMobile;
 
   const [showMediaPicker, setShowMediaPicker] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const emojiPickerRef = useRef(null);
+
+  // NEW: state to hold the height of the input area
+  const [inputHeight, setInputHeight] = useState(0);
+
+  // NEW: ResizeObserver to measure input area height
+  useEffect(() => {
+    if (!inputAreaRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      for (let entry of entries) {
+        setInputHeight(entry.contentRect.height);
+      }
+    });
+    observer.observe(inputAreaRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   const { socket, isConnected } = useSocket();
 
@@ -1624,6 +1822,65 @@ const GeneralChatId = () => {
       inputRef.current.style.height = inputRef.current.scrollHeight + "px";
     }
   }, [message]);
+
+  // ─── Close emoji picker on outside click (desktop popup only) ────
+  useEffect(() => {
+    if (!showEmojiPicker || isMobile) return;
+    const handler = (e) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target)) {
+        setShowEmojiPicker(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showEmojiPicker, isMobile]);
+
+  // ─── Insert emoji at cursor position ─────────────────────────────
+  const handleEmojiSelect = (emoji) => {
+    const el = inputRef.current;
+    if (!el) {
+      setMessage((prev) => prev + emoji);
+      return;
+    }
+    const start = el.selectionStart ?? message.length;
+    const end = el.selectionEnd ?? message.length;
+    const newValue = message.slice(0, start) + emoji + message.slice(end);
+    setMessage(newValue);
+    requestAnimationFrame(() => {
+      el.focus();
+      const cursor = start + emoji.length;
+      el.setSelectionRange(cursor, cursor);
+    });
+  };
+
+  // NEW: toggle emoji picker with keyboard dismissal/restoration
+  const toggleEmoji = useCallback(() => {
+    setShowEmojiPicker((prev) => {
+      if (!prev) {
+        // opening: blur input to dismiss keyboard
+        inputRef.current?.blur();
+      } else {
+        // closing: focus input to show keyboard
+        inputRef.current?.focus();
+      }
+      return !prev;
+    });
+  }, []);
+
+  // ─── Copy message content to clipboard ───────────────────────────
+  const handleCopyMessage = async (msg) => {
+    try {
+      const textToCopy = msg?.content || msg?.mediaName || "";
+      if (!textToCopy) {
+        toast.error("Nothing to copy");
+        return;
+      }
+      await navigator.clipboard.writeText(textToCopy);
+      toast.success("Copied to clipboard");
+    } catch (err) {
+      toast.error("Failed to copy");
+    }
+  };
 
   // ─── Duplicate detection helper ──────────────────────────────────
   const isRecentDuplicateMedia = useCallback(
@@ -2061,6 +2318,8 @@ const GeneralChatId = () => {
 
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
+      // keep focus after sending so keyboard stays open
+      inputRef.current.focus();
     }
 
     socket.emit(
@@ -2800,7 +3059,10 @@ const GeneralChatId = () => {
               <div
                 ref={messagesContainerRef}
                 onScroll={handleMessagesScroll}
-                className="h-full overflow-y-auto px-4 py-3 space-y-1 pt-20 lg:pt-3 pb-24 lg:pb-3"
+                className="h-full overflow-y-auto px-4 py-3 space-y-1 pt-20 lg:pt-3 pb-24 lg:pb-3 transition-all duration-200 ease-in-out"
+                style={{
+                  paddingBottom: isMobile ? `${inputHeight}px` : undefined,
+                }}
               >
                 {renderMessagesWithDividers()}
                 <div ref={messagesEndRef} />
@@ -2816,7 +3078,10 @@ const GeneralChatId = () => {
             </div>
 
             {/* Input area */}
-            <div className="fixed lg:sticky bottom-0 left-0 right-0 lg:left-auto lg:right-auto z-20 border-t border-gray-200/60 dark:border-gray-800/60 bg-white/90 dark:bg-[#0f0f12]/90 backdrop-blur-xl flex-shrink-0 px-3 sm:px-4">
+            <div
+              ref={inputAreaRef}
+              className="fixed lg:sticky bottom-0 left-0 right-0 lg:left-auto lg:right-auto z-20 border-t border-gray-200/60 dark:border-gray-800/60 bg-white/90 dark:bg-[#0f0f12]/90 backdrop-blur-xl flex-shrink-0 px-3 sm:px-4"
+            >
               <div className="py-2">
                 <ReplyPreview
                   replyTo={replyToMessage}
@@ -2911,56 +3176,90 @@ const GeneralChatId = () => {
                   onSubmit={handleSendMessage}
                   className="flex items-end gap-2"
                 >
-                  <button
-                    type="button"
-                    onClick={() => handleFileUpload("file")}
-                    className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition flex-shrink-0 mb-1"
-                  >
-                    <FaPaperclip className="text-sm" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleFileUpload("image")}
-                    className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition flex-shrink-0 mb-1"
-                  >
-                    <FaImage className="text-sm" />
-                  </button>
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handleFileChange}
-                    className="hidden"
-                  />
-                  <input
-                    type="file"
-                    ref={imageInputRef}
-                    onChange={handleFileChange}
-                    className="hidden"
-                    accept="image/*,video/*"
-                  />
-                  <textarea
-                    ref={inputRef}
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    onPaste={handlePaste}
-                    onKeyDown={(e) => {
-                      if (isMobile) return;
-                      if (isSendingRef.current) return;
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSendMessage(e);
-                      }
-                    }}
-                    placeholder="Message"
-                    rows={1}
-                    className="flex-1 min-w-0 px-4 py-2 border border-gray-300 dark:border-gray-700/60 rounded-2xl bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500 resize-none max-h-32 overflow-y-auto"
-                    style={{ minHeight: "42px", lineHeight: "1.5" }}
-                  />
+                  {/* Emoji – outside the pill, extreme left, exactly like WhatsApp */}
+                  <div className="relative flex-shrink-0 mb-1" ref={emojiPickerRef}>
+                    <button
+                      type="button"
+                      onClick={toggleEmoji}
+                      className="p-2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition"
+                    >
+                      <FaSmile className="text-xl" />
+                    </button>
+                    {/* Desktop: floating popup above the bar */}
+                    {showEmojiPicker && !isMobile && (
+                      <div className="absolute bottom-12 left-0 z-30 w-72 max-h-56 overflow-y-auto bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl shadow-xl p-3 grid grid-cols-8 gap-1">
+                        {EMOJI_LIST.map((emoji, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => handleEmojiSelect(emoji)}
+                            className="text-xl hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-lg p-1 transition"
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Input pill – paperclip + camera live INSIDE it, like WhatsApp */}
+                  <div className="flex-1 min-w-0 relative flex items-end">
+                    <textarea
+                      ref={inputRef}
+                      value={message}
+                      onChange={(e) => setMessage(e.target.value)}
+                      onPaste={handlePaste}
+                      onFocus={() => setShowEmojiPicker(false)}
+                      onKeyDown={(e) => {
+                        if (isMobile) return;
+                        if (isSendingRef.current) return;
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSendMessage(e);
+                        }
+                      }}
+                      placeholder="Message"
+                      rows={1}
+                      className="w-full min-w-0 pl-4 pr-20 py-2 border border-gray-300 dark:border-gray-700/60 rounded-full bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500 resize-none max-h-32 overflow-y-auto"
+                      style={{ minHeight: "42px", lineHeight: "1.5" }}
+                    />
+                    <div className="absolute right-3 bottom-0 h-[42px] flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => handleFileUpload("file")}
+                        className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition"
+                      >
+                        <FaPaperclip className="text-base" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleFileUpload("image")}
+                        className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition"
+                      >
+                        <FaCamera className="text-base" />
+                      </button>
+                    </div>
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleFileChange}
+                      className="hidden"
+                    />
+                    <input
+                      type="file"
+                      ref={imageInputRef}
+                      onChange={handleFileChange}
+                      className="hidden"
+                      accept="image/*,video/*"
+                    />
+                  </div>
+
+                  {/* Mic / send – outside the pill, extreme right, exactly like WhatsApp */}
                   {message.trim() ? (
                     <button
                       type="submit"
                       disabled={!isConnected || isSending}
-                      className="p-2 rounded-full text-white disabled:opacity-50 flex-shrink-0 transition hover:opacity-80 mb-1"
+                      className="p-3 rounded-full text-white disabled:opacity-50 flex-shrink-0 transition hover:opacity-80 mb-1"
                       style={{ backgroundColor: "#0d9488" }}
                     >
                       <FaPaperPlane className="text-sm" />
@@ -2971,13 +3270,32 @@ const GeneralChatId = () => {
                       onPointerDown={handleMicPointerDown}
                       onPointerUp={handleMicPointerUp}
                       onPointerCancel={handleMicPointerUp}
-                      className="p-2 rounded-full text-white flex-shrink-0 transition hover:opacity-80 mb-1"
+                      className="p-3 rounded-full text-white flex-shrink-0 transition hover:opacity-80 mb-1"
                       style={{ backgroundColor: "#0d9488" }}
                     >
                       <FaMicrophone className="text-sm" />
                     </button>
                   )}
                 </form>
+
+                {/* Mobile: emoji panel docks under the input, same footprint as the keyboard it replaces */}
+                {showEmojiPicker && isMobile && (
+                  <div
+                    className="w-full mt-2 overflow-y-auto bg-white dark:bg-[#14141a] border-t border-gray-200 dark:border-gray-800/60 rounded-t-xl grid grid-cols-8 gap-1 p-3"
+                    style={{ height: "260px" }}
+                  >
+                    {EMOJI_LIST.map((emoji, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => handleEmojiSelect(emoji)}
+                        className="text-2xl hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-lg p-1 transition"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -3044,6 +3362,7 @@ const GeneralChatId = () => {
         onStar={handleStarMessage}
         onUnstar={handleUnstarMessage}
         onReply={handleReply}
+        onCopy={handleCopyMessage}
       />
 
       <MediaPickerModal

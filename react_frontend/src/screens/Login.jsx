@@ -11,9 +11,8 @@ import {
 } from '../slices/userApiSlice';
 import { setCredentials } from '../slices/authSlice';
 import { toast } from 'react-hot-toast';
-import { FaEnvelope, FaLock, FaEye, FaEyeSlash, FaArrowLeft, FaGoogle } from 'react-icons/fa';
+import { FaEnvelope, FaLock, FaEye, FaEyeSlash, FaArrowLeft } from 'react-icons/fa';
 import { GoogleLogin } from '@react-oauth/google';
-import { SocialLogin } from '@capgo/capacitor-social-login';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -45,79 +44,6 @@ const Login = () => {
       navigate(from, { replace: true });
     }
   }, [userInfo, navigate, from]);
-
-  // ── Initialize Social Login for Capacitor ──
-  useEffect(() => {
-    const initGoogleSignIn = async () => {
-      if (Capacitor.isNativePlatform()) {
-        try {
-          // @capgo/capacitor-social-login expects a nested `google` config,
-          // not a flat clientId/webClientId. This MUST be the Web client ID
-          // from Google Cloud Console (not the Android client ID) — Android's
-          // Credential Manager specifically requires the web one here.
-          await SocialLogin.initialize({
-            google: {
-              webClientId: import.meta.env.VITE_GOOGLE_CLIENT_ID,
-            },
-          });
-          console.log('✅ Social Login (Google) configured for Capacitor');
-        } catch (error) {
-          console.error('❌ Social Login config error:', error);
-        }
-      }
-    };
-
-    initGoogleSignIn();
-  }, []);
-
-  // ── Handle Native Google Login ──
-  const handleNativeGoogleLogin = async () => {
-    if (!Capacitor.isNativePlatform()) return;
-
-    try {
-      setIsLoading(true);
-      toast.loading('Signing in with Google...', { duration: 5000 });
-
-      // Sign in with Google (opens native account picker / Credential Manager)
-      const result = await SocialLogin.login({
-        provider: 'google',
-        options: {},
-      });
-
-      console.log('✅ Google Sign-In result:', result);
-
-      // idToken lives under `result.result`, not `result.authentication`
-      const idToken = result.result?.idToken;
-
-      if (!idToken) {
-        throw new Error('No ID token received from Google');
-      }
-
-      // Send the token to your backend
-      const res = await googleAuth({
-        token: idToken,
-        mode: 'login',
-      }).unwrap();
-
-      dispatch(setCredentials({ ...res }));
-      toast.dismiss();
-      toast.success('Google login successful!');
-      navigate(from, { replace: true });
-
-    } catch (error) {
-      toast.dismiss();
-      console.error('❌ Google Sign-In error:', error);
-
-      // Check if user cancelled
-      if (error.message?.includes('cancel')) {
-        toast.error('Login cancelled');
-      } else {
-        toast.error(error?.data?.message || 'Google login failed. Please try again.');
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   // ── Google login handlers for Web ──
   const handleGoogleSuccess = async (credentialResponse) => {
@@ -371,53 +297,35 @@ const Login = () => {
               <p className="text-gray-600 dark:text-gray-400 mt-1">Sign in to continue to your workspace</p>
             </div>
 
-            <div className="mb-6">
-              {isNative ? (
-                // ── Capacitor Native - Native Google Sign-In ──
-                <button
-                  onClick={handleNativeGoogleLogin}
-                  disabled={isLoading || isGoogleLoading}
-                  className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white dark:bg-[#1a1a24] text-gray-800 dark:text-gray-200 font-medium rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-[#2a2a35] focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all duration-200 disabled:opacity-70 disabled:cursor-not-allowed"
-                >
-                  {isLoading || isGoogleLoading ? (
-                    <div className="flex items-center gap-2">
-                      <div className="w-5 h-5 border-2 border-teal-600 border-t-transparent rounded-full animate-spin"></div>
-                      <span>Signing in...</span>
-                    </div>
-                  ) : (
-                    <>
-                      <FaGoogle className="text-xl text-red-500" />
-                      <span>Sign in with Google</span>
-                    </>
-                  )}
-                </button>
-              ) : (
-                // ── Web Browser - GoogleLogin Component ──
-                <div className="flex justify-center">
-                  <GoogleLogin
-                    onSuccess={handleGoogleSuccess}
-                    onError={handleGoogleError}
-                    theme="filled_black"
-                    size="large"
-                    width="100%"
-                    text="signin_with"
-                    shape="rectangular"
-                    logo_alignment="center"
-                  />
+            {/* Google Sign-In – only on web */}
+            {!isNative && (
+              <>
+                <div className="mb-6">
+                  <div className="flex justify-center">
+                    <GoogleLogin
+                      onSuccess={handleGoogleSuccess}
+                      onError={handleGoogleError}
+                      theme="filled_black"
+                      size="large"
+                      width="100%"
+                      text="signin_with"
+                      shape="rectangular"
+                      logo_alignment="center"
+                    />
+                  </div>
                 </div>
-              )}
-            </div>
-
-            <div className="relative mb-6">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300 dark:border-gray-700/60"></div>
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-4 bg-white dark:bg-[#0b0b10] text-gray-500 dark:text-gray-500">
-                  or sign in with email
-                </span>
-              </div>
-            </div>
+                <div className="relative mb-6">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-gray-300 dark:border-gray-700/60"></div>
+                  </div>
+                  <div className="relative flex justify-center text-sm">
+                    <span className="px-4 bg-white dark:bg-[#0b0b10] text-gray-500 dark:text-gray-500">
+                      or sign in with email
+                    </span>
+                  </div>
+                </div>
+              </>
+            )}
 
             <form onSubmit={handleSubmit} className="space-y-5">
               <div>
