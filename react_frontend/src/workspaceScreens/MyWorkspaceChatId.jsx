@@ -45,7 +45,15 @@ import {
   FaFile,
   FaCamera,
   FaUser,
-  FaChevronDown
+  FaChevronDown,
+  FaSmile,          // added
+  FaCopy,           // added
+  FaPencilAlt,      // added for image editor
+  FaCrop,           // added
+  FaArrowRight,     // added
+  FaUndoAlt,        // added
+  FaSave,           // added
+  FaLink,           // added for link preview
 } from "react-icons/fa";
 import { toast } from "react-hot-toast";
 
@@ -110,6 +118,168 @@ const useMediaQuery = (query) => {
   }, [matches, query]);
   return matches;
 };
+
+// ─── Link detection / preview helpers ──────────────────────────────
+const URL_REGEX = /(https?:\/\/[^\s]+)/g;
+
+const extractFirstUrl = (text) => {
+  if (!text) return null;
+  const match = text.match(URL_REGEX);
+  return match ? match[0] : null;
+};
+
+const isUrlPart = (part) => /^https?:\/\//.test(part);
+
+const LinkifiedText = ({ text, isOwn }) => {
+  if (!text) return null;
+  const parts = text.split(URL_REGEX);
+  return (
+    <>
+      {parts.map((part, i) =>
+        isUrlPart(part) ? (
+          <a
+            key={i}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className={`underline break-all ${
+              isOwn ? 'text-white' : 'text-teal-600 dark:text-teal-400'
+            }`}
+          >
+            {part}
+          </a>
+        ) : (
+          <React.Fragment key={i}>{part}</React.Fragment>
+        )
+      )}
+    </>
+  );
+};
+
+const linkPreviewCache = new Map();
+
+const LinkPreviewCard = ({ url, isOwn, brandColor }) => {
+  const [data, setData] = useState(() => linkPreviewCache.get(url) || null);
+  const [loading, setLoading] = useState(!linkPreviewCache.has(url));
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (linkPreviewCache.has(url)) {
+      setData(linkPreviewCache.get(url));
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setFailed(false);
+    fetch(`https://api.microlink.io/?url=${encodeURIComponent(url)}`)
+      .then((res) => res.json())
+      .then((json) => {
+        if (cancelled) return;
+        if (json?.status === 'success' && json?.data) {
+          linkPreviewCache.set(url, json.data);
+          setData(json.data);
+        } else {
+          setFailed(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [url]);
+
+  if (failed) return null;
+
+  let domain = '';
+  try {
+    domain = new URL(url).hostname.replace('www.', '');
+  } catch {
+    domain = url;
+  }
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      className={`block mt-1.5 rounded-xl overflow-hidden border ${
+        isOwn
+          ? 'border-white/20 bg-black/10 hover:bg-black/20'
+          : 'border-gray-200 dark:border-gray-700/60 bg-gray-50 dark:bg-gray-800/40 hover:bg-gray-100 dark:hover:bg-gray-800/60'
+      } transition`}
+    >
+      {loading ? (
+        <div className="p-3 animate-pulse">
+          <div
+            className={`h-3 w-2/3 rounded-full mb-2 ${
+              isOwn ? 'bg-white/20' : 'bg-gray-300 dark:bg-gray-700'
+            }`}
+          />
+          <div
+            className={`h-2 w-1/3 rounded-full ${
+              isOwn ? 'bg-white/20' : 'bg-gray-300 dark:bg-gray-700'
+            }`}
+          />
+        </div>
+      ) : data ? (
+        <>
+          {data.image?.url && (
+            <img
+              src={data.image.url}
+              alt={data.title || 'Link preview'}
+              className="w-full max-h-40 object-cover"
+            />
+          )}
+          <div className="p-2.5">
+            {data.title && (
+              <p
+                className={`text-xs font-semibold line-clamp-1 ${
+                  isOwn ? 'text-white' : 'text-gray-800 dark:text-gray-200'
+                }`}
+              >
+                {data.title}
+              </p>
+            )}
+            {data.description && (
+              <p
+                className={`text-[11px] line-clamp-2 mt-0.5 ${
+                  isOwn ? 'text-white/70' : 'text-gray-500 dark:text-gray-400'
+                }`}
+              >
+                {data.description}
+              </p>
+            )}
+            <p
+              className={`text-[10px] mt-1 flex items-center gap-1 ${
+                isOwn ? 'text-white/50' : 'text-gray-400 dark:text-gray-500'
+              }`}
+            >
+              <FaLink className="text-[9px]" /> {domain}
+            </p>
+          </div>
+        </>
+      ) : null}
+    </a>
+  );
+};
+
+// ─── Emoji list ─────────────────────────────────────────────────────
+const EMOJI_LIST = [
+  '😀', '😁', '😂', '🤣', '😊', '😍', '😘', '😜', '🤔', '😎',
+  '😢', '😭', '😡', '🥳', '👍', '👎', '🙏', '👏', '💪', '🔥',
+  '❤️', '💔', '💯', '✨', '🎉', '😴', '🤗', '😇', '🙄', '😅',
+  '🤝', '👋', '🤞', '🫶', '😏', '🥺', '😱', '😳', '🤩', '🫡',
+  '💀', '👀', '😤', '🤦', '🤷', '🙈', '🙉', '🙊', '💃', '🕺',
+  '🍕', '☕', '🎂', '🌹', '⚽', '🏆', '💰', '📌', '✅', '❌',
+];
 
 // ─── Skeleton Message Component ─────────────────────────────────────
 const SkeletonMessage = ({ isOwn }) => {
@@ -209,8 +379,8 @@ const MediaPickerModal = ({ isOpen, onClose, onTakePhoto, onChooseFromGallery, b
   );
 };
 
-// ─── Media Preview Component (small bar) ──────────────────────────
-const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending }) => {
+// ─── Media Preview Component (with edit button for images) ──────────
+const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending, onEdit }) => {
   const [preview, setPreview] = useState(null);
   const [type, setType] = useState(null);
 
@@ -227,13 +397,21 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending }) =>
 
   return (
     <div className="flex items-center gap-3 p-3 mb-2 bg-gray-50 dark:bg-gray-800/30 rounded-xl border border-gray-200 dark:border-gray-700/60">
-      <div className="relative flex-shrink-0">
+      <div className="relative flex-shrink-0 group">
         {type === 'image' ? (
           <img src={preview} alt="Preview" className="w-16 h-16 rounded-lg object-cover" />
         ) : (
           <div className="w-16 h-16 rounded-lg bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-2xl">
             📄
           </div>
+        )}
+        {type === 'image' && (
+          <button
+            onClick={onEdit}
+            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition rounded-lg text-white text-sm"
+          >
+            <FaPencilAlt className="text-lg" />
+          </button>
         )}
         <button
           onClick={onRemove}
@@ -256,6 +434,523 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending }) =>
       >
         <FaPaperPlane className="inline mr-1 text-xs" /> Send
       </button>
+    </div>
+  );
+};
+
+// ─── Image Editor Full‑Screen (copied from YourWorkspaceChannelId) ──
+const MIN_CROP_SIZE = 40;
+
+const ImageEditorScreen = ({ file, onSave, onCancel, brandColor }) => {
+  const canvasRef = useRef(null);
+  const containerRef = useRef(null);
+
+  const [image, setImage] = useState(null);
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [drawMode, setDrawMode] = useState("pencil");
+  const [displaySize, setDisplaySize] = useState({ width: 0, height: 0 });
+  const [drawings, setDrawings] = useState([]);
+  const [cropBox, setCropBox] = useState(null);
+  const [cropTouched, setCropTouched] = useState(false);
+
+  const currentPathRef = useRef(null);
+  const arrowStartRef = useRef(null);
+  const arrowPreviewRef = useRef(null);
+  const isPointerDownRef = useRef(false);
+  const pointerIdRef = useRef(null);
+  const cropDragRef = useRef(null);
+
+  useEffect(() => {
+    if (!file) return;
+    let cancelled = false;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        if (cancelled) return;
+        setImage(img);
+        setImageLoaded(true);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+    return () => {
+      cancelled = true;
+    };
+  }, [file]);
+
+  const recomputeLayout = useCallback(() => {
+    const container = containerRef.current;
+    if (!container || !image) return;
+    const availW = Math.max(container.clientWidth - 24, 50);
+    const availH = Math.max(container.clientHeight - 24, 50);
+    const ratio = image.width / image.height;
+    let w = availW;
+    let h = w / ratio;
+    if (h > availH) {
+      h = availH;
+      w = h * ratio;
+    }
+    w = Math.max(1, Math.floor(w));
+    h = Math.max(1, Math.floor(h));
+
+    setDisplaySize((prev) =>
+      prev.width === w && prev.height === h ? prev : { width: w, height: h }
+    );
+
+    const canvas = canvasRef.current;
+    if (canvas) {
+      if (canvas.width !== image.width || canvas.height !== image.height) {
+        canvas.width = image.width;
+        canvas.height = image.height;
+      }
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+    }
+
+    setCropBox((prev) => (cropTouched && prev ? prev : { x: 0, y: 0, w, h }));
+  }, [image, cropTouched]);
+
+  useEffect(() => {
+    if (imageLoaded) recomputeLayout();
+  }, [imageLoaded, recomputeLayout]);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver(() => recomputeLayout());
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [recomputeLayout]);
+
+  const drawArrowOnCtx = (ctx, from, to, lineWidth) => {
+    const headlen = Math.max(10, lineWidth * 3.5);
+    const angle = Math.atan2(to.y - from.y, to.x - from.x);
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.strokeStyle = "#ff3b30";
+    ctx.lineWidth = lineWidth;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(to.x, to.y);
+    ctx.lineTo(
+      to.x - headlen * Math.cos(angle - Math.PI / 6),
+      to.y - headlen * Math.sin(angle - Math.PI / 6)
+    );
+    ctx.moveTo(to.x, to.y);
+    ctx.lineTo(
+      to.x - headlen * Math.cos(angle + Math.PI / 6),
+      to.y - headlen * Math.sin(angle + Math.PI / 6)
+    );
+    ctx.stroke();
+  };
+
+  const redraw = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !image) return;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    const scale = displaySize.width ? canvas.width / displaySize.width : 1;
+    const lineWidth = 3 * scale;
+
+    drawings.forEach((d) => {
+      if (d.type === "pencil" && d.points?.length > 1) {
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        ctx.moveTo(d.points[0].x, d.points[0].y);
+        for (let i = 1; i < d.points.length; i++) {
+          ctx.lineTo(d.points[i].x, d.points[i].y);
+        }
+        ctx.strokeStyle = "#ff3b30";
+        ctx.lineWidth = lineWidth;
+        ctx.stroke();
+      } else if (d.type === "arrow") {
+        drawArrowOnCtx(ctx, d.from, d.to, lineWidth);
+      }
+    });
+
+    if (currentPathRef.current && currentPathRef.current.length > 1) {
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      ctx.moveTo(currentPathRef.current[0].x, currentPathRef.current[0].y);
+      for (let i = 1; i < currentPathRef.current.length; i++) {
+        ctx.lineTo(currentPathRef.current[i].x, currentPathRef.current[i].y);
+      }
+      ctx.strokeStyle = "#ff3b30";
+      ctx.lineWidth = lineWidth;
+      ctx.stroke();
+    }
+    if (arrowPreviewRef.current) {
+      drawArrowOnCtx(
+        ctx,
+        arrowPreviewRef.current.from,
+        arrowPreviewRef.current.to,
+        lineWidth
+      );
+    }
+  }, [image, drawings, displaySize]);
+
+  useEffect(() => {
+    redraw();
+  }, [redraw]);
+
+  const getNaturalCoords = (clientX, clientY) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return { x: 0, y: 0 };
+    const x = ((clientX - rect.left) / rect.width) * canvas.width;
+    const y = ((clientY - rect.top) / rect.height) * canvas.height;
+    return {
+      x: Math.min(Math.max(x, 0), canvas.width),
+      y: Math.min(Math.max(y, 0), canvas.height),
+    };
+  };
+
+  const handleCanvasPointerDown = (e) => {
+    if (drawMode === "crop") return;
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    canvas?.setPointerCapture?.(e.pointerId);
+    isPointerDownRef.current = true;
+    pointerIdRef.current = e.pointerId;
+    const coords = getNaturalCoords(e.clientX, e.clientY);
+    if (drawMode === "pencil") {
+      currentPathRef.current = [coords];
+    } else if (drawMode === "arrow") {
+      arrowStartRef.current = coords;
+      arrowPreviewRef.current = { from: coords, to: coords };
+    }
+    redraw();
+  };
+
+  const handleCanvasPointerMove = (e) => {
+    if (!isPointerDownRef.current) return;
+    e.preventDefault();
+    const coords = getNaturalCoords(e.clientX, e.clientY);
+    if (drawMode === "pencil" && currentPathRef.current) {
+      currentPathRef.current = [...currentPathRef.current, coords];
+      redraw();
+    } else if (drawMode === "arrow" && arrowStartRef.current) {
+      arrowPreviewRef.current = { from: arrowStartRef.current, to: coords };
+      redraw();
+    }
+  };
+
+  const handleCanvasPointerUp = (e) => {
+    if (!isPointerDownRef.current) return;
+    isPointerDownRef.current = false;
+    const canvas = canvasRef.current;
+    canvas?.releasePointerCapture?.(pointerIdRef.current);
+    pointerIdRef.current = null;
+
+    if (
+      drawMode === "pencil" &&
+      currentPathRef.current &&
+      currentPathRef.current.length > 1
+    ) {
+      const path = currentPathRef.current;
+      setDrawings((prev) => [...prev, { type: "pencil", points: path }]);
+    }
+    currentPathRef.current = null;
+
+    if (drawMode === "arrow" && arrowStartRef.current && arrowPreviewRef.current) {
+      const { from, to } = arrowPreviewRef.current;
+      const canvasEl = canvasRef.current;
+      const scale =
+        displaySize.width && canvasEl ? canvasEl.width / displaySize.width : 1;
+      const minDist = 10 * scale;
+      if (Math.hypot(to.x - from.x, to.y - from.y) >= minDist) {
+        setDrawings((prev) => [...prev, { type: "arrow", from, to }]);
+      }
+    }
+    arrowStartRef.current = null;
+    arrowPreviewRef.current = null;
+    redraw();
+  };
+
+  const handleUndoLast = () => {
+    setDrawings((prev) => prev.slice(0, -1));
+  };
+
+  const handleReset = () => {
+    setDrawings([]);
+    setCropTouched(false);
+    if (displaySize.width) {
+      setCropBox({ x: 0, y: 0, w: displaySize.width, h: displaySize.height });
+    }
+  };
+
+  const startCropDrag = (mode) => (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    cropDragRef.current = {
+      mode,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startBox: { ...cropBox },
+    };
+  };
+
+  const handleCropOverlayPointerMove = (e) => {
+    const drag = cropDragRef.current;
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    e.preventDefault();
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    const { x, y, w, h } = drag.startBox;
+    const maxW = displaySize.width;
+    const maxH = displaySize.height;
+    let next = { x, y, w, h };
+
+    if (drag.mode === "move") {
+      next.x = Math.min(Math.max(x + dx, 0), Math.max(maxW - w, 0));
+      next.y = Math.min(Math.max(y + dy, 0), Math.max(maxH - h, 0));
+    } else {
+      if (drag.mode.includes("l")) {
+        const newX = Math.min(Math.max(x + dx, 0), x + w - MIN_CROP_SIZE);
+        next.w = x + w - newX;
+        next.x = newX;
+      }
+      if (drag.mode.includes("r")) {
+        next.w = Math.min(Math.max(w + dx, MIN_CROP_SIZE), maxW - x);
+      }
+      if (drag.mode.includes("t")) {
+        const newY = Math.min(Math.max(y + dy, 0), y + h - MIN_CROP_SIZE);
+        next.h = y + h - newY;
+        next.y = newY;
+      }
+      if (drag.mode.includes("b")) {
+        next.h = Math.min(Math.max(h + dy, MIN_CROP_SIZE), maxH - y);
+      }
+    }
+    setCropBox(next);
+    setCropTouched(true);
+  };
+
+  const handleCropOverlayPointerUp = (e) => {
+    if (cropDragRef.current && e.pointerId === cropDragRef.current.pointerId) {
+      cropDragRef.current = null;
+    }
+  };
+
+  const handleSave = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    let finalCanvas = canvas;
+
+    if (cropBox && displaySize.width && displaySize.height) {
+      const scaleX = canvas.width / displaySize.width;
+      const scaleY = canvas.height / displaySize.height;
+      const sx = Math.round(cropBox.x * scaleX);
+      const sy = Math.round(cropBox.y * scaleY);
+      const sw = Math.round(cropBox.w * scaleX);
+      const sh = Math.round(cropBox.h * scaleY);
+      const isFullFrame =
+        sx <= 1 &&
+        sy <= 1 &&
+        Math.abs(sw - canvas.width) <= 2 &&
+        Math.abs(sh - canvas.height) <= 2;
+      if (!isFullFrame && sw > 0 && sh > 0) {
+        const tempCanvas = document.createElement("canvas");
+        tempCanvas.width = sw;
+        tempCanvas.height = sh;
+        const ctx = tempCanvas.getContext("2d");
+        ctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+        finalCanvas = tempCanvas;
+      }
+    }
+
+    const mimeType =
+      file.type && file.type.startsWith("image/") ? file.type : "image/jpeg";
+    const quality = mimeType === "image/jpeg" ? 0.95 : undefined;
+    finalCanvas.toBlob(
+      (blob) => {
+        if (!blob) return;
+        const newFile = new File([blob], file.name, { type: mimeType });
+        onSave(newFile);
+      },
+      mimeType,
+      quality
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-white dark:bg-[#0f0f12] flex flex-col">
+      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800/60 flex-shrink-0">
+        <button
+          onClick={onCancel}
+          className="p-1 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white transition"
+        >
+          <FaArrowLeft className="text-xl" />
+        </button>
+        <h3 className="font-semibold text-gray-800 dark:text-gray-200">Edit Image</h3>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setDrawMode("pencil")}
+            className={`p-2 rounded-lg transition ${
+              drawMode === "pencil"
+                ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
+                : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
+            }`}
+          >
+            <FaPencilAlt />
+          </button>
+          <button
+            onClick={() => setDrawMode("arrow")}
+            className={`relative p-2 rounded-lg transition ${
+              drawMode === "arrow"
+                ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
+                : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
+            }`}
+          >
+            <FaArrowRight />
+            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-teal-500 text-white rounded-full flex items-center justify-center text-[9px] font-bold leading-none">
+              +
+            </span>
+          </button>
+          <button
+            onClick={() => setDrawMode("crop")}
+            className={`p-2 rounded-lg transition ${
+              drawMode === "crop"
+                ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
+                : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
+            }`}
+          >
+            <FaCrop />
+          </button>
+          <button
+            onClick={handleUndoLast}
+            disabled={drawings.length === 0}
+            title="Undo last stroke"
+            className="p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition disabled:opacity-30"
+          >
+            <FaUndoAlt />
+          </button>
+        </div>
+        <button
+          onClick={handleSave}
+          className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition text-sm font-medium flex items-center gap-2"
+        >
+          <FaSave /> Apply
+        </button>
+      </div>
+
+      <p className="text-center text-xs text-gray-400 dark:text-gray-500 py-1.5 flex-shrink-0">
+        {drawMode === "crop"
+          ? "Drag the corners or box to crop"
+          : drawMode === "arrow"
+            ? "Drag on the photo to draw an arrow"
+            : "Draw freehand on the photo"}
+      </p>
+
+      <div
+        ref={containerRef}
+        className="flex-1 flex items-center justify-center p-3 overflow-hidden"
+      >
+        <div
+          className="relative touch-none select-none"
+          style={{
+            width: displaySize.width || undefined,
+            height: displaySize.height || undefined,
+          }}
+        >
+          <canvas
+            ref={canvasRef}
+            onPointerDown={handleCanvasPointerDown}
+            onPointerMove={handleCanvasPointerMove}
+            onPointerUp={handleCanvasPointerUp}
+            onPointerCancel={handleCanvasPointerUp}
+            className="block rounded-lg touch-none max-w-full max-h-full"
+            style={{ cursor: drawMode === "crop" ? "default" : "crosshair" }}
+          />
+
+          {drawMode === "crop" && cropBox && displaySize.width > 0 && (
+            <div
+              className="absolute inset-0 touch-none"
+              onPointerMove={handleCropOverlayPointerMove}
+              onPointerUp={handleCropOverlayPointerUp}
+              onPointerCancel={handleCropOverlayPointerUp}
+            >
+              {/* dark mask */}
+              <div
+                className="absolute bg-black/50 pointer-events-none"
+                style={{ left: 0, top: 0, right: 0, height: cropBox.y }}
+              />
+              <div
+                className="absolute bg-black/50 pointer-events-none"
+                style={{
+                  left: 0,
+                  top: cropBox.y + cropBox.h,
+                  right: 0,
+                  bottom: 0,
+                }}
+              />
+              <div
+                className="absolute bg-black/50 pointer-events-none"
+                style={{
+                  left: 0,
+                  top: cropBox.y,
+                  width: cropBox.x,
+                  height: cropBox.h,
+                }}
+              />
+              <div
+                className="absolute bg-black/50 pointer-events-none"
+                style={{
+                  left: cropBox.x + cropBox.w,
+                  top: cropBox.y,
+                  right: 0,
+                  height: cropBox.h,
+                }}
+              />
+
+              {/* crop box body */}
+              <div
+                onPointerDown={startCropDrag("move")}
+                className="absolute border-2 border-teal-400 touch-none"
+                style={{
+                  left: cropBox.x,
+                  top: cropBox.y,
+                  width: cropBox.w,
+                  height: cropBox.h,
+                  cursor: "move",
+                }}
+              >
+                <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none">
+                  {Array.from({ length: 9 }).map((_, i) => (
+                    <div key={i} className="border border-white/25" />
+                  ))}
+                </div>
+              </div>
+
+              {/* four corner handles */}
+              {[
+                { key: "tl", x: cropBox.x, y: cropBox.y, cursor: "nwse-resize" },
+                { key: "tr", x: cropBox.x + cropBox.w, y: cropBox.y, cursor: "nesw-resize" },
+                { key: "bl", x: cropBox.x, y: cropBox.y + cropBox.h, cursor: "nesw-resize" },
+                { key: "br", x: cropBox.x + cropBox.w, y: cropBox.y + cropBox.h, cursor: "nwse-resize" },
+              ].map((c) => (
+                <div
+                  key={c.key}
+                  onPointerDown={startCropDrag(c.key)}
+                  className="absolute w-7 h-7 -ml-3.5 -mt-3.5 flex items-center justify-center touch-none"
+                  style={{ left: c.x, top: c.y, cursor: c.cursor }}
+                >
+                  <div className="w-4 h-4 bg-teal-400 border-2 border-white rounded-sm shadow" />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 };
@@ -284,7 +979,7 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, danger = fal
   );
 };
 
-// ─── Message Action Modal ──────────────────────────────────────────
+// ─── Message Action Modal (with Copy) ──────────────────────────────
 const MessageActionModal = ({
   isOpen,
   onClose,
@@ -298,6 +993,7 @@ const MessageActionModal = ({
   onStar,
   onUnstar,
   onReply,
+  onCopy,
   brandColor,
 }) => {
   if (!isOpen || !message) return null;
@@ -328,6 +1024,12 @@ const MessageActionModal = ({
             className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
           >
             <FaReply className="text-sm" /> <span className="text-sm font-medium">Reply</span>
+          </button>
+          <button
+            onClick={() => { onCopy(message); onClose(); }}
+            className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+          >
+            <FaCopy className="text-sm" /> <span className="text-sm font-medium">Copy</span>
           </button>
           {isOwn && (
             <button
@@ -411,7 +1113,7 @@ const MessageTicks = ({ message, isOwn }) => {
   );
 };
 
-// ─── Full AudioPlayer (seekable) ──────────────────────────────────
+// ─── Full AudioPlayer (unchanged) ──────────────────────────────────
 const AudioPlayer = ({
   src,
   isOwn,
@@ -701,7 +1403,7 @@ const ReplyPreview = ({ replyTo, onCancel, brandColor, resolveSender }) => {
   );
 };
 
-// ─── Media Message Component ──────────────────────────────────────
+// ─── Media Message Component (with link previews and copy) ──────────
 const MediaMessage = ({
   message,
   isOwn,
@@ -716,6 +1418,7 @@ const MediaMessage = ({
   onStar,
   onUnstar,
   onReply,
+  onCopy,
   userId,
   isMobile,
   onLongPress,
@@ -898,6 +1601,10 @@ const MediaMessage = ({
 
   const maxWidthClass = isMobile ? "max-w-[75%]" : "max-w-[85%]";
 
+  // ─── Link preview ──────────────────────────────────────────────────
+  const firstUrl = extractFirstUrl(message.content);
+
+  // ─── Image messages ────────────────────────────────────────────────
   if (message.messageType === "image") {
     return (
       <div
@@ -976,6 +1683,16 @@ const MediaMessage = ({
                       >
                         <FaReply className="text-xs" /> Reply
                       </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowMenu(false);
+                          onCopy && onCopy(message);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+                      >
+                        <FaCopy className="text-xs" /> Copy
+                      </button>
                       {isOwn && (
                         <button
                           onClick={(e) => {
@@ -1045,6 +1762,7 @@ const MediaMessage = ({
     );
   }
 
+  // ─── Text / other messages ──────────────────────────────────────────
   return (
     <div
       data-message-id={message._id}
@@ -1086,9 +1804,10 @@ const MediaMessage = ({
             )}
             {message.content && (
               <p className="mb-2 whitespace-pre-wrap break-words">
-                {message.content}
+                <LinkifiedText text={message.content} isOwn={isOwn} />
               </p>
             )}
+            {firstUrl && <LinkPreviewCard url={firstUrl} isOwn={isOwn} brandColor={brandColor} />}
             {renderMediaContent()}
           </div>
           <div className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 ${isOwn ? "flex-row-reverse" : ""}`}>
@@ -1113,6 +1832,16 @@ const MediaMessage = ({
                       className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
                     >
                       <FaReply className="text-xs" /> Reply
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowMenu(false);
+                        onCopy && onCopy(message);
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+                    >
+                      <FaCopy className="text-xs" /> Copy
                     </button>
                     {isOwn && (
                       <button
@@ -1197,6 +1926,7 @@ const MyWorkspaceChatId = () => {
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
+  const inputAreaRef = useRef(null); // for dynamic padding
   const [previewImage, setPreviewImage] = useState(null);
   const [replyToMessage, setReplyToMessage] = useState(null);
   const [localMessages, setLocalMessages] = useState([]);
@@ -1204,6 +1934,15 @@ const MyWorkspaceChatId = () => {
 
   const [pendingMedia, setPendingMedia] = useState(null);
   const [showMediaPicker, setShowMediaPicker] = useState(false);
+
+  // ── Image editor states ──────────────────────────────────────────
+  const [imageToEdit, setImageToEdit] = useState(null);
+  const [imageEditorOpen, setImageEditorOpen] = useState(false);
+
+  // ── Emoji panel ──────────────────────────────────────────────────
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const emojiPickerRef = useRef(null);
+  const [inputHeight, setInputHeight] = useState(0);
 
   const [otherUserOnline, setOtherUserOnline] = useState(null);
 
@@ -1341,7 +2080,7 @@ const MyWorkspaceChatId = () => {
     [localMessages, userInfo]
   );
 
-  // ─── Merge messages into state ────────────────────────────────────
+  // ─── Merge messages into state (unchanged) ─────────────────────────
   const mergeMessagesIntoState = useCallback(
     (incomingList) => {
       if (!incomingList || incomingList.length === 0) return;
@@ -1467,7 +2206,7 @@ const MyWorkspaceChatId = () => {
     }
   }, [messagesData, mergeMessagesIntoState]);
 
-  // ─── Socket events ──────────────────────────────────────────────────
+  // ─── Socket events (unchanged) ──────────────────────────────────
   useEffect(() => {
     if (!socket || !isConnected || !chatId) return;
     socket.emit("join-chat", chatId);
@@ -1572,6 +2311,34 @@ const MyWorkspaceChatId = () => {
     }
   }, [message]);
 
+  // ─── ResizeObserver for input height (for padding) ──────────────
+  useEffect(() => {
+    if (!inputAreaRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      for (let entry of entries) {
+        setInputHeight(entry.contentRect.height);
+      }
+    });
+    observer.observe(inputAreaRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  // ─── Emoji toggle ──────────────────────────────────────────────────
+  const toggleEmoji = useCallback(() => {
+    setShowEmojiPicker((prev) => {
+      if (!prev) {
+        inputRef.current?.blur();
+      } else {
+        inputRef.current?.focus();
+      }
+      return !prev;
+    });
+  }, []);
+
+ const handleEmojiSelect = (emoji) => {
+  setMessage((prev) => prev + emoji);
+};
+
   // ─── Mark message as read ──────────────────────────────────────────
   const markMessageAsRead = useCallback((messageId) => {
     if (!socket || !isConnected) return;
@@ -1604,7 +2371,7 @@ const MyWorkspaceChatId = () => {
     return () => observer.disconnect();
   }, [localMessages, markMessageAsRead, userInfo]);
 
-  // ─── Native / Web voice recording ──────────────────────────────────
+  // ─── Native / Web voice recording (unchanged) ────────────────────
   useEffect(() => {
     isRecordingRef.current = isRecording;
   }, [isRecording]);
@@ -1805,7 +2572,39 @@ const MyWorkspaceChatId = () => {
     }
   };
 
-  // ─── Optimistic sendAudioMessage ──────────────────────────────────
+  // ─── Quick send: stop and send immediately ──────────────────────
+  // ─── Quick send: stop and send immediately ──────────────────────
+const quickSendRecording = () => {
+  if (!isRecordingRef.current) return;
+
+  if (recordingBlob) {
+    sendAudioMessage(recordingBlob);
+    return;
+  }
+
+  // ✅ Set the flag so the useEffect will send when the blob arrives
+  quickSendRef.current = true;
+
+  // Stop recording; the onstop handler will set recordingBlob,
+  // then the useEffect below will see quickSendRef.current === true
+  // and call sendAudioMessage(recordingBlob).
+  if (isNative) {
+    stopNativeRecording();
+  } else {
+    stopWebRecording();
+  }
+};
+
+  // ─── Auto‑send after quick send ──────────────────────────────────
+  const quickSendRef = useRef(false);
+  useEffect(() => {
+    if (quickSendRef.current && recordingBlob) {
+      quickSendRef.current = false;
+      sendAudioMessage(recordingBlob);
+    }
+  }, [recordingBlob]);
+
+  // ─── Optimistic sendAudioMessage (unchanged) ──────────────────────
   const sendAudioMessage = async (audioBlob) => {
     if (!audioBlob) return;
     if (isSendingRef.current) return;
@@ -1902,7 +2701,7 @@ const MyWorkspaceChatId = () => {
     }
   };
 
-  // ─── Native / Web file & image pickers ────────────────────────────
+  // ─── Native / Web file & image pickers (with editor) ────────────
   const handleTakePhoto = useCallback(async () => {
     setShowMediaPicker(false);
     try {
@@ -1915,7 +2714,8 @@ const MyWorkspaceChatId = () => {
         const mimeType = `image/${photo.format || 'jpeg'}`;
         const fileName = `photo-${Date.now()}.${photo.format || 'jpg'}`;
         const file = base64ToFile(photo.base64String, fileName, mimeType);
-        setPendingMedia(file);
+        setImageToEdit(file);
+        setImageEditorOpen(true);
       }
     } catch (err) {
       const msg = (err?.message || '').toLowerCase();
@@ -1938,7 +2738,8 @@ const MyWorkspaceChatId = () => {
         const mimeType = `image/${photo.format || 'jpeg'}`;
         const fileName = `photo-${Date.now()}.${photo.format || 'jpg'}`;
         const file = base64ToFile(photo.base64String, fileName, mimeType);
-        setPendingMedia(file);
+        setImageToEdit(file);
+        setImageEditorOpen(true);
       }
     } catch (err) {
       const msg = (err?.message || '').toLowerCase();
@@ -1967,7 +2768,12 @@ const MyWorkspaceChatId = () => {
         toast.error('Could not read selected file');
         return;
       }
-      setPendingMedia(file);
+      if (file.type.startsWith('image/')) {
+        setImageToEdit(file);
+        setImageEditorOpen(true);
+      } else {
+        setPendingMedia(file);
+      }
     } catch (err) {
       const msg = (err?.message || '').toLowerCase();
       if (!msg.includes('cancel')) {
@@ -2002,7 +2808,12 @@ const MyWorkspaceChatId = () => {
       toast.error('No file selected');
       return;
     }
-    setPendingMedia(file);
+    if (file.type.startsWith('image/')) {
+      setImageToEdit(file);
+      setImageEditorOpen(true);
+    } else {
+      setPendingMedia(file);
+    }
     e.target.value = '';
   }, []);
 
@@ -2015,13 +2826,41 @@ const MyWorkspaceChatId = () => {
         e.preventDefault();
         const file = item.getAsFile();
         if (file) {
-          setPendingMedia(file);
+          setImageToEdit(file);
+          setImageEditorOpen(true);
         }
         return;
       }
     }
+    const text = e.clipboardData?.getData('text');
+    if (text) {
+      const urlPattern = /\.(jpg|jpeg|png|gif|webp|svg)$/i;
+      if (urlPattern.test(text.trim())) {
+        e.preventDefault();
+      }
+    }
   }, []);
 
+  // ─── Image editor callbacks ──────────────────────────────────────
+  const handleImageEditorSave = (editedFile) => {
+    setPendingMedia(editedFile);
+    setImageEditorOpen(false);
+    setImageToEdit(null);
+  };
+
+  const handleImageEditorCancel = () => {
+    setImageEditorOpen(false);
+    setImageToEdit(null);
+  };
+
+  const handleImageEdit = () => {
+    if (pendingMedia && pendingMedia.type.startsWith('image/')) {
+      setImageToEdit(pendingMedia);
+      setImageEditorOpen(true);
+    }
+  };
+
+  // ─── Send media from pendingMedia ──────────────────────────────
   const handleSendMedia = async (file) => {
     if (!file) return;
     if (isSendingRef.current) return;
@@ -2092,6 +2931,18 @@ const MyWorkspaceChatId = () => {
   };
 
   const clearPendingMedia = () => setPendingMedia(null);
+
+  // ─── Copy message ──────────────────────────────────────────────────
+  const handleCopyMessage = useCallback((msg) => {
+    const textToCopy = msg?.content || msg?.mediaName || '';
+    if (!textToCopy) {
+      toast.error('Nothing to copy');
+      return;
+    }
+    navigator.clipboard.writeText(textToCopy)
+      .then(() => toast.success('Copied to clipboard'))
+      .catch(() => toast.error('Failed to copy'));
+  }, []);
 
   // ─── Message action handlers ──────────────────────────────────────
   const handleDeleteMessage = async (messageId) => {
@@ -2205,7 +3056,7 @@ const MyWorkspaceChatId = () => {
     }
   };
 
-  // ─── Optimistic text send ──────────────────────────────────────────
+  // ─── Optimistic text send (unchanged) ──────────────────────────────
   const handleSendMessage = (e) => {
     e.preventDefault();
     const trimmed = message.trim();
@@ -2351,6 +3202,7 @@ const MyWorkspaceChatId = () => {
           onStar={handleStarMessage}
           onUnstar={handleUnstarMessage}
           onReply={handleReply}
+          onCopy={handleCopyMessage}
           userId={userInfo?._id}
           isMobile={isMobile}
           onLongPress={handleLongPress}
@@ -2437,6 +3289,9 @@ const MyWorkspaceChatId = () => {
             ref={messagesContainerRef}
             onScroll={handleMessagesScroll}
             className="h-full overflow-y-auto px-4 py-3 space-y-4 pt-20 lg:pt-3 pb-24 lg:pb-3"
+            style={{
+              paddingBottom: isMobile ? `${inputHeight}px` : undefined,
+            }}
           >
             {renderMessagesWithDividers()}
             <div ref={messagesEndRef} />
@@ -2452,7 +3307,14 @@ const MyWorkspaceChatId = () => {
         </div>
 
         {/* Input area */}
-        <div className="fixed lg:sticky bottom-0 left-0 right-0 lg:left-auto lg:right-auto z-20 border-t border-gray-200/60 dark:border-gray-800/60 bg-white/90 dark:bg-[#0f0f12]/90 backdrop-blur-xl flex-shrink-0 px-3 sm:px-4">
+        <div
+          ref={inputAreaRef}
+          className="fixed lg:sticky bottom-0 left-0 right-0 lg:left-auto lg:right-auto z-20 border-t border-gray-200/60 dark:border-gray-800/60 bg-white/90 dark:bg-[#0f0f12]/90 backdrop-blur-xl flex-shrink-0 px-3 sm:px-4"
+          style={{
+            paddingTop: '0.5rem',
+            paddingBottom: 'calc(0.5rem + env(safe-area-inset-bottom, 0px))',
+          }}
+        >
           <ReplyPreview
             replyTo={replyToMessage}
             onCancel={cancelReply}
@@ -2467,6 +3329,7 @@ const MyWorkspaceChatId = () => {
               onSend={handleSendMedia}
               brandColor={brandColor}
               isSending={isSending}
+              onEdit={handleImageEdit}
             />
           )}
 
@@ -2495,7 +3358,7 @@ const MyWorkspaceChatId = () => {
                   Send
                 </button>
                 <button
-                  onClick={cancelRecording}
+                  onClick={() => { setRecordingBlob(null); setShowRecordedPreview(false); setRecordingTime(0); }}
                   className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white"
                 >
                   <FaTimes className="text-xs" />
@@ -2535,62 +3398,81 @@ const MyWorkspaceChatId = () => {
             </div>
           )}
 
+          {/* ─── New WhatsApp‑style input bar ─── */}
           <form onSubmit={handleSendMessage} className="flex items-end gap-2 py-2">
-            <button
-              type="button"
-              onClick={() => handleFileUpload("file")}
-              className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition flex-shrink-0 mb-1"
-            >
-              <FaPaperclip className="text-sm" />
-            </button>
-            <button
-              type="button"
-              onClick={() => handleFileUpload("image")}
-              className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition flex-shrink-0 mb-1"
-            >
-              <FaImage className="text-sm" />
-            </button>
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileChange}
-              className="hidden"
-            />
-            <input
-              type="file"
-              ref={imageInputRef}
-              onChange={handleFileChange}
-              className="hidden"
-              accept="image/*,video/*"
-            />
+            {/* Emoji button – extreme left */}
+            <div className="relative flex-shrink-0 mb-1" ref={emojiPickerRef}>
+              <button
+                type="button"
+                onClick={toggleEmoji}
+                className="p-2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition"
+              >
+                <FaSmile className="text-xl" />
+              </button>
+              {/* Desktop floating popup */}
+              {showEmojiPicker && !isMobile && (
+                <div className="absolute bottom-12 left-0 z-30 w-72 max-h-56 overflow-y-auto bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl shadow-xl p-3 grid grid-cols-8 gap-1">
+                  {EMOJI_LIST.map((emoji, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => handleEmojiSelect(emoji)}
+                      className="text-xl hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-lg p-1 transition"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
-            <textarea
-              ref={inputRef}
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              onPaste={handlePaste}
-              onKeyDown={(e) => {
-                if (isMobile) return;
-                if (isSendingRef.current) return;
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSendMessage(e);
-                }
-              }}
-              placeholder="Message"
-              rows={1}
-              className="flex-1 min-w-0 px-4 py-2 border border-gray-300 dark:border-gray-700/60 rounded-2xl bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500 dark:focus:ring-[#0d9488] resize-none max-h-32 overflow-y-auto"
-              style={{
-                minHeight: "42px",
-                lineHeight: "1.5",
-              }}
-            />
+            {/* Input pill – with paperclip & camera inside */}
+            <div className="flex-1 min-w-0 relative flex items-end">
+              <textarea
+                ref={inputRef}
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                onPaste={handlePaste}
+                onFocus={() => setShowEmojiPicker(false)}
+                onKeyDown={(e) => {
+                  if (isMobile) return;
+                  if (isSendingRef.current) return;
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage(e);
+                  }
+                }}
+                placeholder="Message"
+                rows={1}
+                className="w-full min-w-0 pl-4 pr-20 py-2 border border-gray-300 dark:border-gray-700/60 rounded-full bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500 dark:focus:ring-[#0d9488] resize-none max-h-32 overflow-y-auto"
+                style={{ minHeight: '42px', lineHeight: '1.5' }}
+              />
+              <div className="absolute right-3 bottom-0 h-[42px] flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleFileUpload('file')}
+                  className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition"
+                >
+                  <FaPaperclip className="text-base" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleFileUpload('image')}
+                  className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition"
+                >
+                  <FaCamera className="text-base" />
+                </button>
+              </div>
+              <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
+              <input type="file" ref={imageInputRef} onChange={handleFileChange} className="hidden" accept="image/*,video/*" />
+            </div>
 
+            {/* Mic / Send button – extreme right */}
             {message.trim() ? (
               <button
                 type="submit"
                 disabled={!isConnected || isSending}
-                className="p-2 rounded-full text-white disabled:opacity-50 flex-shrink-0 transition hover:opacity-80 mb-1"
+                className="p-3 rounded-full text-white disabled:opacity-50 flex-shrink-0 transition hover:opacity-80 mb-1"
                 style={{ backgroundColor: brandColor }}
               >
                 <FaPaperPlane className="text-sm" />
@@ -2607,19 +3489,38 @@ const MyWorkspaceChatId = () => {
                 onPointerUp={(e) => {
                   e.currentTarget.releasePointerCapture?.(e.pointerId);
                   if (isRecording && !recordingPaused) {
-                    stopRecording();
+                    quickSendRecording();
                   }
                 }}
                 onPointerCancel={(e) => {
-                  if (isRecording && !recordingPaused) stopRecording();
+                  if (isRecording && !recordingPaused) quickSendRecording();
                 }}
-                className="p-2 rounded-full text-white flex-shrink-0 transition hover:opacity-80 mb-1"
+                className="p-3 rounded-full text-white flex-shrink-0 transition hover:opacity-80 mb-1 touch-none select-none"
                 style={{ backgroundColor: brandColor }}
               >
-                <FaMicrophone className="text-sm" />
+                {isRecording ? <FaPaperPlane className="text-sm" /> : <FaMicrophone className="text-sm" />}
               </button>
             )}
           </form>
+
+          {/* Mobile emoji panel – docks under input */}
+          {showEmojiPicker && isMobile && (
+            <div
+              className="w-full mt-2 overflow-y-auto bg-white dark:bg-[#14141a] border-t border-gray-200 dark:border-gray-800/60 rounded-t-xl grid grid-cols-8 gap-1 p-3"
+              style={{ height: '260px' }}
+            >
+              {EMOJI_LIST.map((emoji, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => handleEmojiSelect(emoji)}
+                  className="text-2xl hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-lg p-1 transition"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -2648,6 +3549,7 @@ const MyWorkspaceChatId = () => {
         onStar={handleStarMessage}
         onUnstar={handleUnstarMessage}
         onReply={handleReply}
+        onCopy={handleCopyMessage}
         brandColor={brandColor}
       />
 
@@ -2658,6 +3560,16 @@ const MyWorkspaceChatId = () => {
         onChooseFromGallery={handleChooseFromGallery}
         brandColor={brandColor}
       />
+
+      {/* Image Editor Full‑Screen */}
+      {imageEditorOpen && imageToEdit && (
+        <ImageEditorScreen
+          file={imageToEdit}
+          onSave={handleImageEditorSave}
+          onCancel={handleImageEditorCancel}
+          brandColor={brandColor}
+        />
+      )}
     </div>
   );
 };

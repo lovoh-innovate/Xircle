@@ -301,7 +301,8 @@ const buildCallDataFromPush = (data) => ({
 });
 
 // ── Route resolver from notification data ────────────────────────────
-const routeFromNotificationData = (data, navigate) => {
+// Updated to use workspaceType: 'owned' -> /workspace, 'my' -> /my-workspace
+const routeFromNotificationData = (data) => {
   // ── App Update Notifications ──────────────────────────────────────
   if (data.type === 'app_update' || data.type === 'APP_UPDATE' || data.notificationType === 'app_update') {
     console.log('📱 Routing to app versions for update:', data.version);
@@ -317,10 +318,15 @@ const routeFromNotificationData = (data, navigate) => {
     return `/call/${data.roomId}?autoJoin=true`;
   }
 
+  // ── Determine workspace prefix ────────────────────────────────────
+  // Use workspaceType from payload; default to 'owned' (legacy) if missing
+  const workspaceType = data.workspaceType || 'owned';
+  const workspacePrefix = workspaceType === 'my' ? '/my-workspace' : '/workspace';
+
   // ── Chat/Channel Notifications ────────────────────────────────────
   if (data.chatId) {
     if (data.workspaceId) {
-      return `/workspace/${data.workspaceId}/chat/${data.chatId}`;
+      return `${workspacePrefix}/${data.workspaceId}/chat/${data.chatId}`;
     }
     const isGroup = data.notificationType === 'channel' || data.chatType === 'group';
     return isGroup ? `/channels/${data.chatId}` : `/chats/${data.chatId}`;
@@ -328,17 +334,18 @@ const routeFromNotificationData = (data, navigate) => {
 
   // ── Task Notifications ────────────────────────────────────────────
   if (data.taskId && data.projectId && data.workspaceId) {
-    return `/workspace/${data.workspaceId}/project/${data.projectId}`;
+    return `${workspacePrefix}/${data.workspaceId}/project/${data.projectId}`;
   }
 
   // ── Project Notifications ─────────────────────────────────────────
   if (data.projectId && data.workspaceId) {
-    return `/workspace/${data.workspaceId}/project/${data.projectId}`;
+    return `${workspacePrefix}/${data.workspaceId}/project/${data.projectId}`;
   }
 
   // ── Workspace Notifications ───────────────────────────────────────
   if (data.workspaceId) {
-    return `/workspace/${data.workspaceId}`;
+    // If no specific sub-route, go to the main workspace view
+    return `${workspacePrefix}/${data.workspaceId}`;
   }
 
   // ── Clock-in Notifications ────────────────────────────────────────
@@ -346,7 +353,7 @@ const routeFromNotificationData = (data, navigate) => {
       data.type === 'clockin-reminder' || data.type === 'auto-clockout' ||
       data.type === 'clockin-confirmation' || data.type === 'clockout-confirmation') {
     if (data.workspaceId) {
-      return `/workspace/${data.workspaceId}/clockin`;
+      return `${workspacePrefix}/${data.workspaceId}/clockin`;
     }
   }
 
@@ -465,7 +472,9 @@ const RootLayout = () => {
       }
 
       // ── Route all other notifications ────────────────────────────
-      const target = routeFromNotificationData(data, navigate);
+      // Determine the target route using the updated function
+      const target = routeFromNotificationData(data);
+      console.log('📍 Routing to:', target);
       navigate(target);
     };
 

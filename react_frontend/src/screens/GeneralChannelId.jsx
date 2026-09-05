@@ -65,6 +65,11 @@ import {
   FaSmile,
   FaCopy,
   FaLink,
+  FaPencilAlt,
+  FaCrop,
+  FaArrowRight,
+  FaSave,
+  FaUndoAlt,
 } from 'react-icons/fa';
 import GeneralSidebar from '../components/GeneralSidebar';
 
@@ -294,14 +299,11 @@ const SkeletonMessage = ({ isOwn }) => {
 const SkeletonMessages = ({ count = 6 }) => {
   return (
     <div className="space-y-4 pt-4">
-      {/* Date divider skeleton */}
       <div className="flex justify-center my-3">
         <div className="w-24 h-5 bg-gray-200 dark:bg-gray-700 rounded-full animate-pulse" />
       </div>
       {Array.from({ length: count }).map((_, i) => {
-        // Alternate between own and other messages
         const isOwn = i % 2 === 0;
-        // Add extra padding between message groups
         if (i === 3) {
           return (
             <React.Fragment key={i}>
@@ -396,13 +398,11 @@ const AudioPlayer = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(initialDuration || 0);
 
-  // Waveform bars – same as original
   const WAVEFORM_BARS = [
     6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6,
     10,
   ];
 
-  // Refs for drag/seek
   const waveformContainerRef = useRef(null);
   const isDraggingRef = useRef(false);
 
@@ -446,7 +446,6 @@ const AudioPlayer = ({
     setIsPlaying(!isPlaying);
   };
 
-  // Seek helpers
   const getSeekPosition = (clientX) => {
     const container = waveformContainerRef.current;
     if (!container) return 0;
@@ -482,7 +481,6 @@ const AudioPlayer = ({
     isDraggingRef.current = false;
   };
 
-  // Click on waveform to seek
   const handleWaveformClick = (e) => {
     const clientX = e.clientX ?? e.touches?.[0]?.clientX;
     if (clientX == null) return;
@@ -511,7 +509,6 @@ const AudioPlayer = ({
         )}
       </button>
 
-      {/* Waveform container – click/drag to seek */}
       <div
         ref={waveformContainerRef}
         className="flex-1 flex items-center h-6 relative cursor-pointer"
@@ -625,8 +622,8 @@ const QuotedReplyBlock = ({ replyData, isOwn, onJump }) => {
   );
 };
 
-// ─── Media Preview Component ──────────────────────────────────────
-const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending }) => {
+// ─── Media Preview Component (with edit button for images) ──────────
+const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending, onEdit }) => {
   const [preview, setPreview] = useState(null);
   const [type, setType] = useState(null);
 
@@ -643,13 +640,21 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending }) =>
 
   return (
     <div className="flex items-center gap-3 p-3 mb-2 bg-gray-50 dark:bg-gray-800/30 rounded-xl border border-gray-200 dark:border-gray-700/60">
-      <div className="relative flex-shrink-0">
+      <div className="relative flex-shrink-0 group">
         {type === 'image' ? (
           <img src={preview} alt="Preview" className="w-16 h-16 rounded-lg object-cover" />
         ) : (
           <div className="w-16 h-16 rounded-lg bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-2xl">
             📄
           </div>
+        )}
+        {type === 'image' && (
+          <button
+            onClick={onEdit}
+            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition rounded-lg text-white text-sm"
+          >
+            <FaPencilAlt className="text-lg" />
+          </button>
         )}
         <button
           onClick={onRemove}
@@ -698,7 +703,7 @@ const MediaMessage = ({
   onJumpToMessage,
   resolveSender,
 }) => {
-  // ── Deleted state (same for all) ──
+  // ── Deleted state ──
   if (message.isDeleted) {
     return (
       <div className={`flex items-start gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
@@ -754,7 +759,6 @@ const MediaMessage = ({
     };
   })();
 
-  // Link preview target (only relevant for text messages)
   const firstUrl = extractFirstUrl(message.content);
 
   // Touch handlers for swipe reply
@@ -1735,6 +1739,523 @@ const base64ToFile = (base64Data, fileName, mimeType) => {
   return new File([blob], fileName, { type: mimeType });
 };
 
+// ─── Image Editor Full‑Screen (full‑res, crop handles, arrow +) ──
+const MIN_CROP_SIZE = 40;
+
+const ImageEditorScreen = ({ file, onSave, onCancel }) => {
+  const canvasRef = useRef(null);
+  const containerRef = useRef(null);
+
+  const [image, setImage] = useState(null);
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [drawMode, setDrawMode] = useState("pencil");
+  const [displaySize, setDisplaySize] = useState({ width: 0, height: 0 });
+  const [drawings, setDrawings] = useState([]);
+  const [cropBox, setCropBox] = useState(null);
+  const [cropTouched, setCropTouched] = useState(false);
+
+  const currentPathRef = useRef(null);
+  const arrowStartRef = useRef(null);
+  const arrowPreviewRef = useRef(null);
+  const isPointerDownRef = useRef(false);
+  const pointerIdRef = useRef(null);
+  const cropDragRef = useRef(null);
+
+  useEffect(() => {
+    if (!file) return;
+    let cancelled = false;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        if (cancelled) return;
+        setImage(img);
+        setImageLoaded(true);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+    return () => {
+      cancelled = true;
+    };
+  }, [file]);
+
+  const recomputeLayout = useCallback(() => {
+    const container = containerRef.current;
+    if (!container || !image) return;
+    const availW = Math.max(container.clientWidth - 24, 50);
+    const availH = Math.max(container.clientHeight - 24, 50);
+    const ratio = image.width / image.height;
+    let w = availW;
+    let h = w / ratio;
+    if (h > availH) {
+      h = availH;
+      w = h * ratio;
+    }
+    w = Math.max(1, Math.floor(w));
+    h = Math.max(1, Math.floor(h));
+
+    setDisplaySize((prev) =>
+      prev.width === w && prev.height === h ? prev : { width: w, height: h }
+    );
+
+    const canvas = canvasRef.current;
+    if (canvas) {
+      if (canvas.width !== image.width || canvas.height !== image.height) {
+        canvas.width = image.width;
+        canvas.height = image.height;
+      }
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+    }
+
+    setCropBox((prev) => (cropTouched && prev ? prev : { x: 0, y: 0, w, h }));
+  }, [image, cropTouched]);
+
+  useEffect(() => {
+    if (imageLoaded) recomputeLayout();
+  }, [imageLoaded, recomputeLayout]);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver(() => recomputeLayout());
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [recomputeLayout]);
+
+  const drawArrowOnCtx = (ctx, from, to, lineWidth) => {
+    const headlen = Math.max(10, lineWidth * 3.5);
+    const angle = Math.atan2(to.y - from.y, to.x - from.x);
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.strokeStyle = "#ff3b30";
+    ctx.lineWidth = lineWidth;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(to.x, to.y);
+    ctx.lineTo(
+      to.x - headlen * Math.cos(angle - Math.PI / 6),
+      to.y - headlen * Math.sin(angle - Math.PI / 6)
+    );
+    ctx.moveTo(to.x, to.y);
+    ctx.lineTo(
+      to.x - headlen * Math.cos(angle + Math.PI / 6),
+      to.y - headlen * Math.sin(angle + Math.PI / 6)
+    );
+    ctx.stroke();
+  };
+
+  const redraw = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !image) return;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    const scale = displaySize.width ? canvas.width / displaySize.width : 1;
+    const lineWidth = 3 * scale;
+
+    drawings.forEach((d) => {
+      if (d.type === "pencil" && d.points?.length > 1) {
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        ctx.moveTo(d.points[0].x, d.points[0].y);
+        for (let i = 1; i < d.points.length; i++) {
+          ctx.lineTo(d.points[i].x, d.points[i].y);
+        }
+        ctx.strokeStyle = "#ff3b30";
+        ctx.lineWidth = lineWidth;
+        ctx.stroke();
+      } else if (d.type === "arrow") {
+        drawArrowOnCtx(ctx, d.from, d.to, lineWidth);
+      }
+    });
+
+    if (currentPathRef.current && currentPathRef.current.length > 1) {
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      ctx.moveTo(currentPathRef.current[0].x, currentPathRef.current[0].y);
+      for (let i = 1; i < currentPathRef.current.length; i++) {
+        ctx.lineTo(currentPathRef.current[i].x, currentPathRef.current[i].y);
+      }
+      ctx.strokeStyle = "#ff3b30";
+      ctx.lineWidth = lineWidth;
+      ctx.stroke();
+    }
+    if (arrowPreviewRef.current) {
+      drawArrowOnCtx(
+        ctx,
+        arrowPreviewRef.current.from,
+        arrowPreviewRef.current.to,
+        lineWidth
+      );
+    }
+  }, [image, drawings, displaySize]);
+
+  useEffect(() => {
+    redraw();
+  }, [redraw]);
+
+  const getNaturalCoords = (clientX, clientY) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return { x: 0, y: 0 };
+    const x = ((clientX - rect.left) / rect.width) * canvas.width;
+    const y = ((clientY - rect.top) / rect.height) * canvas.height;
+    return {
+      x: Math.min(Math.max(x, 0), canvas.width),
+      y: Math.min(Math.max(y, 0), canvas.height),
+    };
+  };
+
+  const handleCanvasPointerDown = (e) => {
+    if (drawMode === "crop") return;
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    canvas?.setPointerCapture?.(e.pointerId);
+    isPointerDownRef.current = true;
+    pointerIdRef.current = e.pointerId;
+    const coords = getNaturalCoords(e.clientX, e.clientY);
+    if (drawMode === "pencil") {
+      currentPathRef.current = [coords];
+    } else if (drawMode === "arrow") {
+      arrowStartRef.current = coords;
+      arrowPreviewRef.current = { from: coords, to: coords };
+    }
+    redraw();
+  };
+
+  const handleCanvasPointerMove = (e) => {
+    if (!isPointerDownRef.current) return;
+    e.preventDefault();
+    const coords = getNaturalCoords(e.clientX, e.clientY);
+    if (drawMode === "pencil" && currentPathRef.current) {
+      currentPathRef.current = [...currentPathRef.current, coords];
+      redraw();
+    } else if (drawMode === "arrow" && arrowStartRef.current) {
+      arrowPreviewRef.current = { from: arrowStartRef.current, to: coords };
+      redraw();
+    }
+  };
+
+  const handleCanvasPointerUp = (e) => {
+    if (!isPointerDownRef.current) return;
+    isPointerDownRef.current = false;
+    const canvas = canvasRef.current;
+    canvas?.releasePointerCapture?.(pointerIdRef.current);
+    pointerIdRef.current = null;
+
+    if (
+      drawMode === "pencil" &&
+      currentPathRef.current &&
+      currentPathRef.current.length > 1
+    ) {
+      const path = currentPathRef.current;
+      setDrawings((prev) => [...prev, { type: "pencil", points: path }]);
+    }
+    currentPathRef.current = null;
+
+    if (drawMode === "arrow" && arrowStartRef.current && arrowPreviewRef.current) {
+      const { from, to } = arrowPreviewRef.current;
+      const canvasEl = canvasRef.current;
+      const scale =
+        displaySize.width && canvasEl ? canvasEl.width / displaySize.width : 1;
+      const minDist = 10 * scale;
+      if (Math.hypot(to.x - from.x, to.y - from.y) >= minDist) {
+        setDrawings((prev) => [...prev, { type: "arrow", from, to }]);
+      }
+    }
+    arrowStartRef.current = null;
+    arrowPreviewRef.current = null;
+    redraw();
+  };
+
+  const handleUndoLast = () => {
+    setDrawings((prev) => prev.slice(0, -1));
+  };
+
+  const handleReset = () => {
+    setDrawings([]);
+    setCropTouched(false);
+    if (displaySize.width) {
+      setCropBox({ x: 0, y: 0, w: displaySize.width, h: displaySize.height });
+    }
+  };
+
+  const startCropDrag = (mode) => (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    cropDragRef.current = {
+      mode,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startBox: { ...cropBox },
+    };
+  };
+
+  const handleCropOverlayPointerMove = (e) => {
+    const drag = cropDragRef.current;
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    e.preventDefault();
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    const { x, y, w, h } = drag.startBox;
+    const maxW = displaySize.width;
+    const maxH = displaySize.height;
+    let next = { x, y, w, h };
+
+    if (drag.mode === "move") {
+      next.x = Math.min(Math.max(x + dx, 0), Math.max(maxW - w, 0));
+      next.y = Math.min(Math.max(y + dy, 0), Math.max(maxH - h, 0));
+    } else {
+      if (drag.mode.includes("l")) {
+        const newX = Math.min(Math.max(x + dx, 0), x + w - MIN_CROP_SIZE);
+        next.w = x + w - newX;
+        next.x = newX;
+      }
+      if (drag.mode.includes("r")) {
+        next.w = Math.min(Math.max(w + dx, MIN_CROP_SIZE), maxW - x);
+      }
+      if (drag.mode.includes("t")) {
+        const newY = Math.min(Math.max(y + dy, 0), y + h - MIN_CROP_SIZE);
+        next.h = y + h - newY;
+        next.y = newY;
+      }
+      if (drag.mode.includes("b")) {
+        next.h = Math.min(Math.max(h + dy, MIN_CROP_SIZE), maxH - y);
+      }
+    }
+    setCropBox(next);
+    setCropTouched(true);
+  };
+
+  const handleCropOverlayPointerUp = (e) => {
+    if (cropDragRef.current && e.pointerId === cropDragRef.current.pointerId) {
+      cropDragRef.current = null;
+    }
+  };
+
+  const handleSave = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    let finalCanvas = canvas;
+
+    if (cropBox && displaySize.width && displaySize.height) {
+      const scaleX = canvas.width / displaySize.width;
+      const scaleY = canvas.height / displaySize.height;
+      const sx = Math.round(cropBox.x * scaleX);
+      const sy = Math.round(cropBox.y * scaleY);
+      const sw = Math.round(cropBox.w * scaleX);
+      const sh = Math.round(cropBox.h * scaleY);
+      const isFullFrame =
+        sx <= 1 &&
+        sy <= 1 &&
+        Math.abs(sw - canvas.width) <= 2 &&
+        Math.abs(sh - canvas.height) <= 2;
+      if (!isFullFrame && sw > 0 && sh > 0) {
+        const tempCanvas = document.createElement("canvas");
+        tempCanvas.width = sw;
+        tempCanvas.height = sh;
+        const ctx = tempCanvas.getContext("2d");
+        ctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+        finalCanvas = tempCanvas;
+      }
+    }
+
+    const mimeType =
+      file.type && file.type.startsWith("image/") ? file.type : "image/jpeg";
+    const quality = mimeType === "image/jpeg" ? 0.95 : undefined;
+    finalCanvas.toBlob(
+      (blob) => {
+        if (!blob) return;
+        const newFile = new File([blob], file.name, { type: mimeType });
+        onSave(newFile);
+      },
+      mimeType,
+      quality
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-white dark:bg-[#0f0f12] flex flex-col">
+      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800/60 flex-shrink-0">
+        <button
+          onClick={onCancel}
+          className="p-1 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white transition"
+        >
+          <FaArrowLeft className="text-xl" />
+        </button>
+        <h3 className="font-semibold text-gray-800 dark:text-gray-200">Edit Image</h3>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setDrawMode("pencil")}
+            className={`p-2 rounded-lg transition ${
+              drawMode === "pencil"
+                ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
+                : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
+            }`}
+          >
+            <FaPencilAlt />
+          </button>
+          <button
+            onClick={() => setDrawMode("arrow")}
+            className={`relative p-2 rounded-lg transition ${
+              drawMode === "arrow"
+                ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
+                : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
+            }`}
+          >
+            <FaArrowRight />
+            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-teal-500 text-white rounded-full flex items-center justify-center text-[9px] font-bold leading-none">
+              +
+            </span>
+          </button>
+          <button
+            onClick={() => setDrawMode("crop")}
+            className={`p-2 rounded-lg transition ${
+              drawMode === "crop"
+                ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
+                : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
+            }`}
+          >
+            <FaCrop />
+          </button>
+          <button
+            onClick={handleUndoLast}
+            disabled={drawings.length === 0}
+            title="Undo last stroke"
+            className="p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition disabled:opacity-30"
+          >
+            <FaUndoAlt />
+          </button>
+        </div>
+        <button
+          onClick={handleSave}
+          className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition text-sm font-medium flex items-center gap-2"
+        >
+          <FaSave /> Apply
+        </button>
+      </div>
+
+      <p className="text-center text-xs text-gray-400 dark:text-gray-500 py-1.5 flex-shrink-0">
+        {drawMode === "crop"
+          ? "Drag the corners or box to crop"
+          : drawMode === "arrow"
+            ? "Drag on the photo to draw an arrow"
+            : "Draw freehand on the photo"}
+      </p>
+
+      <div
+        ref={containerRef}
+        className="flex-1 flex items-center justify-center p-3 overflow-hidden"
+      >
+        <div
+          className="relative touch-none select-none"
+          style={{
+            width: displaySize.width || undefined,
+            height: displaySize.height || undefined,
+          }}
+        >
+          <canvas
+            ref={canvasRef}
+            onPointerDown={handleCanvasPointerDown}
+            onPointerMove={handleCanvasPointerMove}
+            onPointerUp={handleCanvasPointerUp}
+            onPointerCancel={handleCanvasPointerUp}
+            className="block rounded-lg touch-none max-w-full max-h-full"
+            style={{ cursor: drawMode === "crop" ? "default" : "crosshair" }}
+          />
+
+          {drawMode === "crop" && cropBox && displaySize.width > 0 && (
+            <div
+              className="absolute inset-0 touch-none"
+              onPointerMove={handleCropOverlayPointerMove}
+              onPointerUp={handleCropOverlayPointerUp}
+              onPointerCancel={handleCropOverlayPointerUp}
+            >
+              {/* dark mask */}
+              <div
+                className="absolute bg-black/50 pointer-events-none"
+                style={{ left: 0, top: 0, right: 0, height: cropBox.y }}
+              />
+              <div
+                className="absolute bg-black/50 pointer-events-none"
+                style={{
+                  left: 0,
+                  top: cropBox.y + cropBox.h,
+                  right: 0,
+                  bottom: 0,
+                }}
+              />
+              <div
+                className="absolute bg-black/50 pointer-events-none"
+                style={{
+                  left: 0,
+                  top: cropBox.y,
+                  width: cropBox.x,
+                  height: cropBox.h,
+                }}
+              />
+              <div
+                className="absolute bg-black/50 pointer-events-none"
+                style={{
+                  left: cropBox.x + cropBox.w,
+                  top: cropBox.y,
+                  right: 0,
+                  height: cropBox.h,
+                }}
+              />
+
+              {/* crop box body */}
+              <div
+                onPointerDown={startCropDrag("move")}
+                className="absolute border-2 border-teal-400 touch-none"
+                style={{
+                  left: cropBox.x,
+                  top: cropBox.y,
+                  width: cropBox.w,
+                  height: cropBox.h,
+                  cursor: "move",
+                }}
+              >
+                <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none">
+                  {Array.from({ length: 9 }).map((_, i) => (
+                    <div key={i} className="border border-white/25" />
+                  ))}
+                </div>
+              </div>
+
+              {/* four corner handles */}
+              {[
+                { key: "tl", x: cropBox.x, y: cropBox.y, cursor: "nwse-resize" },
+                { key: "tr", x: cropBox.x + cropBox.w, y: cropBox.y, cursor: "nesw-resize" },
+                { key: "bl", x: cropBox.x, y: cropBox.y + cropBox.h, cursor: "nesw-resize" },
+                { key: "br", x: cropBox.x + cropBox.w, y: cropBox.y + cropBox.h, cursor: "nwse-resize" },
+              ].map((c) => (
+                <div
+                  key={c.key}
+                  onPointerDown={startCropDrag(c.key)}
+                  className="absolute w-7 h-7 -ml-3.5 -mt-3.5 flex items-center justify-center touch-none"
+                  style={{ left: c.x, top: c.y, cursor: c.cursor }}
+                >
+                  <div className="w-4 h-4 bg-teal-400 border-2 border-white rounded-sm shadow" />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Main Component ──────────────────────────────────────────────────
 const GeneralChannelId = () => {
   const { chatId } = useParams();
@@ -1746,6 +2267,7 @@ const GeneralChannelId = () => {
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
+  const inputAreaRef = useRef(null);
   const isSendingRef = useRef(false);
   const [isSending, setIsSending] = useState(false);
   const [previewImage, setPreviewImage] = useState(null);
@@ -1759,6 +2281,23 @@ const GeneralChannelId = () => {
   const emojiPickerRef = useRef(null);
   const isMobile = useMediaQuery('(max-width: 768px)');
   const isDesktop = !isMobile;
+
+  // ─── Image editor states ──────────────────────────────────────────
+  const [imageToEdit, setImageToEdit] = useState(null);
+  const [imageEditorOpen, setImageEditorOpen] = useState(false);
+
+  // ─── Input height measurement for smooth emoji panel ────────────
+  const [inputHeight, setInputHeight] = useState(0);
+  useEffect(() => {
+    if (!inputAreaRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      for (let entry of entries) {
+        setInputHeight(entry.contentRect.height);
+      }
+    });
+    observer.observe(inputAreaRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   const { socket, isConnected } = useSocket();
 
@@ -1933,21 +2472,20 @@ const GeneralChannelId = () => {
 
   // ─── Insert emoji at cursor position ─────────────────────────────
   const handleEmojiSelect = (emoji) => {
-    const el = inputRef.current;
-    if (!el) {
-      setMessage((prev) => prev + emoji);
-      return;
-    }
-    const start = el.selectionStart ?? message.length;
-    const end = el.selectionEnd ?? message.length;
-    const newValue = message.slice(0, start) + emoji + message.slice(end);
-    setMessage(newValue);
-    requestAnimationFrame(() => {
-      el.focus();
-      const cursor = start + emoji.length;
-      el.setSelectionRange(cursor, cursor);
+  setMessage((prev) => prev + emoji);
+};
+
+  // ─── Toggle emoji picker with keyboard blur/focus ────────────────
+  const toggleEmoji = useCallback(() => {
+    setShowEmojiPicker((prev) => {
+      if (!prev) {
+        inputRef.current?.blur();
+      } else {
+        inputRef.current?.focus();
+      }
+      return !prev;
     });
-  };
+  }, []);
 
   // ─── Copy message content to clipboard ───────────────────────────
   const handleCopyMessage = async (msg) => {
@@ -2030,7 +2568,7 @@ const GeneralChannelId = () => {
           const existing = next[existingIdx];
           const updated = {
             ...incoming,
-            createdAt: existing.createdAt, // keep client order
+            createdAt: existing.createdAt,
             _sent: existing._sent || false,
             _pending: existing._pending || false,
             _failed: existing._failed || false,
@@ -2057,15 +2595,12 @@ const GeneralChannelId = () => {
         // 2. Find a temporary message to replace
         let tempIdx = -1;
         if (isOwn) {
-          // PRIMARY: match by clientMsgId
           if (incoming.clientMsgId) {
             tempIdx = next.findIndex((m) => m._tempId === incoming.clientMsgId);
           }
-          // Fallback for older in-flight messages (before clientMsgId was added)
           if (tempIdx === -1) {
             tempIdx = next.findIndex((m) => m._tempId === incoming._id);
           }
-          // Last-resort fallback (content + time) – kept for safety
           if (tempIdx === -1) {
             const incomingContent = incoming.content || '';
             const incomingMedia = incoming.mediaName || '';
@@ -2091,7 +2626,7 @@ const GeneralChannelId = () => {
           const tempMsg = next[tempIdx];
           const realMsg = {
             ...incoming,
-            createdAt: tempMsg.createdAt, // preserve client order
+            createdAt: tempMsg.createdAt,
             _sent: true,
             _pending: false,
             _failed: false,
@@ -2241,7 +2776,6 @@ const GeneralChannelId = () => {
     if (!file) return;
     if (isSendingRef.current) return;
 
-    // Prevent duplicate sends of the same file within 4 seconds
     const signature = `${file.name}-${file.size}-${file.lastModified}`;
     if (isRecentDuplicateMedia(signature)) {
       console.warn("Blocked duplicate media send:", file.name);
@@ -2355,6 +2889,8 @@ const GeneralChannelId = () => {
 
     if (inputRef.current) {
       inputRef.current.style.height = 'auto';
+      // keep focus so keyboard stays open after sending
+      inputRef.current.focus();
     }
 
     socket.emit(
@@ -2384,7 +2920,26 @@ const GeneralChannelId = () => {
     );
   };
 
-  // ─── File / image: Native plugins ──────────────────────────────
+  // ─── Image editing helpers ──────────────────────────────────────────
+  const handleImageEdit = () => {
+    if (pendingMedia) {
+      setImageToEdit(pendingMedia);
+      setImageEditorOpen(true);
+    }
+  };
+
+  const handleImageEditorSave = (editedFile) => {
+    setPendingMedia(editedFile);
+    setImageEditorOpen(false);
+    setImageToEdit(null);
+  };
+
+  const handleImageEditorCancel = () => {
+    setImageEditorOpen(false);
+    setImageToEdit(null);
+  };
+
+  // ─── File / image: Native plugins with editor integration ────────
   const handleTakePhoto = useCallback(async () => {
     setShowMediaPicker(false);
     try {
@@ -2396,7 +2951,9 @@ const GeneralChannelId = () => {
       if (photo?.base64String) {
         const mimeType = `image/${photo.format || 'jpeg'}`;
         const fileName = `photo-${Date.now()}.${photo.format || 'jpg'}`;
-        setPendingMedia(base64ToFile(photo.base64String, fileName, mimeType));
+        const file = base64ToFile(photo.base64String, fileName, mimeType);
+        setImageToEdit(file);
+        setImageEditorOpen(true);
       }
     } catch (err) {
       const msg = (err?.message || '').toLowerCase();
@@ -2418,7 +2975,9 @@ const GeneralChannelId = () => {
       if (photo?.base64String) {
         const mimeType = `image/${photo.format || 'jpeg'}`;
         const fileName = `photo-${Date.now()}.${photo.format || 'jpg'}`;
-        setPendingMedia(base64ToFile(photo.base64String, fileName, mimeType));
+        const file = base64ToFile(photo.base64String, fileName, mimeType);
+        setImageToEdit(file);
+        setImageEditorOpen(true);
       }
     } catch (err) {
       const msg = (err?.message || '').toLowerCase();
@@ -2447,7 +3006,12 @@ const GeneralChannelId = () => {
         toast.error('Could not read selected file');
         return;
       }
-      setPendingMedia(file);
+      if (file.type.startsWith('image/')) {
+        setImageToEdit(file);
+        setImageEditorOpen(true);
+      } else {
+        setPendingMedia(file);
+      }
     } catch (err) {
       const msg = (err?.message || '').toLowerCase();
       if (!msg.includes('cancel')) {
@@ -2482,8 +3046,13 @@ const GeneralChannelId = () => {
       toast.error('No file selected');
       return;
     }
-    setPendingMedia(file);
-    toast.success(`${file.name} loaded`);
+    if (file.type.startsWith('image/')) {
+      setImageToEdit(file);
+      setImageEditorOpen(true);
+    } else {
+      setPendingMedia(file);
+      toast.success(`${file.name} loaded`);
+    }
     e.target.value = '';
   }, []);
 
@@ -2497,8 +3066,9 @@ const GeneralChannelId = () => {
       if (item.type.startsWith('image/')) {
         const file = item.getAsFile();
         if (file) {
-          setPendingMedia(file);
-          toast.info('Image pasted! Click send to upload.');
+          setImageToEdit(file);
+          setImageEditorOpen(true);
+          toast.info('Image pasted! Edit it, then send.');
           e.preventDefault();
           break;
         }
@@ -2535,7 +3105,7 @@ const GeneralChannelId = () => {
     }
   }, [chatListData, createDirectChat, navigate]);
 
-  // ─── Voice recording ────────────────────────────────────────────
+  // ─── Voice recording (improved: quick send, stop shows preview, cancel discards) ──
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [recordingBlob, setRecordingBlob] = useState(null);
@@ -2547,6 +3117,12 @@ const GeneralChannelId = () => {
   const isRecordingRef = useRef(false);
   const isNative = Capacitor.isNativePlatform();
 
+  // Quick send / glitch prevention refs
+  const quickSendRef = useRef(false);
+  const cancelledRef = useRef(false);
+  const micPressStartRef = useRef(0);
+  const micActionLockRef = useRef(false);
+
   useEffect(() => {
     isRecordingRef.current = isRecording;
   }, [isRecording]);
@@ -2555,7 +3131,7 @@ const GeneralChannelId = () => {
     return () => {
       if (mediaRecorderRef.current && isRecordingRef.current) {
         if (isNative) {
-          VoiceRecorder.stopRecording().catch(() => { });
+          VoiceRecorder.stopRecording().catch(() => {});
         } else {
           mediaRecorderRef.current.stop();
         }
@@ -2578,11 +3154,9 @@ const GeneralChannelId = () => {
 
   const startNativeRecording = async () => {
     try {
-      const { value: hasPermission } =
-        await VoiceRecorder.hasAudioRecordingPermission();
+      const { value: hasPermission } = await VoiceRecorder.hasAudioRecordingPermission();
       if (!hasPermission) {
-        const { value: granted } =
-          await VoiceRecorder.requestAudioRecordingPermission();
+        const { value: granted } = await VoiceRecorder.requestAudioRecordingPermission();
         if (!granted) {
           toast.error('Microphone permission is required.');
           return;
@@ -2593,6 +3167,7 @@ const GeneralChannelId = () => {
       setRecordingPaused(false);
       setRecordingTime(0);
       setShowRecordedPreview(false);
+      quickSendRef.current = false;
       startTimer();
     } catch (err) {
       console.error('Native recording error:', err);
@@ -2602,6 +3177,7 @@ const GeneralChannelId = () => {
   };
 
   const pauseNativeRecording = async () => {
+    if (!isRecordingRef.current) return;
     try {
       if (recordingPaused) {
         await VoiceRecorder.resumeRecording();
@@ -2618,6 +3194,7 @@ const GeneralChannelId = () => {
   };
 
   const stopNativeRecording = async () => {
+    if (!isRecordingRef.current) return;
     try {
       const result = await VoiceRecorder.stopRecording();
       const base64 = result.value.recordDataBase64;
@@ -2640,9 +3217,10 @@ const GeneralChannelId = () => {
   };
 
   const cancelNativeRecording = async () => {
+    if (!isRecordingRef.current) return;
     try {
       await VoiceRecorder.stopRecording();
-    } catch (_) { }
+    } catch (_) {}
     setRecordingBlob(null);
     setShowRecordedPreview(false);
     setRecordingTime(0);
@@ -2656,21 +3234,34 @@ const GeneralChannelId = () => {
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
-      mediaRecorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunksRef.current.push(event.data); };
+      cancelledRef.current = false;
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        setRecordingBlob(audioBlob);
-        setShowRecordedPreview(true);
-        stopTimer();
-        setIsRecording(false);
         stream.getTracks().forEach(track => track.stop());
         mediaRecorderRef.current = null;
+        stopTimer();
+        setIsRecording(false);
+
+        if (cancelledRef.current) {
+          cancelledRef.current = false;
+          audioChunksRef.current = [];
+          return;
+        }
+
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        audioChunksRef.current = [];
+        setRecordingBlob(audioBlob);
+        setShowRecordedPreview(true);
       };
       mediaRecorder.start();
       setIsRecording(true);
       setRecordingPaused(false);
       setRecordingTime(0);
+      setRecordingBlob(null);
       setShowRecordedPreview(false);
+      quickSendRef.current = false;
       startTimer();
     } catch (err) {
       console.error('Web recording error:', err);
@@ -2685,7 +3276,7 @@ const GeneralChannelId = () => {
   };
 
   const pauseWebRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
+    if (mediaRecorderRef.current && isRecordingRef.current) {
       if (recordingPaused) {
         mediaRecorderRef.current.resume();
         setRecordingPaused(false);
@@ -2699,13 +3290,14 @@ const GeneralChannelId = () => {
   };
 
   const stopWebRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
+    if (mediaRecorderRef.current && isRecordingRef.current) {
       mediaRecorderRef.current.stop();
     }
   };
 
   const cancelWebRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
+    if (mediaRecorderRef.current && isRecordingRef.current) {
+      cancelledRef.current = true;
       mediaRecorderRef.current.stop();
     }
     setRecordingBlob(null);
@@ -2716,7 +3308,7 @@ const GeneralChannelId = () => {
   };
 
   const startRecording = () => {
-    if (isRecording) return;
+    if (isRecordingRef.current) return;
     if (isNative) {
       startNativeRecording();
     } else {
@@ -2733,6 +3325,8 @@ const GeneralChannelId = () => {
   };
 
   const stopRecording = () => {
+    if (!isRecordingRef.current) return;
+    quickSendRef.current = false;
     if (isNative) {
       stopNativeRecording();
     } else {
@@ -2748,9 +3342,37 @@ const GeneralChannelId = () => {
     }
   };
 
-  // ─── Send audio message (with duplicate prevention) ──────────────
+  // ─── Quick send: stop and send immediately ──────────────────────
+  const quickSendRecording = () => {
+    if (!isRecordingRef.current) return;
+
+    const elapsed = Date.now() - (micPressStartRef.current || 0);
+    if (elapsed < 350) {
+      cancelRecording();
+      return;
+    }
+
+    if (recordingBlob) {
+      sendAudioMessage(recordingBlob);
+      return;
+    }
+    quickSendRef.current = true;
+    if (isNative) {
+      stopNativeRecording();
+    } else {
+      stopWebRecording();
+    }
+  };
+
+  // ─── Send audio message ────────────────────────────────────────
   const sendAudioMessage = async (audioBlob) => {
     if (!audioBlob) return;
+    if (audioBlob.size < 800) {
+      setRecordingBlob(null);
+      setShowRecordedPreview(false);
+      setRecordingTime(0);
+      return;
+    }
     if (isSendingRef.current) return;
 
     const signature = `${audioBlob.size}-${recordingTime}`;
@@ -2765,9 +3387,7 @@ const GeneralChannelId = () => {
     const formData = new FormData();
     const mimeType = isNative ? 'audio/m4a' : 'audio/webm';
     const extension = isNative ? 'm4a' : 'webm';
-    const audioFile = new File([audioBlob], `voice-note.${extension}`, {
-      type: mimeType,
-    });
+    const audioFile = new File([audioBlob], `voice-note.${extension}`, { type: mimeType });
     formData.append('media', audioFile);
     formData.append('messageType', 'audio');
     formData.append('mediaDuration', recordingTime.toString());
@@ -2821,16 +3441,16 @@ const GeneralChannelId = () => {
         return prev.map((m) =>
           m._tempId === tempId
             ? {
-              ...realMsg,
-              createdAt: m.createdAt,
-              _sent: true,
-              _pending: false,
-              _failed: false,
-              _delivered: true,
-              _read: false,
-              _temp: false,
-              _tempId: undefined,
-            }
+                ...realMsg,
+                createdAt: m.createdAt,
+                _sent: true,
+                _pending: false,
+                _failed: false,
+                _delivered: true,
+                _read: false,
+                _temp: false,
+                _tempId: undefined,
+              }
             : m
         );
       });
@@ -2843,19 +3463,30 @@ const GeneralChannelId = () => {
     }
   };
 
+  // ─── Auto‑send after quick send ──────────────────────────────────
+  useEffect(() => {
+    if (quickSendRef.current && recordingBlob) {
+      quickSendRef.current = false;
+      sendAudioMessage(recordingBlob);
+    }
+  }, [recordingBlob]);
+
   // ─── Mic button handlers ────────────────────────────────────────
   const handleMicPointerDown = (e) => {
     if (message.trim()) return;
-    if (isRecording || mediaRecorderRef.current) return;
+    if (isRecordingRef.current || micActionLockRef.current || mediaRecorderRef.current) return;
+    micActionLockRef.current = true;
     e.currentTarget.setPointerCapture?.(e.pointerId);
+    micPressStartRef.current = Date.now();
     startRecording();
   };
 
   const handleMicPointerUp = (e) => {
     e.currentTarget.releasePointerCapture?.(e.pointerId);
-    if (isRecording && !recordingPaused) {
-      stopRecording();
+    if (isRecordingRef.current && !recordingPaused) {
+      quickSendRecording();
     }
+    micActionLockRef.current = false;
   };
 
   // ─── Message action handlers ────────────────────────────────────
@@ -3009,7 +3640,14 @@ const GeneralChannelId = () => {
 
             {/* Messages */}
             <div className="relative flex-1 overflow-hidden">
-              <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="h-full overflow-y-auto px-4 py-3 space-y-1 pt-20 lg:pt-3 pb-24 lg:pb-3">
+              <div
+                ref={messagesContainerRef}
+                onScroll={handleMessagesScroll}
+                className="h-full overflow-y-auto px-4 py-3 space-y-1 pt-20 lg:pt-3 pb-24 lg:pb-3 transition-all duration-200 ease-in-out"
+                style={{
+                  paddingBottom: isMobile ? `${inputHeight}px` : undefined,
+                }}
+              >
                 {renderMessagesWithDividers()}
                 <div ref={messagesEndRef} />
               </div>
@@ -3021,7 +3659,10 @@ const GeneralChannelId = () => {
             </div>
 
             {/* Input area */}
-            <div className="fixed lg:sticky bottom-0 left-0 right-0 lg:left-auto lg:right-auto z-20 border-t border-gray-200/60 dark:border-gray-800/60 bg-white/90 dark:bg-[#0f0f12]/90 backdrop-blur-xl flex-shrink-0 px-3 sm:px-4">
+            <div
+              ref={inputAreaRef}
+              className="fixed lg:sticky bottom-0 left-0 right-0 lg:left-auto lg:right-auto z-20 border-t border-gray-200/60 dark:border-gray-800/60 bg-white/90 dark:bg-[#0f0f12]/90 backdrop-blur-xl flex-shrink-0 px-3 sm:px-4"
+            >
               <div className="py-2">
                 <ReplyPreview replyTo={replyToMessage} onCancel={cancelReply} resolveSender={resolveSender} />
 
@@ -3032,6 +3673,7 @@ const GeneralChannelId = () => {
                     onSend={handleSendMedia}
                     brandColor="#0d9488"
                     isSending={isSending}
+                    onEdit={handleImageEdit}
                   />
                 )}
 
@@ -3045,7 +3687,7 @@ const GeneralChannelId = () => {
                     <div className="flex gap-1">
                       <button onClick={() => { const audio = new Audio(URL.createObjectURL(recordingBlob)); audio.play(); }} className="p-1 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white"><FaPlay className="text-xs" /></button>
                       <button onClick={() => sendAudioMessage(recordingBlob)} disabled={isSending} className="px-3 py-1 bg-green-600 dark:bg-green-700 text-white rounded text-xs hover:bg-green-700 dark:hover:bg-green-800 transition disabled:opacity-50">Send</button>
-                      <button onClick={cancelRecording} className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white"><FaTimes className="text-xs" /></button>
+                      <button onClick={() => { setRecordingBlob(null); setShowRecordedPreview(false); setRecordingTime(0); }} className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white"><FaTimes className="text-xs" /></button>
                     </div>
                   </div>
                 )}
@@ -3073,11 +3715,11 @@ const GeneralChannelId = () => {
                 )}
 
                 <form onSubmit={handleSendMessage} className="flex items-end gap-2">
-                  {/* Emoji – outside the pill, extreme left, exactly like WhatsApp */}
+                  {/* Emoji – outside the pill, extreme left */}
                   <div className="relative flex-shrink-0 mb-1" ref={emojiPickerRef}>
                     <button
                       type="button"
-                      onClick={() => setShowEmojiPicker((v) => !v)}
+                      onClick={toggleEmoji}
                       className="p-2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition"
                     >
                       <FaSmile className="text-xl" />
@@ -3099,7 +3741,7 @@ const GeneralChannelId = () => {
                     )}
                   </div>
 
-                  {/* Input pill – paperclip + camera live INSIDE it, like WhatsApp */}
+                  {/* Input pill – paperclip + camera live INSIDE it */}
                   <div className="flex-1 min-w-0 relative flex items-end">
                     <textarea
                       ref={inputRef}
@@ -3132,15 +3774,24 @@ const GeneralChannelId = () => {
                     <input type="file" ref={imageInputRef} onChange={handleFileChange} className="hidden" accept="image/*,video/*" />
                   </div>
 
-                  {/* Mic / send – outside the pill, extreme right, exactly like WhatsApp */}
+                  {/* Mic / send – outside the pill, extreme right */}
                   {message.trim() ? (
                     <button type="submit" disabled={!isConnected || isSending} className="p-3 rounded-full text-white disabled:opacity-50 flex-shrink-0 transition hover:opacity-80 mb-1" style={{ backgroundColor: '#0d9488' }}><FaPaperPlane className="text-sm" /></button>
                   ) : (
-                    <button type="button" onPointerDown={handleMicPointerDown} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerUp} className="p-3 rounded-full text-white flex-shrink-0 transition hover:opacity-80 mb-1" style={{ backgroundColor: '#0d9488' }}><FaMicrophone className="text-sm" /></button>
+                    <button
+                      type="button"
+                      onPointerDown={handleMicPointerDown}
+                      onPointerUp={handleMicPointerUp}
+                      onPointerCancel={handleMicPointerUp}
+                      className="p-3 rounded-full text-white flex-shrink-0 transition hover:opacity-80 mb-1 touch-none select-none"
+                      style={{ backgroundColor: '#0d9488' }}
+                    >
+                      {isRecording ? <FaPaperPlane className="text-sm" /> : <FaMicrophone className="text-sm" />}
+                    </button>
                   )}
                 </form>
 
-                {/* Mobile: emoji panel docks under the input, same footprint as the keyboard it replaces */}
+                {/* Mobile: emoji panel */}
                 {showEmojiPicker && isMobile && (
                   <div
                     className="w-full mt-2 overflow-y-auto bg-white dark:bg-[#14141a] border-t border-gray-200 dark:border-gray-800/60 rounded-t-xl grid grid-cols-8 gap-1 p-3"
@@ -3209,13 +3860,21 @@ const GeneralChannelId = () => {
       {previewImage && <ImagePreviewModal imageUrl={previewImage.url} senderName={previewImage.senderName} time={previewImage.time} onClose={() => setPreviewImage(null)} />}
       <MessageActionModal isOpen={actionModal.isOpen} onClose={() => setActionModal({ isOpen: false, message: null })} message={actionModal.message} isOwn={actionModal.message?.sender?._id === userInfo?._id} isStarred={actionModal.message?.starredBy?.some(id => id === userInfo?._id)} isArchived={actionModal.message?.archivedBy?.some(id => id === userInfo?._id)} onDelete={handleDeleteMessage} onArchive={handleArchiveMessage} onUnarchive={handleUnarchiveMessage} onStar={handleStarMessage} onUnstar={handleUnstarMessage} onReply={handleReply} onCopy={handleCopyMessage} />
 
-      {/* Custom Media Picker Modal */}
       <MediaPickerModal
         isOpen={showMediaPicker}
         onClose={() => setShowMediaPicker(false)}
         onTakePhoto={handleTakePhoto}
         onChooseFromGallery={handleChooseFromGallery}
       />
+
+      {/* Image Editor Full‑Screen */}
+      {imageEditorOpen && imageToEdit && (
+        <ImageEditorScreen
+          file={imageToEdit}
+          onSave={handleImageEditorSave}
+          onCancel={handleImageEditorCancel}
+        />
+      )}
     </>
   );
 };

@@ -50,7 +50,7 @@ import {
   FaArrowRight,
   FaSave,
   FaUndoAlt,
-  FaEraser,
+  FaExpandArrowsAlt,
 } from "react-icons/fa";
 import GeneralSidebar from "../components/GeneralSidebar";
 
@@ -1657,171 +1657,358 @@ const base64ToFile = (base64Data, fileName, mimeType) => {
   return new File([blob], fileName, { type: mimeType });
 };
 
-// ─── Image Editor Full‑Screen ──────────────────────────────────
+// ─── Image Editor: full-resolution canvas + real drag drawing + real crop UI ──
+const MIN_CROP_SIZE = 40; // in displayed (CSS) px
+
 const ImageEditorScreen = ({ file, onSave, onCancel }) => {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
-  const [image, setImage] = useState(null);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [drawMode, setDrawMode] = useState("pencil");
-  const [lastPos, setLastPos] = useState({ x: 0, y: 0 });
-  const [cropStart, setCropStart] = useState(null);
-  const [cropEnd, setCropEnd] = useState(null);
-  const [imageLoaded, setImageLoaded] = useState(false);
 
+  const [image, setImage] = useState(null);
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [drawMode, setDrawMode] = useState("pencil"); // 'pencil' | 'arrow' | 'crop'
+  const [displaySize, setDisplaySize] = useState({ width: 0, height: 0 });
+  const [drawings, setDrawings] = useState([]); // {type:'pencil', points:[{x,y}]} | {type:'arrow', from:{x,y}, to:{x,y}}
+  const [cropBox, setCropBox] = useState(null); // {x,y,w,h} in DISPLAY px
+  const [cropTouched, setCropTouched] = useState(false);
+
+  // live drawing refs (kept out of state for perf; canvas redraws imperatively)
+  const currentPathRef = useRef(null);
+  const arrowStartRef = useRef(null);
+  const arrowPreviewRef = useRef(null);
+  const isPointerDownRef = useRef(false);
+  const pointerIdRef = useRef(null);
+  const cropDragRef = useRef(null);
+
+  // ── Load the image ──
   useEffect(() => {
     if (!file) return;
+    let cancelled = false;
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new Image();
       img.onload = () => {
+        if (cancelled) return;
         setImage(img);
         setImageLoaded(true);
-        // Fit image to canvas
-        const container = containerRef.current;
-        if (container) {
-          const containerWidth = container.clientWidth - 40;
-          const containerHeight = container.clientHeight - 120;
-          const imgRatio = img.width / img.height;
-          let width = containerWidth;
-          let height = width / imgRatio;
-          if (height > containerHeight) {
-            height = containerHeight;
-            width = height * imgRatio;
-          }
-          const canvas = canvasRef.current;
-          if (canvas) {
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext("2d");
-            ctx.drawImage(img, 0, 0, width, height);
-          }
-        }
       };
       img.src = e.target.result;
     };
     reader.readAsDataURL(file);
+    return () => {
+      cancelled = true;
+    };
   }, [file]);
 
-  useEffect(() => {
-    if (!imageLoaded) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-    if (drawMode === "crop" && cropStart && cropEnd) {
-      const x = Math.min(cropStart.x, cropEnd.x);
-      const y = Math.min(cropStart.y, cropEnd.y);
-      const w = Math.abs(cropEnd.x - cropStart.x);
-      const h = Math.abs(cropEnd.y - cropStart.y);
-      ctx.strokeStyle = "#0d9488";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(x, y, w, h);
-      ctx.fillStyle = "rgba(0,0,0,0.3)";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.clearRect(x, y, w, h);
-      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-      ctx.strokeRect(x, y, w, h);
+  // ── Layout: canvas backing store stays at FULL image resolution (quality fix).
+  // Only its CSS width/height shrink to fit the screen. ──
+  const recomputeLayout = useCallback(() => {
+    const container = containerRef.current;
+    if (!container || !image) return;
+    const availW = Math.max(container.clientWidth - 24, 50);
+    const availH = Math.max(container.clientHeight - 24, 50);
+    const ratio = image.width / image.height;
+    let w = availW;
+    let h = w / ratio;
+    if (h > availH) {
+      h = availH;
+      w = h * ratio;
     }
-  }, [image, imageLoaded, drawMode, cropStart, cropEnd]);
+    w = Math.max(1, Math.floor(w));
+    h = Math.max(1, Math.floor(h));
 
-  const getCanvasCoords = (e) => {
+    setDisplaySize((prev) =>
+      prev.width === w && prev.height === h ? prev : { width: w, height: h },
+    );
+
     const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-    const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) * (canvas.width / rect.width);
-    const y = (e.clientY - rect.top) * (canvas.height / rect.height);
-    return { x, y };
-  };
-
-  const handleMouseDown = (e) => {
-    const coords = getCanvasCoords(e);
-    if (drawMode === "pencil") {
-      setIsDrawing(true);
-      setLastPos(coords);
-    } else if (drawMode === "crop") {
-      setCropStart(coords);
-      setCropEnd(coords);
-    } else if (drawMode === "arrow") {
-      if (lastPos.x && lastPos.y) {
-        drawArrow(lastPos, coords);
-        setLastPos({ x: 0, y: 0 });
-      } else {
-        setLastPos(coords);
+    if (canvas) {
+      if (canvas.width !== image.width || canvas.height !== image.height) {
+        canvas.width = image.width;
+        canvas.height = image.height;
       }
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
     }
-  };
 
-  const handleMouseMove = (e) => {
-    const coords = getCanvasCoords(e);
-    if (drawMode === "pencil" && isDrawing) {
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext("2d");
-      ctx.beginPath();
-      ctx.moveTo(lastPos.x, lastPos.y);
-      ctx.lineTo(coords.x, coords.y);
-      ctx.strokeStyle = "#ff0000";
-      ctx.lineWidth = 3;
-      ctx.stroke();
-      setLastPos(coords);
-    } else if (drawMode === "crop" && cropStart) {
-      setCropEnd(coords);
-    }
-  };
+    setCropBox((prev) => (cropTouched && prev ? prev : { x: 0, y: 0, w, h }));
+  }, [image, cropTouched]);
 
-  const handleMouseUp = () => {
-    if (drawMode === "pencil") setIsDrawing(false);
-  };
+  useEffect(() => {
+    if (imageLoaded) recomputeLayout();
+  }, [imageLoaded, recomputeLayout]);
 
-  const drawArrow = (from, to) => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
-    const headlen = 10;
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver(() => recomputeLayout());
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [recomputeLayout]);
+
+  const drawArrowOnCtx = (ctx, from, to, lineWidth) => {
+    const headlen = Math.max(10, lineWidth * 3.5);
     const angle = Math.atan2(to.y - from.y, to.x - from.x);
+    ctx.lineCap = "round";
     ctx.beginPath();
     ctx.moveTo(from.x, from.y);
     ctx.lineTo(to.x, to.y);
-    ctx.strokeStyle = "#ff0000";
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = "#ff3b30";
+    ctx.lineWidth = lineWidth;
     ctx.stroke();
     ctx.beginPath();
     ctx.moveTo(to.x, to.y);
     ctx.lineTo(
       to.x - headlen * Math.cos(angle - Math.PI / 6),
-      to.y - headlen * Math.sin(angle - Math.PI / 6)
+      to.y - headlen * Math.sin(angle - Math.PI / 6),
     );
     ctx.moveTo(to.x, to.y);
     ctx.lineTo(
       to.x - headlen * Math.cos(angle + Math.PI / 6),
-      to.y - headlen * Math.sin(angle + Math.PI / 6)
+      to.y - headlen * Math.sin(angle + Math.PI / 6),
     );
     ctx.stroke();
   };
 
+  // Redraw: base image (full res) + committed drawings + any live in-progress stroke
+  const redraw = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !image) return;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    const scale = displaySize.width ? canvas.width / displaySize.width : 1;
+    const lineWidth = 3 * scale;
+
+    drawings.forEach((d) => {
+      if (d.type === "pencil" && d.points?.length > 1) {
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        ctx.moveTo(d.points[0].x, d.points[0].y);
+        for (let i = 1; i < d.points.length; i++) {
+          ctx.lineTo(d.points[i].x, d.points[i].y);
+        }
+        ctx.strokeStyle = "#ff3b30";
+        ctx.lineWidth = lineWidth;
+        ctx.stroke();
+      } else if (d.type === "arrow") {
+        drawArrowOnCtx(ctx, d.from, d.to, lineWidth);
+      }
+    });
+
+    if (currentPathRef.current && currentPathRef.current.length > 1) {
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      ctx.moveTo(currentPathRef.current[0].x, currentPathRef.current[0].y);
+      for (let i = 1; i < currentPathRef.current.length; i++) {
+        ctx.lineTo(currentPathRef.current[i].x, currentPathRef.current[i].y);
+      }
+      ctx.strokeStyle = "#ff3b30";
+      ctx.lineWidth = lineWidth;
+      ctx.stroke();
+    }
+    if (arrowPreviewRef.current) {
+      drawArrowOnCtx(
+        ctx,
+        arrowPreviewRef.current.from,
+        arrowPreviewRef.current.to,
+        lineWidth,
+      );
+    }
+  }, [image, drawings, displaySize]);
+
+  useEffect(() => {
+    redraw();
+  }, [redraw]);
+
+  // Convert a pointer event's screen position to a FULL-RESOLUTION canvas coordinate
+  const getNaturalCoords = (clientX, clientY) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return { x: 0, y: 0 };
+    const x = ((clientX - rect.left) / rect.width) * canvas.width;
+    const y = ((clientY - rect.top) / rect.height) * canvas.height;
+    return {
+      x: Math.min(Math.max(x, 0), canvas.width),
+      y: Math.min(Math.max(y, 0), canvas.height),
+    };
+  };
+
+  // ── Pencil / Arrow: press → drag → release ──
+  const handleCanvasPointerDown = (e) => {
+    if (drawMode === "crop") return;
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    canvas?.setPointerCapture?.(e.pointerId);
+    isPointerDownRef.current = true;
+    pointerIdRef.current = e.pointerId;
+    const coords = getNaturalCoords(e.clientX, e.clientY);
+    if (drawMode === "pencil") {
+      currentPathRef.current = [coords];
+    } else if (drawMode === "arrow") {
+      arrowStartRef.current = coords;
+      arrowPreviewRef.current = { from: coords, to: coords };
+    }
+    redraw();
+  };
+
+  const handleCanvasPointerMove = (e) => {
+    if (!isPointerDownRef.current) return;
+    e.preventDefault();
+    const coords = getNaturalCoords(e.clientX, e.clientY);
+    if (drawMode === "pencil" && currentPathRef.current) {
+      currentPathRef.current = [...currentPathRef.current, coords];
+      redraw();
+    } else if (drawMode === "arrow" && arrowStartRef.current) {
+      arrowPreviewRef.current = { from: arrowStartRef.current, to: coords };
+      redraw();
+    }
+  };
+
+  const handleCanvasPointerUp = (e) => {
+    if (!isPointerDownRef.current) return;
+    isPointerDownRef.current = false;
+    const canvas = canvasRef.current;
+    canvas?.releasePointerCapture?.(pointerIdRef.current);
+    pointerIdRef.current = null;
+
+    if (
+      drawMode === "pencil" &&
+      currentPathRef.current &&
+      currentPathRef.current.length > 1
+    ) {
+      const path = currentPathRef.current;
+      setDrawings((prev) => [...prev, { type: "pencil", points: path }]);
+    }
+    currentPathRef.current = null;
+
+    if (drawMode === "arrow" && arrowStartRef.current && arrowPreviewRef.current) {
+      const { from, to } = arrowPreviewRef.current;
+      const canvasEl = canvasRef.current;
+      const scale =
+        displaySize.width && canvasEl ? canvasEl.width / displaySize.width : 1;
+      const minDist = 10 * scale;
+      if (Math.hypot(to.x - from.x, to.y - from.y) >= minDist) {
+        setDrawings((prev) => [...prev, { type: "arrow", from, to }]);
+      }
+    }
+    arrowStartRef.current = null;
+    arrowPreviewRef.current = null;
+    redraw();
+  };
+
+  const handleUndoLast = () => {
+    setDrawings((prev) => prev.slice(0, -1));
+  };
+
+  const handleReset = () => {
+    setDrawings([]);
+    setCropTouched(false);
+    if (displaySize.width) {
+      setCropBox({ x: 0, y: 0, w: displaySize.width, h: displaySize.height });
+    }
+  };
+
+  // ── Crop: real image-viewer style — HTML overlay with 4 draggable corners + movable box ──
+  const startCropDrag = (mode) => (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    cropDragRef.current = {
+      mode,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startBox: { ...cropBox },
+    };
+  };
+
+  const handleCropOverlayPointerMove = (e) => {
+    const drag = cropDragRef.current;
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    e.preventDefault();
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    const { x, y, w, h } = drag.startBox;
+    const maxW = displaySize.width;
+    const maxH = displaySize.height;
+    let next = { x, y, w, h };
+
+    if (drag.mode === "move") {
+      next.x = Math.min(Math.max(x + dx, 0), Math.max(maxW - w, 0));
+      next.y = Math.min(Math.max(y + dy, 0), Math.max(maxH - h, 0));
+    } else {
+      if (drag.mode.includes("l")) {
+        const newX = Math.min(Math.max(x + dx, 0), x + w - MIN_CROP_SIZE);
+        next.w = x + w - newX;
+        next.x = newX;
+      }
+      if (drag.mode.includes("r")) {
+        next.w = Math.min(Math.max(w + dx, MIN_CROP_SIZE), maxW - x);
+      }
+      if (drag.mode.includes("t")) {
+        const newY = Math.min(Math.max(y + dy, 0), y + h - MIN_CROP_SIZE);
+        next.h = y + h - newY;
+        next.y = newY;
+      }
+      if (drag.mode.includes("b")) {
+        next.h = Math.min(Math.max(h + dy, MIN_CROP_SIZE), maxH - y);
+      }
+    }
+    setCropBox(next);
+    setCropTouched(true);
+  };
+
+  const handleCropOverlayPointerUp = (e) => {
+    if (cropDragRef.current && e.pointerId === cropDragRef.current.pointerId) {
+      cropDragRef.current = null;
+    }
+  };
+
+  // ── Save: burn drawings (already on the full-res canvas) + apply crop in natural pixels ──
   const handleSave = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    let croppedCanvas = canvas;
-    if (drawMode === "crop" && cropStart && cropEnd) {
-      const x = Math.min(cropStart.x, cropEnd.x);
-      const y = Math.min(cropStart.y, cropEnd.y);
-      const w = Math.abs(cropEnd.x - cropStart.x);
-      const h = Math.abs(cropEnd.y - cropStart.y);
-      if (w > 5 && h > 5) {
+    let finalCanvas = canvas;
+
+    if (cropBox && displaySize.width && displaySize.height) {
+      const scaleX = canvas.width / displaySize.width;
+      const scaleY = canvas.height / displaySize.height;
+      const sx = Math.round(cropBox.x * scaleX);
+      const sy = Math.round(cropBox.y * scaleY);
+      const sw = Math.round(cropBox.w * scaleX);
+      const sh = Math.round(cropBox.h * scaleY);
+      const isFullFrame =
+        sx <= 1 &&
+        sy <= 1 &&
+        Math.abs(sw - canvas.width) <= 2 &&
+        Math.abs(sh - canvas.height) <= 2;
+      if (!isFullFrame && sw > 0 && sh > 0) {
         const tempCanvas = document.createElement("canvas");
-        tempCanvas.width = w;
-        tempCanvas.height = h;
+        tempCanvas.width = sw;
+        tempCanvas.height = sh;
         const ctx = tempCanvas.getContext("2d");
-        ctx.drawImage(canvas, x, y, w, h, 0, 0, w, h);
-        croppedCanvas = tempCanvas;
+        ctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+        finalCanvas = tempCanvas;
       }
     }
-    croppedCanvas.toBlob((blob) => {
-      if (!blob) return;
-      const newFile = new File([blob], file.name, { type: file.type });
-      onSave(newFile);
-    }, file.type);
+
+    // Preserve original format/quality — no forced downscale (quality fix)
+    const mimeType =
+      file.type && file.type.startsWith("image/") ? file.type : "image/jpeg";
+    const quality = mimeType === "image/jpeg" ? 0.95 : undefined;
+    finalCanvas.toBlob(
+      (blob) => {
+        if (!blob) return;
+        const newFile = new File([blob], file.name, { type: mimeType });
+        onSave(newFile);
+      },
+      mimeType,
+      quality,
+    );
   };
 
   return (
@@ -1834,8 +2021,10 @@ const ImageEditorScreen = ({ file, onSave, onCancel }) => {
         >
           <FaArrowLeft className="text-xl" />
         </button>
-        <h3 className="font-semibold text-gray-800 dark:text-gray-200">Edit Image</h3>
-        <div className="flex items-center gap-2">
+        <h3 className="font-semibold text-gray-800 dark:text-gray-200">
+          Edit Image
+        </h3>
+        <div className="flex items-center gap-1.5">
           <button
             onClick={() => setDrawMode("pencil")}
             className={`p-2 rounded-lg transition ${
@@ -1848,13 +2037,16 @@ const ImageEditorScreen = ({ file, onSave, onCancel }) => {
           </button>
           <button
             onClick={() => setDrawMode("arrow")}
-            className={`p-2 rounded-lg transition ${
+            className={`relative p-2 rounded-lg transition ${
               drawMode === "arrow"
                 ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
                 : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
             }`}
           >
             <FaArrowRight />
+            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-teal-500 text-white rounded-full flex items-center justify-center text-[9px] font-bold leading-none">
+              +
+            </span>
           </button>
           <button
             onClick={() => setDrawMode("crop")}
@@ -1867,18 +2059,10 @@ const ImageEditorScreen = ({ file, onSave, onCancel }) => {
             <FaCrop />
           </button>
           <button
-            onClick={() => {
-              setCropStart(null);
-              setCropEnd(null);
-              setLastPos({ x: 0, y: 0 });
-              const canvas = canvasRef.current;
-              if (canvas && image) {
-                const ctx = canvas.getContext("2d");
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-              }
-            }}
-            className="p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+            onClick={handleUndoLast}
+            disabled={drawings.length === 0}
+            title="Undo last stroke"
+            className="p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition disabled:opacity-30"
           >
             <FaUndoAlt />
           </button>
@@ -1890,16 +2074,131 @@ const ImageEditorScreen = ({ file, onSave, onCancel }) => {
           <FaSave /> Apply
         </button>
       </div>
-      {/* Canvas */}
-      <div ref={containerRef} className="flex-1 flex items-center justify-center p-2 overflow-hidden">
-        <canvas
-          ref={canvasRef}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
-          className="max-w-full max-h-full object-contain cursor-crosshair rounded-lg"
-        />
+
+      {/* Hint bar */}
+      <p className="text-center text-xs text-gray-400 dark:text-gray-500 py-1.5 flex-shrink-0">
+        {drawMode === "crop"
+          ? "Drag the corners or box to crop"
+          : drawMode === "arrow"
+            ? "Drag on the photo to draw an arrow"
+            : "Draw freehand on the photo"}
+      </p>
+
+      {/* Canvas + crop overlay */}
+      <div
+        ref={containerRef}
+        className="flex-1 flex items-center justify-center p-3 overflow-hidden"
+      >
+        <div
+          className="relative touch-none select-none"
+          style={{
+            width: displaySize.width || undefined,
+            height: displaySize.height || undefined,
+          }}
+        >
+          <canvas
+            ref={canvasRef}
+            onPointerDown={handleCanvasPointerDown}
+            onPointerMove={handleCanvasPointerMove}
+            onPointerUp={handleCanvasPointerUp}
+            onPointerCancel={handleCanvasPointerUp}
+            className="block rounded-lg touch-none max-w-full max-h-full"
+            style={{ cursor: drawMode === "crop" ? "default" : "crosshair" }}
+          />
+
+          {drawMode === "crop" && cropBox && displaySize.width > 0 && (
+            <div
+              className="absolute inset-0 touch-none"
+              onPointerMove={handleCropOverlayPointerMove}
+              onPointerUp={handleCropOverlayPointerUp}
+              onPointerCancel={handleCropOverlayPointerUp}
+            >
+              {/* dark mask outside the crop box */}
+              <div
+                className="absolute bg-black/50 pointer-events-none"
+                style={{ left: 0, top: 0, right: 0, height: cropBox.y }}
+              />
+              <div
+                className="absolute bg-black/50 pointer-events-none"
+                style={{
+                  left: 0,
+                  top: cropBox.y + cropBox.h,
+                  right: 0,
+                  bottom: 0,
+                }}
+              />
+              <div
+                className="absolute bg-black/50 pointer-events-none"
+                style={{
+                  left: 0,
+                  top: cropBox.y,
+                  width: cropBox.x,
+                  height: cropBox.h,
+                }}
+              />
+              <div
+                className="absolute bg-black/50 pointer-events-none"
+                style={{
+                  left: cropBox.x + cropBox.w,
+                  top: cropBox.y,
+                  right: 0,
+                  height: cropBox.h,
+                }}
+              />
+
+              {/* crop box body — drag to move */}
+              <div
+                onPointerDown={startCropDrag("move")}
+                className="absolute border-2 border-teal-400 touch-none"
+                style={{
+                  left: cropBox.x,
+                  top: cropBox.y,
+                  width: cropBox.w,
+                  height: cropBox.h,
+                  cursor: "move",
+                }}
+              >
+                <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none">
+                  {Array.from({ length: 9 }).map((_, i) => (
+                    <div key={i} className="border border-white/25" />
+                  ))}
+                </div>
+              </div>
+
+              {/* four corner handles — drag to resize */}
+              {[
+                { key: "tl", x: cropBox.x, y: cropBox.y, cursor: "nwse-resize" },
+                {
+                  key: "tr",
+                  x: cropBox.x + cropBox.w,
+                  y: cropBox.y,
+                  cursor: "nesw-resize",
+                },
+                {
+                  key: "bl",
+                  x: cropBox.x,
+                  y: cropBox.y + cropBox.h,
+                  cursor: "nesw-resize",
+                },
+                {
+                  key: "br",
+                  x: cropBox.x + cropBox.w,
+                  y: cropBox.y + cropBox.h,
+                  cursor: "nwse-resize",
+                },
+              ].map((c) => (
+                <div
+                  key={c.key}
+                  onPointerDown={startCropDrag(c.key)}
+                  className="absolute w-7 h-7 -ml-3.5 -mt-3.5 flex items-center justify-center touch-none"
+                  style={{ left: c.x, top: c.y, cursor: c.cursor }}
+                >
+                  <div className="w-4 h-4 bg-teal-400 border-2 border-white rounded-sm shadow" />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1937,20 +2236,30 @@ const GeneralChatId = () => {
   const [imageToEdit, setImageToEdit] = useState(null);
   const [imageEditorOpen, setImageEditorOpen] = useState(false);
 
-  // Voice quick send
-  const [recordingStarted, setRecordingStarted] = useState(false);
-  const [recordingBlob, setRecordingBlob] = useState(null);
+  // Voice recording states – restored from original
+  const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+  const [recordingBlob, setRecordingBlob] = useState(null);
   const [recordingPaused, setRecordingPaused] = useState(false);
+  const [showRecordedPreview, setShowRecordedPreview] = useState(false);
   const mediaRecorderRef = useRef(null);
   const recordingTimerRef = useRef(null);
   const audioChunksRef = useRef([]);
   const isRecordingRef = useRef(false);
   const isNative = Capacitor.isNativePlatform();
 
+  // Quick send flag – when true, after stop we send immediately
+  const quickSendRef = useRef(false);
+  // Marks a web-recording stop as a CANCEL so onstop doesn't resurrect a preview (glitch fix)
+  const cancelledRef = useRef(false);
+  // Timestamp of mic press-down, used to distinguish a real hold from an accidental tap
+  const micPressStartRef = useRef(0);
+  // Prevents re-entrant start/stop from rapid double taps on mobile
+  const micActionLockRef = useRef(false);
+
   useEffect(() => {
-    isRecordingRef.current = recordingStarted;
-  }, [recordingStarted]);
+    isRecordingRef.current = isRecording;
+  }, [isRecording]);
 
   useEffect(() => {
     return () => {
@@ -1980,6 +2289,7 @@ const GeneralChatId = () => {
     }
   };
 
+  // ─── Native recording ──────────────────────────────────────
   const startNativeRecording = async () => {
     try {
       const { value: hasPermission } =
@@ -1993,19 +2303,22 @@ const GeneralChatId = () => {
         }
       }
       await VoiceRecorder.startRecording();
-      setRecordingStarted(true);
+      setIsRecording(true);
       setRecordingPaused(false);
       setRecordingTime(0);
       setRecordingBlob(null);
+      setShowRecordedPreview(false);
+      quickSendRef.current = false;
       startTimer();
     } catch (err) {
       console.error("Native recording error:", err);
       toast.error("Failed to start recording: " + (err.message || ""));
-      setRecordingStarted(false);
+      setIsRecording(false);
     }
   };
 
   const pauseNativeRecording = async () => {
+    if (!isRecordingRef.current) return;
     try {
       if (recordingPaused) {
         await VoiceRecorder.resumeRecording();
@@ -2022,6 +2335,7 @@ const GeneralChatId = () => {
   };
 
   const stopNativeRecording = async () => {
+    if (!isRecordingRef.current) return;
     try {
       const result = await VoiceRecorder.stopRecording();
       const base64 = result.value.recordDataBase64;
@@ -2033,49 +2347,67 @@ const GeneralChatId = () => {
       const byteArray = new Uint8Array(byteNumbers);
       const audioBlob = new Blob([byteArray], { type: "audio/m4a" });
       setRecordingBlob(audioBlob);
+      setShowRecordedPreview(true);
       stopTimer();
-      setRecordingStarted(false);
+      setIsRecording(false);
     } catch (err) {
       console.error("Stop recording error:", err);
       toast.error("Failed to stop recording");
-      setRecordingStarted(false);
+      setIsRecording(false);
     }
   };
 
   const cancelNativeRecording = async () => {
+    if (!isRecordingRef.current) return;
     try {
       await VoiceRecorder.stopRecording();
     } catch (_) {}
     setRecordingBlob(null);
+    setShowRecordedPreview(false);
     setRecordingTime(0);
-    setRecordingStarted(false);
+    setIsRecording(false);
     stopTimer();
   };
 
+  // ─── Web recording ──────────────────────────────────────────
   const startWebRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
+      cancelledRef.current = false;
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
       mediaRecorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        mediaRecorderRef.current = null;
+        stopTimer();
+        setIsRecording(false);
+
+        // If this stop was triggered by a cancel, discard everything —
+        // do NOT resurrect a preview/blob after the user deleted it.
+        if (cancelledRef.current) {
+          cancelledRef.current = false;
+          audioChunksRef.current = [];
+          return;
+        }
+
         const audioBlob = new Blob(audioChunksRef.current, {
           type: "audio/webm",
         });
+        audioChunksRef.current = [];
         setRecordingBlob(audioBlob);
-        stopTimer();
-        setRecordingStarted(false);
-        stream.getTracks().forEach((track) => track.stop());
-        mediaRecorderRef.current = null;
+        setShowRecordedPreview(true);
       };
       mediaRecorder.start();
-      setRecordingStarted(true);
+      setIsRecording(true);
       setRecordingPaused(false);
       setRecordingTime(0);
       setRecordingBlob(null);
+      setShowRecordedPreview(false);
+      quickSendRef.current = false;
       startTimer();
     } catch (err) {
       console.error("Web recording error:", err);
@@ -2094,7 +2426,7 @@ const GeneralChatId = () => {
   };
 
   const pauseWebRecording = () => {
-    if (mediaRecorderRef.current && recordingStarted) {
+    if (mediaRecorderRef.current && isRecordingRef.current) {
       if (recordingPaused) {
         mediaRecorderRef.current.resume();
         setRecordingPaused(false);
@@ -2108,23 +2440,28 @@ const GeneralChatId = () => {
   };
 
   const stopWebRecording = () => {
-    if (mediaRecorderRef.current && recordingStarted) {
+    if (mediaRecorderRef.current && isRecordingRef.current) {
       mediaRecorderRef.current.stop();
     }
   };
 
   const cancelWebRecording = () => {
-    if (mediaRecorderRef.current && recordingStarted) {
+    if (mediaRecorderRef.current && isRecordingRef.current) {
+      cancelledRef.current = true;
       mediaRecorderRef.current.stop();
     }
+    // Reset immediately so the UI drops the recording bar right away —
+    // cancelledRef above stops the later onstop event from undoing this.
     setRecordingBlob(null);
+    setShowRecordedPreview(false);
     setRecordingTime(0);
-    setRecordingStarted(false);
+    setIsRecording(false);
     stopTimer();
   };
 
+  // ─── Public recording controls ─────────────────────────────
   const startRecording = () => {
-    if (recordingStarted) return;
+    if (isRecordingRef.current) return;
     if (isNative) {
       startNativeRecording();
     } else {
@@ -2141,6 +2478,9 @@ const GeneralChatId = () => {
   };
 
   const stopRecording = () => {
+    // This stops and shows preview (for the stop button)
+    if (!isRecordingRef.current) return;
+    quickSendRef.current = false;
     if (isNative) {
       stopNativeRecording();
     } else {
@@ -2149,6 +2489,7 @@ const GeneralChatId = () => {
   };
 
   const cancelRecording = () => {
+    // Discard recording entirely
     if (isNative) {
       cancelNativeRecording();
     } else {
@@ -2156,15 +2497,44 @@ const GeneralChatId = () => {
     }
   };
 
-  // ─── Quick send audio ──────────────────────────────────────────
-  const handleQuickSendAudio = useCallback(() => {
-    if (!recordingBlob) return;
-    sendAudioMessage(recordingBlob);
-  }, [recordingBlob]);
+  // ─── Quick send: stop recording and send immediately ──────
+  const quickSendRecording = () => {
+    if (!isRecordingRef.current) return;
 
-  // ─── Send audio message ──────────────────────────────────────
+    // A hold shorter than this is almost certainly an accidental tap,
+    // not an intentional "record and send" gesture — cancel instead
+    // of sending an empty/near-empty voice note.
+    const elapsed = Date.now() - (micPressStartRef.current || 0);
+    if (elapsed < 350) {
+      cancelRecording();
+      return;
+    }
+
+    if (recordingBlob) {
+      sendAudioMessage(recordingBlob);
+      return;
+    }
+    quickSendRef.current = true;
+    // Stop recording; when blob is set, we'll send in useEffect
+    if (isNative) {
+      stopNativeRecording();
+    } else {
+      stopWebRecording();
+    }
+  };
+
+  // ─── Send audio message ─────────────────────────────────────
   const sendAudioMessage = async (audioBlob) => {
     if (!audioBlob) return;
+
+    // Guard against empty/near-empty voice notes ever reaching the server
+    if (audioBlob.size < 800) {
+      setRecordingBlob(null);
+      setShowRecordedPreview(false);
+      setRecordingTime(0);
+      return;
+    }
+
     if (isSendingRef.current) return;
 
     const signature = `${audioBlob.size}-${recordingTime}`;
@@ -2229,8 +2599,8 @@ const GeneralChatId = () => {
     };
     setLocalMessages((prev) => [...prev, optimisticMsg]);
     setRecordingBlob(null);
+    setShowRecordedPreview(false);
     setRecordingTime(0);
-    setRecordingStarted(false);
     setReplyToMessage(null);
 
     try {
@@ -2264,6 +2634,14 @@ const GeneralChatId = () => {
       setIsSending(false);
     }
   };
+
+  // ─── Auto‑send when quick send is triggered and blob appears ──
+  useEffect(() => {
+    if (quickSendRef.current && recordingBlob) {
+      quickSendRef.current = false;
+      sendAudioMessage(recordingBlob);
+    }
+  }, [recordingBlob]);
 
   // ─── ResizeObserver for input height ────────────────────────────
   useEffect(() => {
@@ -3065,24 +3443,20 @@ const GeneralChatId = () => {
   // ─── Mic button handlers ────────────────────────────────────────
   const handleMicPointerDown = (e) => {
     if (message.trim()) return;
-    if (recordingStarted || mediaRecorderRef.current) return;
+    if (isRecordingRef.current || micActionLockRef.current || mediaRecorderRef.current)
+      return;
+    micActionLockRef.current = true;
     e.currentTarget.setPointerCapture?.(e.pointerId);
+    micPressStartRef.current = Date.now();
     startRecording();
   };
 
   const handleMicPointerUp = (e) => {
     e.currentTarget.releasePointerCapture?.(e.pointerId);
-    // Quick send: if recording and not paused, stop and send
-    if (recordingStarted && !recordingPaused) {
-      stopRecording();
-      // After stopping, the recording blob will be ready; send it
-      // We'll use a small delay to allow the blob to be set
-      setTimeout(() => {
-        if (recordingBlob) {
-          handleQuickSendAudio();
-        }
-      }, 100);
+    if (isRecordingRef.current && !recordingPaused) {
+      quickSendRecording();
     }
+    micActionLockRef.current = false;
   };
 
   // ─── Message action handlers ──────────────────────────────────
@@ -3374,8 +3748,53 @@ const GeneralChatId = () => {
                   />
                 )}
 
-                {/* Recording bar (red) */}
-                {recordingStarted && (
+                {/* Voice preview (green bar) – restored */}
+                {showRecordedPreview && recordingBlob && (
+                  <div className="flex items-center justify-between px-3 py-2 mb-2 bg-green-50 dark:bg-green-900/30 rounded-lg border border-green-200 dark:border-green-700/40">
+                    <div className="flex items-center gap-2">
+                      <FaCheckCircle className="text-green-500 dark:text-green-400" />
+                      <span className="text-sm text-gray-700 dark:text-gray-200">
+                        Voice note ready
+                      </span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        {formatTime(recordingTime)}
+                      </span>
+                    </div>
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => {
+                          const audio = new Audio(
+                            URL.createObjectURL(recordingBlob),
+                          );
+                          audio.play();
+                        }}
+                        className="p-1 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white"
+                      >
+                        <FaPlay className="text-xs" />
+                      </button>
+                      <button
+                        onClick={() => sendAudioMessage(recordingBlob)}
+                        disabled={isSending}
+                        className="px-3 py-1 bg-green-600 dark:bg-green-700 text-white rounded text-xs hover:bg-green-700 dark:hover:bg-green-800 transition disabled:opacity-50"
+                      >
+                        Send
+                      </button>
+                      <button
+                        onClick={() => {
+                          setRecordingBlob(null);
+                          setShowRecordedPreview(false);
+                          setRecordingTime(0);
+                        }}
+                        className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white"
+                      >
+                        <FaTimes className="text-xs" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Recording bar (red) – only when actively recording */}
+                {isRecording && (
                   <div className="flex items-center justify-between px-3 py-2 mb-2 bg-red-50 dark:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-700/40">
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
@@ -3392,13 +3811,13 @@ const GeneralChatId = () => {
                         {recordingPaused ? "Resume" : "Pause"}
                       </button>
                       <button
-                        onClick={cancelRecording}
+                        onClick={cancelRecording} // <-- Discards entirely, always
                         className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white"
                       >
                         <FaTrashAlt className="text-xs" />
                       </button>
                       <button
-                        onClick={stopRecording}
+                        onClick={stopRecording} // <-- Stops and shows preview
                         className="bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition"
                       >
                         <FaStop className="text-xs" />
@@ -3488,22 +3907,13 @@ const GeneralChatId = () => {
                     />
                   </div>
 
-                  {/* Mic / send button – transforms during recording */}
+                  {/* Mic / send button — a single persistent element so holding+releasing
+                      never has its pointer capture broken by a DOM swap (glitch fix) */}
                   {message.trim() ? (
                     <button
                       type="submit"
                       disabled={!isConnected || isSending}
                       className="p-3 rounded-full text-white disabled:opacity-50 flex-shrink-0 transition hover:opacity-80 mb-1"
-                      style={{ backgroundColor: "#0d9488" }}
-                    >
-                      <FaPaperPlane className="text-sm" />
-                    </button>
-                  ) : recordingStarted ? (
-                    <button
-                      type="button"
-                      onClick={handleQuickSendAudio}
-                      disabled={!recordingBlob}
-                      className="p-3 rounded-full text-white flex-shrink-0 transition hover:opacity-80 mb-1"
                       style={{ backgroundColor: "#0d9488" }}
                     >
                       <FaPaperPlane className="text-sm" />
@@ -3514,10 +3924,14 @@ const GeneralChatId = () => {
                       onPointerDown={handleMicPointerDown}
                       onPointerUp={handleMicPointerUp}
                       onPointerCancel={handleMicPointerUp}
-                      className="p-3 rounded-full text-white flex-shrink-0 transition hover:opacity-80 mb-1"
+                      className="p-3 rounded-full text-white flex-shrink-0 transition hover:opacity-80 mb-1 touch-none select-none"
                       style={{ backgroundColor: "#0d9488" }}
                     >
-                      <FaMicrophone className="text-sm" />
+                      {isRecording ? (
+                        <FaPaperPlane className="text-sm" />
+                      ) : (
+                        <FaMicrophone className="text-sm" />
+                      )}
                     </button>
                   )}
                 </form>
