@@ -1,5 +1,5 @@
 // src/components/MyWorkspaceBottombar.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useParams, useLocation, useNavigate } from 'react-router-dom';
 import {
   FiHome,
@@ -20,8 +20,10 @@ import { useDispatch } from 'react-redux';
 import { useLogoutMutation } from '../slices/userApiSlice';
 import { logout } from '../slices/authSlice';
 import { toast } from 'react-toastify';
+import { useGetUserChatsQuery, messagingApiSlice } from '../slices/messagingApiSlice';
+import { useSocket } from '../components/SocketContext.jsx';
 
-// ─── Custom WhatsApp‑style Chat Icon (matches sidebar & bottom bar) ──
+// ─── Custom WhatsApp‑style Chat Icon ──
 const ChatIcon = ({ className }) => (
   <svg
     viewBox="0 0 24 24"
@@ -116,6 +118,16 @@ const InviteModal = ({ isOpen, onClose, inviteCode, brandColor, workspaceName })
   );
 };
 
+// ─── Helper: filter chats belonging to this workspace ──────────────
+const belongsToWorkspace = (chat, workspaceId) => {
+  if (!chat) return false;
+  const chatWorkspaceId =
+    typeof chat.workspace === 'object' && chat.workspace !== null
+      ? chat.workspace._id
+      : chat.workspace;
+  return chat.scope === 'workspace' && String(chatWorkspaceId) === String(workspaceId);
+};
+
 // ─── Main Component ──────────────────────────────────────────────
 const MyWorkspaceBottombar = ({ workspace }) => {
   const { workspaceId } = useParams();
@@ -124,15 +136,98 @@ const MyWorkspaceBottombar = ({ workspace }) => {
   const dispatch = useDispatch();
   const [menuOpen, setMenuOpen] = useState(false);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const refetchTimeoutRef = useRef(null);
 
   const brandColor = workspace?.color || '#0d9488';
-
   const [logoutUser] = useLogoutMutation();
+  const { socket, isConnected } = useSocket();
 
-  const isActive = (path) => {
-    if (path === 'home' && location.pathname === `/my-workspace/${workspaceId}`) return true;
-    if (path !== 'home' && location.pathname.includes(path)) return true;
-    return false;
+  // ── Query with aggressive refresh options ──
+  const {
+    data: chatsData,
+    refetch: refetchChats,
+  } = useGetUserChatsQuery(workspaceId, {
+    pollingInterval: 15000,
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
+  });
+
+  const allChats = chatsData?.chats || [];
+
+  // ── FILTER: only keep chats that belong to this workspace ──
+  const workspaceChats = allChats.filter(chat => belongsToWorkspace(chat, workspaceId));
+
+  // ── Socket listener for real‑time unread updates ──
+  useEffect(() => {
+    if (!socket || !isConnected || !workspaceId) return;
+
+    const handleChatListUpdate = ({ chatId, unreadCount }) => {
+      if (!chatId) return;
+
+      // 1. Patch the cache immediately (optimistic)
+      dispatch(
+        messagingApiSlice.util.updateQueryData(
+          'getUserChats',
+          workspaceId,
+          (draft) => {
+            if (!draft?.chats) return;
+            const chat = draft.chats.find(c => c._id === chatId);
+            if (chat && typeof unreadCount === 'number') {
+              chat.unreadCount = unreadCount;
+            }
+          }
+        )
+      );
+
+      // 2. Also trigger a quiet refetch after a short delay to guarantee consistency
+      if (refetchTimeoutRef.current) clearTimeout(refetchTimeoutRef.current);
+      refetchTimeoutRef.current = setTimeout(() => {
+        refetchChats();
+        refetchTimeoutRef.current = null;
+      }, 500);
+    };
+
+    socket.on('chat-list-update', handleChatListUpdate);
+
+    return () => {
+      socket.off('chat-list-update', handleChatListUpdate);
+      if (refetchTimeoutRef.current) clearTimeout(refetchTimeoutRef.current);
+    };
+  }, [socket, isConnected, workspaceId, dispatch, refetchChats]);
+
+  // ── Also refetch when the page becomes visible (user switches back) ──
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refetchChats();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [refetchChats]);
+
+  // ── Refetch when socket connects to ensure initial data ──
+  useEffect(() => {
+    if (isConnected) {
+      refetchChats();
+    }
+  }, [isConnected, refetchChats]);
+
+  // ── Compute totals using ONLY workspaceChats ──
+  const unreadChannels = workspaceChats
+    .filter(c => c.type === 'group')
+    .reduce((acc, c) => acc + (c.unreadCount || 0), 0);
+
+  const unreadDMs = workspaceChats
+    .filter(c => c.type === 'direct')
+    .reduce((acc, c) => acc + (c.unreadCount || 0), 0);
+
+  // ── Navigation helpers ──
+  const isActive = (pathPattern) => {
+    if (pathPattern === 'home') {
+      return location.pathname === `/my-workspace/${workspaceId}`;
+    }
+    return location.pathname.includes(pathPattern);
   };
 
   const handleLogout = async () => {
@@ -146,19 +241,19 @@ const MyWorkspaceBottombar = ({ workspace }) => {
     }
   };
 
-  // ─── Bottom navigation items (with custom ChatIcon) ────────────────
+  // ─── Bottom navigation items ──
   const navItems = [
-    { id: 'home', label: 'Home', icon: FiHome, path: `/my-workspace/${workspaceId}` },
-    { id: 'channels', label: 'Chats', icon: ChatIcon, path: `/my-workspace/${workspaceId}/channels` },
-    { id: 'members', label: 'Members', icon: FiUsers, path: `/my-workspace/${workspaceId}/members` },
+    { id: 'home', label: 'Home', icon: FiHome, path: `/my-workspace/${workspaceId}`, activeCheck: 'home' },
+    { id: 'chat', label: 'Chat', icon: ChatIcon, path: `/my-workspace/${workspaceId}/dms`, activeCheck: '/dms' },
+    { id: 'channels', label: 'Channels', icon: FiUser, path: `/my-workspace/${workspaceId}/channels`, activeCheck: '/channels' },
+    { id: 'members', label: 'Members', icon: FiUsers, path: `/my-workspace/${workspaceId}/members`, activeCheck: '/members' },
   ];
 
-  // ─── Menu items (slide‑out) ─────────────────────────────────────────
+  // ─── Menu items ──────────────────────────────────────────────────────
   const menuItems = [
     { id: 'projects', label: 'Projects', icon: FiFolder, path: `/my-workspace/${workspaceId}/projects` },
     { id: 'clockin', label: 'Clock‑in', icon: FiClock, path: `/my-workspace/${workspaceId}/clockin` },
     { id: 'invite', label: 'Invite Members', icon: FiUserPlus, action: () => setInviteModalOpen(true) },
-    // { id: 'notifications', label: 'Notifications', icon: FiBell, path: `/my-workspace/${workspaceId}/notifications` },
     { id: 'settings', label: 'Settings', icon: FiSettings, path: `/my-workspace/${workspaceId}/settings` },
     { id: 'profile', label: 'Profile', icon: FiUser, path: '/profile' },
   ];
@@ -170,21 +265,33 @@ const MyWorkspaceBottombar = ({ workspace }) => {
         <div className="flex items-center justify-around h-16 px-2 max-w-lg mx-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const active = isActive(item.id);
+            const active = isActive(item.activeCheck);
+            let badgeCount = 0;
+            if (item.id === 'channels') badgeCount = unreadChannels;
+            if (item.id === 'chat') badgeCount = unreadDMs;
+
             return (
               <Link
                 key={item.id}
                 to={item.path}
                 className="relative flex flex-col items-center justify-center gap-0.5 px-3 py-1 rounded-full transition-all group"
               >
-                <Icon
-                  strokeWidth={active ? 2.5 : 1.8}
-                  className={`text-xl transition-all duration-200 ${
-                    active
-                      ? `text-[#0d9488] scale-110`
-                      : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300'
-                  }`}
-                />
+                <div className="relative">
+                  <Icon
+                    strokeWidth={active ? 2.5 : 1.8}
+                    className={`text-xl transition-all duration-200 ${
+                      active
+                        ? 'scale-110'
+                        : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300'
+                    }`}
+                    style={active ? { color: brandColor } : {}}
+                  />
+                  {badgeCount > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 shadow-md border-2 border-white dark:border-[#0f0f12]">
+                      {badgeCount > 99 ? '99+' : badgeCount}
+                    </span>
+                  )}
+                </div>
                 <span
                   className={`text-[10px] font-medium transition-colors duration-200 ${
                     active
@@ -195,13 +302,13 @@ const MyWorkspaceBottombar = ({ workspace }) => {
                   {item.label}
                 </span>
                 {active && (
-                  <span className="absolute -top-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#0d9488]" />
+                  <span className="absolute -top-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full" style={{ backgroundColor: brandColor }} />
                 )}
               </Link>
             );
           })}
 
-          {/* Menu button */}
+          {/* Menu button (5th button) */}
           <button
             onClick={() => setMenuOpen(true)}
             className="relative flex flex-col items-center justify-center gap-0.5 px-3 py-1 rounded-full transition-all group"
@@ -212,7 +319,7 @@ const MyWorkspaceBottombar = ({ workspace }) => {
         </div>
       </div>
 
-      {/* ─── Slide-out Menu (mobile) ── */}
+      {/* ─── Slide-out Menu ── */}
       {menuOpen && (
         <div className="fixed inset-0 z-50 bg-black/40 dark:bg-[#0b0b10]/70 backdrop-blur-sm md:hidden" onClick={() => setMenuOpen(false)} />
       )}
@@ -222,7 +329,7 @@ const MyWorkspaceBottombar = ({ workspace }) => {
         }`}
         style={{ borderRadius: '0 24px 24px 0' }}
       >
-        {/* Menu Header */}
+        {/* Header */}
         <div className="px-5 py-5 flex items-center justify-between border-b border-gray-200/60 dark:border-gray-800/60">
           <div className="flex items-center gap-3">
             {workspace?.logo ? (

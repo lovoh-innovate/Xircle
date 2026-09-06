@@ -14,18 +14,16 @@ import {
   FiChevronDown,
   FiChevronRight,
   FiChevronLeft,
-  FiSearch,
-  FiBell,
   FiSun,
   FiMoon,
   FiMonitor,
-  FiPlus,
 } from 'react-icons/fi';
 import { FaSpinner } from 'react-icons/fa';
 import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
 import { useGetWorkspaceProjectsQuery } from '../slices/projectApiSlice';
 import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
 import { useTheme } from '../contexts/ThemeContext';
+import useWorkspacePresence from '../services/useWorkspacePresence';
 
 // ─── Custom WhatsApp‑style Chat Icon ──────────────────────────────
 const ChatIcon = ({ className }) => (
@@ -67,13 +65,14 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   const { theme, toggleTheme, isDarkMode } = useTheme();
   const [isCollapsed, setIsCollapsed] = useState(false);
 
-  // ── fetch chats if not provided ──
+  const onlineUserIds = useWorkspacePresence(workspaceId);
+  const onlineCount = onlineUserIds.size;
+
   const { data: chatsData, isLoading: chatsLoading } = useGetUserChatsQuery(workspaceId, {
     skip: !!propChats,
   });
   const chats = propChats || chatsData?.chats || [];
 
-  // ── fetch projects ──
   const { data: projectsData, isLoading: projectsLoading } = useGetWorkspaceProjectsQuery({
     workspaceId,
   });
@@ -113,7 +112,6 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
     { id: 'channels', label: 'Channels', icon: ChatIcon, path: `/my-workspace/${workspaceId}/channels` },
     { id: 'dms', label: 'Direct Messages', icon: FiMail, path: `/my-workspace/${workspaceId}/dms` },
     { id: 'members', label: 'Members', icon: FiUsers, path: `/my-workspace/${workspaceId}/members` },
-    // ─── NEW: Clock‑in ──────────────────────────────────────────────
     { id: 'clockin', label: 'Clock‑in', icon: FiClock, path: `/my-workspace/${workspaceId}/clockin` },
   ];
 
@@ -122,11 +120,9 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   ];
 
   const members = workspace?.members || [];
-  const onlineCount = members.filter((m) => m.status === 'active').length || 0;
 
   const channels = chats.filter((chat) => chat.type === 'group') || [];
 
-  // ─── NUCLEAR DEDUPLICATION: one DM per participant, keep most recent ──
   const myId = String(userInfo?._id);
   const rawDirectMessages = chats.filter((chat) => chat.type === 'direct') || [];
   const directMessages = useMemo(() => {
@@ -232,31 +228,25 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
     );
   };
 
-  // ─── Theme Toggle ──────────────────────────────────────────────
-  const ThemeToggleButton = () => {
+  // ─── Theme Toggle Icon ──────────────────────────────────────
+  const ThemeToggleIcon = () => {
     const getIcon = () => {
       if (theme === 'light') return <FiSun className="text-yellow-500" />;
       if (theme === 'dark') return <FiMoon className="text-purple-400" />;
       return <FiMonitor className="text-blue-400" />;
     };
-    const getLabel = () => {
-      if (theme === 'light') return 'Light';
-      if (theme === 'dark') return 'Dark';
-      return 'System';
-    };
-
     return (
       <button
         onClick={toggleTheme}
-        className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white flex items-center gap-1 text-xs"
-        title={`Theme: ${getLabel()}`}
+        className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+        title={`Switch theme (current: ${theme})`}
       >
         {getIcon()}
-        {!isCollapsed && <span className="ml-1">{getLabel()}</span>}
       </button>
     );
   };
 
+  // ─── Render ──────────────────────────────────────────────────────
   return (
     <div
       className={`sticky top-0 h-screen bg-white dark:bg-[#18181b] border-r border-gray-200 dark:border-gray-800 flex flex-col overflow-hidden transition-all duration-300 ease-in-out ${
@@ -534,7 +524,7 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
                   directMessages.slice(0, 6).map((chat) => {
                     const participant = getDMParticipant(chat);
                     const unread = getDMUnread(chat);
-                    const isOnline = participant?.online || false;
+                    const isOnline = onlineUserIds.has(participant?._id);
                     return (
                       <Link
                         key={chat._id}
@@ -643,7 +633,7 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
         </button>
       </div>
 
-      {/* ── User Footer with Theme Toggle ── */}
+      {/* ── User Footer (profile + theme icon side‑by‑side) ── */}
       <div
         className={`border-t border-gray-200 dark:border-gray-800 flex-shrink-0 bg-white dark:bg-[#18181b] ${
           isCollapsed ? 'p-2 flex flex-col items-center gap-2' : 'p-3'
@@ -651,7 +641,7 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
       >
         {isCollapsed ? (
           <>
-            <div className="relative">
+            <Link to="/profile" className="relative">
               {userInfo?.profile ? (
                 <img
                   src={userInfo.profile}
@@ -666,40 +656,34 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
                   {getInitials(userInfo?.name)}
                 </div>
               )}
-            </div>
-            <ThemeToggleButton />
+            </Link>
+            <ThemeToggleIcon />
           </>
         ) : (
           <div className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer">
-            {userInfo?.profile ? (
-              <img
-                src={userInfo.profile}
-                alt={userInfo.name}
-                className="w-8 h-8 rounded-full object-cover"
-              />
-            ) : (
-              <div
-                className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold"
-                style={{ backgroundColor: brandColor }}
-              >
-                {getInitials(userInfo?.name)}
+            <Link to="/profile" className="flex items-center gap-3 flex-1 min-w-0">
+              {userInfo?.profile ? (
+                <img
+                  src={userInfo.profile}
+                  alt={userInfo.name}
+                  className="w-8 h-8 rounded-full object-cover"
+                />
+              ) : (
+                <div
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold"
+                  style={{ backgroundColor: brandColor }}
+                >
+                  {getInitials(userInfo?.name)}
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
+                  {userInfo?.name}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{userRole}</p>
               </div>
-            )}
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
-                {userInfo?.name}
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{userRole}</p>
-            </div>
-            <div className="flex gap-1 items-center">
-              <button className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
-                <FiSearch className="text-xs" />
-              </button>
-              <button className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
-                <FiBell className="text-xs" />
-              </button>
-              <ThemeToggleButton />
-            </div>
+            </Link>
+            <ThemeToggleIcon />
           </div>
         )}
       </div>

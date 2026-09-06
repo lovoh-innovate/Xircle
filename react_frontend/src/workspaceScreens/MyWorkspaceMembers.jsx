@@ -31,6 +31,7 @@ import {
   FaComment,
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
+import useWorkspacePresence from '../services/useWorkspacePresence'; // 👈 import presence service
 
 // ─── useMediaQuery hook ──────────────────────────────────────────────
 const useMediaQuery = (query) => {
@@ -264,7 +265,7 @@ const SearchMembersModal = ({ isOpen, onClose, members, brandColor }) => {
           <div className="space-y-1.5">
             {filtered.map((member) => {
               const user = member.user || member;
-              const isOnline = member.status === 'active';
+              // No presence dot in search modal (just show avatar)
               return (
                 <div
                   key={user._id}
@@ -280,9 +281,6 @@ const SearchMembersModal = ({ isOpen, onClose, members, brandColor }) => {
                       >
                         {getInitials(user.name)}
                       </div>
-                    )}
-                    {isOnline && (
-                      <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white dark:border-[#0b0b10]" />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -476,7 +474,7 @@ const ApproveMemberModal = ({ isOpen, onClose, memberId, workspaceId, brandColor
   );
 };
 
-// ─── MemberItem with onMemberClick and isMobile ───────────────────────
+// ─── MemberItem with online status ─────────────────────────────────────
 const MemberItem = React.memo(({
   member,
   isPending,
@@ -498,11 +496,11 @@ const MemberItem = React.memo(({
   onEditRole,
   isMobile,
   onMemberClick,
+  isOnline, // 👈 receives real-time online status
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
-  // Outside click handler
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (menuRef.current && !menuRef.current.contains(event.target)) {
@@ -521,15 +519,10 @@ const MemberItem = React.memo(({
     role: member.role,
   };
 
-  // Row click – only on mobile to open action sheet
   const handleRowClick = (e) => {
-    // Ignore if not on mobile
     if (!isMobile) return;
-    // Ignore if the click came from a button (like the menu toggle)
-    if (e.target.closest('button')) return;
-    // Ignore pending or self
     if (isPending || isCurrentUser) return;
-    // Call the parent handler
+    if (e.target.closest('button')) return;
     if (onMemberClick) {
       onMemberClick(memberForAction);
     }
@@ -555,7 +548,11 @@ const MemberItem = React.memo(({
           </div>
         )}
         {!isPending && member.status === 'active' && (
-          <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white dark:border-[#0f0f12]" />
+          <span
+            className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-[#0f0f12] ${
+              isOnline ? 'bg-green-500' : 'bg-gray-400 dark:bg-gray-600'
+            }`}
+          />
         )}
       </div>
 
@@ -683,8 +680,10 @@ const MyWorkspaceMembers = () => {
 
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null, confirmLabel: 'Confirm' });
 
-  // ─── Media query for mobile detection ──────────────────────────────
   const isMobile = useMediaQuery('(max-width: 768px)');
+
+  // ─── Presence service ──────────────────────────────────────────────
+  const onlineUserIds = useWorkspacePresence(workspaceId); // 👈 real-time online set
 
   // ─── Queries with polling ────────────────────────────────────────────
   const { data: workspaceData, isLoading: workspaceLoading, error: workspaceError, refetch: refetchWorkspace } = useGetWorkspaceQuery(workspaceId, { pollingInterval: 5000 });
@@ -864,6 +863,9 @@ const MyWorkspaceMembers = () => {
       const isWorkspaceOwner = user._id === workspace?.owner?._id;
       const isCurrentUser = user._id === userInfo?._id;
 
+      // 👇 Determine online status from the presence set
+      const isOnline = onlineUserIds.has(memberId);
+
       const canAct = canManagePending && !isCurrentUser && !isWorkspaceOwner;
 
       return (
@@ -889,6 +891,7 @@ const MyWorkspaceMembers = () => {
           onEditRole={handleEditRole}
           isMobile={isMobile}
           onMemberClick={handleMemberClick}
+          isOnline={isOnline} // 👈 pass it down
         />
       );
     });

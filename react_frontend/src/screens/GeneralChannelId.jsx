@@ -129,12 +129,15 @@ const safeFormatTime = (dateString) => {
 
 // ─── Emoji picker data & helpers ───────────────────────────────────
 const EMOJI_LIST = [
-  '😀', '😁', '😂', '🤣', '😊', '😍', '😘', '😜', '🤔', '😎',
-  '😢', '😭', '😡', '🥳', '👍', '👎', '🙏', '👏', '💪', '🔥',
-  '❤️', '💔', '💯', '✨', '🎉', '😴', '🤗', '😇', '🙄', '😅',
-  '🤝', '👋', '🤞', '🫶', '😏', '🥺', '😱', '😳', '🤩', '🫡',
-  '💀', '👀', '😤', '🤦', '🤷', '🙈', '🙉', '🙊', '💃', '🕺',
-  '🍕', '☕', '🎂', '🌹', '⚽', '🏆', '💰', '📌', '✅', '❌',
+  "😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😜", "🤔", "😎",
+  "😢", "😭", "😡", "🥳", "👍", "👎", "🙏", "👏", "💪", "🔥",
+  "❤️", "💔", "💯", "✨", "🎉", "😴", "🤗", "😇", "🙄", "😅",
+  "🤝", "👋", "🤞", "🫶", "😏", "🥺", "😱", "😳", "🤩", "🫡",
+  "💀", "👀", "😤", "🤦", "🤷", "🙈", "🙉", "🙊", "💃", "🕺",
+  "🍕", "☕", "🎂", "🌹", "⚽", "🏆", "💰", "📌", "✅", "❌",
+  "☺️", "🥰", "😌", "😉", "💋", "😙", "😚", "💑", "💏",
+  "💞", "💕", "💗", "💖", "💘", "😻", "🌙", "🌛", "🌜", "⭐",
+  "🌝", "🤭", "🌚",
 ];
 
 // ─── Link detection / preview helpers ──────────────────────────────
@@ -651,7 +654,7 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending, onEd
         {type === 'image' && (
           <button
             onClick={onEdit}
-            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition rounded-lg text-white text-sm"
+            className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-lg text-white text-sm"
           >
             <FaPencilAlt className="text-lg" />
           </button>
@@ -2085,62 +2088,69 @@ const ImageEditorScreen = ({ file, onSave, onCancel }) => {
 
   return (
     <div className="fixed inset-0 z-50 bg-white dark:bg-[#0f0f12] flex flex-col">
-      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800/60 flex-shrink-0">
+      {/* Header - Responsive layout for mobile */}
+      <div className="flex items-center justify-between flex-wrap gap-1 sm:gap-2 p-2 sm:p-4 border-b border-gray-200 dark:border-gray-800/60 flex-shrink-0">
         <button
           onClick={onCancel}
           className="p-1 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white transition"
         >
-          <FaArrowLeft className="text-xl" />
+          <FaArrowLeft className="text-lg sm:text-xl" />
         </button>
-        <h3 className="font-semibold text-gray-800 dark:text-gray-200">Edit Image</h3>
-        <div className="flex items-center gap-1.5">
+
+        <h3 className="font-semibold text-gray-800 dark:text-gray-200 hidden sm:block">
+          Edit Image
+        </h3>
+
+        <div className="flex items-center gap-1 sm:gap-1.5 flex-wrap">
           <button
             onClick={() => setDrawMode("pencil")}
-            className={`p-2 rounded-lg transition ${
+            className={`p-1.5 sm:p-2 rounded-lg transition ${
               drawMode === "pencil"
                 ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
                 : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
             }`}
           >
-            <FaPencilAlt />
+            <FaPencilAlt className="text-sm sm:text-base" />
           </button>
           <button
             onClick={() => setDrawMode("arrow")}
-            className={`relative p-2 rounded-lg transition ${
+            className={`relative p-1.5 sm:p-2 rounded-lg transition ${
               drawMode === "arrow"
                 ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
                 : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
             }`}
           >
-            <FaArrowRight />
+            <FaArrowRight className="text-sm sm:text-base" />
             <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-teal-500 text-white rounded-full flex items-center justify-center text-[9px] font-bold leading-none">
               +
             </span>
           </button>
           <button
             onClick={() => setDrawMode("crop")}
-            className={`p-2 rounded-lg transition ${
+            className={`p-1.5 sm:p-2 rounded-lg transition ${
               drawMode === "crop"
                 ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
                 : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
             }`}
           >
-            <FaCrop />
+            <FaCrop className="text-sm sm:text-base" />
           </button>
           <button
             onClick={handleUndoLast}
             disabled={drawings.length === 0}
             title="Undo last stroke"
-            className="p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition disabled:opacity-30"
+            className="p-1.5 sm:p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition disabled:opacity-30"
           >
-            <FaUndoAlt />
+            <FaUndoAlt className="text-sm sm:text-base" />
           </button>
         </div>
+
         <button
           onClick={handleSave}
-          className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition text-sm font-medium flex items-center gap-2"
+          className="px-3 py-1.5 sm:px-4 sm:py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition text-xs sm:text-sm font-medium flex items-center gap-2"
         >
-          <FaSave /> Apply
+          <FaSave className="text-xs sm:text-sm" />
+          <span className="hidden sm:inline">Apply</span>
         </button>
       </div>
 
@@ -2952,8 +2962,7 @@ const GeneralChannelId = () => {
         const mimeType = `image/${photo.format || 'jpeg'}`;
         const fileName = `photo-${Date.now()}.${photo.format || 'jpg'}`;
         const file = base64ToFile(photo.base64String, fileName, mimeType);
-        setImageToEdit(file);
-        setImageEditorOpen(true);
+        setPendingMedia(file);
       }
     } catch (err) {
       const msg = (err?.message || '').toLowerCase();
@@ -2976,8 +2985,7 @@ const GeneralChannelId = () => {
         const mimeType = `image/${photo.format || 'jpeg'}`;
         const fileName = `photo-${Date.now()}.${photo.format || 'jpg'}`;
         const file = base64ToFile(photo.base64String, fileName, mimeType);
-        setImageToEdit(file);
-        setImageEditorOpen(true);
+        setPendingMedia(file);
       }
     } catch (err) {
       const msg = (err?.message || '').toLowerCase();
@@ -3006,12 +3014,7 @@ const GeneralChannelId = () => {
         toast.error('Could not read selected file');
         return;
       }
-      if (file.type.startsWith('image/')) {
-        setImageToEdit(file);
-        setImageEditorOpen(true);
-      } else {
-        setPendingMedia(file);
-      }
+      setPendingMedia(file);
     } catch (err) {
       const msg = (err?.message || '').toLowerCase();
       if (!msg.includes('cancel')) {
@@ -3046,13 +3049,7 @@ const GeneralChannelId = () => {
       toast.error('No file selected');
       return;
     }
-    if (file.type.startsWith('image/')) {
-      setImageToEdit(file);
-      setImageEditorOpen(true);
-    } else {
-      setPendingMedia(file);
-      toast.success(`${file.name} loaded`);
-    }
+    setPendingMedia(file);
     e.target.value = '';
   }, []);
 
@@ -3066,9 +3063,8 @@ const GeneralChannelId = () => {
       if (item.type.startsWith('image/')) {
         const file = item.getAsFile();
         if (file) {
-          setImageToEdit(file);
-          setImageEditorOpen(true);
-          toast.info('Image pasted! Edit it, then send.');
+          setPendingMedia(file);
+          toast.info('Image pasted! You can edit it before sending.');
           e.preventDefault();
           break;
         }
@@ -3759,7 +3755,7 @@ const GeneralChannelId = () => {
                       }}
                       placeholder="Message"
                       rows={1}
-                      className="w-full min-w-0 pl-4 pr-20 py-2 border border-gray-300 dark:border-gray-700/60 rounded-full bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500 resize-none max-h-32 overflow-y-auto"
+                      className="w-full min-w-0 pl-4 pr-20 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500 resize-none max-h-32 overflow-y-auto"
                       style={{ minHeight: '42px', lineHeight: '1.5' }}
                     />
                     <div className="absolute right-3 bottom-0 h-[42px] flex items-center gap-3">

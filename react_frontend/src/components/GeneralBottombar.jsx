@@ -1,9 +1,11 @@
 // src/components/GeneralBottombar.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useSelector } from "react-redux";
 import { useGetUserNotificationsQuery } from "../slices/notificationApiSlice";
 import { useCheckAppUpdateQuery } from "../slices/appApiSlice";
+import { useGetUserChatsQuery, messagingApiSlice } from "../slices/messagingApiSlice";
+import { useSocket } from "../components/SocketContext.jsx";
 import {
   FiHome,
   FiUsers,
@@ -16,9 +18,10 @@ import {
   FiPackage,
   FiAlertCircle,
   FiArrowUp,
-  FiFile, // ✅ Added for Notes
+  FiFile,
 } from "react-icons/fi";
 import { FaTimes, FaExclamationTriangle } from "react-icons/fa";
+import { useDispatch } from "react-redux";
 
 // ─── Custom WhatsApp‑style Chat Icon ────────────────────────────
 const ChatIcon = ({ className }) => (
@@ -66,16 +69,25 @@ const UpdateBadge = ({ hasUpdate, isRequired, loading }) => {
   );
 };
 
+// ─── Helper: filter chats that are NOT workspace-scoped ─────────
+const isGeneralChat = (chat) => {
+  if (!chat) return false;
+  return chat.scope !== 'workspace';
+};
+
 const GeneralBottombar = () => {
   const location = useLocation();
+  const dispatch = useDispatch();
   const { userInfo } = useSelector((state) => state.auth);
+  const { socket, isConnected } = useSocket();
   const isAdmin =
     userInfo?.role === "admin" || userInfo?.role === "super_admin";
 
   const [showDrawer, setShowDrawer] = useState(false);
   const [pulseAnimation, setPulseAnimation] = useState(false);
+  const refetchTimeoutRef = useRef(null);
 
-  // ── App update check for ALL users ──
+  // ── App update check ──
   const token = userInfo?.token;
   const currentVersion = userInfo?.appVersion;
   const { data: updateData, isLoading: updateLoading } = useCheckAppUpdateQuery(
@@ -102,6 +114,84 @@ const GeneralBottombar = () => {
   );
   const unreadCount = notifData?.pagination?.total || 0;
 
+  // ── Chat unread counts (general chats only) ──
+  const {
+    data: chatsData,
+    refetch: refetchChats,
+  } = useGetUserChatsQuery(undefined, {
+    pollingInterval: 15000,
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
+  });
+
+  const allChats = chatsData?.chats || [];
+  const generalChats = allChats.filter(isGeneralChat);
+
+  // ── Socket listener for real‑time unread updates ──
+  useEffect(() => {
+    if (!socket || !isConnected) return;
+
+    const handleChatListUpdate = ({ chatId, unreadCount }) => {
+      if (!chatId) return;
+
+      // Patch the cache
+      dispatch(
+        messagingApiSlice.util.updateQueryData(
+          'getUserChats',
+          undefined,
+          (draft) => {
+            if (!draft?.chats) return;
+            const chat = draft.chats.find(c => c._id === chatId);
+            if (chat && typeof unreadCount === 'number') {
+              chat.unreadCount = unreadCount;
+            }
+          }
+        )
+      );
+
+      // Quiet refetch after delay
+      if (refetchTimeoutRef.current) clearTimeout(refetchTimeoutRef.current);
+      refetchTimeoutRef.current = setTimeout(() => {
+        refetchChats();
+        refetchTimeoutRef.current = null;
+      }, 500);
+    };
+
+    socket.on('chat-list-update', handleChatListUpdate);
+
+    return () => {
+      socket.off('chat-list-update', handleChatListUpdate);
+      if (refetchTimeoutRef.current) clearTimeout(refetchTimeoutRef.current);
+    };
+  }, [socket, isConnected, dispatch, refetchChats]);
+
+  // ── Refetch on visibility change ──
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refetchChats();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [refetchChats]);
+
+  // ── Refetch on socket connect ──
+  useEffect(() => {
+    if (isConnected) {
+      refetchChats();
+    }
+  }, [isConnected, refetchChats]);
+
+  // ── Compute unread totals for general chats ──
+  const unreadGeneralChannels = generalChats
+    .filter(c => c.type === 'group')
+    .reduce((acc, c) => acc + (c.unreadCount || 0), 0);
+
+  const unreadGeneralDMs = generalChats
+    .filter(c => c.type === 'direct')
+    .reduce((acc, c) => acc + (c.unreadCount || 0), 0);
+
   // ── Pulse animation for update indicator ──
   useEffect(() => {
     if (hasUpdate) {
@@ -117,7 +207,6 @@ const GeneralBottombar = () => {
 
   // ── Drawer items ──
   const drawerItems = [
-    // ✅ Notes link added here
     {
       to: "/notes",
       icon: FiFile,
@@ -151,13 +240,21 @@ const GeneralBottombar = () => {
                    border-t border-white/10 
                    flex items-center justify-around h-16 px-2 z-50"
       >
-        {/* Chat */}
+        {/* Chat (DMs) */}
         <NavLink to="/chat">
           {({ isActive }) => (
             <div className="relative flex flex-col items-center justify-center text-xs font-medium transition-all duration-300">
-              <ChatIcon
-                className={`text-xl ${isActive ? "text-cyan-400" : "text-gray-400 hover:text-white"}`}
-              />
+              <div className="relative">
+                <ChatIcon
+                  className={`text-xl ${isActive ? "text-cyan-400" : "text-gray-400 hover:text-white"}`}
+                />
+                {unreadGeneralDMs > 0 && (
+                  <UnreadBadge
+                    count={unreadGeneralDMs}
+                    className="absolute -top-1.5 -right-2"
+                  />
+                )}
+              </div>
               <span
                 className={`mt-0.5 text-[10px] tracking-wide ${isActive ? "text-cyan-400" : "text-gray-400"}`}
               >
@@ -174,10 +271,18 @@ const GeneralBottombar = () => {
         <NavLink to="/channels">
           {({ isActive }) => (
             <div className="relative flex flex-col items-center justify-center text-xs font-medium transition-all duration-300">
-              <FiUsers
-                className={`text-xl ${isActive ? "text-cyan-400" : "text-gray-400 hover:text-white"}`}
-                strokeWidth={1.75}
-              />
+              <div className="relative">
+                <FiUsers
+                  className={`text-xl ${isActive ? "text-cyan-400" : "text-gray-400 hover:text-white"}`}
+                  strokeWidth={1.75}
+                />
+                {unreadGeneralChannels > 0 && (
+                  <UnreadBadge
+                    count={unreadGeneralChannels}
+                    className="absolute -top-1.5 -right-2"
+                  />
+                )}
+              </div>
               <span
                 className={`mt-0.5 text-[10px] tracking-wide ${isActive ? "text-cyan-400" : "text-gray-400"}`}
               >

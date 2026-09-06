@@ -35,6 +35,8 @@ import {
   FaGlobe,
   FaCompass,
   FaSignOutAlt,
+  FaChevronDown,
+  FaChevronRight,
 } from 'react-icons/fa';
 import { FiRadio } from 'react-icons/fi';
 import { motion } from 'framer-motion';
@@ -243,6 +245,17 @@ const getInitials = (name) => {
   return name.charAt(0).toUpperCase();
 };
 
+// ─── Helper: format last message preview ──────────────────────
+const getLastMessagePreview = (message) => {
+  if (!message) return 'No messages yet';
+  if (message.messageType === 'text') return message.content || 'Message';
+  if (message.messageType === 'image') return '📷 Photo';
+  if (message.messageType === 'audio') return '🎤 Voice note';
+  if (message.messageType === 'video') return '🎬 Video';
+  if (message.messageType === 'file') return `📎 ${message.mediaName || 'File'}`;
+  return 'Message';
+};
+
 // ─── Discover Modal ──────────────────────────────────────────────
 const DiscoverModal = ({ isOpen, onClose, onJoin, joinedIds, pendingIds }) => {
   const [query, setQuery] = useState('');
@@ -328,7 +341,10 @@ const DiscoverModal = ({ isOpen, onClose, onJoin, joinedIds, pendingIds }) => {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-gray-800 dark:text-white truncate">{channel.name}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{channel.participants?.length || 0} members</p>
+                      {channel.description && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{channel.description}</p>
+                      )}
+                      <p className="text-xs text-gray-400">{channel.participants?.length || 0} members</p>
                     </div>
                     {action}
                   </div>
@@ -415,12 +431,18 @@ const ChannelCard = ({
   linkTo,
   workspaceName,
   navigate,
-  onLongPress, // for mobile
+  onLongPress,
+  userId, // current user id for "You" display
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
-  const memberCount = channel.participants?.length || 0;
   const name = channel.name || 'Unnamed Channel';
-  const description = channel.description || '';
+  const unreadCount = channel.unreadCount || 0;
+  const lastMessage = channel.lastMessage;
+  const lastMessageText = getLastMessagePreview(lastMessage);
+  const senderName = lastMessage?.sender?.name || '';
+  const senderId = lastMessage?.sender?._id;
+  // Display "You" if sender is current user
+  const displaySender = senderId === userId ? 'You' : senderName;
 
   let actionButton = null;
   if (status === 'joined') {
@@ -462,7 +484,6 @@ const ChannelCard = ({
     }
   };
 
-  // Desktop menu
   const handleMenuToggle = (e) => {
     e.stopPropagation();
     setMenuOpen(!menuOpen);
@@ -474,7 +495,6 @@ const ChannelCard = ({
     setMenuOpen(false);
   };
 
-  // Mobile long press – we'll use touch events
   const longPressTimer = useRef(null);
   const isLongPress = useRef(false);
   const touchStartRef = useRef({ x: 0, y: 0 });
@@ -547,23 +567,23 @@ const ChannelCard = ({
             </span>
           )}
         </div>
-        {description && (
-          <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5 max-w-[180px] sm:max-w-full">
-            {description}
-          </p>
-        )}
-        <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
-          <span className="flex items-center gap-1">
-            <FaUsers className="text-teal-500 dark:text-teal-400 text-xs flex-shrink-0" />
-            <span className="truncate">{memberCount} {memberCount === 1 ? 'member' : 'members'}</span>
-          </span>
+        {/* Last message with sender */}
+        <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">
+          {displaySender && (
+            <span className="font-medium truncate max-w-[60px]">{displaySender}:</span>
+          )}
+          <span className="truncate flex-1">{lastMessageText}</span>
         </div>
       </div>
 
       <div className="flex-shrink-0 flex items-center gap-1 md:gap-2">
+        {unreadCount > 0 && (
+          <span className="bg-teal-500 text-white text-[10px] md:text-xs font-medium px-1.5 py-0.5 rounded-full flex-shrink-0">
+            {unreadCount}
+          </span>
+        )}
         {actionButton}
         {isCreator && (
-          // Three-dot menu – only visible on desktop (md and up)
           <div className="relative hidden md:block">
             <button
               onClick={handleMenuToggle}
@@ -594,8 +614,18 @@ const ChannelCard = ({
   );
 };
 
-// ─── Workspace Group Section ─────────────────────────────────────
-const WorkspaceGroupSection = ({ workspaceId, workspaceName, channels, userInfo, navigate, searchTerm, onLongPress }) => {
+// ─── Workspace Group Section (collapsible) ─────────────────────
+const WorkspaceGroupSection = ({
+  workspaceId,
+  workspaceName,
+  channels,
+  userInfo,
+  navigate,
+  searchTerm,
+  onLongPress,
+  collapsed,
+  onToggle,
+}) => {
   const isOwnWorkspace = userInfo?.ownedWorkspaces?.includes(workspaceId);
   const baseRoute = isOwnWorkspace
     ? `/my-workspace/${workspaceId}/channels`
@@ -605,34 +635,56 @@ const WorkspaceGroupSection = ({ workspaceId, workspaceName, channels, userInfo,
     c.name?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const totalUnread = filtered.reduce((acc, c) => acc + (c.unreadCount || 0), 0);
+
   if (filtered.length === 0) return null;
 
   return (
-    <div className="mb-4">
-      <div className="px-3 md:px-4 py-2 bg-gray-50 dark:bg-[#1a1a1a] border-b border-gray-200 dark:border-gray-800 flex items-center gap-2 sticky top-0 z-10">
-        <FaBuilding className="text-teal-500 flex-shrink-0" />
-        <span className="font-semibold text-gray-700 dark:text-gray-300 truncate flex-1 min-w-0">
-          {workspaceName || 'Workspace'}
-        </span>
-        <span className="text-xs text-gray-400 flex-shrink-0 ml-auto">
-          {filtered.length} channel{filtered.length > 1 ? 's' : ''}
-        </span>
+    <div className="mb-2 border-b border-gray-200 dark:border-gray-800">
+      <div
+        onClick={() => onToggle(workspaceId)}
+        className="flex items-center gap-2 px-3 md:px-4 py-2.5 bg-gray-50 dark:bg-[#1a1a1a] cursor-pointer hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors"
+      >
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <FaBuilding className="text-teal-500 flex-shrink-0" />
+          <span className="font-semibold text-gray-700 dark:text-gray-300 truncate flex-1 min-w-0">
+            {workspaceName || 'Workspace'}
+          </span>
+          <span className="text-xs text-gray-400 flex-shrink-0">
+            {filtered.length} channel{filtered.length > 1 ? 's' : ''}
+          </span>
+          {totalUnread > 0 && (
+            <span className="ml-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 min-w-[18px] text-center">
+              {totalUnread > 99 ? '99+' : totalUnread}
+            </span>
+          )}
+        </div>
+        {collapsed ? (
+          <FaChevronRight className="text-gray-400 flex-shrink-0" />
+        ) : (
+          <FaChevronDown className="text-gray-400 flex-shrink-0" />
+        )}
       </div>
-      {filtered.map((channel) => (
-        <ChannelCard
-          key={channel._id}
-          channel={channel}
-          status="joined"
-          linkTo={`${baseRoute}/${channel._id}`}
-          workspaceName={workspaceName}
-          navigate={navigate}
-          onLongPress={onLongPress}
-          isCreator={false} // workspace channels are always joined, not created in this context
-          onEdit={null}
-          onDelete={null}
-          onExit={null}
-        />
-      ))}
+      {!collapsed && (
+        <div>
+          {filtered.map((channel) => (
+            <ChannelCard
+              key={channel._id}
+              channel={channel}
+              status="joined"
+              linkTo={`${baseRoute}/${channel._id}`}
+              workspaceName={workspaceName}
+              navigate={navigate}
+              onLongPress={onLongPress}
+              isCreator={false}
+              onEdit={null}
+              onDelete={null}
+              onExit={null}
+              userId={userInfo?._id}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 };
@@ -647,11 +699,11 @@ const GeneralChannels = () => {
   const [showDiscoverModal, setShowDiscoverModal] = useState(false);
   const [editChannel, setEditChannel] = useState(null);
   const [actionModal, setActionModal] = useState({ isOpen: false, channel: null });
+  const [collapsedWorkspaces, setCollapsedWorkspaces] = useState({});
 
-  // ─── Fetch all workspaces (owned + joined) ────────────────────
+  // ─── Fetch all workspaces ──────────────────────────────────────
   const { data: workspacesData, isLoading: workspacesLoading } = useGetMyWorkspacesQuery();
 
-  // ─── Build a map: workspaceId → workspaceName ──────────────────
   const workspaceNameMap = useMemo(() => {
     const map = {};
     if (workspacesData) {
@@ -701,14 +753,12 @@ const GeneralChannels = () => {
 
   const pendingIds = useMemo(() => new Set(pendingChannels.map(c => c._id)), [pendingChannels]);
 
-  // ─── Merged Joined – pending first, then joined ───────────────
   const mergedJoined = useMemo(() => {
     const joinedIds = new Set(joinedChannels.map(c => c._id));
     const pendingNotJoined = pendingChannels.filter(c => !joinedIds.has(c._id));
     return [...pendingNotJoined, ...joinedChannels];
   }, [pendingChannels, joinedChannels]);
 
-  // ─── All channels = myChannels + joinedChannels ───────────────
   const allChannels = useMemo(() => {
     const combined = [...myChannels, ...joinedChannels];
     const seen = new Set();
@@ -719,7 +769,6 @@ const GeneralChannels = () => {
     });
   }, [myChannels, joinedChannels]);
 
-  // ─── Workspace channels ────────────────────────────────────────
   const workspaceChats = useMemo(() => {
     if (!chatsData?.chats) return [];
     return chatsData.chats.filter(
@@ -741,6 +790,16 @@ const GeneralChannels = () => {
       channels: chats,
     }));
   }, [workspaceChats, workspaceNameMap]);
+
+  const workspaceTotalUnread = workspaceChats.reduce(
+    (acc, c) => acc + (c.unreadCount || 0),
+    0
+  );
+
+  const publicTotalUnread = allChannels.reduce(
+    (acc, c) => acc + (c.unreadCount || 0),
+    0
+  );
 
   // ─── Handlers ──────────────────────────────────────────────────
   const handleJoin = async (chatId) => {
@@ -790,13 +849,17 @@ const GeneralChannels = () => {
     setActiveTab('my');
   };
 
-  // Long press handler for mobile
   const handleLongPress = (channel) => {
-    // Determine if the user is the creator
     const isCreator = channel.createdBy?._id === userInfo?._id;
-    // For workspace channels, we don't show actions
     if (channel.scope === 'workspace') return;
     setActionModal({ isOpen: true, channel, isCreator });
+  };
+
+  const toggleWorkspace = (wsId) => {
+    setCollapsedWorkspaces((prev) => ({
+      ...prev,
+      [wsId]: !prev[wsId],
+    }));
   };
 
   const isLoading = chatsLoading || pendingLoading || workspacesLoading;
@@ -809,7 +872,6 @@ const GeneralChannels = () => {
     { id: 'workspace', label: 'Workspace', icon: FaBuilding },
   ];
 
-  // ─── Filter by search term ─────────────────────────────────────
   const filterByName = (channel) =>
     channel.name?.toLowerCase().includes(searchTerm.toLowerCase());
 
@@ -822,7 +884,6 @@ const GeneralChannels = () => {
         </div>
 
         <div className="flex-1 flex flex-col h-screen md:h-auto md:min-h-screen relative overflow-hidden">
-          {/* ─── Fixed Header ──────────────────────────────────────── */}
           <header className="bg-white dark:bg-[#0f0f12] border-b border-gray-200 dark:border-gray-800 flex-shrink-0 z-10">
             <div className="px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
               <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -862,7 +923,6 @@ const GeneralChannels = () => {
             </div>
           </header>
 
-          {/* ─── Fixed Tab Bar ────────────────────────────────────── */}
           <div className="flex bg-gray-50 dark:bg-[#1a1a1a] border-b border-gray-200 dark:border-gray-800 flex-shrink-0 overflow-hidden">
             {tabs.map(({ id, label, icon: Icon }) => (
               <button
@@ -882,11 +942,20 @@ const GeneralChannels = () => {
               >
                 <Icon className="text-base md:text-lg" />
                 <span className="leading-none">{label}</span>
+                {id === 'workspace' && workspaceTotalUnread > 0 && (
+                  <span className="ml-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                    {workspaceTotalUnread > 99 ? '99+' : workspaceTotalUnread}
+                  </span>
+                )}
+                {id === 'all' && publicTotalUnread > 0 && (
+                  <span className="ml-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                    {publicTotalUnread > 99 ? '99+' : publicTotalUnread}
+                  </span>
+                )}
               </button>
             ))}
           </div>
 
-          {/* ─── Scrollable Content ──────────────────────────────── */}
           <main className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12]">
             {isLoading ? (
               <div className="flex justify-center py-8">
@@ -912,6 +981,7 @@ const GeneralChannels = () => {
                           isCreator={isCreator}
                           navigate={navigate}
                           onLongPress={handleLongPress}
+                          userId={userInfo?._id}
                         />
                       );
                     })}
@@ -944,6 +1014,7 @@ const GeneralChannels = () => {
                         isCreator={true}
                         navigate={navigate}
                         onLongPress={handleLongPress}
+                        userId={userInfo?._id}
                       />
                     ))}
                     {myChannels.filter(filterByName).length === 0 && (
@@ -979,6 +1050,7 @@ const GeneralChannels = () => {
                           isCreator={false}
                           navigate={navigate}
                           onLongPress={handleLongPress}
+                          userId={userInfo?._id}
                         />
                       );
                     })}
@@ -1014,6 +1086,8 @@ const GeneralChannels = () => {
                           navigate={navigate}
                           searchTerm={searchTerm}
                           onLongPress={handleLongPress}
+                          collapsed={collapsedWorkspaces[group.workspaceId] ?? true}
+                          onToggle={toggleWorkspace}
                         />
                       ))
                     )}

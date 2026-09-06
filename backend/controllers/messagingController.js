@@ -933,6 +933,8 @@ export const getJoinRequests = async (req, res) => {
 // GET /api/messages/chats
 // ─────────────────────────────────────────────────────────────────────────────
 
+// controllers/messagingController.js (only the getUserChats function)
+
 export const getUserChats = async (req, res) => {
   console.log(`🔵 getUserChats called for user ${req.user.id}`);
   try {
@@ -956,7 +958,10 @@ export const getUserChats = async (req, res) => {
 
     const chats = await Chat.find(query)
       .populate("participants.user", "name email profile username")
-      .populate("lastMessage")
+      .populate({
+        path: "lastMessage",
+        populate: { path: "sender", select: "name email profile username" } // 👈 THIS
+      })
       .populate("createdBy", "name email profile username")
       .sort({ lastMessageAt: -1 });
 
@@ -964,8 +969,6 @@ export const getUserChats = async (req, res) => {
       return res.status(200).json({ success: true, chats: [] });
     }
 
-    // ✅ Single aggregation instead of 1-per-chat countDocuments.
-    // 50 chats used to mean 51 queries here; now it's always 2.
     const chatIds = chats.map((c) => c._id);
     const userObjectId = new mongoose.Types.ObjectId(userId);
 

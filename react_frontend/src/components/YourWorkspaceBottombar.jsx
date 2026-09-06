@@ -1,5 +1,5 @@
 // src/components/YourWorkspaceBottombar.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useParams, useLocation, useNavigate } from 'react-router-dom';
 import { useDispatch } from 'react-redux';
 import { useLogoutMutation } from '../slices/userApiSlice';
@@ -9,41 +9,126 @@ import {
   FiHome,
   FiMessageCircle,
   FiUsers,
+  FiUser,
   FiMenu,
   FiX,
   FiFolder,
   FiBell,
-  FiUser,
   FiLogOut,
   FiClock,
   FiSettings,
 } from 'react-icons/fi';
+import { useGetUserChatsQuery, messagingApiSlice } from '../slices/messagingApiSlice';
+import { useSocket } from '../components/SocketContext.jsx';
 
-// ─── Custom WhatsApp‑style Chat Icon (optional) ──────────────────────────
-// If you prefer to use the custom chat icon for Messages instead of FiMessageCircle,
-// uncomment the ChatIcon component and use it below.
-// const ChatIcon = ({ className }) => (
-//   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className={className} style={{ width: '1.5rem', height: '1.5rem' }}>
-//     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-//     <path d="M8 10h8" />
-//     <path d="M8 14h6" />
-//   </svg>
-// );
+// ─── Helper: filter chats belonging to this workspace ──────────────
+const belongsToWorkspace = (chat, workspaceId) => {
+  if (!chat) return false;
+  const chatWorkspaceId =
+    typeof chat.workspace === 'object' && chat.workspace !== null
+      ? chat.workspace._id
+      : chat.workspace;
+  return chat.scope === 'workspace' && String(chatWorkspaceId) === String(workspaceId);
+};
 
 const YourWorkspaceBottombar = ({ workspace }) => {
   const { workspaceId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
   const dispatch = useDispatch();
+  const { socket, isConnected } = useSocket();
   const [menuOpen, setMenuOpen] = useState(false);
+  const refetchTimeoutRef = useRef(null);
 
   const [logoutUser] = useLogoutMutation();
   const brandColor = workspace?.color || '#0d9488';
 
-  const isActive = (path) => {
-    if (path === '' && location.pathname === `/workspace/${workspaceId}`) return true;
-    if (path !== '' && location.pathname.includes(path)) return true;
-    return false;
+  // ── Query with aggressive refresh options ──
+  const {
+    data: chatsData,
+    refetch: refetchChats,
+  } = useGetUserChatsQuery(workspaceId, {
+    pollingInterval: 15000,
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
+  });
+
+  const allChats = chatsData?.chats || [];
+
+  // ── FILTER: only keep chats that belong to this workspace ──
+  const workspaceChats = allChats.filter(chat => belongsToWorkspace(chat, workspaceId));
+
+  // ── Socket listener for real‑time unread updates ──
+  useEffect(() => {
+    if (!socket || !isConnected || !workspaceId) return;
+
+    const handleChatListUpdate = ({ chatId, unreadCount }) => {
+      if (!chatId) return;
+
+      // 1. Patch the cache immediately (optimistic)
+      dispatch(
+        messagingApiSlice.util.updateQueryData(
+          'getUserChats',
+          workspaceId,
+          (draft) => {
+            if (!draft?.chats) return;
+            const chat = draft.chats.find(c => c._id === chatId);
+            if (chat && typeof unreadCount === 'number') {
+              chat.unreadCount = unreadCount;
+            }
+          }
+        )
+      );
+
+      // 2. Also trigger a quiet refetch after a short delay to guarantee consistency
+      if (refetchTimeoutRef.current) clearTimeout(refetchTimeoutRef.current);
+      refetchTimeoutRef.current = setTimeout(() => {
+        refetchChats();
+        refetchTimeoutRef.current = null;
+      }, 500);
+    };
+
+    socket.on('chat-list-update', handleChatListUpdate);
+
+    return () => {
+      socket.off('chat-list-update', handleChatListUpdate);
+      if (refetchTimeoutRef.current) clearTimeout(refetchTimeoutRef.current);
+    };
+  }, [socket, isConnected, workspaceId, dispatch, refetchChats]);
+
+  // ── Also refetch when the page becomes visible (user switches back) ──
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refetchChats();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [refetchChats]);
+
+  // ── Refetch when socket connects to ensure initial data ──
+  useEffect(() => {
+    if (isConnected) {
+      refetchChats();
+    }
+  }, [isConnected, refetchChats]);
+
+  // ── Compute totals using ONLY workspaceChats ──
+  const unreadChannels = workspaceChats
+    .filter(c => c.type === 'group')
+    .reduce((acc, c) => acc + (c.unreadCount || 0), 0);
+
+  const unreadDMs = workspaceChats
+    .filter(c => c.type === 'direct')
+    .reduce((acc, c) => acc + (c.unreadCount || 0), 0);
+
+  // ── Navigation helpers ──
+  const isActive = (pathPattern) => {
+    if (pathPattern === 'home') {
+      return location.pathname === `/workspace/${workspaceId}`;
+    }
+    return location.pathname.includes(pathPattern);
   };
 
   const handleLogout = async () => {
@@ -57,22 +142,16 @@ const YourWorkspaceBottombar = ({ workspace }) => {
     }
   };
 
-  // ─── Bottom navigation ─────────────────────────────────────────────
   const navItems = [
-    { id: 'home', label: 'Home', icon: FiHome, path: `/workspace/${workspaceId}` },
-    // Direct Messages – use FiMessageCircle (or ChatIcon if desired)
-    { id: 'dms', label: 'Messages', icon: FiMessageCircle, path: `/workspace/${workspaceId}/dms` },
-    // Channels – use FiUsers (people icon)
-    { id: 'channels', label: 'Channels', icon: FiUsers, path: `/workspace/${workspaceId}/channels` },
+    { id: 'home', label: 'Home', icon: FiHome, path: `/workspace/${workspaceId}`, activeCheck: 'home' },
+    { id: 'dms', label: 'Messages', icon: FiMessageCircle, path: `/workspace/${workspaceId}/dms`, activeCheck: '/dms' },
+    { id: 'channels', label: 'Channels', icon: FiUsers, path: `/workspace/${workspaceId}/channels`, activeCheck: '/channels' },
+    { id: 'members', label: 'Members', icon: FiUser, path: `/workspace/${workspaceId}/members`, activeCheck: '/members' },
   ];
 
-  // ─── Slide‑out menu ───────────────────────────────────────────────
   const menuItems = [
     { id: 'projects', label: 'Projects', icon: FiFolder, path: `/workspace/${workspaceId}/projects` },
-    { id: 'channels', label: 'Channels', icon: FiUsers, path: `/workspace/${workspaceId}/channels` },
     { id: 'clockin', label: 'Clock‑in', icon: FiClock, path: `/workspace/${workspaceId}/clockin` },
-    // { id: 'notifications', label: 'Notifications', icon: FiBell, path: `/workspace/${workspaceId}/notifications` },
-    // { id: 'settings', label: 'Settings', icon: FiSettings, path: `/workspace/${workspaceId}/settings` },
     { id: 'profile', label: 'Profile', icon: FiUser, path: '/profile' },
     { id: 'logout', label: 'Logout', icon: FiLogOut, action: handleLogout },
   ];
@@ -84,22 +163,33 @@ const YourWorkspaceBottombar = ({ workspace }) => {
         <div className="flex items-center justify-around h-16 px-2 max-w-lg mx-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const active = isActive(item.id === 'home' ? '' : item.id);
+            const active = isActive(item.activeCheck);
+            let badgeCount = 0;
+            if (item.id === 'channels') badgeCount = unreadChannels;
+            if (item.id === 'dms') badgeCount = unreadDMs;
+
             return (
               <Link
                 key={item.id}
                 to={item.path}
                 className="relative flex flex-col items-center justify-center gap-0.5 px-3 py-1 rounded-full transition-all group"
               >
-                <Icon
-                  strokeWidth={active ? 2.5 : 1.8}
-                  className={`text-xl transition-all duration-200 ${
-                    active
-                      ? 'scale-110'
-                      : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300 group-hover:scale-105'
-                  }`}
-                  style={active ? { color: brandColor } : {}}
-                />
+                <div className="relative">
+                  <Icon
+                    className={`w-5 h-5 transition-all duration-200 ${
+                      active
+                        ? 'scale-110'
+                        : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300'
+                    }`}
+                    style={active ? { color: brandColor } : {}}
+                    strokeWidth={2}
+                  />
+                  {badgeCount > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 shadow-md border-2 border-white dark:border-[#0f0f12]">
+                      {badgeCount > 99 ? '99+' : badgeCount}
+                    </span>
+                  )}
+                </div>
                 <span
                   className={`text-[10px] font-medium transition-colors duration-200 ${
                     active
@@ -124,7 +214,7 @@ const YourWorkspaceBottombar = ({ workspace }) => {
             onClick={() => setMenuOpen(true)}
             className="relative flex flex-col items-center justify-center gap-0.5 px-3 py-1 rounded-full transition-all group"
           >
-            <FiMenu className="text-xl text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300 group-hover:scale-105 transition" strokeWidth={1.8} />
+            <FiMenu className="w-5 h-5 text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300 group-hover:scale-105 transition" strokeWidth={2} />
             <span className="text-[10px] font-medium text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300 transition">Menu</span>
           </button>
         </div>
@@ -180,7 +270,7 @@ const YourWorkspaceBottombar = ({ workspace }) => {
                   className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800/30 transition w-full"
                 >
                   <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${brandColor}20` }}>
-                    <Icon className="text-sm" style={{ color: brandColor }} strokeWidth={2} />
+                    <Icon className="w-5 h-5" style={{ color: brandColor }} strokeWidth={2} />
                   </div>
                   <span className="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition">{item.label}</span>
                 </button>
@@ -194,7 +284,7 @@ const YourWorkspaceBottombar = ({ workspace }) => {
                 className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
               >
                 <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${brandColor}20` }}>
-                  <Icon className="text-sm" style={{ color: brandColor }} strokeWidth={2} />
+                  <Icon className="w-5 h-5" style={{ color: brandColor }} strokeWidth={2} />
                 </div>
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition">{item.label}</span>
               </Link>

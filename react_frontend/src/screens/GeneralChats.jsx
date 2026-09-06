@@ -22,6 +22,8 @@ import {
   FaUserPlus,
   FaGlobe,
   FaBuilding,
+  FaChevronDown,
+  FaChevronRight,
 } from 'react-icons/fa';
 import { motion } from 'framer-motion';
 import GeneralSidebar from '../components/GeneralSidebar';
@@ -326,32 +328,60 @@ const DirectChatItem = ({ chat, userId, onNavigate, workspaceName, workspaceId, 
   );
 };
 
-// ─── Workspace Group Section ─────────────────────────────────────
-const WorkspaceGroupSection = ({ workspaceId, workspaceName, chats, userId, onNavigate, isOwnWorkspace }) => {
-  if (chats.length === 0) return null;
+// ─── Workspace Group Section (collapsible) ─────────────────────
+const WorkspaceGroupSection = ({
+  workspaceId,
+  workspaceName,
+  chats,
+  userId,
+  onNavigate,
+  isOwnWorkspace,
+  collapsed,
+  onToggle,
+}) => {
+  const totalUnread = chats.reduce((acc, c) => acc + (c.unreadCount || 0), 0);
 
   return (
-    <div className="mb-4">
-      <div className="px-3 md:px-4 py-2 bg-gray-50 dark:bg-[#1a1a1a] border-b border-gray-200 dark:border-gray-800 flex items-center gap-2 sticky top-0 z-10">
-        <FaBuilding className="text-teal-500 flex-shrink-0" />
-        <span className="font-semibold text-gray-700 dark:text-gray-300 truncate flex-1 min-w-0">
-          {workspaceName || 'Workspace'}
-        </span>
-        <span className="text-xs text-gray-400 flex-shrink-0 ml-auto">
-          {chats.length} chat{chats.length > 1 ? 's' : ''}
-        </span>
+    <div className="mb-2 border-b border-gray-200 dark:border-gray-800">
+      <div
+        onClick={() => onToggle(workspaceId)}
+        className="flex items-center gap-2 px-3 md:px-4 py-2.5 bg-gray-50 dark:bg-[#1a1a1a] cursor-pointer hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors"
+      >
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <FaBuilding className="text-teal-500 flex-shrink-0" />
+          <span className="font-semibold text-gray-700 dark:text-gray-300 truncate flex-1 min-w-0">
+            {workspaceName || 'Workspace'}
+          </span>
+          <span className="text-xs text-gray-400 flex-shrink-0">
+            {chats.length} chat{chats.length > 1 ? 's' : ''}
+          </span>
+          {totalUnread > 0 && (
+            <span className="ml-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 min-w-[18px] text-center">
+              {totalUnread > 99 ? '99+' : totalUnread}
+            </span>
+          )}
+        </div>
+        {collapsed ? (
+          <FaChevronRight className="text-gray-400 flex-shrink-0" />
+        ) : (
+          <FaChevronDown className="text-gray-400 flex-shrink-0" />
+        )}
       </div>
-      {chats.map((chat) => (
-        <DirectChatItem
-          key={chat._id}
-          chat={chat}
-          userId={userId}
-          onNavigate={onNavigate}
-          workspaceName={workspaceName}
-          workspaceId={workspaceId}
-          isOwnWorkspace={isOwnWorkspace}
-        />
-      ))}
+      {!collapsed && (
+        <div>
+          {chats.map((chat) => (
+            <DirectChatItem
+              key={chat._id}
+              chat={chat}
+              userId={userId}
+              onNavigate={onNavigate}
+              workspaceName={workspaceName}
+              workspaceId={workspaceId}
+              isOwnWorkspace={isOwnWorkspace}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 };
@@ -368,6 +398,8 @@ const GeneralChats = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('public');
   const [showNewChat, setShowNewChat] = useState(false);
+  // Initialize all workspace groups as collapsed (true) by default
+  const [collapsedWorkspaces, setCollapsedWorkspaces] = useState({});
 
   const { data: workspacesData, isLoading: workspacesLoading } = useGetMyWorkspacesQuery();
 
@@ -456,6 +488,7 @@ const GeneralChats = () => {
     if (isConnected) refetchChats();
   }, [isConnected, refetchChats]);
 
+  // ─── Compute chats ──────────────────────────────────────────────
   const publicChats = useMemo(() => {
     if (!chatsData?.chats) return [];
     const raw = chatsData.chats.filter(
@@ -493,6 +526,12 @@ const GeneralChats = () => {
     return result.filter((group) => group.chats.length > 0);
   }, [workspaceChats, workspaceNameMap, userId, ownedWorkspaces]);
 
+  // ─── Compute unread totals ──────────────────────────────────────
+  const workspaceTotalUnread = workspaceChats.reduce(
+    (acc, c) => acc + (c.unreadCount || 0),
+    0
+  );
+
   const filterBySearch = (chat) => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase().trim();
@@ -519,6 +558,13 @@ const GeneralChats = () => {
 
   const handleNavigate = (route) => {
     navigate(route);
+  };
+
+  const toggleWorkspace = (wsId) => {
+    setCollapsedWorkspaces((prev) => ({
+      ...prev,
+      [wsId]: !prev[wsId],
+    }));
   };
 
   const renderEmpty = (message) => (
@@ -594,6 +640,11 @@ const GeneralChats = () => {
               >
                 <Icon className="text-base md:text-lg" />
                 <span className="leading-none">{label}</span>
+                {id === 'workspace' && workspaceTotalUnread > 0 && (
+                  <span className="ml-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                    {workspaceTotalUnread > 99 ? '99+' : workspaceTotalUnread}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -630,6 +681,8 @@ const GeneralChats = () => {
                       userId={userId}
                       onNavigate={handleNavigate}
                       isOwnWorkspace={group.isOwnWorkspace}
+                      collapsed={collapsedWorkspaces[group.workspaceId] ?? true} // default collapsed
+                      onToggle={toggleWorkspace}
                     />
                   ))
                 )}

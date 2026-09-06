@@ -9,6 +9,10 @@ import { createAndSendNotification } from './notificationController.js';
 
 let io;
 
+// How long to hold notifications back so the socket message has time
+// to arrive and render before the OS notification does. Tune as needed.
+const NOTIFICATION_DELAY_MS = 2500;
+
 const isSocketUserOnline = (userId) => {
   const room = io.sockets.adapter.rooms.get(`user:${userId}`);
   return !!room && room.size > 0;
@@ -131,6 +135,10 @@ export const initSocket = (server) => {
     // ── SEND MESSAGE ─────────────────────────────────────────────────
     // Critical path: create → emit. Notifications and chat-list fan-out
     // happen AFTER the emit and are never awaited on the response path.
+    // Push/email notifications are additionally delayed by
+    // NOTIFICATION_DELAY_MS so the socket message has time to arrive
+    // and render before the OS notification does — avoids the "tap
+    // notification, message still loading" race.
     socket.on('send-message', async (data, callback) => {
       try {
         const {
@@ -166,21 +174,21 @@ export const initSocket = (server) => {
         await chat.save();
 
         const populatedMessage = await Message.findById(message._id)
-  .populate('sender', 'name email profile')
-  .populate('mentions', 'name email profile')
-  .populate('replyTo');
+          .populate('sender', 'name email profile')
+          .populate('mentions', 'name email profile')
+          .populate('replyTo');
 
-// 🔴 Attach the client's tempId so the sender's own UI can match
-// this real message back to the correct optimistic bubble —
-// no more matching by content, which collides on repeated text.
-const responseMessage = populatedMessage.toObject
-  ? populatedMessage.toObject()
-  : populatedMessage;
-responseMessage.clientMsgId = data.clientMsgId || null;
+        // 🔴 Attach the client's tempId so the sender's own UI can match
+        // this real message back to the correct optimistic bubble —
+        // no more matching by content, which collides on repeated text.
+        const responseMessage = populatedMessage.toObject
+          ? populatedMessage.toObject()
+          : populatedMessage;
+        responseMessage.clientMsgId = data.clientMsgId || null;
 
-// 🔴 Emit FIRST — everything below is background work.
-io.to(`chat:${chatId}`).emit('new-message', responseMessage);
-callback({ success: true, message: responseMessage });
+        // 🔴 Emit FIRST — everything below is background work.
+        io.to(`chat:${chatId}`).emit('new-message', responseMessage);
+        callback({ success: true, message: responseMessage });
 
         // Typing is socket-only now, nothing to clear in the DB.
         io.to(`chat:${chatId}`).emit('user-stopped-typing', {
@@ -205,7 +213,7 @@ callback({ success: true, message: responseMessage });
           });
         });
 
-        // ─── Notifications (fire-and-forget, never blocks the socket ack) ──
+        // ─── Notifications (fire-and-forget, delayed, never blocks the socket ack) ──
         const senderName = socket.user.name || 'Someone';
         const chatType = chat.type;
         const chatName = chat.type === 'group' ? chat.name : senderName;
@@ -247,35 +255,41 @@ callback({ success: true, message: responseMessage });
           .map((p) => p.user.toString())
           .filter((id) => id !== socket.userId);
 
-        for (const uid of allParticipantIds) {
-          createAndSendNotification({
-            recipient: uid,
-            title: notifTitle,
-            body: notifBody,
-            data: notificationData,
-            sendPush: true,
-            emailEventType: 'newMessage',
-            emailSubject: notifTitle,
-            emailHtml: `<p>${notifBody}</p><p><a href="${chatLink}">View in app</a></p>`,
-          }).catch((err) => console.error(`Notify ${uid} failed:`, err.message));
-        }
+        // Skip notifying anyone who is currently connected to this socket's
+        // room-based presence *and* already has the chat open — you already
+        // emit new-message to them, so a delayed push is enough of a guard.
+        // We still delay for everyone uniformly to keep behavior predictable.
+        setTimeout(() => {
+          for (const uid of allParticipantIds) {
+            createAndSendNotification({
+              recipient: uid,
+              title: notifTitle,
+              body: notifBody,
+              data: notificationData,
+              sendPush: true,
+              emailEventType: 'newMessage',
+              emailSubject: notifTitle,
+              emailHtml: `<p>${notifBody}</p><p><a href="${chatLink}">View in app</a></p>`,
+            }).catch((err) => console.error(`Notify ${uid} failed:`, err.message));
+          }
 
-        if (mentions && mentions.length > 0) {
-          for (const uid of mentions) {
-            if (allParticipantIds.includes(uid)) {
-              createAndSendNotification({
-                recipient: uid,
-                title: `${senderName} mentioned you in chat`,
-                body: `${senderName}: ${content?.substring(0, 100) || 'sent a message'}`,
-                data: { ...notificationData, url: chatLink },
-                sendPush: true,
-                emailEventType: 'newMessage',
-                emailSubject: `${senderName} mentioned you`,
-                emailHtml: `<p>${senderName} mentioned you: ${content || ''}</p><p><a href="${chatLink}">View message</a></p>`,
-              }).catch((err) => console.error(`Mention notify ${uid} failed:`, err.message));
+          if (mentions && mentions.length > 0) {
+            for (const uid of mentions) {
+              if (allParticipantIds.includes(uid)) {
+                createAndSendNotification({
+                  recipient: uid,
+                  title: `${senderName} mentioned you in chat`,
+                  body: `${senderName}: ${content?.substring(0, 100) || 'sent a message'}`,
+                  data: { ...notificationData, url: chatLink },
+                  sendPush: true,
+                  emailEventType: 'newMessage',
+                  emailSubject: `${senderName} mentioned you`,
+                  emailHtml: `<p>${senderName} mentioned you: ${content || ''}</p><p><a href="${chatLink}">View message</a></p>`,
+                }).catch((err) => console.error(`Mention notify ${uid} failed:`, err.message));
+              }
             }
           }
-        }
+        }, NOTIFICATION_DELAY_MS);
       } catch (error) {
         console.error('Error sending message:', error);
         callback({ error: error.message });

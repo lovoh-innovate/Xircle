@@ -46,14 +46,14 @@ import {
   FaCamera,
   FaUser,
   FaChevronDown,
-  FaSmile,          // added
-  FaCopy,           // added
-  FaPencilAlt,      // added for image editor
-  FaCrop,           // added
-  FaArrowRight,     // added
-  FaUndoAlt,        // added
-  FaSave,           // added
-  FaLink,           // added for link preview
+  FaSmile,
+  FaCopy,
+  FaPencilAlt,
+  FaCrop,
+  FaArrowRight,
+  FaUndoAlt,
+  FaSave,
+  FaLink,
 } from "react-icons/fa";
 import { toast } from "react-hot-toast";
 
@@ -143,9 +143,7 @@ const LinkifiedText = ({ text, isOwn }) => {
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
-            className={`underline break-all ${
-              isOwn ? 'text-white' : 'text-teal-600 dark:text-teal-400'
-            }`}
+            className={`underline break-all ${isOwn ? 'text-white' : 'text-teal-600 dark:text-teal-400'}`}
           >
             {part}
           </a>
@@ -210,58 +208,33 @@ const LinkPreviewCard = ({ url, isOwn, brandColor }) => {
       target="_blank"
       rel="noopener noreferrer"
       onClick={(e) => e.stopPropagation()}
-      className={`block mt-1.5 rounded-xl overflow-hidden border ${
-        isOwn
+      className={`block mt-1.5 rounded-xl overflow-hidden border ${isOwn
           ? 'border-white/20 bg-black/10 hover:bg-black/20'
           : 'border-gray-200 dark:border-gray-700/60 bg-gray-50 dark:bg-gray-800/40 hover:bg-gray-100 dark:hover:bg-gray-800/60'
-      } transition`}
+        } transition`}
     >
       {loading ? (
         <div className="p-3 animate-pulse">
-          <div
-            className={`h-3 w-2/3 rounded-full mb-2 ${
-              isOwn ? 'bg-white/20' : 'bg-gray-300 dark:bg-gray-700'
-            }`}
-          />
-          <div
-            className={`h-2 w-1/3 rounded-full ${
-              isOwn ? 'bg-white/20' : 'bg-gray-300 dark:bg-gray-700'
-            }`}
-          />
+          <div className={`h-3 w-2/3 rounded-full mb-2 ${isOwn ? 'bg-white/20' : 'bg-gray-300 dark:bg-gray-700'}`} />
+          <div className={`h-2 w-1/3 rounded-full ${isOwn ? 'bg-white/20' : 'bg-gray-300 dark:bg-gray-700'}`} />
         </div>
       ) : data ? (
         <>
           {data.image?.url && (
-            <img
-              src={data.image.url}
-              alt={data.title || 'Link preview'}
-              className="w-full max-h-40 object-cover"
-            />
+            <img src={data.image.url} alt={data.title || 'Link preview'} className="w-full max-h-40 object-cover" />
           )}
           <div className="p-2.5">
             {data.title && (
-              <p
-                className={`text-xs font-semibold line-clamp-1 ${
-                  isOwn ? 'text-white' : 'text-gray-800 dark:text-gray-200'
-                }`}
-              >
+              <p className={`text-xs font-semibold line-clamp-1 ${isOwn ? 'text-white' : 'text-gray-800 dark:text-gray-200'}`}>
                 {data.title}
               </p>
             )}
             {data.description && (
-              <p
-                className={`text-[11px] line-clamp-2 mt-0.5 ${
-                  isOwn ? 'text-white/70' : 'text-gray-500 dark:text-gray-400'
-                }`}
-              >
+              <p className={`text-[11px] line-clamp-2 mt-0.5 ${isOwn ? 'text-white/70' : 'text-gray-500 dark:text-gray-400'}`}>
                 {data.description}
               </p>
             )}
-            <p
-              className={`text-[10px] mt-1 flex items-center gap-1 ${
-                isOwn ? 'text-white/50' : 'text-gray-400 dark:text-gray-500'
-              }`}
-            >
+            <p className={`text-[10px] mt-1 flex items-center gap-1 ${isOwn ? 'text-white/50' : 'text-gray-400 dark:text-gray-500'}`}>
               <FaLink className="text-[9px]" /> {domain}
             </p>
           </div>
@@ -273,12 +246,15 @@ const LinkPreviewCard = ({ url, isOwn, brandColor }) => {
 
 // ─── Emoji list ─────────────────────────────────────────────────────
 const EMOJI_LIST = [
-  '😀', '😁', '😂', '🤣', '😊', '😍', '😘', '😜', '🤔', '😎',
-  '😢', '😭', '😡', '🥳', '👍', '👎', '🙏', '👏', '💪', '🔥',
-  '❤️', '💔', '💯', '✨', '🎉', '😴', '🤗', '😇', '🙄', '😅',
-  '🤝', '👋', '🤞', '🫶', '😏', '🥺', '😱', '😳', '🤩', '🫡',
-  '💀', '👀', '😤', '🤦', '🤷', '🙈', '🙉', '🙊', '💃', '🕺',
-  '🍕', '☕', '🎂', '🌹', '⚽', '🏆', '💰', '📌', '✅', '❌',
+  "😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😜", "🤔", "😎",
+  "😢", "😭", "😡", "🥳", "👍", "👎", "🙏", "👏", "💪", "🔥",
+  "❤️", "💔", "💯", "✨", "🎉", "😴", "🤗", "😇", "🙄", "😅",
+  "🤝", "👋", "🤞", "🫶", "😏", "🥺", "😱", "😳", "🤩", "🫡",
+  "💀", "👀", "😤", "🤦", "🤷", "🙈", "🙉", "🙊", "💃", "🕺",
+  "🍕", "☕", "🎂", "🌹", "⚽", "🏆", "💰", "📌", "✅", "❌",
+  "☺️", "🥰", "😌", "😉", "💋", "😙", "😚", "💑", "💏",
+  "💞", "💕", "💗", "💖", "💘", "😻", "🌙", "🌛", "🌜", "⭐",
+  "🌝", "🤭", "🌚",
 ];
 
 // ─── Skeleton Message Component ─────────────────────────────────────
@@ -379,7 +355,7 @@ const MediaPickerModal = ({ isOpen, onClose, onTakePhoto, onChooseFromGallery, b
   );
 };
 
-// ─── Media Preview Component (with edit button for images) ──────────
+// ─── Media Preview Component (with edit button always visible) ──────
 const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending, onEdit }) => {
   const [preview, setPreview] = useState(null);
   const [type, setType] = useState(null);
@@ -397,7 +373,7 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending, onEd
 
   return (
     <div className="flex items-center gap-3 p-3 mb-2 bg-gray-50 dark:bg-gray-800/30 rounded-xl border border-gray-200 dark:border-gray-700/60">
-      <div className="relative flex-shrink-0 group">
+      <div className="relative flex-shrink-0">
         {type === 'image' ? (
           <img src={preview} alt="Preview" className="w-16 h-16 rounded-lg object-cover" />
         ) : (
@@ -408,7 +384,7 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending, onEd
         {type === 'image' && (
           <button
             onClick={onEdit}
-            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition rounded-lg text-white text-sm"
+            className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-lg text-white text-sm"
           >
             <FaPencilAlt className="text-lg" />
           </button>
@@ -438,7 +414,7 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending, onEd
   );
 };
 
-// ─── Image Editor Full‑Screen (copied from YourWorkspaceChannelId) ──
+// ─── Image Editor Full‑Screen (cleaned header, same as GeneralChatId) ──
 const MIN_CROP_SIZE = 40;
 
 const ImageEditorScreen = ({ file, onSave, onCancel, brandColor }) => {
@@ -784,62 +760,66 @@ const ImageEditorScreen = ({ file, onSave, onCancel, brandColor }) => {
 
   return (
     <div className="fixed inset-0 z-50 bg-white dark:bg-[#0f0f12] flex flex-col">
-      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800/60 flex-shrink-0">
+      {/* Header - Responsive layout for mobile */}
+      <div className="flex items-center justify-between flex-wrap gap-1 sm:gap-2 p-2 sm:p-4 border-b border-gray-200 dark:border-gray-800/60 flex-shrink-0">
         <button
           onClick={onCancel}
           className="p-1 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white transition"
         >
-          <FaArrowLeft className="text-xl" />
+          <FaArrowLeft className="text-lg sm:text-xl" />
         </button>
-        <h3 className="font-semibold text-gray-800 dark:text-gray-200">Edit Image</h3>
-        <div className="flex items-center gap-1.5">
+
+        <h3 className="font-semibold text-gray-800 dark:text-gray-200 hidden sm:block">
+          Edit Image
+        </h3>
+
+        <div className="flex items-center gap-1 sm:gap-1.5 flex-wrap">
           <button
             onClick={() => setDrawMode("pencil")}
-            className={`p-2 rounded-lg transition ${
-              drawMode === "pencil"
+            className={`p-1.5 sm:p-2 rounded-lg transition ${drawMode === "pencil"
                 ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
                 : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
-            }`}
+              }`}
           >
-            <FaPencilAlt />
+            <FaPencilAlt className="text-sm sm:text-base" />
           </button>
           <button
             onClick={() => setDrawMode("arrow")}
-            className={`relative p-2 rounded-lg transition ${
-              drawMode === "arrow"
+            className={`relative p-1.5 sm:p-2 rounded-lg transition ${drawMode === "arrow"
                 ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
                 : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
-            }`}
+              }`}
           >
-            <FaArrowRight />
+            <FaArrowRight className="text-sm sm:text-base" />
             <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-teal-500 text-white rounded-full flex items-center justify-center text-[9px] font-bold leading-none">
               +
             </span>
           </button>
           <button
             onClick={() => setDrawMode("crop")}
-            className={`p-2 rounded-lg transition ${
-              drawMode === "crop"
+            className={`p-1.5 sm:p-2 rounded-lg transition ${drawMode === "crop"
                 ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
                 : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
-            }`}
+              }`}
           >
-            <FaCrop />
+            <FaCrop className="text-sm sm:text-base" />
           </button>
           <button
             onClick={handleUndoLast}
             disabled={drawings.length === 0}
             title="Undo last stroke"
-            className="p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition disabled:opacity-30"
+            className="p-1.5 sm:p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition disabled:opacity-30"
           >
-            <FaUndoAlt />
+            <FaUndoAlt className="text-sm sm:text-base" />
           </button>
         </div>
+
         <button
           onClick={handleSave}
-          className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition text-sm font-medium flex items-center gap-2"
+          className="px-3 py-1.5 sm:px-4 sm:py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition text-xs sm:text-sm font-medium flex items-center gap-2"
         >
-          <FaSave /> Apply
+          <FaSave className="text-xs sm:text-sm" />
+          <span className="hidden sm:inline">Apply</span>
         </button>
       </div>
 
@@ -2573,30 +2553,29 @@ const MyWorkspaceChatId = () => {
   };
 
   // ─── Quick send: stop and send immediately ──────────────────────
-  // ─── Quick send: stop and send immediately ──────────────────────
-const quickSendRecording = () => {
-  if (!isRecordingRef.current) return;
+  const quickSendRef = useRef(false);
+  const quickSendRecording = () => {
+    if (!isRecordingRef.current) return;
 
-  if (recordingBlob) {
-    sendAudioMessage(recordingBlob);
-    return;
-  }
+    if (recordingBlob) {
+      sendAudioMessage(recordingBlob);
+      return;
+    }
 
-  // ✅ Set the flag so the useEffect will send when the blob arrives
-  quickSendRef.current = true;
+    // ✅ Set the flag so the useEffect will send when the blob arrives
+    quickSendRef.current = true;
 
-  // Stop recording; the onstop handler will set recordingBlob,
-  // then the useEffect below will see quickSendRef.current === true
-  // and call sendAudioMessage(recordingBlob).
-  if (isNative) {
-    stopNativeRecording();
-  } else {
-    stopWebRecording();
-  }
-};
+    // Stop recording; the onstop handler will set recordingBlob,
+    // then the useEffect below will see quickSendRef.current === true
+    // and call sendAudioMessage(recordingBlob).
+    if (isNative) {
+      stopNativeRecording();
+    } else {
+      stopWebRecording();
+    }
+  };
 
   // ─── Auto‑send after quick send ──────────────────────────────────
-  const quickSendRef = useRef(false);
   useEffect(() => {
     if (quickSendRef.current && recordingBlob) {
       quickSendRef.current = false;
@@ -2701,7 +2680,7 @@ const quickSendRecording = () => {
     }
   };
 
-  // ─── Native / Web file & image pickers (with editor) ────────────
+  // ─── Native / Web file & image pickers (now set pendingMedia, not editor) ──
   const handleTakePhoto = useCallback(async () => {
     setShowMediaPicker(false);
     try {
@@ -2714,8 +2693,7 @@ const quickSendRecording = () => {
         const mimeType = `image/${photo.format || 'jpeg'}`;
         const fileName = `photo-${Date.now()}.${photo.format || 'jpg'}`;
         const file = base64ToFile(photo.base64String, fileName, mimeType);
-        setImageToEdit(file);
-        setImageEditorOpen(true);
+        setPendingMedia(file); // show preview, don't open editor directly
       }
     } catch (err) {
       const msg = (err?.message || '').toLowerCase();
@@ -2738,8 +2716,7 @@ const quickSendRecording = () => {
         const mimeType = `image/${photo.format || 'jpeg'}`;
         const fileName = `photo-${Date.now()}.${photo.format || 'jpg'}`;
         const file = base64ToFile(photo.base64String, fileName, mimeType);
-        setImageToEdit(file);
-        setImageEditorOpen(true);
+        setPendingMedia(file);
       }
     } catch (err) {
       const msg = (err?.message || '').toLowerCase();
@@ -2768,12 +2745,8 @@ const quickSendRecording = () => {
         toast.error('Could not read selected file');
         return;
       }
-      if (file.type.startsWith('image/')) {
-        setImageToEdit(file);
-        setImageEditorOpen(true);
-      } else {
-        setPendingMedia(file);
-      }
+      // For images, we show preview, not editor
+      setPendingMedia(file);
     } catch (err) {
       const msg = (err?.message || '').toLowerCase();
       if (!msg.includes('cancel')) {
@@ -2808,12 +2781,8 @@ const quickSendRecording = () => {
       toast.error('No file selected');
       return;
     }
-    if (file.type.startsWith('image/')) {
-      setImageToEdit(file);
-      setImageEditorOpen(true);
-    } else {
-      setPendingMedia(file);
-    }
+    // For any file (including images) just set pendingMedia
+    setPendingMedia(file);
     e.target.value = '';
   }, []);
 
@@ -2826,8 +2795,7 @@ const quickSendRecording = () => {
         e.preventDefault();
         const file = item.getAsFile();
         if (file) {
-          setImageToEdit(file);
-          setImageEditorOpen(true);
+          setPendingMedia(file);
         }
         return;
       }
@@ -3250,7 +3218,7 @@ const quickSendRecording = () => {
         <header className="fixed lg:sticky top-0 left-0 right-0 lg:left-auto lg:right-auto z-20 flex items-center justify-between px-4 py-3 border-b border-gray-200/60 dark:border-gray-800/60 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl text-gray-800 dark:text-white flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0 flex-1">
             <button
-              onClick={() => navigate(`/my-workspace/${workspaceId}/channels`)}
+              onClick={() => navigate(-1)} // ✅ go back to previous page
               className="p-1 lg:hidden flex-shrink-0 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
             >
               <FaArrowLeft />
@@ -3290,7 +3258,7 @@ const quickSendRecording = () => {
             onScroll={handleMessagesScroll}
             className="h-full overflow-y-auto px-4 py-3 space-y-4 pt-20 lg:pt-3 pb-24 lg:pb-3"
             style={{
-              paddingBottom: isMobile ? `${inputHeight}px` : undefined,
+              paddingBottom: isMobile ? `${inputHeight + 60}px` : undefined, // ✅ huge bottom margin
             }}
           >
             {renderMessagesWithDividers()}
@@ -3444,7 +3412,7 @@ const quickSendRecording = () => {
                 }}
                 placeholder="Message"
                 rows={1}
-                className="w-full min-w-0 pl-4 pr-20 py-2 border border-gray-300 dark:border-gray-700/60 rounded-full bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500 dark:focus:ring-[#0d9488] resize-none max-h-32 overflow-y-auto"
+                className="w-full min-w-0 pl-4 pr-20 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500 dark:focus:ring-[#0d9488] resize-none max-h-32 overflow-y-auto"
                 style={{ minHeight: '42px', lineHeight: '1.5' }}
               />
               <div className="absolute right-3 bottom-0 h-[42px] flex items-center gap-3">

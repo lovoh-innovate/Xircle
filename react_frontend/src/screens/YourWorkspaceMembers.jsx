@@ -30,6 +30,7 @@ import {
   FaComment,
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
+import useWorkspacePresence from '../services/useWorkspacePresence'; // 👈 import the hook
 
 // ─── useMediaQuery hook ──────────────────────────────────────────────
 const useMediaQuery = (query) => {
@@ -263,7 +264,7 @@ const SearchMembersModal = ({ isOpen, onClose, members, brandColor }) => {
           <div className="space-y-1.5">
             {filtered.map((member) => {
               const user = member.user || member;
-              const isOnline = member.status === 'active';
+              // Note: we don't have online status in search modal, keep as is.
               return (
                 <div
                   key={user._id}
@@ -280,9 +281,7 @@ const SearchMembersModal = ({ isOpen, onClose, members, brandColor }) => {
                         {getInitials(user.name)}
                       </div>
                     )}
-                    {isOnline && (
-                      <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white dark:border-[#0b0b10]" />
-                    )}
+                    {/* No presence dot in search modal */}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-gray-800 dark:text-gray-200 truncate">
@@ -498,7 +497,8 @@ const MemberItem = React.memo(({
   onDirectMessage,
   onEditRole,
   isMobile,
-  onMemberClick, // <-- new prop
+  onMemberClick,
+  isOnline, // 👈 new prop
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
@@ -522,13 +522,9 @@ const MemberItem = React.memo(({
   };
 
   const handleRowClick = (e) => {
-    // If not on mobile, do nothing
     if (!isMobile) return;
-    // Ignore if pending or current user
     if (isPending || isCurrentUser) return;
-    // Prevent clicks on the three-dot button or any other button inside the row
     if (e.target.closest('button')) return;
-    // Call the parent handler
     if (onMemberClick) {
       onMemberClick(memberForAction);
     }
@@ -556,7 +552,11 @@ const MemberItem = React.memo(({
           </div>
         )}
         {!isPending && member.status === 'active' && (
-          <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white dark:border-[#0f0f12]" />
+          <span
+            className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-[#0f0f12] ${
+              isOnline ? 'bg-green-500' : 'bg-gray-400 dark:bg-gray-600'
+            }`}
+          />
         )}
       </div>
 
@@ -673,6 +673,9 @@ const YourWorkspaceMembers = () => {
 
   // ─── All hooks must be called unconditionally at top ──────────────
   const isMobile = useMediaQuery('(max-width: 768px)');
+
+  // 👇 Get online user IDs from the socket presence hook
+  const onlineUserIds = useWorkspacePresence(workspaceId);
 
   const [activeTab, setActiveTab] = useState('active');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -879,6 +882,9 @@ const YourWorkspaceMembers = () => {
       const isWorkspaceOwner = user._id === workspace?.owner?._id;
       const isCurrentUser = user._id === userInfo?._id;
 
+      // 👇 Determine online status from the presence set
+      const isOnline = onlineUserIds.has(memberId);
+
       const canAct = (isOwner || isAdmin) && !isCurrentUser && !isWorkspaceOwner;
 
       return (
@@ -905,7 +911,8 @@ const YourWorkspaceMembers = () => {
           onDirectMessage={handleDirectMessage}
           onEditRole={handleEditRole}
           isMobile={isMobile}
-          onMemberClick={handleMemberClick} // <-- pass the callback
+          onMemberClick={handleMemberClick}
+          isOnline={isOnline} // 👈 pass it down
         />
       );
     });

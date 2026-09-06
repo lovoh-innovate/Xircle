@@ -6,10 +6,8 @@
   font-family: 'Raleway', sans-serif;
 }
 
-
 /* ── This is the magic line that enables dark: variants ── */
 @custom-variant dark (&:where(.dark, .dark *));
-
 
 /* ── Safe-area variables (only for padding) ── */
 :root {
@@ -72,6 +70,15 @@
 }
 .dark *:hover {
   scrollbar-color: #4b5563 transparent;
+}
+
+/* ─── Hide scrollbar on textareas (keep scrolling functional) ─── */
+textarea::-webkit-scrollbar {
+  display: none;
+}
+textarea {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 /* ── Selection ───────────────────────────────────────────────────── */

@@ -1,11 +1,6 @@
 // src/workspaceScreens/MyWorkspaceChannelId.jsx
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import {
-  useParams,
-  useNavigate,
-  Link,
-  useSearchParams,
-} from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useSelector } from "react-redux";
 import { useGetWorkspaceQuery } from "../slices/workspaceApiSlice";
 import {
@@ -69,14 +64,14 @@ import {
   FaFile,
   FaUsers,
   FaCamera,
-  FaSmile,          // added
-  FaCopy,           // added
-  FaPencilAlt,      // added for image editor
-  FaCrop,           // added
-  FaArrowRight,     // added
-  FaUndoAlt,        // added
-  FaSave,           // added
-  FaLink,           // added for link preview
+  FaSmile,
+  FaCopy,
+  FaPencilAlt,
+  FaCrop,
+  FaArrowRight,
+  FaUndoAlt,
+  FaSave,
+  FaLink,
 } from "react-icons/fa";
 import { toast } from "react-hot-toast";
 import { useSocket } from "../components/SocketContext.jsx";
@@ -300,12 +295,15 @@ const LinkPreviewCard = ({ url, isOwn, brandColor }) => {
 
 // ─── Emoji list ─────────────────────────────────────────────────────
 const EMOJI_LIST = [
-  '😀', '😁', '😂', '🤣', '😊', '😍', '😘', '😜', '🤔', '😎',
-  '😢', '😭', '😡', '🥳', '👍', '👎', '🙏', '👏', '💪', '🔥',
-  '❤️', '💔', '💯', '✨', '🎉', '😴', '🤗', '😇', '🙄', '😅',
-  '🤝', '👋', '🤞', '🫶', '😏', '🥺', '😱', '😳', '🤩', '🫡',
-  '💀', '👀', '😤', '🤦', '🤷', '🙈', '🙉', '🙊', '💃', '🕺',
-  '🍕', '☕', '🎂', '🌹', '⚽', '🏆', '💰', '📌', '✅', '❌',
+  "😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😜", "🤔", "😎",
+  "😢", "😭", "😡", "🥳", "👍", "👎", "🙏", "👏", "💪", "🔥",
+  "❤️", "💔", "💯", "✨", "🎉", "😴", "🤗", "😇", "🙄", "😅",
+  "🤝", "👋", "🤞", "🫶", "😏", "🥺", "😱", "😳", "🤩", "🫡",
+  "💀", "👀", "😤", "🤦", "🤷", "🙈", "🙉", "🙊", "💃", "🕺",
+  "🍕", "☕", "🎂", "🌹", "⚽", "🏆", "💰", "📌", "✅", "❌",
+  "☺️", "🥰", "😌", "😉", "💋", "😙", "😚", "💑", "💏",
+  "💞", "💕", "💗", "💖", "💘", "😻", "🌙", "🌛", "🌜", "⭐",
+  "🌝", "🤭", "🌚",
 ];
 
 // ─── Skeleton Message Component ─────────────────────────────────────
@@ -412,7 +410,7 @@ const MediaPickerModal = ({
   );
 };
 
-// ─── Media Preview Component (with edit button for images) ──────────
+// ─── Media Preview Component (with edit button always visible) ──────
 const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending, onEdit }) => {
   const [preview, setPreview] = useState(null);
   const [type, setType] = useState(null);
@@ -430,7 +428,7 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending, onEd
 
   return (
     <div className="flex items-center gap-3 p-3 mb-2 bg-gray-50 dark:bg-gray-800/30 rounded-xl border border-gray-200 dark:border-gray-700/60">
-      <div className="relative flex-shrink-0 group">
+      <div className="relative flex-shrink-0">
         {type === 'image' ? (
           <img src={preview} alt="Preview" className="w-16 h-16 rounded-lg object-cover" />
         ) : (
@@ -441,7 +439,7 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending, onEd
         {type === 'image' && (
           <button
             onClick={onEdit}
-            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition rounded-lg text-white text-sm"
+            className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-lg text-white text-sm"
           >
             <FaPencilAlt className="text-lg" />
           </button>
@@ -471,7 +469,7 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending, onEd
   );
 };
 
-// ─── Image Editor Full‑Screen (from YourWorkspaceChannelId) ────────
+// ─── Image Editor Full‑Screen (cleaned header, same as GeneralChatId) ──
 const MIN_CROP_SIZE = 40;
 
 const ImageEditorScreen = ({ file, onSave, onCancel, brandColor }) => {
@@ -817,62 +815,69 @@ const ImageEditorScreen = ({ file, onSave, onCancel, brandColor }) => {
 
   return (
     <div className="fixed inset-0 z-50 bg-white dark:bg-[#0f0f12] flex flex-col">
-      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800/60 flex-shrink-0">
+      {/* Header - Responsive layout for mobile */}
+      <div className="flex items-center justify-between flex-wrap gap-1 sm:gap-2 p-2 sm:p-4 border-b border-gray-200 dark:border-gray-800/60 flex-shrink-0">
         <button
           onClick={onCancel}
           className="p-1 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white transition"
         >
-          <FaArrowLeft className="text-xl" />
+          <FaArrowLeft className="text-lg sm:text-xl" />
         </button>
-        <h3 className="font-semibold text-gray-800 dark:text-gray-200">Edit Image</h3>
-        <div className="flex items-center gap-1.5">
+
+        <h3 className="font-semibold text-gray-800 dark:text-gray-200 hidden sm:block">
+          Edit Image
+        </h3>
+
+        <div className="flex items-center gap-1 sm:gap-1.5 flex-wrap">
           <button
             onClick={() => setDrawMode("pencil")}
-            className={`p-2 rounded-lg transition ${
+            className={`p-1.5 sm:p-2 rounded-lg transition ${
               drawMode === "pencil"
                 ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
                 : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
             }`}
           >
-            <FaPencilAlt />
+            <FaPencilAlt className="text-sm sm:text-base" />
           </button>
           <button
             onClick={() => setDrawMode("arrow")}
-            className={`relative p-2 rounded-lg transition ${
+            className={`relative p-1.5 sm:p-2 rounded-lg transition ${
               drawMode === "arrow"
                 ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
                 : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
             }`}
           >
-            <FaArrowRight />
+            <FaArrowRight className="text-sm sm:text-base" />
             <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-teal-500 text-white rounded-full flex items-center justify-center text-[9px] font-bold leading-none">
               +
             </span>
           </button>
           <button
             onClick={() => setDrawMode("crop")}
-            className={`p-2 rounded-lg transition ${
+            className={`p-1.5 sm:p-2 rounded-lg transition ${
               drawMode === "crop"
                 ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
                 : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
             }`}
           >
-            <FaCrop />
+            <FaCrop className="text-sm sm:text-base" />
           </button>
           <button
             onClick={handleUndoLast}
             disabled={drawings.length === 0}
             title="Undo last stroke"
-            className="p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition disabled:opacity-30"
+            className="p-1.5 sm:p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition disabled:opacity-30"
           >
-            <FaUndoAlt />
+            <FaUndoAlt className="text-sm sm:text-base" />
           </button>
         </div>
+
         <button
           onClick={handleSave}
-          className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition text-sm font-medium flex items-center gap-2"
+          className="px-3 py-1.5 sm:px-4 sm:py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition text-xs sm:text-sm font-medium flex items-center gap-2"
         >
-          <FaSave /> Apply
+          <FaSave className="text-xs sm:text-sm" />
+          <span className="hidden sm:inline">Apply</span>
         </button>
       </div>
 
@@ -988,45 +993,23 @@ const ImageEditorScreen = ({ file, onSave, onCancel, brandColor }) => {
   );
 };
 
-// ─── Confirm Modal ────────────────────────────────────────────────
-const ConfirmModal = ({
-  isOpen,
-  onClose,
-  onConfirm,
-  title,
-  message,
-  confirmText = "Confirm",
-  cancelText = "Cancel",
-  danger = false,
-}) => {
+// ─── Confirm Modal ──────────────────────────────────────────────────
+const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, danger = false }) => {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
       <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
-        <div className="flex items-center gap-3 mb-4">
-          {danger && <FaExclamationTriangle className="text-red-500 text-xl" />}
-          <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
-            {title}
-          </h3>
-        </div>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
-          {message}
-        </p>
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">{title}</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{message}</p>
         <div className="flex gap-3">
-          <button
-            onClick={onClose}
-            className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
-          >
-            {cancelText}
+          <button onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+            Cancel
           </button>
           <button
-            onClick={() => {
-              onConfirm();
-              onClose();
-            }}
+            onClick={() => { onConfirm(); onClose(); }}
             className={`flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80 ${danger ? "bg-red-600 hover:bg-red-700" : "bg-teal-600 dark:bg-[#0d9488] hover:bg-teal-700 dark:hover:bg-[#0f9e96]"}`}
           >
-            {confirmText}
+            Confirm
           </button>
         </div>
       </div>
@@ -1034,243 +1017,7 @@ const ConfirmModal = ({
   );
 };
 
-// ─── Prompt Modal ──────────────────────────────────────────────────
-const PromptModal = ({
-  isOpen,
-  onClose,
-  onConfirm,
-  title,
-  label,
-  placeholder = "",
-  initialValue = "",
-  confirmText = "Save",
-  brandColor,
-}) => {
-  const [value, setValue] = useState(initialValue);
-
-  useEffect(() => {
-    if (isOpen) setValue(initialValue);
-  }, [isOpen, initialValue]);
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
-        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">
-          {title}
-        </h3>
-        {label && (
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            {label}
-          </label>
-        )}
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder={placeholder}
-          className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none mb-4"
-          autoFocus
-        />
-        <div className="flex gap-3">
-          <button
-            onClick={onClose}
-            className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => {
-              onConfirm(value);
-              onClose();
-            }}
-            className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80"
-            style={{ backgroundColor: brandColor || "#0d9488" }}
-          >
-            {confirmText}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ─── Add Participant Modal ──────────────────────────────────────────
-const AddParticipantModal = ({
-  isOpen,
-  onClose,
-  workspaceId,
-  chatId,
-  brandColor,
-  existingParticipantIds,
-  onSuccess,
-}) => {
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedUsers, setSelectedUsers] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [addParticipant] = useAddParticipantMutation();
-  const { data: membersData, isLoading: membersLoading } =
-    useGetMembersQuery(workspaceId);
-
-  const availableMembers =
-    membersData?.members
-      ?.filter((m) => {
-        const userId = m.user?._id || m._id;
-        return !existingParticipantIds.includes(userId);
-      })
-      .filter((m) => {
-        const user = m.user || m;
-        const name = user?.name?.toLowerCase() || "";
-        const email = user?.email?.toLowerCase() || "";
-        const query = searchQuery.toLowerCase();
-        return name.includes(query) || email.includes(query);
-      }) || [];
-
-  const toggleUser = (userId) => {
-    setSelectedUsers((prev) =>
-      prev.includes(userId)
-        ? prev.filter((id) => id !== userId)
-        : [...prev, userId],
-    );
-  };
-
-  const handleSubmit = async () => {
-    if (selectedUsers.length === 0) {
-      toast.info("Select at least one member to add.");
-      return;
-    }
-    try {
-      setIsLoading(true);
-      await addParticipant({ chatId, userIds: selectedUsers }).unwrap();
-      toast.success(`${selectedUsers.length} member(s) added!`);
-      onSuccess();
-      onClose();
-    } catch (err) {
-      toast.error(err?.data?.message || "Failed to add participants");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between p-4 border-b border-gray-200/60 dark:border-gray-800/60">
-          <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
-            Add Members
-          </h2>
-          <button
-            onClick={onClose}
-            className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white transition"
-          >
-            <FaTimes className="text-sm" />
-          </button>
-        </div>
-
-        <div className="p-4 border-b border-gray-200/60 dark:border-gray-800/60">
-          <div className="relative">
-            <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 text-xs" />
-            <input
-              type="text"
-              placeholder="Search members..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none"
-            />
-          </div>
-          <p className="text-xs text-gray-500 dark:text-gray-500 mt-1.5">
-            {availableMembers.length} available
-          </p>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
-          {membersLoading ? (
-            <div className="text-center py-8 text-gray-500 dark:text-gray-500">
-              <FaSpinner className="animate-spin mx-auto text-lg" />
-              <p className="text-xs mt-1">Loading...</p>
-            </div>
-          ) : availableMembers.length === 0 ? (
-            <div className="text-center py-8 text-gray-500 dark:text-gray-500 text-sm">
-              {searchQuery
-                ? "No members found"
-                : "All members are already in this channel"}
-            </div>
-          ) : (
-            availableMembers.map((member) => {
-              const user = member.user || member;
-              const isSelected = selectedUsers.includes(user._id);
-              return (
-                <button
-                  key={user._id}
-                  onClick={() => toggleUser(user._id)}
-                  className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-xl transition ${
-                    isSelected
-                      ? "bg-teal-50 dark:bg-[#0d9488]/20"
-                      : "hover:bg-gray-50 dark:hover:bg-gray-800/30"
-                  }`}
-                >
-                  <div className="relative flex-shrink-0">
-                    {user?.profile ? (
-                      <img
-                        src={user.profile}
-                        alt={user.name}
-                        className="w-9 h-9 rounded-full object-cover"
-                      />
-                    ) : (
-                      <div
-                        className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold"
-                        style={{ backgroundColor: brandColor }}
-                      >
-                        {user?.name?.charAt(0).toUpperCase() || "?"}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex-1 text-left min-w-0">
-                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
-                      {user?.name || "Unknown"}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-500 truncate">
-                      {user?.email}
-                    </p>
-                  </div>
-                  {isSelected && (
-                    <FaCheck className="text-sm text-teal-600 dark:text-[#0d9488]" />
-                  )}
-                </button>
-              );
-            })
-          )}
-        </div>
-
-        <div className="flex gap-3 p-4 border-t border-gray-200/60 dark:border-gray-800/60">
-          <button
-            onClick={onClose}
-            className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
-          >
-            Cancel
-          </button>
-          <button
-            disabled={isLoading || selectedUsers.length === 0}
-            onClick={handleSubmit}
-            className="flex-1 py-2.5 text-white rounded-xl text-sm font-medium transition hover:opacity-80 disabled:opacity-50"
-            style={{ backgroundColor: brandColor }}
-          >
-            {isLoading ? (
-              <FaSpinner className="animate-spin mx-auto" />
-            ) : (
-              `Add ${selectedUsers.length}`
-            )}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ─── Message Action Modal (mobile long-press, with Copy) ──────────────
+// ─── Message Action Modal (with Copy) ──────────────────────────────
 const MessageActionModal = ({
   isOpen,
   onClose,
@@ -1288,118 +1035,79 @@ const MessageActionModal = ({
   brandColor,
 }) => {
   if (!isOpen || !message) return null;
-
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 dark:bg-black/60 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="bg-white dark:bg-[#14141a] rounded-t-2xl w-full max-w-lg p-5 transform transition-transform duration-300"
+        className="bg-white dark:bg-[#14141a] rounded-t-2xl w-full max-w-lg p-5"
         onClick={(e) => e.stopPropagation()}
         style={{ maxHeight: "70vh", overflowY: "auto" }}
       >
         <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-200 dark:border-gray-700/60">
           <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-500 dark:text-gray-400">
-            {message.messageType === "image" ? (
-              <FaImage className="text-sm" />
-            ) : (
-              <FaComment className="text-sm" />
-            )}
+            {message.messageType === "image" ? <FaImage className="text-sm" /> : <FaComment className="text-sm" />}
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
-              {message.content
-                ? message.content.substring(0, 60)
-                : message.mediaName || "Media"}
+              {message.content ? message.content.substring(0, 60) : message.mediaName || "Media"}
             </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              {new Date(message.createdAt).toLocaleString()}
-            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{new Date(message.createdAt).toLocaleString()}</p>
           </div>
         </div>
-
         <div className="space-y-1">
           <button
-            onClick={() => {
-              onReply(message);
-              onClose();
-            }}
+            onClick={() => { onReply(message); onClose(); }}
             className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
           >
-            <FaReply className="text-sm" />
-            <span className="text-sm font-medium">Reply</span>
+            <FaReply className="text-sm" /> <span className="text-sm font-medium">Reply</span>
           </button>
           <button
-            onClick={() => {
-              onCopy(message);
-              onClose();
-            }}
+            onClick={() => { onCopy(message); onClose(); }}
             className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
           >
-            <FaCopy className="text-sm" />
-            <span className="text-sm font-medium">Copy</span>
+            <FaCopy className="text-sm" /> <span className="text-sm font-medium">Copy</span>
           </button>
           {isOwn && (
             <button
-              onClick={() => {
-                onDelete(message._id);
-                onClose();
-              }}
+              onClick={() => { onDelete(message._id); onClose(); }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition"
             >
-              <FaTrashAlt className="text-sm" />
-              <span className="text-sm font-medium">Delete for everyone</span>
+              <FaTrashAlt className="text-sm" /> <span className="text-sm font-medium">Delete for everyone</span>
             </button>
           )}
           {isStarred ? (
             <button
-              onClick={() => {
-                onUnstar(message._id);
-                onClose();
-              }}
+              onClick={() => { onUnstar(message._id); onClose(); }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 transition"
             >
-              <FaStar className="text-sm" />
-              <span className="text-sm font-medium">Unstar</span>
+              <FaStar className="text-sm" /> <span className="text-sm font-medium">Unstar</span>
             </button>
           ) : (
             <button
-              onClick={() => {
-                onStar(message._id);
-                onClose();
-              }}
+              onClick={() => { onStar(message._id); onClose(); }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
             >
-              <FaRegStar className="text-sm" />
-              <span className="text-sm font-medium">Star</span>
+              <FaRegStar className="text-sm" /> <span className="text-sm font-medium">Star</span>
             </button>
           )}
           {isArchived ? (
             <button
-              onClick={() => {
-                onUnarchive(message._id);
-                onClose();
-              }}
+              onClick={() => { onUnarchive(message._id); onClose(); }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition"
             >
-              <FaUndo className="text-sm" />
-              <span className="text-sm font-medium">Unarchive</span>
+              <FaUndo className="text-sm" /> <span className="text-sm font-medium">Unarchive</span>
             </button>
           ) : (
             <button
-              onClick={() => {
-                onArchive(message._id);
-                onClose();
-              }}
+              onClick={() => { onArchive(message._id); onClose(); }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
             >
-              <FaArchive className="text-sm" />
-              <span className="text-sm font-medium">Archive</span>
+              <FaArchive className="text-sm" /> <span className="text-sm font-medium">Archive</span>
             </button>
           )}
         </div>
-
         <button
           onClick={onClose}
           className="w-full mt-3 py-3 text-center text-sm font-medium text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700/60 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/30 transition"
@@ -1411,7 +1119,7 @@ const MessageActionModal = ({
   );
 };
 
-// ─── Message status ticks ──────────────────────────────────────────
+// ─── Message Ticks ──────────────────────────────────────────────────
 const MessageTicks = ({ message, isOwn }) => {
   if (!isOwn) return null;
 
@@ -1443,7 +1151,7 @@ const MessageTicks = ({ message, isOwn }) => {
   );
 };
 
-// ─── Full AudioPlayer (seekable waveform) ──────────────────────────
+// ─── Audio Player ──────────────────────────────────────────────────
 const AudioPlayer = ({
   src,
   isOwn,
@@ -1636,22 +1344,14 @@ const ImagePreviewModal = ({ imageUrl, onClose, senderName, time }) => {
   }, [imageUrl]);
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black flex flex-col"
-      onClick={onClose}
-    >
-      <div
-        className="flex items-center justify-between px-4 py-3 bg-black/70 text-white flex-shrink-0"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-50 bg-black flex flex-col" onClick={onClose}>
+      <div className="flex items-center justify-between px-4 py-3 bg-black/70 text-white flex-shrink-0" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-3 min-w-0">
           <button onClick={onClose} className="p-1 hover:bg-white/10 rounded-lg transition">
             <FaArrowLeft />
           </button>
           <div className="min-w-0">
-            <p className="text-sm font-medium truncate">
-              {senderName || "Photo"}
-            </p>
+            <p className="text-sm font-medium truncate">{senderName || "Photo"}</p>
             {time && <p className="text-[11px] text-white/60">{time}</p>}
           </div>
         </div>
@@ -1687,22 +1387,19 @@ const ImagePreviewModal = ({ imageUrl, onClose, senderName, time }) => {
   );
 };
 
-// ─── Quoted reply preview ──────────────────────────────────────────
+// ─── Quoted Reply Block ─────────────────────────────────────────────
 const QuotedReplyBlock = ({ replyData, isOwn, brandColor, onJump }) => {
   if (!replyData) return null;
   const name = replyData.senderName || "Unknown";
   const text = replyData.content
     ? replyData.content
     : replyData.mediaName
-      ? `📎 ${replyData.mediaName}`
-      : replyData.messageType === "image"
-        ? "📷 Photo"
-        : replyData.messageType === "audio"
-          ? "🎤 Voice note"
-          : replyData.messageType === "video"
-            ? "🎥 Video"
-            : "Media";
-
+    ? `📎 ${replyData.mediaName}`
+    : replyData.messageType === "image"
+    ? "📷 Photo"
+    : replyData.messageType === "audio"
+    ? "🎤 Voice note"
+    : "Media";
   return (
     <button
       type="button"
@@ -1717,17 +1414,10 @@ const QuotedReplyBlock = ({ replyData, isOwn, brandColor, onJump }) => {
       }`}
       style={!isOwn ? { borderLeftColor: brandColor } : {}}
     >
-      <p
-        className={`font-semibold truncate ${isOwn ? "text-white/90" : ""}`}
-        style={isOwn ? {} : { color: brandColor }}
-      >
+      <p className={`font-semibold truncate ${isOwn ? "text-white/90" : ""}`} style={isOwn ? {} : { color: brandColor }}>
         {name}
       </p>
-      <p
-        className={`truncate ${isOwn ? "text-white/70" : "text-gray-500 dark:text-gray-400"}`}
-      >
-        {text}
-      </p>
+      <p className={`truncate ${isOwn ? "text-white/70" : "text-gray-500 dark:text-gray-400"}`}>{text}</p>
     </button>
   );
 };
@@ -1737,24 +1427,14 @@ const ReplyPreview = ({ replyTo, onCancel, brandColor, resolveSender }) => {
   if (!replyTo) return null;
   const sender = resolveSender ? resolveSender(replyTo.sender) : replyTo.sender;
   const senderName = sender?.name || "Unknown";
-  const content =
-    replyTo.content ||
-    (replyTo.mediaName ? `📎 ${replyTo.mediaName}` : "Media");
-
+  const content = replyTo.content || (replyTo.mediaName ? `📎 ${replyTo.mediaName}` : "Media");
   return (
     <div className="flex items-center justify-between px-3 py-2 mb-2 bg-gray-100 dark:bg-gray-800/60 rounded-lg border-l-4 border-teal-500 dark:border-[#0d9488]">
       <div className="flex-1 min-w-0">
-        <span className="text-xs font-semibold text-teal-600 dark:text-teal-400">
-          Replying to {senderName}
-        </span>
-        <p className="text-sm text-gray-700 dark:text-gray-300 truncate">
-          {content}
-        </p>
+        <span className="text-xs font-semibold text-teal-600 dark:text-teal-400">Replying to {senderName}</span>
+        <p className="text-sm text-gray-700 dark:text-gray-300 truncate">{content}</p>
       </div>
-      <button
-        onClick={onCancel}
-        className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition"
-      >
+      <button onClick={onCancel} className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white transition">
         <FaTimes className="text-sm" />
       </button>
     </div>
@@ -1765,6 +1445,7 @@ const ReplyPreview = ({ replyTo, onCancel, brandColor, resolveSender }) => {
 const MediaMessage = ({
   message,
   isOwn,
+  isDM,
   senderName,
   senderProfile,
   brandColor,
@@ -1786,9 +1467,7 @@ const MediaMessage = ({
   // ── Deleted state ──
   if (message.isDeleted) {
     return (
-      <div
-        className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
-      >
+      <div className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}>
         {!isOwn && (
           <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
             <FaUser className="text-gray-400 dark:text-gray-500" />
@@ -1796,9 +1475,7 @@ const MediaMessage = ({
         )}
         <div className="bg-gray-100 dark:bg-gray-800/40 px-4 py-2 rounded-2xl text-gray-400 dark:text-gray-500 italic text-sm flex items-center gap-1">
           <span>Message deleted</span>
-          <span className="text-[10px] ml-1 opacity-60">
-            {safeFormatTime(message.createdAt)}
-          </span>
+          <span className="text-[10px] ml-1 opacity-60">{safeFormatTime(message.createdAt)}</span>
         </div>
       </div>
     );
@@ -1808,7 +1485,6 @@ const MediaMessage = ({
   const [showMenu, setShowMenu] = useState(false);
   const longPressTimer = useRef(null);
   const isLongPress = useRef(false);
-
   const touchStartRef = useRef({ x: 0, y: 0 });
   const [swipeX, setSwipeX] = useState(0);
   const swipeTriggered = useRef(false);
@@ -1820,11 +1496,8 @@ const MediaMessage = ({
   const replyPreview = (() => {
     const replyTo = message?.replyTo;
     if (!replyTo) return null;
-
     if (typeof replyTo === "object") {
-      const resolvedSender = resolveSender
-        ? resolveSender(replyTo.sender)
-        : replyTo.sender;
+      const resolvedSender = resolveSender ? resolveSender(replyTo.sender) : replyTo.sender;
       return {
         id: replyTo._id,
         senderName: resolvedSender?.name || replyTo.senderName || "Unknown",
@@ -1833,12 +1506,9 @@ const MediaMessage = ({
         messageType: replyTo.messageType,
       };
     }
-
     const original = allMessages?.find((m) => m._id === replyTo);
     if (!original) return null;
-    const resolvedSender = resolveSender
-      ? resolveSender(original.sender)
-      : original.sender;
+    const resolvedSender = resolveSender ? resolveSender(original.sender) : original.sender;
     return {
       id: original._id,
       senderName: resolvedSender?.name || "Unknown",
@@ -1851,9 +1521,7 @@ const MediaMessage = ({
   const menuRef = useRef(null);
   useEffect(() => {
     const handler = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
-        setShowMenu(false);
-      }
+      if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -1877,14 +1545,12 @@ const MediaMessage = ({
     const touch = e.touches[0];
     const deltaX = touch.clientX - touchStartRef.current.x;
     const deltaY = touch.clientY - touchStartRef.current.y;
-
     if (Math.abs(deltaX) > 8 || Math.abs(deltaY) > 8) {
       if (longPressTimer.current) {
         clearTimeout(longPressTimer.current);
         longPressTimer.current = null;
       }
     }
-
     if (deltaX > 8 && Math.abs(deltaX) > Math.abs(deltaY)) {
       swipeActive.current = true;
       const capped = Math.min(deltaX, SWIPE_REPLY_MAX);
@@ -1902,13 +1568,11 @@ const MediaMessage = ({
       clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
     }
-
     if (swipeTriggered.current) {
       onReply(message);
     }
     setSwipeX(0);
     swipeTriggered.current = false;
-
     if (isLongPress.current || swipeActive.current) {
       e.preventDefault();
       isLongPress.current = false;
@@ -1930,20 +1594,11 @@ const MediaMessage = ({
 
   const renderMediaContent = () => {
     if (!message.mediaUrl) return null;
-
     switch (message.messageType) {
       case "image":
         return null;
       case "video":
-        return (
-          <div className="relative group">
-            <video
-              src={message.mediaUrl}
-              controls
-              className="max-w-full rounded-lg max-h-80"
-            />
-          </div>
-        );
+        return <video src={message.mediaUrl} controls className="max-w-full rounded-lg max-h-80" />;
       case "audio":
         return (
           <AudioPlayer
@@ -1963,22 +1618,10 @@ const MediaMessage = ({
               📄
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
-                {message.mediaName || "File"}
-              </div>
-              <div className="text-xs text-gray-500 dark:text-gray-400">
-                {message.mediaSize
-                  ? `${(message.mediaSize / 1024).toFixed(1)} KB`
-                  : "File"}
-              </div>
+              <div className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{message.mediaName || "File"}</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">{message.mediaSize ? `${(message.mediaSize / 1024).toFixed(1)} KB` : "File"}</div>
             </div>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleDownload(e);
-              }}
-              className="text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition"
-            >
+            <button onClick={handleDownload} className="text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition">
               <FaDownload className="text-sm" />
             </button>
           </div>
@@ -1999,6 +1642,7 @@ const MediaMessage = ({
   // ─── Link preview ──────────────────────────────────────────────────
   const firstUrl = extractFirstUrl(message.content);
 
+  // ─── Image messages ────────────────────────────────────────────────
   if (message.messageType === "image") {
     return (
       <div
@@ -2009,25 +1653,15 @@ const MediaMessage = ({
         onTouchMove={handleTouchMove}
       >
         {isMobile && swipeX > 0 && (
-          <div
-            className="absolute left-0 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
-            style={{ opacity: swipeIconOpacity }}
-          >
+          <div className="absolute left-0 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" style={{ opacity: swipeIconOpacity }}>
             <FaReply className="text-sm" />
           </div>
         )}
-        <div
-          className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
-          style={isMobile ? swipeStyle : undefined}
-        >
+        <div className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`} style={isMobile ? swipeStyle : undefined}>
           {!isOwn && (
             <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
               {senderProfile ? (
-                <img
-                  src={senderProfile}
-                  alt={senderName}
-                  className="w-full h-full object-cover"
-                />
+                <img src={senderProfile} alt={senderName} className="w-full h-full object-cover" />
               ) : (
                 <div
                   className="w-full h-full flex items-center justify-center text-white text-xs font-bold"
@@ -2038,40 +1672,21 @@ const MediaMessage = ({
               )}
             </div>
           )}
-          <div
-            className={`${maxWidthClass} ${isOwn ? "items-end" : "items-start"} flex flex-col`}
-          >
-            {!isOwn && (
-              <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1 mb-0.5">
-                {senderName}
-              </span>
-            )}
+          <div className={`${maxWidthClass} ${isOwn ? "items-end" : "items-start"} flex flex-col`}>
+            {!isOwn && <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1 mb-0.5">{senderName}</span>}
             {replyPreview && (
               <div className="w-full mb-1">
-                <QuotedReplyBlock
-                  replyData={replyPreview}
-                  isOwn={isOwn}
-                  brandColor={brandColor}
-                  onJump={onJumpToMessage}
-                />
+                <QuotedReplyBlock replyData={replyPreview} isOwn={isOwn} brandColor={brandColor} onJump={onJumpToMessage} />
               </div>
             )}
             <div
               className="relative rounded-2xl overflow-hidden cursor-pointer group"
               onClick={() =>
                 onImageClick &&
-                onImageClick({
-                  url: message.mediaUrl,
-                  senderName: isOwn ? "You" : senderName,
-                  time,
-                })
+                onImageClick({ url: message.mediaUrl, senderName: isOwn ? "You" : senderName, time })
               }
             >
-              <img
-                src={message.mediaUrl}
-                alt={message.mediaName || "Image"}
-                className="max-w-full max-h-80 object-cover w-full"
-              />
+              <img src={message.mediaUrl} alt={message.mediaName || "Image"} className="max-w-full max-h-80 object-cover w-full" />
               <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 text-[10px] text-white bg-black/50 px-2 py-0.5 rounded-full">
                 <span>{time}</span>
                 <MessageTicks message={message} isOwn={isOwn} />
@@ -2121,7 +1736,7 @@ const MediaMessage = ({
                           onClick={(e) => {
                             e.stopPropagation();
                             setShowMenu(false);
-                            onDelete && onDelete(message._id);
+                            onDelete(message._id);
                           }}
                           className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full"
                         >
@@ -2185,6 +1800,7 @@ const MediaMessage = ({
     );
   }
 
+  // ─── Text / other messages ──────────────────────────────────────────
   return (
     <div
       data-message-id={message._id}
@@ -2194,25 +1810,15 @@ const MediaMessage = ({
       onTouchMove={handleTouchMove}
     >
       {isMobile && swipeX > 0 && (
-        <div
-          className="absolute left-0 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
-          style={{ opacity: swipeIconOpacity }}
-        >
+        <div className="absolute left-0 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" style={{ opacity: swipeIconOpacity }}>
           <FaReply className="text-sm" />
         </div>
       )}
-      <div
-        className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
-        style={isMobile ? swipeStyle : undefined}
-      >
+      <div className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`} style={isMobile ? swipeStyle : undefined}>
         {!isOwn && (
           <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
             {senderProfile ? (
-              <img
-                src={senderProfile}
-                alt={senderName}
-                className="w-full h-full object-cover"
-              />
+              <img src={senderProfile} alt={senderName} className="w-full h-full object-cover" />
             ) : (
               <div
                 className="w-full h-full flex items-center justify-center text-white text-xs font-bold"
@@ -2223,29 +1829,16 @@ const MediaMessage = ({
             )}
           </div>
         )}
-        <div
-          className={`${maxWidthClass} ${isOwn ? "items-end" : "items-start"} flex flex-col gap-0.5`}
-        >
-          {!isOwn && (
-            <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1">
-              {senderName}
-            </span>
-          )}
+        <div className={`${maxWidthClass} ${isOwn ? "items-end" : "items-start"} flex flex-col gap-0.5`}>
+          {!isOwn && <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1">{senderName}</span>}
           <div
             className={`px-4 py-2.5 rounded-2xl text-sm break-words w-full ${
-              isOwn
-                ? "text-white"
-                : "bg-gray-100 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200"
+              isOwn ? "text-white" : "bg-gray-100 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200"
             }`}
             style={isOwn ? { backgroundColor: brandColor } : {}}
           >
             {replyPreview && (
-              <QuotedReplyBlock
-                replyData={replyPreview}
-                isOwn={isOwn}
-                brandColor={brandColor}
-                onJump={onJumpToMessage}
-              />
+              <QuotedReplyBlock replyData={replyPreview} isOwn={isOwn} brandColor={brandColor} onJump={onJumpToMessage} />
             )}
             {message.content && (
               <p className="mb-2 whitespace-pre-wrap break-words">
@@ -2255,9 +1848,7 @@ const MediaMessage = ({
             {firstUrl && <LinkPreviewCard url={firstUrl} isOwn={isOwn} brandColor={brandColor} />}
             {renderMediaContent()}
           </div>
-          <div
-            className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 ${isOwn ? "flex-row-reverse" : ""}`}
-          >
+          <div className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 ${isOwn ? "flex-row-reverse" : ""}`}>
             <span>{time}</span>
             <MessageTicks message={message} isOwn={isOwn} />
             {!isMobile && (
@@ -2295,7 +1886,7 @@ const MediaMessage = ({
                         onClick={(e) => {
                           e.stopPropagation();
                           setShowMenu(false);
-                          onDelete && onDelete(message._id);
+                          onDelete(message._id);
                         }}
                         className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full"
                       >
@@ -2359,14 +1950,14 @@ const MediaMessage = ({
   );
 };
 
-// ─── Chat Details Bottom Sheet ──────────────────────────────────────
+// ─── Chat Details Bottom Sheet (Group) ──────────────────────────────
 const ChatDetailsSheet = ({
   isOpen,
   onClose,
   chat,
   workspace,
   userInfo,
-  userRole,
+  canManageWorkspace,
   brandColor,
   onAddMember,
   onRemoveMember,
@@ -2379,18 +1970,14 @@ const ChatDetailsSheet = ({
   if (!isOpen || !chat) return null;
 
   const participants = chat?.participants || [];
-  const isGroupAdmin =
-    chat.participants?.some(
-      (p) =>
-        (p.user?._id === userInfo?._id || p.user === userInfo?._id) &&
-        p.role === "admin",
-    ) || userRole === "Owner";
+  const isGroupAdmin = chat.participants?.some(
+    (p) => (p.user?._id === userInfo?._id || p.user === userInfo?._id) && p.role === 'admin'
+  ) || canManageWorkspace;
   const isCreator = chat.createdBy?._id === userInfo?._id;
-  const isWorkspaceOwner = userRole === "Owner";
-  const canManage = isGroupAdmin || isWorkspaceOwner;
-  const canDelete = isCreator || isWorkspaceOwner;
+  const canManage = isGroupAdmin || canManageWorkspace;
+  const canDelete = isCreator || canManageWorkspace;
 
-  const displayName = chat?.name || "Unnamed Channel";
+  const displayName = chat?.name || 'Unnamed Channel';
   const memberCount = participants.length;
 
   return (
@@ -2401,9 +1988,9 @@ const ChatDetailsSheet = ({
       />
       <div
         className={`fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl max-h-[80vh] overflow-y-auto transform transition-transform duration-300 ${
-          isOpen ? "translate-y-0" : "translate-y-full"
+          isOpen ? 'translate-y-0' : 'translate-y-full'
         }`}
-        style={{ boxShadow: "0 -4px 30px rgba(0,0,0,0.15)" }}
+        style={{ boxShadow: '0 -4px 30px rgba(0,0,0,0.15)' }}
       >
         <div className="p-5">
           <div className="flex items-center gap-4 mb-5">
@@ -2415,9 +2002,7 @@ const ChatDetailsSheet = ({
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200">
-                  {displayName}
-                </h3>
+                <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200">{displayName}</h3>
                 {canManage && (
                   <button
                     onClick={() => onRenameGroup(chat._id, chat.name)}
@@ -2428,7 +2013,7 @@ const ChatDetailsSheet = ({
                 )}
               </div>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                {memberCount} member{memberCount !== 1 ? "s" : ""}
+                {memberCount} member{memberCount !== 1 ? 's' : ''}
               </p>
             </div>
             {canDelete && (
@@ -2439,7 +2024,7 @@ const ChatDetailsSheet = ({
                 <FaTrashAlt className="text-sm" />
               </button>
             )}
-            {!isCreator && !isWorkspaceOwner && (
+            {!isCreator && !canManageWorkspace && (
               <button
                 onClick={() => onExitGroup(chat._id)}
                 className="p-2 text-orange-500 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-500/10 rounded-lg transition"
@@ -2449,14 +2034,16 @@ const ChatDetailsSheet = ({
             )}
           </div>
 
-          <div className="mb-4">
-            <button
-              onClick={() => onAddMember(chat._id)}
-              className="flex items-center gap-2 text-sm text-teal-600 dark:text-[#0d9488] hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 px-3 py-1.5 rounded-lg transition"
-            >
-              <FaUserPlus className="text-sm" /> Add Members
-            </button>
-          </div>
+          {canManage && (
+            <div className="mb-4">
+              <button
+                onClick={() => onAddMember(chat._id)}
+                className="flex items-center gap-2 text-sm text-teal-600 dark:text-[#0d9488] hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 px-3 py-1.5 rounded-lg transition"
+              >
+                <FaUserPlus className="text-sm" /> Add Members
+              </button>
+            </div>
+          )}
 
           <div>
             <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
@@ -2466,42 +2053,31 @@ const ChatDetailsSheet = ({
               {participants.map((p) => {
                 const user = p.user || {};
                 const profile = user.profile || null;
-                const name = user.name || "Unknown Member";
+                const name = user.name || 'Unknown Member';
                 const userId = user._id || p._id;
-                const isAdmin = p.role === "admin";
+                const isAdmin = p.role === 'admin';
                 const isCurrentUser = userId === userInfo?._id;
-                const canPromote =
-                  canManage && !isCurrentUser && !isAdmin && !isWorkspaceOwner;
-                const canDemote =
-                  canManage && !isCurrentUser && isAdmin && !isWorkspaceOwner;
+                const canPromote = canManage && !isCurrentUser && !isAdmin && !canManageWorkspace;
+                const canDemote = canManage && !isCurrentUser && isAdmin && !canManageWorkspace;
 
                 return (
                   <li key={userId} className="flex items-center gap-3 py-1">
                     {profile ? (
-                      <img
-                        src={profile}
-                        alt=""
-                        className="w-9 h-9 rounded-full object-cover border border-gray-200 dark:border-gray-700/60"
-                      />
+                      <img src={profile} alt="" className="w-9 h-9 rounded-full object-cover border border-gray-200 dark:border-gray-700/60" />
                     ) : (
                       <div className="w-9 h-9 rounded-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center text-gray-600 dark:text-gray-300 text-sm font-medium">
                         {name.charAt(0).toUpperCase()}
                       </div>
                     )}
                     <div className="flex-1">
-                      <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
-                        {name}
-                      </span>
+                      <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{name}</span>
                       {isAdmin && (
                         <span className="ml-2 text-xs text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 px-2 py-0.5 rounded-full border border-yellow-200 dark:border-yellow-700/40">
-                          <FaCrown className="inline text-[10px] mr-0.5" />{" "}
-                          Admin
+                          <FaCrown className="inline text-[10px] mr-0.5" /> Admin
                         </span>
                       )}
                       {isCurrentUser && (
-                        <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
-                          (You)
-                        </span>
+                        <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">(You)</span>
                       )}
                     </div>
                     {canManage && !isCurrentUser && (
@@ -2518,7 +2094,7 @@ const ChatDetailsSheet = ({
                         {canDemote && (
                           <button
                             onClick={() => onRemoveAdmin(chat._id, userId)}
-                            className="p-1 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition"
+                            className="p-1 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
                             title="Remove admin"
                           >
                             <FaUserMinus className="text-xs" />
@@ -2546,39 +2122,273 @@ const ChatDetailsSheet = ({
   );
 };
 
+// ─── Prompt Modal ──────────────────────────────────────────────────
+const PromptModal = ({ isOpen, onClose, onConfirm, title, label, placeholder = "", initialValue = "", confirmText = "Save", brandColor }) => {
+  const [value, setValue] = useState(initialValue);
+
+  useEffect(() => {
+    if (isOpen) setValue(initialValue);
+  }, [isOpen, initialValue]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">{title}</h3>
+        {label && <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{label}</label>}
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={placeholder}
+          className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none mb-4"
+          autoFocus
+        />
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+            Cancel
+          </button>
+          <button
+            onClick={() => { onConfirm(value); onClose(); }}
+            className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80"
+            style={{ backgroundColor: brandColor || "#0d9488" }}
+          >
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Add Participant Modal ──────────────────────────────────────────
+const AddParticipantModal = ({
+  isOpen,
+  onClose,
+  workspaceId,
+  chatId,
+  brandColor,
+  existingParticipantIds,
+  onSuccess,
+}) => {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedUsers, setSelectedUsers] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [addParticipant] = useAddParticipantMutation();
+  const { data: membersData, isLoading: membersLoading } = useGetMembersQuery(workspaceId);
+
+  const availableMembers = membersData?.members
+    ?.filter((m) => {
+      const userId = m.user?._id || m._id;
+      return !existingParticipantIds.includes(userId);
+    })
+    .filter((m) => {
+      const user = m.user || m;
+      const name = user?.name?.toLowerCase() || "";
+      const email = user?.email?.toLowerCase() || "";
+      const query = searchQuery.toLowerCase();
+      return name.includes(query) || email.includes(query);
+    }) || [];
+
+  const toggleUser = (userId) => {
+    setSelectedUsers((prev) =>
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
+    );
+  };
+
+  const handleSubmit = async () => {
+    if (selectedUsers.length === 0) {
+      toast.info("Select at least one member to add.");
+      return;
+    }
+    try {
+      setIsLoading(true);
+      await addParticipant({ chatId, userIds: selectedUsers }).unwrap();
+      toast.success(`${selectedUsers.length} member(s) added!`);
+      onSuccess();
+      onClose();
+    } catch (err) {
+      toast.error(err?.data?.message || "Failed to add participants");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-gray-200/60 dark:border-gray-800/60">
+          <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Add Members</h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white transition">
+            <FaTimes className="text-sm" />
+          </button>
+        </div>
+
+        <div className="p-4 border-b border-gray-200/60 dark:border-gray-800/60">
+          <div className="relative">
+            <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 text-xs" />
+            <input
+              type="text"
+              placeholder="Search members..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none"
+            />
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-500 mt-1.5">{availableMembers.length} available</p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
+          {membersLoading ? (
+            <div className="text-center py-8 text-gray-500 dark:text-gray-500">
+              <FaSpinner className="animate-spin mx-auto text-lg" />
+              <p className="text-xs mt-1">Loading...</p>
+            </div>
+          ) : availableMembers.length === 0 ? (
+            <div className="text-center py-8 text-gray-500 dark:text-gray-500 text-sm">
+              {searchQuery ? "No members found" : "All members are already in this channel"}
+            </div>
+          ) : (
+            availableMembers.map((member) => {
+              const user = member.user || member;
+              const isSelected = selectedUsers.includes(user._id);
+              return (
+                <button
+                  key={user._id}
+                  onClick={() => toggleUser(user._id)}
+                  className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-xl transition ${
+                    isSelected ? "bg-teal-50 dark:bg-[#0d9488]/20" : "hover:bg-gray-50 dark:hover:bg-gray-800/30"
+                  }`}
+                >
+                  <div className="relative flex-shrink-0">
+                    {user?.profile ? (
+                      <img src={user.profile} alt={user.name} className="w-9 h-9 rounded-full object-cover" />
+                    ) : (
+                      <div
+                        className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold"
+                        style={{ backgroundColor: brandColor }}
+                      >
+                        {user?.name?.charAt(0).toUpperCase() || "?"}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 text-left min-w-0">
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{user?.name || "Unknown"}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{user?.email}</p>
+                  </div>
+                  {isSelected && <FaCheck className="text-sm text-teal-600 dark:text-[#0d9488]" />}
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        <div className="flex gap-3 p-4 border-t border-gray-200/60 dark:border-gray-800/60">
+          <button onClick={onClose} className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+            Cancel
+          </button>
+          <button
+            disabled={isLoading || selectedUsers.length === 0}
+            onClick={handleSubmit}
+            className="flex-1 py-2.5 text-white rounded-xl text-sm font-medium transition hover:opacity-80 disabled:opacity-50"
+            style={{ backgroundColor: brandColor }}
+          >
+            {isLoading ? <FaSpinner className="animate-spin mx-auto" /> : `Add ${selectedUsers.length}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Main Component ──────────────────────────────────────────────────
 const MyWorkspaceChannelId = () => {
   const { workspaceId, chatId } = useParams();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const { userInfo } = useSelector((state) => state.auth);
-
-  // ─── All hooks ──────────────────────────────────────────────────────
   const [message, setMessage] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
+  const inputRef = useRef(null);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
-  const inputRef = useRef(null);
   const inputAreaRef = useRef(null);
+  const isSendingRef = useRef(false);
+  const [isSending, setIsSending] = useState(false);
   const [previewImage, setPreviewImage] = useState(null);
+  const [replyToMessage, setReplyToMessage] = useState(null);
+  const [localMessages, setLocalMessages] = useState([]);
   const [showDetailsSheet, setShowDetailsSheet] = useState(false);
-  const isMobile = useMediaQuery("(max-width: 768px)");
-
-  // ─── Attachment preview state (now using MediaPreview with edit) ──
   const [pendingMedia, setPendingMedia] = useState(null);
   const [showMediaPicker, setShowMediaPicker] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const emojiPickerRef = useRef(null);
+  const isMobile = useMediaQuery("(max-width: 768px)");
 
-  // ── Image editor states ──────────────────────────────────────────
+  // ─── Image editor states ──────────────────────────────────────────
   const [imageToEdit, setImageToEdit] = useState(null);
   const [imageEditorOpen, setImageEditorOpen] = useState(false);
 
-  // ── Emoji panel ──────────────────────────────────────────────────
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const emojiPickerRef = useRef(null);
+  // ─── Input height measurement ─────────────────────────────────────
   const [inputHeight, setInputHeight] = useState(0);
+  useEffect(() => {
+    if (!inputAreaRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      for (let entry of entries) {
+        setInputHeight(entry.contentRect.height);
+      }
+    });
+    observer.observe(inputAreaRef.current);
+    return () => observer.disconnect();
+  }, []);
 
+  const { socket, isConnected } = useSocket();
+
+  // ─── Fetch workspace and chats ─────────────────────────────────────
+  const { data: workspaceData, isLoading: workspaceLoading, error: workspaceError } = useGetWorkspaceQuery(workspaceId);
+  const { data: chatsData, isLoading: chatsLoading, refetch: refetchChats } = useGetUserChatsQuery(workspaceId);
+  const {
+    data: messagesData,
+    isLoading: messagesLoading,
+    refetch: refetchMessages,
+  } = useGetChatMessagesQuery(
+    { chatId, page: 1, limit: 50 },
+    { skip: !chatId }
+  );
+
+  const chat = chatsData?.chats?.find(c => c._id === chatId);
+  const isDM = chat?.type === 'direct';
+  const workspace = workspaceData?.workspace;
+  const brandColor = workspace?.color || "#0d9488";
+  const isWorkspaceOwner = workspace?.owner?._id === userInfo?._id;
+  const isWorkspaceAdmin = workspace?.members?.some(
+    (m) => (m.user?._id || m.user) === userInfo?._id && m.role === 'Admin' && m.status === 'active'
+  );
+  const canManageWorkspace = isWorkspaceOwner || isWorkspaceAdmin;
+
+  // ─── Group management mutations ──────────────────────────────────
+  const [addParticipant] = useAddParticipantMutation();
+  const [removeParticipant] = useRemoveParticipantMutation();
+  const [makeAdmin] = useMakeGroupAdminMutation();
+  const [removeAdmin] = useRemoveGroupAdminMutation();
+  const [exitGroup] = useExitGroupChatMutation();
+  const [deleteGroup] = useDeleteGroupChatMutation();
+  const [archiveChat] = useArchiveChatMutation();
+  const [unarchiveChat] = useUnarchiveChatMutation();
+  const [initiateCall] = useInitiateCallMutation();
+
+  // ─── Message mutations ──────────────────────────────────────────
+  const [sendMessageApi] = useSendMessageMutation();
+  const [deleteMessageApi] = useDeleteMessageMutation();
+  const [archiveMessage] = useArchiveMessageMutation();
+  const [unarchiveMessage] = useUnarchiveMessageMutation();
+  const [starMessage] = useStarMessageMutation();
+  const [unstarMessage] = useUnstarMessageMutation();
+
+  // ─── Confirm, prompt, action modals ──────────────────────────────
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
     title: "",
@@ -2603,25 +2413,12 @@ const MyWorkspaceChannelId = () => {
     message: null,
   });
 
-  const [replyToMessage, setReplyToMessage] = useState(null);
-  const [mentionQuery, setMentionQuery] = useState("");
-  const [showMentions, setShowMentions] = useState(false);
-  const [mentionSuggestions, setMentionSuggestions] = useState([]);
-  const [pendingMentions, setPendingMentions] = useState([]);
-
-  // ─── Sending lock ──────────────────────────────────────────────────
-  const isSendingRef = useRef(false);
-  const [isSending, setIsSending] = useState(false);
-
-  const [initiateCall, { isLoading: isCallInitiating }] =
-    useInitiateCallMutation();
-
+  // ─── Voice recording states ──────────────────────────────────────
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [recordingBlob, setRecordingBlob] = useState(null);
   const [recordingPaused, setRecordingPaused] = useState(false);
   const [showRecordedPreview, setShowRecordedPreview] = useState(false);
-
   const mediaRecorderRef = useRef(null);
   const recordingTimerRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -2630,70 +2427,27 @@ const MyWorkspaceChannelId = () => {
 
   // ─── Quick send refs ──────────────────────────────────────────────
   const quickSendRef = useRef(false);
+  const cancelledRef = useRef(false);
   const micPressStartRef = useRef(0);
   const micActionLockRef = useRef(false);
 
-  const { socket, isConnected } = useSocket();
-  const [localMessages, setLocalMessages] = useState([]);
-
-  const {
-    data: workspaceData,
-    isLoading: workspaceLoading,
-    error,
-  } = useGetWorkspaceQuery(workspaceId);
-  const {
-    data: chatsData,
-    isLoading: chatsLoading,
-    refetch: refetchChats,
-  } = useGetUserChatsQuery(workspaceId);
-  const {
-    data: messagesData,
-    isLoading: messagesLoading,
-    refetch: refetchMessages,
-  } = useGetChatMessagesQuery(
-    { chatId, page: 1, limit: 50 },
-    { skip: !chatId },
-  );
-  const [sendMessageApi] = useSendMessageMutation();
-  const [deleteMessageApi] = useDeleteMessageMutation();
-
-  const [archiveMessage] = useArchiveMessageMutation();
-  const [unarchiveMessage] = useUnarchiveMessageMutation();
-  const [starMessage] = useStarMessageMutation();
-  const [unstarMessage] = useUnstarMessageMutation();
-
-  const [addParticipant] = useAddParticipantMutation();
-  const [removeParticipant] = useRemoveParticipantMutation();
-  const [makeAdmin] = useMakeGroupAdminMutation();
-  const [removeAdmin] = useRemoveGroupAdminMutation();
-  const [exitGroup] = useExitGroupChatMutation();
-  const [deleteGroup] = useDeleteGroupChatMutation();
-  const [archiveChat] = useArchiveChatMutation();
-  const [unarchiveChat] = useUnarchiveChatMutation();
-
-  const { data: membersData } = useGetMembersQuery(workspaceId);
-
-  // ─── Data-dependent hooks (memoized) ───────────────────────────────
-  const chat = React.useMemo(() => {
-    if (!chatsData?.chats) return null;
-    return chatsData.chats.find((c) => c._id === chatId) || null;
-  }, [chatsData, chatId]);
-
-  const participants = React.useMemo(() => chat?.participants || [], [chat]);
-
-  const usernameMap = React.useMemo(() => {
-    const map = new Map();
-    participants.forEach((p) => {
-      const user = p.user || {};
-      if (user._id && user.name) {
-        const key = user.username || user.name;
-        map.set(key.toLowerCase(), user._id);
-      }
-    });
-    return map;
-  }, [participants]);
-
+  // ─── Build user map for sender resolution ──────────────────────────
   const userMapRef = useRef(new Map());
+  useEffect(() => {
+    if (workspace?.members) {
+      const map = new Map();
+      workspace.members.forEach((m) => {
+        const user = m.user || m;
+        if (user._id) map.set(user._id, user);
+      });
+      chat?.participants?.forEach((p) => {
+        const user = p.user || {};
+        if (user._id) map.set(user._id, user);
+      });
+      if (userInfo?._id) map.set(userInfo._id, userInfo);
+      userMapRef.current = map;
+    }
+  }, [workspace, chat, userInfo]);
 
   const resolveSender = useCallback((senderField) => {
     if (!senderField) return { name: "Unknown", profile: null };
@@ -2706,9 +2460,7 @@ const MyWorkspaceChannelId = () => {
       return { _id: senderField, name: "Unknown", profile: null };
     }
     if (senderField.name) return senderField;
-    const found = senderField._id
-      ? userMapRef.current.get(senderField._id)
-      : null;
+    const found = senderField._id ? userMapRef.current.get(senderField._id) : null;
     if (found) {
       const name = found.name || found.username || found.email || "Unknown";
       return {
@@ -2721,90 +2473,7 @@ const MyWorkspaceChannelId = () => {
     return { ...senderField, name };
   }, []);
 
-  // ─── Effects ──────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (searchParams.get("focusInput") === "true") {
-      setTimeout(() => inputRef.current?.focus(), 300);
-    }
-  }, [searchParams]);
-
-  useEffect(() => {
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, []);
-
-  useEffect(() => {
-    if (workspaceData?.workspace?.members) {
-      const map = new Map();
-      workspaceData.workspace.members.forEach((m) => {
-        const user = m.user || m;
-        if (user._id) map.set(user._id, user);
-      });
-      participants.forEach((p) => {
-        const user = p.user || {};
-        if (user._id && !map.has(user._id)) map.set(user._id, user);
-      });
-      if (userInfo?._id) map.set(userInfo._id, userInfo);
-      userMapRef.current = map;
-    }
-  }, [workspaceData, participants, userInfo]);
-
-  // ─── Polling for messages ──────────────────────────────────────────
-  useEffect(() => {
-    if (!chatId) return;
-    const interval = setInterval(() => {
-      if (!isConnected) {
-        refetchMessages();
-        refetchChats();
-      }
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [chatId, isConnected, refetchMessages, refetchChats]);
-
-  // ─── Scroll handling ────────────────────────────────────────────────
-  const [isAtBottom, setIsAtBottom] = useState(true);
-  const [showScrollDown, setShowScrollDown] = useState(false);
-
-  const handleMessagesScroll = () => {
-    const el = messagesContainerRef.current;
-    if (!el) return;
-    const threshold = 50;
-    const atBottom =
-      el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-    setIsAtBottom(atBottom);
-    if (atBottom) setShowScrollDown(false);
-  };
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    setShowScrollDown(false);
-  };
-
-  useEffect(() => {
-    if (isAtBottom) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    } else {
-      setShowScrollDown(true);
-    }
-  }, [localMessages.length]);
-
-  // ─── Jump to message ───────────────────────────────────────────────
-  const handleJumpToMessage = useCallback((messageId) => {
-    if (!messageId) return;
-    const container = messagesContainerRef.current;
-    if (!container) return;
-    const target = container.querySelector(`[data-message-id="${messageId}"]`);
-    if (!target) return;
-    target.scrollIntoView({ behavior: "smooth", block: "center" });
-    target.classList.add("ring-2", "ring-teal-400", "rounded-2xl");
-    setTimeout(() => {
-      target.classList.remove("ring-2", "ring-teal-400", "rounded-2xl");
-    }, 1200);
-  }, []);
-
-  // ─── Duplicate detection ──────────────────────────────────────────
+  // ─── Duplicate detection helper ──────────────────────────────────
   const isRecentDuplicateMedia = useCallback(
     (signature) => {
       const now = Date.now();
@@ -2821,7 +2490,7 @@ const MyWorkspaceChannelId = () => {
     [localMessages, userInfo]
   );
 
-  // ─── Unified merge function ──────────────────────────────────────
+  // ─── Merge messages into state ──────────────────────────────────
   const mergeMessagesIntoState = useCallback(
     (incomingList) => {
       if (!incomingList || incomingList.length === 0) return;
@@ -2830,9 +2499,7 @@ const MyWorkspaceChannelId = () => {
         let mutated = false;
 
         incomingList.forEach((incoming) => {
-          const isOwn =
-            incoming.sender?._id === userInfo?._id ||
-            incoming.sender === userInfo?._id;
+          const isOwn = incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
 
           // 1. Already exists by real _id?
           const existingIdx = next.findIndex((m) => m._id === incoming._id);
@@ -2848,27 +2515,16 @@ const MyWorkspaceChannelId = () => {
               _delivered: true,
               _read: false,
             };
-            // Read status
+            // Determine read status
+            const otherIds = chat?.participants
+              ?.map(p => p.user?._id || p.user)
+              .filter(id => id !== userInfo?._id) || [];
             if (isOwn) {
-              const otherIds = participants
-                .map((p) => p.user?._id || p.user)
-                .filter((id) => id !== userInfo?._id);
-              if (
-                otherIds.some((id) =>
-                  incoming.readBy?.some(
-                    (r) => r.user === id || r.user?._id === id,
-                  ),
-                )
-              ) {
+              if (otherIds.some(id => incoming.readBy?.some(r => r.user === id || r.user?._id === id))) {
                 updated._read = true;
               }
             } else {
-              if (
-                incoming.readBy?.some(
-                  (r) =>
-                    r.user === userInfo?._id || r.user?._id === userInfo?._id,
-                )
-              ) {
+              if (incoming.readBy?.some(r => r.user === userInfo?._id || r.user?._id === userInfo?._id)) {
                 updated._read = true;
               }
             }
@@ -2879,26 +2535,22 @@ const MyWorkspaceChannelId = () => {
           // 2. Try to replace a temporary message (ours)
           if (isOwn) {
             let tempIdx = -1;
-            // Primary: match by clientMsgId
             if (incoming.clientMsgId) {
               tempIdx = next.findIndex((m) => m._tempId === incoming.clientMsgId);
             }
-            // Fallback: _tempId equals incoming._id (legacy)
             if (tempIdx === -1) {
               tempIdx = next.findIndex((m) => m._tempId === incoming._id);
             }
-            // Last-resort: content + timestamp
             if (tempIdx === -1) {
-              const incomingContent = incoming.content || "";
-              const incomingMedia = incoming.mediaName || "";
+              const incomingContent = incoming.content || '';
               const incomingTime = new Date(incoming.createdAt).getTime();
               tempIdx = next.findIndex((m) => {
                 if (!m._temp) return false;
-                if (incomingContent && m.content === incomingContent) {
+                if (m.content !== undefined && m.content === incomingContent) {
                   const mTime = new Date(m.createdAt).getTime();
                   return Math.abs(mTime - incomingTime) < 10000;
                 }
-                if (incomingMedia && m.mediaName === incomingMedia) {
+                if (m.mediaName && m.mediaName === incoming.mediaName) {
                   const mTime = new Date(m.createdAt).getTime();
                   return Math.abs(mTime - incomingTime) < 20000;
                 }
@@ -2918,16 +2570,10 @@ const MyWorkspaceChannelId = () => {
                 _delivered: true,
                 _read: false,
               };
-              const otherIds = participants
-                .map((p) => p.user?._id || p.user)
-                .filter((id) => id !== userInfo?._id);
-              if (
-                otherIds.some((id) =>
-                  incoming.readBy?.some(
-                    (r) => r.user === id || r.user?._id === id,
-                  ),
-                )
-              ) {
+              const otherIds = chat?.participants
+                ?.map(p => p.user?._id || p.user)
+                .filter(id => id !== userInfo?._id) || [];
+              if (otherIds.some(id => incoming.readBy?.some(r => r.user === id || r.user?._id === id))) {
                 realMsg._read = true;
               }
               next[tempIdx] = realMsg;
@@ -2944,26 +2590,15 @@ const MyWorkspaceChannelId = () => {
             _delivered: true,
             _read: false,
           };
+          const otherIds = chat?.participants
+            ?.map(p => p.user?._id || p.user)
+            .filter(id => id !== userInfo?._id) || [];
           if (isOwn) {
-            const otherIds = participants
-              .map((p) => p.user?._id || p.user)
-              .filter((id) => id !== userInfo?._id);
-            if (
-              otherIds.some((id) =>
-                incoming.readBy?.some(
-                  (r) => r.user === id || r.user?._id === id,
-                ),
-              )
-            ) {
+            if (otherIds.some(id => incoming.readBy?.some(r => r.user === id || r.user?._id === id))) {
               msg._read = true;
             }
           } else {
-            if (
-              incoming.readBy?.some(
-                (r) =>
-                  r.user === userInfo?._id || r.user?._id === userInfo?._id,
-              )
-            ) {
+            if (incoming.readBy?.some(r => r.user === userInfo?._id || r.user?._id === userInfo?._id)) {
               msg._read = true;
             }
           }
@@ -2975,32 +2610,39 @@ const MyWorkspaceChannelId = () => {
         return mutated ? next : prev;
       });
     },
-    [userInfo?._id, participants],
+    [userInfo?._id, chat?.participants]
   );
 
-  // ─── Socket events ──────────────────────────────────────────────
+  useEffect(() => {
+    if (messagesData?.messages) {
+      mergeMessagesIntoState(messagesData.messages);
+    }
+  }, [messagesData, mergeMessagesIntoState]);
+
+  // ─── Socket handlers ──────────────────────────────────────────────
   useEffect(() => {
     if (!socket || !isConnected || !chatId) return;
 
     socket.emit("join-chat", chatId);
 
     const handleNewMessage = (incoming) => {
-      const incomingChatId =
-        typeof incoming.chat === "string" ? incoming.chat : incoming.chat?._id;
+      const incomingChatId = typeof incoming.chat === "string" ? incoming.chat : incoming.chat?._id;
       if (incomingChatId && incomingChatId !== chatId) return;
       mergeMessagesIntoState([incoming]);
     };
 
     const handleMessageDeleted = ({ messageId }) => {
       setLocalMessages((prev) =>
-        prev.map((m) => (m._id === messageId ? { ...m, isDeleted: true } : m)),
+        prev.map((m) => (m._id === messageId ? { ...m, isDeleted: true } : m))
       );
     };
 
     const handleMessageRead = ({ chatId: readChatId, messageId, readBy }) => {
       if (readChatId !== chatId) return;
       setLocalMessages((prev) =>
-        prev.map((m) => (m._id === messageId ? { ...m, _read: true } : m)),
+        prev.map((msg) =>
+          msg._id === messageId ? { ...msg, _read: true } : msg
+        )
       );
     };
 
@@ -3016,14 +2658,45 @@ const MyWorkspaceChannelId = () => {
     };
   }, [socket, isConnected, chatId, mergeMessagesIntoState]);
 
-  // ─── Merge polled messages ──────────────────────────────────────────
+  // ─── Polling ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (messagesData?.messages) {
-      mergeMessagesIntoState(messagesData.messages);
-    }
-  }, [messagesData, mergeMessagesIntoState]);
+    if (!chatId) return;
+    const interval = setInterval(() => {
+      if (!isConnected) {
+        refetchMessages();
+        refetchChats();
+      }
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [chatId, isConnected, refetchMessages, refetchChats]);
 
-  // ─── Auto-resize textarea ──────────────────────────────────────────
+  // ─── Scroll behavior ──────────────────────────────────────────────
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [showScrollDown, setShowScrollDown] = useState(false);
+
+  const handleMessagesScroll = () => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const threshold = 50;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    setIsAtBottom(atBottom);
+    if (atBottom) setShowScrollDown(false);
+  };
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    setShowScrollDown(false);
+  };
+
+  useEffect(() => {
+    if (isAtBottom) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    } else {
+      setShowScrollDown(true);
+    }
+  }, [localMessages.length, isAtBottom]);
+
+  // ─── Auto-resize textarea ─────────────────────────────────────────
   useEffect(() => {
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
@@ -3031,19 +2704,7 @@ const MyWorkspaceChannelId = () => {
     }
   }, [message]);
 
-  // ─── ResizeObserver for input height (for padding) ──────────────
-  useEffect(() => {
-    if (!inputAreaRef.current) return;
-    const observer = new ResizeObserver((entries) => {
-      for (let entry of entries) {
-        setInputHeight(entry.contentRect.height);
-      }
-    });
-    observer.observe(inputAreaRef.current);
-    return () => observer.disconnect();
-  }, []);
-
-  // ─── Emoji toggle ──────────────────────────────────────────────────
+  // ─── Emoji helpers ─────────────────────────────────────────────────
   const toggleEmoji = useCallback(() => {
     setShowEmojiPicker((prev) => {
       if (!prev) {
@@ -3055,9 +2716,21 @@ const MyWorkspaceChannelId = () => {
     });
   }, []);
 
- const handleEmojiSelect = (emoji) => {
-  setMessage((prev) => prev + emoji);
-};
+  const handleEmojiSelect = (emoji) => {
+    setMessage((prev) => prev + emoji);
+  };
+
+  // ─── Copy message ──────────────────────────────────────────────────
+  const handleCopyMessage = useCallback((msg) => {
+    const textToCopy = msg?.content || msg?.mediaName || '';
+    if (!textToCopy) {
+      toast.error('Nothing to copy');
+      return;
+    }
+    navigator.clipboard.writeText(textToCopy)
+      .then(() => toast.success('Copied to clipboard'))
+      .catch(() => toast.error('Failed to copy'));
+  }, []);
 
   // ─── Mark message as read ──────────────────────────────────────────
   const markMessageAsRead = useCallback((messageId) => {
@@ -3091,7 +2764,7 @@ const MyWorkspaceChannelId = () => {
     return () => observer.disconnect();
   }, [localMessages, markMessageAsRead, userInfo]);
 
-  // ─── Native / Web voice recording ──────────────────────────────────
+  // ─── Voice recording functions ──────────────────────────────────
   useEffect(() => {
     isRecordingRef.current = isRecording;
   }, [isRecording]);
@@ -3111,10 +2784,7 @@ const MyWorkspaceChannelId = () => {
 
   const startTimer = () => {
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-    recordingTimerRef.current = setInterval(
-      () => setRecordingTime((prev) => prev + 1),
-      1000,
-    );
+    recordingTimerRef.current = setInterval(() => setRecordingTime((prev) => prev + 1), 1000);
   };
   const stopTimer = () => {
     if (recordingTimerRef.current) {
@@ -3123,16 +2793,13 @@ const MyWorkspaceChannelId = () => {
     }
   };
 
-  // Native recording
   const startNativeRecording = async () => {
     try {
-      const { value: hasPermission } =
-        await VoiceRecorder.hasAudioRecordingPermission();
+      const { value: hasPermission } = await VoiceRecorder.hasAudioRecordingPermission();
       if (!hasPermission) {
-        const { value: granted } =
-          await VoiceRecorder.requestAudioRecordingPermission();
+        const { value: granted } = await VoiceRecorder.requestAudioRecordingPermission();
         if (!granted) {
-          toast.error("Microphone permission is required.");
+          toast.error('Microphone permission is required.');
           return;
         }
       }
@@ -3141,15 +2808,17 @@ const MyWorkspaceChannelId = () => {
       setRecordingPaused(false);
       setRecordingTime(0);
       setShowRecordedPreview(false);
+      quickSendRef.current = false;
       startTimer();
     } catch (err) {
-      console.error("Native recording error:", err);
-      toast.error("Failed to start recording: " + (err.message || ""));
+      console.error('Native recording error:', err);
+      toast.error('Failed to start recording: ' + (err.message || ''));
       setIsRecording(false);
     }
   };
 
   const pauseNativeRecording = async () => {
+    if (!isRecordingRef.current) return;
     try {
       if (recordingPaused) {
         await VoiceRecorder.resumeRecording();
@@ -3161,11 +2830,12 @@ const MyWorkspaceChannelId = () => {
         stopTimer();
       }
     } catch (err) {
-      toast.error("Failed to pause/resume recording");
+      toast.error('Failed to pause/resume recording');
     }
   };
 
   const stopNativeRecording = async () => {
+    if (!isRecordingRef.current) return;
     try {
       const result = await VoiceRecorder.stopRecording();
       const base64 = result.value.recordDataBase64;
@@ -3175,19 +2845,20 @@ const MyWorkspaceChannelId = () => {
         byteNumbers[i] = byteCharacters.charCodeAt(i);
       }
       const byteArray = new Uint8Array(byteNumbers);
-      const audioBlob = new Blob([byteArray], { type: "audio/m4a" });
+      const audioBlob = new Blob([byteArray], { type: 'audio/m4a' });
       setRecordingBlob(audioBlob);
       setShowRecordedPreview(true);
       stopTimer();
       setIsRecording(false);
     } catch (err) {
-      console.error("Stop recording error:", err);
-      toast.error("Failed to stop recording");
+      console.error('Stop recording error:', err);
+      toast.error('Failed to stop recording');
       setIsRecording(false);
     }
   };
 
   const cancelNativeRecording = async () => {
+    if (!isRecordingRef.current) return;
     try {
       await VoiceRecorder.stopRecording();
     } catch (_) {}
@@ -3198,51 +2869,55 @@ const MyWorkspaceChannelId = () => {
     stopTimer();
   };
 
-  // Web recording
   const startWebRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
+      cancelledRef.current = false;
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, {
-          type: "audio/webm",
-        });
-        setRecordingBlob(audioBlob);
-        setShowRecordedPreview(true);
-        stopTimer();
-        setIsRecording(false);
         stream.getTracks().forEach((track) => track.stop());
         mediaRecorderRef.current = null;
+        stopTimer();
+        setIsRecording(false);
+
+        if (cancelledRef.current) {
+          cancelledRef.current = false;
+          audioChunksRef.current = [];
+          return;
+        }
+
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        audioChunksRef.current = [];
+        setRecordingBlob(audioBlob);
+        setShowRecordedPreview(true);
       };
       mediaRecorder.start();
       setIsRecording(true);
       setRecordingPaused(false);
       setRecordingTime(0);
+      setRecordingBlob(null);
       setShowRecordedPreview(false);
+      quickSendRef.current = false;
       startTimer();
     } catch (err) {
-      console.error("Web recording error:", err);
-      let msg = "Microphone access denied";
-      if (err.name === "NotAllowedError")
-        msg =
-          "Microphone permission denied. Please grant it in system settings.";
-      else if (err.name === "NotFoundError") msg = "No microphone found.";
-      else if (err.name === "NotReadableError")
-        msg = "Microphone busy — please try again.";
-      else if (err.name === "AbortError")
-        msg = "User canceled the permission prompt.";
+      console.error('Web recording error:', err);
+      let msg = 'Microphone access denied';
+      if (err.name === 'NotAllowedError') msg = 'Microphone permission denied. Please grant it in system settings.';
+      else if (err.name === 'NotFoundError') msg = 'No microphone found.';
+      else if (err.name === 'NotReadableError') msg = 'Microphone busy — please try again.';
+      else if (err.name === 'AbortError') msg = 'User canceled the permission prompt.';
       toast.error(msg);
       mediaRecorderRef.current = null;
     }
   };
 
   const pauseWebRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
+    if (mediaRecorderRef.current && isRecordingRef.current) {
       if (recordingPaused) {
         mediaRecorderRef.current.resume();
         setRecordingPaused(false);
@@ -3256,13 +2931,14 @@ const MyWorkspaceChannelId = () => {
   };
 
   const stopWebRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
+    if (mediaRecorderRef.current && isRecordingRef.current) {
       mediaRecorderRef.current.stop();
     }
   };
 
   const cancelWebRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
+    if (mediaRecorderRef.current && isRecordingRef.current) {
+      cancelledRef.current = true;
       mediaRecorderRef.current.stop();
     }
     setRecordingBlob(null);
@@ -3272,9 +2948,8 @@ const MyWorkspaceChannelId = () => {
     stopTimer();
   };
 
-  // Unified recording handlers
   const startRecording = () => {
-    if (isRecording) return;
+    if (isRecordingRef.current) return;
     if (isNative) {
       startNativeRecording();
     } else {
@@ -3291,6 +2966,8 @@ const MyWorkspaceChannelId = () => {
   };
 
   const stopRecording = () => {
+    if (!isRecordingRef.current) return;
+    quickSendRef.current = false;
     if (isNative) {
       stopNativeRecording();
     } else {
@@ -3320,8 +2997,6 @@ const MyWorkspaceChannelId = () => {
       sendAudioMessage(recordingBlob);
       return;
     }
-
-    // Set flag so the useEffect below will auto-send when blob arrives
     quickSendRef.current = true;
     if (isNative) {
       stopNativeRecording();
@@ -3330,17 +3005,15 @@ const MyWorkspaceChannelId = () => {
     }
   };
 
-  // ─── Auto‑send after quick send ──────────────────────────────────
-  useEffect(() => {
-    if (quickSendRef.current && recordingBlob) {
-      quickSendRef.current = false;
-      sendAudioMessage(recordingBlob);
-    }
-  }, [recordingBlob]);
-
-  // ─── Optimistic sendAudioMessage ──────────────────────────────────
+  // ─── Send audio message ──────────────────────────────────────────
   const sendAudioMessage = async (audioBlob) => {
     if (!audioBlob) return;
+    if (audioBlob.size < 800) {
+      setRecordingBlob(null);
+      setShowRecordedPreview(false);
+      setRecordingTime(0);
+      return;
+    }
     if (isSendingRef.current) return;
 
     const signature = `${audioBlob.size}-${recordingTime}`;
@@ -3353,29 +3026,25 @@ const MyWorkspaceChannelId = () => {
     setIsSending(true);
 
     const formData = new FormData();
-    const mimeType = isNative ? "audio/m4a" : "audio/webm";
-    const extension = isNative ? "m4a" : "webm";
+    const mimeType = isNative ? 'audio/m4a' : 'audio/webm';
+    const extension = isNative ? 'm4a' : 'webm';
     const audioFile = new File([audioBlob], `voice-note.${extension}`, {
       type: mimeType,
     });
-    formData.append("media", audioFile);
-    formData.append("messageType", "audio");
-    formData.append("mediaDuration", recordingTime.toString());
-    if (pendingMentions.length > 0) {
-      formData.append("mentions", JSON.stringify(pendingMentions));
-    }
+    formData.append('media', audioFile);
+    formData.append('messageType', 'audio');
+    formData.append('mediaDuration', recordingTime.toString());
     if (replyToMessage) {
-      formData.append("replyToId", replyToMessage._id);
+      formData.append('replyToId', replyToMessage._id);
     }
 
     const senderWithName = {
       ...userInfo,
-      name:
-        userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
+      name: userInfo?.name || userInfo?.username || userInfo?.email || 'Unknown',
     };
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    formData.append("clientMsgId", tempId);
+    formData.append('clientMsgId', tempId);
 
     const optimisticMsg = {
       _id: tempId,
@@ -3386,27 +3055,25 @@ const MyWorkspaceChannelId = () => {
       _failed: false,
       _delivered: false,
       _read: false,
-      content: "",
+      content: '',
       sender: senderWithName,
       createdAt: new Date().toISOString(),
-      messageType: "audio",
+      messageType: 'audio',
       chat: chatId,
-      replyTo: replyToMessage
-        ? {
-            _id: replyToMessage._id,
-            sender: replyToMessage.sender,
-            content: replyToMessage.content,
-            mediaName: replyToMessage.mediaName,
-            messageType: replyToMessage.messageType,
-          }
-        : null,
+      replyTo: replyToMessage ? {
+        _id: replyToMessage._id,
+        sender: replyToMessage.sender,
+        content: replyToMessage.content,
+        mediaName: replyToMessage.mediaName,
+        messageType: replyToMessage.messageType,
+      } : null,
       mediaUrl: URL.createObjectURL(audioBlob),
-      mediaName: "Voice note",
+      mediaName: 'Voice note',
       mediaSize: audioBlob.size,
       mediaDuration: recordingTime,
       mediaSignature: signature,
     };
-    setLocalMessages((prev) => [...prev, optimisticMsg]);
+    setLocalMessages(prev => [...prev, optimisticMsg]);
     setRecordingBlob(null);
     setShowRecordedPreview(false);
     setRecordingTime(0);
@@ -3437,45 +3104,169 @@ const MyWorkspaceChannelId = () => {
         );
       });
     } catch (err) {
-      setLocalMessages((prev) => prev.filter((m) => m._tempId !== tempId));
-      toast.error(err?.data?.message || "Failed to send voice note");
+      setLocalMessages(prev => prev.filter((m) => m._tempId !== tempId));
+      toast.error(err?.data?.message || 'Failed to send voice note');
     } finally {
       isSendingRef.current = false;
       setIsSending(false);
     }
   };
 
-  // ─── Handle paste event ──────────────────────────────────────────
+  // ─── Auto‑send after quick send ──────────────────────────────────
+  useEffect(() => {
+    if (quickSendRef.current && recordingBlob) {
+      quickSendRef.current = false;
+      sendAudioMessage(recordingBlob);
+    }
+  }, [recordingBlob]);
+
+  // ─── File / image: Native plugins (set pendingMedia, not editor) ──
+  const handleTakePhoto = useCallback(async () => {
+    setShowMediaPicker(false);
+    try {
+      const photo = await Camera.getPhoto({
+        quality: 80,
+        resultType: CameraResultType.Base64,
+        source: CameraSource.Camera,
+      });
+      if (photo?.base64String) {
+        const mimeType = `image/${photo.format || 'jpeg'}`;
+        const fileName = `photo-${Date.now()}.${photo.format || 'jpg'}`;
+        const file = base64ToFile(photo.base64String, fileName, mimeType);
+        setPendingMedia(file);
+      }
+    } catch (err) {
+      const msg = (err?.message || '').toLowerCase();
+      if (!msg.includes('cancel')) {
+        console.error('Camera error:', err);
+        toast.error('Failed to take photo');
+      }
+    }
+  }, []);
+
+  const handleChooseFromGallery = useCallback(async () => {
+    setShowMediaPicker(false);
+    try {
+      const photo = await Camera.getPhoto({
+        quality: 80,
+        resultType: CameraResultType.Base64,
+        source: CameraSource.Photos,
+      });
+      if (photo?.base64String) {
+        const mimeType = `image/${photo.format || 'jpeg'}`;
+        const fileName = `photo-${Date.now()}.${photo.format || 'jpg'}`;
+        const file = base64ToFile(photo.base64String, fileName, mimeType);
+        setPendingMedia(file);
+      }
+    } catch (err) {
+      const msg = (err?.message || '').toLowerCase();
+      if (!msg.includes('cancel')) {
+        console.error('Gallery error:', err);
+        toast.error('Failed to pick from gallery');
+      }
+    }
+  }, []);
+
+  const handlePickFile = useCallback(async () => {
+    try {
+      const result = await FilePicker.pickFiles({ readData: true });
+      const picked = result?.files?.[0];
+      if (!picked) return;
+      const mimeType = picked.mimeType || 'application/octet-stream';
+      const fileName = picked.name || `file-${Date.now()}`;
+
+      let file;
+      if (picked.data) {
+        file = base64ToFile(picked.data, fileName, mimeType);
+      } else if (picked.path) {
+        const readResult = await Filesystem.readFile({ path: picked.path });
+        file = base64ToFile(readResult.data, fileName, mimeType);
+      } else {
+        toast.error('Could not read selected file');
+        return;
+      }
+      setPendingMedia(file);
+    } catch (err) {
+      const msg = (err?.message || '').toLowerCase();
+      if (!msg.includes('cancel')) {
+        console.error('File picker error:', err);
+        toast.error('Failed to pick file');
+      }
+    }
+  }, []);
+
+  const handleFileUpload = useCallback(
+    (type) => {
+      if (isNative) {
+        if (type === 'image') {
+          setShowMediaPicker(true);
+        } else {
+          handlePickFile();
+        }
+        return;
+      }
+      if (type === 'file') {
+        fileInputRef.current?.click();
+      } else {
+        imageInputRef.current?.click();
+      }
+    },
+    [handlePickFile]
+  );
+
+  const handleFileChange = useCallback((e) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      toast.error('No file selected');
+      return;
+    }
+    setPendingMedia(file);
+    e.target.value = '';
+  }, []);
+
   const handlePaste = useCallback((e) => {
     const items = e.clipboardData?.items;
     if (!items) return;
 
     for (const item of items) {
-      if (item.type.startsWith("image/")) {
+      if (item.type.startsWith('image/')) {
         e.preventDefault();
         const file = item.getAsFile();
         if (file) {
-          setImageToEdit(file);
-          setImageEditorOpen(true);
+          setPendingMedia(file);
         }
         return;
       }
     }
-  }, []);
-
-  // ─── Copy message ──────────────────────────────────────────────────
-  const handleCopyMessage = useCallback((msg) => {
-    const textToCopy = msg?.content || msg?.mediaName || '';
-    if (!textToCopy) {
-      toast.error('Nothing to copy');
-      return;
+    const text = e.clipboardData?.getData('text');
+    if (text) {
+      const urlPattern = /\.(jpg|jpeg|png|gif|webp|svg)$/i;
+      if (urlPattern.test(text.trim())) {
+        e.preventDefault();
+      }
     }
-    navigator.clipboard.writeText(textToCopy)
-      .then(() => toast.success('Copied to clipboard'))
-      .catch(() => toast.error('Failed to copy'));
   }, []);
 
-  // ─── Optimistic sendMedia (images/files) with image editor ──────────
+  // ─── Image editor callbacks ──────────────────────────────────────
+  const handleImageEditorSave = (editedFile) => {
+    setPendingMedia(editedFile);
+    setImageEditorOpen(false);
+    setImageToEdit(null);
+  };
+
+  const handleImageEditorCancel = () => {
+    setImageEditorOpen(false);
+    setImageToEdit(null);
+  };
+
+  const handleImageEdit = () => {
+    if (pendingMedia && pendingMedia.type.startsWith('image/')) {
+      setImageToEdit(pendingMedia);
+      setImageEditorOpen(true);
+    }
+  };
+
+  // ─── Send media from pendingMedia ──────────────────────────────
   const handleSendMedia = async (file) => {
     if (!file) return;
     if (isSendingRef.current) return;
@@ -3490,24 +3281,20 @@ const MyWorkspaceChannelId = () => {
     setIsSending(true);
 
     const formData = new FormData();
-    formData.append("media", file);
-    const messageType = file.type.startsWith("image/") ? "image" : "file";
-    formData.append("messageType", messageType);
-    if (pendingMentions.length > 0) {
-      formData.append("mentions", JSON.stringify(pendingMentions));
-    }
+    formData.append('media', file);
+    const messageType = file.type.startsWith('image/') ? 'image' : 'file';
+    formData.append('messageType', messageType);
     if (replyToMessage) {
-      formData.append("replyToId", replyToMessage._id);
+      formData.append('replyToId', replyToMessage._id);
     }
 
     const senderWithName = {
       ...userInfo,
-      name:
-        userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
+      name: userInfo?.name || userInfo?.username || userInfo?.email || 'Unknown',
     };
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    formData.append("clientMsgId", tempId);
+    formData.append('clientMsgId', tempId);
 
     const optimisticMsg = {
       _id: tempId,
@@ -3518,35 +3305,33 @@ const MyWorkspaceChannelId = () => {
       _failed: false,
       _delivered: false,
       _read: false,
-      content: "",
+      content: '',
       sender: senderWithName,
       createdAt: new Date().toISOString(),
       messageType: messageType,
       chat: chatId,
-      replyTo: replyToMessage
-        ? {
-            _id: replyToMessage._id,
-            sender: replyToMessage.sender,
-            content: replyToMessage.content,
-            mediaName: replyToMessage.mediaName,
-            messageType: replyToMessage.messageType,
-          }
-        : null,
+      replyTo: replyToMessage ? {
+        _id: replyToMessage._id,
+        sender: replyToMessage.sender,
+        content: replyToMessage.content,
+        mediaName: replyToMessage.mediaName,
+        messageType: replyToMessage.messageType,
+      } : null,
       mediaUrl: URL.createObjectURL(file),
       mediaName: file.name,
       mediaSize: file.size,
       mediaDuration: null,
       mediaSignature: signature,
     };
-    setLocalMessages((prev) => [...prev, optimisticMsg]);
+    setLocalMessages(prev => [...prev, optimisticMsg]);
     setReplyToMessage(null);
     setPendingMedia(null);
 
     try {
       await sendMessageApi({ chatId, data: formData }).unwrap();
     } catch (err) {
-      setLocalMessages((prev) => prev.filter((m) => m._tempId !== tempId));
-      toast.error(err?.data?.message || "Failed to send media");
+      setLocalMessages(prev => prev.filter((m) => m._tempId !== tempId));
+      toast.error(err?.data?.message || 'Failed to send media');
     } finally {
       isSendingRef.current = false;
       setIsSending(false);
@@ -3555,377 +3340,19 @@ const MyWorkspaceChannelId = () => {
 
   const clearPendingMedia = () => setPendingMedia(null);
 
-  // ─── Image editor callbacks ──────────────────────────────────────
-  const handleImageEdit = () => {
-    if (pendingMedia && pendingMedia.type.startsWith('image/')) {
-      setImageToEdit(pendingMedia);
-      setImageEditorOpen(true);
-    }
-  };
-
-  const handleImageEditorSave = (editedFile) => {
-    setPendingMedia(editedFile);
-    setImageEditorOpen(false);
-    setImageToEdit(null);
-  };
-
-  const handleImageEditorCancel = () => {
-    setImageEditorOpen(false);
-    setImageToEdit(null);
-  };
-
-  // ─── Native file/image pickers ──────────────────────────────────────
-  const handleTakePhoto = useCallback(async () => {
-    setShowMediaPicker(false);
-    try {
-      const photo = await Camera.getPhoto({
-        quality: 80,
-        resultType: CameraResultType.Base64,
-        source: CameraSource.Camera,
-      });
-      if (photo?.base64String) {
-        const mimeType = `image/${photo.format || "jpeg"}`;
-        const fileName = `photo-${Date.now()}.${photo.format || "jpg"}`;
-        const file = base64ToFile(photo.base64String, fileName, mimeType);
-        setImageToEdit(file);
-        setImageEditorOpen(true);
-      }
-    } catch (err) {
-      const msg = (err?.message || "").toLowerCase();
-      if (!msg.includes("cancel")) {
-        console.error("Camera error:", err);
-        toast.error("Failed to take photo");
-      }
-    }
-  }, []);
-
-  const handleChooseFromGallery = useCallback(async () => {
-    setShowMediaPicker(false);
-    try {
-      const photo = await Camera.getPhoto({
-        quality: 80,
-        resultType: CameraResultType.Base64,
-        source: CameraSource.Photos,
-      });
-      if (photo?.base64String) {
-        const mimeType = `image/${photo.format || "jpeg"}`;
-        const fileName = `photo-${Date.now()}.${photo.format || "jpg"}`;
-        const file = base64ToFile(photo.base64String, fileName, mimeType);
-        setImageToEdit(file);
-        setImageEditorOpen(true);
-      }
-    } catch (err) {
-      const msg = (err?.message || "").toLowerCase();
-      if (!msg.includes("cancel")) {
-        console.error("Gallery error:", err);
-        toast.error("Failed to pick from gallery");
-      }
-    }
-  }, []);
-
-  const handlePickFile = useCallback(async () => {
-    try {
-      const result = await FilePicker.pickFiles({ readData: true });
-      const picked = result?.files?.[0];
-      if (!picked) return;
-      const mimeType = picked.mimeType || "application/octet-stream";
-      const fileName = picked.name || `file-${Date.now()}`;
-
-      let file;
-      if (picked.data) {
-        file = base64ToFile(picked.data, fileName, mimeType);
-      } else if (picked.path) {
-        const readResult = await Filesystem.readFile({ path: picked.path });
-        file = base64ToFile(readResult.data, fileName, mimeType);
-      } else {
-        toast.error("Could not read selected file");
-        return;
-      }
-      if (file.type.startsWith('image/')) {
-        setImageToEdit(file);
-        setImageEditorOpen(true);
-      } else {
-        setPendingMedia(file);
-      }
-    } catch (err) {
-      const msg = (err?.message || "").toLowerCase();
-      if (!msg.includes("cancel")) {
-        console.error("File picker error:", err);
-        toast.error("Failed to pick file");
-      }
-    }
-  }, []);
-
-  const handleFileUpload = useCallback(
-    (type) => {
-      if (isNative) {
-        if (type === "image") {
-          setShowMediaPicker(true);
-        } else {
-          handlePickFile();
-        }
-        return;
-      }
-      if (type === "file") {
-        fileInputRef.current?.click();
-      } else {
-        imageInputRef.current?.click();
-      }
-    },
-    [handlePickFile],
-  );
-
-  const handleFileChange = useCallback((e) => {
-    const file = e.target.files?.[0];
-    if (!file) {
-      toast.error("No file selected");
-      return;
-    }
-    if (file.type.startsWith('image/')) {
-      setImageToEdit(file);
-      setImageEditorOpen(true);
-    } else {
-      setPendingMedia(file);
-    }
-    e.target.value = "";
-  }, []);
-
-  // ─── Early returns for loading/error ──────────────────────────────
-  if (error) {
-    navigate("/my-workspaces");
-    return null;
-  }
-  if (workspaceLoading || chatsLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
-        <div className="w-8 h-8 border-4 border-teal-500 dark:border-teal-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
-
-  const workspace = workspaceData?.workspace;
-  const chats = chatsData?.chats || [];
-  if (!workspace) return null;
-
-  const displayName = chat?.name || "Unnamed Channel";
-  const memberCount = chat?.participants?.length || 0;
-
-  const userMembership = workspaceData?.workspace?.members?.find(
-    (m) => m.user?._id === userInfo?._id || m.user === userInfo?._id,
-  );
-  const userRole = userMembership?.role || "Member";
-
-  const brandColor = workspace.color || "#0d9488";
-
-  const groupChats = chats.filter((c) => c.type === "group");
-  const filteredChannels = groupChats.filter((ch) =>
-    ch.name?.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
-
-  // ─── Mention logic ──────────────────────────────────────────────────
-  const extractMentionsFromText = (text) => {
-    const matches = text.match(/@(\w+)/g);
-    if (!matches) return [];
-    const ids = [];
-    const seen = new Set();
-    matches.forEach((m) => {
-      const username = m.slice(1).toLowerCase();
-      const userId = usernameMap.get(username);
-      if (userId && !seen.has(userId)) {
-        seen.add(userId);
-        ids.push(userId);
-      }
-    });
-    return ids;
-  };
-
-  const handleMessageChange = (e) => {
-    const value = e.target.value;
-    setMessage(value);
-
-    const mentions = extractMentionsFromText(value);
-    setPendingMentions(mentions);
-
-    const cursorPos = e.target.selectionStart || 0;
-    const beforeCursor = value.slice(0, cursorPos);
-    const lastAt = beforeCursor.lastIndexOf("@");
-    if (lastAt !== -1) {
-      const afterAt = value.slice(lastAt + 1, cursorPos);
-      if (!afterAt.includes(" ")) {
-        setMentionQuery(afterAt);
-        setShowMentions(true);
-        const queryLower = afterAt.toLowerCase();
-        const filtered = participants
-          .map((p) => p.user)
-          .filter((u) => u && u._id !== userInfo?._id)
-          .filter((u) => {
-            const name = (u.name || "").toLowerCase();
-            const username = (u.username || "").toLowerCase();
-            return name.includes(queryLower) || username.includes(queryLower);
-          });
-        setMentionSuggestions(filtered);
-        return;
-      }
-    }
-    setShowMentions(false);
-    setMentionQuery("");
-    setMentionSuggestions([]);
-  };
-
-  const handleSelectMention = (user) => {
-    const value = message;
-    const cursorPos = inputRef.current?.selectionStart || 0;
-    const beforeCursor = value.slice(0, cursorPos);
-    const lastAt = beforeCursor.lastIndexOf("@");
-    if (lastAt === -1) return;
-    const beforeMention = value.slice(0, lastAt);
-    const afterCursor = value.slice(cursorPos);
-    const mentionText = `@${user.username || user.name} `;
-    const newValue = beforeMention + mentionText + afterCursor;
-    setMessage(newValue);
-    setShowMentions(false);
-    setMentionQuery("");
-    setMentionSuggestions([]);
-    setTimeout(() => {
-      if (inputRef.current) {
-        const newCursor = beforeMention.length + mentionText.length;
-        inputRef.current.selectionStart = newCursor;
-        inputRef.current.selectionEnd = newCursor;
-        inputRef.current.focus();
-      }
-    }, 0);
-  };
-
-  // ─── Reply logic ────────────────────────────────────────────────────
-  const handleReply = (msg) => {
-    setReplyToMessage(msg);
-    setTimeout(() => inputRef.current?.focus(), 100);
-  };
-
-  const cancelReply = () => {
-    setReplyToMessage(null);
-  };
-
-  const handleLongPress = (msg) => {
-    setActionModal({ isOpen: true, message: msg });
-  };
-
-  // ─── Optimistic send text message ──────────────────────────────────
-  const handleSendMessage = (e) => {
-    e.preventDefault();
-    const trimmed = message.trim();
-    if (!trimmed || !socket) return;
-    if (isSendingRef.current) return;
-
-    const now = Date.now();
-    const isDuplicate = localMessages.some((m) => {
-      if (m.messageType !== "text") return false;
-      if (m.content !== trimmed) return false;
-      const isOwnMsg =
-        m.sender?._id === userInfo?._id || m.sender === userInfo?._id;
-      if (!isOwnMsg) return false;
-      const msgTime = new Date(m.createdAt).getTime();
-      return now - msgTime < 4000;
-    });
-    if (isDuplicate) {
-      console.warn("Blocked duplicate send:", trimmed);
-      return;
-    }
-
-    isSendingRef.current = true;
-    setIsSending(true);
-
-    const senderWithName = {
-      ...userInfo,
-      name:
-        userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
-    };
-
-    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    const optimisticMsg = {
-      _id: tempId,
-      _tempId: tempId,
-      _temp: true,
-      _pending: false,
-      _sent: false,
-      _failed: false,
-      _delivered: false,
-      _read: false,
-      content: trimmed,
-      sender: senderWithName,
-      createdAt: new Date().toISOString(),
-      messageType: "text",
-      chat: chatId,
-      mentions: pendingMentions,
-      replyTo: replyToMessage
-        ? {
-            _id: replyToMessage._id,
-            sender: replyToMessage.sender,
-            content: replyToMessage.content,
-            mediaName: replyToMessage.mediaName,
-            messageType: replyToMessage.messageType,
-          }
-        : null,
-    };
-
-    setLocalMessages((prev) => [...prev, optimisticMsg]);
-    setMessage("");
-    const replyToId = replyToMessage?._id || null;
-    const mentions = pendingMentions;
-    setReplyToMessage(null);
-
-    if (inputRef.current) {
-      inputRef.current.style.height = "auto";
-    }
-
-    socket.emit(
-      "send-message",
-      {
-        chatId,
-        content: trimmed,
-        messageType: "text",
-        mentions,
-        replyToId,
-        clientMsgId: tempId,
-      },
-      (response) => {
-        isSendingRef.current = false;
-        setIsSending(false);
-        if (response?.error) {
-          setLocalMessages((prev) => prev.filter((m) => m._id !== tempId));
-          toast.error(response.error);
-        } else {
-          setLocalMessages((prev) =>
-            prev.map((m) =>
-              m._id === tempId ? { ...m, _sent: true, _delivered: true } : m,
-            )
-          );
-        }
-      }
-    );
-  };
-
-  // ─── Message actions (optimistic delete) ──────────────────────────
+  // ─── Message action handlers ──────────────────────────────────────
   const handleDeleteMessage = async (messageId) => {
     setConfirmModal({
       isOpen: true,
       title: "Delete Message",
       message: "Are you sure you want to delete this message?",
       onConfirm: async () => {
-        setLocalMessages((prev) =>
-          prev.map((m) =>
-            m._id === messageId ? { ...m, isDeleted: true } : m,
-          ),
-        );
+        setLocalMessages(prev => prev.map(m => m._id === messageId ? { ...m, isDeleted: true } : m));
         try {
           await deleteMessageApi(messageId).unwrap();
           toast.success("Message deleted");
         } catch (err) {
-          setLocalMessages((prev) =>
-            prev.map((m) =>
-              m._id === messageId ? { ...m, isDeleted: false } : m,
-            ),
-          );
+          setLocalMessages(prev => prev.map(m => m._id === messageId ? { ...m, isDeleted: false } : m));
           toast.error(err?.data?.message || "Failed to delete message");
         }
       },
@@ -3973,7 +3400,28 @@ const MyWorkspaceChannelId = () => {
     }
   };
 
-  // ─── Group management actions ─────────────────────────────────────
+  const handleReply = (msg) => {
+    setReplyToMessage(msg);
+    setTimeout(() => inputRef.current?.focus(), 100);
+  };
+
+  const cancelReply = () => setReplyToMessage(null);
+
+  const handleLongPress = (msg) => {
+    setActionModal({ isOpen: true, message: msg });
+  };
+
+  const handleJumpToMessage = useCallback((messageId) => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const target = container.querySelector(`[data-message-id="${messageId}"]`);
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    target.classList.add("ring-2", "ring-teal-400", "rounded-2xl");
+    setTimeout(() => target.classList.remove("ring-2", "ring-teal-400", "rounded-2xl"), 1200);
+  }, []);
+
+  // ─── Group management handlers ──────────────────────────────────
   const handleAddMember = (chatId) => {
     setAddMemberModal({ isOpen: true, chatId });
   };
@@ -4037,8 +3485,7 @@ const MyWorkspaceChannelId = () => {
     setConfirmModal({
       isOpen: true,
       title: "Exit Group",
-      message:
-        "Are you sure you want to leave this group? You will no longer receive messages.",
+      message: "Are you sure you want to leave this group? You will no longer receive messages.",
       onConfirm: async () => {
         try {
           await exitGroup(chatId).unwrap();
@@ -4056,8 +3503,7 @@ const MyWorkspaceChannelId = () => {
     setConfirmModal({
       isOpen: true,
       title: "Delete Group",
-      message:
-        "Are you sure you want to permanently delete this group and all its messages? This cannot be undone.",
+      message: "Are you sure you want to permanently delete this group and all its messages? This cannot be undone.",
       onConfirm: async () => {
         try {
           await deleteGroup(chatId).unwrap();
@@ -4095,32 +3541,25 @@ const MyWorkspaceChannelId = () => {
     setAddMemberModal({ isOpen: false, chatId: null });
   };
 
-  // ─── Call handler ──────────────────────────────────────────────────
+  // ─── Call initiation ──────────────────────────────────────────────
   const handleCall = async (type) => {
     if (!workspace || !chat) {
       toast.error("Missing workspace or chat data");
       return;
     }
-
-    const participantIds = chat.participants
-      .filter((p) => {
-        const uid = p.user?._id || p.user;
-        return uid !== userInfo._id && uid !== userInfo?._id;
-      })
+    let participantIds = chat.participants
+      .filter((p) => (p.user?._id || p.user) !== userInfo?._id)
       .map((p) => p.user?._id || p.user);
-
     if (participantIds.length === 0) {
       toast.info("No one else to call in this chat.");
       return;
     }
-
     try {
       const response = await initiateCall({
         workspaceId,
         type,
         participantIds,
       }).unwrap();
-
       navigate(`/call/${response.call.roomId}`, {
         state: {
           callData: {
@@ -4136,6 +3575,98 @@ const MyWorkspaceChannelId = () => {
     }
   };
 
+  // ─── Optimistic text send ──────────────────────────────────────
+  const handleSendMessage = (e) => {
+    e.preventDefault();
+    const trimmed = message.trim();
+    if (!trimmed || !socket) return;
+    if (isSendingRef.current) return;
+
+    const now = Date.now();
+    const isDuplicate = localMessages.some((m) => {
+      if (m.messageType !== 'text') return false;
+      if (m.content !== trimmed) return false;
+      const isOwnMsg =
+        m.sender?._id === userInfo?._id || m.sender === userInfo?._id;
+      if (!isOwnMsg) return false;
+      const msgTime = new Date(m.createdAt).getTime();
+      return now - msgTime < 4000;
+    });
+    if (isDuplicate) {
+      console.warn('Blocked duplicate send:', trimmed);
+      return;
+    }
+
+    isSendingRef.current = true;
+    setIsSending(true);
+
+    const senderWithName = {
+      ...userInfo,
+      name: userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
+    };
+
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const optimisticMsg = {
+      _id: tempId,
+      _tempId: tempId,
+      _temp: true,
+      _pending: false,
+      _sent: false,
+      _failed: false,
+      _delivered: false,
+      _read: false,
+      content: trimmed,
+      sender: senderWithName,
+      createdAt: new Date().toISOString(),
+      messageType: "text",
+      chat: chatId,
+      replyTo: replyToMessage
+        ? {
+            _id: replyToMessage._id,
+            sender: replyToMessage.sender,
+            content: replyToMessage.content,
+            mediaName: replyToMessage.mediaName,
+            messageType: replyToMessage.messageType,
+          }
+        : null,
+    };
+    setLocalMessages((prev) => [...prev, optimisticMsg]);
+    setMessage("");
+    const replyToId = replyToMessage?._id || null;
+    setReplyToMessage(null);
+
+    if (inputRef.current) {
+      inputRef.current.style.height = "auto";
+      inputRef.current.focus();
+    }
+
+    socket.emit(
+      "send-message",
+      {
+        chatId,
+        content: trimmed,
+        messageType: "text",
+        mentions: [],
+        replyToId,
+        clientMsgId: tempId,
+      },
+      (response) => {
+        isSendingRef.current = false;
+        setIsSending(false);
+        if (response?.error) {
+          setLocalMessages((prev) => prev.filter((m) => m._id !== tempId));
+          toast.error(response.error);
+        } else {
+          setLocalMessages((prev) =>
+            prev.map((m) =>
+              m._id === tempId ? { ...m, _sent: true, _delivered: true } : m
+            )
+          );
+        }
+      }
+    );
+  };
+
   // ─── Render messages with dividers ──────────────────────────────
   const renderMessagesWithDividers = () => {
     if (messagesLoading) {
@@ -4147,9 +3678,7 @@ const MyWorkspaceChannelId = () => {
         <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
           <FaComment className="text-4xl mb-2 opacity-30" />
           <p className="text-sm">No messages yet</p>
-          <p className="text-xs mt-1 opacity-60">
-            Paste images or screenshots here
-          </p>
+          <p className="text-xs mt-1 opacity-60">Paste images or screenshots here</p>
         </div>
       );
     }
@@ -4176,15 +3705,13 @@ const MyWorkspaceChannelId = () => {
       }
 
       const sender = resolveSender(msg.sender);
-      const isOwn =
-        msg.sender?._id === userInfo?._id ||
-        msg.sender === userInfo?._id ||
-        sender?._id === userInfo?._id;
+      const isOwn = msg.sender?._id === userInfo?._id || msg.sender === userInfo?._id;
       elements.push(
         <MediaMessage
           key={msg._id}
           message={msg}
           isOwn={isOwn}
+          isDM={false}
           senderName={sender?.name || "Unknown"}
           senderProfile={sender?.profile}
           brandColor={brandColor}
@@ -4208,7 +3735,21 @@ const MyWorkspaceChannelId = () => {
     return elements;
   };
 
-  // ─── Render ──────────────────────────────────────────────────────────
+  // ─── Early returns ────────────────────────────────────────────────
+  if (workspaceError) {
+    navigate("/my-workspaces");
+    return null;
+  }
+
+  if (workspaceLoading || chatsLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
+        <div className="w-8 h-8 border-4 border-teal-500 dark:border-teal-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // ─── Render ─────────────────────────────────────────────────────────
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
       {previewImage && (
@@ -4221,64 +3762,11 @@ const MyWorkspaceChannelId = () => {
       )}
 
       <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
-        <MyWorkspaceSidebar workspace={workspace} chats={chats} />
+        <MyWorkspaceSidebar workspace={workspace} chats={chatsData?.chats || []} />
       </div>
 
-      {/* Channel list (desktop) */}
-      <div className="hidden lg:flex lg:w-72 lg:flex-col bg-white dark:bg-[#0f0f12] border-r border-gray-200/60 dark:border-gray-800/60 h-full overflow-hidden">
-        <div className="p-4 border-b border-gray-200/60 dark:border-gray-800/60 flex-shrink-0">
-          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-300 flex items-center gap-2">
-            <FaUsers className="text-sm" style={{ color: brandColor }} />
-            Channels
-          </h2>
-        </div>
-        <div className="px-3 py-2 border-b border-gray-200/60 dark:border-gray-800/60 flex-shrink-0">
-          <div className="relative">
-            <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 text-xs" />
-            <input
-              type="text"
-              placeholder="Search channels..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500 dark:focus:ring-[#0d9488]"
-            />
-          </div>
-        </div>
-        <div className="flex-1 overflow-y-auto px-2 py-2">
-          {filteredChannels.map((channel) => (
-            <Link
-              key={channel._id}
-              to={`/my-workspace/${workspaceId}/chat/${channel._id}`}
-              className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition ${
-                channel._id === chatId
-                  ? "bg-gray-100 dark:bg-gray-800/60"
-                  : "hover:bg-gray-50 dark:hover:bg-gray-800/30"
-              }`}
-            >
-              <FaUsers className="text-xs text-gray-400 dark:text-gray-500" />
-              <span className="text-sm text-gray-700 dark:text-gray-300 truncate">
-                {channel.name}
-              </span>
-              {channel.unreadCount > 0 && (
-                <span
-                  className="ml-auto text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center"
-                  style={{ backgroundColor: brandColor }}
-                >
-                  {channel.unreadCount}
-                </span>
-              )}
-            </Link>
-          ))}
-          {filteredChannels.length === 0 && (
-            <div className="text-center text-gray-500 dark:text-gray-400 text-sm py-4">
-              No channels found
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Chat area */}
       <div className="flex-1 flex flex-col bg-white dark:bg-[#0f0f12] h-full overflow-hidden">
+        {/* ─── Header ─── */}
         <header
           className="fixed lg:sticky top-0 left-0 right-0 lg:left-auto lg:right-auto z-20 flex items-center justify-between px-4 py-3 border-b border-gray-200/60 dark:border-gray-800/60 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl text-gray-800 dark:text-white flex-shrink-0 cursor-pointer"
           onClick={() => setShowDetailsSheet(true)}
@@ -4287,54 +3775,46 @@ const MyWorkspaceChannelId = () => {
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                navigate(`/my-workspace/${workspaceId}/channels`);
+                navigate(-1); // go back to previous page
               }}
               className="p-1 lg:hidden flex-shrink-0 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
             >
               <FaArrowLeft />
             </button>
             <div className="w-9 h-9 rounded-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center flex-shrink-0">
-              <FaUsers className="text-sm text-gray-600 dark:text-gray-300" />
+              <FaHashtag className="text-sm" />
             </div>
             <div className="min-w-0 flex-1">
-              <h2 className="font-semibold text-base text-gray-800 dark:text-gray-100 truncate">
-                {displayName}
-              </h2>
+              <h2 className="font-semibold text-base text-gray-800 dark:text-gray-100 truncate">{chat?.name || "Unnamed Channel"}</h2>
               <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                {memberCount} member{memberCount !== 1 ? "s" : ""}
+                {chat?.participants?.length || 0} members
               </p>
             </div>
           </div>
-          <div
-            className="flex gap-2 flex-shrink-0"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="flex gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
             <button
-              onClick={() => handleCall("voice")}
-              disabled={isCallInitiating}
-              className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition disabled:opacity-50"
-              aria-label="Start voice call"
+              onClick={() => handleCall('voice')}
+              className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
             >
               <FaPhone />
             </button>
             <button
-              onClick={() => handleCall("video")}
-              disabled={isCallInitiating}
-              className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition disabled:opacity-50"
-              aria-label="Start video call"
+              onClick={() => handleCall('video')}
+              className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
             >
               <FaVideo />
             </button>
           </div>
         </header>
 
+        {/* ─── Messages ─── */}
         <div className="relative flex-1 overflow-hidden">
           <div
             ref={messagesContainerRef}
             onScroll={handleMessagesScroll}
-            className="h-full overflow-y-auto px-4 py-3 space-y-4 pt-20 lg:pt-3 pb-24 lg:pb-3"
+            className="h-full overflow-y-auto px-4 py-4 space-y-3 pt-20 lg:pt-3 pb-24 lg:pb-3 transition-all duration-200 ease-in-out"
             style={{
-              paddingBottom: isMobile ? `${inputHeight}px` : undefined,
+              paddingBottom: isMobile ? `${inputHeight + 60}px` : undefined,
             }}
           >
             {renderMessagesWithDividers()}
@@ -4351,7 +3831,7 @@ const MyWorkspaceChannelId = () => {
           )}
         </div>
 
-        {/* ─── Input Area ─── */}
+        {/* ─── Input Bar ─── */}
         <div
           ref={inputAreaRef}
           className="fixed lg:sticky bottom-0 left-0 right-0 lg:left-auto lg:right-auto z-20 border-t border-gray-200/60 dark:border-gray-800/60 bg-white/90 dark:bg-[#0f0f12]/90 backdrop-blur-xl flex-shrink-0 px-3 sm:px-4"
@@ -4382,12 +3862,8 @@ const MyWorkspaceChannelId = () => {
             <div className="flex items-center justify-between px-3 py-2 mb-2 bg-green-50 dark:bg-green-900/30 rounded-lg border border-green-200 dark:border-green-700/40">
               <div className="flex items-center gap-2">
                 <FaCheckCircle className="text-green-500 dark:text-green-400" />
-                <span className="text-sm text-gray-700 dark:text-gray-200">
-                  Voice note ready
-                </span>
-                <span className="text-xs text-gray-500 dark:text-gray-400">
-                  {formatTime(recordingTime)}
-                </span>
+                <span className="text-sm text-gray-700 dark:text-gray-200">Voice note ready</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">{formatTime(recordingTime)}</span>
               </div>
               <div className="flex gap-1">
                 <button
@@ -4421,14 +3897,13 @@ const MyWorkspaceChannelId = () => {
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
                 <span className="text-xs text-red-600 dark:text-red-300">
-                  {recordingPaused ? "Paused" : "Recording..."}{" "}
-                  {formatTime(recordingTime)}
+                  {recordingPaused ? 'Paused' : 'Recording...'} {formatTime(recordingTime)}
                 </span>
                 <button
                   onClick={pauseRecording}
                   className="text-xs text-red-600 dark:text-red-300 hover:text-red-700 dark:hover:text-red-200"
                 >
-                  {recordingPaused ? "Resume" : "Pause"}
+                  {recordingPaused ? 'Resume' : 'Pause'}
                 </button>
               </div>
               <div className="flex gap-2">
@@ -4448,51 +3923,8 @@ const MyWorkspaceChannelId = () => {
             </div>
           )}
 
-          <form
-            onSubmit={handleSendMessage}
-            className="flex items-end gap-2 py-2 relative"
-          >
-            {showMentions && (
-              <div className="absolute bottom-full left-0 right-0 mb-1 bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-xl shadow-lg max-h-48 overflow-y-auto z-40">
-                {mentionSuggestions.length > 0 ? (
-                  mentionSuggestions.map((user) => (
-                    <button
-                      key={user._id}
-                      onClick={() => handleSelectMention(user)}
-                      className="flex items-center gap-3 w-full px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
-                    >
-                      {user.profile ? (
-                        <img
-                          src={user.profile}
-                          alt={user.name}
-                          className="w-8 h-8 rounded-full object-cover"
-                        />
-                      ) : (
-                        <div
-                          className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold"
-                          style={{ backgroundColor: brandColor }}
-                        >
-                          {user.name?.charAt(0).toUpperCase() || "?"}
-                        </div>
-                      )}
-                      <div className="text-left">
-                        <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
-                          {user.name}
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          @{user.username || user.name}
-                        </p>
-                      </div>
-                    </button>
-                  ))
-                ) : (
-                  <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
-                    No users found
-                  </div>
-                )}
-              </div>
-            )}
-
+          {/* ─── New WhatsApp‑style input bar ─── */}
+          <form onSubmit={handleSendMessage} className="flex items-end gap-2 py-2">
             {/* Emoji button – extreme left */}
             <div className="relative flex-shrink-0 mb-1" ref={emojiPickerRef}>
               <button
@@ -4524,20 +3956,20 @@ const MyWorkspaceChannelId = () => {
               <textarea
                 ref={inputRef}
                 value={message}
-                onChange={handleMessageChange}
+                onChange={(e) => setMessage(e.target.value)}
                 onPaste={handlePaste}
                 onFocus={() => setShowEmojiPicker(false)}
                 onKeyDown={(e) => {
                   if (isMobile) return;
                   if (isSendingRef.current) return;
-                  if (e.key === "Enter" && !e.shiftKey) {
+                  if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     handleSendMessage(e);
                   }
                 }}
                 placeholder="Message"
                 rows={1}
-                className="w-full min-w-0 pl-4 pr-20 py-2 border border-gray-300 dark:border-gray-700/60 rounded-full bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500 dark:focus:ring-[#0d9488] resize-none max-h-32 overflow-y-auto"
+                className="w-full min-w-0 pl-4 pr-20 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500 dark:focus:ring-[#0d9488] resize-none max-h-32 overflow-y-auto"
                 style={{ minHeight: '42px', lineHeight: '1.5' }}
               />
               <div className="absolute right-3 bottom-0 h-[42px] flex items-center gap-3">
@@ -4575,7 +4007,7 @@ const MyWorkspaceChannelId = () => {
                 type="button"
                 onPointerDown={(e) => {
                   if (message.trim()) return;
-                  if (isRecording || mediaRecorderRef.current) return;
+                  if (isRecordingRef.current || micActionLockRef.current || mediaRecorderRef.current) return;
                   micActionLockRef.current = true;
                   e.currentTarget.setPointerCapture?.(e.pointerId);
                   micPressStartRef.current = Date.now();
@@ -4583,13 +4015,13 @@ const MyWorkspaceChannelId = () => {
                 }}
                 onPointerUp={(e) => {
                   e.currentTarget.releasePointerCapture?.(e.pointerId);
-                  if (isRecording && !recordingPaused) {
+                  if (isRecordingRef.current && !recordingPaused) {
                     quickSendRecording();
                   }
                   micActionLockRef.current = false;
                 }}
                 onPointerCancel={(e) => {
-                  if (isRecording && !recordingPaused) quickSendRecording();
+                  if (isRecordingRef.current && !recordingPaused) quickSendRecording();
                   micActionLockRef.current = false;
                 }}
                 className="p-3 rounded-full text-white flex-shrink-0 transition hover:opacity-80 mb-1 touch-none select-none"
@@ -4621,13 +4053,14 @@ const MyWorkspaceChannelId = () => {
         </div>
       </div>
 
+      {/* ─── Modals ─── */}
       <ChatDetailsSheet
         isOpen={showDetailsSheet}
         onClose={() => setShowDetailsSheet(false)}
         chat={chat}
         workspace={workspace}
         userInfo={userInfo}
-        userRole={userRole}
+        canManageWorkspace={canManageWorkspace}
         brandColor={brandColor}
         onAddMember={handleAddMember}
         onRemoveMember={handleRemoveMember}
@@ -4650,9 +4083,7 @@ const MyWorkspaceChannelId = () => {
       <PromptModal
         isOpen={promptModal.isOpen}
         onClose={() => setPromptModal({ ...promptModal, isOpen: false })}
-        onConfirm={(value) =>
-          promptModal.onConfirm && promptModal.onConfirm(value)
-        }
+        onConfirm={(value) => promptModal.onConfirm && promptModal.onConfirm(value)}
         title={promptModal.title}
         label={promptModal.label}
         initialValue={promptModal.initialValue}
@@ -4668,7 +4099,7 @@ const MyWorkspaceChannelId = () => {
         brandColor={brandColor}
         existingParticipantIds={
           addMemberModal.chatId
-            ? chat?.participants.map((p) => p.user?._id || p.user) || []
+            ? chat?.participants.map(p => p.user?._id || p.user) || []
             : []
         }
         onSuccess={handleAddMemberSuccess}
@@ -4678,18 +4109,9 @@ const MyWorkspaceChannelId = () => {
         isOpen={actionModal.isOpen}
         onClose={() => setActionModal({ isOpen: false, message: null })}
         message={actionModal.message}
-        isOwn={
-          actionModal.message?.sender?._id === userInfo?._id ||
-          actionModal.message?.sender === userInfo?._id
-        }
-        isStarred={
-          actionModal.message?.starredBy?.some((id) => id === userInfo?._id) ||
-          false
-        }
-        isArchived={
-          actionModal.message?.archivedBy?.some((id) => id === userInfo?._id) ||
-          false
-        }
+        isOwn={actionModal.message?.sender?._id === userInfo?._id || actionModal.message?.sender === userInfo?._id}
+        isStarred={actionModal.message?.starredBy?.some(id => id === userInfo?._id) || false}
+        isArchived={actionModal.message?.archivedBy?.some(id => id === userInfo?._id) || false}
         onDelete={handleDeleteMessage}
         onArchive={handleArchiveMessage}
         onUnarchive={handleUnarchiveMessage}
