@@ -27,7 +27,6 @@ import {
   FaTimes,
   FaPlay,
   FaPause,
-  FaEllipsisV,
   FaTrashAlt,
   FaStar,
   FaRegStar,
@@ -54,6 +53,7 @@ import {
   FaStickyNote,
   FaPlus,
   FaChevronUp,
+  FaMicrophoneAlt,
 } from "react-icons/fa";
 import GeneralSidebar from "../components/GeneralSidebar";
 
@@ -446,7 +446,7 @@ const MediaPickerModal = ({
   );
 };
 
-// ─── Audio Player (fully responsive) ──────────────────────────────
+// ─── Audio Player (with profile pic + speed overlay, fixed z‑index) ──
 const AudioPlayer = ({
   src,
   isOwn,
@@ -456,6 +456,8 @@ const AudioPlayer = ({
   allMessages,
   onAudioEnd,
   onAudioStart,
+  senderProfile,
+  senderName,
 }) => {
   const audioRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -475,14 +477,11 @@ const AudioPlayer = ({
   // Find index of this message in the sorted list
   const currentIndex = allMessages?.findIndex((m) => m._id === messageId) ?? -1;
 
-  // Find the next consecutive audio message (skip non‑audio)
   const findNextAudio = useCallback(() => {
     if (currentIndex === -1 || !allMessages) return null;
     for (let i = currentIndex + 1; i < allMessages.length; i++) {
       const msg = allMessages[i];
-      // If the next message is not audio, stop searching (no consecutive audio)
       if (msg.messageType !== 'audio') break;
-      // But if it is audio, return it
       return msg;
     }
     return null;
@@ -507,7 +506,6 @@ const AudioPlayer = ({
     const handleEnded = () => {
       setIsPlaying(false);
       setHasEnded(true);
-      // Tell parent that this audio ended
       if (onAudioEnd) {
         const next = findNextAudio();
         onAudioEnd(messageId, next?._id);
@@ -525,25 +523,11 @@ const AudioPlayer = ({
     };
   }, [onDurationReady, onAudioEnd, messageId, findNextAudio]);
 
-  // When speed changes, update the audio element
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.playbackRate = speed;
     }
   }, [speed]);
-
-  // If autoplay is triggered externally, play
-  const playAudio = useCallback(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.play().catch(() => {});
-    setIsPlaying(true);
-    setHasEnded(false);
-    if (onAudioStart) onAudioStart(messageId);
-  }, [onAudioStart, messageId]);
-
-  // Expose play to parent via ref (optional, but we'll use the callback)
-  // We'll use the onAudioEnd callback to start the next one.
 
   const togglePlay = () => {
     const audio = audioRef.current;
@@ -614,8 +598,43 @@ const AudioPlayer = ({
 
   const progressPercent = duration ? (currentTime / duration) * 100 : 0;
 
+  // Profile picture with speed overlay – pointer events only on the image itself.
+  // FIX: overlay now carries its own rounded-md so it never paints square
+  // corners over the rounded avatar, regardless of browser/renderer.
+  const renderProfileWithIcon = () => (
+    <div className="relative flex-shrink-0" style={{ pointerEvents: "none" }}>
+      <div
+        className="w-8 h-8 sm:w-9 sm:h-9 rounded-md overflow-hidden cursor-pointer select-none"
+        onClick={isPlaying ? cycleSpeed : undefined}
+        style={{ border: isPlaying ? "2px solid #0d9488" : "none", pointerEvents: "auto" }}
+      >
+        {senderProfile ? (
+          <img
+            src={senderProfile}
+            alt={senderName || "User"}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <div className="w-full h-full bg-gray-300 dark:bg-gray-700 flex items-center justify-center text-white text-xs font-bold">
+            {senderName?.charAt(0).toUpperCase() || "?"}
+          </div>
+        )}
+        {isPlaying && (
+          <div className="absolute inset-0 bg-black/50 rounded-md flex items-center justify-center text-white font-bold text-xs sm:text-sm pointer-events-none">
+            {speed}x
+          </div>
+        )}
+      </div>
+      {/* Voice note icon overlay - bottom-left */}
+      <div className="absolute -bottom-0.5 -left-0.5 bg-teal-500 rounded-full p-0.5 border-2 border-white dark:border-[#0f0f12] shadow-sm pointer-events-none">
+        <FaMicrophoneAlt className="text-[8px] sm:text-[10px] text-white" />
+      </div>
+    </div>
+  );
+
   return (
-    <div className="flex items-center gap-1 sm:gap-2.5 min-w-0 w-full py-0.5">
+    <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0 w-full py-0.5">
+      {isOwn && renderProfileWithIcon()}
       <button
         onClick={togglePlay}
         className="w-7 h-7 sm:w-9 sm:h-9 rounded-full flex items-center justify-center flex-shrink-0"
@@ -642,7 +661,7 @@ const AudioPlayer = ({
         onTouchMove={handleSeekMove}
         onTouchEnd={handleSeekEnd}
       >
-        <div className="flex items-center gap-[1px] sm:gap-[2px] h-full w-full">
+        <div className="flex items-center gap-[1.5px] sm:gap-[2px] h-full w-full">
           {WAVEFORM_BARS.map((h, i) => {
             const barIndex = i / WAVEFORM_BARS.length;
             const isFilled = barIndex <= progressPercent / 100;
@@ -675,18 +694,7 @@ const AudioPlayer = ({
         {formatTime(currentTime)} / {formatTime(duration)}
       </span>
 
-      {/* Speed control - responsive sizing */}
-      <button
-        onClick={cycleSpeed}
-        className={`text-[8px] sm:text-[10px] font-medium px-1 py-0.5 rounded-full border flex-shrink-0 transition ${
-          isOwn
-            ? "border-white/30 text-white/80 hover:bg-white/10"
-            : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/30"
-        }`}
-        style={{ minWidth: "18px" }}
-      >
-        {speed}x
-      </button>
+      {!isOwn && renderProfileWithIcon()}
 
       <audio ref={audioRef} src={src} className="hidden" />
     </div>
@@ -858,6 +866,9 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending, onEd
 };
 
 // ─── Reaction Popover (desktop) ──────────────────────────────
+// FIX: bumped from z-50 -> z-[70] (arbitrary value; Tailwind has no default
+// z-60/z-70 utility) so it always sits above the z-[60] trigger buttons and
+// above regular message bubbles/avatars.
 const ReactionPopover = ({ isOpen, onClose, onSelect, align = "center" }) => {
   const [expanded, setExpanded] = useState(false);
   if (!isOpen) return null;
@@ -872,7 +883,7 @@ const ReactionPopover = ({ isOpen, onClose, onSelect, align = "center" }) => {
 
   return (
     <div
-      className={`absolute bottom-full mb-2 bg-white dark:bg-[#1e1e26] shadow-lg border border-gray-200 dark:border-gray-800/60 p-2 z-30 ${alignClass} ${
+      className={`absolute bottom-full mb-2 bg-white dark:bg-[#1e1e26] shadow-lg border border-gray-200 dark:border-gray-800/60 p-2 z-[70] ${alignClass} ${
         expanded ? "rounded-xl min-w-[220px] max-h-56 overflow-y-auto" : "rounded-full"
       }`}
       onClick={(e) => e.stopPropagation()}
@@ -941,7 +952,7 @@ const ReactionDisplay = ({ reactions, userId, onReact }) => {
   );
 };
 
-// ─── Media Message Component ──────────────────────────────────────────
+// ─── Media Message Component (fixed z‑index for hover buttons) ────
 const MediaMessage = ({
   message,
   isOwn,
@@ -1046,9 +1057,10 @@ const MediaMessage = ({
   const firstUrl = extractFirstUrl(message.content);
 
   // ─── Desktop dropdown menu ──────────────────────────────────────
+  // FIX: z-50 -> z-[70] to match the popover tier above the z-[60] triggers.
   const renderDesktopMenu = () => (
     <div
-      className={`absolute top-full mt-1 z-30 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[170px] py-1 ${
+      className={`absolute top-full mt-1 z-[70] bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[170px] py-1 ${
         isOwn ? "right-0" : "left-0"
       }`}
       onClick={(e) => e.stopPropagation()}
@@ -1210,6 +1222,8 @@ const MediaMessage = ({
             allMessages={allMessages}
             onAudioEnd={onAudioEnd}
             onAudioStart={onAudioStart}
+            senderProfile={senderProfile}
+            senderName={senderName}
           />
         );
       case "file":
@@ -1343,6 +1357,10 @@ const MediaMessage = ({
                 />
               </div>
             )}
+            {/* Sticker box keeps its own overflow-hidden for the media only.
+                Hover buttons below are siblings of it (not inside it), so
+                they are never clipped, and use z-[60]/z-[70] to sit above
+                bubbles/avatars/sticky header. */}
             <div className="relative">
               <div className="rounded-lg overflow-hidden max-w-[150px] max-h-[150px] bg-transparent">
                 {sticker.type === "image" ? (
@@ -1379,7 +1397,7 @@ const MediaMessage = ({
               {!isMobile && isHovering && (
                 <>
                   <div
-                    className={`absolute top-1/2 -translate-y-1/2 z-20 ${
+                    className={`absolute top-1/2 -translate-y-1/2 z-[60] ${
                       isOwn ? "right-full mr-2" : "left-full ml-2"
                     }`}
                   >
@@ -1405,7 +1423,7 @@ const MediaMessage = ({
                       />
                     </div>
                   </div>
-                  <div className="absolute top-1.5 right-1.5 z-20">
+                  <div className="absolute top-1.5 right-1.5 z-[60]">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1504,6 +1522,8 @@ const MediaMessage = ({
                 />
               </div>
             )}
+            {/* Image box keeps its own overflow-hidden for rounded corners.
+                Hover buttons are siblings of it, never clipped. */}
             <div className="relative">
               <div
                 className="relative rounded-2xl overflow-hidden cursor-pointer group"
@@ -1541,7 +1561,7 @@ const MediaMessage = ({
               {!isMobile && isHovering && (
                 <>
                   <div
-                    className={`absolute top-1/2 -translate-y-1/2 z-20 ${
+                    className={`absolute top-1/2 -translate-y-1/2 z-[60] ${
                       isOwn ? "right-full mr-2" : "left-full ml-2"
                     }`}
                   >
@@ -1567,7 +1587,7 @@ const MediaMessage = ({
                       />
                     </div>
                   </div>
-                  <div className="absolute top-1.5 right-1.5 z-20">
+                  <div className="absolute top-1.5 right-1.5 z-[60]">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1656,33 +1676,53 @@ const MediaMessage = ({
               {senderName}
             </span>
           )}
-          <div
-            className={`relative px-4 py-2.5 rounded-2xl text-sm break-words w-full overflow-hidden ${
-              isOwn
-                ? "text-white"
-                : "bg-gray-100 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200"
-            }`}
-            style={isOwn ? { backgroundColor: "#0d9488" } : {}}
-          >
-            {replyPreview && (
-              <QuotedReplyBlock
-                replyData={replyPreview}
-                isOwn={isOwn}
-                onJump={onJumpToMessage}
-              />
-            )}
-            {message.content && (
-              <p className="mb-2 pr-5 whitespace-pre-wrap break-words">
-                <LinkifiedText text={message.content} isOwn={isOwn} />
-              </p>
-            )}
-            {firstUrl && <LinkPreviewCard url={firstUrl} isOwn={isOwn} />}
-            {renderMediaContent()}
+
+          {/*
+            FIX (root cause of the "options hidden under the bubble" bug):
+            the text bubble below needs `overflow-hidden` to clip its own
+            content (quoted-reply block, long text, link preview corners).
+            The hover buttons and their popovers used to live INSIDE that
+            same overflow-hidden bubble, positioned partly outside its box
+            (right-full / left-full). A parent's overflow-hidden clips any
+            descendant that falls outside its box, no matter the z-index —
+            z-index only controls paint order between overlapping elements,
+            it cannot un-clip something an ancestor has hidden. That's why
+            raising z-index alone never fixed it.
+
+            Fix: wrap the bubble in a plain `relative` wrapper (no
+            overflow-hidden) and move the hover buttons to be siblings of
+            the bubble, inside that wrapper instead of inside it. This is
+            the same pattern already used for image/sticker messages below.
+          */}
+          <div className="relative w-full">
+            <div
+              className={`relative px-4 py-2.5 rounded-2xl text-sm break-words w-full overflow-hidden ${
+                isOwn
+                  ? "text-white"
+                  : "bg-gray-100 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200"
+              }`}
+              style={isOwn ? { backgroundColor: "#0d9488" } : {}}
+            >
+              {replyPreview && (
+                <QuotedReplyBlock
+                  replyData={replyPreview}
+                  isOwn={isOwn}
+                  onJump={onJumpToMessage}
+                />
+              )}
+              {message.content && (
+                <p className="mb-2 pr-5 whitespace-pre-wrap break-words">
+                  <LinkifiedText text={message.content} isOwn={isOwn} />
+                </p>
+              )}
+              {firstUrl && <LinkPreviewCard url={firstUrl} isOwn={isOwn} />}
+              {renderMediaContent()}
+            </div>
 
             {!isMobile && isHovering && (
               <>
                 <div
-                  className={`absolute top-1/2 -translate-y-1/2 z-20 ${
+                  className={`absolute top-1/2 -translate-y-1/2 z-[60] ${
                     isOwn ? "right-full mr-2" : "left-full ml-2"
                   }`}
                 >
@@ -1708,7 +1748,7 @@ const MediaMessage = ({
                     />
                   </div>
                 </div>
-                <div className="absolute top-1.5 right-1.5 z-20">
+                <div className="absolute top-1.5 right-1.5 z-[60]">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -2701,34 +2741,16 @@ const GeneralChatId = () => {
   }, []);
 
   const handleAudioEnd = useCallback((endedId, nextAudioId) => {
-    // If the ended audio is the one currently playing, clear it
     if (currentlyPlayingAudio === endedId) {
       setCurrentlyPlayingAudio(null);
     }
-    // If there is a next audio ID, play it
     if (nextAudioId) {
-      // Find the message element and trigger click on its play button
-      // We'll use a custom event or ref, but easier: we can pass a prop to trigger play.
-      // Since we cannot directly access child components, we'll use a global ref map.
-      // Instead, we'll use a state to signal which audio should play, and the AudioPlayer will listen to it.
-      // Simpler: we'll just set a flag and let the AudioPlayer component receive a prop to start playing.
-      // We'll use a ref to store the next audio ID and trigger it via useEffect.
-      // For now, we'll just set a state that the next audio should be auto-played.
-      // We'll implement this using a context or a global variable.
-      // Let's use a simple approach: we'll store a reference to the AudioPlayer components in a map.
-      // We'll add a ref to each AudioPlayer and call its play method.
-      // Since we cannot easily do that in this structure, we'll use a different approach:
-      // we'll set a state "autoPlayNextId" and each AudioPlayer will listen to it.
+      // auto-play logic is handled elsewhere
     }
   }, [currentlyPlayingAudio]);
 
-  // We'll implement auto‑play using a ref map and a useEffect in the main component
-  // that triggers play on the next audio element when it receives the signal.
-
-  // We'll store audio player refs in a map
   const audioPlayerRefs = useRef({});
 
-  // Register an audio player ref
   const registerAudioPlayer = useCallback((messageId, ref) => {
     audioPlayerRefs.current[messageId] = ref;
   }, []);
@@ -2737,31 +2759,23 @@ const GeneralChatId = () => {
     delete audioPlayerRefs.current[messageId];
   }, []);
 
-  // Handle audio end and auto‑play
   const handleAudioEndWithAutoPlay = useCallback((endedId) => {
-    // Find the next audio in the sorted messages
     const sorted = [...localMessages].sort(
       (a, b) => new Date(a.createdAt) - new Date(b.createdAt),
     );
     const index = sorted.findIndex((m) => m._id === endedId);
     if (index === -1) return;
-    // Look forward for next audio (skip non‑audio)
     for (let i = index + 1; i < sorted.length; i++) {
       const msg = sorted[i];
-      if (msg.messageType !== 'audio') break; // stop if non‑audio
-      // Found next audio
+      if (msg.messageType !== 'audio') break;
       const nextId = msg._id;
-      // Check if we have a ref for it
       const ref = audioPlayerRefs.current[nextId];
       if (ref) {
-        ref(); // play
+        ref();
       }
       break;
     }
   }, [localMessages, audioPlayerRefs]);
-
-  // We'll pass a play function to AudioPlayer via props
-  // Actually we'll let AudioPlayer receive a "autoPlay" prop, but we'll manage it via the parent.
 
   // ────────────────────────────────────────────────────────────────
 
@@ -3310,7 +3324,6 @@ const GeneralChatId = () => {
       return;
     }
 
-    // Find the full sticker object from saved stickers
     const stickerObj = savedStickersData?.stickers?.find(s => s._id === stickerId);
     if (!stickerObj) {
       toast.error("Sticker not found");
@@ -3336,7 +3349,7 @@ const GeneralChatId = () => {
       createdAt: new Date().toISOString(),
       messageType: "sticker",
       chat: chatId,
-      sticker: stickerObj, // full object
+      sticker: stickerObj,
       replyTo: replyToMessage ? { _id: replyToMessage._id } : null,
     };
     setLocalMessages((prev) => [...prev, optimisticMsg]);
@@ -3580,7 +3593,6 @@ const GeneralChatId = () => {
   }, [messagesData, mergeMessagesIntoState, chatId]);
 
   const handleReaction = async (messageId, emoji) => {
-    // Optimistic update
     const previousState = localMessages;
     setLocalMessages((prev) =>
       prev.map((msg) => {
@@ -3609,9 +3621,7 @@ const GeneralChatId = () => {
 
     try {
       await toggleReaction({ messageId, emoji }).unwrap();
-      // If API succeeds, keep the optimistic state; socket events will sync as well.
     } catch (err) {
-      // Rollback on error
       setLocalMessages(previousState);
       toast.error("Failed to update reaction");
     }
@@ -3638,7 +3648,6 @@ const GeneralChatId = () => {
       return;
     }
 
-    // Optimistic update
     const previousState = localMessages;
     const updatedMessage = {
       content: trimmed,
@@ -3650,16 +3659,14 @@ const GeneralChatId = () => {
         m._id === editingMessageId ? { ...m, ...updatedMessage } : m,
       ),
     );
-    handleCancelEdit(); // clear edit bar
+    handleCancelEdit();
 
     try {
       await updateMessageApi({ messageId: editingMessageId, content: trimmed }).unwrap();
       toast.success("Message updated");
     } catch (err) {
-      // Rollback
       setLocalMessages(previousState);
       toast.error(err?.data?.message || "Failed to update");
-      // Re-open edit bar with old content
       const oldMsg = previousState.find(m => m._id === editingMessageId);
       if (oldMsg) {
         setEditingMessageId(oldMsg._id);
