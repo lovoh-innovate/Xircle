@@ -55,6 +55,7 @@ import {
   FaUndoAlt,
   FaStickyNote,
   FaPlus,
+  FaChevronUp,
 } from "react-icons/fa";
 import GeneralSidebar from "../components/GeneralSidebar";
 
@@ -782,39 +783,50 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending, onEd
   );
 };
 
-// ─── Reaction Popover (desktop) with plus button ──────────────────
-const ReactionPopover = ({ isOpen, onClose, onSelect, onPlusClick, align = "center" }) => {
+// ─── Reaction Popover (desktop) ──────────────────────────────
+const ReactionPopover = ({ isOpen, onClose, onSelect, align = "center" }) => {
+  const [expanded, setExpanded] = useState(false);
   if (!isOpen) return null;
+
+  const displayEmojis = expanded ? EMOJI_LIST : REACTION_EMOJIS;
   const alignClass =
     align === "left"
       ? "left-0"
       : align === "right"
         ? "right-0"
         : "left-1/2 -translate-x-1/2";
+
   return (
     <div
-      className={`absolute bottom-full mb-2 bg-white dark:bg-[#1e1e26] rounded-full shadow-lg border border-gray-200 dark:border-gray-800/60 p-1.5 flex gap-1 z-30 ${alignClass}`}
+      className={`absolute bottom-full mb-2 bg-white dark:bg-[#1e1e26] shadow-lg border border-gray-200 dark:border-gray-800/60 p-2 z-30 ${alignClass} ${
+        expanded ? "rounded-xl min-w-[220px] max-h-56 overflow-y-auto" : "rounded-full"
+      }`}
       onClick={(e) => e.stopPropagation()}
     >
-      {REACTION_EMOJIS.map((emoji) => (
+      <div className={expanded ? "grid grid-cols-6 gap-1" : "flex gap-1"}>
+        {displayEmojis.map((emoji) => (
+          <button
+            key={emoji}
+            onClick={() => { onSelect(emoji); onClose(); }}
+            className={`hover:scale-125 hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-full p-1 transition-transform ${
+              expanded ? "text-2xl" : "text-xl"
+            }`}
+          >
+            {emoji}
+          </button>
+        ))}
         <button
-          key={emoji}
-          onClick={() => { onSelect(emoji); onClose(); }}
-          className="text-xl hover:scale-125 hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-full p-1 transition-transform"
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded(!expanded);
+          }}
+          className={`hover:scale-125 hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-full p-1 transition-transform ${
+            expanded ? "text-xl" : "text-xl"
+          }`}
         >
-          {emoji}
+          {expanded ? <FaChevronUp className="text-gray-400 dark:text-gray-500" /> : <FaPlus className="text-gray-400 dark:text-gray-500" />}
         </button>
-      ))}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onPlusClick();
-          onClose();
-        }}
-        className="text-xl hover:scale-125 hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-full p-1 transition-transform text-gray-400 dark:text-gray-500"
-      >
-        <FaPlus className="text-base" />
-      </button>
+      </div>
     </div>
   );
 };
@@ -877,7 +889,6 @@ const MediaMessage = ({
   onJumpToMessage,
   resolveSender,
   showSenderName = true,
-  onOpenEmojiPicker, // ✨ new prop to open main emoji picker
 }) => {
   // ── Deleted state ──
   if (message.isDeleted) {
@@ -958,7 +969,7 @@ const MediaMessage = ({
 
   const firstUrl = extractFirstUrl(message.content);
 
-  // ─── Desktop dropdown menu (defined once, used everywhere) ──────────
+  // ─── Desktop dropdown menu ──────────────────────────────────────
   const renderDesktopMenu = () => (
     <div
       className={`absolute top-full mt-1 z-30 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[170px] py-1 ${
@@ -1308,9 +1319,6 @@ const MediaMessage = ({
                           onReaction(message._id, emoji);
                           setShowReactions(false);
                         }}
-                        onPlusClick={() => {
-                          if (onOpenEmojiPicker) onOpenEmojiPicker();
-                        }}
                         align={isOwn ? "right" : "left"}
                       />
                     </div>
@@ -1472,9 +1480,6 @@ const MediaMessage = ({
                           onReaction(message._id, emoji);
                           setShowReactions(false);
                         }}
-                        onPlusClick={() => {
-                          if (onOpenEmojiPicker) onOpenEmojiPicker();
-                        }}
                         align={isOwn ? "right" : "left"}
                       />
                     </div>
@@ -1613,9 +1618,6 @@ const MediaMessage = ({
                       onSelect={(emoji) => {
                         onReaction(message._id, emoji);
                         setShowReactions(false);
-                      }}
-                      onPlusClick={() => {
-                        if (onOpenEmojiPicker) onOpenEmojiPicker();
                       }}
                       align={isOwn ? "right" : "left"}
                     />
@@ -1794,9 +1796,12 @@ const MessageActionModal = ({
   onCopy,
   onReaction,
   onEdit,
-  onOpenEmojiPicker,
 }) => {
+  const [expanded, setExpanded] = useState(false);
   if (!isOpen || !message) return null;
+
+  const reactionEmojis = expanded ? EMOJI_LIST : REACTION_EMOJIS;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 dark:bg-black/60 backdrop-blur-sm"
@@ -1828,27 +1833,24 @@ const MessageActionModal = ({
         </div>
 
         {/* Reactions row with plus */}
-        <div className="flex flex-wrap justify-around mb-3 border-b border-gray-200 dark:border-gray-700/60 pb-3">
-          {REACTION_EMOJIS.map((emoji) => (
+        <div className={`${expanded ? "grid grid-cols-6 gap-2" : "flex flex-wrap justify-around"} mb-3 border-b border-gray-200 dark:border-gray-700/60 pb-3`}>
+          {reactionEmojis.map((emoji) => (
             <button
               key={emoji}
               onClick={() => {
                 onReaction(message._id, emoji);
                 onClose();
               }}
-              className="text-2xl hover:scale-125 transition-transform"
+              className={`${expanded ? "text-2xl p-1 hover:scale-125" : "text-2xl hover:scale-125"} transition-transform`}
             >
               {emoji}
             </button>
           ))}
           <button
-            onClick={() => {
-              onOpenEmojiPicker();
-              onClose();
-            }}
-            className="text-2xl hover:scale-125 transition-transform text-gray-400 dark:text-gray-500"
+            onClick={() => setExpanded(!expanded)}
+            className={`${expanded ? "text-2xl p-1" : "text-2xl"} transition-transform text-gray-400 dark:text-gray-500`}
           >
-            <FaPlus />
+            {expanded ? <FaChevronUp /> : <FaPlus />}
           </button>
         </div>
 
@@ -3150,12 +3152,12 @@ const GeneralChatId = () => {
   }, [showEmojiPicker, isMobile]);
 
   const handleEmojiSelect = (emoji) => {
-  setMessage((prev) => prev + emoji);
-  // ✨ Also update editContent if we're in edit mode
-  if (editingMessageId) {
-    setEditContent((prev) => prev + emoji);
-  }
-};
+    setMessage((prev) => prev + emoji);
+    if (editingMessageId) {
+      setEditContent((prev) => prev + emoji);
+    }
+  };
+
   const handleSendSticker = async (stickerId) => {
     if (!stickerId) return;
     if (isSendingRef.current) return;
@@ -4123,7 +4125,6 @@ const GeneralChatId = () => {
           onJumpToMessage={handleJumpToMessage}
           resolveSender={resolveSender}
           showSenderName={showSenderName}
-          onOpenEmojiPicker={toggleEmoji} // ✨ pass down
         />,
       );
     });
@@ -4717,7 +4718,6 @@ const GeneralChatId = () => {
         onCopy={handleCopyMessage}
         onReaction={handleReaction}
         onEdit={handleEdit}
-        onOpenEmojiPicker={toggleEmoji}
       />
 
       <MediaPickerModal
