@@ -53,11 +53,10 @@ import {
   FaArrowRight,
   FaSave,
   FaUndoAlt,
-  FaPlus,
   FaStickyNote,
+  FaPlus,
 } from "react-icons/fa";
 import GeneralSidebar from "../components/GeneralSidebar";
-import { createPortal } from "react-dom";
 
 import { VoiceRecorder } from "capacitor-voice-recorder";
 import { Capacitor } from "@capacitor/core";
@@ -765,18 +764,24 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending, onEd
 };
 
 // ─── Reaction Popover (desktop) ──────────────────────────────
-const ReactionPopover = ({ isOpen, onClose, onSelect }) => {
+const ReactionPopover = ({ isOpen, onClose, onSelect, align = "center" }) => {
   if (!isOpen) return null;
+  const alignClass =
+    align === "left"
+      ? "left-0"
+      : align === "right"
+        ? "right-0"
+        : "left-1/2 -translate-x-1/2";
   return (
     <div
-      className="absolute bottom-full left-0 mb-2 bg-white dark:bg-[#1e1e26] rounded-xl shadow-lg border border-gray-200 dark:border-gray-800/60 p-2 flex gap-1 z-30"
-      style={{ transform: "translateX(-50%)", left: "50%" }}
+      className={`absolute bottom-full mb-2 bg-white dark:bg-[#1e1e26] rounded-full shadow-lg border border-gray-200 dark:border-gray-800/60 p-1.5 flex gap-1 z-30 ${alignClass}`}
+      onClick={(e) => e.stopPropagation()}
     >
       {REACTION_EMOJIS.map((emoji) => (
         <button
           key={emoji}
           onClick={() => { onSelect(emoji); onClose(); }}
-          className="text-2xl hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-lg p-1 transition"
+          className="text-xl hover:scale-125 hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-full p-1 transition-transform"
         >
           {emoji}
         </button>
@@ -785,7 +790,7 @@ const ReactionPopover = ({ isOpen, onClose, onSelect }) => {
   );
 };
 
-// ─── Reaction Display (shows reactions below message) ──────────────
+// ─── Reaction Display ──────────────────────────────────────────────
 const ReactionDisplay = ({ reactions, userId, onReact }) => {
   if (!reactions || reactions.length === 0) return null;
 
@@ -797,7 +802,7 @@ const ReactionDisplay = ({ reactions, userId, onReact }) => {
   });
 
   return (
-    <div className="flex flex-wrap gap-1 mt-1">
+    <div className="flex flex-wrap gap-1 mt-0.5">
       {Object.entries(emojiMap).map(([emoji, data]) => {
         const isOwnReaction = data.users.some((u) => u === userId);
         return (
@@ -867,8 +872,7 @@ const MediaMessage = ({
   const time = safeFormatTime(message.createdAt);
   const [showMenu, setShowMenu] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
-  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0, visible: false });
-  const menuButtonRef = useRef(null);
+  const [isHovering, setIsHovering] = useState(false);
 
   const longPressTimer = useRef(null);
   const isLongPress = useRef(false);
@@ -965,58 +969,6 @@ const MediaMessage = ({
     }
   };
 
-  const toggleMenu = (e) => {
-    e.stopPropagation();
-    if (showMenu) {
-      setShowMenu(false);
-      setMenuPosition({ ...menuPosition, visible: false });
-      return;
-    }
-    // Calculate position for portal
-    const btn = menuButtonRef.current;
-    if (btn) {
-      const rect = btn.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-      const menuWidth = 180; // approximate
-      const menuHeight = 200; // approximate
-
-      let left = rect.right - menuWidth;
-      if (left < 10) left = 10;
-      if (left + menuWidth > viewportWidth - 10) left = viewportWidth - menuWidth - 10;
-
-      let top = rect.bottom + 10;
-      if (top + menuHeight > viewportHeight - 10) {
-        top = rect.top - menuHeight - 10;
-      }
-      if (top < 10) top = 10;
-
-      setMenuPosition({ top, left, visible: true });
-    }
-    setShowMenu(true);
-    setShowReactions(false);
-  };
-
-  const closeMenu = () => {
-    setShowMenu(false);
-    setMenuPosition({ ...menuPosition, visible: false });
-  };
-
-  // Close on outside click
-  useEffect(() => {
-    if (!showMenu) return;
-    const handler = (e) => {
-      if (menuButtonRef.current && !menuButtonRef.current.contains(e.target)) {
-        // Check if click is inside portal menu
-        const portalMenu = document.getElementById('message-menu-portal');
-        if (portalMenu && portalMenu.contains(e.target)) return;
-        closeMenu();
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showMenu]);
-
   const handleDownload = (e) => {
     e.stopPropagation();
     if (message.mediaUrl) {
@@ -1087,16 +1039,18 @@ const MediaMessage = ({
   const swipeIconOpacity = Math.min(swipeX / 60, 1);
   const maxWidthClass = isMobile ? "max-w-[75%]" : "max-w-[85%]";
 
-  const renderMenuItems = () => (
+  // ─── Desktop dropdown menu — anchored to the chevron in the bubble corner ──
+  const renderDesktopMenu = () => (
     <div
-      className="bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[160px] py-1"
-      style={{ width: '180px' }}
+      className={`absolute top-full mt-1 z-30 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[170px] py-1 ${
+        isOwn ? "right-0" : "left-0"
+      }`}
       onClick={(e) => e.stopPropagation()}
+      onMouseLeave={() => setShowMenu(false)}
     >
       <button
-        onClick={(e) => {
-          e.stopPropagation();
-          closeMenu();
+        onClick={() => {
+          setShowMenu(false);
           onReply(message);
         }}
         className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
@@ -1105,9 +1059,8 @@ const MediaMessage = ({
       </button>
       {isOwn && message.messageType === "text" && (
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            closeMenu();
+          onClick={() => {
+            setShowMenu(false);
             onEdit(message);
           }}
           className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
@@ -1117,9 +1070,8 @@ const MediaMessage = ({
       )}
       {isOwn && (
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            closeMenu();
+          onClick={() => {
+            setShowMenu(false);
             onDelete(message._id);
           }}
           className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full"
@@ -1129,9 +1081,8 @@ const MediaMessage = ({
       )}
       {isStarred ? (
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            closeMenu();
+          onClick={() => {
+            setShowMenu(false);
             onUnstar(message._id);
           }}
           className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 rounded-lg transition w-full"
@@ -1140,9 +1091,8 @@ const MediaMessage = ({
         </button>
       ) : (
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            closeMenu();
+          onClick={() => {
+            setShowMenu(false);
             onStar(message._id);
           }}
           className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
@@ -1152,9 +1102,8 @@ const MediaMessage = ({
       )}
       {isArchived ? (
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            closeMenu();
+          onClick={() => {
+            setShowMenu(false);
             onUnarchive(message._id);
           }}
           className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 rounded-lg transition w-full"
@@ -1163,9 +1112,8 @@ const MediaMessage = ({
         </button>
       ) : (
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            closeMenu();
+          onClick={() => {
+            setShowMenu(false);
             onArchive(message._id);
           }}
           className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
@@ -1176,21 +1124,27 @@ const MediaMessage = ({
     </div>
   );
 
-  const renderReactionButton = () => {
-    if (isMobile) return null;
-    return (
-      <div className="relative inline-block ml-1">
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowReactions(!showReactions);
-            setShowMenu(false);
-          }}
-          className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white p-0.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
-        >
-          <FaPlus className="text-xs" />
-        </button>
-        {showReactions && (
+  // ─── Desktop hover controls: chevron dropdown tucked into the bubble
+  //     corner (WhatsApp-style), plus a reaction smiley just outside it ──
+  const renderHoverControls = ({ withinOverflowHidden }) => (
+    <>
+      {/* Reaction smiley — sits just outside the bubble edge */}
+      <div
+        className={`absolute top-1/2 -translate-y-1/2 z-20 ${
+          isOwn ? "right-full mr-2" : "left-full ml-2"
+        }`}
+      >
+        <div className="relative">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowReactions(!showReactions);
+              setShowMenu(false);
+            }}
+            className="bg-white dark:bg-[#1e1e26] rounded-full shadow-md border border-gray-200 dark:border-gray-700/60 p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+          >
+            <FaSmile className="text-xs text-gray-500 dark:text-gray-400" />
+          </button>
           <ReactionPopover
             isOpen={showReactions}
             onClose={() => setShowReactions(false)}
@@ -1198,11 +1152,39 @@ const MediaMessage = ({
               onReaction(message._id, emoji);
               setShowReactions(false);
             }}
+            align={isOwn ? "right" : "left"}
           />
-        )}
+        </div>
       </div>
-    );
-  };
+
+      {/* Chevron dropdown — tucked into the top-right corner of the bubble */}
+      <div
+        className={
+          withinOverflowHidden
+            ? "absolute top-1.5 right-1.5 z-20"
+            : "absolute top-1 right-1 z-20"
+        }
+      >
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowMenu(!showMenu);
+            setShowReactions(false);
+          }}
+          className={`rounded-full p-1 transition ${
+            withinOverflowHidden
+              ? "bg-black/40 hover:bg-black/60 text-white"
+              : isOwn
+                ? "bg-black/10 hover:bg-black/20 text-white/90"
+                : "bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 text-gray-500 dark:text-gray-300"
+          }`}
+        >
+          <FaChevronDown className="text-[10px]" />
+        </button>
+        {showMenu && renderDesktopMenu()}
+      </div>
+    </>
+  );
 
   // ─── Image messages ──────────────────────────────────────────────────
   if (message.messageType === "image") {
@@ -1213,6 +1195,12 @@ const MediaMessage = ({
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
         onTouchMove={handleTouchMove}
+        onMouseEnter={() => setIsHovering(true)}
+        onMouseLeave={() => {
+          setIsHovering(false);
+          setShowMenu(false);
+          setShowReactions(false);
+        }}
       >
         {isMobile && swipeX > 0 && (
           <div
@@ -1245,7 +1233,7 @@ const MediaMessage = ({
             </div>
           )}
           <div
-            className={`${maxWidthClass} ${isOwn ? "items-end" : "items-start"} flex flex-col`}
+            className={`${maxWidthClass} relative ${isOwn ? "items-end" : "items-start"} flex flex-col`}
           >
             {!isOwn && (
               <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1 mb-0.5">
@@ -1261,56 +1249,51 @@ const MediaMessage = ({
                 />
               </div>
             )}
-            <div
-              className="relative rounded-2xl overflow-hidden cursor-pointer group"
-              onClick={(e) => {
-                if (message.mediaUrl) {
-                  onImageClick &&
-                    onImageClick({
-                      url: message.mediaUrl,
-                      senderName: isOwn ? "You" : senderName,
-                      time,
-                    });
-                } else {
-                  toast.error("Image URL not available");
-                }
-              }}
-            >
-              {message.mediaUrl ? (
-                <img
-                  src={message.mediaUrl}
-                  alt={message.mediaName || "Image"}
-                  className="max-w-full max-h-80 object-cover w-full"
-                />
-              ) : (
-                <div className="w-full h-40 bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-gray-500 dark:text-gray-400">
-                  <FaExclamationTriangle className="text-2xl mr-2" /> Image
-                  unavailable
+            {/* Outer wrapper stays free of overflow-hidden so the chevron's
+                dropdown menu is never clipped by the rounded image corners */}
+            <div className="relative">
+              <div
+                className="relative rounded-2xl overflow-hidden cursor-pointer group"
+                onClick={(e) => {
+                  if (message.mediaUrl) {
+                    onImageClick &&
+                      onImageClick({
+                        url: message.mediaUrl,
+                        senderName: isOwn ? "You" : senderName,
+                        time,
+                      });
+                  } else {
+                    toast.error("Image URL not available");
+                  }
+                }}
+              >
+                {message.mediaUrl ? (
+                  <img
+                    src={message.mediaUrl}
+                    alt={message.mediaName || "Image"}
+                    className="max-w-full max-h-80 object-cover w-full"
+                  />
+                ) : (
+                  <div className="w-full h-40 bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-gray-500 dark:text-gray-400">
+                    <FaExclamationTriangle className="text-2xl mr-2" /> Image
+                    unavailable
+                  </div>
+                )}
+                <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 text-[10px] text-white bg-black/50 px-2 py-0.5 rounded-full">
+                  <span>{time}</span>
+                  <MessageTicks message={message} isOwn={isOwn} />
                 </div>
-              )}
-              <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 text-[10px] text-white bg-black/50 px-2 py-0.5 rounded-full">
-                <span>{time}</span>
-                <MessageTicks message={message} isOwn={isOwn} />
               </div>
-              {!isMobile && (
-                <div
-                  className="absolute top-1.5 right-1.5 flex items-center gap-1 transition"
-                  ref={menuButtonRef}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {renderReactionButton()}
-                  <button
-                    onClick={toggleMenu}
-                    className="text-white bg-black/40 p-1 rounded-full hover:bg-black/60"
-                  >
-                    <FaEllipsisV className="text-xs" />
-                  </button>
-                </div>
-              )}
+
+              {/* ─── Desktop: chevron + reaction on hover ─── */}
+              {!isMobile &&
+                isHovering &&
+                renderHoverControls({ withinOverflowHidden: true })}
             </div>
+
             {/* Reactions display */}
             {message.reactions && message.reactions.length > 0 && (
-              <div className="mt-1 ml-1">
+              <div className="mt-1">
                 <ReactionDisplay
                   reactions={message.reactions}
                   userId={userId}
@@ -1332,6 +1315,12 @@ const MediaMessage = ({
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
       onTouchMove={handleTouchMove}
+      onMouseEnter={() => setIsHovering(true)}
+      onMouseLeave={() => {
+        setIsHovering(false);
+        setShowMenu(false);
+        setShowReactions(false);
+      }}
     >
       {isMobile && swipeX > 0 && (
         <div
@@ -1364,7 +1353,7 @@ const MediaMessage = ({
           </div>
         )}
         <div
-          className={`${maxWidthClass} ${isOwn ? "items-end" : "items-start"} flex flex-col gap-0.5`}
+          className={`${maxWidthClass} relative ${isOwn ? "items-end" : "items-start"} flex flex-col gap-0.5`}
         >
           {!isOwn && (
             <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1">
@@ -1372,7 +1361,7 @@ const MediaMessage = ({
             </span>
           )}
           <div
-            className={`px-4 py-2.5 rounded-2xl text-sm break-words w-full relative ${
+            className={`relative px-4 py-2.5 rounded-2xl text-sm break-words w-full ${
               isOwn
                 ? "text-white"
                 : "bg-gray-100 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200"
@@ -1387,21 +1376,22 @@ const MediaMessage = ({
               />
             )}
             {message.content && (
-              <p className="mb-2 whitespace-pre-wrap break-words">
+              <p className="mb-2 pr-5 whitespace-pre-wrap break-words">
                 <LinkifiedText text={message.content} isOwn={isOwn} />
               </p>
             )}
             {firstUrl && <LinkPreviewCard url={firstUrl} isOwn={isOwn} />}
             {renderMediaContent()}
-            {!isMobile && (
-              <div className="absolute -bottom-4 right-0 flex items-center gap-1 transition">
-                {renderReactionButton()}
-              </div>
-            )}
+
+            {/* ─── Desktop: chevron + reaction on hover ─── */}
+            {!isMobile &&
+              isHovering &&
+              renderHoverControls({ withinOverflowHidden: false })}
           </div>
+
           {/* Reactions display */}
           {message.reactions && message.reactions.length > 0 && (
-            <div className="mt-1 ml-1">
+            <div className="mt-1">
               <ReactionDisplay
                 reactions={message.reactions}
                 userId={userId}
@@ -1409,37 +1399,15 @@ const MediaMessage = ({
               />
             </div>
           )}
+
           <div
             className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 ${isOwn ? "flex-row-reverse" : ""}`}
           >
             <span>{time}</span>
             <MessageTicks message={message} isOwn={isOwn} />
-            {!isMobile && (
-              <div className="relative ml-2">
-                <button
-                  ref={menuButtonRef}
-                  onClick={toggleMenu}
-                  className="text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition p-0.5"
-                >
-                  <FaEllipsisV className="text-xs" />
-                </button>
-              </div>
-            )}
           </div>
         </div>
       </div>
-
-      {/* Portal menu */}
-      {!isMobile && showMenu && menuPosition.visible && createPortal(
-        <div
-          id="message-menu-portal"
-          className="fixed z-50"
-          style={{ top: menuPosition.top, left: menuPosition.left }}
-        >
-          {renderMenuItems()}
-        </div>,
-        document.body
-      )}
     </div>
   );
 };
