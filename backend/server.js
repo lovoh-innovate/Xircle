@@ -22,6 +22,7 @@ import appRoutes from './routes/appRoutes.js';
 import clockInRoutes from './routes/clockInRoutes.js';
 import personalNoteRoutes from "./routes/personalNoteRoutes.js";
 import workspaceNoteRoutes from "./routes/workspaceNoteRoutes.js";
+import stickerRoutes from './routes/stickerRoutes.js';
 
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 import { initSocket } from "./controllers/socket.js";
@@ -99,6 +100,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/personal-tasks', personalTaskRoutes);
 app.use('/api/app', appRoutes);
 app.use('/api/clockin', clockInRoutes);
+app.use('/api/stickers', stickerRoutes);
 
 //note routes
 app.use("/api/personal-notes", personalNoteRoutes);

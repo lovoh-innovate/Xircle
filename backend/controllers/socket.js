@@ -399,6 +399,93 @@ export const initSocket = (server) => {
       }
     });
 
+    // ── ✨ EDIT MESSAGE ──────────────────────────────────────────────
+    socket.on('edit-message', async (data, callback) => {
+      try {
+        const { messageId, content } = data;
+        if (!content || !content.trim()) {
+          return callback({ error: 'Content cannot be empty' });
+        }
+
+        const message = await Message.findById(messageId);
+        if (!message) return callback({ error: 'Message not found' });
+
+        // Only sender can edit
+        if (message.sender.toString() !== socket.userId) {
+          return callback({ error: 'You can only edit your own messages' });
+        }
+
+        message.content = content.trim();
+        message.edited = true;
+        message.editedAt = new Date();
+        await message.save();
+
+        const updatedMessage = await Message.findById(messageId)
+          .populate('sender', 'name email profile')
+          .populate('mentions', 'name email profile')
+          .populate('replyTo');
+
+        io.to(`chat:${message.chat}`).emit('message-edited', updatedMessage);
+        callback({ success: true, message: updatedMessage });
+      } catch (error) {
+        console.error('Error editing message:', error);
+        callback({ error: error.message });
+      }
+    });
+
+    // ── ✨ REACTIONS ───────────────────────────────────────────────────
+    socket.on('toggle-reaction', async (data, callback) => {
+      try {
+        const { messageId, emoji } = data;
+        if (!emoji || typeof emoji !== 'string' || emoji.length === 0) {
+          return callback({ error: 'Valid emoji required' });
+        }
+
+        const message = await Message.findById(messageId);
+        if (!message) return callback({ error: 'Message not found' });
+
+        const chat = await Chat.findById(message.chat);
+        if (!chat) return callback({ error: 'Chat not found' });
+
+        const isParticipant = chat.participants.some(
+          (p) => p.user.toString() === socket.userId
+        );
+        if (!isParticipant) return callback({ error: 'You are not in this chat' });
+
+        if (!message.reactions) message.reactions = [];
+
+        const existingIndex = message.reactions.findIndex(
+          (r) => r.user.toString() === socket.userId && r.emoji === emoji
+        );
+
+        let action;
+        if (existingIndex !== -1) {
+          message.reactions.splice(existingIndex, 1);
+          action = 'removed';
+          await message.save();
+          io.to(`chat:${message.chat}`).emit('reaction-removed', {
+            messageId: message._id,
+            emoji,
+            userId: socket.userId,
+          });
+        } else {
+          message.reactions.push({ user: socket.userId, emoji });
+          action = 'added';
+          await message.save();
+          io.to(`chat:${message.chat}`).emit('reaction-added', {
+            messageId: message._id,
+            emoji,
+            user: socket.userId,
+          });
+        }
+
+        callback({ success: true, action });
+      } catch (error) {
+        console.error('Error toggling reaction:', error);
+        callback({ error: error.message });
+      }
+    });
+
     // ── Call signaling (unchanged) ──────────────────────────────────
     socket.on('join-call-room', async (roomId) => {
       const call = await Call.findOne({ roomId, status: { $in: ['ringing', 'ongoing'] } });

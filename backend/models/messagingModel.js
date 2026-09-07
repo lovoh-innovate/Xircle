@@ -10,8 +10,8 @@ const messageSchema = new mongoose.Schema(
     workspace: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Workspace',
-      required: false,      // ✅ change from true to false
-      default: null,        // ✅ add default
+      required: false,
+      default: null,
       index: true,
     },
     chat: {
@@ -32,7 +32,7 @@ const messageSchema = new mongoose.Schema(
     },
     messageType: {
       type: String,
-      enum: ['text', 'image', 'video', 'audio', 'file'],
+      enum: ['text', 'image', 'video', 'audio', 'file', 'sticker'], // ✨ added 'sticker'
       default: 'text',
     },
     mediaUrl: {
@@ -62,6 +62,12 @@ const messageSchema = new mongoose.Schema(
       ref: 'Message',
       default: null,
     },
+    // ✨ NEW: sticker reference
+    sticker: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Sticker',
+      default: null,
+    },
     isDeleted: {
       type: Boolean,
       default: false,
@@ -83,6 +89,20 @@ const messageSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // ✨ reactions array (already present)
+    reactions: [
+      {
+        user: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
+          required: true,
+        },
+        emoji: {
+          type: String,
+          required: true,
+        },
+      },
+    ],
     readBy: [
       {
         user: {
@@ -119,11 +139,13 @@ messageSchema.index({ workspace: 1, createdAt: -1 });
 messageSchema.index({ sender: 1 });
 messageSchema.index({ archivedBy: 1 });
 messageSchema.index({ starredBy: 1 });
+// ✨ optional index for sticker queries
+messageSchema.index({ sticker: 1 });
 
 const Message = mongoose.model('Message', messageSchema);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CHAT SCHEMA
+// CHAT SCHEMA (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const chatSchema = new mongoose.Schema(
@@ -247,7 +269,7 @@ chatSchema.index({ archivedBy: 1 });
 const Chat = mongoose.model('Chat', chatSchema);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TYPING INDICATOR SCHEMA
+// TYPING INDICATOR SCHEMA (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const typingIndicatorSchema = new mongoose.Schema(

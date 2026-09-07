@@ -3,11 +3,12 @@ import mongoose from "mongoose";
 import { Message, Chat, TypingIndicator } from "../models/messagingModel.js";
 import Workspace from "../models/workspaceModel.js";
 import User from "../models/userModel.js";
+import Sticker from "../models/stickerModel.js"; // ✨ sticker model
 import { createAndSendNotification } from './notificationController.js';
 import { getIO } from './socket.js';
 
 // ──────────────────────────────────────────────────
-// Helpers
+// Helpers (unchanged)
 // ──────────────────────────────────────────────────
 
 const isWorkspaceMember = async (workspaceId, userId) => {
@@ -29,22 +30,15 @@ const isChatParticipant = async (chatId, userId) => {
   return chat?.participants.some((p) => p.user.toString() === userId);
 };
 
-/**
- * Check if user is admin of a chat.
- * For workspace groups: workspace owner OR workspace admin are admins.
- * For public groups: creator is admin, and admins can be added.
- */
 const isChatAdmin = async (chatId, userId) => {
   const chat = await Chat.findById(chatId);
   if (!chat) return false;
-  // Workspace chat: allow workspace owner and workspace admins
   if (chat.scope === 'workspace' && chat.workspace) {
     const workspace = await Workspace.findById(chat.workspace);
     if (workspace && (workspace.owner.toString() === userId || await isWorkspaceAdmin(chat.workspace.toString(), userId))) {
       return true;
     }
   }
-  // Participant role check
   const participant = chat.participants.find(
     (p) => p.user.toString() === userId,
   );
@@ -61,13 +55,6 @@ const isChatCreator = async (chatId, userId) => {
   return chat?.createdBy?.toString() === userId;
 };
 
-/**
- * Build a consistent `data` payload for chat-related notifications so the
- * frontend can route a tapped notification straight to the right screen.
- * - notificationType: 'chat' for direct messages, 'channel' for groups
- * - scope: 'public' or 'workspace', mirrors the Chat document
- * - chatId / workspaceId: identify exactly where to navigate
- */
 const buildChatNotificationData = (chat, extra = {}) => ({
   notificationType: chat.type === 'group' ? 'channel' : 'chat',
   scope: chat.scope,
@@ -76,20 +63,6 @@ const buildChatNotificationData = (chat, extra = {}) => ({
   ...extra,
 });
 
-/**
- * Send push + in‑app notification to multiple users (with full logging).
- *
- * ⚠️ FIXED: this used to be declared as
- *   (userIds, title, body, data = {})
- * — four positional params — while every call site in this file passed
- * (userIds, { title, body, data }) as only TWO arguments. That meant
- * `title` silently received the whole options object, `body` was always
- * undefined, and `data` always fell back to the default {} no matter what
- * was written at the call site. Every notification ever sent through this
- * function had an empty data payload — chatId/workspaceId never reached
- * the client, which is why tapping a notification couldn't navigate
- * anywhere useful. Now the signature matches how it's actually called.
- */
 const notifyUsers = async (userIds, { title, body, data = {} } = {}) => {
   console.log(`🔔 notifyUsers called with ${userIds?.length || 0} recipients`);
   if (!userIds || userIds.length === 0) {
@@ -118,8 +91,7 @@ const notifyUsers = async (userIds, { title, body, data = {} } = {}) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UPDATE ONLINE STATUS
-// POST /api/messages/online-status
+// UPDATE ONLINE STATUS (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const updateOnlineStatus = async (req, res) => {
@@ -127,11 +99,9 @@ export const updateOnlineStatus = async (req, res) => {
   try {
     const userId = req.user.id;
     const { workspaceId, isOnline } = req.body;
-
     if (!workspaceId) {
       return res.status(400).json({ message: "Workspace ID is required." });
     }
-
     await Chat.updateMany(
       {
         workspace: workspaceId,
@@ -144,7 +114,6 @@ export const updateOnlineStatus = async (req, res) => {
         },
       },
     );
-
     console.log(`✅ Online status updated for user ${userId}`);
     res.status(200).json({ success: true });
   } catch (error) {
@@ -154,8 +123,7 @@ export const updateOnlineStatus = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CREATE GROUP CHAT (Workspace – Owner or Admin) – with avatar upload
-// POST /api/messages/group
+// CREATE GROUP CHAT (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const createGroupChat = async (req, res) => {
@@ -163,20 +131,16 @@ export const createGroupChat = async (req, res) => {
   try {
     const userId = req.user.id;
     const { workspaceId, name, memberIds = [] } = req.body;
-    const avatarFile = req.file; // multer file
-
+    const avatarFile = req.file;
     if (!workspaceId || !name?.trim()) {
       return res
         .status(400)
         .json({ message: "Workspace ID and group name are required." });
     }
-
     const workspace = await Workspace.findById(workspaceId);
     if (!workspace) {
       return res.status(404).json({ message: "Workspace not found." });
     }
-
-    // Allow workspace owner OR admin
     const isOwner = workspace.owner.toString() === userId;
     const isAdmin = workspace.members.some(
       (m) => m.user.toString() === userId && m.role === 'Admin' && m.status === 'active'
@@ -186,8 +150,6 @@ export const createGroupChat = async (req, res) => {
         .status(403)
         .json({ message: "Only the workspace owner or admins can create group chats." });
     }
-
-    // Build participants list: creator (admin) + selected members
     const participants = [
       {
         user: userId,
@@ -197,11 +159,9 @@ export const createGroupChat = async (req, res) => {
         lastSeen: new Date(),
       },
     ];
-
     const activeMemberIds = workspace.members
       .filter(m => m.status === 'active')
       .map(m => m.user.toString());
-
     const addedUsers = [];
     for (const mid of memberIds) {
       if (activeMemberIds.includes(mid) && mid !== userId) {
@@ -217,9 +177,7 @@ export const createGroupChat = async (req, res) => {
         }
       }
     }
-
     let avatarUrl = avatarFile ? avatarFile.path : null;
-
     const chat = await Chat.create({
       workspace: workspaceId,
       type: "group",
@@ -232,11 +190,9 @@ export const createGroupChat = async (req, res) => {
       isPublic: false,
       joinRequests: [],
     });
-
     const populatedChat = await Chat.findById(chat._id)
       .populate("participants.user", "name email profile username")
       .populate("createdBy", "name email profile username");
-
     if (addedUsers.length > 0) {
       console.log(`📢 Notifying ${addedUsers.length} members about new group chat`);
       notifyUsers(addedUsers, {
@@ -245,7 +201,6 @@ export const createGroupChat = async (req, res) => {
         data: buildChatNotificationData(chat),
       });
     }
-
     res.status(201).json({
       success: true,
       message: "Group chat created successfully",
@@ -258,8 +213,7 @@ export const createGroupChat = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UPDATE GROUP CHAT (workspace or public) – with avatar upload
-// PUT /api/messages/group/:chatId
+// UPDATE GROUP CHAT (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const updateGroupChat = async (req, res) => {
@@ -269,24 +223,18 @@ export const updateGroupChat = async (req, res) => {
     const { chatId } = req.params;
     const { name, description, isPublic } = req.body;
     const avatarFile = req.file;
-
     const chat = await Chat.findById(chatId);
     if (!chat) {
       return res.status(404).json({ message: "Chat not found." });
     }
-
     if (chat.type !== "group") {
       return res.status(400).json({ message: "Only group chats can be updated." });
     }
-
     let canUpdate = false;
     let isWorkspaceChat = chat.scope === 'workspace' && chat.workspace;
-
     if (chat.scope === 'public') {
-      // Public group: only creator can update
       if (chat.createdBy.toString() === userId) canUpdate = true;
     } else if (isWorkspaceChat) {
-      // Workspace group: creator or workspace admin/owner can update
       const workspace = await Workspace.findById(chat.workspace);
       if (workspace) {
         const isOwner = workspace.owner.toString() === userId;
@@ -296,31 +244,23 @@ export const updateGroupChat = async (req, res) => {
         if (isOwner || isAdmin || chat.createdBy.toString() === userId) canUpdate = true;
       }
     }
-
     if (!canUpdate) {
       return res.status(403).json({
         message: "You do not have permission to update this group."
       });
     }
-
-    // Update fields
     if (name) chat.name = name.trim();
     if (description !== undefined) chat.description = description.trim();
-    // Only allow isPublic for public groups
     if (chat.scope === 'public' && isPublic !== undefined) {
       chat.isPublic = isPublic === 'true' || isPublic === true;
     }
     if (avatarFile) {
       chat.avatar = avatarFile.path;
     }
-
     await chat.save();
-
     const updatedChat = await Chat.findById(chatId)
       .populate("participants.user", "name email profile username")
       .populate("createdBy", "name email profile username");
-
-    // Notify all members about the update (optional)
     const participantIds = chat.participants.map(p => p.user.toString());
     if (participantIds.length > 0 && name) {
       notifyUsers(participantIds, {
@@ -329,7 +269,6 @@ export const updateGroupChat = async (req, res) => {
         data: buildChatNotificationData(chat),
       });
     }
-
     res.status(200).json({
       success: true,
       message: "Group updated successfully",
@@ -342,8 +281,7 @@ export const updateGroupChat = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CREATE DIRECT CHAT (Workspace)
-// POST /api/messages/direct
+// CREATE DIRECT CHAT (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const createDirectChat = async (req, res) => {
@@ -351,31 +289,26 @@ export const createDirectChat = async (req, res) => {
   try {
     const userId = req.user.id;
     const { workspaceId, targetUserId } = req.body;
-
     if (!workspaceId || !targetUserId) {
       return res
         .status(400)
         .json({ message: "Workspace ID and target user are required." });
     }
-
     if (targetUserId === userId) {
       return res
         .status(400)
         .json({ message: "Cannot create a chat with yourself." });
     }
-
     const workspace = await Workspace.findById(workspaceId);
     if (!workspace) {
       return res.status(404).json({ message: "Workspace not found." });
     }
-
     const isUserActive = workspace.members.some(
       (m) => m.user.toString() === userId && m.status === "active",
     );
     const isTargetActive = workspace.members.some(
       (m) => m.user.toString() === targetUserId && m.status === "active",
     );
-
     if (!isUserActive || !isTargetActive) {
       return res
         .status(403)
@@ -383,7 +316,6 @@ export const createDirectChat = async (req, res) => {
           message: "Both users must be active members of the workspace.",
         });
     }
-
     const existingChat = await Chat.findOne({
       workspace: workspaceId,
       type: "direct",
@@ -393,7 +325,6 @@ export const createDirectChat = async (req, res) => {
         $size: 2,
       },
     });
-
     if (existingChat) {
       const populatedChat = await Chat.findById(existingChat._id).populate(
         "participants.user",
@@ -405,7 +336,6 @@ export const createDirectChat = async (req, res) => {
         chat: populatedChat,
       });
     }
-
     const chat = await Chat.create({
       workspace: workspaceId,
       type: "direct",
@@ -424,19 +354,16 @@ export const createDirectChat = async (req, res) => {
       isPublic: false,
       joinRequests: [],
     });
-
     const populatedChat = await Chat.findById(chat._id).populate(
       "participants.user",
       "name email profile username",
     );
-
     console.log(`📢 Notifying target user ${targetUserId} about new direct chat`);
     notifyUsers([targetUserId], {
       title: `New message from ${req.user.name || 'a colleague'}`,
       body: `${req.user.name || 'Someone'} started a direct chat with you.`,
       data: buildChatNotificationData(chat),
     });
-
     res.status(201).json({
       success: true,
       message: "Direct chat created successfully",
@@ -449,8 +376,7 @@ export const createDirectChat = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CREATE PUBLIC DIRECT CHAT (Outside workspace)
-// POST /api/messages/public/direct
+// CREATE PUBLIC DIRECT CHAT (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const createPublicDirectChat = async (req, res) => {
@@ -458,7 +384,6 @@ export const createPublicDirectChat = async (req, res) => {
   try {
     const userId = req.user.id;
     const { userId: targetUserId, username } = req.body;
-
     let targetUser;
     if (targetUserId) {
       targetUser = await User.findById(targetUserId);
@@ -467,15 +392,12 @@ export const createPublicDirectChat = async (req, res) => {
     } else {
       return res.status(400).json({ message: "Provide either userId or username." });
     }
-
     if (!targetUser) {
       return res.status(404).json({ message: "User not found." });
     }
-
     if (targetUser._id.toString() === userId) {
       return res.status(400).json({ message: "Cannot chat with yourself." });
     }
-
     const existingChat = await Chat.findOne({
       type: "direct",
       scope: "public",
@@ -484,7 +406,6 @@ export const createPublicDirectChat = async (req, res) => {
         $size: 2,
       },
     });
-
     if (existingChat) {
       const populatedChat = await Chat.findById(existingChat._id).populate(
         "participants.user",
@@ -496,7 +417,6 @@ export const createPublicDirectChat = async (req, res) => {
         chat: populatedChat,
       });
     }
-
     const chat = await Chat.create({
       workspace: null,
       type: "direct",
@@ -515,18 +435,15 @@ export const createPublicDirectChat = async (req, res) => {
       isPublic: true,
       joinRequests: [],
     });
-
     const populatedChat = await Chat.findById(chat._id).populate(
       "participants.user",
       "name email profile username",
     );
-
     notifyUsers([targetUser._id.toString()], {
       title: `${req.user.name || 'Someone'} started a chat with you`,
       body: `You have a new direct message from ${req.user.name || 'someone'}.`,
       data: buildChatNotificationData(chat),
     });
-
     res.status(201).json({
       success: true,
       message: "Public direct chat created successfully",
@@ -539,8 +456,7 @@ export const createPublicDirectChat = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CREATE PUBLIC GROUP CHAT (Outside workspace)
-// POST /api/messages/public/group
+// CREATE PUBLIC GROUP CHAT (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const createPublicGroupChat = async (req, res) => {
@@ -549,11 +465,9 @@ export const createPublicGroupChat = async (req, res) => {
     const userId = req.user.id;
     const { name, description, isPublic = 'true' } = req.body;
     const avatarFile = req.file;
-
     if (!name?.trim()) {
       return res.status(400).json({ message: "Group name is required." });
     }
-
     const existing = await Chat.findOne({
       scope: "public",
       type: "group",
@@ -562,9 +476,7 @@ export const createPublicGroupChat = async (req, res) => {
     if (existing) {
       return res.status(400).json({ message: "Group name already taken." });
     }
-
     let avatarUrl = avatarFile ? avatarFile.path : null;
-
     const chat = await Chat.create({
       workspace: null,
       type: "group",
@@ -586,11 +498,9 @@ export const createPublicGroupChat = async (req, res) => {
       isPublic: isPublic === 'true' || isPublic === true,
       joinRequests: [],
     });
-
     const populatedChat = await Chat.findById(chat._id)
       .populate("participants.user", "name email profile username")
       .populate("createdBy", "name email profile username");
-
     res.status(201).json({
       success: true,
       message: "Public group chat created successfully",
@@ -603,8 +513,7 @@ export const createPublicGroupChat = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UPDATE PUBLIC GROUP (creator only)
-// PUT /api/messages/public/group/:chatId
+// UPDATE PUBLIC GROUP (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const updatePublicGroup = async (req, res) => {
@@ -614,33 +523,26 @@ export const updatePublicGroup = async (req, res) => {
     const { chatId } = req.params;
     const { name, description, isPublic } = req.body;
     const avatarFile = req.file;
-
     const chat = await Chat.findById(chatId);
     if (!chat) {
       return res.status(404).json({ message: "Group not found." });
     }
-
     if (chat.scope !== 'public' || chat.type !== 'group') {
       return res.status(400).json({ message: "Not a public group." });
     }
-
     if (chat.createdBy.toString() !== userId) {
       return res.status(403).json({ message: "Only the creator can update this group." });
     }
-
     if (name) chat.name = name.trim();
     if (description !== undefined) chat.description = description.trim();
     if (isPublic !== undefined) chat.isPublic = isPublic === 'true' || isPublic === true;
     if (avatarFile) {
       chat.avatar = avatarFile.path;
     }
-
     await chat.save();
-
     const updatedChat = await Chat.findById(chatId)
       .populate("participants.user", "name email profile username")
       .populate("createdBy", "name email profile username");
-
     res.status(200).json({
       success: true,
       message: "Group updated successfully",
@@ -653,8 +555,7 @@ export const updatePublicGroup = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DELETE PUBLIC GROUP (creator only)
-// DELETE /api/messages/public/group/:chatId
+// DELETE PUBLIC GROUP (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const deletePublicGroup = async (req, res) => {
@@ -662,33 +563,24 @@ export const deletePublicGroup = async (req, res) => {
   try {
     const userId = req.user.id;
     const { chatId } = req.params;
-
     const chat = await Chat.findById(chatId);
     if (!chat) {
       return res.status(404).json({ message: "Group not found." });
     }
-
     if (chat.scope !== 'public' || chat.type !== 'group') {
       return res.status(400).json({ message: "Not a public group." });
     }
-
     if (chat.createdBy.toString() !== userId) {
       return res.status(403).json({ message: "Only the creator can delete this group." });
     }
-
     await Message.deleteMany({ chat: chatId });
     await Chat.findByIdAndDelete(chatId);
-
     const participantIds = chat.participants.map(p => p.user.toString());
-    // System notification — the chat no longer exists, so there's nowhere
-    // to navigate. No chatId in data on purpose; frontend router falls
-    // back to a safe default screen.
     notifyUsers(participantIds, {
       title: `Group "${chat.name}" has been deleted`,
       body: `The public group "${chat.name}" has been permanently deleted by its creator.`,
       data: { notificationType: 'system' },
     });
-
     res.status(200).json({
       success: true,
       message: "Group deleted successfully.",
@@ -700,8 +592,7 @@ export const deletePublicGroup = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SEARCH PUBLIC GROUPS
-// GET /api/messages/public/groups/search
+// SEARCH PUBLIC GROUPS (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const searchPublicGroups = async (req, res) => {
@@ -721,12 +612,10 @@ export const searchPublicGroups = async (req, res) => {
       .populate("createdBy", "name email profile username")
       .select("-joinRequests")
       .limit(20);
-
     const userId = req.user.id;
     const availableGroups = groups.filter(
       (g) => !g.participants.some((p) => p.user._id.toString() === userId)
     );
-
     res.status(200).json({
       success: true,
       groups: availableGroups,
@@ -738,8 +627,7 @@ export const searchPublicGroups = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// REQUEST TO JOIN PUBLIC GROUP
-// POST /api/messages/public/groups/:chatId/join-request
+// REQUEST TO JOIN PUBLIC GROUP (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const requestJoinGroup = async (req, res) => {
@@ -747,34 +635,28 @@ export const requestJoinGroup = async (req, res) => {
   try {
     const userId = req.user.id;
     const { chatId } = req.params;
-
     const chat = await Chat.findById(chatId);
     if (!chat) {
       return res.status(404).json({ message: "Group not found." });
     }
-
     if (chat.scope !== "public" || chat.type !== "group" || !chat.isPublic) {
       return res.status(400).json({ message: "Not a public group." });
     }
-
     if (chat.participants.some((p) => p.user.toString() === userId)) {
       return res.status(400).json({ message: "You are already a member." });
     }
-
     const existingRequest = chat.joinRequests.find(
       (r) => r.user.toString() === userId && r.status === "pending",
     );
     if (existingRequest) {
       return res.status(400).json({ message: "Join request already sent." });
     }
-
     chat.joinRequests.push({
       user: userId,
       status: "pending",
       requestedAt: new Date(),
     });
     await chat.save();
-
     const adminIds = chat.participants
       .filter((p) => p.role === "admin")
       .map((p) => p.user.toString());
@@ -785,7 +667,6 @@ export const requestJoinGroup = async (req, res) => {
         data: buildChatNotificationData(chat),
       });
     }
-
     res.status(200).json({
       success: true,
       message: "Join request sent.",
@@ -797,8 +678,7 @@ export const requestJoinGroup = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ACCEPT OR REJECT JOIN REQUEST (Admin only)
-// POST /api/messages/public/groups/:chatId/join-request/:requestId
+// HANDLE JOIN REQUEST (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const handleJoinRequest = async (req, res) => {
@@ -807,30 +687,24 @@ export const handleJoinRequest = async (req, res) => {
     const userId = req.user.id;
     const { chatId, requestId } = req.params;
     const { action } = req.body;
-
     if (!action || !['accept', 'reject'].includes(action)) {
       return res.status(400).json({ message: "Invalid action." });
     }
-
     const chat = await Chat.findById(chatId);
     if (!chat) {
       return res.status(404).json({ message: "Group not found." });
     }
-
     const isAdmin = await isChatAdmin(chatId, userId);
     if (!isAdmin) {
       return res.status(403).json({ message: "Only admins can handle join requests." });
     }
-
     const requestIndex = chat.joinRequests.findIndex(
       (r) => r._id.toString() === requestId && r.status === "pending",
     );
     if (requestIndex === -1) {
       return res.status(404).json({ message: "Join request not found or already handled." });
     }
-
     const request = chat.joinRequests[requestIndex];
-
     if (action === 'accept') {
       chat.participants.push({
         user: request.user,
@@ -841,7 +715,6 @@ export const handleJoinRequest = async (req, res) => {
       });
       request.status = "accepted";
       await chat.save();
-
       const systemMessage = await Message.create({
         workspace: chat.workspace,
         chat: chat._id,
@@ -852,39 +725,31 @@ export const handleJoinRequest = async (req, res) => {
         archivedBy: [],
         starredBy: [],
       });
-
       chat.lastMessage = systemMessage._id;
       chat.lastMessageAt = new Date();
       await chat.save();
-
       const populatedSystem = await Message.findById(systemMessage._id)
         .populate('sender', 'name email profile username')
         .populate('mentions', 'name email profile username')
         .populate('replyTo');
-
       const io = getIO();
       if (io) {
         io.to(`chat:${chat._id}`).emit('new-message', populatedSystem);
       }
-
       notifyUsers([request.user.toString()], {
         title: `Accepted into "${chat.name}"`,
         body: `Your request to join "${chat.name}" has been accepted.`,
         data: buildChatNotificationData(chat),
       });
-
     } else {
       request.status = "rejected";
       await chat.save();
-
-      // Rejected — nowhere useful to navigate, so no chatId.
       notifyUsers([request.user.toString()], {
         title: `Join request rejected for "${chat.name}"`,
         body: `Your request to join "${chat.name}" was rejected.`,
         data: { notificationType: 'system' },
       });
     }
-
     res.status(200).json({
       success: true,
       message: `Join request ${action}ed.`,
@@ -896,8 +761,7 @@ export const handleJoinRequest = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET JOIN REQUESTS FOR A GROUP (Admin only)
-// GET /api/messages/public/groups/:chatId/join-requests
+// GET JOIN REQUESTS (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const getJoinRequests = async (req, res) => {
@@ -905,18 +769,15 @@ export const getJoinRequests = async (req, res) => {
   try {
     const userId = req.user.id;
     const { chatId } = req.params;
-
     const chat = await Chat.findById(chatId)
       .populate("joinRequests.user", "name email profile username");
     if (!chat) {
       return res.status(404).json({ message: "Group not found." });
     }
-
     const isAdmin = await isChatAdmin(chatId, userId);
     if (!isAdmin) {
       return res.status(403).json({ message: "Only admins can view join requests." });
     }
-
     const pendingRequests = chat.joinRequests.filter((r) => r.status === "pending");
     res.status(200).json({
       success: true,
@@ -929,18 +790,14 @@ export const getJoinRequests = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET USER CHATS (including public chats)
-// GET /api/messages/chats
+// GET USER CHATS (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
-
-// controllers/messagingController.js (only the getUserChats function)
 
 export const getUserChats = async (req, res) => {
   console.log(`🔵 getUserChats called for user ${req.user.id}`);
   try {
     const userId = req.user.id;
     const { workspaceId, archived } = req.query;
-
     const query = {
       participants: { $elemMatch: { user: userId } },
     };
@@ -949,29 +806,24 @@ export const getUserChats = async (req, res) => {
     } else {
       query.$or = [{ workspace: { $ne: null } }, { scope: "public" }];
     }
-
     if (archived === 'true') {
       query['archivedBy'] = { $in: [userId] };
     } else {
       query['archivedBy'] = { $not: { $in: [userId] } };
     }
-
     const chats = await Chat.find(query)
       .populate("participants.user", "name email profile username")
       .populate({
         path: "lastMessage",
-        populate: { path: "sender", select: "name email profile username" } // 👈 THIS
+        populate: { path: "sender", select: "name email profile username" }
       })
       .populate("createdBy", "name email profile username")
       .sort({ lastMessageAt: -1 });
-
     if (chats.length === 0) {
       return res.status(200).json({ success: true, chats: [] });
     }
-
     const chatIds = chats.map((c) => c._id);
     const userObjectId = new mongoose.Types.ObjectId(userId);
-
     const unreadAgg = await Message.aggregate([
       {
         $match: {
@@ -983,12 +835,10 @@ export const getUserChats = async (req, res) => {
       },
       { $group: { _id: "$chat", count: { $sum: 1 } } },
     ]);
-
     const unreadMap = {};
     unreadAgg.forEach((u) => {
       unreadMap[u._id.toString()] = u.count;
     });
-
     const chatsWithUnread = chats.map((chat) => {
       const chatObj = chat.toObject();
       chatObj.participants = chatObj.participants.map((p) => ({
@@ -1001,7 +851,6 @@ export const getUserChats = async (req, res) => {
         unreadCount: unreadMap[chat._id.toString()] || 0,
       };
     });
-
     res.status(200).json({
       success: true,
       chats: chatsWithUnread,
@@ -1013,8 +862,7 @@ export const getUserChats = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET CHAT MESSAGES
-// GET /api/messages/:chatId
+// GET CHAT MESSAGES (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const getChatMessages = async (req, res) => {
@@ -1023,12 +871,10 @@ export const getChatMessages = async (req, res) => {
     const userId = req.user.id;
     const { chatId } = req.params;
     const { page = 1, limit = 50 } = req.query;
-
     const isParticipant = await isChatParticipant(chatId, userId);
     if (!isParticipant) {
       return res.status(403).json({ message: "Access denied." });
     }
-
     const messages = await Message.find({
       chat: chatId,
       isDeleted: false,
@@ -1040,10 +886,10 @@ export const getChatMessages = async (req, res) => {
         path: "replyTo",
         populate: { path: "sender", select: "name email profile username" },
       })
+      .populate("sticker", "fileUrl thumbnailUrl type") // ✨ populate sticker if present
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit);
-
     await Message.updateMany(
       {
         chat: chatId,
@@ -1059,12 +905,10 @@ export const getChatMessages = async (req, res) => {
         },
       },
     );
-
     await Chat.updateOne(
       { _id: chatId, "participants.user": userId },
       { $set: { "participants.$.lastReadAt": new Date() } },
     );
-
     res.status(200).json({
       success: true,
       messages: messages.reverse(),
@@ -1077,8 +921,7 @@ export const getChatMessages = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SEND MESSAGE (with replies, mentions, and push notifications)
-// POST /api/messages/:chatId
+// SEND MESSAGE (UPDATED to support stickers)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const sendMessage = async (req, res) => {
@@ -1096,7 +939,8 @@ export const sendMessage = async (req, res) => {
       messageType = "text",
       mentions = [],
       replyToId,
-      clientMsgId,   // <-- ADDED: read the clientMsgId from body
+      clientMsgId,
+      stickerId, // ✨ new field
     } = req.body;
 
     const isParticipant = await isChatParticipant(chatId, userId);
@@ -1111,13 +955,31 @@ export const sendMessage = async (req, res) => {
       return res.status(404).json({ message: "Chat not found." });
     }
 
+    // ─── Sticker handling ──────────────────────────────────────────────
+    let stickerRef = null;
+    if (messageType === 'sticker') {
+      if (!stickerId) {
+        return res.status(400).json({ message: "stickerId is required for sticker messages." });
+      }
+      const sticker = await Sticker.findOne({ _id: stickerId, isDeleted: false });
+      if (!sticker) {
+        return res.status(404).json({ message: "Sticker not found or deleted." });
+      }
+      stickerRef = sticker._id;
+      // Ignore any file upload for sticker
+      if (req.file) {
+        console.warn("⚠️ File upload ignored because messageType is 'sticker'.");
+      }
+    }
+
+    // ─── Media handling (only if not sticker) ─────────────────────────
     let mediaUrl = null;
     let mediaName = null;
     let mediaSize = null;
     let mediaDuration = null;
     let finalMessageType = messageType;
 
-    if (req.file) {
+    if (req.file && messageType !== 'sticker') {
       console.log(`📎 File uploaded: ${req.file.originalname}, type: ${req.file.mimetype}`);
       mediaUrl = req.file.path;
       mediaName = req.file.originalname;
@@ -1128,10 +990,11 @@ export const sendMessage = async (req, res) => {
       else if (req.file.mimetype.startsWith("image/")) finalMessageType = "image";
       else if (req.file.mimetype.startsWith("video/")) finalMessageType = "video";
       else finalMessageType = "file";
-    } else {
+    } else if (messageType !== 'sticker') {
       console.log(`📝 No file, using messageType: ${messageType}`);
     }
 
+    // ─── Mentions validation ──────────────────────────────────────────
     console.log(`🔍 Validating mentions: ${mentions}`);
     const validMentions = await Promise.all(
       mentions.map(async (mentionId) => {
@@ -1155,6 +1018,7 @@ export const sendMessage = async (req, res) => {
       mediaDuration,
       mentions: filteredMentions,
       replyTo: replyToId || null,
+      sticker: stickerRef, // ✨ store sticker reference
       readBy: [{ user: userId, readAt: new Date() }],
       archivedBy: [],
       starredBy: [],
@@ -1172,9 +1036,9 @@ export const sendMessage = async (req, res) => {
       .populate({
         path: "replyTo",
         populate: { path: "sender", select: "name email profile username" },
-      });
+      })
+      .populate("sticker", "fileUrl thumbnailUrl type"); // ✨ populate sticker
 
-    // 🔴 ATTACH the clientMsgId so the frontend can match the optimistic message
     const responseMessage = populatedMessage.toObject
       ? populatedMessage.toObject()
       : populatedMessage;
@@ -1202,6 +1066,7 @@ export const sendMessage = async (req, res) => {
     else if (finalMessageType === 'video') preview = '🎬 Video';
     else if (finalMessageType === 'audio') preview = '🎵 Audio';
     else if (finalMessageType === 'file') preview = `📎 ${mediaName || 'File'}`;
+    else if (finalMessageType === 'sticker') preview = '📌 Sticker';
     if (!preview) preview = 'Sent a message';
     console.log(`📄 Preview: "${preview}"`);
 
@@ -1259,8 +1124,7 @@ export const sendMessage = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DELETE MESSAGE
-// DELETE /api/messages/:messageId
+// DELETE MESSAGE (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const deleteMessage = async (req, res) => {
@@ -1268,20 +1132,16 @@ export const deleteMessage = async (req, res) => {
   try {
     const userId = req.user.id;
     const { messageId } = req.params;
-
     const message = await Message.findById(messageId);
     if (!message) {
       return res.status(404).json({ message: "Message not found." });
     }
-
     const chat = await Chat.findById(message.chat);
     if (!chat) {
       return res.status(404).json({ message: "Chat not found." });
     }
-
     const isAdmin = await isChatAdmin(message.chat, userId);
     const isSender = message.sender.toString() === userId;
-
     if (!isAdmin && !isSender) {
       return res
         .status(403)
@@ -1289,12 +1149,10 @@ export const deleteMessage = async (req, res) => {
           message: "Only admins or the message sender can delete messages.",
         });
     }
-
     message.isDeleted = true;
     message.deletedBy = userId;
     message.deletedAt = new Date();
     await message.save();
-
     res.status(200).json({
       success: true,
       message: "Message deleted successfully",
@@ -1306,8 +1164,7 @@ export const deleteMessage = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TYPING INDICATOR
-// POST /api/messages/:chatId/typing
+// TYPING INDICATORS (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const startTyping = async (req, res) => {
@@ -1315,18 +1172,15 @@ export const startTyping = async (req, res) => {
   try {
     const userId = req.user.id;
     const { chatId } = req.params;
-
     const isParticipant = await isChatParticipant(chatId, userId);
     if (!isParticipant) {
       return res.status(403).json({ message: "Access denied." });
     }
-
     await TypingIndicator.findOneAndUpdate(
       { chat: chatId, user: userId },
       { startedAt: new Date() },
       { upsert: true },
     );
-
     res.status(200).json({ success: true });
   } catch (error) {
     console.error(`❌ startTyping error:`, error);
@@ -1339,9 +1193,7 @@ export const stopTyping = async (req, res) => {
   try {
     const userId = req.user.id;
     const { chatId } = req.params;
-
     await TypingIndicator.deleteOne({ chat: chatId, user: userId });
-
     res.status(200).json({ success: true });
   } catch (error) {
     console.error(`❌ stopTyping error:`, error);
@@ -1354,17 +1206,14 @@ export const getTypingUsers = async (req, res) => {
   try {
     const userId = req.user.id;
     const { chatId } = req.params;
-
     const isParticipant = await isChatParticipant(chatId, userId);
     if (!isParticipant) {
       return res.status(403).json({ message: "Access denied." });
     }
-
     const typing = await TypingIndicator.find({ chat: chatId })
       .populate("user", "name email profile username")
       .where("user")
       .ne(userId);
-
     res.status(200).json({
       success: true,
       typing: typing.map((t) => t.user),
@@ -1376,8 +1225,7 @@ export const getTypingUsers = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SEARCH USERS (Workspace or Public)
-// GET /api/messages/search/users
+// SEARCH USERS (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const searchUsers = async (req, res) => {
@@ -1385,19 +1233,14 @@ export const searchUsers = async (req, res) => {
   try {
     const userId = req.user.id;
     const { workspaceId, query, scope } = req.query;
-
-    // ─── Public scope: search all users by name or username ───
     if (scope === 'public') {
       if (!query || query.trim().length < 2) {
         return res.status(200).json({ success: true, users: [] });
       }
-
       const trimmedQuery = query.trim();
-
-      // Priority: exact username match first, then partial on both fields
       const users = await User.find({
         $or: [
-          { username: trimmedQuery },                    // exact match
+          { username: trimmedQuery },
           { username: { $regex: trimmedQuery, $options: 'i' } },
           { name: { $regex: trimmedQuery, $options: 'i' } },
         ],
@@ -1405,15 +1248,11 @@ export const searchUsers = async (req, res) => {
       })
         .select('name email profile username')
         .limit(20);
-
       return res.status(200).json({ success: true, users });
     }
-
-    // ─── Workspace scope ──────────────────────────────────────
     if (!workspaceId) {
       return res.status(400).json({ message: 'Workspace ID is required for workspace search.' });
     }
-
     const workspace = await Workspace.findById(workspaceId).populate(
       'members.user',
       'name email profile username',
@@ -1421,11 +1260,9 @@ export const searchUsers = async (req, res) => {
     if (!workspace) {
       return res.status(404).json({ message: 'Workspace not found.' });
     }
-
     let members = workspace.members
       .filter((m) => m.status === 'active' && m.user._id.toString() !== userId)
       .map((m) => m.user);
-
     if (query) {
       const q = query.toLowerCase().trim();
       members = members.filter(
@@ -1435,7 +1272,6 @@ export const searchUsers = async (req, res) => {
           (m.username && m.username.toLowerCase().includes(q)),
       );
     }
-
     res.status(200).json({
       success: true,
       users: members,
@@ -1447,8 +1283,7 @@ export const searchUsers = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ADD PARTICIPANT TO GROUP (Workspace or Public)
-// POST /api/messages/:chatId/participants
+// ADD PARTICIPANT (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const addParticipant = async (req, res) => {
@@ -1457,25 +1292,21 @@ export const addParticipant = async (req, res) => {
     const userId = req.user.id;
     const { chatId } = req.params;
     const { userIds } = req.body;
-
     const chat = await Chat.findById(chatId);
     if (!chat) {
       return res.status(404).json({ message: "Chat not found." });
     }
-
     if (chat.type !== "group") {
       return res
         .status(400)
         .json({ message: "Only group chats can have participants added." });
     }
-
     const isAdmin = await isChatAdmin(chatId, userId);
     if (!isAdmin) {
       return res
         .status(403)
         .json({ message: "Only admins can add participants." });
     }
-
     let workspace = null;
     if (chat.scope === 'workspace' && chat.workspace) {
       workspace = await Workspace.findById(chat.workspace);
@@ -1483,10 +1314,8 @@ export const addParticipant = async (req, res) => {
         return res.status(404).json({ message: "Workspace not found." });
       }
     }
-
     const existingUserIds = chat.participants.map((p) => p.user.toString());
     const addedUsers = [];
-
     for (const newUserId of userIds) {
       if (!existingUserIds.includes(newUserId)) {
         if (workspace) {
@@ -1505,24 +1334,19 @@ export const addParticipant = async (req, res) => {
         addedUsers.push(newUserId);
       }
     }
-
     if (addedUsers.length === 0) {
       return res.status(400).json({ message: "No valid users to add." });
     }
-
     await chat.save();
-
     notifyUsers(addedUsers, {
       title: `Added to group "${chat.name}"`,
       body: `You have been added to the group chat "${chat.name}".`,
       data: buildChatNotificationData(chat),
     });
-
     const populatedChat = await Chat.findById(chatId).populate(
       "participants.user",
       "name email profile username",
     );
-
     res.status(200).json({
       success: true,
       message: "Participants added successfully",
@@ -1535,8 +1359,7 @@ export const addParticipant = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// REMOVE PARTICIPANT FROM GROUP
-// DELETE /api/messages/:chatId/participants/:userId
+// REMOVE PARTICIPANT (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const removeParticipant = async (req, res) => {
@@ -1544,32 +1367,27 @@ export const removeParticipant = async (req, res) => {
   try {
     const userId = req.user.id;
     const { chatId, userId: targetUserId } = req.params;
-
     const chat = await Chat.findById(chatId);
     if (!chat) {
       return res.status(404).json({ message: "Chat not found." });
     }
-
     if (chat.type !== "group") {
       return res
         .status(400)
         .json({ message: "Only group chats can have participants removed." });
     }
-
     const isAdmin = await isChatAdmin(chatId, userId);
     if (!isAdmin) {
       return res
         .status(403)
         .json({ message: "Only admins can remove participants." });
     }
-
     const creatorId = chat.createdBy?.toString();
     if (creatorId === targetUserId) {
       return res
         .status(403)
         .json({ message: "Cannot remove the group creator." });
     }
-
     if (chat.scope === 'workspace' && chat.workspace) {
       const workspace = await Workspace.findById(chat.workspace);
       if (workspace && workspace.owner.toString() === targetUserId) {
@@ -1578,19 +1396,15 @@ export const removeParticipant = async (req, res) => {
           .json({ message: "Cannot remove the workspace owner." });
       }
     }
-
     chat.participants = chat.participants.filter(
       (p) => p.user.toString() !== targetUserId,
     );
     await chat.save();
-
-    // Removed from the group — no chatId, since they can no longer open it.
     notifyUsers([targetUserId], {
       title: `Removed from group "${chat.name}"`,
       body: `You have been removed from the group chat "${chat.name}".`,
       data: { notificationType: 'system' },
     });
-
     res.status(200).json({
       success: true,
       message: "Participant removed successfully",
@@ -1602,8 +1416,7 @@ export const removeParticipant = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MAKE GROUP ADMIN
-// POST /api/messages/:chatId/make-admin
+// MAKE GROUP ADMIN (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const makeGroupAdmin = async (req, res) => {
@@ -1612,45 +1425,36 @@ export const makeGroupAdmin = async (req, res) => {
     const userId = req.user.id;
     const { chatId } = req.params;
     const { userId: targetUserId } = req.body;
-
     if (!targetUserId) {
       return res.status(400).json({ message: "Target user ID is required." });
     }
-
     const chat = await Chat.findById(chatId);
     if (!chat) {
       return res.status(404).json({ message: "Chat not found." });
     }
-
     if (chat.type !== "group") {
       return res.status(400).json({ message: "Only group chats support admins." });
     }
-
     const isAdmin = await isChatAdmin(chatId, userId);
     if (!isAdmin) {
       return res.status(403).json({ message: "Only admins can promote users." });
     }
-
     const participant = chat.participants.find(
       (p) => p.user.toString() === targetUserId,
     );
     if (!participant) {
       return res.status(404).json({ message: "User is not a participant." });
     }
-
     if (participant.role === "admin") {
       return res.status(400).json({ message: "User is already an admin." });
     }
-
     participant.role = "admin";
     await chat.save();
-
     notifyUsers([targetUserId], {
       title: `You are now an admin of "${chat.name}"`,
       body: `You have been promoted to admin in the group chat "${chat.name}".`,
       data: buildChatNotificationData(chat),
     });
-
     res.status(200).json({
       success: true,
       message: "User promoted to admin.",
@@ -1663,8 +1467,7 @@ export const makeGroupAdmin = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// REMOVE GROUP ADMIN
-// POST /api/messages/:chatId/remove-admin
+// REMOVE GROUP ADMIN (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const removeGroupAdmin = async (req, res) => {
@@ -1673,57 +1476,46 @@ export const removeGroupAdmin = async (req, res) => {
     const userId = req.user.id;
     const { chatId } = req.params;
     const { userId: targetUserId } = req.body;
-
     if (!targetUserId) {
       return res.status(400).json({ message: "Target user ID is required." });
     }
-
     const chat = await Chat.findById(chatId);
     if (!chat) {
       return res.status(404).json({ message: "Chat not found." });
     }
-
     if (chat.type !== "group") {
       return res.status(400).json({ message: "Only group chats support admin roles." });
     }
-
     const isAdmin = await isChatAdmin(chatId, userId);
     if (!isAdmin) {
       return res.status(403).json({ message: "Only admins can demote users." });
     }
-
     const creatorId = chat.createdBy?.toString();
     if (creatorId === targetUserId) {
       return res.status(403).json({ message: "Cannot demote the group creator." });
     }
-
     if (chat.scope === 'workspace' && chat.workspace) {
       const workspace = await Workspace.findById(chat.workspace);
       if (workspace && workspace.owner.toString() === targetUserId) {
         return res.status(403).json({ message: "Cannot demote the workspace owner." });
       }
     }
-
     const participant = chat.participants.find(
       (p) => p.user.toString() === targetUserId,
     );
     if (!participant) {
       return res.status(404).json({ message: "User is not a participant." });
     }
-
     if (participant.role !== "admin") {
       return res.status(400).json({ message: "User is not an admin." });
     }
-
     participant.role = "member";
     await chat.save();
-
     notifyUsers([targetUserId], {
       title: `Admin rights removed for "${chat.name}"`,
       body: `You are no longer an admin of the group chat "${chat.name}".`,
       data: buildChatNotificationData(chat),
     });
-
     res.status(200).json({
       success: true,
       message: "Admin rights removed.",
@@ -1736,8 +1528,7 @@ export const removeGroupAdmin = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DELETE GROUP CHAT (and all messages)
-// DELETE /api/messages/group/:chatId
+// DELETE GROUP CHAT (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const deleteGroupChat = async (req, res) => {
@@ -1745,16 +1536,13 @@ export const deleteGroupChat = async (req, res) => {
   try {
     const userId = req.user.id;
     const { chatId } = req.params;
-
     const chat = await Chat.findById(chatId);
     if (!chat) {
       return res.status(404).json({ message: "Chat not found." });
     }
-
     if (chat.type !== "group") {
       return res.status(400).json({ message: "Only group chats can be deleted." });
     }
-
     const isCreator = chat.createdBy?.toString() === userId;
     let canDelete = false;
     if (chat.scope === 'workspace' && chat.workspace) {
@@ -1767,24 +1555,19 @@ export const deleteGroupChat = async (req, res) => {
         if (isOwner || isAdmin) canDelete = true;
       }
     }
-
     if (!isCreator && !canDelete) {
       return res.status(403).json({
         message: "Only the creator, workspace owner, or workspace admin can delete the group chat."
       });
     }
-
     await Message.deleteMany({ chat: chatId });
     await Chat.findByIdAndDelete(chatId);
-
     const participantIds = chat.participants.map(p => p.user.toString());
-    // System notification — chat is gone, nowhere to navigate.
     notifyUsers(participantIds, {
       title: `Group "${chat.name}" has been deleted`,
       body: `The group chat "${chat.name}" has been permanently deleted.`,
       data: { notificationType: 'system' },
     });
-
     res.status(200).json({
       success: true,
       message: "Group chat and all messages deleted successfully.",
@@ -1796,8 +1579,7 @@ export const deleteGroupChat = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET GROUP MEMBERS (with roles)
-// GET /api/messages/group/:chatId/members
+// GET GROUP MEMBERS (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const getGroupMembers = async (req, res) => {
@@ -1805,18 +1587,15 @@ export const getGroupMembers = async (req, res) => {
   try {
     const userId = req.user.id;
     const { chatId } = req.params;
-
     const chat = await Chat.findById(chatId)
       .populate("participants.user", "name email profile username");
     if (!chat) {
       return res.status(404).json({ message: "Chat not found." });
     }
-
     const isParticipant = await isChatParticipant(chatId, userId);
     if (!isParticipant) {
       return res.status(403).json({ message: "You are not a member of this chat." });
     }
-
     const members = chat.participants.map(p => ({
       user: p.user,
       role: p.role,
@@ -1824,7 +1603,6 @@ export const getGroupMembers = async (req, res) => {
       online: p.online,
       lastSeen: p.lastSeen,
     }));
-
     res.status(200).json({
       success: true,
       members,
@@ -1836,8 +1614,7 @@ export const getGroupMembers = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ARCHIVE CHAT (for a user)
-// POST /api/messages/:chatId/archive
+// ARCHIVE CHAT (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const archiveChat = async (req, res) => {
@@ -1845,23 +1622,19 @@ export const archiveChat = async (req, res) => {
   try {
     const userId = req.user.id;
     const { chatId } = req.params;
-
     const chat = await Chat.findById(chatId);
     if (!chat) {
       return res.status(404).json({ message: "Chat not found." });
     }
-
     const isParticipant = await isChatParticipant(chatId, userId);
     if (!isParticipant) {
       return res.status(403).json({ message: "You are not a participant." });
     }
-
     if (!(chat.archivedBy || []).some(id => id.toString() === userId)) {
       chat.archivedBy = chat.archivedBy || [];
       chat.archivedBy.push(userId);
       await chat.save();
     }
-
     res.status(200).json({
       success: true,
       message: "Chat archived.",
@@ -1873,8 +1646,7 @@ export const archiveChat = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UNARCHIVE CHAT (for a user)
-// POST /api/messages/:chatId/unarchive
+// UNARCHIVE CHAT (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const unarchiveChat = async (req, res) => {
@@ -1882,20 +1654,16 @@ export const unarchiveChat = async (req, res) => {
   try {
     const userId = req.user.id;
     const { chatId } = req.params;
-
     const chat = await Chat.findById(chatId);
     if (!chat) {
       return res.status(404).json({ message: "Chat not found." });
     }
-
     const isParticipant = await isChatParticipant(chatId, userId);
     if (!isParticipant) {
       return res.status(403).json({ message: "You are not a participant." });
     }
-
     chat.archivedBy = (chat.archivedBy || []).filter(id => id.toString() !== userId);
     await chat.save();
-
     res.status(200).json({
       success: true,
       message: "Chat unarchived.",
@@ -1907,8 +1675,7 @@ export const unarchiveChat = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EXIT GROUP CHAT (remove self)
-// POST /api/messages/:chatId/exit
+// EXIT GROUP CHAT (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const exitGroupChat = async (req, res) => {
@@ -1916,36 +1683,29 @@ export const exitGroupChat = async (req, res) => {
   try {
     const userId = req.user.id;
     const { chatId } = req.params;
-
     const chat = await Chat.findById(chatId);
     if (!chat) {
       return res.status(404).json({ message: "Chat not found." });
     }
-
     if (chat.type !== "group") {
       return res.status(400).json({ message: "Only group chats can be exited." });
     }
-
     const participantIndex = chat.participants.findIndex(
       (p) => p.user.toString() === userId,
     );
     if (participantIndex === -1) {
       return res.status(400).json({ message: "You are not a member of this group." });
     }
-
     chat.participants.splice(participantIndex, 1);
     await chat.save();
-
     chat.archivedBy = (chat.archivedBy || []).filter(id => id.toString() !== userId);
     await chat.save();
-
     const otherParticipantIds = chat.participants.map(p => p.user.toString());
     notifyUsers(otherParticipantIds, {
       title: `${req.user.name} left the group`,
       body: `${req.user.name} has left the group chat "${chat.name}".`,
       data: buildChatNotificationData(chat),
     });
-
     res.status(200).json({
       success: true,
       message: "You have left the group.",
@@ -1957,8 +1717,7 @@ export const exitGroupChat = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MARK CHAT AS READ
-// POST /api/messages/:chatId/read
+// MARK CHAT AS READ (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const markChatAsRead = async (req, res) => {
@@ -1966,12 +1725,10 @@ export const markChatAsRead = async (req, res) => {
   try {
     const userId = req.user.id;
     const { chatId } = req.params;
-
     const isParticipant = await isChatParticipant(chatId, userId);
     if (!isParticipant) {
       return res.status(403).json({ message: "Access denied." });
     }
-
     await Message.updateMany(
       {
         chat: chatId,
@@ -1987,12 +1744,10 @@ export const markChatAsRead = async (req, res) => {
         },
       },
     );
-
     await Chat.updateOne(
       { _id: chatId, "participants.user": userId },
       { $set: { "participants.$.lastReadAt": new Date() } },
     );
-
     res.status(200).json({
       success: true,
       message: "Chat marked as read",
@@ -2004,8 +1759,7 @@ export const markChatAsRead = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ARCHIVE MESSAGE (for a user)
-// POST /api/messages/:messageId/archive
+// ARCHIVE MESSAGE (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const archiveMessage = async (req, res) => {
@@ -2013,23 +1767,19 @@ export const archiveMessage = async (req, res) => {
   try {
     const userId = req.user.id;
     const { messageId } = req.params;
-
     const message = await Message.findById(messageId);
     if (!message) {
       return res.status(404).json({ message: "Message not found." });
     }
-
     const isParticipant = await isChatParticipant(message.chat, userId);
     if (!isParticipant) {
       return res.status(403).json({ message: "You are not a participant in this chat." });
     }
-
     if (!(message.archivedBy || []).some(id => id.toString() === userId)) {
       message.archivedBy = message.archivedBy || [];
       message.archivedBy.push(userId);
       await message.save();
     }
-
     res.status(200).json({
       success: true,
       message: "Message archived.",
@@ -2041,8 +1791,7 @@ export const archiveMessage = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UNARCHIVE MESSAGE (for a user)
-// POST /api/messages/:messageId/unarchive
+// UNARCHIVE MESSAGE (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const unarchiveMessage = async (req, res) => {
@@ -2050,20 +1799,16 @@ export const unarchiveMessage = async (req, res) => {
   try {
     const userId = req.user.id;
     const { messageId } = req.params;
-
     const message = await Message.findById(messageId);
     if (!message) {
       return res.status(404).json({ message: "Message not found." });
     }
-
     const isParticipant = await isChatParticipant(message.chat, userId);
     if (!isParticipant) {
       return res.status(403).json({ message: "You are not a participant in this chat." });
     }
-
     message.archivedBy = (message.archivedBy || []).filter(id => id.toString() !== userId);
     await message.save();
-
     res.status(200).json({
       success: true,
       message: "Message unarchived.",
@@ -2075,8 +1820,7 @@ export const unarchiveMessage = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STAR MESSAGE (for a user)
-// POST /api/messages/:messageId/star
+// STAR MESSAGE (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const starMessage = async (req, res) => {
@@ -2084,23 +1828,19 @@ export const starMessage = async (req, res) => {
   try {
     const userId = req.user.id;
     const { messageId } = req.params;
-
     const message = await Message.findById(messageId);
     if (!message) {
       return res.status(404).json({ message: "Message not found." });
     }
-
     const isParticipant = await isChatParticipant(message.chat, userId);
     if (!isParticipant) {
       return res.status(403).json({ message: "You are not a participant in this chat." });
     }
-
     if (!(message.starredBy || []).some(id => id.toString() === userId)) {
       message.starredBy = message.starredBy || [];
       message.starredBy.push(userId);
       await message.save();
     }
-
     res.status(200).json({
       success: true,
       message: "Message starred.",
@@ -2112,8 +1852,7 @@ export const starMessage = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UNSTAR MESSAGE (for a user)
-// POST /api/messages/:messageId/unstar
+// UNSTAR MESSAGE (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const unstarMessage = async (req, res) => {
@@ -2121,20 +1860,16 @@ export const unstarMessage = async (req, res) => {
   try {
     const userId = req.user.id;
     const { messageId } = req.params;
-
     const message = await Message.findById(messageId);
     if (!message) {
       return res.status(404).json({ message: "Message not found." });
     }
-
     const isParticipant = await isChatParticipant(message.chat, userId);
     if (!isParticipant) {
       return res.status(403).json({ message: "You are not a participant in this chat." });
     }
-
     message.starredBy = (message.starredBy || []).filter(id => id.toString() !== userId);
     await message.save();
-
     res.status(200).json({
       success: true,
       message: "Message unstarred.",
@@ -2145,7 +1880,8 @@ export const unstarMessage = async (req, res) => {
   }
 };
 
-// ─── GET PENDING JOIN REQUESTS FOR CURRENT USER ──────────────────────
+// ─── GET PENDING JOIN REQUESTS (unchanged) ──────────────────────────────────
+
 export const getPendingJoinRequests = async (req, res) => {
   console.log(`🔵 getPendingJoinRequests called by user ${req.user.id}`);
   try {
@@ -2160,10 +1896,165 @@ export const getPendingJoinRequests = async (req, res) => {
       .populate('participants.user', 'name email profile username')
       .populate('createdBy', 'name email profile username')
       .select('-joinRequests');
-
     res.status(200).json({ success: true, groups });
   } catch (error) {
     console.error('❌ getPendingJoinRequests error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ✨ NEW: EDIT MESSAGE
+// PUT /api/messages/:messageId
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const updateMessage = async (req, res) => {
+  console.log(`🔵 updateMessage called for message ${req.params.messageId} by user ${req.user.id}`);
+  try {
+    const userId = req.user.id;
+    const { messageId } = req.params;
+    const { content } = req.body;
+
+    if (!content || !content.trim()) {
+      return res.status(400).json({ message: "Content cannot be empty." });
+    }
+
+    const message = await Message.findById(messageId);
+    if (!message) {
+      return res.status(404).json({ message: "Message not found." });
+    }
+
+    if (message.sender.toString() !== userId) {
+      return res.status(403).json({ message: "You can only edit your own messages." });
+    }
+
+    message.content = content.trim();
+    message.edited = true;
+    message.editedAt = new Date();
+    await message.save();
+
+    const updatedMessage = await Message.findById(messageId)
+      .populate("sender", "name email profile username")
+      .populate("mentions", "name email profile username")
+      .populate({
+        path: "replyTo",
+        populate: { path: "sender", select: "name email profile username" },
+      })
+      .populate("sticker", "fileUrl thumbnailUrl type");
+
+    const io = getIO();
+    if (io) {
+      io.to(`chat:${message.chat}`).emit("message-edited", updatedMessage);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: updatedMessage,
+    });
+  } catch (error) {
+    console.error(`❌ updateMessage error:`, error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ✨ NEW: TOGGLE REACTION
+// POST /api/messages/:messageId/reactions
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const toggleReaction = async (req, res) => {
+  console.log(`🔵 toggleReaction called for message ${req.params.messageId} by user ${req.user.id}`);
+  try {
+    const userId = req.user.id;
+    const { messageId } = req.params;
+    const { emoji } = req.body;
+
+    if (!emoji || typeof emoji !== 'string' || emoji.length === 0) {
+      return res.status(400).json({ message: "Valid emoji is required." });
+    }
+
+    const message = await Message.findById(messageId);
+    if (!message) {
+      return res.status(404).json({ message: "Message not found." });
+    }
+
+    const isParticipant = await isChatParticipant(message.chat, userId);
+    if (!isParticipant) {
+      return res.status(403).json({ message: "You are not in this chat." });
+    }
+
+    if (!message.reactions) message.reactions = [];
+
+    const existingIndex = message.reactions.findIndex(
+      (r) => r.user.toString() === userId && r.emoji === emoji
+    );
+
+    const io = getIO();
+    if (existingIndex !== -1) {
+      message.reactions.splice(existingIndex, 1);
+      await message.save();
+      if (io) {
+        io.to(`chat:${message.chat}`).emit("reaction-removed", {
+          messageId: message._id,
+          emoji,
+          userId,
+        });
+      }
+      return res.status(200).json({
+        success: true,
+        action: 'removed',
+        message: "Reaction removed.",
+      });
+    } else {
+      message.reactions.push({ user: userId, emoji });
+      await message.save();
+      if (io) {
+        io.to(`chat:${message.chat}`).emit("reaction-added", {
+          messageId: message._id,
+          emoji,
+          user: userId,
+        });
+      }
+      return res.status(200).json({
+        success: true,
+        action: 'added',
+        message: "Reaction added.",
+      });
+    }
+  } catch (error) {
+    console.error(`❌ toggleReaction error:`, error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ✨ NEW: GET REACTIONS FOR A MESSAGE
+// GET /api/messages/:messageId/reactions
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const getMessageReactions = async (req, res) => {
+  console.log(`🔵 getMessageReactions called for message ${req.params.messageId} by user ${req.user.id}`);
+  try {
+    const userId = req.user.id;
+    const { messageId } = req.params;
+
+    const message = await Message.findById(messageId)
+      .populate('reactions.user', 'name email profile username');
+    if (!message) {
+      return res.status(404).json({ message: "Message not found." });
+    }
+
+    const isParticipant = await isChatParticipant(message.chat, userId);
+    if (!isParticipant) {
+      return res.status(403).json({ message: "You are not in this chat." });
+    }
+
+    res.status(200).json({
+      success: true,
+      reactions: message.reactions || [],
+    });
+  } catch (error) {
+    console.error(`❌ getMessageReactions error:`, error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

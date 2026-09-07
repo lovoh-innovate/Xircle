@@ -10,8 +10,11 @@ import {
   useUnarchiveMessageMutation,
   useStarMessageMutation,
   useUnstarMessageMutation,
+  useToggleReactionMutation,
+  useUpdateMessageMutation,
 } from "../slices/messagingApiSlice";
 import { useGetUserChatsQuery } from "../slices/messagingApiSlice";
+import { useGetSavedStickersQuery } from "../slices/stickerApiSlice";
 import { useSocket } from "../components/SocketContext.jsx";
 import { toast } from "react-hot-toast";
 import {
@@ -50,7 +53,8 @@ import {
   FaArrowRight,
   FaSave,
   FaUndoAlt,
-  FaExpandArrowsAlt,
+  FaPlus,
+  FaStickyNote,
 } from "react-icons/fa";
 import GeneralSidebar from "../components/GeneralSidebar";
 
@@ -112,7 +116,7 @@ const safeFormatTime = (dateString) => {
   }
 };
 
-// ─── Emoji picker data & helpers ───────────────────────────────────
+// ─── Emoji & Reaction lists ────────────────────────────────────────
 const EMOJI_LIST = [
   "😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😜", "🤔", "😎",
   "😢", "😭", "😡", "🥳", "👍", "👎", "🙏", "👏", "💪", "🔥",
@@ -124,6 +128,8 @@ const EMOJI_LIST = [
   "💞", "💕", "💗", "💖", "💘", "😻", "🌙", "🌛", "🌜", "⭐",
   "🌝", "🤭", "🌚",
 ];
+
+const REACTION_EMOJIS = ["😂", "😊", "😍", "😡", "😢"];
 
 // ─── Link detection / preview helpers ──────────────────────────────
 const URL_REGEX = /(https?:\/\/[^\s]+)/g;
@@ -453,13 +459,11 @@ const AudioPlayer = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(initialDuration || 0);
 
-  // Waveform bars – same as original
   const WAVEFORM_BARS = [
     6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6,
     10,
   ];
 
-  // Refs for drag/seek
   const waveformContainerRef = useRef(null);
   const isDraggingRef = useRef(false);
 
@@ -503,7 +507,6 @@ const AudioPlayer = ({
     setIsPlaying(!isPlaying);
   };
 
-  // Seek helpers
   const getSeekPosition = (clientX) => {
     const container = waveformContainerRef.current;
     if (!container) return 0;
@@ -539,7 +542,6 @@ const AudioPlayer = ({
     isDraggingRef.current = false;
   };
 
-  // Click on waveform to seek
   const handleWaveformClick = (e) => {
     const clientX = e.clientX ?? e.touches?.[0]?.clientX;
     if (clientX == null) return;
@@ -568,7 +570,6 @@ const AudioPlayer = ({
         )}
       </button>
 
-      {/* Waveform container – click/drag to seek */}
       <div
         ref={waveformContainerRef}
         className="flex-1 flex items-center h-6 relative cursor-pointer"
@@ -583,7 +584,6 @@ const AudioPlayer = ({
       >
         <div className="flex items-center gap-[2px] h-full w-full">
           {WAVEFORM_BARS.map((h, i) => {
-            // Determine if this bar is within the progress portion
             const barIndex = i / WAVEFORM_BARS.length;
             const isFilled = barIndex <= progressPercent / 100;
             return (
@@ -605,7 +605,6 @@ const AudioPlayer = ({
             );
           })}
         </div>
-        {/* Optional small progress handle – not necessary but can be added */}
       </div>
 
       <span
@@ -764,6 +763,27 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending, onEd
   );
 };
 
+// ─── Reaction Popover (desktop) ──────────────────────────────
+const ReactionPopover = ({ isOpen, onClose, onSelect }) => {
+  if (!isOpen) return null;
+  return (
+    <div
+      className="absolute bottom-full left-0 mb-2 bg-white dark:bg-[#1e1e26] rounded-xl shadow-lg border border-gray-200 dark:border-gray-800/60 p-2 flex gap-1 z-30"
+      style={{ transform: "translateX(-50%)", left: "50%" }}
+    >
+      {REACTION_EMOJIS.map((emoji) => (
+        <button
+          key={emoji}
+          onClick={() => { onSelect(emoji); onClose(); }}
+          className="text-2xl hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-lg p-1 transition"
+        >
+          {emoji}
+        </button>
+      ))}
+    </div>
+  );
+};
+
 // ─── Media Message Component ──────────────────────────────────────────
 const MediaMessage = ({
   message,
@@ -777,6 +797,8 @@ const MediaMessage = ({
   onStar,
   onUnstar,
   onReply,
+  onReaction,
+  onEdit,
   userId,
   isMobile,
   onLongPress,
@@ -784,7 +806,7 @@ const MediaMessage = ({
   onJumpToMessage,
   resolveSender,
 }) => {
-  // ── Deleted state (same for all) ──
+  // ── Deleted state ──
   if (message.isDeleted) {
     return (
       <div
@@ -807,6 +829,7 @@ const MediaMessage = ({
 
   const time = safeFormatTime(message.createdAt);
   const [showMenu, setShowMenu] = useState(false);
+  const [showReactions, setShowReactions] = useState(false);
   const longPressTimer = useRef(null);
   const isLongPress = useRef(false);
   const touchStartRef = useRef({ x: 0, y: 0 });
@@ -846,7 +869,6 @@ const MediaMessage = ({
     };
   })();
 
-  // Link preview target (only relevant for text messages)
   const firstUrl = extractFirstUrl(message.content);
 
   // Touch handlers for swipe reply
@@ -906,6 +928,7 @@ const MediaMessage = ({
   const toggleMenu = (e) => {
     e.stopPropagation();
     setShowMenu(!showMenu);
+    setShowReactions(false);
   };
   const closeMenu = () => setShowMenu(false);
   const menuRef = useRef(null);
@@ -948,9 +971,7 @@ const MediaMessage = ({
             src={message.mediaUrl}
             isOwn={isOwn}
             duration={message.mediaDuration}
-            onDurationReady={(dur) => {
-              // Optionally update message.mediaDuration if needed
-            }}
+            onDurationReady={(dur) => {}}
           />
         );
       case "file":
@@ -988,6 +1009,122 @@ const MediaMessage = ({
   };
   const swipeIconOpacity = Math.min(swipeX / 60, 1);
   const maxWidthClass = isMobile ? "max-w-[75%]" : "max-w-[85%]";
+
+  const renderMenuItems = () => (
+    <div
+      className="absolute right-0 top-8 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[160px] z-10 py-1"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          closeMenu();
+          onReply(message);
+        }}
+        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+      >
+        <FaReply className="text-xs" /> Reply
+      </button>
+      {isOwn && message.messageType === "text" && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            closeMenu();
+            onEdit(message);
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+        >
+          <FaPencilAlt className="text-xs" /> Edit
+        </button>
+      )}
+      {isOwn && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            closeMenu();
+            onDelete(message._id);
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full"
+        >
+          <FaTrashAlt className="text-xs" /> Delete
+        </button>
+      )}
+      {isStarred ? (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            closeMenu();
+            onUnstar(message._id);
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 rounded-lg transition w-full"
+        >
+          <FaStar className="text-xs" /> Unstar
+        </button>
+      ) : (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            closeMenu();
+            onStar(message._id);
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+        >
+          <FaRegStar className="text-xs" /> Star
+        </button>
+      )}
+      {isArchived ? (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            closeMenu();
+            onUnarchive(message._id);
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 rounded-lg transition w-full"
+        >
+          <FaUndo className="text-xs" /> Unarchive
+        </button>
+      ) : (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            closeMenu();
+            onArchive(message._id);
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+        >
+          <FaArchive className="text-xs" /> Archive
+        </button>
+      )}
+    </div>
+  );
+
+  const renderReactionButton = () => {
+    if (isMobile) return null;
+    return (
+      <div className="relative inline-block">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowReactions(!showReactions);
+            setShowMenu(false);
+          }}
+          className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white p-0.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
+        >
+          <FaPlus className="text-xs" />
+        </button>
+        {showReactions && (
+          <ReactionPopover
+            isOpen={showReactions}
+            onClose={() => setShowReactions(false)}
+            onSelect={(emoji) => {
+              onReaction(message._id, emoji);
+              setShowReactions(false);
+            }}
+          />
+        )}
+      </div>
+    );
+  };
 
   // ─── Image messages ──────────────────────────────────────────────────
   if (message.messageType === "image") {
@@ -1079,91 +1216,18 @@ const MediaMessage = ({
               </div>
               {!isMobile && (
                 <div
-                  className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition"
+                  className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition"
                   ref={menuRef}
                   onClick={(e) => e.stopPropagation()}
                 >
+                  {renderReactionButton()}
                   <button
                     onClick={toggleMenu}
                     className="text-white bg-black/40 p-1 rounded-full hover:bg-black/60"
                   >
                     <FaEllipsisV className="text-xs" />
                   </button>
-                  {showMenu && (
-                    <div
-                      className="absolute right-0 top-8 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[160px] z-10 py-1"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          closeMenu();
-                          onReply(message);
-                        }}
-                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
-                      >
-                        <FaReply className="text-xs" /> Reply
-                      </button>
-                      {isOwn && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            closeMenu();
-                            onDelete(message._id);
-                          }}
-                          className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full"
-                        >
-                          <FaTrashAlt className="text-xs" /> Delete
-                        </button>
-                      )}
-                      {isStarred ? (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            closeMenu();
-                            onUnstar(message._id);
-                          }}
-                          className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 rounded-lg transition w-full"
-                        >
-                          <FaStar className="text-xs" /> Unstar
-                        </button>
-                      ) : (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            closeMenu();
-                            onStar(message._id);
-                          }}
-                          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
-                        >
-                          <FaRegStar className="text-xs" /> Star
-                        </button>
-                      )}
-                      {isArchived ? (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            closeMenu();
-                            onUnarchive(message._id);
-                          }}
-                          className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 rounded-lg transition w-full"
-                        >
-                          <FaUndo className="text-xs" /> Unarchive
-                        </button>
-                      ) : (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            closeMenu();
-                            onArchive(message._id);
-                          }}
-                          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
-                        >
-                          <FaArchive className="text-xs" /> Archive
-                        </button>
-                      )}
-                    </div>
-                  )}
+                  {showMenu && renderMenuItems()}
                 </div>
               )}
             </div>
@@ -1221,7 +1285,7 @@ const MediaMessage = ({
             </span>
           )}
           <div
-            className={`px-4 py-2.5 rounded-2xl text-sm break-words w-full ${
+            className={`px-4 py-2.5 rounded-2xl text-sm break-words w-full relative ${
               isOwn
                 ? "text-white"
                 : "bg-gray-100 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200"
@@ -1242,6 +1306,11 @@ const MediaMessage = ({
             )}
             {firstUrl && <LinkPreviewCard url={firstUrl} isOwn={isOwn} />}
             {renderMediaContent()}
+            {!isMobile && (
+              <div className="absolute -bottom-4 right-0 opacity-0 group-hover:opacity-100 transition">
+                {renderReactionButton()}
+              </div>
+            )}
           </div>
           <div
             className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 ${isOwn ? "flex-row-reverse" : ""}`}
@@ -1256,78 +1325,7 @@ const MediaMessage = ({
                 >
                   <FaEllipsisV className="text-xs" />
                 </button>
-                {showMenu && (
-                  <div className="absolute right-0 bottom-6 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[160px] z-10 py-1">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        closeMenu();
-                        onReply(message);
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
-                    >
-                      <FaReply className="text-xs" /> Reply
-                    </button>
-                    {isOwn && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          closeMenu();
-                          onDelete(message._id);
-                        }}
-                        className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full"
-                      >
-                        <FaTrashAlt className="text-xs" /> Delete
-                      </button>
-                    )}
-                    {isStarred ? (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          closeMenu();
-                          onUnstar(message._id);
-                        }}
-                        className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 rounded-lg transition w-full"
-                      >
-                        <FaStar className="text-xs" /> Unstar
-                      </button>
-                    ) : (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          closeMenu();
-                          onStar(message._id);
-                        }}
-                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
-                      >
-                        <FaRegStar className="text-xs" /> Star
-                      </button>
-                    )}
-                    {isArchived ? (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          closeMenu();
-                          onUnarchive(message._id);
-                        }}
-                        className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 rounded-lg transition w-full"
-                      >
-                        <FaUndo className="text-xs" /> Unarchive
-                      </button>
-                    ) : (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          closeMenu();
-                          onArchive(message._id);
-                        }}
-                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
-                      >
-                        <FaArchive className="text-xs" /> Archive
-                      </button>
-                    )}
-                  </div>
-                )}
+                {showMenu && renderMenuItems()}
               </div>
             )}
           </div>
@@ -1464,6 +1462,8 @@ const MessageActionModal = ({
   onUnstar,
   onReply,
   onCopy,
+  onReaction,
+  onEdit,
 }) => {
   if (!isOpen || !message) return null;
   return (
@@ -1495,6 +1495,23 @@ const MessageActionModal = ({
             </p>
           </div>
         </div>
+
+        {/* Reactions row */}
+        <div className="flex justify-around mb-3 border-b border-gray-200 dark:border-gray-700/60 pb-3">
+          {REACTION_EMOJIS.map((emoji) => (
+            <button
+              key={emoji}
+              onClick={() => {
+                onReaction(message._id, emoji);
+                onClose();
+              }}
+              className="text-2xl hover:scale-125 transition-transform"
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+
         <div className="space-y-1">
           <button
             onClick={() => {
@@ -1516,6 +1533,18 @@ const MessageActionModal = ({
             <FaCopy className="text-sm" />{" "}
             <span className="text-sm font-medium">Copy</span>
           </button>
+          {isOwn && message.messageType === "text" && (
+            <button
+              onClick={() => {
+                onEdit(message);
+                onClose();
+              }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+            >
+              <FaPencilAlt className="text-sm" />{" "}
+              <span className="text-sm font-medium">Edit</span>
+            </button>
+          )}
           {isOwn && (
             <button
               onClick={() => {
@@ -1586,7 +1615,7 @@ const MessageActionModal = ({
   );
 };
 
-// ─── Contact Info Panel (DM only) ──────────────────────────────────
+// ─── Contact Info Panel ──────────────────────────────────────────
 const ContactInfoPanel = ({ user, onlineStatus, onClose }) => {
   return (
     <div className="h-full bg-white dark:bg-[#14141a] border-l border-gray-200 dark:border-gray-800/60 flex flex-col overflow-y-auto">
@@ -1660,8 +1689,8 @@ const base64ToFile = (base64Data, fileName, mimeType) => {
   return new File([blob], fileName, { type: mimeType });
 };
 
-// ─── Image Editor: full-resolution canvas + real drag drawing + real crop UI ──
-const MIN_CROP_SIZE = 40; // in displayed (CSS) px
+// ─── Image Editor Screen ──────────────────────────────────────────────
+const MIN_CROP_SIZE = 40;
 
 const ImageEditorScreen = ({ file, onSave, onCancel }) => {
   const canvasRef = useRef(null);
@@ -1669,13 +1698,12 @@ const ImageEditorScreen = ({ file, onSave, onCancel }) => {
 
   const [image, setImage] = useState(null);
   const [imageLoaded, setImageLoaded] = useState(false);
-  const [drawMode, setDrawMode] = useState("pencil"); // 'pencil' | 'arrow' | 'crop'
+  const [drawMode, setDrawMode] = useState("pencil");
   const [displaySize, setDisplaySize] = useState({ width: 0, height: 0 });
-  const [drawings, setDrawings] = useState([]); // {type:'pencil', points:[{x,y}]} | {type:'arrow', from:{x,y}, to:{x,y}}
-  const [cropBox, setCropBox] = useState(null); // {x,y,w,h} in DISPLAY px
+  const [drawings, setDrawings] = useState([]);
+  const [cropBox, setCropBox] = useState(null);
   const [cropTouched, setCropTouched] = useState(false);
 
-  // live drawing refs (kept out of state for perf; canvas redraws imperatively)
   const currentPathRef = useRef(null);
   const arrowStartRef = useRef(null);
   const arrowPreviewRef = useRef(null);
@@ -1683,7 +1711,6 @@ const ImageEditorScreen = ({ file, onSave, onCancel }) => {
   const pointerIdRef = useRef(null);
   const cropDragRef = useRef(null);
 
-  // ── Load the image ──
   useEffect(() => {
     if (!file) return;
     let cancelled = false;
@@ -1703,8 +1730,6 @@ const ImageEditorScreen = ({ file, onSave, onCancel }) => {
     };
   }, [file]);
 
-  // ── Layout: canvas backing store stays at FULL image resolution (quality fix).
-  // Only its CSS width/height shrink to fit the screen. ──
   const recomputeLayout = useCallback(() => {
     const container = containerRef.current;
     if (!container || !image) return;
@@ -1772,7 +1797,6 @@ const ImageEditorScreen = ({ file, onSave, onCancel }) => {
     ctx.stroke();
   };
 
-  // Redraw: base image (full res) + committed drawings + any live in-progress stroke
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || !image) return;
@@ -1826,7 +1850,6 @@ const ImageEditorScreen = ({ file, onSave, onCancel }) => {
     redraw();
   }, [redraw]);
 
-  // Convert a pointer event's screen position to a FULL-RESOLUTION canvas coordinate
   const getNaturalCoords = (clientX, clientY) => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
@@ -1840,7 +1863,6 @@ const ImageEditorScreen = ({ file, onSave, onCancel }) => {
     };
   };
 
-  // ── Pencil / Arrow: press → drag → release ──
   const handleCanvasPointerDown = (e) => {
     if (drawMode === "crop") return;
     e.preventDefault();
@@ -1915,7 +1937,6 @@ const ImageEditorScreen = ({ file, onSave, onCancel }) => {
     }
   };
 
-  // ── Crop: real image-viewer style — HTML overlay with 4 draggable corners + movable box ──
   const startCropDrag = (mode) => (e) => {
     e.stopPropagation();
     e.preventDefault();
@@ -1971,7 +1992,6 @@ const ImageEditorScreen = ({ file, onSave, onCancel }) => {
     }
   };
 
-  // ── Save: burn drawings (already on the full-res canvas) + apply crop in natural pixels ──
   const handleSave = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -1999,7 +2019,6 @@ const ImageEditorScreen = ({ file, onSave, onCancel }) => {
       }
     }
 
-    // Preserve original format/quality — no forced downscale (quality fix)
     const mimeType =
       file.type && file.type.startsWith("image/") ? file.type : "image/jpeg";
     const quality = mimeType === "image/jpeg" ? 0.95 : undefined;
@@ -2016,7 +2035,6 @@ const ImageEditorScreen = ({ file, onSave, onCancel }) => {
 
   return (
     <div className="fixed inset-0 z-50 bg-white dark:bg-[#0f0f12] flex flex-col">
-      {/* Header - Responsive layout for mobile */}
       <div className="flex items-center justify-between flex-wrap gap-1 sm:gap-2 p-2 sm:p-4 border-b border-gray-200 dark:border-gray-800/60 flex-shrink-0">
         <button
           onClick={onCancel}
@@ -2082,7 +2100,6 @@ const ImageEditorScreen = ({ file, onSave, onCancel }) => {
         </button>
       </div>
 
-      {/* Hint bar */}
       <p className="text-center text-xs text-gray-400 dark:text-gray-500 py-1.5 flex-shrink-0">
         {drawMode === "crop"
           ? "Drag the corners or box to crop"
@@ -2091,7 +2108,6 @@ const ImageEditorScreen = ({ file, onSave, onCancel }) => {
             : "Draw freehand on the photo"}
       </p>
 
-      {/* Canvas + crop overlay */}
       <div
         ref={containerRef}
         className="flex-1 flex items-center justify-center p-3 overflow-hidden"
@@ -2120,7 +2136,6 @@ const ImageEditorScreen = ({ file, onSave, onCancel }) => {
               onPointerUp={handleCropOverlayPointerUp}
               onPointerCancel={handleCropOverlayPointerUp}
             >
-              {/* dark mask outside the crop box */}
               <div
                 className="absolute bg-black/50 pointer-events-none"
                 style={{ left: 0, top: 0, right: 0, height: cropBox.y }}
@@ -2153,7 +2168,6 @@ const ImageEditorScreen = ({ file, onSave, onCancel }) => {
                 }}
               />
 
-              {/* crop box body — drag to move */}
               <div
                 onPointerDown={startCropDrag("move")}
                 className="absolute border-2 border-teal-400 touch-none"
@@ -2172,7 +2186,6 @@ const ImageEditorScreen = ({ file, onSave, onCancel }) => {
                 </div>
               </div>
 
-              {/* four corner handles — drag to resize */}
               {[
                 { key: "tl", x: cropBox.x, y: cropBox.y, cursor: "nwse-resize" },
                 {
@@ -2235,15 +2248,17 @@ const GeneralChatId = () => {
 
   const [showMediaPicker, setShowMediaPicker] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [stickerTab, setStickerTab] = useState(false);
   const emojiPickerRef = useRef(null);
+
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [editContent, setEditContent] = useState("");
 
   const [inputHeight, setInputHeight] = useState(0);
 
-  // Image editor states
   const [imageToEdit, setImageToEdit] = useState(null);
   const [imageEditorOpen, setImageEditorOpen] = useState(false);
 
-  // Voice recording states – restored from original
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [recordingBlob, setRecordingBlob] = useState(null);
@@ -2255,14 +2270,14 @@ const GeneralChatId = () => {
   const isRecordingRef = useRef(false);
   const isNative = Capacitor.isNativePlatform();
 
-  // Quick send flag – when true, after stop we send immediately
   const quickSendRef = useRef(false);
-  // Marks a web-recording stop as a CANCEL so onstop doesn't resurrect a preview (glitch fix)
   const cancelledRef = useRef(false);
-  // Timestamp of mic press-down, used to distinguish a real hold from an accidental tap
   const micPressStartRef = useRef(0);
-  // Prevents re-entrant start/stop from rapid double taps on mobile
   const micActionLockRef = useRef(false);
+
+  const [toggleReaction] = useToggleReactionMutation();
+  const [updateMessageApi] = useUpdateMessageMutation();
+  const { data: savedStickersData } = useGetSavedStickersQuery();
 
   useEffect(() => {
     isRecordingRef.current = isRecording;
@@ -2296,7 +2311,6 @@ const GeneralChatId = () => {
     }
   };
 
-  // ─── Native recording ──────────────────────────────────────
   const startNativeRecording = async () => {
     try {
       const { value: hasPermission } =
@@ -2376,7 +2390,6 @@ const GeneralChatId = () => {
     stopTimer();
   };
 
-  // ─── Web recording ──────────────────────────────────────────
   const startWebRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -2393,8 +2406,6 @@ const GeneralChatId = () => {
         stopTimer();
         setIsRecording(false);
 
-        // If this stop was triggered by a cancel, discard everything —
-        // do NOT resurrect a preview/blob after the user deleted it.
         if (cancelledRef.current) {
           cancelledRef.current = false;
           audioChunksRef.current = [];
@@ -2457,8 +2468,6 @@ const GeneralChatId = () => {
       cancelledRef.current = true;
       mediaRecorderRef.current.stop();
     }
-    // Reset immediately so the UI drops the recording bar right away —
-    // cancelledRef above stops the later onstop event from undoing this.
     setRecordingBlob(null);
     setShowRecordedPreview(false);
     setRecordingTime(0);
@@ -2466,7 +2475,6 @@ const GeneralChatId = () => {
     stopTimer();
   };
 
-  // ─── Public recording controls ─────────────────────────────
   const startRecording = () => {
     if (isRecordingRef.current) return;
     if (isNative) {
@@ -2485,7 +2493,6 @@ const GeneralChatId = () => {
   };
 
   const stopRecording = () => {
-    // This stops and shows preview (for the stop button)
     if (!isRecordingRef.current) return;
     quickSendRef.current = false;
     if (isNative) {
@@ -2496,7 +2503,6 @@ const GeneralChatId = () => {
   };
 
   const cancelRecording = () => {
-    // Discard recording entirely
     if (isNative) {
       cancelNativeRecording();
     } else {
@@ -2504,13 +2510,9 @@ const GeneralChatId = () => {
     }
   };
 
-  // ─── Quick send: stop recording and send immediately ──────
   const quickSendRecording = () => {
     if (!isRecordingRef.current) return;
 
-    // A hold shorter than this is almost certainly an accidental tap,
-    // not an intentional "record and send" gesture — cancel instead
-    // of sending an empty/near-empty voice note.
     const elapsed = Date.now() - (micPressStartRef.current || 0);
     if (elapsed < 350) {
       cancelRecording();
@@ -2522,7 +2524,6 @@ const GeneralChatId = () => {
       return;
     }
     quickSendRef.current = true;
-    // Stop recording; when blob is set, we'll send in useEffect
     if (isNative) {
       stopNativeRecording();
     } else {
@@ -2530,11 +2531,9 @@ const GeneralChatId = () => {
     }
   };
 
-  // ─── Send audio message ─────────────────────────────────────
   const sendAudioMessage = async (audioBlob) => {
     if (!audioBlob) return;
 
-    // Guard against empty/near-empty voice notes ever reaching the server
     if (audioBlob.size < 800) {
       setRecordingBlob(null);
       setShowRecordedPreview(false);
@@ -2642,7 +2641,6 @@ const GeneralChatId = () => {
     }
   };
 
-  // ─── Auto‑send when quick send is triggered and blob appears ──
   useEffect(() => {
     if (quickSendRef.current && recordingBlob) {
       quickSendRef.current = false;
@@ -2650,7 +2648,6 @@ const GeneralChatId = () => {
     }
   }, [recordingBlob]);
 
-  // ─── ResizeObserver for input height ────────────────────────────
   useEffect(() => {
     if (!inputAreaRef.current) return;
     const observer = new ResizeObserver((entries) => {
@@ -2690,7 +2687,7 @@ const GeneralChatId = () => {
 
   useEffect(() => {
     if (otherParticipant) {
-      // We'll request presence below
+      // presence handled later
     }
   }, [otherParticipant]);
 
@@ -2801,7 +2798,6 @@ const GeneralChatId = () => {
     }
   }, [message]);
 
-  // ─── Close emoji picker on outside click (desktop popup only) ────
   useEffect(() => {
     if (!showEmojiPicker || isMobile) return;
     const handler = (e) => {
@@ -2813,16 +2809,75 @@ const GeneralChatId = () => {
     return () => document.removeEventListener("mousedown", handler);
   }, [showEmojiPicker, isMobile]);
 
-  // ─── Insert emoji ──────────────────────────────────────────────────
   const handleEmojiSelect = (emoji) => {
     setMessage((prev) => prev + emoji);
   };
 
-  // ─── Toggle emoji picker ──────────────────────────────────────────
+  const handleSendSticker = async (stickerId) => {
+    if (!stickerId) return;
+    if (isSendingRef.current) return;
+    if (!socket || !isConnected) {
+      toast.error("Not connected");
+      return;
+    }
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const senderWithName = {
+      ...userInfo,
+      name: userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
+    };
+    const optimisticMsg = {
+      _id: tempId,
+      _tempId: tempId,
+      _temp: true,
+      _pending: false,
+      _sent: false,
+      _failed: false,
+      _delivered: false,
+      _read: false,
+      content: "",
+      sender: senderWithName,
+      createdAt: new Date().toISOString(),
+      messageType: "sticker",
+      chat: chatId,
+      sticker: stickerId,
+      replyTo: replyToMessage ? { _id: replyToMessage._id } : null,
+    };
+    setLocalMessages((prev) => [...prev, optimisticMsg]);
+    const replyToId = replyToMessage?._id || null;
+    setReplyToMessage(null);
+    socket.emit(
+      "send-message",
+      {
+        chatId,
+        content: "",
+        messageType: "sticker",
+        mentions: [],
+        replyToId,
+        clientMsgId: tempId,
+        stickerId,
+      },
+      (response) => {
+        if (response?.error) {
+          setLocalMessages((prev) => prev.filter((m) => m._id !== tempId));
+          toast.error(response.error);
+        } else {
+          setLocalMessages((prev) =>
+            prev.map((m) =>
+              m._id === tempId ? { ...m, _sent: true, _delivered: true } : m,
+            ),
+          );
+        }
+      },
+    );
+    setShowEmojiPicker(false);
+    setStickerTab(false);
+  };
+
   const toggleEmoji = useCallback(() => {
     setShowEmojiPicker((prev) => {
       if (!prev) {
         inputRef.current?.blur();
+        setStickerTab(false);
       } else {
         inputRef.current?.focus();
       }
@@ -2830,7 +2885,6 @@ const GeneralChatId = () => {
     });
   }, []);
 
-  // ─── Copy message content ───────────────────────────────────────
   const handleCopyMessage = async (msg) => {
     try {
       const textToCopy = msg?.content || msg?.mediaName || "";
@@ -2845,7 +2899,6 @@ const GeneralChatId = () => {
     }
   };
 
-  // ─── Duplicate detection helper ──────────────────────────────────
   const isRecentDuplicateMedia = useCallback(
     (signature) => {
       const now = Date.now();
@@ -2862,7 +2915,6 @@ const GeneralChatId = () => {
     [localMessages, userInfo],
   );
 
-  // ─── Message handling ──────────────────────────────────────────
   const mergeMessagesIntoState = useCallback(
     (incomingList) => {
       if (!incomingList || incomingList.length === 0) return;
@@ -3030,6 +3082,74 @@ const GeneralChatId = () => {
     }
   }, [messagesData, mergeMessagesIntoState, chatId]);
 
+  const handleReaction = async (messageId, emoji) => {
+    try {
+      await toggleReaction({ messageId, emoji }).unwrap();
+      setLocalMessages((prev) =>
+        prev.map((msg) => {
+          if (msg._id === messageId) {
+            const reactions = msg.reactions || [];
+            const existing = reactions.find(
+              (r) => r.user === userInfo?._id && r.emoji === emoji,
+            );
+            if (existing) {
+              return {
+                ...msg,
+                reactions: reactions.filter(
+                  (r) => !(r.user === userInfo?._id && r.emoji === emoji),
+                ),
+              };
+            } else {
+              return {
+                ...msg,
+                reactions: [...reactions, { user: userInfo?._id, emoji }],
+              };
+            }
+          }
+          return msg;
+        }),
+      );
+    } catch (err) {
+      toast.error("Failed to react");
+    }
+  };
+
+  const handleEditMessage = (msg) => {
+    setEditingMessageId(msg._id);
+    setEditContent(msg.content || "");
+    setMessage(msg.content || "");
+    inputRef.current?.focus();
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMessageId(null);
+    setEditContent("");
+    setMessage("");
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingMessageId) return;
+    const trimmed = editContent.trim();
+    if (!trimmed) {
+      toast.error("Content cannot be empty");
+      return;
+    }
+    try {
+      await updateMessageApi({ messageId: editingMessageId, content: trimmed }).unwrap();
+      setLocalMessages((prev) =>
+        prev.map((m) =>
+          m._id === editingMessageId
+            ? { ...m, content: trimmed, edited: true, editedAt: new Date().toISOString() }
+            : m,
+        ),
+      );
+      toast.success("Message updated");
+      handleCancelEdit();
+    } catch (err) {
+      toast.error(err?.data?.message || "Failed to update");
+    }
+  };
+
   // ─── Socket handlers ──────────────────────────────────────────────
   useEffect(() => {
     if (!socket || !isConnected || !chatId) return;
@@ -3071,10 +3191,49 @@ const GeneralChatId = () => {
       }
     };
 
+    const handleReactionAdded = ({ messageId, emoji, user }) => {
+      setLocalMessages((prev) =>
+        prev.map((msg) => {
+          if (msg._id === messageId) {
+            const reactions = msg.reactions || [];
+            if (!reactions.some((r) => r.user === user && r.emoji === emoji)) {
+              return { ...msg, reactions: [...reactions, { user, emoji }] };
+            }
+          }
+          return msg;
+        }),
+      );
+    };
+
+    const handleReactionRemoved = ({ messageId, emoji, userId }) => {
+      setLocalMessages((prev) =>
+        prev.map((msg) => {
+          if (msg._id === messageId) {
+            return {
+              ...msg,
+              reactions: (msg.reactions || []).filter(
+                (r) => !(r.user === userId && r.emoji === emoji),
+              ),
+            };
+          }
+          return msg;
+        }),
+      );
+    };
+
+    const handleMessageEdited = (updatedMsg) => {
+      setLocalMessages((prev) =>
+        prev.map((m) => (m._id === updatedMsg._id ? { ...m, ...updatedMsg } : m)),
+      );
+    };
+
     socket.on("new-message", handleNewMessage);
     socket.on("message-deleted", handleMessageDeleted);
     socket.on("message-read", handleMessageRead);
     socket.on("user-status-changed", handleUserStatusChange);
+    socket.on("reaction-added", handleReactionAdded);
+    socket.on("reaction-removed", handleReactionRemoved);
+    socket.on("message-edited", handleMessageEdited);
 
     return () => {
       socket.emit("leave-chat", chatId);
@@ -3082,6 +3241,9 @@ const GeneralChatId = () => {
       socket.off("message-deleted", handleMessageDeleted);
       socket.off("message-read", handleMessageRead);
       socket.off("user-status-changed", handleUserStatusChange);
+      socket.off("reaction-added", handleReactionAdded);
+      socket.off("reaction-removed", handleReactionRemoved);
+      socket.off("message-edited", handleMessageEdited);
     };
   }, [
     socket,
@@ -3136,7 +3298,6 @@ const GeneralChatId = () => {
     return () => observer.disconnect();
   }, [localMessages, markMessageAsRead, userInfo]);
 
-  // ─── Handle media send ──────────────────────────────────────────
   const handleSendMedia = async (file) => {
     if (!file) return;
     if (isSendingRef.current) return;
@@ -3208,9 +3369,12 @@ const GeneralChatId = () => {
     }
   };
 
-  // ─── Send message (text) ──────────────────────────────────────
   const handleSendMessage = (e) => {
     e.preventDefault();
+    if (editingMessageId) {
+      handleSaveEdit();
+      return;
+    }
     const trimmed = message.trim();
     if (!trimmed || !socket) return;
     if (isSendingRef.current) return;
@@ -3301,7 +3465,6 @@ const GeneralChatId = () => {
     );
   };
 
-  // ─── File / image: Native plugins with custom modal for images ──
   const handleTakePhoto = useCallback(async () => {
     setShowMediaPicker(false);
     try {
@@ -3406,7 +3569,6 @@ const GeneralChatId = () => {
       return;
     }
     setPendingMedia(file);
-    // toast removed
     e.target.value = "";
   }, []);
 
@@ -3420,7 +3582,6 @@ const GeneralChatId = () => {
         const file = item.getAsFile();
         if (file) {
           setPendingMedia(file);
-          // toast removed (optional: we can keep a silent notification)
           e.preventDefault();
           break;
         }
@@ -3428,7 +3589,6 @@ const GeneralChatId = () => {
     }
   };
 
-  // ─── Image editor callbacks ───────────────────────────────────────
   const handleImageEdit = () => {
     if (pendingMedia) {
       setImageToEdit(pendingMedia);
@@ -3447,7 +3607,6 @@ const GeneralChatId = () => {
     setImageToEdit(null);
   };
 
-  // ─── Mic button handlers ────────────────────────────────────────
   const handleMicPointerDown = (e) => {
     if (message.trim()) return;
     if (isRecordingRef.current || micActionLockRef.current || mediaRecorderRef.current)
@@ -3466,7 +3625,6 @@ const GeneralChatId = () => {
     micActionLockRef.current = false;
   };
 
-  // ─── Message action handlers ──────────────────────────────────
   const handleDeleteMessage = async (messageId) => {
     setConfirmModal({
       isOpen: true,
@@ -3551,7 +3709,10 @@ const GeneralChatId = () => {
   }, []);
   const clearPendingMedia = () => setPendingMedia(null);
 
-  // ─── Render messages with dividers ────────────────────────────────
+  const handleEdit = (msg) => {
+    handleEditMessage(msg);
+  };
+
   const renderMessagesWithDividers = () => {
     if (messagesLoading) {
       return <SkeletonMessages count={6} />;
@@ -3609,6 +3770,8 @@ const GeneralChatId = () => {
           onStar={handleStarMessage}
           onUnstar={handleUnstarMessage}
           onReply={handleReply}
+          onReaction={handleReaction}
+          onEdit={handleEdit}
           userId={userInfo?._id}
           isMobile={isMobile}
           onLongPress={handleLongPress}
@@ -3621,7 +3784,6 @@ const GeneralChatId = () => {
     return elements;
   };
 
-  // ─── Render ────────────────────────────────────────────────────
   if (!chat) {
     if (chatsListLoading) {
       return (
@@ -3638,6 +3800,36 @@ const GeneralChatId = () => {
     );
   }
 
+  const renderEditBar = () => {
+    if (!editingMessageId) return null;
+    return (
+      <div className="flex items-center justify-between px-3 py-2 mb-2 bg-teal-50 dark:bg-teal-900/20 rounded-lg border border-teal-200 dark:border-teal-700/40">
+        <div className="flex-1 min-w-0">
+          <span className="text-xs font-semibold text-teal-600 dark:text-teal-400">
+            Editing message
+          </span>
+          <p className="text-sm text-gray-700 dark:text-gray-300 truncate">
+            {editContent}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={handleCancelEdit}
+            className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
+          >
+            <FaTimes />
+          </button>
+          <button
+            onClick={handleSaveEdit}
+            className="text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 transition"
+          >
+            <FaSave />
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
       <div className="h-dvh bg-white dark:bg-[#0f0f12] flex flex-col lg:flex-row overflow-hidden">
@@ -3650,7 +3842,6 @@ const GeneralChatId = () => {
               isDesktop && showDetails ? "lg:w-2/3" : "lg:w-full"
             }`}
           >
-            {/* Header */}
             <header
               className="fixed lg:sticky top-0 left-0 right-0 lg:left-auto lg:right-auto z-20 flex items-center justify-between px-4 py-3 border-b border-gray-200/60 dark:border-gray-800/60 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl text-gray-800 dark:text-white flex-shrink-0 cursor-pointer"
               onClick={() => setShowDetails(!showDetails)}
@@ -3708,7 +3899,6 @@ const GeneralChatId = () => {
               </div>
             </header>
 
-            {/* Messages */}
             <div className="relative flex-1 overflow-hidden">
               <div
                 ref={messagesContainerRef}
@@ -3731,7 +3921,6 @@ const GeneralChatId = () => {
               )}
             </div>
 
-            {/* Input area */}
             <div
               ref={inputAreaRef}
               className="fixed lg:sticky bottom-0 left-0 right-0 lg:left-auto lg:right-auto z-20 border-t border-gray-200/60 dark:border-gray-800/60 bg-white/90 dark:bg-[#0f0f12]/90 backdrop-blur-xl flex-shrink-0 px-3 sm:px-4"
@@ -3743,7 +3932,8 @@ const GeneralChatId = () => {
                   resolveSender={resolveSender}
                 />
 
-                {/* Media Preview */}
+                {renderEditBar()}
+
                 {pendingMedia && (
                   <MediaPreview
                     mediaFile={pendingMedia}
@@ -3755,7 +3945,6 @@ const GeneralChatId = () => {
                   />
                 )}
 
-                {/* Voice preview (green bar) – restored */}
                 {showRecordedPreview && recordingBlob && (
                   <div className="flex items-center justify-between px-3 py-2 mb-2 bg-green-50 dark:bg-green-900/30 rounded-lg border border-green-200 dark:border-green-700/40">
                     <div className="flex items-center gap-2">
@@ -3800,7 +3989,6 @@ const GeneralChatId = () => {
                   </div>
                 )}
 
-                {/* Recording bar (red) – only when actively recording */}
                 {isRecording && (
                   <div className="flex items-center justify-between px-3 py-2 mb-2 bg-red-50 dark:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-700/40">
                     <div className="flex items-center gap-2">
@@ -3818,13 +4006,13 @@ const GeneralChatId = () => {
                         {recordingPaused ? "Resume" : "Pause"}
                       </button>
                       <button
-                        onClick={cancelRecording} // <-- Discards entirely, always
+                        onClick={cancelRecording}
                         className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white"
                       >
                         <FaTrashAlt className="text-xs" />
                       </button>
                       <button
-                        onClick={stopRecording} // <-- Stops and shows preview
+                        onClick={stopRecording}
                         className="bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition"
                       >
                         <FaStop className="text-xs" />
@@ -3837,7 +4025,6 @@ const GeneralChatId = () => {
                   onSubmit={handleSendMessage}
                   className="flex items-end gap-2"
                 >
-                  {/* Emoji */}
                   <div className="relative flex-shrink-0 mb-1" ref={emojiPickerRef}>
                     <button
                       type="button"
@@ -3847,27 +4034,107 @@ const GeneralChatId = () => {
                       <FaSmile className="text-xl" />
                     </button>
                     {showEmojiPicker && !isMobile && (
-                      <div className="absolute bottom-12 left-0 z-30 w-72 max-h-56 overflow-y-auto bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl shadow-xl p-3 grid grid-cols-8 gap-1">
-                        {EMOJI_LIST.map((emoji, idx) => (
+                      <div className="absolute bottom-12 left-0 z-30 w-72 max-h-56 overflow-y-auto bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl shadow-xl p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setStickerTab(false)}
+                              className={`text-xs font-medium px-2 py-1 rounded-lg transition ${
+                                !stickerTab
+                                  ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
+                                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white"
+                              }`}
+                            >
+                              Emoji
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setStickerTab(true)}
+                              className={`text-xs font-medium px-2 py-1 rounded-lg transition ${
+                                stickerTab
+                                  ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
+                                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white"
+                              }`}
+                            >
+                              <FaStickyNote className="inline mr-1" /> Sticker
+                            </button>
+                          </div>
                           <button
-                            key={idx}
                             type="button"
-                            onClick={() => handleEmojiSelect(emoji)}
-                            className="text-xl hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-lg p-1 transition"
+                            onClick={() => navigate("/stickers")}
+                            className="text-xs text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1"
                           >
-                            {emoji}
+                            <FaPlus className="text-[10px]" /> Create
                           </button>
-                        ))}
+                        </div>
+
+                        {!stickerTab ? (
+                          <div className="grid grid-cols-8 gap-1 max-h-40 overflow-y-auto">
+                            {EMOJI_LIST.map((emoji, idx) => (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => handleEmojiSelect(emoji)}
+                                className="text-xl hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-lg p-1 transition"
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="max-h-40 overflow-y-auto">
+                            {savedStickersData?.stickers?.length > 0 ? (
+                              <div className="grid grid-cols-3 gap-2">
+                                {savedStickersData.stickers.map((sticker) => (
+                                  <button
+                                    key={sticker._id}
+                                    type="button"
+                                    onClick={() => handleSendSticker(sticker._id)}
+                                    className="w-full aspect-square rounded-lg overflow-hidden hover:ring-2 hover:ring-teal-400 transition"
+                                  >
+                                    {sticker.type === "image" ? (
+                                      <img
+                                        src={sticker.fileUrl}
+                                        alt="sticker"
+                                        className="w-full h-full object-contain"
+                                      />
+                                    ) : (
+                                      <video
+                                        src={sticker.fileUrl}
+                                        className="w-full h-full object-contain"
+                                        muted
+                                      />
+                                    )}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-center text-gray-500 dark:text-gray-400 text-sm py-4">
+                                No saved stickers. <br />
+                                <button
+                                  type="button"
+                                  onClick={() => navigate("/stickers")}
+                                  className="text-teal-600 dark:text-teal-400 hover:underline"
+                                >
+                                  Create one
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
 
-                  {/* Input pill */}
                   <div className="flex-1 min-w-0 relative flex items-end">
                     <textarea
                       ref={inputRef}
                       value={message}
-                      onChange={(e) => setMessage(e.target.value)}
+                      onChange={(e) => {
+                        setMessage(e.target.value);
+                        if (editingMessageId) setEditContent(e.target.value);
+                      }}
                       onPaste={handlePaste}
                       onFocus={() => setShowEmojiPicker(false)}
                       onKeyDown={(e) => {
@@ -3878,7 +4145,7 @@ const GeneralChatId = () => {
                           handleSendMessage(e);
                         }
                       }}
-                      placeholder="Message"
+                      placeholder={editingMessageId ? "Edit message..." : "Message"}
                       rows={1}
                       className="w-full min-w-0 pl-4 pr-20 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500 resize-none max-h-32 overflow-y-auto"
                       style={{ minHeight: "42px", lineHeight: "1.5" }}
@@ -3914,8 +4181,7 @@ const GeneralChatId = () => {
                     />
                   </div>
 
-                  {/* Mic / send button */}
-                  {message.trim() ? (
+                  {message.trim() || editingMessageId ? (
                     <button
                       type="submit"
                       disabled={!isConnected || isSending}
@@ -3942,22 +4208,99 @@ const GeneralChatId = () => {
                   )}
                 </form>
 
-                {/* Mobile: emoji panel */}
                 {showEmojiPicker && isMobile && (
                   <div
-                    className="w-full mt-2 overflow-y-auto bg-white dark:bg-[#14141a] border-t border-gray-200 dark:border-gray-800/60 rounded-t-xl grid grid-cols-8 gap-1 p-3"
+                    className="w-full mt-2 overflow-y-auto bg-white dark:bg-[#14141a] border-t border-gray-200 dark:border-gray-800/60 rounded-t-xl p-3"
                     style={{ height: "260px" }}
                   >
-                    {EMOJI_LIST.map((emoji, idx) => (
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setStickerTab(false)}
+                          className={`text-xs font-medium px-2 py-1 rounded-lg transition ${
+                            !stickerTab
+                              ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
+                              : "text-gray-500 dark:text-gray-400"
+                          }`}
+                        >
+                          Emoji
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setStickerTab(true)}
+                          className={`text-xs font-medium px-2 py-1 rounded-lg transition ${
+                            stickerTab
+                              ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
+                              : "text-gray-500 dark:text-gray-400"
+                          }`}
+                        >
+                          <FaStickyNote className="inline mr-1" /> Sticker
+                        </button>
+                      </div>
                       <button
-                        key={idx}
                         type="button"
-                        onClick={() => handleEmojiSelect(emoji)}
-                        className="text-2xl hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-lg p-1 transition"
+                        onClick={() => navigate("/stickers")}
+                        className="text-xs text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1"
                       >
-                        {emoji}
+                        <FaPlus className="text-[10px]" /> Create
                       </button>
-                    ))}
+                    </div>
+
+                    {!stickerTab ? (
+                      <div className="grid grid-cols-8 gap-1 overflow-y-auto h-[200px]">
+                        {EMOJI_LIST.map((emoji, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => handleEmojiSelect(emoji)}
+                            className="text-2xl hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-lg p-1 transition"
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="overflow-y-auto h-[200px]">
+                        {savedStickersData?.stickers?.length > 0 ? (
+                          <div className="grid grid-cols-3 gap-2">
+                            {savedStickersData.stickers.map((sticker) => (
+                              <button
+                                key={sticker._id}
+                                type="button"
+                                onClick={() => handleSendSticker(sticker._id)}
+                                className="w-full aspect-square rounded-lg overflow-hidden hover:ring-2 hover:ring-teal-400 transition"
+                              >
+                                {sticker.type === "image" ? (
+                                  <img
+                                    src={sticker.fileUrl}
+                                    alt="sticker"
+                                    className="w-full h-full object-contain"
+                                  />
+                                ) : (
+                                  <video
+                                    src={sticker.fileUrl}
+                                    className="w-full h-full object-contain"
+                                    muted
+                                  />
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-center text-gray-500 dark:text-gray-400 text-sm py-4">
+                            No saved stickers. <br />
+                            <button
+                              type="button"
+                              onClick={() => navigate("/stickers")}
+                              className="text-teal-600 dark:text-teal-400 hover:underline"
+                            >
+                              Create one
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -3976,7 +4319,6 @@ const GeneralChatId = () => {
         </div>
       </div>
 
-      {/* Mobile details overlay */}
       {isMobile && showDetails && (
         <>
           <div
@@ -3993,7 +4335,6 @@ const GeneralChatId = () => {
         </>
       )}
 
-      {/* Image Editor Full‑Screen */}
       {imageEditorOpen && imageToEdit && (
         <ImageEditorScreen
           file={imageToEdit}
@@ -4036,6 +4377,8 @@ const GeneralChatId = () => {
         onUnstar={handleUnstarMessage}
         onReply={handleReply}
         onCopy={handleCopyMessage}
+        onReaction={handleReaction}
+        onEdit={handleEdit}
       />
 
       <MediaPickerModal

@@ -37,9 +37,13 @@ import {
   unarchiveMessage,
   starMessage,
   unstarMessage,
-  // 🆕 Unified group update (replaces updatePublicGroup)
+  // Unified group update
   updateGroupChat,
   deletePublicGroup,
+  // ✨ NEW
+  updateMessage,
+  toggleReaction,
+  getMessageReactions,
 } from '../controllers/messagingController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import upload from '../middleware/uploadMiddleware.js';
@@ -48,7 +52,6 @@ import multer from 'multer';
 const router = express.Router();
 
 // ─── Chat management (workspace) ──────────────────────────────────────
-// ✅ Added upload.single('avatar') for avatar upload
 router.post('/group', protect, upload.single('avatar'), createGroupChat);
 router.post('/direct', protect, createDirectChat);
 router.get('/chats', protect, getUserChats);
@@ -66,21 +69,18 @@ router.post('/public/groups/:chatId/join-request/:requestId', protect, handleJoi
 router.get('/public/groups/:chatId/join-requests', protect, getJoinRequests);
 router.get('/public/groups/pending', protect, getPendingJoinRequests);
 
-// 🆕 Unified group update (workspace & public) – with avatar upload
 router.put('/group/:chatId', protect, upload.single('avatar'), updateGroupChat);
-
-// 🆕 Delete public group (creator only) – kept
 router.delete('/public/group/:chatId', protect, deletePublicGroup);
 
 // ─── Group admin management ──────────────────────────────────────────
 router.post('/:chatId/make-admin', protect, makeGroupAdmin);
 router.post('/:chatId/remove-admin', protect, removeGroupAdmin);
 
-// ─── Group deletion and member listing (workspace groups) ──────────
+// ─── Group deletion and member listing ──────────────────────────────
 router.delete('/group/:chatId', protect, deleteGroupChat);
 router.get('/group/:chatId/members', protect, getGroupMembers);
 
-// ─── Archiving and exiting (chat level) ─────────────────────────────
+// ─── Archiving and exiting ───────────────────────────────────────────
 router.post('/:chatId/archive', protect, archiveChat);
 router.post('/:chatId/unarchive', protect, unarchiveChat);
 router.post('/:chatId/exit', protect, exitGroupChat);
@@ -89,6 +89,11 @@ router.post('/:chatId/exit', protect, exitGroupChat);
 router.get('/:chatId', protect, getChatMessages);
 router.post('/:chatId', protect, upload.single('media'), sendMessage);
 router.delete('/:messageId', protect, deleteMessage);
+
+// ─── ✨ NEW: Message editing and reactions ──────────────────────────
+router.put('/:messageId', protect, updateMessage);               // edit message
+router.post('/:messageId/reactions', protect, toggleReaction);   // toggle reaction
+router.get('/:messageId/reactions', protect, getMessageReactions); // get reactions
 
 // ─── Message archive/star ─────────────────────────────────────────────
 router.post('/:messageId/archive', protect, archiveMessage);

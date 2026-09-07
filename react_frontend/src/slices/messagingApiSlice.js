@@ -45,7 +45,6 @@ export const messagingApiSlice = apiSlice.injectEndpoints({
     }),
 
     // ─── Unified Group Update (workspace & public) ───────────────────
-    // ✅ Use this new mutation for both workspace and public groups
     updateGroupChat: builder.mutation({
       query: ({ chatId, data }) => {
         const isFormData = data instanceof FormData;
@@ -64,12 +63,11 @@ export const messagingApiSlice = apiSlice.injectEndpoints({
     }),
 
     // ─── Public group update (legacy – use updateGroupChat instead) ──
-    // Kept for backward compatibility; points to the same unified endpoint
     updatePublicGroup: builder.mutation({
       query: ({ chatId, data }) => {
         const isFormData = data instanceof FormData;
         return {
-          url: `${MESSAGING_URL}/group/${chatId}`, // now unified
+          url: `${MESSAGING_URL}/group/${chatId}`,
           method: 'PUT',
           body: data,
           headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
@@ -82,7 +80,6 @@ export const messagingApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // 🆕 Delete public group (creator only)
     deletePublicGroup: builder.mutation({
       query: (chatId) => ({
         url: `${MESSAGING_URL}/public/group/${chatId}`,
@@ -232,6 +229,42 @@ export const messagingApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    // ─── ✨ NEW: Message Editing ──────────────────────────────────────
+    updateMessage: builder.mutation({
+      query: ({ messageId, content }) => ({
+        url: `${MESSAGING_URL}/${messageId}`,
+        method: 'PUT',
+        body: { content },
+      }),
+      invalidatesTags: (result, error, { messageId }) => [
+        { type: 'Message', id: messageId },
+        'Message',
+      ],
+    }),
+
+    // ─── ✨ NEW: Reactions ─────────────────────────────────────────────
+    toggleReaction: builder.mutation({
+      query: ({ messageId, emoji }) => ({
+        url: `${MESSAGING_URL}/${messageId}/reactions`,
+        method: 'POST',
+        body: { emoji },
+      }),
+      invalidatesTags: (result, error, { messageId }) => [
+        { type: 'Message', id: messageId },
+        'Message',
+      ],
+    }),
+
+    getMessageReactions: builder.query({
+      query: (messageId) => ({
+        url: `${MESSAGING_URL}/${messageId}/reactions`,
+      }),
+      providesTags: (result, error, messageId) => [
+        { type: 'Message', id: messageId },
+        'Reaction',
+      ],
+    }),
+
     // ─── Chat Messages ──────────────────────────────────────────────────
     getUserChats: builder.query({
       query: ({ workspaceId, archived } = {}) => ({
@@ -366,13 +399,9 @@ export const {
   useGetJoinRequestsQuery,
   useGetPendingJoinRequestsQuery,
 
-  // 🆕 Unified group update (recommended)
+  // Unified group update
   useUpdateGroupChatMutation,
-
-  // Legacy public group update (kept for compatibility)
   useUpdatePublicGroupMutation,
-
-  // Public group delete
   useDeletePublicGroupMutation,
 
   // Group admin
@@ -393,6 +422,11 @@ export const {
   useUnarchiveMessageMutation,
   useStarMessageMutation,
   useUnstarMessageMutation,
+
+  // ✨ NEW: Message editing & reactions
+  useUpdateMessageMutation,
+  useToggleReactionMutation,
+  useGetMessageReactionsQuery,
 
   // Core chat & messages
   useGetUserChatsQuery,
