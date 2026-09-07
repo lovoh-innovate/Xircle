@@ -446,7 +446,7 @@ const MediaPickerModal = ({
   );
 };
 
-// ─── Audio Player with waveform, speed, and auto‑play ────────────
+// ─── Audio Player (fully responsive) ──────────────────────────────
 const AudioPlayer = ({
   src,
   isOwn,
@@ -615,24 +615,24 @@ const AudioPlayer = ({
   const progressPercent = duration ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div className="flex items-center gap-2.5 min-w-[220px] py-0.5">
+    <div className="flex items-center gap-1 sm:gap-2.5 min-w-0 w-full py-0.5">
       <button
         onClick={togglePlay}
-        className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+        className="w-7 h-7 sm:w-9 sm:h-9 rounded-full flex items-center justify-center flex-shrink-0"
         style={{
           backgroundColor: isOwn ? "rgba(255,255,255,0.2)" : "#0d9488",
         }}
       >
         {isPlaying ? (
-          <FaPause className="text-xs text-white" />
+          <FaPause className="text-[10px] sm:text-xs text-white" />
         ) : (
-          <FaPlay className="text-xs text-white ml-0.5" />
+          <FaPlay className="text-[10px] sm:text-xs text-white ml-0.5" />
         )}
       </button>
 
       <div
         ref={waveformContainerRef}
-        className="flex-1 flex items-center h-6 relative cursor-pointer"
+        className="flex-1 min-w-0 flex items-center h-6 relative cursor-pointer"
         onClick={handleWaveformClick}
         onMouseDown={handleSeekStart}
         onMouseMove={handleSeekMove}
@@ -642,14 +642,14 @@ const AudioPlayer = ({
         onTouchMove={handleSeekMove}
         onTouchEnd={handleSeekEnd}
       >
-        <div className="flex items-center gap-[2px] h-full w-full">
+        <div className="flex items-center gap-[1px] sm:gap-[2px] h-full w-full">
           {WAVEFORM_BARS.map((h, i) => {
             const barIndex = i / WAVEFORM_BARS.length;
             const isFilled = barIndex <= progressPercent / 100;
             return (
               <span
                 key={i}
-                className="w-[2.5px] rounded-full transition-all"
+                className="w-[2px] sm:w-[2.5px] rounded-full transition-all"
                 style={{
                   height: `${h * 2}px`,
                   backgroundColor: isOwn
@@ -668,20 +668,22 @@ const AudioPlayer = ({
       </div>
 
       <span
-        className={`text-[10px] flex-shrink-0 ${isOwn ? "text-white/70" : "text-gray-500 dark:text-gray-400"}`}
+        className={`text-[8px] sm:text-[10px] flex-shrink-0 ${
+          isOwn ? "text-white/70" : "text-gray-500 dark:text-gray-400"
+        }`}
       >
         {formatTime(currentTime)} / {formatTime(duration)}
       </span>
 
-      {/* Speed control */}
+      {/* Speed control - responsive sizing */}
       <button
         onClick={cycleSpeed}
-        className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full border flex-shrink-0 transition ${
+        className={`text-[8px] sm:text-[10px] font-medium px-1 py-0.5 rounded-full border flex-shrink-0 transition ${
           isOwn
             ? "border-white/30 text-white/80 hover:bg-white/10"
             : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/30"
         }`}
-        style={{ minWidth: "24px" }}
+        style={{ minWidth: "18px" }}
       >
         {speed}x
       </button>
@@ -1655,7 +1657,7 @@ const MediaMessage = ({
             </span>
           )}
           <div
-            className={`relative px-4 py-2.5 rounded-2xl text-sm break-words w-full ${
+            className={`relative px-4 py-2.5 rounded-2xl text-sm break-words w-full overflow-hidden ${
               isOwn
                 ? "text-white"
                 : "bg-gray-100 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200"
