@@ -655,19 +655,14 @@ const MessageTicks = ({ message, isOwn }) => {
   );
 };
 
-// ─── Quoted Reply Block ────────────────────────────────────────────
+// ─── Quoted Reply Block (with thumbnail for image/sticker) ──────────
 const QuotedReplyBlock = ({ replyData, isOwn, onJump }) => {
   if (!replyData) return null;
   const name = replyData.senderName || "Unknown";
-  const text = replyData.content
-    ? replyData.content
-    : replyData.mediaName
-      ? `📎 ${replyData.mediaName}`
-      : replyData.messageType === "image"
-        ? "📷 Photo"
-        : replyData.messageType === "audio"
-          ? "🎤 Voice note"
-          : "Media";
+
+  const isImage = replyData.messageType === "image";
+  const isSticker = replyData.messageType === "sticker";
+  const mediaUrl = replyData.mediaUrl || replyData.stickerUrl;
 
   return (
     <button
@@ -689,11 +684,35 @@ const QuotedReplyBlock = ({ replyData, isOwn, onJump }) => {
       >
         {name}
       </p>
-      <p
-        className={`truncate ${isOwn ? "text-white/70" : "text-gray-500 dark:text-gray-400"}`}
-      >
-        {text}
-      </p>
+      <div className="flex items-center gap-2">
+        {mediaUrl && (isImage || isSticker) ? (
+          <>
+            {isImage ? (
+              <img
+                src={mediaUrl}
+                alt="reply"
+                className="w-8 h-8 rounded object-cover"
+              />
+            ) : (
+              <video
+                src={mediaUrl}
+                className="w-8 h-8 rounded object-cover"
+                muted
+              />
+            )}
+            <span className="truncate text-gray-500 dark:text-gray-400">
+              {isImage ? "Photo" : "Sticker"}
+            </span>
+          </>
+        ) : (
+          <span
+            className={`truncate ${isOwn ? "text-white/70" : "text-gray-500 dark:text-gray-400"}`}
+          >
+            {replyData.content ||
+              (replyData.mediaName ? `📎 ${replyData.mediaName}` : "Media")}
+          </span>
+        )}
+      </div>
     </button>
   );
 };
@@ -763,8 +782,8 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending, onEd
   );
 };
 
-// ─── Reaction Popover (desktop) ──────────────────────────────
-const ReactionPopover = ({ isOpen, onClose, onSelect, align = "center" }) => {
+// ─── Reaction Popover (desktop) with plus button ──────────────────
+const ReactionPopover = ({ isOpen, onClose, onSelect, onPlusClick, align = "center" }) => {
   if (!isOpen) return null;
   const alignClass =
     align === "left"
@@ -786,6 +805,16 @@ const ReactionPopover = ({ isOpen, onClose, onSelect, align = "center" }) => {
           {emoji}
         </button>
       ))}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onPlusClick();
+          onClose();
+        }}
+        className="text-xl hover:scale-125 hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-full p-1 transition-transform text-gray-400 dark:text-gray-500"
+      >
+        <FaPlus className="text-base" />
+      </button>
     </div>
   );
 };
@@ -847,6 +876,8 @@ const MediaMessage = ({
   allMessages,
   onJumpToMessage,
   resolveSender,
+  showSenderName = true,
+  onOpenEmojiPicker, // ✨ new prop to open main emoji picker
 }) => {
   // ── Deleted state ──
   if (message.isDeleted) {
@@ -891,12 +922,18 @@ const MediaMessage = ({
       const rSender = resolveSender
         ? resolveSender(replyTo.sender)
         : replyTo.sender || {};
+      let stickerUrl = null;
+      if (replyTo.messageType === "sticker" && replyTo.sticker) {
+        stickerUrl = replyTo.sticker.fileUrl || null;
+      }
       return {
         id: replyTo._id,
         senderName: rSender?.name || replyTo.senderName || "Unknown",
         content: replyTo.content,
         mediaName: replyTo.mediaName,
         messageType: replyTo.messageType,
+        mediaUrl: replyTo.mediaUrl || null,
+        stickerUrl: stickerUrl,
       };
     }
     const original = allMessages?.find((m) => m._id === replyTo);
@@ -904,16 +941,107 @@ const MediaMessage = ({
     const rSender = resolveSender
       ? resolveSender(original.sender)
       : original.sender || {};
+    let stickerUrl = null;
+    if (original.messageType === "sticker" && original.sticker) {
+      stickerUrl = original.sticker.fileUrl || null;
+    }
     return {
       id: original._id,
       senderName: rSender?.name || "Unknown",
       content: original.content,
       mediaName: original.mediaName,
       messageType: original.messageType,
+      mediaUrl: original.mediaUrl || null,
+      stickerUrl: stickerUrl,
     };
   })();
 
   const firstUrl = extractFirstUrl(message.content);
+
+  // ─── Desktop dropdown menu (defined once, used everywhere) ──────────
+  const renderDesktopMenu = () => (
+    <div
+      className={`absolute top-full mt-1 z-30 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[170px] py-1 ${
+        isOwn ? "right-0" : "left-0"
+      }`}
+      onClick={(e) => e.stopPropagation()}
+      onMouseLeave={() => setShowMenu(false)}
+    >
+      <button
+        onClick={() => {
+          setShowMenu(false);
+          onReply(message);
+        }}
+        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+      >
+        <FaReply className="text-xs" /> Reply
+      </button>
+      {isOwn && message.messageType === "text" && (
+        <button
+          onClick={() => {
+            setShowMenu(false);
+            onEdit(message);
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+        >
+          <FaPencilAlt className="text-xs" /> Edit
+        </button>
+      )}
+      {isOwn && (
+        <button
+          onClick={() => {
+            setShowMenu(false);
+            onDelete(message._id);
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full"
+        >
+          <FaTrashAlt className="text-xs" /> Delete
+        </button>
+      )}
+      {isStarred ? (
+        <button
+          onClick={() => {
+            setShowMenu(false);
+            onUnstar(message._id);
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 rounded-lg transition w-full"
+        >
+          <FaStar className="text-xs" /> Unstar
+        </button>
+      ) : (
+        <button
+          onClick={() => {
+            setShowMenu(false);
+            onStar(message._id);
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+        >
+          <FaRegStar className="text-xs" /> Star
+        </button>
+      )}
+      {isArchived ? (
+        <button
+          onClick={() => {
+            setShowMenu(false);
+            onUnarchive(message._id);
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 rounded-lg transition w-full"
+        >
+          <FaUndo className="text-xs" /> Unarchive
+        </button>
+      ) : (
+        <button
+          onClick={() => {
+            setShowMenu(false);
+            onArchive(message._id);
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+        >
+          <FaArchive className="text-xs" /> Archive
+        </button>
+      )}
+    </div>
+  );
 
   // Touch handlers for swipe reply (mobile)
   const handleTouchStart = (e) => {
@@ -1039,152 +1167,187 @@ const MediaMessage = ({
   const swipeIconOpacity = Math.min(swipeX / 60, 1);
   const maxWidthClass = isMobile ? "max-w-[75%]" : "max-w-[85%]";
 
-  // ─── Desktop dropdown menu — anchored to the chevron in the bubble corner ──
-  const renderDesktopMenu = () => (
-    <div
-      className={`absolute top-full mt-1 z-30 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[170px] py-1 ${
-        isOwn ? "right-0" : "left-0"
-      }`}
-      onClick={(e) => e.stopPropagation()}
-      onMouseLeave={() => setShowMenu(false)}
-    >
-      <button
-        onClick={() => {
-          setShowMenu(false);
-          onReply(message);
-        }}
-        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
-      >
-        <FaReply className="text-xs" /> Reply
-      </button>
-      {isOwn && message.messageType === "text" && (
-        <button
-          onClick={() => {
-            setShowMenu(false);
-            onEdit(message);
-          }}
-          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
-        >
-          <FaPencilAlt className="text-xs" /> Edit
-        </button>
-      )}
-      {isOwn && (
-        <button
-          onClick={() => {
-            setShowMenu(false);
-            onDelete(message._id);
-          }}
-          className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full"
-        >
-          <FaTrashAlt className="text-xs" /> Delete
-        </button>
-      )}
-      {isStarred ? (
-        <button
-          onClick={() => {
-            setShowMenu(false);
-            onUnstar(message._id);
-          }}
-          className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 rounded-lg transition w-full"
-        >
-          <FaStar className="text-xs" /> Unstar
-        </button>
-      ) : (
-        <button
-          onClick={() => {
-            setShowMenu(false);
-            onStar(message._id);
-          }}
-          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
-        >
-          <FaRegStar className="text-xs" /> Star
-        </button>
-      )}
-      {isArchived ? (
-        <button
-          onClick={() => {
-            setShowMenu(false);
-            onUnarchive(message._id);
-          }}
-          className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 rounded-lg transition w-full"
-        >
-          <FaUndo className="text-xs" /> Unarchive
-        </button>
-      ) : (
-        <button
-          onClick={() => {
-            setShowMenu(false);
-            onArchive(message._id);
-          }}
-          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
-        >
-          <FaArchive className="text-xs" /> Archive
-        </button>
-      )}
-    </div>
-  );
-
-  // ─── Desktop hover controls: chevron dropdown tucked into the bubble
-  //     corner (WhatsApp-style), plus a reaction smiley just outside it ──
-  const renderHoverControls = ({ withinOverflowHidden }) => (
-    <>
-      {/* Reaction smiley — sits just outside the bubble edge */}
-      <div
-        className={`absolute top-1/2 -translate-y-1/2 z-20 ${
-          isOwn ? "right-full mr-2" : "left-full ml-2"
-        }`}
-      >
-        <div className="relative">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowReactions(!showReactions);
-              setShowMenu(false);
-            }}
-            className="bg-white dark:bg-[#1e1e26] rounded-full shadow-md border border-gray-200 dark:border-gray-700/60 p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+  // ─── Sticker messages ──────────────────────────────────────────────
+  if (message.messageType === "sticker") {
+    const sticker = message.sticker;
+    if (!sticker) {
+      return (
+        <div className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}>
+          <div
+            className={`${maxWidthClass} ${isOwn ? "items-end" : "items-start"} flex flex-col`}
           >
-            <FaSmile className="text-xs text-gray-500 dark:text-gray-400" />
-          </button>
-          <ReactionPopover
-            isOpen={showReactions}
-            onClose={() => setShowReactions(false)}
-            onSelect={(emoji) => {
-              onReaction(message._id, emoji);
-              setShowReactions(false);
-            }}
-            align={isOwn ? "right" : "left"}
-          />
+            <div
+              className={`px-4 py-2.5 rounded-2xl text-sm break-words w-full ${
+                isOwn
+                  ? "text-white"
+                  : "bg-gray-100 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200"
+              }`}
+              style={isOwn ? { backgroundColor: "#0d9488" } : {}}
+            >
+              <span className="italic text-gray-400">Sticker unavailable</span>
+            </div>
+            <div
+              className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 ${isOwn ? "flex-row-reverse" : ""}`}
+            >
+              <span>{time}</span>
+              <MessageTicks message={message} isOwn={isOwn} />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        data-message-id={message._id}
+        className="relative message-container"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onTouchMove={handleTouchMove}
+        onMouseEnter={() => setIsHovering(true)}
+        onMouseLeave={() => {
+          setIsHovering(false);
+          setShowMenu(false);
+          setShowReactions(false);
+        }}
+      >
+        {isMobile && swipeX > 0 && (
+          <div
+            className="absolute left-0 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
+            style={{ opacity: swipeIconOpacity }}
+          >
+            <FaReply className="text-sm" />
+          </div>
+        )}
+        <div
+          className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
+          style={isMobile ? swipeStyle : undefined}
+        >
+          {!isOwn && showSenderName && (
+            <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
+              {senderProfile ? (
+                <img
+                  src={senderProfile}
+                  alt={senderName}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div
+                  className="w-full h-full flex items-center justify-center text-white text-xs font-bold"
+                  style={{ backgroundColor: "#0d9488" }}
+                >
+                  {senderName?.charAt(0).toUpperCase() || "?"}
+                </div>
+              )}
+            </div>
+          )}
+          <div
+            className={`${maxWidthClass} relative ${isOwn ? "items-end" : "items-start"} flex flex-col`}
+          >
+            {showSenderName && !isOwn && (
+              <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1 mb-0.5">
+                {senderName}
+              </span>
+            )}
+            {replyPreview && (
+              <div className="w-full mb-1">
+                <QuotedReplyBlock
+                  replyData={replyPreview}
+                  isOwn={isOwn}
+                  onJump={onJumpToMessage}
+                />
+              </div>
+            )}
+            <div className="relative">
+              <div className="rounded-lg overflow-hidden max-w-[200px] max-h-[200px]">
+                {sticker.type === "image" ? (
+                  <img
+                    src={sticker.fileUrl}
+                    alt="sticker"
+                    className="w-full h-full object-contain"
+                  />
+                ) : (
+                  <video
+                    src={sticker.fileUrl}
+                    className="w-full h-full object-contain"
+                    muted
+                    loop
+                    autoPlay
+                  />
+                )}
+              </div>
+              <div className="absolute bottom-1 right-1 flex items-center gap-1 text-[10px] text-white bg-black/40 px-1.5 py-0.5 rounded-full">
+                <span>{time}</span>
+                <MessageTicks message={message} isOwn={isOwn} />
+              </div>
+
+              {/* ─── Desktop: chevron + reaction on hover ─── */}
+              {!isMobile && isHovering && (
+                <>
+                  {/* Reaction smiley — outside bubble */}
+                  <div
+                    className={`absolute top-1/2 -translate-y-1/2 z-20 ${
+                      isOwn ? "right-full mr-2" : "left-full ml-2"
+                    }`}
+                  >
+                    <div className="relative">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowReactions(!showReactions);
+                          setShowMenu(false);
+                        }}
+                        className="bg-white dark:bg-[#1e1e26] rounded-full shadow-md border border-gray-200 dark:border-gray-700/60 p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+                      >
+                        <FaSmile className="text-xs text-gray-500 dark:text-gray-400" />
+                      </button>
+                      <ReactionPopover
+                        isOpen={showReactions}
+                        onClose={() => setShowReactions(false)}
+                        onSelect={(emoji) => {
+                          onReaction(message._id, emoji);
+                          setShowReactions(false);
+                        }}
+                        onPlusClick={() => {
+                          if (onOpenEmojiPicker) onOpenEmojiPicker();
+                        }}
+                        align={isOwn ? "right" : "left"}
+                      />
+                    </div>
+                  </div>
+                  {/* Chevron menu — inside top-right corner */}
+                  <div className="absolute top-1.5 right-1.5 z-20">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowMenu(!showMenu);
+                        setShowReactions(false);
+                      }}
+                      className="rounded-full p-1 bg-black/40 hover:bg-black/60 text-white transition"
+                    >
+                      <FaChevronDown className="text-[10px]" />
+                    </button>
+                    {showMenu && renderDesktopMenu()}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Reactions display */}
+            {message.reactions && message.reactions.length > 0 && (
+              <div className="mt-1">
+                <ReactionDisplay
+                  reactions={message.reactions}
+                  userId={userId}
+                  onReact={(emoji) => onReaction(message._id, emoji)}
+                />
+              </div>
+            )}
+          </div>
         </div>
       </div>
-
-      {/* Chevron dropdown — tucked into the top-right corner of the bubble */}
-      <div
-        className={
-          withinOverflowHidden
-            ? "absolute top-1.5 right-1.5 z-20"
-            : "absolute top-1 right-1 z-20"
-        }
-      >
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowMenu(!showMenu);
-            setShowReactions(false);
-          }}
-          className={`rounded-full p-1 transition ${
-            withinOverflowHidden
-              ? "bg-black/40 hover:bg-black/60 text-white"
-              : isOwn
-                ? "bg-black/10 hover:bg-black/20 text-white/90"
-                : "bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 text-gray-500 dark:text-gray-300"
-          }`}
-        >
-          <FaChevronDown className="text-[10px]" />
-        </button>
-        {showMenu && renderDesktopMenu()}
-      </div>
-    </>
-  );
+    );
+  }
 
   // ─── Image messages ──────────────────────────────────────────────────
   if (message.messageType === "image") {
@@ -1214,7 +1377,7 @@ const MediaMessage = ({
           className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
           style={isMobile ? swipeStyle : undefined}
         >
-          {!isOwn && (
+          {!isOwn && showSenderName && (
             <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
               {senderProfile ? (
                 <img
@@ -1235,7 +1398,7 @@ const MediaMessage = ({
           <div
             className={`${maxWidthClass} relative ${isOwn ? "items-end" : "items-start"} flex flex-col`}
           >
-            {!isOwn && (
+            {showSenderName && !isOwn && (
               <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1 mb-0.5">
                 {senderName}
               </span>
@@ -1249,8 +1412,6 @@ const MediaMessage = ({
                 />
               </div>
             )}
-            {/* Outer wrapper stays free of overflow-hidden so the chevron's
-                dropdown menu is never clipped by the rounded image corners */}
             <div className="relative">
               <div
                 className="relative rounded-2xl overflow-hidden cursor-pointer group"
@@ -1286,9 +1447,53 @@ const MediaMessage = ({
               </div>
 
               {/* ─── Desktop: chevron + reaction on hover ─── */}
-              {!isMobile &&
-                isHovering &&
-                renderHoverControls({ withinOverflowHidden: true })}
+              {!isMobile && isHovering && (
+                <>
+                  <div
+                    className={`absolute top-1/2 -translate-y-1/2 z-20 ${
+                      isOwn ? "right-full mr-2" : "left-full ml-2"
+                    }`}
+                  >
+                    <div className="relative">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowReactions(!showReactions);
+                          setShowMenu(false);
+                        }}
+                        className="bg-white dark:bg-[#1e1e26] rounded-full shadow-md border border-gray-200 dark:border-gray-700/60 p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+                      >
+                        <FaSmile className="text-xs text-gray-500 dark:text-gray-400" />
+                      </button>
+                      <ReactionPopover
+                        isOpen={showReactions}
+                        onClose={() => setShowReactions(false)}
+                        onSelect={(emoji) => {
+                          onReaction(message._id, emoji);
+                          setShowReactions(false);
+                        }}
+                        onPlusClick={() => {
+                          if (onOpenEmojiPicker) onOpenEmojiPicker();
+                        }}
+                        align={isOwn ? "right" : "left"}
+                      />
+                    </div>
+                  </div>
+                  <div className="absolute top-1.5 right-1.5 z-20">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowMenu(!showMenu);
+                        setShowReactions(false);
+                      }}
+                      className="rounded-full p-1 bg-black/40 hover:bg-black/60 text-white transition"
+                    >
+                      <FaChevronDown className="text-[10px]" />
+                    </button>
+                    {showMenu && renderDesktopMenu()}
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Reactions display */}
@@ -1334,7 +1539,7 @@ const MediaMessage = ({
         className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
         style={isMobile ? swipeStyle : undefined}
       >
-        {!isOwn && (
+        {!isOwn && showSenderName && (
           <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
             {senderProfile ? (
               <img
@@ -1355,7 +1560,7 @@ const MediaMessage = ({
         <div
           className={`${maxWidthClass} relative ${isOwn ? "items-end" : "items-start"} flex flex-col gap-0.5`}
         >
-          {!isOwn && (
+          {showSenderName && !isOwn && (
             <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1">
               {senderName}
             </span>
@@ -1384,9 +1589,57 @@ const MediaMessage = ({
             {renderMediaContent()}
 
             {/* ─── Desktop: chevron + reaction on hover ─── */}
-            {!isMobile &&
-              isHovering &&
-              renderHoverControls({ withinOverflowHidden: false })}
+            {!isMobile && isHovering && (
+              <>
+                <div
+                  className={`absolute top-1/2 -translate-y-1/2 z-20 ${
+                    isOwn ? "right-full mr-2" : "left-full ml-2"
+                  }`}
+                >
+                  <div className="relative">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowReactions(!showReactions);
+                        setShowMenu(false);
+                      }}
+                      className="bg-white dark:bg-[#1e1e26] rounded-full shadow-md border border-gray-200 dark:border-gray-700/60 p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+                    >
+                      <FaSmile className="text-xs text-gray-500 dark:text-gray-400" />
+                    </button>
+                    <ReactionPopover
+                      isOpen={showReactions}
+                      onClose={() => setShowReactions(false)}
+                      onSelect={(emoji) => {
+                        onReaction(message._id, emoji);
+                        setShowReactions(false);
+                      }}
+                      onPlusClick={() => {
+                        if (onOpenEmojiPicker) onOpenEmojiPicker();
+                      }}
+                      align={isOwn ? "right" : "left"}
+                    />
+                  </div>
+                </div>
+                <div className="absolute top-1.5 right-1.5 z-20">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowMenu(!showMenu);
+                      setShowReactions(false);
+                    }}
+                    className={`rounded-full p-1 transition ${
+                      isOwn
+                        ? "bg-black/10 hover:bg-black/20 text-white/90"
+                        : "bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 text-gray-500 dark:text-gray-300"
+                    }`}
+                  >
+                    <FaChevronDown className="text-[10px]" />
+                  </button>
+                  {showMenu && renderDesktopMenu()}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Reactions display */}
@@ -1541,6 +1794,7 @@ const MessageActionModal = ({
   onCopy,
   onReaction,
   onEdit,
+  onOpenEmojiPicker,
 }) => {
   if (!isOpen || !message) return null;
   return (
@@ -1573,8 +1827,8 @@ const MessageActionModal = ({
           </div>
         </div>
 
-        {/* Reactions row */}
-        <div className="flex justify-around mb-3 border-b border-gray-200 dark:border-gray-700/60 pb-3">
+        {/* Reactions row with plus */}
+        <div className="flex flex-wrap justify-around mb-3 border-b border-gray-200 dark:border-gray-700/60 pb-3">
           {REACTION_EMOJIS.map((emoji) => (
             <button
               key={emoji}
@@ -1587,6 +1841,15 @@ const MessageActionModal = ({
               {emoji}
             </button>
           ))}
+          <button
+            onClick={() => {
+              onOpenEmojiPicker();
+              onClose();
+            }}
+            className="text-2xl hover:scale-125 transition-transform text-gray-400 dark:text-gray-500"
+          >
+            <FaPlus />
+          </button>
         </div>
 
         <div className="space-y-1">
@@ -2887,9 +3150,12 @@ const GeneralChatId = () => {
   }, [showEmojiPicker, isMobile]);
 
   const handleEmojiSelect = (emoji) => {
-    setMessage((prev) => prev + emoji);
-  };
-
+  setMessage((prev) => prev + emoji);
+  // ✨ Also update editContent if we're in edit mode
+  if (editingMessageId) {
+    setEditContent((prev) => prev + emoji);
+  }
+};
   const handleSendSticker = async (stickerId) => {
     if (!stickerId) return;
     if (isSendingRef.current) return;
@@ -3833,6 +4099,7 @@ const GeneralChatId = () => {
         msg.sender?._id === userInfo?._id;
       const senderName = resolvedSender.name || "Unknown";
       const senderProfile = resolvedSender.profile || null;
+      const showSenderName = isDesktop;
       elements.push(
         <MediaMessage
           key={msg._id}
@@ -3855,6 +4122,8 @@ const GeneralChatId = () => {
           allMessages={sorted}
           onJumpToMessage={handleJumpToMessage}
           resolveSender={resolveSender}
+          showSenderName={showSenderName}
+          onOpenEmojiPicker={toggleEmoji} // ✨ pass down
         />,
       );
     });
@@ -3946,19 +4215,9 @@ const GeneralChatId = () => {
                     {displayName}
                   </h2>
                   <p
-                    className={`text-xs truncate ${
-                      otherUserOnline === true
-                        ? "text-green-500 dark:text-green-400"
-                        : otherUserOnline === false
-                          ? "text-gray-500 dark:text-gray-400"
-                          : "text-gray-400 dark:text-gray-500"
-                    }`}
+                    className={`text-xs truncate ${otherUserOnline === true ? "text-green-500 dark:text-green-400" : otherUserOnline === false ? "text-gray-500 dark:text-gray-400" : "text-gray-400 dark:text-gray-500"}`}
                   >
-                    {otherUserOnline === true
-                      ? "Online"
-                      : otherUserOnline === false
-                        ? "Offline"
-                        : ""}
+                    {otherUserOnline === true ? "Online" : otherUserOnline === false ? "Offline" : ""}
                   </p>
                 </div>
               </div>
@@ -4022,6 +4281,7 @@ const GeneralChatId = () => {
                   />
                 )}
 
+                {/* Voice note ready bar – green */}
                 {showRecordedPreview && recordingBlob && (
                   <div className="flex items-center justify-between px-3 py-2 mb-2 bg-green-50 dark:bg-green-900/30 rounded-lg border border-green-200 dark:border-green-700/40">
                     <div className="flex items-center gap-2">
@@ -4066,11 +4326,12 @@ const GeneralChatId = () => {
                   </div>
                 )}
 
+                {/* Recording bar – teal */}
                 {isRecording && (
-                  <div className="flex items-center justify-between px-3 py-2 mb-2 bg-red-50 dark:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-700/40">
+                  <div className="flex items-center justify-between px-3 py-2 mb-2 bg-teal-50 dark:bg-teal-900/30 rounded-lg border border-teal-200 dark:border-teal-700/40">
                     <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                      <span className="text-xs text-red-600 dark:text-red-300">
+                      <span className="w-2 h-2 bg-teal-500 rounded-full animate-pulse" />
+                      <span className="text-xs text-teal-600 dark:text-teal-300">
                         {recordingPaused ? "Paused" : "Recording..."}{" "}
                         {formatTime(recordingTime)}
                       </span>
@@ -4078,7 +4339,7 @@ const GeneralChatId = () => {
                     <div className="flex gap-2">
                       <button
                         onClick={pauseRecording}
-                        className="text-xs text-red-600 dark:text-red-300 hover:text-red-700 dark:hover:text-red-200"
+                        className="text-xs text-teal-600 dark:text-teal-300 hover:text-teal-700 dark:hover:text-teal-200"
                       >
                         {recordingPaused ? "Resume" : "Pause"}
                       </button>
@@ -4086,7 +4347,7 @@ const GeneralChatId = () => {
                         onClick={cancelRecording}
                         className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white"
                       >
-                        <FaTrashAlt className="text-xs" />
+                        <FaTimes className="text-xs" />
                       </button>
                       <button
                         onClick={stopRecording}
@@ -4456,6 +4717,7 @@ const GeneralChatId = () => {
         onCopy={handleCopyMessage}
         onReaction={handleReaction}
         onEdit={handleEdit}
+        onOpenEmojiPicker={toggleEmoji}
       />
 
       <MediaPickerModal
