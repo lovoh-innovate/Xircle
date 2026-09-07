@@ -1200,7 +1200,7 @@ const MessageTicks = ({ message, isOwn }) => {
   );
 };
 
-// ─── Audio Player ──────────────────────────────────────────────────
+// ─── Audio Player with speed control (1x, 2x, 3x) ──────────────────
 const AudioPlayer = ({
   src,
   isOwn,
@@ -1212,6 +1212,7 @@ const AudioPlayer = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(initialDuration || 0);
+  const [speed, setSpeed] = useState(1);
 
   const WAVEFORM_BARS = [
     6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6, 10,
@@ -1249,6 +1250,13 @@ const AudioPlayer = ({
     };
   }, [onDurationReady]);
 
+  // When speed changes, update the audio element
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.playbackRate = speed;
+    }
+  }, [speed]);
+
   const togglePlay = () => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -1258,6 +1266,14 @@ const AudioPlayer = ({
       audio.play().catch(() => {});
     }
     setIsPlaying(!isPlaying);
+  };
+
+  const cycleSpeed = () => {
+    setSpeed((prev) => {
+      if (prev === 1) return 2;
+      if (prev === 2) return 3;
+      return 1;
+    });
   };
 
   const getSeekPosition = (clientX) => {
@@ -1365,6 +1381,19 @@ const AudioPlayer = ({
       >
         {formatTime(currentTime)} / {formatTime(duration)}
       </span>
+
+      {/* Speed control - cycles 1x, 2x, 3x */}
+      <button
+        onClick={cycleSpeed}
+        className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full border flex-shrink-0 transition ${
+          isOwn
+            ? "border-white/30 text-white/80 hover:bg-white/10"
+            : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/30"
+        }`}
+        style={{ minWidth: "24px" }}
+      >
+        {speed}x
+      </button>
 
       <audio ref={audioRef} src={src} className="hidden" />
     </div>
@@ -3811,36 +3840,50 @@ const MyWorkspaceChannelId = () => {
 
   const clearPendingMedia = () => setPendingMedia(null);
 
-  // ─── Reaction handler ──────────────────────────────────────────────
+  // ─── Optimistic reaction handler ──────────────────────────────────
   const handleReaction = async (messageId, emoji) => {
+    // Save current state for rollback
+    const previousState = [...localMessages];
+    
+    // Optimistic update - apply reaction immediately
+    setLocalMessages((prev) =>
+      prev.map((msg) => {
+        if (msg._id === messageId) {
+          const reactions = msg.reactions || [];
+          const existing = reactions.find(
+            (r) => r.user === userInfo?._id && r.emoji === emoji,
+          );
+          if (existing) {
+            // Remove reaction
+            return {
+              ...msg,
+              reactions: reactions.filter(
+                (r) => !(r.user === userInfo?._id && r.emoji === emoji),
+              ),
+            };
+          } else {
+            // Add reaction
+            return {
+              ...msg,
+              reactions: [...reactions, { user: userInfo?._id, emoji }],
+            };
+          }
+        }
+        return msg;
+      })
+    );
+
     try {
       await toggleReaction({ messageId, emoji }).unwrap();
-      setLocalMessages((prev) =>
-        prev.map((msg) => {
-          if (msg._id === messageId) {
-            const reactions = msg.reactions || [];
-            const existing = reactions.find((r) => r.user === userInfo?._id && r.emoji === emoji);
-            if (existing) {
-              return {
-                ...msg,
-                reactions: reactions.filter((r) => !(r.user === userInfo?._id && r.emoji === emoji)),
-              };
-            } else {
-              return {
-                ...msg,
-                reactions: [...reactions, { user: userInfo?._id, emoji }],
-              };
-            }
-          }
-          return msg;
-        })
-      );
+      // Keep optimistic state on success; socket events will sync as well
     } catch (err) {
-      toast.error("Failed to react");
+      // Rollback on error
+      setLocalMessages(previousState);
+      toast.error("Failed to update reaction");
     }
   };
 
-  // ─── Edit message ──────────────────────────────────────────────────
+  // ─── Optimistic edit message ──────────────────────────────────────
   const handleEditMessage = (msg) => {
     setEditingMessageId(msg._id);
     setEditContent(msg.content || "");
@@ -3861,19 +3904,40 @@ const MyWorkspaceChannelId = () => {
       toast.error("Content cannot be empty");
       return;
     }
+
+    // Save current state for rollback
+    const previousState = [...localMessages];
+    
+    // Optimistic update - apply edit immediately
+    const updatedFields = {
+      content: trimmed,
+      edited: true,
+      editedAt: new Date().toISOString(),
+    };
+    
+    setLocalMessages((prev) =>
+      prev.map((m) =>
+        m._id === editingMessageId ? { ...m, ...updatedFields } : m
+      )
+    );
+    
+    // Clear edit bar
+    handleCancelEdit();
+
     try {
       await updateMessageApi({ messageId: editingMessageId, content: trimmed }).unwrap();
-      setLocalMessages((prev) =>
-        prev.map((m) =>
-          m._id === editingMessageId
-            ? { ...m, content: trimmed, edited: true, editedAt: new Date().toISOString() }
-            : m
-        )
-      );
       toast.success("Message updated");
-      handleCancelEdit();
     } catch (err) {
+      // Rollback on error
+      setLocalMessages(previousState);
       toast.error(err?.data?.message || "Failed to update");
+      // Re-open edit bar with old content
+      const oldMsg = previousState.find((m) => m._id === editingMessageId);
+      if (oldMsg) {
+        setEditingMessageId(oldMsg._id);
+        setEditContent(oldMsg.content || "");
+        setMessage(oldMsg.content || "");
+      }
     }
   };
 

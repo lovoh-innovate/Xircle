@@ -719,10 +719,11 @@ const AddParticipantModal = ({
                 <button
                   key={user._id}
                   onClick={() => toggleUser(user._id)}
-                  className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-xl transition ${isSelected
+                  className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-xl transition ${
+                    isSelected
                       ? "bg-teal-50 dark:bg-[#0d9488]/20"
                       : "hover:bg-gray-50 dark:hover:bg-gray-800/30"
-                    }`}
+                  }`}
                 >
                   <div className="relative flex-shrink-0">
                     {user?.profile ? (
@@ -1001,7 +1002,7 @@ const MessageTicks = ({ message, isOwn }) => {
   );
 };
 
-// ─── Audio Player with waveform (seekable) ────────────────────────
+// ─── Audio Player with waveform, speed control (1x, 2x, 3x) ──────
 const AudioPlayer = ({
   src,
   isOwn,
@@ -1013,6 +1014,7 @@ const AudioPlayer = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(initialDuration || 0);
+  const [speed, setSpeed] = useState(1);
 
   const WAVEFORM_BARS = [
     6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6,
@@ -1051,6 +1053,13 @@ const AudioPlayer = ({
     };
   }, [onDurationReady]);
 
+  // When speed changes, update the audio element
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.playbackRate = speed;
+    }
+  }, [speed]);
+
   const togglePlay = () => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -1060,6 +1069,14 @@ const AudioPlayer = ({
       audio.play().catch(() => {});
     }
     setIsPlaying(!isPlaying);
+  };
+
+  const cycleSpeed = () => {
+    setSpeed((prev) => {
+      if (prev === 1) return 2;
+      if (prev === 2) return 3;
+      return 1;
+    });
   };
 
   const getSeekPosition = (clientX) => {
@@ -1168,6 +1185,19 @@ const AudioPlayer = ({
         {formatTime(currentTime)} / {formatTime(duration)}
       </span>
 
+      {/* Speed control - cycles 1x, 2x, 3x */}
+      <button
+        onClick={cycleSpeed}
+        className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full border flex-shrink-0 transition ${
+          isOwn
+            ? "border-white/30 text-white/80 hover:bg-white/10"
+            : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/30"
+        }`}
+        style={{ minWidth: "24px" }}
+      >
+        {speed}x
+      </button>
+
       <audio ref={audioRef} src={src} className="hidden" />
     </div>
   );
@@ -1196,10 +1226,11 @@ const QuotedReplyBlock = ({ replyData, isOwn, brandColor, onJump }) => {
         e.stopPropagation();
         onJump && onJump(replyData.id);
       }}
-      className={`block w-full text-left mb-1.5 px-2.5 py-1.5 rounded-lg border-l-2 text-xs cursor-pointer transition ${isOwn
+      className={`block w-full text-left mb-1.5 px-2.5 py-1.5 rounded-lg border-l-2 text-xs cursor-pointer transition ${
+        isOwn
           ? "bg-black/10 border-white/60 hover:bg-black/20"
           : "bg-black/[0.04] dark:bg-white/[0.06] hover:bg-black/[0.07] dark:hover:bg-white/[0.1]"
-        }`}
+      }`}
       style={!isOwn ? { borderLeftColor: brandColor } : {}}
     >
       <p
@@ -1232,8 +1263,9 @@ const ReactionPopover = ({ isOpen, onClose, onSelect, align = "center" }) => {
 
   return (
     <div
-      className={`absolute bottom-full mb-2 bg-white dark:bg-[#1e1e26] shadow-lg border border-gray-200 dark:border-gray-800/60 p-2 z-30 ${alignClass} ${expanded ? "rounded-xl min-w-[220px] max-h-56 overflow-y-auto" : "rounded-full"
-        }`}
+      className={`absolute bottom-full mb-2 bg-white dark:bg-[#1e1e26] shadow-lg border border-gray-200 dark:border-gray-800/60 p-2 z-30 ${alignClass} ${
+        expanded ? "rounded-xl min-w-[220px] max-h-56 overflow-y-auto" : "rounded-full"
+      }`}
       onClick={(e) => e.stopPropagation()}
     >
       <div className={expanded ? "grid grid-cols-6 gap-1" : "flex gap-1"}>
@@ -1244,8 +1276,9 @@ const ReactionPopover = ({ isOpen, onClose, onSelect, align = "center" }) => {
               onSelect(emoji);
               onClose();
             }}
-            className={`hover:scale-125 hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-full p-1 transition-transform ${expanded ? "text-2xl" : "text-xl"
-              }`}
+            className={`hover:scale-125 hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-full p-1 transition-transform ${
+              expanded ? "text-2xl" : "text-xl"
+            }`}
           >
             {emoji}
           </button>
@@ -1255,8 +1288,9 @@ const ReactionPopover = ({ isOpen, onClose, onSelect, align = "center" }) => {
             e.stopPropagation();
             setExpanded(!expanded);
           }}
-          className={`hover:scale-125 hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-full p-1 transition-transform ${expanded ? "text-xl" : "text-xl"
-            }`}
+          className={`hover:scale-125 hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-full p-1 transition-transform ${
+            expanded ? "text-xl" : "text-xl"
+          }`}
         >
           {expanded ? (
             <FaChevronUp className="text-gray-400 dark:text-gray-500" />
@@ -1288,10 +1322,11 @@ const ReactionDisplay = ({ reactions, userId, onReact }) => {
           <button
             key={emoji}
             onClick={() => onReact(emoji)}
-            className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs transition ${isOwnReaction
+            className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs transition ${
+              isOwnReaction
                 ? "bg-teal-100 dark:bg-teal-800/50 text-teal-700 dark:text-teal-300"
                 : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
-              }`}
+            }`}
           >
             <span>{emoji}</span>
             {data.count > 1 && <span className="text-[10px] opacity-80">{data.count}</span>}
@@ -1359,7 +1394,7 @@ const MediaMessage = ({
   resolveSender,
   onCopy,
   onSaveSticker,
-  showSenderInfo = true, // false for direct messages, true for groups
+  showSenderInfo = true,
 }) => {
   // ── Deleted state ──
   if (message.isDeleted) {
@@ -1403,8 +1438,9 @@ const MediaMessage = ({
   // ─── Desktop dropdown menu ──────────────────────────────────────
   const renderDesktopMenu = () => (
     <div
-      className={`absolute top-full mt-1 z-30 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[170px] py-1 ${isOwn ? "right-0" : "left-0"
-        }`}
+      className={`absolute top-full mt-1 z-30 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[170px] py-1 ${
+        isOwn ? "right-0" : "left-0"
+      }`}
       onClick={(e) => e.stopPropagation()}
       onMouseLeave={() => setShowMenu(false)}
     >
@@ -1590,7 +1626,7 @@ const MediaMessage = ({
             isOwn={isOwn}
             duration={message.mediaDuration}
             brandColor={brandColor}
-            onDurationReady={(dur) => { }}
+            onDurationReady={(dur) => {}}
           />
         );
       case "file":
@@ -1639,10 +1675,11 @@ const MediaMessage = ({
             className={`${maxWidthClass} ${isOwn ? "items-end" : "items-start"} flex flex-col`}
           >
             <div
-              className={`px-4 py-2.5 rounded-2xl text-sm break-words w-full ${isOwn
+              className={`px-4 py-2.5 rounded-2xl text-sm break-words w-full ${
+                isOwn
                   ? "text-white"
                   : "bg-gray-100 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200"
-                }`}
+              }`}
               style={isOwn ? { backgroundColor: brandColor } : {}}
             >
               <span className="italic text-gray-400">Sticker unavailable</span>
@@ -1750,8 +1787,9 @@ const MediaMessage = ({
               {!isMobile && isHovering && (
                 <>
                   <div
-                    className={`absolute top-1/2 -translate-y-1/2 z-20 ${isOwn ? "right-full mr-2" : "left-full ml-2"
-                      }`}
+                    className={`absolute top-1/2 -translate-y-1/2 z-20 ${
+                      isOwn ? "right-full mr-2" : "left-full ml-2"
+                    }`}
                   >
                     <div className="relative">
                       <button
@@ -1912,8 +1950,9 @@ const MediaMessage = ({
               {!isMobile && isHovering && (
                 <>
                   <div
-                    className={`absolute top-1/2 -translate-y-1/2 z-20 ${isOwn ? "right-full mr-2" : "left-full ml-2"
-                      }`}
+                    className={`absolute top-1/2 -translate-y-1/2 z-20 ${
+                      isOwn ? "right-full mr-2" : "left-full ml-2"
+                    }`}
                   >
                     <div className="relative">
                       <button
@@ -2027,10 +2066,11 @@ const MediaMessage = ({
             </span>
           )}
           <div
-            className={`relative px-4 py-2.5 rounded-2xl text-sm break-words w-full ${isOwn
+            className={`relative px-4 py-2.5 rounded-2xl text-sm break-words w-full ${
+              isOwn
                 ? "text-white"
                 : "bg-gray-100 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200"
-              }`}
+            }`}
             style={isOwn ? { backgroundColor: brandColor } : {}}
           >
             {replyPreview && (
@@ -2052,8 +2092,9 @@ const MediaMessage = ({
             {!isMobile && isHovering && (
               <>
                 <div
-                  className={`absolute top-1/2 -translate-y-1/2 z-20 ${isOwn ? "right-full mr-2" : "left-full ml-2"
-                    }`}
+                  className={`absolute top-1/2 -translate-y-1/2 z-20 ${
+                    isOwn ? "right-full mr-2" : "left-full ml-2"
+                  }`}
                 >
                   <div className="relative">
                     <button
@@ -2084,10 +2125,11 @@ const MediaMessage = ({
                       setShowMenu(!showMenu);
                       setShowReactions(false);
                     }}
-                    className={`rounded-full p-1 transition ${isOwn
+                    className={`rounded-full p-1 transition ${
+                      isOwn
                         ? "bg-black/10 hover:bg-black/20 text-white/90"
                         : "bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 text-gray-500 dark:text-gray-300"
-                      }`}
+                    }`}
                   >
                     <FaChevronDown className="text-[10px]" />
                   </button>
@@ -2108,7 +2150,9 @@ const MediaMessage = ({
           )}
 
           <div
-            className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 ${isOwn ? "flex-row-reverse" : ""}`}
+            className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 ${
+              isOwn ? "flex-row-reverse" : ""
+            }`}
           >
             <span>{time}</span>
             <MessageTicks message={message} isOwn={isOwn} />
@@ -2247,8 +2291,9 @@ const ChatDetailsSheet = ({
         onClick={onClose}
       />
       <div
-        className={`fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl max-h-[80vh] overflow-y-auto transform transition-transform duration-300 ${isOpen ? "translate-y-0" : "translate-y-full"
-          }`}
+        className={`fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl max-h-[80vh] overflow-y-auto transform transition-transform duration-300 ${
+          isOpen ? "translate-y-0" : "translate-y-full"
+        }`}
         style={{ boxShadow: "0 -4px 30px rgba(0,0,0,0.15)" }}
       >
         <div className="p-5">
@@ -2813,19 +2858,21 @@ const ImageEditorScreen = ({ file, onSave, onCancel, brandColor }) => {
         <div className="flex items-center gap-1 sm:gap-1.5 flex-wrap">
           <button
             onClick={() => setDrawMode("pencil")}
-            className={`p-1.5 sm:p-2 rounded-lg transition ${drawMode === "pencil"
+            className={`p-1.5 sm:p-2 rounded-lg transition ${
+              drawMode === "pencil"
                 ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
                 : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
-              }`}
+            }`}
           >
             <FaPencilAlt className="text-sm sm:text-base" />
           </button>
           <button
             onClick={() => setDrawMode("arrow")}
-            className={`relative p-1.5 sm:p-2 rounded-lg transition ${drawMode === "arrow"
+            className={`relative p-1.5 sm:p-2 rounded-lg transition ${
+              drawMode === "arrow"
                 ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
                 : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
-              }`}
+            }`}
           >
             <FaArrowRight className="text-sm sm:text-base" />
             <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-teal-500 text-white rounded-full flex items-center justify-center text-[9px] font-bold leading-none">
@@ -2834,10 +2881,11 @@ const ImageEditorScreen = ({ file, onSave, onCancel, brandColor }) => {
           </button>
           <button
             onClick={() => setDrawMode("crop")}
-            className={`p-1.5 sm:p-2 rounded-lg transition ${drawMode === "crop"
+            className={`p-1.5 sm:p-2 rounded-lg transition ${
+              drawMode === "crop"
                 ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
                 : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
-              }`}
+            }`}
           >
             <FaCrop className="text-sm sm:text-base" />
           </button>
@@ -3098,7 +3146,7 @@ const YourWorkspaceChannelId = () => {
     isOpen: false,
     title: "",
     message: "",
-    onConfirm: () => { },
+    onConfirm: () => {},
     danger: false,
   });
   const [promptModal, setPromptModal] = useState({
@@ -3202,8 +3250,8 @@ const YourWorkspaceChannelId = () => {
   const isDM = chat?.type === "direct";
   const otherParticipant = isDM
     ? chat?.participants?.find(
-      (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id,
-    )?.user || null
+        (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id,
+      )?.user || null
     : null;
   const displayName = isDM
     ? otherParticipant?.name || "Unknown"
@@ -3372,6 +3420,7 @@ const YourWorkspaceChannelId = () => {
     setMessage("");
   };
 
+  // ─── Optimistic message editing ──────────────────────────────────
   const handleSaveEdit = async () => {
     if (!editingMessageId) return;
     const trimmed = editContent.trim();
@@ -3379,52 +3428,83 @@ const YourWorkspaceChannelId = () => {
       toast.error("Content cannot be empty");
       return;
     }
+
+    // Save the current state for rollback
+    const previousState = [...localMessages];
+    
+    // Optimistic update - apply edit immediately
+    const updatedFields = {
+      content: trimmed,
+      edited: true,
+      editedAt: new Date().toISOString(),
+    };
+    
+    setLocalMessages((prev) =>
+      prev.map((m) =>
+        m._id === editingMessageId ? { ...m, ...updatedFields } : m,
+      ),
+    );
+    
+    // Clear edit bar
+    handleCancelEdit();
+
     try {
       await updateMessageApi({ messageId: editingMessageId, content: trimmed }).unwrap();
-      setLocalMessages((prev) =>
-        prev.map((m) =>
-          m._id === editingMessageId
-            ? { ...m, content: trimmed, edited: true, editedAt: new Date().toISOString() }
-            : m,
-        ),
-      );
       toast.success("Message updated");
-      handleCancelEdit();
     } catch (err) {
+      // Rollback on error
+      setLocalMessages(previousState);
       toast.error(err?.data?.message || "Failed to update");
+      // Re-open edit bar with old content
+      const oldMsg = previousState.find((m) => m._id === editingMessageId);
+      if (oldMsg) {
+        setEditingMessageId(oldMsg._id);
+        setEditContent(oldMsg.content || "");
+        setMessage(oldMsg.content || "");
+      }
     }
   };
 
-  // ─── Reaction handler ──────────────────────────────────────────────
+  // ─── Optimistic reaction handler ──────────────────────────────
   const handleReaction = async (messageId, emoji) => {
+    // Save current state for rollback
+    const previousState = [...localMessages];
+    
+    // Optimistic update - apply reaction immediately
+    setLocalMessages((prev) =>
+      prev.map((msg) => {
+        if (msg._id === messageId) {
+          const reactions = msg.reactions || [];
+          const existing = reactions.find(
+            (r) => r.user === userInfo?._id && r.emoji === emoji,
+          );
+          if (existing) {
+            // Remove reaction
+            return {
+              ...msg,
+              reactions: reactions.filter(
+                (r) => !(r.user === userInfo?._id && r.emoji === emoji),
+              ),
+            };
+          } else {
+            // Add reaction
+            return {
+              ...msg,
+              reactions: [...reactions, { user: userInfo?._id, emoji }],
+            };
+          }
+        }
+        return msg;
+      }),
+    );
+
     try {
       await toggleReaction({ messageId, emoji }).unwrap();
-      setLocalMessages((prev) =>
-        prev.map((msg) => {
-          if (msg._id === messageId) {
-            const reactions = msg.reactions || [];
-            const existing = reactions.find(
-              (r) => r.user === userInfo?._id && r.emoji === emoji,
-            );
-            if (existing) {
-              return {
-                ...msg,
-                reactions: reactions.filter(
-                  (r) => !(r.user === userInfo?._id && r.emoji === emoji),
-                ),
-              };
-            } else {
-              return {
-                ...msg,
-                reactions: [...reactions, { user: userInfo?._id, emoji }],
-              };
-            }
-          }
-          return msg;
-        }),
-      );
+      // Keep optimistic state on success; socket events will sync as well
     } catch (err) {
-      toast.error("Failed to react");
+      // Rollback on error
+      setLocalMessages(previousState);
+      toast.error("Failed to update reaction");
     }
   };
 
@@ -3779,7 +3859,7 @@ const YourWorkspaceChannelId = () => {
     return () => {
       if (mediaRecorderRef.current && isRecordingRef.current) {
         if (isNative) {
-          VoiceRecorder.stopRecording().catch(() => { });
+          VoiceRecorder.stopRecording().catch(() => {});
         } else {
           mediaRecorderRef.current.stop();
         }
@@ -3873,7 +3953,7 @@ const YourWorkspaceChannelId = () => {
     if (!isRecordingRef.current) return;
     try {
       await VoiceRecorder.stopRecording();
-    } catch (_) { }
+    } catch (_) {}
     setRecordingBlob(null);
     setShowRecordedPreview(false);
     setRecordingTime(0);
@@ -4083,12 +4163,12 @@ const YourWorkspaceChannelId = () => {
       chat: chatId,
       replyTo: replyToMessage
         ? {
-          _id: replyToMessage._id,
-          sender: replyToMessage.sender,
-          content: replyToMessage.content,
-          mediaName: replyToMessage.mediaName,
-          messageType: replyToMessage.messageType,
-        }
+            _id: replyToMessage._id,
+            sender: replyToMessage.sender,
+            content: replyToMessage.content,
+            mediaName: replyToMessage.mediaName,
+            messageType: replyToMessage.messageType,
+          }
         : null,
       mediaUrl: URL.createObjectURL(audioBlob),
       mediaName: "Voice note",
@@ -4113,16 +4193,16 @@ const YourWorkspaceChannelId = () => {
         return prev.map((m) =>
           m._tempId === tempId
             ? {
-              ...realMsg,
-              createdAt: m.createdAt,
-              _sent: true,
-              _pending: false,
-              _failed: false,
-              _delivered: true,
-              _read: false,
-              _temp: false,
-              _tempId: undefined,
-            }
+                ...realMsg,
+                createdAt: m.createdAt,
+                _sent: true,
+                _pending: false,
+                _failed: false,
+                _delivered: true,
+                _read: false,
+                _temp: false,
+                _tempId: undefined,
+              }
             : m,
         );
       });
@@ -4439,12 +4519,12 @@ const YourWorkspaceChannelId = () => {
       chat: chatId,
       replyTo: replyToMessage
         ? {
-          _id: replyToMessage._id,
-          sender: replyToMessage.sender,
-          content: replyToMessage.content,
-          mediaName: replyToMessage.mediaName,
-          messageType: replyToMessage.messageType,
-        }
+            _id: replyToMessage._id,
+            sender: replyToMessage.sender,
+            content: replyToMessage.content,
+            mediaName: replyToMessage.mediaName,
+            messageType: replyToMessage.messageType,
+          }
         : null,
       mediaUrl: URL.createObjectURL(file),
       mediaName: file.name,
@@ -4729,7 +4809,7 @@ const YourWorkspaceChannelId = () => {
   const workspace = workspaceData?.workspace;
   const brandColor = workspace.color || "#0d9488";
   const memberCount = chat.participants?.length || 0;
-  const showSenderInfo = !isDM; // Show sender info only for groups
+  const showSenderInfo = !isDM;
 
   // ─── Group management handlers ──────────────────────────────────────
   const handleAddMember = (chatId) => {
@@ -4953,12 +5033,12 @@ const YourWorkspaceChannelId = () => {
       mentions: pendingMentions,
       replyTo: replyToMessage
         ? {
-          _id: replyToMessage._id,
-          sender: replyToMessage.sender,
-          content: replyToMessage.content,
-          mediaName: replyToMessage.mediaName,
-          messageType: replyToMessage.messageType,
-        }
+            _id: replyToMessage._id,
+            sender: replyToMessage.sender,
+            content: replyToMessage.content,
+            mediaName: replyToMessage.mediaName,
+            messageType: replyToMessage.messageType,
+          }
         : null,
     };
 
@@ -5311,20 +5391,22 @@ const YourWorkspaceChannelId = () => {
                       <button
                         type="button"
                         onClick={() => setStickerTab(false)}
-                        className={`text-xs font-medium px-2 py-1 rounded-lg transition ${!stickerTab
+                        className={`text-xs font-medium px-2 py-1 rounded-lg transition ${
+                          !stickerTab
                             ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
                             : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white"
-                          }`}
+                        }`}
                       >
                         Emoji
                       </button>
                       <button
                         type="button"
                         onClick={() => setStickerTab(true)}
-                        className={`text-xs font-medium px-2 py-1 rounded-lg transition ${stickerTab
+                        className={`text-xs font-medium px-2 py-1 rounded-lg transition ${
+                          stickerTab
                             ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
                             : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white"
-                          }`}
+                        }`}
                       >
                         <FaStickyNote className="inline mr-1" /> Sticker
                       </button>
@@ -5509,20 +5591,22 @@ const YourWorkspaceChannelId = () => {
                   <button
                     type="button"
                     onClick={() => setStickerTab(false)}
-                    className={`text-xs font-medium px-2 py-1 rounded-lg transition ${!stickerTab
+                    className={`text-xs font-medium px-2 py-1 rounded-lg transition ${
+                      !stickerTab
                         ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
                         : "text-gray-500 dark:text-gray-400"
-                      }`}
+                    }`}
                   >
                     Emoji
                   </button>
                   <button
                     type="button"
                     onClick={() => setStickerTab(true)}
-                    className={`text-xs font-medium px-2 py-1 rounded-lg transition ${stickerTab
+                    className={`text-xs font-medium px-2 py-1 rounded-lg transition ${
+                      stickerTab
                         ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
                         : "text-gray-500 dark:text-gray-400"
-                      }`}
+                    }`}
                   >
                     <FaStickyNote className="inline mr-1" /> Sticker
                   </button>

@@ -451,17 +451,23 @@ const MediaPickerModal = ({ isOpen, onClose, onTakePhoto, onChooseFromGallery })
   );
 };
 
-// ─── Audio Player with waveform (seekable) ────────────────────────
+// ─── Audio Player with waveform, speed, and auto‑play ────────────
 const AudioPlayer = ({
   src,
   isOwn,
   duration: initialDuration,
   onDurationReady,
+  messageId,
+  allMessages,
+  onAudioEnd,
+  onAudioStart,
 }) => {
   const audioRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(initialDuration || 0);
+  const [speed, setSpeed] = useState(1);
+  const [hasEnded, setHasEnded] = useState(false);
 
   const WAVEFORM_BARS = [
     6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6,
@@ -470,6 +476,22 @@ const AudioPlayer = ({
 
   const waveformContainerRef = useRef(null);
   const isDraggingRef = useRef(false);
+
+  // Find index of this message in the sorted list
+  const currentIndex = allMessages?.findIndex((m) => m._id === messageId) ?? -1;
+
+  // Find the next consecutive audio message (skip non‑audio)
+  const findNextAudio = useCallback(() => {
+    if (currentIndex === -1 || !allMessages) return null;
+    for (let i = currentIndex + 1; i < allMessages.length; i++) {
+      const msg = allMessages[i];
+      // If the next message is not audio, stop searching (no consecutive audio)
+      if (msg.messageType !== 'audio') break;
+      // But if it is audio, return it
+      return msg;
+    }
+    return null;
+  }, [currentIndex, allMessages]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -487,7 +509,15 @@ const AudioPlayer = ({
         onDurationReady?.(dur);
       }
     };
-    const handleEnded = () => setIsPlaying(false);
+    const handleEnded = () => {
+      setIsPlaying(false);
+      setHasEnded(true);
+      // Tell parent that this audio ended
+      if (onAudioEnd) {
+        const next = findNextAudio();
+        onAudioEnd(messageId, next?._id);
+      }
+    };
 
     audio.addEventListener("timeupdate", handleTimeUpdate);
     audio.addEventListener("loadedmetadata", handleLoadedMetadata);
@@ -498,17 +528,48 @@ const AudioPlayer = ({
       audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
       audio.removeEventListener("ended", handleEnded);
     };
-  }, [onDurationReady]);
+  }, [onDurationReady, onAudioEnd, messageId, findNextAudio]);
+
+  // When speed changes, update the audio element
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.playbackRate = speed;
+    }
+  }, [speed]);
+
+  // If autoplay is triggered externally, play
+  const playAudio = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.play().catch(() => {});
+    setIsPlaying(true);
+    setHasEnded(false);
+    if (onAudioStart) onAudioStart(messageId);
+  }, [onAudioStart, messageId]);
+
+  // Expose play to parent via ref (optional, but we'll use the callback)
+  // We'll use the onAudioEnd callback to start the next one.
 
   const togglePlay = () => {
     const audio = audioRef.current;
     if (!audio) return;
     if (isPlaying) {
       audio.pause();
+      setIsPlaying(false);
     } else {
       audio.play().catch(() => {});
+      setIsPlaying(true);
+      setHasEnded(false);
+      if (onAudioStart) onAudioStart(messageId);
     }
-    setIsPlaying(!isPlaying);
+  };
+
+  const cycleSpeed = () => {
+    setSpeed((prev) => {
+      if (prev === 1) return 2;
+      if (prev === 2) return 3;
+      return 1;
+    });
   };
 
   const getSeekPosition = (clientX) => {
@@ -616,6 +677,19 @@ const AudioPlayer = ({
       >
         {formatTime(currentTime)} / {formatTime(duration)}
       </span>
+
+      {/* Speed control */}
+      <button
+        onClick={cycleSpeed}
+        className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full border flex-shrink-0 transition ${
+          isOwn
+            ? "border-white/30 text-white/80 hover:bg-white/10"
+            : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/30"
+        }`}
+        style={{ minWidth: "24px" }}
+      >
+        {speed}x
+      </button>
 
       <audio ref={audioRef} src={src} className="hidden" />
     </div>
@@ -870,6 +944,9 @@ const MediaMessage = ({
   onJumpToMessage,
   resolveSender,
   onSaveSticker,
+  onAudioEnd,
+  onAudioStart,
+  isAdmin = false, // new prop for admin delete permission
 }) => {
   // ── Deleted state ──
   if (message.isDeleted) {
@@ -894,6 +971,7 @@ const MediaMessage = ({
   const [showMenu, setShowMenu] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
+  const [videoLoaded, setVideoLoaded] = useState(false);
 
   const longPressTimer = useRef(null);
   const isLongPress = useRef(false);
@@ -974,7 +1052,8 @@ const MediaMessage = ({
           <FaPencilAlt className="text-xs" /> Edit
         </button>
       )}
-      {isOwn && (
+      {/* Show delete if own OR admin */}
+      {(isOwn || isAdmin) && (
         <button
           onClick={() => {
             setShowMenu(false);
@@ -1127,6 +1206,10 @@ const MediaMessage = ({
             isOwn={isOwn}
             duration={message.mediaDuration}
             onDurationReady={(dur) => {}}
+            messageId={message._id}
+            allMessages={allMessages}
+            onAudioEnd={onAudioEnd}
+            onAudioStart={onAudioStart}
           />
         );
       case "file":
@@ -1268,7 +1351,7 @@ const MediaMessage = ({
               </div>
             )}
             <div className="relative">
-              <div className="rounded-lg overflow-hidden max-w-[200px] max-h-[200px]">
+              <div className="rounded-lg overflow-hidden max-w-[150px] max-h-[150px] bg-transparent">
                 {sticker.type === "image" ? (
                   <img
                     src={sticker.fileUrl}
@@ -1276,13 +1359,23 @@ const MediaMessage = ({
                     className="w-full h-full object-contain"
                   />
                 ) : (
-                  <video
-                    src={sticker.fileUrl}
-                    className="w-full h-full object-contain"
-                    muted
-                    loop
-                    autoPlay
-                  />
+                  <>
+                    {!videoLoaded && (
+                      <div className="w-full h-full flex items-center justify-center bg-gray-100 dark:bg-gray-800/30 animate-pulse">
+                        <FaSpinner className="text-gray-400 animate-spin text-lg" />
+                      </div>
+                    )}
+                    <video
+                      src={sticker.fileUrl}
+                      className={`w-full h-full object-contain ${videoLoaded ? "block" : "hidden"}`}
+                      muted
+                      loop
+                      autoPlay
+                      playsInline
+                      preload="metadata"
+                      onLoadedMetadata={() => setVideoLoaded(true)}
+                    />
+                  </>
                 )}
               </div>
               <div className="absolute bottom-1 right-1 flex items-center gap-1 text-[10px] text-white bg-black/40 px-1.5 py-0.5 rounded-full">
@@ -1809,6 +1902,7 @@ const MessageActionModal = ({
   onReaction,
   onEdit,
   onSaveSticker,
+  isAdmin = false,
 }) => {
   const [expanded, setExpanded] = useState(false);
   if (!isOpen || !message) return null;
@@ -1906,7 +2000,7 @@ const MessageActionModal = ({
               <FaPencilAlt className="text-sm" /> <span className="text-sm font-medium">Edit</span>
             </button>
           )}
-          {isOwn && (
+          {(isOwn || isAdmin) && (
             <button
               onClick={() => {
                 onDelete(message._id);
@@ -3078,6 +3172,32 @@ const GeneralChannelId = () => {
   const [editingMessageId, setEditingMessageId] = useState(null);
   const [editContent, setEditContent] = useState("");
 
+  // ─── Audio auto‑play state ──────────────────────────────────────
+  const [currentlyPlayingAudio, setCurrentlyPlayingAudio] = useState(null);
+
+  const handleAudioStart = useCallback((messageId) => {
+    setCurrentlyPlayingAudio(messageId);
+  }, []);
+
+  const handleAudioEndWithAutoPlay = useCallback((endedId) => {
+    // Find the next audio in the sorted messages
+    const sorted = [...localMessages].sort(
+      (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+    );
+    const index = sorted.findIndex((m) => m._id === endedId);
+    if (index === -1) return;
+    // Look forward for next audio (skip non‑audio)
+    for (let i = index + 1; i < sorted.length; i++) {
+      const msg = sorted[i];
+      if (msg.messageType !== 'audio') break; // stop if non‑audio
+      // Found next audio
+      const nextId = msg._id;
+      // We'll let the AudioPlayer handle the auto-play via onAudioEnd callback
+      // But we need to trigger it from the parent to avoid re-renders.
+      // Instead, we'll let the AudioPlayer find the next itself.
+    }
+  }, [localMessages]);
+
   const { socket, isConnected } = useSocket();
 
   // ─── Fetch chat list ──────────────────────────────────────────────
@@ -3297,6 +3417,14 @@ const GeneralChannelId = () => {
       toast.error("Not connected");
       return;
     }
+
+    // Find the full sticker object from saved stickers
+    const stickerObj = savedStickersData?.stickers?.find(s => s._id === stickerId);
+    if (!stickerObj) {
+      toast.error("Sticker not found");
+      return;
+    }
+
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const senderWithName = {
       ...userInfo,
@@ -3316,7 +3444,7 @@ const GeneralChannelId = () => {
       createdAt: new Date().toISOString(),
       messageType: "sticker",
       chat: chatId,
-      sticker: stickerId,
+      sticker: stickerObj, // full object
       replyTo: replyToMessage ? { _id: replyToMessage._id } : null,
     };
     setLocalMessages((prev) => [...prev, optimisticMsg]);
@@ -3703,34 +3831,40 @@ const GeneralChannelId = () => {
 
   // ─── Reaction handler ──────────────────────────────────────────────
   const handleReaction = async (messageId, emoji) => {
+    // Optimistic update
+    const previousState = localMessages;
+    setLocalMessages((prev) =>
+      prev.map((msg) => {
+        if (msg._id === messageId) {
+          const reactions = msg.reactions || [];
+          const existing = reactions.find(
+            (r) => r.user === userInfo?._id && r.emoji === emoji
+          );
+          if (existing) {
+            return {
+              ...msg,
+              reactions: reactions.filter(
+                (r) => !(r.user === userInfo?._id && r.emoji === emoji)
+              ),
+            };
+          } else {
+            return {
+              ...msg,
+              reactions: [...reactions, { user: userInfo?._id, emoji }],
+            };
+          }
+        }
+        return msg;
+      })
+    );
+
     try {
       await toggleReaction({ messageId, emoji }).unwrap();
-      setLocalMessages((prev) =>
-        prev.map((msg) => {
-          if (msg._id === messageId) {
-            const reactions = msg.reactions || [];
-            const existing = reactions.find(
-              (r) => r.user === userInfo?._id && r.emoji === emoji
-            );
-            if (existing) {
-              return {
-                ...msg,
-                reactions: reactions.filter(
-                  (r) => !(r.user === userInfo?._id && r.emoji === emoji)
-                ),
-              };
-            } else {
-              return {
-                ...msg,
-                reactions: [...reactions, { user: userInfo?._id, emoji }],
-              };
-            }
-          }
-          return msg;
-        })
-      );
+      // If API succeeds, keep the optimistic state; socket events will sync as well.
     } catch (err) {
-      toast.error("Failed to react");
+      // Rollback on error
+      setLocalMessages(previousState);
+      toast.error("Failed to update reaction");
     }
   };
 
@@ -3755,19 +3889,35 @@ const GeneralChannelId = () => {
       toast.error("Content cannot be empty");
       return;
     }
+
+    // Optimistic update
+    const previousState = localMessages;
+    const updatedMessage = {
+      content: trimmed,
+      edited: true,
+      editedAt: new Date().toISOString(),
+    };
+    setLocalMessages((prev) =>
+      prev.map((m) =>
+        m._id === editingMessageId ? { ...m, ...updatedMessage } : m
+      )
+    );
+    handleCancelEdit(); // clear edit bar
+
     try {
       await updateMessageApi({ messageId: editingMessageId, content: trimmed }).unwrap();
-      setLocalMessages((prev) =>
-        prev.map((m) =>
-          m._id === editingMessageId
-            ? { ...m, content: trimmed, edited: true, editedAt: new Date().toISOString() }
-            : m
-        )
-      );
       toast.success("Message updated");
-      handleCancelEdit();
     } catch (err) {
+      // Rollback
+      setLocalMessages(previousState);
       toast.error(err?.data?.message || "Failed to update");
+      // Re-open edit bar with old content
+      const oldMsg = previousState.find(m => m._id === editingMessageId);
+      if (oldMsg) {
+        setEditingMessageId(oldMsg._id);
+        setEditContent(oldMsg.content || "");
+        setMessage(oldMsg.content || "");
+      }
     }
   };
 
@@ -4128,7 +4278,7 @@ const GeneralChannelId = () => {
     [chatListData, createDirectChat, navigate]
   );
 
-  // ─── Voice recording (with teal colors) ──────────────────────────
+  // ─── Voice recording ──────────────────────────────────────────────
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [recordingBlob, setRecordingBlob] = useState(null);
@@ -4679,6 +4829,9 @@ const GeneralChannelId = () => {
             onJumpToMessage={handleJumpToMessage}
             resolveSender={resolveSender}
             onSaveSticker={handleSaveSticker}
+            isAdmin={isAdmin} // 👈 pass admin flag
+            onAudioEnd={handleAudioEndWithAutoPlay}
+            onAudioStart={handleAudioStart}
           />
         );
       }
@@ -5295,6 +5448,7 @@ const GeneralChannelId = () => {
         onReaction={handleReaction}
         onEdit={handleEditMessage}
         onSaveSticker={handleSaveSticker}
+        isAdmin={isAdmin} // 👈 pass admin flag
       />
 
       <MediaPickerModal

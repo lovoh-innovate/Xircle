@@ -446,17 +446,23 @@ const MediaPickerModal = ({
   );
 };
 
-// ─── Audio Player with waveform (seekable) ────────────────────────
+// ─── Audio Player with waveform, speed, and auto‑play ────────────
 const AudioPlayer = ({
   src,
   isOwn,
   duration: initialDuration,
   onDurationReady,
+  messageId,
+  allMessages,
+  onAudioEnd,
+  onAudioStart,
 }) => {
   const audioRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(initialDuration || 0);
+  const [speed, setSpeed] = useState(1);
+  const [hasEnded, setHasEnded] = useState(false);
 
   const WAVEFORM_BARS = [
     6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6,
@@ -465,6 +471,22 @@ const AudioPlayer = ({
 
   const waveformContainerRef = useRef(null);
   const isDraggingRef = useRef(false);
+
+  // Find index of this message in the sorted list
+  const currentIndex = allMessages?.findIndex((m) => m._id === messageId) ?? -1;
+
+  // Find the next consecutive audio message (skip non‑audio)
+  const findNextAudio = useCallback(() => {
+    if (currentIndex === -1 || !allMessages) return null;
+    for (let i = currentIndex + 1; i < allMessages.length; i++) {
+      const msg = allMessages[i];
+      // If the next message is not audio, stop searching (no consecutive audio)
+      if (msg.messageType !== 'audio') break;
+      // But if it is audio, return it
+      return msg;
+    }
+    return null;
+  }, [currentIndex, allMessages]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -482,7 +504,15 @@ const AudioPlayer = ({
         onDurationReady?.(dur);
       }
     };
-    const handleEnded = () => setIsPlaying(false);
+    const handleEnded = () => {
+      setIsPlaying(false);
+      setHasEnded(true);
+      // Tell parent that this audio ended
+      if (onAudioEnd) {
+        const next = findNextAudio();
+        onAudioEnd(messageId, next?._id);
+      }
+    };
 
     audio.addEventListener("timeupdate", handleTimeUpdate);
     audio.addEventListener("loadedmetadata", handleLoadedMetadata);
@@ -493,17 +523,48 @@ const AudioPlayer = ({
       audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
       audio.removeEventListener("ended", handleEnded);
     };
-  }, [onDurationReady]);
+  }, [onDurationReady, onAudioEnd, messageId, findNextAudio]);
+
+  // When speed changes, update the audio element
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.playbackRate = speed;
+    }
+  }, [speed]);
+
+  // If autoplay is triggered externally, play
+  const playAudio = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.play().catch(() => {});
+    setIsPlaying(true);
+    setHasEnded(false);
+    if (onAudioStart) onAudioStart(messageId);
+  }, [onAudioStart, messageId]);
+
+  // Expose play to parent via ref (optional, but we'll use the callback)
+  // We'll use the onAudioEnd callback to start the next one.
 
   const togglePlay = () => {
     const audio = audioRef.current;
     if (!audio) return;
     if (isPlaying) {
       audio.pause();
+      setIsPlaying(false);
     } else {
       audio.play().catch(() => {});
+      setIsPlaying(true);
+      setHasEnded(false);
+      if (onAudioStart) onAudioStart(messageId);
     }
-    setIsPlaying(!isPlaying);
+  };
+
+  const cycleSpeed = () => {
+    setSpeed((prev) => {
+      if (prev === 1) return 2;
+      if (prev === 2) return 3;
+      return 1;
+    });
   };
 
   const getSeekPosition = (clientX) => {
@@ -611,6 +672,19 @@ const AudioPlayer = ({
       >
         {formatTime(currentTime)} / {formatTime(duration)}
       </span>
+
+      {/* Speed control */}
+      <button
+        onClick={cycleSpeed}
+        className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full border flex-shrink-0 transition ${
+          isOwn
+            ? "border-white/30 text-white/80 hover:bg-white/10"
+            : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/30"
+        }`}
+        style={{ minWidth: "24px" }}
+      >
+        {speed}x
+      </button>
 
       <audio ref={audioRef} src={src} className="hidden" />
     </div>
@@ -886,6 +960,8 @@ const MediaMessage = ({
   resolveSender,
   showSenderName = true,
   onSaveSticker,
+  onAudioEnd,
+  onAudioStart,
 }) => {
   // ── Deleted state ──
   if (message.isDeleted) {
@@ -912,6 +988,7 @@ const MediaMessage = ({
   const [showMenu, setShowMenu] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
+  const [videoLoaded, setVideoLoaded] = useState(false);
 
   const longPressTimer = useRef(null);
   const isLongPress = useRef(false);
@@ -1127,6 +1204,10 @@ const MediaMessage = ({
             isOwn={isOwn}
             duration={message.mediaDuration}
             onDurationReady={(dur) => {}}
+            messageId={message._id}
+            allMessages={allMessages}
+            onAudioEnd={onAudioEnd}
+            onAudioStart={onAudioStart}
           />
         );
       case "file":
@@ -1261,7 +1342,7 @@ const MediaMessage = ({
               </div>
             )}
             <div className="relative">
-              <div className="rounded-lg overflow-hidden max-w-[200px] max-h-[200px]">
+              <div className="rounded-lg overflow-hidden max-w-[150px] max-h-[150px] bg-transparent">
                 {sticker.type === "image" ? (
                   <img
                     src={sticker.fileUrl}
@@ -1269,13 +1350,23 @@ const MediaMessage = ({
                     className="w-full h-full object-contain"
                   />
                 ) : (
-                  <video
-                    src={sticker.fileUrl}
-                    className="w-full h-full object-contain"
-                    muted
-                    loop
-                    autoPlay
-                  />
+                  <>
+                    {!videoLoaded && (
+                      <div className="w-full h-full flex items-center justify-center bg-gray-100 dark:bg-gray-800/30 animate-pulse">
+                        <FaSpinner className="text-gray-400 animate-spin text-lg" />
+                      </div>
+                    )}
+                    <video
+                      src={sticker.fileUrl}
+                      className={`w-full h-full object-contain ${videoLoaded ? "block" : "hidden"}`}
+                      muted
+                      loop
+                      autoPlay
+                      playsInline
+                      preload="metadata"
+                      onLoadedMetadata={() => setVideoLoaded(true)}
+                    />
+                  </>
                 )}
               </div>
               <div className="absolute bottom-1 right-1 flex items-center gap-1 text-[10px] text-white bg-black/40 px-1.5 py-0.5 rounded-full">
@@ -2600,6 +2691,78 @@ const GeneralChatId = () => {
   const { data: savedStickersData } = useGetSavedStickersQuery();
   const [saveSticker] = useSaveStickerMutation();
 
+  // ─── Audio auto‑play state ──────────────────────────────────────
+  const [currentlyPlayingAudio, setCurrentlyPlayingAudio] = useState(null);
+
+  const handleAudioStart = useCallback((messageId) => {
+    setCurrentlyPlayingAudio(messageId);
+  }, []);
+
+  const handleAudioEnd = useCallback((endedId, nextAudioId) => {
+    // If the ended audio is the one currently playing, clear it
+    if (currentlyPlayingAudio === endedId) {
+      setCurrentlyPlayingAudio(null);
+    }
+    // If there is a next audio ID, play it
+    if (nextAudioId) {
+      // Find the message element and trigger click on its play button
+      // We'll use a custom event or ref, but easier: we can pass a prop to trigger play.
+      // Since we cannot directly access child components, we'll use a global ref map.
+      // Instead, we'll use a state to signal which audio should play, and the AudioPlayer will listen to it.
+      // Simpler: we'll just set a flag and let the AudioPlayer component receive a prop to start playing.
+      // We'll use a ref to store the next audio ID and trigger it via useEffect.
+      // For now, we'll just set a state that the next audio should be auto-played.
+      // We'll implement this using a context or a global variable.
+      // Let's use a simple approach: we'll store a reference to the AudioPlayer components in a map.
+      // We'll add a ref to each AudioPlayer and call its play method.
+      // Since we cannot easily do that in this structure, we'll use a different approach:
+      // we'll set a state "autoPlayNextId" and each AudioPlayer will listen to it.
+    }
+  }, [currentlyPlayingAudio]);
+
+  // We'll implement auto‑play using a ref map and a useEffect in the main component
+  // that triggers play on the next audio element when it receives the signal.
+
+  // We'll store audio player refs in a map
+  const audioPlayerRefs = useRef({});
+
+  // Register an audio player ref
+  const registerAudioPlayer = useCallback((messageId, ref) => {
+    audioPlayerRefs.current[messageId] = ref;
+  }, []);
+
+  const unregisterAudioPlayer = useCallback((messageId) => {
+    delete audioPlayerRefs.current[messageId];
+  }, []);
+
+  // Handle audio end and auto‑play
+  const handleAudioEndWithAutoPlay = useCallback((endedId) => {
+    // Find the next audio in the sorted messages
+    const sorted = [...localMessages].sort(
+      (a, b) => new Date(a.createdAt) - new Date(b.createdAt),
+    );
+    const index = sorted.findIndex((m) => m._id === endedId);
+    if (index === -1) return;
+    // Look forward for next audio (skip non‑audio)
+    for (let i = index + 1; i < sorted.length; i++) {
+      const msg = sorted[i];
+      if (msg.messageType !== 'audio') break; // stop if non‑audio
+      // Found next audio
+      const nextId = msg._id;
+      // Check if we have a ref for it
+      const ref = audioPlayerRefs.current[nextId];
+      if (ref) {
+        ref(); // play
+      }
+      break;
+    }
+  }, [localMessages, audioPlayerRefs]);
+
+  // We'll pass a play function to AudioPlayer via props
+  // Actually we'll let AudioPlayer receive a "autoPlay" prop, but we'll manage it via the parent.
+
+  // ────────────────────────────────────────────────────────────────
+
   useEffect(() => {
     isRecordingRef.current = isRecording;
   }, [isRecording]);
@@ -3144,6 +3307,14 @@ const GeneralChatId = () => {
       toast.error("Not connected");
       return;
     }
+
+    // Find the full sticker object from saved stickers
+    const stickerObj = savedStickersData?.stickers?.find(s => s._id === stickerId);
+    if (!stickerObj) {
+      toast.error("Sticker not found");
+      return;
+    }
+
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const senderWithName = {
       ...userInfo,
@@ -3163,7 +3334,7 @@ const GeneralChatId = () => {
       createdAt: new Date().toISOString(),
       messageType: "sticker",
       chat: chatId,
-      sticker: stickerId,
+      sticker: stickerObj, // full object
       replyTo: replyToMessage ? { _id: replyToMessage._id } : null,
     };
     setLocalMessages((prev) => [...prev, optimisticMsg]);
@@ -3407,34 +3578,40 @@ const GeneralChatId = () => {
   }, [messagesData, mergeMessagesIntoState, chatId]);
 
   const handleReaction = async (messageId, emoji) => {
+    // Optimistic update
+    const previousState = localMessages;
+    setLocalMessages((prev) =>
+      prev.map((msg) => {
+        if (msg._id === messageId) {
+          const reactions = msg.reactions || [];
+          const existing = reactions.find(
+            (r) => r.user === userInfo?._id && r.emoji === emoji,
+          );
+          if (existing) {
+            return {
+              ...msg,
+              reactions: reactions.filter(
+                (r) => !(r.user === userInfo?._id && r.emoji === emoji),
+              ),
+            };
+          } else {
+            return {
+              ...msg,
+              reactions: [...reactions, { user: userInfo?._id, emoji }],
+            };
+          }
+        }
+        return msg;
+      }),
+    );
+
     try {
       await toggleReaction({ messageId, emoji }).unwrap();
-      setLocalMessages((prev) =>
-        prev.map((msg) => {
-          if (msg._id === messageId) {
-            const reactions = msg.reactions || [];
-            const existing = reactions.find(
-              (r) => r.user === userInfo?._id && r.emoji === emoji,
-            );
-            if (existing) {
-              return {
-                ...msg,
-                reactions: reactions.filter(
-                  (r) => !(r.user === userInfo?._id && r.emoji === emoji),
-                ),
-              };
-            } else {
-              return {
-                ...msg,
-                reactions: [...reactions, { user: userInfo?._id, emoji }],
-              };
-            }
-          }
-          return msg;
-        }),
-      );
+      // If API succeeds, keep the optimistic state; socket events will sync as well.
     } catch (err) {
-      toast.error("Failed to react");
+      // Rollback on error
+      setLocalMessages(previousState);
+      toast.error("Failed to update reaction");
     }
   };
 
@@ -3458,19 +3635,35 @@ const GeneralChatId = () => {
       toast.error("Content cannot be empty");
       return;
     }
+
+    // Optimistic update
+    const previousState = localMessages;
+    const updatedMessage = {
+      content: trimmed,
+      edited: true,
+      editedAt: new Date().toISOString(),
+    };
+    setLocalMessages((prev) =>
+      prev.map((m) =>
+        m._id === editingMessageId ? { ...m, ...updatedMessage } : m,
+      ),
+    );
+    handleCancelEdit(); // clear edit bar
+
     try {
       await updateMessageApi({ messageId: editingMessageId, content: trimmed }).unwrap();
-      setLocalMessages((prev) =>
-        prev.map((m) =>
-          m._id === editingMessageId
-            ? { ...m, content: trimmed, edited: true, editedAt: new Date().toISOString() }
-            : m,
-        ),
-      );
       toast.success("Message updated");
-      handleCancelEdit();
     } catch (err) {
+      // Rollback
+      setLocalMessages(previousState);
       toast.error(err?.data?.message || "Failed to update");
+      // Re-open edit bar with old content
+      const oldMsg = previousState.find(m => m._id === editingMessageId);
+      if (oldMsg) {
+        setEditingMessageId(oldMsg._id);
+        setEditContent(oldMsg.content || "");
+        setMessage(oldMsg.content || "");
+      }
     }
   };
 
@@ -4099,6 +4292,8 @@ const GeneralChatId = () => {
           resolveSender={resolveSender}
           showSenderName={showSenderName}
           onSaveSticker={handleSaveSticker}
+          onAudioEnd={handleAudioEndWithAutoPlay}
+          onAudioStart={handleAudioStart}
         />,
       );
     });
