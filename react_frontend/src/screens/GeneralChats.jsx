@@ -29,6 +29,14 @@ import { motion } from 'framer-motion';
 import GeneralSidebar from '../components/GeneralSidebar';
 import GeneralBottombar from '../components/GeneralBottombar';
 
+// ─── Helper: get first name ──────────────────────────────────────
+const getFirstName = (fullName) => {
+  if (!fullName) return 'Someone';
+  const trimmed = fullName.trim();
+  const firstSpace = trimmed.indexOf(' ');
+  return firstSpace > 0 ? trimmed.substring(0, firstSpace) : trimmed;
+};
+
 // ─── Shared query arg ──────────────────────────────────────────────
 const CHATS_QUERY_ARG = { archived: false };
 
@@ -247,17 +255,34 @@ const DirectChatItem = ({ chat, userId, onNavigate, workspaceName, workspaceId, 
   const avatar = otherParticipant?.user?.profile || null;
 
   const lastMessage = chat.lastMessage;
-  const lastMessageText = lastMessage
-    ? lastMessage.messageType === 'text'
-      ? lastMessage.content
-      : lastMessage.messageType === 'image'
-      ? '📷 Image'
-      : lastMessage.messageType === 'audio'
-      ? '🎵 Audio'
-      : lastMessage.messageType === 'video'
-      ? '🎬 Video'
-      : '📎 File'
-    : 'No messages yet';
+  const senderId = lastMessage?.sender?._id || lastMessage?.sender;
+  const senderName = lastMessage?.sender?.name || '';
+
+  // Determine sender display: "You" or first name
+  let senderDisplay = '';
+  if (senderId === userId) {
+    senderDisplay = 'You';
+  } else if (senderName) {
+    senderDisplay = getFirstName(senderName);
+  }
+
+  let lastMessageText = 'No messages yet';
+  if (lastMessage) {
+    if (lastMessage.messageType === 'text') {
+      lastMessageText = lastMessage.content || 'Message';
+    } else if (lastMessage.messageType === 'image') {
+      lastMessageText = '📷 Image';
+    } else if (lastMessage.messageType === 'audio') {
+      lastMessageText = '🎵 Audio';
+    } else if (lastMessage.messageType === 'video') {
+      lastMessageText = '🎬 Video';
+    } else if (lastMessage.messageType === 'file') {
+      lastMessageText = `📎 ${lastMessage.mediaName || 'File'}`;
+    } else {
+      lastMessageText = 'Message';
+    }
+  }
+
   const lastMessageTime = lastMessage?.createdAt
     ? new Date(lastMessage.createdAt).toLocaleTimeString([], {
         hour: '2-digit',
@@ -315,7 +340,7 @@ const DirectChatItem = ({ chat, userId, onNavigate, workspaceName, workspaceId, 
         </div>
         <div className="flex items-center justify-between mt-0.5">
           <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 truncate flex-1">
-            {lastMessageText}
+            {senderDisplay ? `${senderDisplay}: ${lastMessageText}` : lastMessageText}
           </p>
           {unreadCount > 0 && (
             <span className="ml-1.5 bg-teal-500 text-white text-[10px] md:text-xs font-medium px-1.5 py-0.5 rounded-full flex-shrink-0">
@@ -355,6 +380,7 @@ const WorkspaceGroupSection = ({
           <span className="text-xs text-gray-400 flex-shrink-0">
             {chats.length} chat{chats.length > 1 ? 's' : ''}
           </span>
+          {/* Unread badge moved here – but we want it on the icon? Already in group header, but we'll keep it as is; the main request was about the tab bar */}
           {totalUnread > 0 && (
             <span className="ml-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 min-w-[18px] text-center">
               {totalUnread > 99 ? '99+' : totalUnread}
@@ -398,7 +424,6 @@ const GeneralChats = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('public');
   const [showNewChat, setShowNewChat] = useState(false);
-  // Initialize all workspace groups as collapsed (true) by default
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState({});
 
   const { data: workspacesData, isLoading: workspacesLoading } = useGetMyWorkspacesQuery();
@@ -621,32 +646,38 @@ const GeneralChats = () => {
             </div>
           </header>
 
-          <div className="flex bg-gray-50 dark:bg-[#1a1a1a] border-b border-gray-200 dark:border-gray-800 flex-shrink-0 overflow-hidden">
-            {tabs.map(({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                onClick={() => setActiveTab(id)}
-                className={`
-                  flex-1 min-w-0 py-2 px-1 text-[10px] font-medium
-                  transition flex flex-col items-center justify-center gap-0.5
-                  whitespace-nowrap
-                  md:py-3 md:px-3 md:text-sm md:flex-row md:gap-2
-                  ${
-                    activeTab === id
-                      ? 'text-teal-600 dark:text-teal-400 border-b-2 border-teal-600 dark:border-teal-400'
-                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-                  }
-                `}
-              >
-                <Icon className="text-base md:text-lg" />
-                <span className="leading-none">{label}</span>
-                {id === 'workspace' && workspaceTotalUnread > 0 && (
-                  <span className="ml-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
-                    {workspaceTotalUnread > 99 ? '99+' : workspaceTotalUnread}
-                  </span>
-                )}
-              </button>
-            ))}
+          {/* Tab Bar – fixed height, badge on icon */}
+          <div className="flex bg-gray-50 dark:bg-[#1a1a1a] border-b border-gray-200 dark:border-gray-800 flex-shrink-0 overflow-hidden h-12 md:h-14">
+            {tabs.map(({ id, label, icon: Icon }) => {
+              const unread = id === 'workspace' ? workspaceTotalUnread : 0;
+              return (
+                <button
+                  key={id}
+                  onClick={() => setActiveTab(id)}
+                  className={`
+                    flex-1 min-w-0 h-full px-1 text-[10px] font-medium
+                    transition flex items-center justify-center gap-1.5
+                    whitespace-nowrap
+                    md:text-sm md:gap-2
+                    ${
+                      activeTab === id
+                        ? 'text-teal-600 dark:text-teal-400 border-b-2 border-teal-600 dark:border-teal-400'
+                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                    }
+                  `}
+                >
+                  <div className="relative inline-flex items-center justify-center">
+                    <Icon className="text-base md:text-lg" />
+                    {unread > 0 && (
+                      <span className="absolute -top-1 -right-2.5 flex items-center justify-center bg-red-500 text-white text-[9px] font-bold min-w-[16px] h-4 px-1 rounded-full leading-none">
+                        {unread > 99 ? '99+' : unread}
+                      </span>
+                    )}
+                  </div>
+                  <span className="leading-none">{label}</span>
+                </button>
+              );
+            })}
           </div>
 
           <main className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12]">
@@ -681,7 +712,7 @@ const GeneralChats = () => {
                       userId={userId}
                       onNavigate={handleNavigate}
                       isOwnWorkspace={group.isOwnWorkspace}
-                      collapsed={collapsedWorkspaces[group.workspaceId] ?? true} // default collapsed
+                      collapsed={collapsedWorkspaces[group.workspaceId] ?? true}
                       onToggle={toggleWorkspace}
                     />
                   ))

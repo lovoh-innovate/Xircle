@@ -33,14 +33,45 @@ const getInitials = (name) => {
 };
 
 // ─── Helper: format last message preview ────────────────────────────
-const getLastMessagePreview = (message) => {
+const getLastMessagePreview = (message, currentUserId) => {
   if (!message) return 'No messages yet';
-  if (message.messageType === 'text') return message.content || 'Message';
-  if (message.messageType === 'image') return '📷 Photo';
-  if (message.messageType === 'audio') return '🎤 Voice note';
-  if (message.messageType === 'video') return '🎬 Video';
-  if (message.messageType === 'file') return `📎 ${message.mediaName || 'File'}`;
-  return 'Message';
+  
+  let preview = '';
+  if (message.messageType === 'text') preview = message.content || 'Message';
+  else if (message.messageType === 'image') preview = '📷 Photo';
+  else if (message.messageType === 'audio') preview = '🎤 Voice note';
+  else if (message.messageType === 'video') preview = '🎬 Video';
+  else if (message.messageType === 'file') preview = `📎 ${message.mediaName || 'File'}`;
+  else preview = 'Message';
+
+  // Check if the message was sent by the current user
+  const senderId = message.sender?._id || message.sender;
+  if (senderId && senderId === currentUserId) {
+    preview = `You: ${preview}`;
+  }
+  return preview;
+};
+
+// ─── Helper: format last message time ──────────────────────────────
+const formatLastMessageTime = (timestamp) => {
+  if (!timestamp) return '';
+  const now = new Date();
+  const date = new Date(timestamp);
+  const diffMs = now - date;
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMin < 1) return 'Just now';
+  if (diffMin < 60) return `${diffMin}m`;
+  if (diffHours < 24) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  if (diffDays === 1) return 'Yesterday';
+  // Format as MM/DD (e.g., 02/07)
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${month}/${day}`;
 };
 
 // ─── Helper: belongs to workspace ─────────────────────────────────────
@@ -162,8 +193,6 @@ const YourWorkspaceDMs = () => {
   const [searchOpen, setSearchOpen] = useState(false);
 
   // ─── Query argument must match exactly what YourWorkspaceChatId uses ──
-  // In YourWorkspaceChatId, useGetUserChatsQuery(workspaceId) is called.
-  // So we use workspaceId as the argument to share cache.
   const chatsQueryArg = workspaceId;
 
   const {
@@ -177,7 +206,6 @@ const YourWorkspaceDMs = () => {
     isLoading: chatsLoading,
     refetch: refetchChats,
   } = useGetUserChatsQuery(chatsQueryArg, {
-    // Socket events handle instant updates. This is just a safety-net.
     pollingInterval: 25000,
     refetchOnFocus: true,
     refetchOnReconnect: true,
@@ -185,7 +213,7 @@ const YourWorkspaceDMs = () => {
 
   const [createDirectChat, { isLoading: creatingChat }] = useCreateDirectChatMutation();
 
-  // ─── Instant, targeted cache patch — no network round trip ──────────
+  // ─── Instant, targeted cache patch ──────────────────────────────────
   const patchChatInCache = useCallback(
     (chatId, patch) => {
       dispatch(
@@ -209,9 +237,6 @@ const YourWorkspaceDMs = () => {
   useEffect(() => {
     if (!socket || !isConnected) return;
 
-    // Fired by the backend on every new message AND every message deletion,
-    // for every participant's personal room — so it reaches this list
-    // even for chats the user hasn't opened.
     const handleChatListUpdate = ({ chatId, lastMessage, lastMessageAt, unreadCount }) => {
       if (!chatId) return;
       patchChatInCache(chatId, {
@@ -221,11 +246,8 @@ const YourWorkspaceDMs = () => {
       });
     };
 
-    // Update online status of participants (optional, but nice)
     const handleUserStatusChange = ({ userId, online }) => {
-      if (!chatsData?.chats) return;
-      // We could patch each chat that contains this user, but it's not critical.
-      // We'll rely on the next refetch or let the chat detail page handle it.
+      // Optional: update online status in cache if needed
     };
 
     socket.on('chat-list-update', handleChatListUpdate);
@@ -235,7 +257,7 @@ const YourWorkspaceDMs = () => {
       socket.off('chat-list-update', handleChatListUpdate);
       socket.off('user-status-changed', handleUserStatusChange);
     };
-  }, [socket, isConnected, patchChatInCache, chatsData]);
+  }, [socket, isConnected, patchChatInCache]);
 
   // ─── If socket reconnects, do a quiet refetch ───────────────────────
   useEffect(() => {
@@ -265,6 +287,7 @@ const YourWorkspaceDMs = () => {
           lastMessage: chat.lastMessage,
           lastMessageAt: chat.lastMessageAt,
           unreadCount: chat.unreadCount || 0,
+          lastMessageSenderId: chat.lastMessage?.sender?._id || chat.lastMessage?.sender,
         };
       })
       .filter(Boolean)
@@ -288,11 +311,27 @@ const YourWorkspaceDMs = () => {
         navigate(`/workspace/${workspaceId}/chat/${existing._id}`);
         return;
       }
+
+      // ─── Create the DM ──────────────────────────────────────────────
       const result = await createDirectChat({ workspaceId, targetUserId }).unwrap();
+      const newChat = result.chat;
+
+      // ─── 🔥 INSTANT CACHE UPDATE – prevents "Chat not found" ────────
+      dispatch(
+        messagingApiSlice.util.updateQueryData(
+          'getUserChats',
+          workspaceId,
+          (draft) => {
+            if (!draft?.chats) draft.chats = [];
+            if (!draft.chats.some(c => c._id === newChat._id)) {
+              draft.chats.unshift(newChat);
+            }
+          }
+        )
+      );
+
       toast.success('Chat started!');
-      // Refetch to populate the new chat in the list (or we could patch, but refetch is fine)
-      refetchChats();
-      navigate(`/workspace/${workspaceId}/chat/${result.chat._id}`);
+      navigate(`/workspace/${workspaceId}/chat/${newChat._id}`);
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to start chat');
     }
@@ -370,11 +409,9 @@ const YourWorkspaceDMs = () => {
             </div>
           ) : (
             dmList.map((dm) => {
-              const { otherUser, online, lastMessage, lastMessageAt, chatId, unreadCount } = dm;
-              const lastMessageText = getLastMessagePreview(lastMessage);
-              const lastMessageTime = lastMessageAt
-                ? new Date(lastMessageAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                : '';
+              const { otherUser, online, lastMessage, lastMessageAt, chatId, unreadCount, lastMessageSenderId } = dm;
+              const preview = getLastMessagePreview(lastMessage, userInfo?._id);
+              const timeLabel = formatLastMessageTime(lastMessageAt);
 
               return (
                 <button
@@ -402,15 +439,15 @@ const YourWorkspaceDMs = () => {
                       <p className="font-semibold text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">
                         {otherUser.name}
                       </p>
-                      {lastMessageTime && (
+                      {timeLabel && (
                         <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0 ml-2">
-                          {lastMessageTime}
+                          {timeLabel}
                         </span>
                       )}
                     </div>
                     <div className="flex items-center justify-between mt-0.5">
                       <p className="text-sm text-gray-500 dark:text-gray-400 truncate flex-1">
-                        {lastMessageText}
+                        {preview}
                       </p>
                       {unreadCount > 0 && (
                         <span className="ml-2 bg-teal-500 text-white text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0">

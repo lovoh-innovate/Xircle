@@ -43,6 +43,14 @@ import { motion } from 'framer-motion';
 import GeneralSidebar from '../components/GeneralSidebar';
 import GeneralBottombar from '../components/GeneralBottombar';
 
+// ─── Helper: get first name ──────────────────────────────────────
+const getFirstName = (fullName) => {
+  if (!fullName) return 'Someone';
+  const trimmed = fullName.trim();
+  const firstSpace = trimmed.indexOf(' ');
+  return firstSpace > 0 ? trimmed.substring(0, firstSpace) : trimmed;
+};
+
 // ─── Bottom Sheet ──────────────────────────────────────────────────
 const BottomSheet = ({ isOpen, onClose, children }) => {
   const [visible, setVisible] = useState(false);
@@ -441,8 +449,13 @@ const ChannelCard = ({
   const lastMessageText = getLastMessagePreview(lastMessage);
   const senderName = lastMessage?.sender?.name || '';
   const senderId = lastMessage?.sender?._id;
-  // Display "You" if sender is current user
-  const displaySender = senderId === userId ? 'You' : senderName;
+  // Display "You" if sender is current user, otherwise first name only
+  let displaySender = '';
+  if (senderId === userId) {
+    displaySender = 'You';
+  } else if (senderName) {
+    displaySender = getFirstName(senderName);
+  }
 
   let actionButton = null;
   if (status === 'joined') {
@@ -567,7 +580,7 @@ const ChannelCard = ({
             </span>
           )}
         </div>
-        {/* Last message with sender */}
+        {/* Last message with sender (first name only) */}
         <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">
           {displaySender && (
             <span className="font-medium truncate max-w-[60px]">{displaySender}:</span>

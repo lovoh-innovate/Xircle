@@ -12,6 +12,8 @@ import {
   useUnarchiveMessageMutation,
   useStarMessageMutation,
   useUnstarMessageMutation,
+  useToggleReactionMutation,
+  useUpdateMessageMutation,
   useAddParticipantMutation,
   useRemoveParticipantMutation,
   useMakeGroupAdminMutation,
@@ -22,6 +24,7 @@ import {
   useDeleteGroupChatMutation,
 } from "../slices/messagingApiSlice";
 import { useGetMembersQuery } from "../slices/teamApiSlice";
+import { useGetSavedStickersQuery, useSaveStickerMutation } from "../slices/stickerApiSlice";
 import YourWorkspaceSidebar from "../components/YourWorkspaceSidebar";
 import { useInitiateCallMutation } from "../slices/callApiSlice";
 import {
@@ -71,6 +74,8 @@ import {
   FaArrowRight,
   FaSave,
   FaUndoAlt,
+  FaStickyNote,
+  FaPlus,
 } from "react-icons/fa";
 import { toast } from "react-hot-toast";
 import { useSocket } from "../components/SocketContext.jsx";
@@ -151,7 +156,7 @@ const useMediaQuery = (query) => {
   return matches;
 };
 
-// ─── Emoji list ─────────────────────────────────────────────────────
+// ─── Emoji & Reaction lists ──────────────────────────────────────
 const EMOJI_LIST = [
   "😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😜", "🤔", "😎",
   "😢", "😭", "😡", "🥳", "👍", "👎", "🙏", "👏", "💪", "🔥",
@@ -163,6 +168,8 @@ const EMOJI_LIST = [
   "💞", "💕", "💗", "💖", "💘", "😻", "🌙", "🌛", "🌜", "⭐",
   "🌝", "🤭", "🌚",
 ];
+
+const REACTION_EMOJIS = ["😂", "😊", "😍", "😡", "😢"];
 
 // ─── Link detection / preview helpers ──────────────────────────────
 const URL_REGEX = /(https?:\/\/[^\s]+)/g;
@@ -194,7 +201,7 @@ const LinkifiedText = ({ text, isOwn }) => {
           </a>
         ) : (
           <React.Fragment key={i}>{part}</React.Fragment>
-        ),
+        )
       )}
     </>
   );
@@ -423,7 +430,7 @@ const MediaPickerModal = ({
   );
 };
 
-// ─── Media Preview Component (with edit button always visible) ──────
+// ─── Media Preview Component ──────────────────────────────────────────
 const MediaPreview = ({
   mediaFile,
   onRemove,
@@ -712,11 +719,10 @@ const AddParticipantModal = ({
                 <button
                   key={user._id}
                   onClick={() => toggleUser(user._id)}
-                  className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-xl transition ${
-                    isSelected
+                  className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-xl transition ${isSelected
                       ? "bg-teal-50 dark:bg-[#0d9488]/20"
                       : "hover:bg-gray-50 dark:hover:bg-gray-800/30"
-                  }`}
+                    }`}
                 >
                   <div className="relative flex-shrink-0">
                     {user?.profile ? (
@@ -791,9 +797,16 @@ const MessageActionModal = ({
   onUnstar,
   onReply,
   onCopy,
+  onReaction,
+  onEdit,
+  onSaveSticker,
   brandColor,
 }) => {
+  const [expanded, setExpanded] = useState(false);
   if (!isOpen || !message) return null;
+
+  const reactionEmojis = expanded ? EMOJI_LIST : REACTION_EMOJIS;
+  const isSticker = message.messageType === "sticker";
 
   return (
     <div
@@ -801,7 +814,7 @@ const MessageActionModal = ({
       onClick={onClose}
     >
       <div
-        className="bg-white dark:bg-[#14141a] rounded-t-2xl w-full max-w-lg p-5 transform transition-transform duration-300"
+        className="bg-white dark:bg-[#14141a] rounded-t-2xl w-full max-w-lg p-5"
         onClick={(e) => e.stopPropagation()}
         style={{ maxHeight: "70vh", overflowY: "auto" }}
       >
@@ -825,6 +838,29 @@ const MessageActionModal = ({
           </div>
         </div>
 
+        <div
+          className={`${expanded ? "grid grid-cols-6 gap-2" : "flex flex-wrap justify-around"} mb-3 border-b border-gray-200 dark:border-gray-700/60 pb-3`}
+        >
+          {reactionEmojis.map((emoji) => (
+            <button
+              key={emoji}
+              onClick={() => {
+                onReaction(message._id, emoji);
+                onClose();
+              }}
+              className={`${expanded ? "text-2xl p-1 hover:scale-125" : "text-2xl hover:scale-125"} transition-transform`}
+            >
+              {emoji}
+            </button>
+          ))}
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className={`${expanded ? "text-2xl p-1" : "text-2xl"} transition-transform text-gray-400 dark:text-gray-500`}
+          >
+            {expanded ? <FaChevronUp /> : <FaPlus />}
+          </button>
+        </div>
+
         <div className="space-y-1">
           <button
             onClick={() => {
@@ -833,8 +869,7 @@ const MessageActionModal = ({
             }}
             className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
           >
-            <FaReply className="text-sm" />
-            <span className="text-sm font-medium">Reply</span>
+            <FaReply className="text-sm" /> <span className="text-sm font-medium">Reply</span>
           </button>
           <button
             onClick={() => {
@@ -843,9 +878,19 @@ const MessageActionModal = ({
             }}
             className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
           >
-            <FaCopy className="text-sm" />
-            <span className="text-sm font-medium">Copy</span>
+            <FaCopy className="text-sm" /> <span className="text-sm font-medium">Copy</span>
           </button>
+          {isOwn && message.messageType === "text" && (
+            <button
+              onClick={() => {
+                onEdit(message);
+                onClose();
+              }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+            >
+              <FaPencilAlt className="text-sm" /> <span className="text-sm font-medium">Edit</span>
+            </button>
+          )}
           {isOwn && (
             <button
               onClick={() => {
@@ -854,8 +899,19 @@ const MessageActionModal = ({
               }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition"
             >
-              <FaTrashAlt className="text-sm" />
+              <FaTrashAlt className="text-sm" />{" "}
               <span className="text-sm font-medium">Delete for everyone</span>
+            </button>
+          )}
+          {!isOwn && isSticker && onSaveSticker && (
+            <button
+              onClick={() => {
+                onSaveSticker(message);
+                onClose();
+              }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition"
+            >
+              <FaSave className="text-sm" /> <span className="text-sm font-medium">Save Sticker</span>
             </button>
           )}
           {isStarred ? (
@@ -866,8 +922,7 @@ const MessageActionModal = ({
               }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 transition"
             >
-              <FaStar className="text-sm" />
-              <span className="text-sm font-medium">Unstar</span>
+              <FaStar className="text-sm" /> <span className="text-sm font-medium">Unstar</span>
             </button>
           ) : (
             <button
@@ -877,8 +932,7 @@ const MessageActionModal = ({
               }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
             >
-              <FaRegStar className="text-sm" />
-              <span className="text-sm font-medium">Star</span>
+              <FaRegStar className="text-sm" /> <span className="text-sm font-medium">Star</span>
             </button>
           )}
           {isArchived ? (
@@ -889,8 +943,7 @@ const MessageActionModal = ({
               }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition"
             >
-              <FaUndo className="text-sm" />
-              <span className="text-sm font-medium">Unarchive</span>
+              <FaUndo className="text-sm" /> <span className="text-sm font-medium">Unarchive</span>
             </button>
           ) : (
             <button
@@ -900,12 +953,10 @@ const MessageActionModal = ({
               }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
             >
-              <FaArchive className="text-sm" />
-              <span className="text-sm font-medium">Archive</span>
+              <FaArchive className="text-sm" /> <span className="text-sm font-medium">Archive</span>
             </button>
           )}
         </div>
-
         <button
           onClick={onClose}
           className="w-full mt-3 py-3 text-center text-sm font-medium text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700/60 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/30 transition"
@@ -922,17 +973,13 @@ const MessageTicks = ({ message, isOwn }) => {
   if (!isOwn) return null;
 
   if (message._pending) {
-    return (
-      <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />
-    );
+    return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
   }
   if (message._failed) {
     return <FaTimes className="text-[10px] text-red-500" />;
   }
   if (!message._sent) {
-    return (
-      <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />
-    );
+    return <FaRegClock className="text-[10px] text-gray-400 dark:text-gray-500" />;
   }
 
   if (!message._delivered && !message._read) {
@@ -967,13 +1014,11 @@ const AudioPlayer = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(initialDuration || 0);
 
-  // Waveform bars – same as original
   const WAVEFORM_BARS = [
     6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6,
     10,
   ];
 
-  // Refs for drag/seek
   const waveformContainerRef = useRef(null);
   const isDraggingRef = useRef(false);
 
@@ -1017,7 +1062,6 @@ const AudioPlayer = ({
     setIsPlaying(!isPlaying);
   };
 
-  // Seek helpers
   const getSeekPosition = (clientX) => {
     const container = waveformContainerRef.current;
     if (!container) return 0;
@@ -1053,7 +1097,6 @@ const AudioPlayer = ({
     isDraggingRef.current = false;
   };
 
-  // Click on waveform to seek
   const handleWaveformClick = (e) => {
     const clientX = e.clientX ?? e.touches?.[0]?.clientX;
     if (clientX == null) return;
@@ -1082,7 +1125,6 @@ const AudioPlayer = ({
         )}
       </button>
 
-      {/* Waveform container – click/drag to seek */}
       <div
         ref={waveformContainerRef}
         className="flex-1 flex items-center h-6 relative cursor-pointer"
@@ -1131,7 +1173,7 @@ const AudioPlayer = ({
   );
 };
 
-// ─── Quoted reply preview ──────────────────────────────────────────
+// ─── Quoted Reply Block ────────────────────────────────────────────
 const QuotedReplyBlock = ({ replyData, isOwn, brandColor, onJump }) => {
   if (!replyData) return null;
   const name = replyData.senderName || "Unknown";
@@ -1154,11 +1196,10 @@ const QuotedReplyBlock = ({ replyData, isOwn, brandColor, onJump }) => {
         e.stopPropagation();
         onJump && onJump(replyData.id);
       }}
-      className={`block w-full text-left mb-1.5 px-2.5 py-1.5 rounded-lg border-l-2 text-xs cursor-pointer transition ${
-        isOwn
+      className={`block w-full text-left mb-1.5 px-2.5 py-1.5 rounded-lg border-l-2 text-xs cursor-pointer transition ${isOwn
           ? "bg-black/10 border-white/60 hover:bg-black/20"
           : "bg-black/[0.04] dark:bg-white/[0.06] hover:bg-black/[0.07] dark:hover:bg-white/[0.1]"
-      }`}
+        }`}
       style={!isOwn ? { borderLeftColor: brandColor } : {}}
     >
       <p
@@ -1173,6 +1214,91 @@ const QuotedReplyBlock = ({ replyData, isOwn, brandColor, onJump }) => {
         {text}
       </p>
     </button>
+  );
+};
+
+// ─── Reaction Popover ──────────────────────────────────────────────
+const ReactionPopover = ({ isOpen, onClose, onSelect, align = "center" }) => {
+  const [expanded, setExpanded] = useState(false);
+  if (!isOpen) return null;
+
+  const displayEmojis = expanded ? EMOJI_LIST : REACTION_EMOJIS;
+  const alignClass =
+    align === "left"
+      ? "left-0"
+      : align === "right"
+        ? "right-0"
+        : "left-1/2 -translate-x-1/2";
+
+  return (
+    <div
+      className={`absolute bottom-full mb-2 bg-white dark:bg-[#1e1e26] shadow-lg border border-gray-200 dark:border-gray-800/60 p-2 z-30 ${alignClass} ${expanded ? "rounded-xl min-w-[220px] max-h-56 overflow-y-auto" : "rounded-full"
+        }`}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className={expanded ? "grid grid-cols-6 gap-1" : "flex gap-1"}>
+        {displayEmojis.map((emoji) => (
+          <button
+            key={emoji}
+            onClick={() => {
+              onSelect(emoji);
+              onClose();
+            }}
+            className={`hover:scale-125 hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-full p-1 transition-transform ${expanded ? "text-2xl" : "text-xl"
+              }`}
+          >
+            {emoji}
+          </button>
+        ))}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded(!expanded);
+          }}
+          className={`hover:scale-125 hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-full p-1 transition-transform ${expanded ? "text-xl" : "text-xl"
+            }`}
+        >
+          {expanded ? (
+            <FaChevronUp className="text-gray-400 dark:text-gray-500" />
+          ) : (
+            <FaPlus className="text-gray-400 dark:text-gray-500" />
+          )}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ─── Reaction Display ──────────────────────────────────────────────
+const ReactionDisplay = ({ reactions, userId, onReact }) => {
+  if (!reactions || reactions.length === 0) return null;
+
+  const emojiMap = {};
+  reactions.forEach((r) => {
+    if (!emojiMap[r.emoji]) emojiMap[r.emoji] = { count: 0, users: [] };
+    emojiMap[r.emoji].count += 1;
+    emojiMap[r.emoji].users.push(r.user);
+  });
+
+  return (
+    <div className="flex flex-wrap gap-1 mt-0.5">
+      {Object.entries(emojiMap).map(([emoji, data]) => {
+        const isOwnReaction = data.users.some((u) => u === userId);
+        return (
+          <button
+            key={emoji}
+            onClick={() => onReact(emoji)}
+            className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs transition ${isOwnReaction
+                ? "bg-teal-100 dark:bg-teal-800/50 text-teal-700 dark:text-teal-300"
+                : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+              }`}
+          >
+            <span>{emoji}</span>
+            {data.count > 1 && <span className="text-[10px] opacity-80">{data.count}</span>}
+          </button>
+        );
+      })}
+    </div>
   );
 };
 
@@ -1223,6 +1349,8 @@ const MediaMessage = ({
   onStar,
   onUnstar,
   onReply,
+  onReaction,
+  onEdit,
   userId,
   isMobile,
   onLongPress,
@@ -1230,14 +1358,16 @@ const MediaMessage = ({
   onJumpToMessage,
   resolveSender,
   onCopy,
+  onSaveSticker,
+  showSenderInfo = true, // false for direct messages, true for groups
 }) => {
-  // ── Deleted state (same for all) ──
+  // ── Deleted state ──
   if (message.isDeleted) {
     return (
       <div
         className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
       >
-        {!isOwn && (
+        {!isOwn && showSenderInfo && (
           <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
             <FaUser className="text-gray-400 dark:text-gray-500" />
           </div>
@@ -1254,9 +1384,11 @@ const MediaMessage = ({
 
   const time = safeFormatTime(message.createdAt);
   const [showMenu, setShowMenu] = useState(false);
+  const [showReactions, setShowReactions] = useState(false);
+  const [isHovering, setIsHovering] = useState(false);
+
   const longPressTimer = useRef(null);
   const isLongPress = useRef(false);
-
   const touchStartRef = useRef({ x: 0, y: 0 });
   const [swipeX, setSwipeX] = useState(0);
   const swipeTriggered = useRef(false);
@@ -1264,8 +1396,115 @@ const MediaMessage = ({
 
   const isArchived = message.archivedBy?.some((id) => id === userId) || false;
   const isStarred = message.starredBy?.some((id) => id === userId) || false;
+  const isSticker = message.messageType === "sticker";
   const replyPreview = resolveReplyPreview(message, allMessages, resolveSender);
+  const firstUrl = extractFirstUrl(message.content);
 
+  // ─── Desktop dropdown menu ──────────────────────────────────────
+  const renderDesktopMenu = () => (
+    <div
+      className={`absolute top-full mt-1 z-30 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[170px] py-1 ${isOwn ? "right-0" : "left-0"
+        }`}
+      onClick={(e) => e.stopPropagation()}
+      onMouseLeave={() => setShowMenu(false)}
+    >
+      <button
+        onClick={() => {
+          setShowMenu(false);
+          onReply(message);
+        }}
+        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+      >
+        <FaReply className="text-xs" /> Reply
+      </button>
+      <button
+        onClick={() => {
+          setShowMenu(false);
+          onCopy(message);
+        }}
+        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+      >
+        <FaCopy className="text-xs" /> Copy
+      </button>
+      {isOwn && message.messageType === "text" && (
+        <button
+          onClick={() => {
+            setShowMenu(false);
+            onEdit(message);
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+        >
+          <FaPencilAlt className="text-xs" /> Edit
+        </button>
+      )}
+      {isOwn && (
+        <button
+          onClick={() => {
+            setShowMenu(false);
+            onDelete(message);
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full"
+        >
+          <FaTrashAlt className="text-xs" /> Delete
+        </button>
+      )}
+      {!isOwn && isSticker && onSaveSticker && (
+        <button
+          onClick={() => {
+            setShowMenu(false);
+            onSaveSticker(message);
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+        >
+          <FaSave className="text-xs" /> Save Sticker
+        </button>
+      )}
+      {isStarred ? (
+        <button
+          onClick={() => {
+            setShowMenu(false);
+            onUnstar(message);
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 rounded-lg transition w-full"
+        >
+          <FaStar className="text-xs" /> Unstar
+        </button>
+      ) : (
+        <button
+          onClick={() => {
+            setShowMenu(false);
+            onStar(message);
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+        >
+          <FaRegStar className="text-xs" /> Star
+        </button>
+      )}
+      {isArchived ? (
+        <button
+          onClick={() => {
+            setShowMenu(false);
+            onUnarchive(message);
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 rounded-lg transition w-full"
+        >
+          <FaUndo className="text-xs" /> Unarchive
+        </button>
+      ) : (
+        <button
+          onClick={() => {
+            setShowMenu(false);
+            onArchive(message);
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+        >
+          <FaArchive className="text-xs" /> Archive
+        </button>
+      )}
+    </div>
+  );
+
+  // Touch handlers for swipe reply
   const handleTouchStart = (e) => {
     if (!isMobile) return;
     const touch = e.touches[0];
@@ -1284,14 +1523,12 @@ const MediaMessage = ({
     const touch = e.touches[0];
     const deltaX = touch.clientX - touchStartRef.current.x;
     const deltaY = touch.clientY - touchStartRef.current.y;
-
     if (Math.abs(deltaX) > 8 || Math.abs(deltaY) > 8) {
       if (longPressTimer.current) {
         clearTimeout(longPressTimer.current);
         longPressTimer.current = null;
       }
     }
-
     if (deltaX > 8 && Math.abs(deltaX) > Math.abs(deltaY)) {
       swipeActive.current = true;
       const capped = Math.min(deltaX, SWIPE_REPLY_MAX);
@@ -1309,37 +1546,17 @@ const MediaMessage = ({
       clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
     }
-
     if (swipeTriggered.current) {
       onReply(message);
     }
     setSwipeX(0);
     swipeTriggered.current = false;
-
     if (isLongPress.current || swipeActive.current) {
       e.preventDefault();
       isLongPress.current = false;
       swipeActive.current = false;
     }
   };
-
-  const toggleMenu = (e) => {
-    e.stopPropagation();
-    setShowMenu(!showMenu);
-  };
-
-  const closeMenu = () => setShowMenu(false);
-
-  const menuRef = useRef(null);
-  useEffect(() => {
-    const handler = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
-        closeMenu();
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
 
   const handleDownload = (e) => {
     e.stopPropagation();
@@ -1353,29 +1570,19 @@ const MediaMessage = ({
     }
   };
 
-  const handleCopyClick = (e) => {
-    e.stopPropagation();
-    onCopy && onCopy(message);
-  };
-
   const renderMediaContent = () => {
     if (!message.mediaUrl) return null;
-
     switch (message.messageType) {
       case "image":
         return null;
-
       case "video":
         return (
-          <div className="relative group">
-            <video
-              src={message.mediaUrl}
-              controls
-              className="max-w-full rounded-lg max-h-80"
-            />
-          </div>
+          <video
+            src={message.mediaUrl}
+            controls
+            className="max-w-full rounded-lg max-h-80"
+          />
         );
-
       case "audio":
         return (
           <AudioPlayer
@@ -1383,12 +1590,9 @@ const MediaMessage = ({
             isOwn={isOwn}
             duration={message.mediaDuration}
             brandColor={brandColor}
-            onDurationReady={(dur) => {
-              // Optionally update message.mediaDuration if needed
-            }}
+            onDurationReady={(dur) => { }}
           />
         );
-
       case "file":
         return (
           <div className="flex items-center gap-3 bg-gray-100 dark:bg-gray-800/60 rounded-lg p-3 min-w-[200px]">
@@ -1406,17 +1610,13 @@ const MediaMessage = ({
               </div>
             </div>
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleDownload(e);
-              }}
+              onClick={handleDownload}
               className="text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition"
             >
               <FaDownload className="text-sm" />
             </button>
           </div>
         );
-
       default:
         return null;
     }
@@ -1427,20 +1627,54 @@ const MediaMessage = ({
     transition: swipeX === 0 ? "transform 0.2s ease" : "none",
   };
   const swipeIconOpacity = Math.min(swipeX / SWIPE_REPLY_THRESHOLD, 1);
-
   const maxWidthClass = isMobile ? "max-w-[75%]" : "max-w-[85%]";
 
-  // ─── First URL for link preview ──────────────────────────────────
-  const firstUrl = extractFirstUrl(message.content);
+  // ─── Sticker messages ──────────────────────────────────────────────
+  if (isSticker) {
+    const sticker = message.sticker;
+    if (!sticker) {
+      return (
+        <div className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}>
+          <div
+            className={`${maxWidthClass} ${isOwn ? "items-end" : "items-start"} flex flex-col`}
+          >
+            <div
+              className={`px-4 py-2.5 rounded-2xl text-sm break-words w-full ${isOwn
+                  ? "text-white"
+                  : "bg-gray-100 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200"
+                }`}
+              style={isOwn ? { backgroundColor: brandColor } : {}}
+            >
+              <span className="italic text-gray-400">Sticker unavailable</span>
+            </div>
+            <div
+              className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 ${isOwn ? "flex-row-reverse" : ""}`}
+            >
+              <span>{time}</span>
+              <MessageTicks message={message} isOwn={isOwn} />
+            </div>
+          </div>
+        </div>
+      );
+    }
 
-  if (message.messageType === "image") {
     return (
       <div
         data-message-id={message._id}
-        className="relative"
+        className="relative message-container"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
         onTouchMove={handleTouchMove}
+        onMouseEnter={() => setIsHovering(true)}
+        onMouseLeave={() => {
+          setIsHovering(false);
+          setShowMenu(false);
+          setShowReactions(false);
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setShowMenu(!showMenu);
+        }}
       >
         {isMobile && swipeX > 0 && (
           <div
@@ -1454,7 +1688,7 @@ const MediaMessage = ({
           className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
           style={isMobile ? swipeStyle : undefined}
         >
-          {!isOwn && (
+          {!isOwn && showSenderInfo && (
             <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
               {senderProfile ? (
                 <img
@@ -1473,9 +1707,9 @@ const MediaMessage = ({
             </div>
           )}
           <div
-            className={`${maxWidthClass} ${isOwn ? "items-end" : "items-start"} flex flex-col`}
+            className={`${maxWidthClass} relative ${isOwn ? "items-end" : "items-start"} flex flex-col`}
           >
-            {!isOwn && (
+            {showSenderInfo && !isOwn && (
               <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1 mb-0.5">
                 {senderName}
               </span>
@@ -1490,139 +1724,269 @@ const MediaMessage = ({
                 />
               </div>
             )}
-            <div
-              className="relative rounded-2xl overflow-hidden cursor-pointer group"
-              onClick={() =>
-                onImageClick &&
-                onImageClick({
-                  url: message.mediaUrl,
-                  senderName: isOwn ? "You" : senderName,
-                  time,
-                })
-              }
-            >
-              <img
-                src={message.mediaUrl}
-                alt={message.mediaName || "Image"}
-                className="max-w-full max-h-80 object-cover w-full"
-              />
-              <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 text-[10px] text-white bg-black/50 px-2 py-0.5 rounded-full">
+            <div className="relative">
+              <div className="rounded-lg overflow-hidden max-w-[200px] max-h-[200px]">
+                {sticker.type === "image" ? (
+                  <img
+                    src={sticker.fileUrl}
+                    alt="sticker"
+                    className="w-full h-full object-contain"
+                  />
+                ) : (
+                  <video
+                    src={sticker.fileUrl}
+                    className="w-full h-full object-contain"
+                    muted
+                    loop
+                    autoPlay
+                  />
+                )}
+              </div>
+              <div className="absolute bottom-1 right-1 flex items-center gap-1 text-[10px] text-white bg-black/40 px-1.5 py-0.5 rounded-full">
                 <span>{time}</span>
                 <MessageTicks message={message} isOwn={isOwn} />
               </div>
-              {!isMobile && (
-                <div
-                  className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition"
-                  ref={menuRef}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <button
-                    onClick={toggleMenu}
-                    className="text-white bg-black/40 p-1 rounded-full hover:bg-black/60"
+
+              {!isMobile && isHovering && (
+                <>
+                  <div
+                    className={`absolute top-1/2 -translate-y-1/2 z-20 ${isOwn ? "right-full mr-2" : "left-full ml-2"
+                      }`}
                   >
-                    <FaEllipsisV className="text-xs" />
-                  </button>
-                  {showMenu && (
-                    <div
-                      className="absolute right-0 top-8 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[160px] z-10 py-1"
-                      onClick={(e) => e.stopPropagation()}
-                    >
+                    <div className="relative">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          closeMenu();
-                          onReply(message);
+                          setShowReactions(!showReactions);
+                          setShowMenu(false);
                         }}
-                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+                        className="bg-white dark:bg-[#1e1e26] rounded-full shadow-md border border-gray-200 dark:border-gray-700/60 p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
                       >
-                        <FaReply className="text-xs" /> Reply
+                        <FaSmile className="text-xs text-gray-500 dark:text-gray-400" />
                       </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          closeMenu();
-                          handleCopyClick(e);
+                      <ReactionPopover
+                        isOpen={showReactions}
+                        onClose={() => setShowReactions(false)}
+                        onSelect={(emoji) => {
+                          onReaction(message._id, emoji);
+                          setShowReactions(false);
                         }}
-                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
-                      >
-                        <FaCopy className="text-xs" /> Copy
-                      </button>
-                      {isOwn && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            closeMenu();
-                            onDelete(message);
-                          }}
-                          className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full"
-                        >
-                          <FaTrashAlt className="text-xs" /> Delete
-                        </button>
-                      )}
-                      {isStarred ? (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            closeMenu();
-                            onUnstar(message);
-                          }}
-                          className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 rounded-lg transition w-full"
-                        >
-                          <FaStar className="text-xs" /> Unstar
-                        </button>
-                      ) : (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            closeMenu();
-                            onStar(message);
-                          }}
-                          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
-                        >
-                          <FaRegStar className="text-xs" /> Star
-                        </button>
-                      )}
-                      {isArchived ? (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            closeMenu();
-                            onUnarchive(message);
-                          }}
-                          className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 rounded-lg transition w-full"
-                        >
-                          <FaUndo className="text-xs" /> Unarchive
-                        </button>
-                      ) : (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            closeMenu();
-                            onArchive(message);
-                          }}
-                          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
-                        >
-                          <FaArchive className="text-xs" /> Archive
-                        </button>
-                      )}
+                        align={isOwn ? "right" : "left"}
+                      />
                     </div>
-                  )}
-                </div>
+                  </div>
+                  <div className="absolute top-1.5 right-1.5 z-20">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowMenu(!showMenu);
+                        setShowReactions(false);
+                      }}
+                      className="rounded-full p-1 bg-black/40 hover:bg-black/60 text-white transition"
+                    >
+                      <FaChevronDown className="text-[10px]" />
+                    </button>
+                    {showMenu && renderDesktopMenu()}
+                  </div>
+                </>
               )}
             </div>
+
+            {message.reactions && message.reactions.length > 0 && (
+              <div className="mt-1">
+                <ReactionDisplay
+                  reactions={message.reactions}
+                  userId={userId}
+                  onReact={(emoji) => onReaction(message._id, emoji)}
+                />
+              </div>
+            )}
           </div>
         </div>
       </div>
     );
   }
 
+  // ─── Image messages ──────────────────────────────────────────────────
+  if (message.messageType === "image") {
+    return (
+      <div
+        data-message-id={message._id}
+        className="relative message-container"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onTouchMove={handleTouchMove}
+        onMouseEnter={() => setIsHovering(true)}
+        onMouseLeave={() => {
+          setIsHovering(false);
+          setShowMenu(false);
+          setShowReactions(false);
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setShowMenu(!showMenu);
+        }}
+      >
+        {isMobile && swipeX > 0 && (
+          <div
+            className="absolute left-0 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
+            style={{ opacity: swipeIconOpacity }}
+          >
+            <FaReply className="text-sm" />
+          </div>
+        )}
+        <div
+          className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
+          style={isMobile ? swipeStyle : undefined}
+        >
+          {!isOwn && showSenderInfo && (
+            <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
+              {senderProfile ? (
+                <img
+                  src={senderProfile}
+                  alt={senderName}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div
+                  className="w-full h-full flex items-center justify-center text-white text-xs font-bold"
+                  style={{ backgroundColor: brandColor }}
+                >
+                  {senderName?.charAt(0).toUpperCase() || "?"}
+                </div>
+              )}
+            </div>
+          )}
+          <div
+            className={`${maxWidthClass} relative ${isOwn ? "items-end" : "items-start"} flex flex-col`}
+          >
+            {showSenderInfo && !isOwn && (
+              <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1 mb-0.5">
+                {senderName}
+              </span>
+            )}
+            {replyPreview && (
+              <div className="w-full mb-1">
+                <QuotedReplyBlock
+                  replyData={replyPreview}
+                  isOwn={isOwn}
+                  brandColor={brandColor}
+                  onJump={onJumpToMessage}
+                />
+              </div>
+            )}
+            <div className="relative">
+              <div
+                className="relative rounded-2xl overflow-hidden cursor-pointer group"
+                onClick={() => {
+                  if (message.mediaUrl) {
+                    onImageClick &&
+                      onImageClick({
+                        url: message.mediaUrl,
+                        senderName: isOwn ? "You" : senderName,
+                        time,
+                      });
+                  } else {
+                    toast.error("Image URL not available");
+                  }
+                }}
+              >
+                {message.mediaUrl ? (
+                  <img
+                    src={message.mediaUrl}
+                    alt={message.mediaName || "Image"}
+                    className="max-w-full max-h-80 object-cover w-full"
+                  />
+                ) : (
+                  <div className="w-full h-40 bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-gray-500 dark:text-gray-400">
+                    <FaExclamationTriangle className="text-2xl mr-2" /> Image
+                    unavailable
+                  </div>
+                )}
+                <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 text-[10px] text-white bg-black/50 px-2 py-0.5 rounded-full">
+                  <span>{time}</span>
+                  <MessageTicks message={message} isOwn={isOwn} />
+                </div>
+              </div>
+
+              {!isMobile && isHovering && (
+                <>
+                  <div
+                    className={`absolute top-1/2 -translate-y-1/2 z-20 ${isOwn ? "right-full mr-2" : "left-full ml-2"
+                      }`}
+                  >
+                    <div className="relative">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowReactions(!showReactions);
+                          setShowMenu(false);
+                        }}
+                        className="bg-white dark:bg-[#1e1e26] rounded-full shadow-md border border-gray-200 dark:border-gray-700/60 p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+                      >
+                        <FaSmile className="text-xs text-gray-500 dark:text-gray-400" />
+                      </button>
+                      <ReactionPopover
+                        isOpen={showReactions}
+                        onClose={() => setShowReactions(false)}
+                        onSelect={(emoji) => {
+                          onReaction(message._id, emoji);
+                          setShowReactions(false);
+                        }}
+                        align={isOwn ? "right" : "left"}
+                      />
+                    </div>
+                  </div>
+                  <div className="absolute top-1.5 right-1.5 z-20">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowMenu(!showMenu);
+                        setShowReactions(false);
+                      }}
+                      className="rounded-full p-1 bg-black/40 hover:bg-black/60 text-white transition"
+                    >
+                      <FaChevronDown className="text-[10px]" />
+                    </button>
+                    {showMenu && renderDesktopMenu()}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {message.reactions && message.reactions.length > 0 && (
+              <div className="mt-1">
+                <ReactionDisplay
+                  reactions={message.reactions}
+                  userId={userId}
+                  onReact={(emoji) => onReaction(message._id, emoji)}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Text and other messages ──────────────────────────────────────
   return (
     <div
       data-message-id={message._id}
-      className="relative"
+      className="relative message-container"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
       onTouchMove={handleTouchMove}
+      onMouseEnter={() => setIsHovering(true)}
+      onMouseLeave={() => {
+        setIsHovering(false);
+        setShowMenu(false);
+        setShowReactions(false);
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setShowMenu(!showMenu);
+      }}
     >
       {isMobile && swipeX > 0 && (
         <div
@@ -1636,7 +2000,7 @@ const MediaMessage = ({
         className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
         style={isMobile ? swipeStyle : undefined}
       >
-        {!isOwn && (
+        {!isOwn && showSenderInfo && (
           <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
             {senderProfile ? (
               <img
@@ -1655,19 +2019,18 @@ const MediaMessage = ({
           </div>
         )}
         <div
-          className={`${maxWidthClass} ${isOwn ? "items-end" : "items-start"} flex flex-col gap-0.5`}
+          className={`${maxWidthClass} relative ${isOwn ? "items-end" : "items-start"} flex flex-col gap-0.5`}
         >
-          {!isOwn && (
+          {showSenderInfo && !isOwn && (
             <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1">
               {senderName}
             </span>
           )}
           <div
-            className={`px-4 py-2.5 rounded-2xl text-sm break-words w-full ${
-              isOwn
+            className={`relative px-4 py-2.5 rounded-2xl text-sm break-words w-full ${isOwn
                 ? "text-white"
                 : "bg-gray-100 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200"
-            }`}
+              }`}
             style={isOwn ? { backgroundColor: brandColor } : {}}
           >
             {replyPreview && (
@@ -1679,116 +2042,76 @@ const MediaMessage = ({
               />
             )}
             {message.content && (
-              <p className="mb-2 whitespace-pre-wrap break-words">
+              <p className="mb-2 pr-5 whitespace-pre-wrap break-words">
                 <LinkifiedText text={message.content} isOwn={isOwn} />
               </p>
             )}
-            {firstUrl && (
-              <LinkPreviewCard
-                url={firstUrl}
-                isOwn={isOwn}
-                brandColor={brandColor}
-              />
-            )}
+            {firstUrl && <LinkPreviewCard url={firstUrl} isOwn={isOwn} brandColor={brandColor} />}
             {renderMediaContent()}
+
+            {!isMobile && isHovering && (
+              <>
+                <div
+                  className={`absolute top-1/2 -translate-y-1/2 z-20 ${isOwn ? "right-full mr-2" : "left-full ml-2"
+                    }`}
+                >
+                  <div className="relative">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowReactions(!showReactions);
+                        setShowMenu(false);
+                      }}
+                      className="bg-white dark:bg-[#1e1e26] rounded-full shadow-md border border-gray-200 dark:border-gray-700/60 p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+                    >
+                      <FaSmile className="text-xs text-gray-500 dark:text-gray-400" />
+                    </button>
+                    <ReactionPopover
+                      isOpen={showReactions}
+                      onClose={() => setShowReactions(false)}
+                      onSelect={(emoji) => {
+                        onReaction(message._id, emoji);
+                        setShowReactions(false);
+                      }}
+                      align={isOwn ? "right" : "left"}
+                    />
+                  </div>
+                </div>
+                <div className="absolute top-1.5 right-1.5 z-20">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowMenu(!showMenu);
+                      setShowReactions(false);
+                    }}
+                    className={`rounded-full p-1 transition ${isOwn
+                        ? "bg-black/10 hover:bg-black/20 text-white/90"
+                        : "bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 text-gray-500 dark:text-gray-300"
+                      }`}
+                  >
+                    <FaChevronDown className="text-[10px]" />
+                  </button>
+                  {showMenu && renderDesktopMenu()}
+                </div>
+              </>
+            )}
           </div>
+
+          {message.reactions && message.reactions.length > 0 && (
+            <div className="mt-1">
+              <ReactionDisplay
+                reactions={message.reactions}
+                userId={userId}
+                onReact={(emoji) => onReaction(message._id, emoji)}
+              />
+            </div>
+          )}
+
           <div
             className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 ${isOwn ? "flex-row-reverse" : ""}`}
           >
             <span>{time}</span>
             <MessageTicks message={message} isOwn={isOwn} />
-            {!isMobile && (
-              <div className="relative ml-2" ref={menuRef}>
-                <button
-                  onClick={toggleMenu}
-                  className="text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition p-0.5"
-                >
-                  <FaEllipsisV className="text-xs" />
-                </button>
-                {showMenu && (
-                  <div className="absolute right-0 bottom-6 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[160px] z-10 py-1">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        closeMenu();
-                        onReply(message);
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
-                    >
-                      <FaReply className="text-xs" /> Reply
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        closeMenu();
-                        handleCopyClick(e);
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
-                    >
-                      <FaCopy className="text-xs" /> Copy
-                    </button>
-                    {isOwn && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          closeMenu();
-                          onDelete(message);
-                        }}
-                        className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition w-full"
-                      >
-                        <FaTrashAlt className="text-xs" /> Delete
-                      </button>
-                    )}
-                    {isStarred ? (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          closeMenu();
-                          onUnstar(message);
-                        }}
-                        className="flex items-center gap-2 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 rounded-lg transition w-full"
-                      >
-                        <FaStar className="text-xs" /> Unstar
-                      </button>
-                    ) : (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          closeMenu();
-                          onStar(message);
-                        }}
-                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
-                      >
-                        <FaRegStar className="text-xs" /> Star
-                      </button>
-                    )}
-                    {isArchived ? (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          closeMenu();
-                          onUnarchive(message);
-                        }}
-                        className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 rounded-lg transition w-full"
-                      >
-                        <FaUndo className="text-xs" /> Unarchive
-                      </button>
-                    ) : (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          closeMenu();
-                          onArchive(message);
-                        }}
-                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
-                      >
-                        <FaArchive className="text-xs" /> Archive
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -1796,7 +2119,7 @@ const MediaMessage = ({
   );
 };
 
-// ─── Fullscreen image preview modal (same as GeneralChannelId) ──
+// ─── Fullscreen image preview modal ──────────────────────────────────
 const ImagePreviewModal = ({ imageUrl, onClose, senderName, time }) => {
   const [imageError, setImageError] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -1924,9 +2247,8 @@ const ChatDetailsSheet = ({
         onClick={onClose}
       />
       <div
-        className={`fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl max-h-[80vh] overflow-y-auto transform transition-transform duration-300 ${
-          isOpen ? "translate-y-0" : "translate-y-full"
-        }`}
+        className={`fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl max-h-[80vh] overflow-y-auto transform transition-transform duration-300 ${isOpen ? "translate-y-0" : "translate-y-full"
+          }`}
         style={{ boxShadow: "0 -4px 30px rgba(0,0,0,0.15)" }}
       >
         <div className="p-5">
@@ -2130,7 +2452,7 @@ const ReplyPreview = ({ replyTo, onCancel, brandColor, resolveSender }) => {
   );
 };
 
-// ─── Image Editor Full‑Screen (full‑res, crop handles, arrow +) ──
+// ─── Image Editor Full‑Screen ──────────────────────────────────────
 const MIN_CROP_SIZE = 40;
 
 const ImageEditorScreen = ({ file, onSave, onCancel, brandColor }) => {
@@ -2351,11 +2673,7 @@ const ImageEditorScreen = ({ file, onSave, onCancel, brandColor }) => {
     }
     currentPathRef.current = null;
 
-    if (
-      drawMode === "arrow" &&
-      arrowStartRef.current &&
-      arrowPreviewRef.current
-    ) {
+    if (drawMode === "arrow" && arrowStartRef.current && arrowPreviewRef.current) {
       const { from, to } = arrowPreviewRef.current;
       const canvasEl = canvasRef.current;
       const scale =
@@ -2480,7 +2798,6 @@ const ImageEditorScreen = ({ file, onSave, onCancel, brandColor }) => {
 
   return (
     <div className="fixed inset-0 z-50 bg-white dark:bg-[#0f0f12] flex flex-col">
-      {/* Header - Responsive layout for mobile */}
       <div className="flex items-center justify-between flex-wrap gap-1 sm:gap-2 p-2 sm:p-4 border-b border-gray-200 dark:border-gray-800/60 flex-shrink-0">
         <button
           onClick={onCancel}
@@ -2496,21 +2813,19 @@ const ImageEditorScreen = ({ file, onSave, onCancel, brandColor }) => {
         <div className="flex items-center gap-1 sm:gap-1.5 flex-wrap">
           <button
             onClick={() => setDrawMode("pencil")}
-            className={`p-1.5 sm:p-2 rounded-lg transition ${
-              drawMode === "pencil"
+            className={`p-1.5 sm:p-2 rounded-lg transition ${drawMode === "pencil"
                 ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
                 : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
-            }`}
+              }`}
           >
             <FaPencilAlt className="text-sm sm:text-base" />
           </button>
           <button
             onClick={() => setDrawMode("arrow")}
-            className={`relative p-1.5 sm:p-2 rounded-lg transition ${
-              drawMode === "arrow"
+            className={`relative p-1.5 sm:p-2 rounded-lg transition ${drawMode === "arrow"
                 ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
                 : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
-            }`}
+              }`}
           >
             <FaArrowRight className="text-sm sm:text-base" />
             <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-teal-500 text-white rounded-full flex items-center justify-center text-[9px] font-bold leading-none">
@@ -2519,11 +2834,10 @@ const ImageEditorScreen = ({ file, onSave, onCancel, brandColor }) => {
           </button>
           <button
             onClick={() => setDrawMode("crop")}
-            className={`p-1.5 sm:p-2 rounded-lg transition ${
-              drawMode === "crop"
+            className={`p-1.5 sm:p-2 rounded-lg transition ${drawMode === "crop"
                 ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
                 : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/30"
-            }`}
+              }`}
           >
             <FaCrop className="text-sm sm:text-base" />
           </button>
@@ -2582,7 +2896,6 @@ const ImageEditorScreen = ({ file, onSave, onCancel, brandColor }) => {
               onPointerUp={handleCropOverlayPointerUp}
               onPointerCancel={handleCropOverlayPointerUp}
             >
-              {/* dark mask */}
               <div
                 className="absolute bg-black/50 pointer-events-none"
                 style={{ left: 0, top: 0, right: 0, height: cropBox.y }}
@@ -2615,7 +2928,6 @@ const ImageEditorScreen = ({ file, onSave, onCancel, brandColor }) => {
                 }}
               />
 
-              {/* crop box body */}
               <div
                 onPointerDown={startCropDrag("move")}
                 className="absolute border-2 border-teal-400 touch-none"
@@ -2634,32 +2946,11 @@ const ImageEditorScreen = ({ file, onSave, onCancel, brandColor }) => {
                 </div>
               </div>
 
-              {/* four corner handles */}
               {[
-                {
-                  key: "tl",
-                  x: cropBox.x,
-                  y: cropBox.y,
-                  cursor: "nwse-resize",
-                },
-                {
-                  key: "tr",
-                  x: cropBox.x + cropBox.w,
-                  y: cropBox.y,
-                  cursor: "nesw-resize",
-                },
-                {
-                  key: "bl",
-                  x: cropBox.x,
-                  y: cropBox.y + cropBox.h,
-                  cursor: "nesw-resize",
-                },
-                {
-                  key: "br",
-                  x: cropBox.x + cropBox.w,
-                  y: cropBox.y + cropBox.h,
-                  cursor: "nwse-resize",
-                },
+                { key: "tl", x: cropBox.x, y: cropBox.y, cursor: "nwse-resize" },
+                { key: "tr", x: cropBox.x + cropBox.w, y: cropBox.y, cursor: "nesw-resize" },
+                { key: "bl", x: cropBox.x, y: cropBox.y + cropBox.h, cursor: "nesw-resize" },
+                { key: "br", x: cropBox.x + cropBox.w, y: cropBox.y + cropBox.h, cursor: "nwse-resize" },
               ].map((c) => (
                 <div
                   key={c.key}
@@ -2690,11 +2981,10 @@ const YourWorkspaceChannelId = () => {
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
   const inputRef = useRef(null);
-  const inputAreaRef = useRef(null); // for dynamic padding
+  const inputAreaRef = useRef(null);
   const [previewImage, setPreviewImage] = useState(null);
   const [showDetailsSheet, setShowDetailsSheet] = useState(false);
 
-  // ── Changed: use pendingMedia for small preview bar ──
   const [pendingMedia, setPendingMedia] = useState(null);
   const [showMediaPicker, setShowMediaPicker] = useState(false);
 
@@ -2704,6 +2994,7 @@ const YourWorkspaceChannelId = () => {
 
   // ── Emoji panel ──────────────────────────────────────────────────
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [stickerTab, setStickerTab] = useState(false);
   const emojiPickerRef = useRef(null);
   const [inputHeight, setInputHeight] = useState(0);
 
@@ -2724,6 +3015,7 @@ const YourWorkspaceChannelId = () => {
     setShowEmojiPicker((prev) => {
       if (!prev) {
         inputRef.current?.blur();
+        setStickerTab(false);
       } else {
         inputRef.current?.focus();
       }
@@ -2731,9 +3023,73 @@ const YourWorkspaceChannelId = () => {
     });
   }, []);
 
-  // ─── Insert emoji (does not close the panel) ─────────────────────
+  // ─── Insert emoji ──────────────────────────────────────────────────
   const handleEmojiSelect = (emoji) => {
     setMessage((prev) => prev + emoji);
+    if (editingMessageId) {
+      setEditContent((prev) => prev + emoji);
+    }
+  };
+
+  // ─── Sticker send ──────────────────────────────────────────────────
+  const handleSendSticker = async (stickerId) => {
+    if (!stickerId) return;
+    if (isSendingRef.current) return;
+    if (!socket || !isConnected) {
+      toast.error("Not connected");
+      return;
+    }
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const senderWithName = {
+      ...userInfo,
+      name: userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
+    };
+    const optimisticMsg = {
+      _id: tempId,
+      _tempId: tempId,
+      _temp: true,
+      _pending: false,
+      _sent: false,
+      _failed: false,
+      _delivered: false,
+      _read: false,
+      content: "",
+      sender: senderWithName,
+      createdAt: new Date().toISOString(),
+      messageType: "sticker",
+      chat: chatId,
+      sticker: stickerId,
+      replyTo: replyToMessage ? { _id: replyToMessage._id } : null,
+    };
+    setLocalMessages((prev) => [...prev, optimisticMsg]);
+    const replyToId = replyToMessage?._id || null;
+    setReplyToMessage(null);
+    socket.emit(
+      "send-message",
+      {
+        chatId,
+        content: "",
+        messageType: "sticker",
+        mentions: [],
+        replyToId,
+        clientMsgId: tempId,
+        stickerId,
+      },
+      (response) => {
+        if (response?.error) {
+          setLocalMessages((prev) => prev.filter((m) => m._id !== tempId));
+          toast.error(response.error);
+        } else {
+          setLocalMessages((prev) =>
+            prev.map((m) =>
+              m._id === tempId ? { ...m, _sent: true, _delivered: true } : m,
+            ),
+          );
+        }
+      },
+    );
+    setShowEmojiPicker(false);
+    setStickerTab(false);
   };
 
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -2742,7 +3098,7 @@ const YourWorkspaceChannelId = () => {
     isOpen: false,
     title: "",
     message: "",
-    onConfirm: () => {},
+    onConfirm: () => { },
     danger: false,
   });
   const [promptModal, setPromptModal] = useState({
@@ -2826,6 +3182,8 @@ const YourWorkspaceChannelId = () => {
   const [unarchiveMessage] = useUnarchiveMessageMutation();
   const [starMessage] = useStarMessageMutation();
   const [unstarMessage] = useUnstarMessageMutation();
+  const [toggleReaction] = useToggleReactionMutation();
+  const [updateMessageApi] = useUpdateMessageMutation();
 
   const [addParticipant] = useAddParticipantMutation();
   const [removeParticipant] = useRemoveParticipantMutation();
@@ -2837,13 +3195,15 @@ const YourWorkspaceChannelId = () => {
   const [unarchiveChat] = useUnarchiveChatMutation();
 
   const { data: membersData } = useGetMembersQuery(workspaceId);
+  const { data: savedStickersData } = useGetSavedStickersQuery();
+  const [saveSticker] = useSaveStickerMutation();
 
   const chat = chatsData?.chats?.find((c) => c._id === chatId);
   const isDM = chat?.type === "direct";
   const otherParticipant = isDM
     ? chat?.participants?.find(
-        (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id,
-      )?.user || null
+      (p) => p.user?._id !== userInfo?._id && p.user !== userInfo?._id,
+    )?.user || null
     : null;
   const displayName = isDM
     ? otherParticipant?.name || "Unknown"
@@ -2944,8 +3304,7 @@ const YourWorkspaceChannelId = () => {
     const el = messagesContainerRef.current;
     if (!el) return;
     const threshold = 50;
-    const atBottom =
-      el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
     setIsAtBottom(atBottom);
     if (atBottom) setShowScrollDown(false);
   };
@@ -2996,6 +3355,94 @@ const YourWorkspaceChannelId = () => {
       .catch(() => toast.error("Failed to copy"));
   }, []);
 
+  // ─── Edit message state ──────────────────────────────────────────
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [editContent, setEditContent] = useState("");
+
+  const handleEditMessage = (msg) => {
+    setEditingMessageId(msg._id);
+    setEditContent(msg.content || "");
+    setMessage(msg.content || "");
+    inputRef.current?.focus();
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMessageId(null);
+    setEditContent("");
+    setMessage("");
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingMessageId) return;
+    const trimmed = editContent.trim();
+    if (!trimmed) {
+      toast.error("Content cannot be empty");
+      return;
+    }
+    try {
+      await updateMessageApi({ messageId: editingMessageId, content: trimmed }).unwrap();
+      setLocalMessages((prev) =>
+        prev.map((m) =>
+          m._id === editingMessageId
+            ? { ...m, content: trimmed, edited: true, editedAt: new Date().toISOString() }
+            : m,
+        ),
+      );
+      toast.success("Message updated");
+      handleCancelEdit();
+    } catch (err) {
+      toast.error(err?.data?.message || "Failed to update");
+    }
+  };
+
+  // ─── Reaction handler ──────────────────────────────────────────────
+  const handleReaction = async (messageId, emoji) => {
+    try {
+      await toggleReaction({ messageId, emoji }).unwrap();
+      setLocalMessages((prev) =>
+        prev.map((msg) => {
+          if (msg._id === messageId) {
+            const reactions = msg.reactions || [];
+            const existing = reactions.find(
+              (r) => r.user === userInfo?._id && r.emoji === emoji,
+            );
+            if (existing) {
+              return {
+                ...msg,
+                reactions: reactions.filter(
+                  (r) => !(r.user === userInfo?._id && r.emoji === emoji),
+                ),
+              };
+            } else {
+              return {
+                ...msg,
+                reactions: [...reactions, { user: userInfo?._id, emoji }],
+              };
+            }
+          }
+          return msg;
+        }),
+      );
+    } catch (err) {
+      toast.error("Failed to react");
+    }
+  };
+
+  // ─── Save sticker ──────────────────────────────────────────────────
+  const handleSaveSticker = async (msg) => {
+    try {
+      const stickerId = msg.sticker?._id || msg.sticker;
+      if (!stickerId) {
+        toast.error("Sticker ID not found");
+        return;
+      }
+      await saveSticker(stickerId).unwrap();
+      toast.success("Sticker saved to your collection!");
+    } catch (err) {
+      toast.error(err?.data?.message || "Failed to save sticker");
+    }
+  };
+
   // ─── Socket handlers ──────────────────────────────────────────────
   useEffect(() => {
     if (!socket || !isConnected || !chatId) return;
@@ -3009,7 +3456,6 @@ const YourWorkspaceChannelId = () => {
         let mutated = false;
 
         incomingList.forEach((incoming) => {
-          // 1. Check if this message already exists by real _id
           const existingIdx = next.findIndex((m) => m._id === incoming._id);
           if (existingIdx > -1) {
             if (!mutated) next = [...next];
@@ -3017,7 +3463,7 @@ const YourWorkspaceChannelId = () => {
             const existing = next[existingIdx];
             const updated = {
               ...incoming,
-              createdAt: existing.createdAt, // keep client order
+              createdAt: existing.createdAt,
               _sent: existing._sent || false,
               _pending: existing._pending || false,
               _failed: existing._failed || false,
@@ -3058,20 +3504,16 @@ const YourWorkspaceChannelId = () => {
             incoming.sender?._id === userInfo?._id ||
             incoming.sender === userInfo?._id;
 
-          // 2. Find a temporary message to replace
           let tempIdx = -1;
           if (isOwn) {
-            // PRIMARY: match by clientMsgId
             if (incoming.clientMsgId) {
               tempIdx = next.findIndex(
                 (m) => m._tempId === incoming.clientMsgId,
               );
             }
-            // Fallback: match by _tempId (legacy)
             if (tempIdx === -1) {
               tempIdx = next.findIndex((m) => m._tempId === incoming._id);
             }
-            // Last-resort fallback (content + time)
             if (tempIdx === -1) {
               const incomingContent = incoming.content || "";
               const incomingTime = new Date(incoming.createdAt).getTime();
@@ -3096,7 +3538,7 @@ const YourWorkspaceChannelId = () => {
             const tempMsg = next[tempIdx];
             const realMsg = {
               ...incoming,
-              createdAt: tempMsg.createdAt, // preserve client order
+              createdAt: tempMsg.createdAt,
               _sent: true,
               _pending: false,
               _failed: false,
@@ -3132,7 +3574,6 @@ const YourWorkspaceChannelId = () => {
             return;
           }
 
-          // 3. New message (not temporary)
           const msg = {
             ...incoming,
             _sent: true,
@@ -3204,10 +3645,49 @@ const YourWorkspaceChannelId = () => {
       }
     };
 
+    const handleReactionAdded = ({ messageId, emoji, user }) => {
+      setLocalMessages((prev) =>
+        prev.map((msg) => {
+          if (msg._id === messageId) {
+            const reactions = msg.reactions || [];
+            if (!reactions.some((r) => r.user === user && r.emoji === emoji)) {
+              return { ...msg, reactions: [...reactions, { user, emoji }] };
+            }
+          }
+          return msg;
+        }),
+      );
+    };
+
+    const handleReactionRemoved = ({ messageId, emoji, userId }) => {
+      setLocalMessages((prev) =>
+        prev.map((msg) => {
+          if (msg._id === messageId) {
+            return {
+              ...msg,
+              reactions: (msg.reactions || []).filter(
+                (r) => !(r.user === userId && r.emoji === emoji),
+              ),
+            };
+          }
+          return msg;
+        }),
+      );
+    };
+
+    const handleMessageEdited = (updatedMsg) => {
+      setLocalMessages((prev) =>
+        prev.map((m) => (m._id === updatedMsg._id ? { ...m, ...updatedMsg } : m)),
+      );
+    };
+
     socket.on("new-message", handleNewMessage);
     socket.on("message-deleted", handleMessageDeleted);
     socket.on("message-read", handleMessageRead);
     socket.on("user-status-changed", handleUserStatusChange);
+    socket.on("reaction-added", handleReactionAdded);
+    socket.on("reaction-removed", handleReactionRemoved);
+    socket.on("message-edited", handleMessageEdited);
 
     return () => {
       socket.emit("leave-chat", chatId);
@@ -3215,6 +3695,9 @@ const YourWorkspaceChannelId = () => {
       socket.off("message-deleted", handleMessageDeleted);
       socket.off("message-read", handleMessageRead);
       socket.off("user-status-changed", handleUserStatusChange);
+      socket.off("reaction-added", handleReactionAdded);
+      socket.off("reaction-removed", handleReactionRemoved);
+      socket.off("message-edited", handleMessageEdited);
     };
   }, [
     socket,
@@ -3296,7 +3779,7 @@ const YourWorkspaceChannelId = () => {
     return () => {
       if (mediaRecorderRef.current && isRecordingRef.current) {
         if (isNative) {
-          VoiceRecorder.stopRecording().catch(() => {});
+          VoiceRecorder.stopRecording().catch(() => { });
         } else {
           mediaRecorderRef.current.stop();
         }
@@ -3390,7 +3873,7 @@ const YourWorkspaceChannelId = () => {
     if (!isRecordingRef.current) return;
     try {
       await VoiceRecorder.stopRecording();
-    } catch (_) {}
+    } catch (_) { }
     setRecordingBlob(null);
     setShowRecordedPreview(false);
     setRecordingTime(0);
@@ -3501,7 +3984,6 @@ const YourWorkspaceChannelId = () => {
   };
 
   const stopRecording = () => {
-    // This stops and shows preview (for the stop button)
     if (!isRecordingRef.current) return;
     quickSendRef.current = false;
     if (isNative) {
@@ -3512,7 +3994,6 @@ const YourWorkspaceChannelId = () => {
   };
 
   const cancelRecording = () => {
-    // Discard entirely
     if (isNative) {
       cancelNativeRecording();
     } else {
@@ -3520,7 +4001,7 @@ const YourWorkspaceChannelId = () => {
     }
   };
 
-  // ─── Quick send: stop and send immediately ──────────────────────
+  // ─── Quick send ──────────────────────────────────────────────────
   const quickSendRecording = () => {
     if (!isRecordingRef.current) return;
 
@@ -3580,8 +4061,7 @@ const YourWorkspaceChannelId = () => {
 
     const senderWithName = {
       ...userInfo,
-      name:
-        userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
+      name: userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
     };
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -3603,12 +4083,12 @@ const YourWorkspaceChannelId = () => {
       chat: chatId,
       replyTo: replyToMessage
         ? {
-            _id: replyToMessage._id,
-            sender: replyToMessage.sender,
-            content: replyToMessage.content,
-            mediaName: replyToMessage.mediaName,
-            messageType: replyToMessage.messageType,
-          }
+          _id: replyToMessage._id,
+          sender: replyToMessage.sender,
+          content: replyToMessage.content,
+          mediaName: replyToMessage.mediaName,
+          messageType: replyToMessage.messageType,
+        }
         : null,
       mediaUrl: URL.createObjectURL(audioBlob),
       mediaName: "Voice note",
@@ -3633,16 +4113,16 @@ const YourWorkspaceChannelId = () => {
         return prev.map((m) =>
           m._tempId === tempId
             ? {
-                ...realMsg,
-                createdAt: m.createdAt,
-                _sent: true,
-                _pending: false,
-                _failed: false,
-                _delivered: true,
-                _read: false,
-                _temp: false,
-                _tempId: undefined,
-              }
+              ...realMsg,
+              createdAt: m.createdAt,
+              _sent: true,
+              _pending: false,
+              _failed: false,
+              _delivered: true,
+              _read: false,
+              _temp: false,
+              _tempId: undefined,
+            }
             : m,
         );
       });
@@ -3679,9 +4159,6 @@ const YourWorkspaceChannelId = () => {
     },
     [localMessages, userInfo],
   );
-
-  // ─── Optimistic sendAudioMessage ──────────────────────────────────
-  // (already above)
 
   // ─── Mention logic ──────────────────────────────────────────────────
   const extractMentionsFromText = (text) => {
@@ -3779,7 +4256,7 @@ const YourWorkspaceChannelId = () => {
         const mimeType = `image/${photo.format || "jpeg"}`;
         const fileName = `photo-${Date.now()}.${photo.format || "jpg"}`;
         const file = base64ToFile(photo.base64String, fileName, mimeType);
-        setPendingMedia(file); // show preview, don't open editor directly
+        setPendingMedia(file);
       }
     } catch (err) {
       const msg = (err?.message || "").toLowerCase();
@@ -3831,7 +4308,6 @@ const YourWorkspaceChannelId = () => {
         toast.error("Could not read selected file");
         return;
       }
-      // For images, we show preview, not editor
       setPendingMedia(file);
     } catch (err) {
       const msg = (err?.message || "").toLowerCase();
@@ -3867,7 +4343,6 @@ const YourWorkspaceChannelId = () => {
       toast.error("No file selected");
       return;
     }
-    // For any file (including images) just set pendingMedia
     setPendingMedia(file);
     e.target.value = "";
   }, []);
@@ -3942,8 +4417,7 @@ const YourWorkspaceChannelId = () => {
 
     const senderWithName = {
       ...userInfo,
-      name:
-        userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
+      name: userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
     };
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -3965,12 +4439,12 @@ const YourWorkspaceChannelId = () => {
       chat: chatId,
       replyTo: replyToMessage
         ? {
-            _id: replyToMessage._id,
-            sender: replyToMessage.sender,
-            content: replyToMessage.content,
-            mediaName: replyToMessage.mediaName,
-            messageType: replyToMessage.messageType,
-          }
+          _id: replyToMessage._id,
+          sender: replyToMessage.sender,
+          content: replyToMessage.content,
+          mediaName: replyToMessage.mediaName,
+          messageType: replyToMessage.messageType,
+        }
         : null,
       mediaUrl: URL.createObjectURL(file),
       mediaName: file.name,
@@ -4196,6 +4670,37 @@ const YourWorkspaceChannelId = () => {
     return () => observer.disconnect();
   }, [localMessages, markMessageAsRead, userInfo]);
 
+  // ─── Edit bar ─────────────────────────────────────────────────────
+  const renderEditBar = () => {
+    if (!editingMessageId) return null;
+    return (
+      <div className="flex items-center justify-between px-3 py-2 mb-2 bg-teal-50 dark:bg-teal-900/20 rounded-lg border border-teal-200 dark:border-teal-700/40">
+        <div className="flex-1 min-w-0">
+          <span className="text-xs font-semibold text-teal-600 dark:text-teal-400">
+            Editing message
+          </span>
+          <p className="text-sm text-gray-700 dark:text-gray-300 truncate">
+            {editContent}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={handleCancelEdit}
+            className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
+          >
+            <FaTimes />
+          </button>
+          <button
+            onClick={handleSaveEdit}
+            className="text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 transition"
+          >
+            <FaSave />
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   // ─── Error / loading states ─────────────────────────────────────────
   if (workspaceLoading || chatsLoading) {
     return (
@@ -4224,6 +4729,7 @@ const YourWorkspaceChannelId = () => {
   const workspace = workspaceData?.workspace;
   const brandColor = workspace.color || "#0d9488";
   const memberCount = chat.participants?.length || 0;
+  const showSenderInfo = !isDM; // Show sender info only for groups
 
   // ─── Group management handlers ──────────────────────────────────────
   const handleAddMember = (chatId) => {
@@ -4398,6 +4904,10 @@ const YourWorkspaceChannelId = () => {
   // ─── Optimistic send text message ──────────────────────────────────
   const handleSendMessage = (e) => {
     e.preventDefault();
+    if (editingMessageId) {
+      handleSaveEdit();
+      return;
+    }
     const trimmed = message.trim();
     if (!trimmed || !socket) return;
     if (isSendingRef.current) return;
@@ -4422,8 +4932,7 @@ const YourWorkspaceChannelId = () => {
 
     const senderWithName = {
       ...userInfo,
-      name:
-        userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
+      name: userInfo?.name || userInfo?.username || userInfo?.email || "Unknown",
     };
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -4444,12 +4953,12 @@ const YourWorkspaceChannelId = () => {
       mentions: pendingMentions,
       replyTo: replyToMessage
         ? {
-            _id: replyToMessage._id,
-            sender: replyToMessage.sender,
-            content: replyToMessage.content,
-            mediaName: replyToMessage.mediaName,
-            messageType: replyToMessage.messageType,
-          }
+          _id: replyToMessage._id,
+          sender: replyToMessage.sender,
+          content: replyToMessage.content,
+          mediaName: replyToMessage.mediaName,
+          messageType: replyToMessage.messageType,
+        }
         : null,
     };
 
@@ -4462,7 +4971,6 @@ const YourWorkspaceChannelId = () => {
 
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
-      // keep focus so keyboard stays open after sending
       inputRef.current.focus();
     }
 
@@ -4552,6 +5060,8 @@ const YourWorkspaceChannelId = () => {
           onStar={handleStarMessage}
           onUnstar={handleUnstarMessage}
           onReply={handleReply}
+          onReaction={handleReaction}
+          onEdit={handleEditMessage}
           userId={userInfo?._id}
           isMobile={isMobile}
           onLongPress={handleLongPress}
@@ -4559,6 +5069,8 @@ const YourWorkspaceChannelId = () => {
           onJumpToMessage={handleJumpToMessage}
           resolveSender={resolveSender}
           onCopy={handleCopyMessage}
+          onSaveSticker={handleSaveSticker}
+          showSenderInfo={showSenderInfo}
         />,
       );
     });
@@ -4594,7 +5106,7 @@ const YourWorkspaceChannelId = () => {
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                navigate(-1); // go back to previous page
+                navigate(-1);
               }}
               className="p-1 lg:hidden flex-shrink-0 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
             >
@@ -4657,7 +5169,6 @@ const YourWorkspaceChannelId = () => {
 
         {/* ─── Messages ─── */}
         <div className="relative flex-1 overflow-hidden">
-          // Inside the messages container div (around line 2000+)
           <div
             ref={messagesContainerRef}
             onScroll={handleMessagesScroll}
@@ -4695,6 +5206,8 @@ const YourWorkspaceChannelId = () => {
             resolveSender={resolveSender}
           />
 
+          {renderEditBar()}
+
           {pendingMedia && (
             <MediaPreview
               mediaFile={pendingMedia}
@@ -4707,9 +5220,9 @@ const YourWorkspaceChannelId = () => {
           )}
 
           {showRecordedPreview && recordingBlob && (
-            <div className="flex items-center justify-between px-3 py-2 mb-2 bg-green-50 dark:bg-green-900/30 rounded-lg border border-green-200 dark:border-green-700/40">
+            <div className="flex items-center justify-between px-3 py-2 mb-2 bg-teal-50 dark:bg-teal-900/30 rounded-lg border border-teal-200 dark:border-teal-700/40">
               <div className="flex items-center gap-2">
-                <FaCheckCircle className="text-green-500 dark:text-green-400" />
+                <FaCheckCircle className="text-teal-500 dark:text-teal-400" />
                 <span className="text-sm text-gray-700 dark:text-gray-200">
                   Voice note ready
                 </span>
@@ -4730,7 +5243,7 @@ const YourWorkspaceChannelId = () => {
                 <button
                   onClick={() => sendAudioMessage(recordingBlob)}
                   disabled={isSending}
-                  className="px-3 py-1 bg-green-600 dark:bg-green-700 text-white rounded text-xs hover:bg-green-700 dark:hover:bg-green-800 transition disabled:opacity-50"
+                  className="px-3 py-1 bg-teal-600 dark:bg-teal-700 text-white rounded text-xs hover:bg-teal-700 dark:hover:bg-teal-800 transition disabled:opacity-50"
                 >
                   Send
                 </button>
@@ -4749,43 +5262,40 @@ const YourWorkspaceChannelId = () => {
           )}
 
           {isRecording && (
-            <div className="flex items-center justify-between px-3 py-2 mb-2 bg-red-50 dark:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-700/40">
+            <div className="flex items-center justify-between px-3 py-2 mb-2 bg-teal-50 dark:bg-teal-900/30 rounded-lg border border-teal-200 dark:border-teal-700/40">
               <div className="flex items-center gap-2">
-                <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                <span className="text-xs text-red-600 dark:text-red-300">
+                <span className="w-2 h-2 bg-teal-500 rounded-full animate-pulse" />
+                <span className="text-xs text-teal-600 dark:text-teal-300">
                   {recordingPaused ? "Paused" : "Recording..."}{" "}
                   {formatTime(recordingTime)}
                 </span>
+              </div>
+              <div className="flex gap-2">
                 <button
                   onClick={pauseRecording}
-                  className="text-xs text-red-600 dark:text-red-300 hover:text-red-700 dark:hover:text-red-200"
+                  className="text-xs text-teal-600 dark:text-teal-300 hover:text-teal-700 dark:hover:text-teal-200"
                 >
                   {recordingPaused ? "Resume" : "Pause"}
                 </button>
-              </div>
-              <div className="flex gap-2">
                 <button
                   onClick={cancelRecording}
                   className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white"
                 >
-                  <FaTrashAlt className="text-xs" />
+                  <FaTimes className="text-xs" />
                 </button>
                 <button
                   onClick={stopRecording}
-                  className="bg-red-500 text-white px-2 py-1 rounded-full hover:bg-red-600 transition text-xs"
+                  className="bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition"
                 >
-                  Stop
+                  <FaStop className="text-xs" />
                 </button>
               </div>
             </div>
           )}
 
-          {/* ─── New WhatsApp‑style input bar ─── */}
-          <form
-            onSubmit={handleSendMessage}
-            className="flex items-end gap-2 py-2"
-          >
-            {/* Emoji button – extreme left */}
+          {/* ─── Input form ─── */}
+          <form onSubmit={handleSendMessage} className="flex items-end gap-2 py-2">
+            {/* Emoji button */}
             <div className="relative flex-shrink-0 mb-1" ref={emojiPickerRef}>
               <button
                 type="button"
@@ -4794,24 +5304,99 @@ const YourWorkspaceChannelId = () => {
               >
                 <FaSmile className="text-xl" />
               </button>
-              {/* Desktop floating popup */}
               {showEmojiPicker && !isMobile && (
-                <div className="absolute bottom-12 left-0 z-30 w-72 max-h-56 overflow-y-auto bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl shadow-xl p-3 grid grid-cols-8 gap-1">
-                  {EMOJI_LIST.map((emoji, idx) => (
+                <div className="absolute bottom-12 left-0 z-30 w-72 max-h-56 overflow-y-auto bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl shadow-xl p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setStickerTab(false)}
+                        className={`text-xs font-medium px-2 py-1 rounded-lg transition ${!stickerTab
+                            ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
+                            : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white"
+                          }`}
+                      >
+                        Emoji
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setStickerTab(true)}
+                        className={`text-xs font-medium px-2 py-1 rounded-lg transition ${stickerTab
+                            ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
+                            : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white"
+                          }`}
+                      >
+                        <FaStickyNote className="inline mr-1" /> Sticker
+                      </button>
+                    </div>
                     <button
-                      key={idx}
                       type="button"
-                      onClick={() => handleEmojiSelect(emoji)}
-                      className="text-xl hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-lg p-1 transition"
+                      onClick={() => navigate("/stickers")}
+                      className="text-xs text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1"
                     >
-                      {emoji}
+                      <FaPlus className="text-[10px]" /> Create
                     </button>
-                  ))}
+                  </div>
+
+                  {!stickerTab ? (
+                    <div className="grid grid-cols-8 gap-1 max-h-40 overflow-y-auto">
+                      {EMOJI_LIST.map((emoji, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => handleEmojiSelect(emoji)}
+                          className="text-xl hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-lg p-1 transition"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="max-h-40 overflow-y-auto">
+                      {savedStickersData?.stickers?.length > 0 ? (
+                        <div className="grid grid-cols-3 gap-2">
+                          {savedStickersData.stickers.map((sticker) => (
+                            <button
+                              key={sticker._id}
+                              type="button"
+                              onClick={() => handleSendSticker(sticker._id)}
+                              className="w-full aspect-square rounded-lg overflow-hidden hover:ring-2 hover:ring-teal-400 transition"
+                            >
+                              {sticker.type === "image" ? (
+                                <img
+                                  src={sticker.fileUrl}
+                                  alt="sticker"
+                                  className="w-full h-full object-contain"
+                                />
+                              ) : (
+                                <video
+                                  src={sticker.fileUrl}
+                                  className="w-full h-full object-contain"
+                                  muted
+                                />
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center text-gray-500 dark:text-gray-400 text-sm py-4">
+                          No saved stickers. <br />
+                          <button
+                            type="button"
+                            onClick={() => navigate("/stickers")}
+                            className="text-teal-600 dark:text-teal-400 hover:underline"
+                          >
+                            Create one
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
-            {/* Input pill – with paperclip & camera inside */}
+            {/* Input pill */}
             <div className="flex-1 min-w-0 relative flex items-end">
               <textarea
                 ref={inputRef}
@@ -4827,7 +5412,7 @@ const YourWorkspaceChannelId = () => {
                     handleSendMessage(e);
                   }
                 }}
-                placeholder="Message"
+                placeholder={editingMessageId ? "Edit message..." : "Message"}
                 rows={1}
                 className="w-full min-w-0 pl-4 pr-20 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500 dark:focus:ring-[#0d9488] resize-none max-h-32 overflow-y-auto"
                 style={{ minHeight: "42px", lineHeight: "1.5" }}
@@ -4863,8 +5448,8 @@ const YourWorkspaceChannelId = () => {
               />
             </div>
 
-            {/* Mic / Send button – extreme right */}
-            {message.trim() ? (
+            {/* Mic / Send button */}
+            {message.trim() || editingMessageId ? (
               <button
                 type="submit"
                 disabled={!isConnected || isSending}
@@ -4913,22 +5498,98 @@ const YourWorkspaceChannelId = () => {
             )}
           </form>
 
-          {/* Mobile emoji panel – docks under input */}
+          {/* Mobile emoji panel */}
           {showEmojiPicker && isMobile && (
             <div
-              className="w-full mt-2 overflow-y-auto bg-white dark:bg-[#14141a] border-t border-gray-200 dark:border-gray-800/60 rounded-t-xl grid grid-cols-8 gap-1 p-3"
+              className="w-full mt-2 overflow-y-auto bg-white dark:bg-[#14141a] border-t border-gray-200 dark:border-gray-800/60 rounded-t-xl p-3"
               style={{ height: "260px" }}
             >
-              {EMOJI_LIST.map((emoji, idx) => (
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setStickerTab(false)}
+                    className={`text-xs font-medium px-2 py-1 rounded-lg transition ${!stickerTab
+                        ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
+                        : "text-gray-500 dark:text-gray-400"
+                      }`}
+                  >
+                    Emoji
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStickerTab(true)}
+                    className={`text-xs font-medium px-2 py-1 rounded-lg transition ${stickerTab
+                        ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
+                        : "text-gray-500 dark:text-gray-400"
+                      }`}
+                  >
+                    <FaStickyNote className="inline mr-1" /> Sticker
+                  </button>
+                </div>
                 <button
-                  key={idx}
                   type="button"
-                  onClick={() => handleEmojiSelect(emoji)}
-                  className="text-2xl hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-lg p-1 transition"
+                  onClick={() => navigate("/stickers")}
+                  className="text-xs text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1"
                 >
-                  {emoji}
+                  <FaPlus className="text-[10px]" /> Create
                 </button>
-              ))}
+              </div>
+
+              {!stickerTab ? (
+                <div className="grid grid-cols-8 gap-1 overflow-y-auto h-[200px]">
+                  {EMOJI_LIST.map((emoji, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => handleEmojiSelect(emoji)}
+                      className="text-2xl hover:bg-gray-100 dark:hover:bg-gray-800/50 rounded-lg p-1 transition"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="overflow-y-auto h-[200px]">
+                  {savedStickersData?.stickers?.length > 0 ? (
+                    <div className="grid grid-cols-3 gap-2">
+                      {savedStickersData.stickers.map((sticker) => (
+                        <button
+                          key={sticker._id}
+                          type="button"
+                          onClick={() => handleSendSticker(sticker._id)}
+                          className="w-full aspect-square rounded-lg overflow-hidden hover:ring-2 hover:ring-teal-400 transition"
+                        >
+                          {sticker.type === "image" ? (
+                            <img
+                              src={sticker.fileUrl}
+                              alt="sticker"
+                              className="w-full h-full object-contain"
+                            />
+                          ) : (
+                            <video
+                              src={sticker.fileUrl}
+                              className="w-full h-full object-contain"
+                              muted
+                            />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center text-gray-500 dark:text-gray-400 text-sm py-4">
+                      No saved stickers. <br />
+                      <button
+                        type="button"
+                        onClick={() => navigate("/stickers")}
+                        className="text-teal-600 dark:text-teal-400 hover:underline"
+                      >
+                        Create one
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -5013,6 +5674,9 @@ const YourWorkspaceChannelId = () => {
         onUnstar={handleUnstarMessage}
         onReply={handleReply}
         onCopy={handleCopyMessage}
+        onReaction={handleReaction}
+        onEdit={handleEditMessage}
+        onSaveSticker={handleSaveSticker}
         brandColor={brandColor}
       />
 

@@ -10,6 +10,8 @@ import {
   useSaveStickerMutation,
   useUnsaveStickerMutation,
 } from '../slices/stickerApiSlice';
+import { useMediaPicker } from '../hooks/useMediaPicker';
+import { ConfirmModal } from '../components/ProjectHelpers'; // 👈 custom modal
 import { toast } from 'react-hot-toast';
 import {
   FaArrowLeft,
@@ -65,7 +67,7 @@ const BottomSheet = ({ isOpen, onClose, children }) => {
   );
 };
 
-// ─── Create Sticker Modal ──────────────────────────────────────────
+// ─── Create Sticker Modal (Capacitor‑ready) ────────────────────────
 const CreateStickerModal = ({ isOpen, onClose, onSuccess }) => {
   const [createSticker, { isLoading }] = useCreateStickerMutation();
 
@@ -75,13 +77,31 @@ const CreateStickerModal = ({ isOpen, onClose, onSuccess }) => {
   const [duration, setDuration] = useState('');
   const [tags, setTags] = useState('');
 
-  const handleFileChange = (e) => {
-    const selected = e.target.files[0];
-    if (selected) {
+  const { files, pickMedia, setFiles } = useMediaPicker();
+
+  useEffect(() => {
+    if (files.length > 0) {
+      const selected = files[0];
       setFile(selected);
       const url = URL.createObjectURL(selected);
       setPreview(url);
+      setFiles([]);
     }
+  }, [files, setFiles]);
+
+  useEffect(() => {
+    return () => {
+      if (preview) {
+        URL.revokeObjectURL(preview);
+      }
+    };
+  }, [preview]);
+
+  const handleFilePick = () => {
+    pickMedia({ 
+      multiple: false, 
+      mediaType: 'image'
+    });
   };
 
   const handleSubmit = async (e) => {
@@ -106,12 +126,12 @@ const CreateStickerModal = ({ isOpen, onClose, onSuccess }) => {
       toast.success('Sticker created!');
       onSuccess(result.sticker);
       onClose();
-      // reset form
       setFile(null);
       setPreview(null);
       setType('image');
       setDuration('');
       setTags('');
+      setFiles([]);
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to create sticker.');
     }
@@ -133,19 +153,25 @@ const CreateStickerModal = ({ isOpen, onClose, onSuccess }) => {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* File Upload */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Sticker File
             </label>
-            <div className="flex items-center gap-3">
-              <input
-                type="file"
-                accept="image/*,video/*"
-                onChange={handleFileChange}
-                className="block w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-teal-50 file:text-teal-700 dark:file:bg-teal-900/30 dark:file:text-teal-300 hover:file:bg-teal-100 dark:hover:file:bg-teal-900/50"
-              />
-            </div>
+            <button
+              type="button"
+              onClick={handleFilePick}
+              className="flex items-center justify-center w-full px-4 py-3 bg-gray-100 dark:bg-[#2a2a2a] border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl hover:border-teal-500 dark:hover:border-teal-500 transition text-gray-700 dark:text-gray-300"
+            >
+              {file ? (
+                <span className="flex items-center gap-2">
+                  <FaImage /> {file.name}
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <FaImage /> Tap to select image or video
+                </span>
+              )}
+            </button>
             {preview && (
               <div className="mt-2 relative w-24 h-24">
                 {type === 'image' ? (
@@ -155,9 +181,9 @@ const CreateStickerModal = ({ isOpen, onClose, onSuccess }) => {
                 )}
               </div>
             )}
+            <p className="text-xs text-gray-400 mt-1">Supports PNG, JPG, GIF, MP4, WebP</p>
           </div>
 
-          {/* Type */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Type
@@ -188,7 +214,6 @@ const CreateStickerModal = ({ isOpen, onClose, onSuccess }) => {
             </div>
           </div>
 
-          {/* Duration (only for animated) */}
           {type === 'animated' && (
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -207,7 +232,6 @@ const CreateStickerModal = ({ isOpen, onClose, onSuccess }) => {
             </div>
           )}
 
-          {/* Tags */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Tags (comma separated)
@@ -238,7 +262,7 @@ const CreateStickerModal = ({ isOpen, onClose, onSuccess }) => {
 const StickerCard = ({
   sticker,
   userId,
-  onDelete,
+  onDeleteRequest,  // 👈 renamed from onDelete
   onSave,
   onUnsave,
   isSaved = false,
@@ -247,14 +271,9 @@ const StickerCard = ({
   const [isDeleting, setIsDeleting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  const handleDelete = async () => {
-    if (!window.confirm('Delete this sticker?')) return;
-    setIsDeleting(true);
-    try {
-      await onDelete(sticker._id);
-    } finally {
-      setIsDeleting(false);
-    }
+  const handleDeleteClick = () => {
+    // Open confirm modal instead of window.confirm
+    onDeleteRequest(sticker._id);
   };
 
   const handleToggleSave = async () => {
@@ -272,7 +291,6 @@ const StickerCard = ({
 
   return (
     <div className="relative bg-white dark:bg-[#1a1a1a] rounded-xl shadow-sm hover:shadow-md transition border border-gray-200 dark:border-gray-700 overflow-hidden group">
-      {/* Sticker preview */}
       <div className="aspect-square bg-gray-100 dark:bg-gray-800 flex items-center justify-center overflow-hidden">
         {sticker.type === 'image' ? (
           <img
@@ -296,7 +314,6 @@ const StickerCard = ({
         )}
       </div>
 
-      {/* Tags */}
       {sticker.tags && sticker.tags.length > 0 && (
         <div className="px-3 py-1.5 flex flex-wrap gap-1 border-t border-gray-100 dark:border-gray-800">
           {sticker.tags.slice(0, 3).map((tag) => (
@@ -313,11 +330,10 @@ const StickerCard = ({
         </div>
       )}
 
-      {/* Actions (hover or always visible on mobile) */}
       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3 md:opacity-0 md:group-hover:opacity-100">
         {isOwner ? (
           <button
-            onClick={handleDelete}
+            onClick={handleDeleteClick}
             disabled={isDeleting}
             className="p-2 bg-red-500 hover:bg-red-600 text-white rounded-full transition disabled:opacity-50"
             title="Delete"
@@ -340,11 +356,10 @@ const StickerCard = ({
         )}
       </div>
 
-      {/* Mobile: always show save/delete button at bottom-right */}
       <div className="absolute bottom-2 right-2 md:hidden flex gap-1">
         {isOwner ? (
           <button
-            onClick={handleDelete}
+            onClick={handleDeleteClick}
             disabled={isDeleting}
             className="p-1.5 bg-red-500 text-white rounded-full text-xs"
           >
@@ -372,11 +387,20 @@ const Sticker = () => {
   const { userInfo } = useSelector((state) => state.auth);
   const userId = userInfo?._id;
 
-  const [activeTab, setActiveTab] = useState('saved'); // 'saved' or 'all'
+  const [activeTab, setActiveTab] = useState('saved');
   const [searchQuery, setSearchQuery] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
 
-  // Queries
+  // ─── Confirm Modal state ──────────────────────────────────────────
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+    danger: false,
+  });
+
+  // ─── Queries ──────────────────────────────────────────────────────
   const {
     data: savedData,
     isLoading: savedLoading,
@@ -391,7 +415,7 @@ const Sticker = () => {
     refetch: refetchAll,
   } = useGetStickersQuery({ limit: 100 }, { refetchOnFocus: true });
 
-  // Mutations
+  // ─── Mutations ──────────────────────────────────────────────────
   const [deleteSticker] = useDeleteStickerMutation();
   const [saveSticker] = useSaveStickerMutation();
   const [unsaveSticker] = useUnsaveStickerMutation();
@@ -399,7 +423,6 @@ const Sticker = () => {
   const savedStickers = savedData?.stickers || [];
   const allStickers = allData?.stickers || [];
 
-  // Filter by search (tags)
   const filterBySearch = (stickers) => {
     if (!searchQuery.trim()) return stickers;
     const q = searchQuery.toLowerCase().trim();
@@ -417,15 +440,26 @@ const Sticker = () => {
     [allStickers, searchQuery]
   );
 
-  const handleDelete = async (stickerId) => {
-    try {
-      await deleteSticker(stickerId).unwrap();
-      toast.success('Sticker deleted.');
-      refetchSaved();
-      refetchAll();
-    } catch (err) {
-      toast.error(err?.data?.message || 'Delete failed.');
-    }
+  // ─── Delete handler with custom modal ──────────────────────────
+  const handleDeleteRequest = (stickerId) => {
+    const sticker = allStickers.find(s => s._id === stickerId) || savedStickers.find(s => s._id === stickerId);
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Sticker',
+      message: `Are you sure you want to delete "${sticker?.tags?.[0] || 'this'}" sticker? This cannot be undone.`,
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await deleteSticker(stickerId).unwrap();
+          toast.success('Sticker deleted.');
+          refetchSaved();
+          refetchAll();
+        } catch (err) {
+          toast.error(err?.data?.message || 'Delete failed.');
+        }
+        setConfirmModal({ ...confirmModal, isOpen: false });
+      },
+    });
   };
 
   const handleSave = async (stickerId) => {
@@ -490,7 +524,7 @@ const Sticker = () => {
               key={sticker._id}
               sticker={sticker}
               userId={userId}
-              onDelete={handleDelete}
+              onDeleteRequest={handleDeleteRequest}
               onSave={handleSave}
               onUnsave={handleUnsave}
               isSaved={isSaved}
@@ -510,7 +544,6 @@ const Sticker = () => {
         </div>
 
         <div className="flex-1 flex flex-col h-screen md:h-auto md:min-h-screen relative overflow-hidden">
-          {/* Header with back button */}
           <header className="bg-white dark:bg-[#0f0f12] border-b border-gray-200 dark:border-gray-800 flex-shrink-0 z-10">
             <div className="px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
@@ -537,7 +570,6 @@ const Sticker = () => {
             </div>
           </header>
 
-          {/* Tabs & Search */}
           <div className="flex items-center justify-between px-4 sm:px-6 py-2 bg-gray-50 dark:bg-[#1a1a1a] border-b border-gray-200 dark:border-gray-800 flex-shrink-0 gap-3 flex-wrap">
             <div className="flex items-center gap-4">
               <button
@@ -574,7 +606,6 @@ const Sticker = () => {
             </div>
           </div>
 
-          {/* Main content */}
           <main className="flex-1 overflow-y-auto p-4 sm:p-6 bg-white dark:bg-[#0f0f12]">
             {activeTab === 'saved'
               ? renderStickers(filteredSaved, true)
@@ -585,7 +616,17 @@ const Sticker = () => {
         </div>
       </div>
 
-      {/* Create Sticker Modal */}
+      {/* ─── Custom Confirm Modal ────────────────────────────────── */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })}
+        onConfirm={confirmModal.onConfirm}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        danger={confirmModal.danger}
+      />
+
+      {/* ─── Create Sticker Modal ────────────────────────────────── */}
       <CreateStickerModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}

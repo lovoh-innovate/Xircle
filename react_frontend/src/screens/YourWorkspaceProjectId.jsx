@@ -27,7 +27,7 @@ import {
   useDeleteSubTaskMutation,
   useMarkTaskCompletedMutation,
   useConfirmTaskCompletionMutation,
-  useRejectTaskMutation,           // <-- NEW
+  useRejectTaskMutation,
   useSendManualReminderMutation,
   useGetTaskFeedbackQuery,
   useAssignTaskMutation,
@@ -44,7 +44,7 @@ import {
 } from '../slices/taskApiSlice';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
 import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
-import { FaCommentDots, FaUser, FaTimes } from 'react-icons/fa';
+import { FaCommentDots, FaUser, FaTimes, FaFolder } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 
 // ─── Import the four components ──────────────────────────────────────
@@ -66,9 +66,60 @@ import {
   FolderFormModal,
   FolderReadOnlyModal,
   CustomDropdown,
-  MarkCompleteModal,          // <-- NEW
-  ConfirmCompletionModal,     // <-- NEW
+  MarkCompleteModal,
+  ConfirmCompletionModal,
 } from '../components/ProjectHelpers';
+
+// ─── Bottom Sheet for folder selection ─────────────────────────────
+const FolderSelectModal = ({ isOpen, onClose, folders, onSelect, brandColor, title = 'Select Folder' }) => {
+  if (!isOpen) return null;
+
+  const handleSelect = (folderId) => {
+    onSelect(folderId);
+    onClose();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-[#14141a] w-full max-w-md rounded-t-3xl p-4 pb-8 shadow-xl transform transition-transform duration-300 ease-out"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="text-center text-sm font-medium text-gray-500 dark:text-gray-400 pb-3 border-b border-gray-200 dark:border-gray-800/60 mb-2">
+          {title}
+        </div>
+        <div className="space-y-1 max-h-60 overflow-y-auto">
+          <button
+            onClick={() => handleSelect(null)}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+          >
+            <FaFolder className="text-gray-400" />
+            <span className="text-sm font-medium">Uncategorized</span>
+          </button>
+          {folders.map((folder) => (
+            <button
+              key={folder._id}
+              onClick={() => handleSelect(folder._id)}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+            >
+              <FaFolder className="text-gray-400" />
+              <span className="text-sm font-medium">{folder.name}</span>
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={onClose}
+          className="w-full mt-3 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+};
 
 // ─── Main Component ────────────────────────────────────────────────────
 const YourWorkspaceProjectId = () => {
@@ -117,6 +168,11 @@ const YourWorkspaceProjectId = () => {
   const [showMarkCompleteModal, setShowMarkCompleteModal] = useState(false);
   const [showConfirmCompletionModal, setShowConfirmCompletionModal] = useState(false);
 
+  // ─── NEW: Modals for copy/move ──────────────────────────────────────
+  const [showMoveCopyModal, setShowMoveCopyModal] = useState(false);
+  const [moveCopyTask, setMoveCopyTask] = useState(null);
+  const [moveCopyMode, setMoveCopyMode] = useState('move'); // 'move' or 'copy'
+
   const [folderMenuOpen, setFolderMenuOpen] = useState(null);
   const longPressTimer = useRef(null);
 
@@ -150,7 +206,7 @@ const YourWorkspaceProjectId = () => {
   const [deleteFolder] = useDeleteFolderMutation();
   const [markTaskCompleted] = useMarkTaskCompletedMutation();
   const [updateTask] = useUpdateTaskMutation();
-  const [rejectTask] = useRejectTaskMutation();               // <-- NEW
+  const [rejectTask] = useRejectTaskMutation();
 
   // ─── Local state (optimistic updates) ──────────────────────────────
   const [localTasks, setLocalTasks] = useState([]);
@@ -503,7 +559,7 @@ const YourWorkspaceProjectId = () => {
     } catch (e) { toast.error(e?.data?.message || 'Failed to send reminder'); }
   }, [sendManualReminder]);
 
-  // ─── NEW: Mark complete handler (submits notes, links, attachments) ──
+  // ─── Mark complete handlers ─────────────────────────────────────────
   const handleMarkComplete = useCallback(async ({ notes, links, attachments }) => {
     try {
       const fd = new FormData();
@@ -524,7 +580,6 @@ const YourWorkspaceProjectId = () => {
     }
   }, [activeTask, markTaskCompleted, refreshAll]);
 
-  // ─── Confirm completion handler (already exists, but we'll pass to modal) ──
   const handleConfirmCompletion = useCallback(async (data) => {
     try {
       const fd = new FormData();
@@ -546,7 +601,6 @@ const YourWorkspaceProjectId = () => {
     }
   }, [activeTask, confirmTaskCompletion, refreshAll]);
 
-  // ─── NEW: Reject handler ─────────────────────────────────────────────
   const handleRejectTask = useCallback(async (taskId, reason) => {
     try {
       await rejectTask({ taskId, reason }).unwrap();
@@ -593,6 +647,75 @@ const YourWorkspaceProjectId = () => {
     setShowAssignModal(true);
   }, []);
 
+  // ─── NEW: Copy / Move handlers ──────────────────────────────────────
+  const handleCopyClick = useCallback((task) => {
+    setMoveCopyTask(task);
+    setMoveCopyMode('copy');
+    setShowMoveCopyModal(true);
+  }, []);
+
+  const handleMoveClick = useCallback((task) => {
+    setMoveCopyTask(task);
+    setMoveCopyMode('move');
+    setShowMoveCopyModal(true);
+  }, []);
+
+  const handleMoveCopyConfirm = useCallback(async (folderId) => {
+    if (!moveCopyTask) return;
+
+    try {
+      if (moveCopyMode === 'move') {
+        // Move: update the task's folder
+        await updateTask({ taskId: moveCopyTask._id, data: { folderId: folderId || null } }).unwrap();
+        toast.success(`Task moved to ${folderId ? folders.find(f => f._id === folderId)?.name || 'folder' : 'Uncategorized'}`);
+      } else {
+        // Copy: create a new task with same data but new folder
+        const newTaskData = {
+          title: moveCopyTask.title,
+          description: moveCopyTask.description || '',
+          priority: moveCopyTask.priority || 'medium',
+          status: 'pending', // always start as pending
+          assigneeId: moveCopyTask.assignee?._id || null,
+          estimatedHours: moveCopyTask.estimatedHours || 0,
+          bufferTime: moveCopyTask.bufferTime || 0,
+          allowAssigneeEditSubtasks: moveCopyTask.allowAssigneeEditSubtasks ? 'true' : 'false',
+          startDate: moveCopyTask.startDate || null,
+          dueDate: moveCopyTask.dueDate || null,
+          folderId: folderId || null,
+          recurrenceType: moveCopyTask.recurrenceType || 'none',
+          recurrenceDays: moveCopyTask.recurrenceDays || [],
+          recurrenceEndDate: moveCopyTask.recurrenceEndDate || null,
+          links: moveCopyTask.links || [],
+          attachments: [],
+          projectId: projectId,
+        };
+
+        const fd = new FormData();
+        Object.keys(newTaskData).forEach(key => {
+          if (key === 'links') {
+            newTaskData.links.forEach(l => fd.append('links', l));
+          } else if (key === 'attachments') {
+            // attachments are empty for copy
+          } else if (key === 'recurrenceDays' && newTaskData.recurrenceType === 'weekly') {
+            fd.append('recurrenceDays', JSON.stringify(newTaskData.recurrenceDays));
+          } else {
+            fd.append(key, newTaskData[key] !== undefined && newTaskData[key] !== null ? String(newTaskData[key]) : '');
+          }
+        });
+        fd.append('projectId', projectId);
+
+        await createTask(fd).unwrap();
+        toast.success(`Task copied to ${folderId ? folders.find(f => f._id === folderId)?.name || 'folder' : 'Uncategorized'}`);
+      }
+      refreshAll();
+      setShowMoveCopyModal(false);
+      setMoveCopyTask(null);
+    } catch (err) {
+      toast.error(err?.data?.message || `Failed to ${moveCopyMode} task`);
+    }
+  }, [moveCopyTask, moveCopyMode, updateTask, createTask, projectId, folders, refreshAll]);
+
+  // ─── Folder management handlers ─────────────────────────────────────
   const handleCreateFolder = useCallback(() => {
     setEditingFolder(null);
     setShowFolderForm(true);
@@ -840,6 +963,8 @@ const YourWorkspaceProjectId = () => {
                 onTaskDrop={handleTaskDrop}
                 dragOverTaskId={dragOverTaskId}
                 canReorderTasks={canReorderTasks}
+                onCopyClick={handleCopyClick}
+                onMoveClick={handleMoveClick}
               />
             ) : (
               <YourWorkspaceProjectTeam
@@ -874,8 +999,8 @@ const YourWorkspaceProjectId = () => {
                 onSendReminder={handleSendManualReminder}
                 onConfirmCompletion={handleConfirmCompletion}
                 onAssignTask={openAssignModal}
-                onMarkCompleteClick={() => setShowMarkCompleteModal(true)}          // <-- NEW
-                onConfirmCompletionClick={() => setShowConfirmCompletionModal(true)} // <-- NEW
+                onMarkCompleteClick={() => setShowMarkCompleteModal(true)}
+                onConfirmCompletionClick={() => setShowConfirmCompletionModal(true)}
                 onSetReadyForCompletion={handleSetReadyForCompletion}
                 subDragStart={handleSubDragStart}
                 subDragEnd={handleSubDragEnd}
@@ -1038,7 +1163,7 @@ const YourWorkspaceProjectId = () => {
         danger={false}
       />
 
-      {/* ─── NEW: Mark Complete Modal ────────────────────────────────── */}
+      {/* ─── Mark Complete Modal ──────────────────────────────────────── */}
       <MarkCompleteModal
         isOpen={showMarkCompleteModal}
         onClose={() => setShowMarkCompleteModal(false)}
@@ -1047,7 +1172,7 @@ const YourWorkspaceProjectId = () => {
         onSubmit={handleMarkComplete}
       />
 
-      {/* ─── NEW: Confirm/Reject Completion Modal ───────────────────── */}
+      {/* ─── Confirm/Reject Completion Modal ────────────────────────── */}
       <ConfirmCompletionModal
         isOpen={showConfirmCompletionModal}
         onClose={() => setShowConfirmCompletionModal(false)}
@@ -1055,6 +1180,16 @@ const YourWorkspaceProjectId = () => {
         brandColor={brandColor}
         onSubmit={handleConfirmCompletion}
         onReject={handleRejectTask}
+      />
+
+      {/* ─── Folder Select Modal (Copy/Move) ────────────────────────── */}
+      <FolderSelectModal
+        isOpen={showMoveCopyModal}
+        onClose={() => { setShowMoveCopyModal(false); setMoveCopyTask(null); }}
+        folders={folders}
+        onSelect={handleMoveCopyConfirm}
+        brandColor={brandColor}
+        title={moveCopyMode === 'copy' ? 'Copy task to folder' : 'Move task to folder'}
       />
     </div>
   );

@@ -31,22 +31,53 @@ import {
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 
-// ─── Helper: format time ──────────────────────────────────────────────
-const formatTime = (date) => {
-  if (!date) return '';
-  const d = new Date(date);
+// ─── Helpers ──────────────────────────────────────────────────────────────
+
+// Extract first word of a name (e.g., "Embee Sunday Jonathan" → "Embee")
+const getFirstName = (fullName) => {
+  if (!fullName) return 'Someone';
+  const trimmed = fullName.trim();
+  const firstSpace = trimmed.indexOf(' ');
+  return firstSpace > 0 ? trimmed.substring(0, firstSpace) : trimmed;
+};
+
+const getLastMessagePreview = (message, currentUserId) => {
+  if (!message) return 'No messages yet';
+
+  let preview = '';
+  if (message.messageType === 'text') preview = message.content || 'Message';
+  else if (message.messageType === 'image') preview = '📷 Photo';
+  else if (message.messageType === 'audio') preview = '🎤 Voice note';
+  else if (message.messageType === 'video') preview = '🎬 Video';
+  else if (message.messageType === 'file') preview = `📎 ${message.mediaName || 'File'}`;
+  else if (message.messageType === 'sticker') preview = '📌 Sticker';
+  else preview = 'Message';
+
+  const senderId = message.sender?._id || message.sender;
+  if (senderId && senderId === currentUserId) {
+    preview = `You: ${preview}`;
+  }
+  return preview;
+};
+
+const formatLastMessageTime = (timestamp) => {
+  if (!timestamp) return '';
   const now = new Date();
-  const diff = now - d;
-  if (diff < 60000) return 'Just now';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m`;
-  if (diff < 86400000) {
-    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  const date = new Date(timestamp);
+  const diffMs = now - date;
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMin < 1) return 'Just now';
+  if (diffMin < 60) return `${diffMin}m`;
+  if (diffHours < 24) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
-  if (diff < 172800000) return 'Yesterday';
-  if (diff < 604800000) {
-    return d.toLocaleDateString('en-US', { weekday: 'short' });
-  }
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (diffDays === 1) return 'Yesterday';
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${month}/${day}`;
 };
 
 // ─── Confirm Modal ──────────────────────────────────────────────────────
@@ -84,7 +115,6 @@ const CreateChannelModal = ({ isOpen, onClose, workspaceId, brandColor, workspac
   const [loading, setLoading] = useState(false);
   const [createGroupChat] = useCreateGroupChatMutation();
 
-  // Filter out current user; they will be added automatically
   const memberOptions = workspaceMembers
     .filter(m => (m.user?._id || m._id) !== userInfo?._id)
     .map(m => ({
@@ -214,15 +244,12 @@ const ChannelMenu = ({
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Determine roles
   const isAdmin = chat.participants?.some(
     (p) => (p.user?._id === userInfo?._id || p.user === userInfo?._id) && p.role === 'admin'
   );
   const isCreator = chat.createdBy?._id === userInfo?._id;
-
-  // Permissions
   const canDelete = canManage || isAdmin;
-  const canExit = !isCreator && !canManage; // owner/admin can't exit (they can delete)
+  const canExit = !isCreator && !canManage;
 
   return (
     <div className="relative flex-shrink-0" ref={menuRef}>
@@ -355,7 +382,7 @@ const YourWorkspaceChannels = () => {
   const { userInfo } = useSelector((state) => state.auth);
   const [searchOpen, setSearchOpen] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState('channels'); // 'channels' or 'archived'
+  const [activeTab, setActiveTab] = useState('channels');
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
     title: '',
@@ -364,27 +391,22 @@ const YourWorkspaceChannels = () => {
     danger: false,
   });
 
-  // ── Queries ──────────────────────────────────────────────────────────
   const { data: workspaceData, isLoading: workspaceLoading, error } = useGetWorkspaceQuery(workspaceId);
 
-  // Active chats (not archived)
   const {
     data: chatsData,
     isLoading: chatsLoading,
     refetch: refetchChats,
   } = useGetUserChatsQuery({ workspaceId, archived: false });
 
-  // Archived chats (lazy)
   const [getArchivedChats, { data: archivedData, isLoading: archivedLoading }] = useLazyGetUserChatsQuery();
 
-  // Fetch archived when tab changes
   useEffect(() => {
     if (activeTab === 'archived') {
       getArchivedChats({ workspaceId, archived: true });
     }
   }, [activeTab, workspaceId, getArchivedChats]);
 
-  // ── Mutations ────────────────────────────────────────────────────────
   const [archiveChat] = useArchiveChatMutation();
   const [unarchiveChat] = useUnarchiveChatMutation();
   const [exitGroupChat] = useExitGroupChatMutation();
@@ -397,7 +419,6 @@ const YourWorkspaceChannels = () => {
     }
   };
 
-  // ── Handlers ──────────────────────────────────────────────────────────
   const handleArchive = (chatId) => {
     setConfirmModal({
       isOpen: true,
@@ -470,7 +491,6 @@ const YourWorkspaceChannels = () => {
     });
   };
 
-  // ── Error / Loading ──────────────────────────────────────────────────
   if (error) {
     navigate(`/workspace/${workspaceId}`);
     return null;
@@ -501,7 +521,6 @@ const YourWorkspaceChannels = () => {
   const displayChannels = activeTab === 'channels' ? allChannels : archivedChannels;
   const isArchivedView = activeTab === 'archived';
 
-  // ─── Permission checks ──────────────────────────────────────────────
   const isWorkspaceOwner = workspace?.owner?._id === userInfo?._id;
   const isWorkspaceAdmin = workspace.members?.some(
     (m) => (m.user?._id || m.user) === userInfo?._id && m.role === 'Admin' && m.status === 'active'
@@ -513,14 +532,11 @@ const YourWorkspaceChannels = () => {
 
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
-      {/* Desktop Sidebar */}
       <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
         <YourWorkspaceSidebar workspace={workspace} chats={chats} />
       </div>
 
-      {/* Main Content */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Fixed Header – glass */}
         <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
           <div className="flex items-center justify-between px-4 h-14">
             <div className="flex items-center gap-3">
@@ -554,7 +570,6 @@ const YourWorkspaceChannels = () => {
             </div>
           </div>
 
-          {/* ── Tabs ── */}
           <div className="flex border-b border-gray-200/60 dark:border-gray-800/30 px-4">
             <button
               onClick={() => setActiveTab('channels')}
@@ -579,7 +594,6 @@ const YourWorkspaceChannels = () => {
           </div>
         </header>
 
-        {/* Channel List */}
         <div className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12] divide-y divide-gray-100 dark:divide-gray-800/30">
           {displayChannels.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-gray-400 dark:text-gray-500">
@@ -588,8 +602,17 @@ const YourWorkspaceChannels = () => {
             </div>
           ) : (
             displayChannels.map(channel => {
-              const lastMsg = channel.lastMessage?.content || 'No messages yet';
-              const lastMsgTime = formatTime(channel.updatedAt);
+              const lastMessage = channel.lastMessage;
+              let preview = getLastMessagePreview(lastMessage, userInfo?._id);
+              const senderId = lastMessage?.sender?._id || lastMessage?.sender;
+              // If the sender is not the current user, prepend the sender's first name
+              if (senderId && senderId !== userInfo?._id && lastMessage) {
+                const fullName = lastMessage.sender?.name || 'Someone';
+                const firstName = getFirstName(fullName);
+                preview = `${firstName}: ${preview}`;
+              }
+              const time = formatLastMessageTime(lastMessage?.createdAt || channel.lastMessageAt || channel.updatedAt);
+
               return (
                 <div
                   key={channel._id}
@@ -610,10 +633,10 @@ const YourWorkspaceChannels = () => {
                         <span className="font-semibold text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
                           {channel.name}
                         </span>
-                        <span className="text-xs text-gray-500 dark:text-gray-500 flex-shrink-0">{lastMsgTime}</span>
+                        <span className="text-xs text-gray-500 dark:text-gray-500 flex-shrink-0">{time}</span>
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-xs text-gray-500 dark:text-gray-400 truncate flex-1">{lastMsg}</span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400 truncate flex-1">{preview}</span>
                         {!isArchivedView && channel.unreadCount > 0 && (
                           <span
                             className="text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center flex-shrink-0"
@@ -641,7 +664,6 @@ const YourWorkspaceChannels = () => {
           )}
         </div>
 
-        {/* Stats row */}
         <div className="border-t border-gray-200/60 dark:border-gray-800/40 px-4 py-3 bg-white dark:bg-[#0f0f12] flex-shrink-0">
           <div className="grid grid-cols-3 gap-2">
             <div className="text-center">
@@ -660,10 +682,8 @@ const YourWorkspaceChannels = () => {
         </div>
       </div>
 
-      {/* Bottom Navigation (mobile) */}
       <YourWorkspaceBottombar workspace={workspace} />
 
-      {/* Search Modal */}
       <SearchChannelsModal
         isOpen={searchOpen}
         onClose={() => setSearchOpen(false)}
@@ -672,7 +692,6 @@ const YourWorkspaceChannels = () => {
         workspaceId={workspaceId}
       />
 
-      {/* Create Channel Modal (with member selection) */}
       <CreateChannelModal
         isOpen={createModalOpen}
         onClose={() => setCreateModalOpen(false)}
@@ -682,7 +701,6 @@ const YourWorkspaceChannels = () => {
         onSuccess={refreshAll}
       />
 
-      {/* Confirm Modal */}
       <ConfirmModal
         isOpen={confirmModal.isOpen}
         onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })}

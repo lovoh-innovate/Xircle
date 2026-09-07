@@ -8,13 +8,13 @@ import {
   FaEllipsisV, FaEdit, FaPlus, FaGripVertical, FaRedo,
   FaCheckDouble, FaBell, FaCalendarAlt, FaCommentDots,
   FaUserLock, FaFolderOpen, FaTrashRestore, FaArchive, FaUndo, FaTasks,
-  FaCamera, FaImage,
+  FaCamera, FaImage, FaCopy,
 } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 import { useCreateFolderMutation, useUpdateFolderMutation, useDeleteFolderMutation, useAddFolderReadOnlyMutation, useRemoveFolderReadOnlyMutation } from '../slices/taskApiSlice';
 import { useAddTeamMemberMutation } from '../slices/projectApiSlice';
 import { useUpdateTaskMutation } from '../slices/taskApiSlice';
-import { useMediaPicker } from '../hooks/useMediaPicker'; // <-- import custom hook
+import { useMediaPicker } from '../hooks/useMediaPicker';
 
 // ─── Format helpers ──────────────────────────────────────────────
 export const formatDate = (date) => {
@@ -826,6 +826,8 @@ export const TaskCard = React.memo(({
   onDrop,
   onDragLeave,
   dragOver,
+  onCopyClick,
+  onMoveClick,
 }) => {
   const progress = task.progress || 0;
   const subTaskCount = task.subTasks?.length || 0;
@@ -837,6 +839,19 @@ export const TaskCard = React.memo(({
 
   const hasRecurrence = task.recurrenceType && task.recurrenceType !== 'none';
   const recurrenceLabel = task.recurrenceType === 'daily' ? 'Daily' : task.recurrenceType === 'weekly' ? 'Weekly' : '';
+
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleDragStart = (e) => {
     if (!draggable) {
@@ -893,7 +908,38 @@ export const TaskCard = React.memo(({
               </span>
             )}
           </div>
-          <TaskStatusBadge status={task.status} />
+          <div className="flex items-center gap-1 flex-shrink-0 relative" ref={menuRef}>
+            {(onCopyClick || onMoveClick) && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
+                className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
+                aria-label="Task actions"
+              >
+                <FaEllipsisV className="text-sm" />
+              </button>
+            )}
+            {menuOpen && (
+              <div className="absolute right-0 top-full mt-1 bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg py-1 z-30 min-w-[100px]">
+                {onCopyClick && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onCopyClick(task); setMenuOpen(false); }}
+                    className="flex items-center gap-2 px-3 py-1.5 w-full text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition whitespace-nowrap"
+                  >
+                    <FaCopy className="text-xs" /> Copy
+                  </button>
+                )}
+                {onMoveClick && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onMoveClick(task); setMenuOpen(false); }}
+                    className="flex items-center gap-2 px-3 py-1.5 w-full text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition whitespace-nowrap"
+                  >
+                    <FaFolderOpen className="text-xs" /> Move
+                  </button>
+                )}
+              </div>
+            )}
+            <TaskStatusBadge status={task.status} />
+          </div>
         </div>
 
         <div className="mt-2 flex items-center gap-2 flex-wrap">

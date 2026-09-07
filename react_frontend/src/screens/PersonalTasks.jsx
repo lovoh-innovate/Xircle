@@ -800,7 +800,7 @@ const ChecklistItem = ({
       onTouchEnd={handleTouchEnd}
       onTouchMove={handleTouchMove}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-2 sm:gap-3 w-full">
         <div
           className="flex-shrink-0 text-gray-400 cursor-grab touch-none p-1 -ml-1 touch-action-none"
           {...gripProps}
@@ -817,9 +817,12 @@ const ChecklistItem = ({
         >
           {checklistItem.done && <FaCheck className="text-[10px]" />}
         </button>
+
         <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-2">
-            <span className={`text-sm text-gray-800 dark:text-white break-words ${checklistItem.done ? 'line-through text-gray-400 dark:text-gray-500' : ''}`}>
+          <div className="flex items-start justify-between gap-1 sm:gap-2">
+            <span className={`text-sm break-words flex-1 min-w-0 ${
+              checklistItem.done ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-800 dark:text-white'
+            }`}>
               {checklistItem.title}
               {checklistItem.done && checklistItem.toggledBy && (
                 <span className="text-[10px] text-gray-400 dark:text-gray-500 ml-1">
@@ -835,7 +838,7 @@ const ChecklistItem = ({
               <FaEllipsisV className="text-sm" />
             </button>
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+          <div className="flex flex-wrap items-center gap-1 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             {checklistItem.dueDate && (
               <span className={`flex items-center gap-1 ${isOverdue(checklistItem.dueDate) ? 'text-red-500' : ''}`}>
                 <FaRegClock className="text-[10px]" /> {formatDate(checklistItem.dueDate)}
@@ -918,7 +921,7 @@ const ChecklistBulkToolbar = ({ selectedCount, onCancel, onDelete, onComplete, o
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
       transition={{ duration: 0.2 }}
-      className="bg-gray-100 dark:bg-[#2a2a2a] px-4 py-2 flex items-center justify-between gap-2 rounded-xl mb-3"
+      className="bg-gray-100 dark:bg-[#2a2a2a] px-4 py-2 flex flex-wrap items-center justify-between gap-2 rounded-xl mb-3"
     >
       <div className="text-sm text-gray-700 dark:text-gray-300">
         <span className="font-semibold">{selectedCount}</span> selected
@@ -1168,7 +1171,7 @@ const TaskDetailView = ({
             )}
             {task.folder && (
               <span className="flex items-center gap-1">
-                <FaFolder className="text-[9px]" /> {task.folder.name}
+                <FaFolder className="text-[9px]" style={{ color: task.folder.color || undefined }} /> {task.folder.name}
               </span>
             )}
             {isReminder && (
@@ -1390,7 +1393,7 @@ const TaskCard = React.memo(({
 
   return (
     <div
-      className={`bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1e1e1e] transition cursor-pointer ${
+      className={`bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800 px-3 sm:px-4 py-2.5 sm:py-3 hover:bg-gray-50 dark:hover:bg-[#1e1e1e] transition cursor-pointer ${
         isSelected ? 'bg-teal-50/70 dark:bg-teal-900/30' : ''
       } ${selectionMode && !isSelected ? 'hover:ring-1 hover:ring-teal-300 dark:hover:ring-teal-700' : ''}`}
       onClick={handleCardClick}
@@ -1398,7 +1401,7 @@ const TaskCard = React.memo(({
       onTouchEnd={handleTouchEnd}
       onTouchMove={handleTouchMove}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-2 sm:gap-3 w-full">
         {!isTrash && (
           <div
             className="flex-shrink-0 text-gray-400 p-1 -ml-1 mt-0.5 touch-none touch-action-none cursor-grab"
@@ -1437,13 +1440,15 @@ const TaskCard = React.memo(({
         )}
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-start gap-2">
-            <span className={`text-sm font-medium break-words ${isCompleted ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-800 dark:text-white'}`}>
+          <div className="flex items-start gap-1 sm:gap-2">
+            <span className={`text-sm font-medium break-words flex-1 min-w-0 ${
+              isCompleted ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-800 dark:text-white'
+            }`}>
               {task.title}
             </span>
             {isOverdue && <FaExclamationCircle className="text-xs text-red-500 flex-shrink-0 mt-0.5" />}
           </div>
-          <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+          <div className="flex flex-wrap items-center gap-1 sm:gap-3 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             {isTrash ? (
               <span className="text-red-500 dark:text-red-400">In Trash</span>
             ) : isReminder ? (
@@ -1469,6 +1474,7 @@ const TaskCard = React.memo(({
             )}
           </div>
         </div>
+
         <div className="flex-shrink-0 flex items-center gap-1">
           <button
             onClick={(e) => { e.stopPropagation(); onOpenModal(task); }}
@@ -2014,7 +2020,7 @@ const PersonalTasks = () => {
 
   // ─── Collaboration state ──────────────────────────────────────
   const [showCollaborateModal, setShowCollaborateModal] = useState(false);
-  const [collaborateTarget, setCollaborateTarget] = useState(null); // taskId or 'bulk'
+  const [collaborateTarget, setCollaborateTarget] = useState(null);
   const [collaborateLoading, setCollaborateLoading] = useState(false);
   const [addCollaborator] = useAddCollaboratorMutation();
 

@@ -34,7 +34,57 @@ import {
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 
-// ─── Helper: format time ──────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────
+
+// Extract first word of a name (e.g., "Embee Sunday Jonathan" → "Embee")
+const getFirstName = (fullName) => {
+  if (!fullName) return 'Someone';
+  const trimmed = fullName.trim();
+  const firstSpace = trimmed.indexOf(' ');
+  return firstSpace > 0 ? trimmed.substring(0, firstSpace) : trimmed;
+};
+
+const getLastMessagePreview = (message, currentUserId) => {
+  if (!message) return 'No messages yet';
+
+  let preview = '';
+  if (message.messageType === 'text') preview = message.content || 'Message';
+  else if (message.messageType === 'image') preview = '📷 Photo';
+  else if (message.messageType === 'audio') preview = '🎤 Voice note';
+  else if (message.messageType === 'video') preview = '🎬 Video';
+  else if (message.messageType === 'file') preview = `📎 ${message.mediaName || 'File'}`;
+  else if (message.messageType === 'sticker') preview = '📌 Sticker';
+  else preview = 'Message';
+
+  // If the sender is the current user, prefix with "You: "
+  const senderId = message.sender?._id || message.sender;
+  if (senderId && senderId === currentUserId) {
+    preview = `You: ${preview}`;
+  }
+  return preview;
+};
+
+const formatLastMessageTime = (timestamp) => {
+  if (!timestamp) return '';
+  const now = new Date();
+  const date = new Date(timestamp);
+  const diffMs = now - date;
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMin < 1) return 'Just now';
+  if (diffMin < 60) return `${diffMin}m`;
+  if (diffHours < 24) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  if (diffDays === 1) return 'Yesterday';
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${month}/${day}`;
+};
+
+// ─── Helper: format time (legacy – keep for other uses) ────────────────
 const formatTime = (date) => {
   if (!date) return '';
   const d = new Date(date);
@@ -571,7 +621,6 @@ const ChannelRow = ({
   const longPressTimer = useRef(null);
   const isLongPress = useRef(false);
 
-  // Determine the correct route based on chat type
   const getChatLink = () => {
     if (chat.type === 'direct') {
       return `/my-workspace/${workspaceId}/chat/${chat._id}`;
@@ -594,7 +643,6 @@ const ChannelRow = ({
   const handleTouchEnd = (e) => {
     clearTimeout(longPressTimer.current);
     if (!isLongPress.current) {
-      // It was a tap, navigate to chat
       window.__navigate(getChatLink());
     }
   };
@@ -937,14 +985,17 @@ const MyWorkspaceChannels = () => {
             </div>
             {channels.map((ch) => {
               const lastMsg = ch.lastMessage;
-              const lastMsgSender = lastMsg?.sender;
-              const isOwnLastMsg = lastMsgSender?._id === userInfo?._id || lastMsgSender === userInfo?._id;
-              const lastMsgText = lastMsg?.content || '';
-              const lastMsgSenderName = isOwnLastMsg ? 'You' : (lastMsgSender?.name || '');
-              const lastMsgPreview = lastMsgText
-                ? (lastMsgSenderName ? `${lastMsgSenderName}: ${lastMsgText}` : lastMsgText)
-                : 'No messages yet';
-              const lastMsgTime = formatTime(lastMsg?.createdAt || ch.updatedAt);
+              // Build preview with sender name for group chats
+              let preview = getLastMessagePreview(lastMsg, userInfo?._id);
+              // If the last message is not from the current user, prepend sender's first name
+              const senderId = lastMsg?.sender?._id || lastMsg?.sender;
+              if (senderId && senderId !== userInfo?._id && lastMsg) {
+                const fullName = lastMsg.sender?.name || 'Someone';
+                const firstName = getFirstName(fullName);
+                // getLastMessagePreview returns just the message part for others, so prepend
+                preview = `${firstName}: ${preview}`;
+              }
+              const time = formatLastMessageTime(lastMsg?.createdAt || ch.lastMessageAt || ch.updatedAt);
 
               return (
                 <ChannelRow
@@ -955,8 +1006,8 @@ const MyWorkspaceChannels = () => {
                   workspaceId={workspaceId}
                   userInfo={userInfo}
                   userRole={userRole}
-                  lastMsgTime={lastMsgTime}
-                  lastMsgPreview={lastMsgPreview}
+                  lastMsgTime={time}
+                  lastMsgPreview={preview}
                   onArchive={handleArchive}
                   onUnarchive={handleUnarchive}
                   onExit={handleExit}
@@ -977,8 +1028,8 @@ const MyWorkspaceChannels = () => {
             {dms.map((dm) => {
               const participant = getDMParticipant(dm);
               const lastMsg = dm.lastMessage;
-              const lastMsgTime = formatTime(lastMsg?.createdAt || dm.updatedAt);
-              const lastMsgText = lastMsg?.content || 'No messages yet';
+              const preview = getLastMessagePreview(lastMsg, userInfo?._id);
+              const time = formatLastMessageTime(lastMsg?.createdAt || dm.lastMessageAt || dm.updatedAt);
               return (
                 <Link
                   key={dm._id}
@@ -1000,10 +1051,10 @@ const MyWorkspaceChannels = () => {
                       <span className="font-semibold text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
                         {participant?.name || 'Unknown'}
                       </span>
-                      <span className="text-xs text-gray-500 dark:text-gray-500 flex-shrink-0">{lastMsgTime}</span>
+                      <span className="text-xs text-gray-500 dark:text-gray-500 flex-shrink-0">{time}</span>
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate flex-1">{lastMsgText}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate flex-1">{preview}</p>
                       {!isArchived && dm.unreadCount > 0 && (
                         <span
                           className="text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center"

@@ -15,15 +15,9 @@ import MyWorkspaceBottombar from '../workspaceComponents/MyWorkspaceBottombar';
 import {
   FaArrowLeft,
   FaSearch,
-  FaUserCircle,
   FaComment,
-  FaCheckCircle,
-  FaSpinner,
-  FaUser,
   FaPlus,
   FaTimes,
-  FaCircle,
-  FaCheck,
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 
@@ -38,22 +32,46 @@ const getInitials = (name) => {
     .toUpperCase();
 };
 
-// ─── Helper: format time ──────────────────────────────────────────────
-const formatTime = (date) => {
-  if (!date) return '';
-  const d = new Date(date);
+// ─── Helper: format last message preview (copied from YourWorkspaceDMs) ──
+const getLastMessagePreview = (message, currentUserId) => {
+  if (!message) return 'No messages yet';
+
+  let preview = '';
+  if (message.messageType === 'text') preview = message.content || 'Message';
+  else if (message.messageType === 'image') preview = '📷 Photo';
+  else if (message.messageType === 'audio') preview = '🎤 Voice note';
+  else if (message.messageType === 'video') preview = '🎬 Video';
+  else if (message.messageType === 'file') preview = `📎 ${message.mediaName || 'File'}`;
+  else preview = 'Message';
+
+  // Check if the message was sent by the current user
+  const senderId = message.sender?._id || message.sender;
+  if (senderId && senderId === currentUserId) {
+    preview = `You: ${preview}`;
+  }
+  return preview;
+};
+
+// ─── Helper: format last message time (copied from YourWorkspaceDMs) ──
+const formatLastMessageTime = (timestamp) => {
+  if (!timestamp) return '';
   const now = new Date();
-  const diff = now - d;
-  if (diff < 60000) return 'Just now';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m`;
-  if (diff < 86400000) {
-    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  const date = new Date(timestamp);
+  const diffMs = now - date;
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMin < 1) return 'Just now';
+  if (diffMin < 60) return `${diffMin}m`;
+  if (diffHours < 24) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
-  if (diff < 172800000) return 'Yesterday';
-  if (diff < 604800000) {
-    return d.toLocaleDateString('en-US', { weekday: 'short' });
-  }
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (diffDays === 1) return 'Yesterday';
+  // Format as MM/DD (e.g., 02/07)
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${month}/${day}`;
 };
 
 // ─── Helper: belongs to workspace ─────────────────────────────────────
@@ -89,7 +107,7 @@ const SearchDMModal = ({ isOpen, onClose, dms, brandColor, workspaceId, userInfo
 
   const filtered = dms.filter((dm) => {
     const name = dm.participant?.name?.toLowerCase() || '';
-    const msg = dm.lastMessage?.toLowerCase() || '';
+    const msg = dm.lastMessagePreview?.toLowerCase() || '';
     const q = query.toLowerCase();
     return name.includes(q) || msg.includes(q);
   });
@@ -163,9 +181,9 @@ const SearchDMModal = ({ isOpen, onClose, dms, brandColor, workspaceId, userInfo
                     <p className="text-sm font-medium text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">
                       {dm.participant?.name || 'Unknown'}
                     </p>
-                    <span className="text-xs text-gray-500 dark:text-gray-500">{formatTime(dm.timestamp)}</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-500">{formatLastMessageTime(dm.lastMessageAt)}</span>
                   </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{dm.lastMessage}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{dm.lastMessagePreview}</p>
                 </div>
               </Link>
             ))}
@@ -340,16 +358,10 @@ const MyWorkspaceDMs = () => {
       });
     };
 
-    const handleUserStatusChange = ({ userId, online, chatId }) => {
-      // Optional: we could update online status in cache, but not critical
-    };
-
     socket.on('chat-list-update', handleChatListUpdate);
-    socket.on('user-status-changed', handleUserStatusChange);
 
     return () => {
       socket.off('chat-list-update', handleChatListUpdate);
-      socket.off('user-status-changed', handleUserStatusChange);
     };
   }, [socket, isConnected, patchChatInCache]);
 
@@ -385,7 +397,7 @@ const MyWorkspaceDMs = () => {
       if (!participantId || participantId === 'undefined') continue;
 
       const existing = byParticipant.get(participantId);
-      if (!existing || new Date(chat.updatedAt) > new Date(existing.updatedAt)) {
+      if (!existing || new Date(chat.lastMessageAt) > new Date(existing.lastMessageAt)) {
         byParticipant.set(participantId, chat);
       }
     }
@@ -396,16 +408,18 @@ const MyWorkspaceDMs = () => {
           (p) => String(p.user?._id || p.user) !== myId
         );
         const participant = other?.user || other;
+        const lastMessage = chat.lastMessage || null;
+        const lastMessagePreview = getLastMessagePreview(lastMessage, userInfo?._id);
         return {
           chatId: chat._id,
           participant,
-          lastMessage: chat.lastMessage?.content || 'No messages yet',
-          timestamp: chat.updatedAt,
-          unread: chat.unreadCount || 0,
+          lastMessageAt: chat.lastMessageAt || chat.updatedAt,
+          lastMessagePreview,
+          unreadCount: chat.unreadCount || 0,
           isOnline: participant?.online || false,
         };
       })
-      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      .sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
   }, [rawChats, userInfo, workspaceId]);
 
   // ─── Handle starting a new DM ──────────────────────────────────────
@@ -426,13 +440,30 @@ const MyWorkspaceDMs = () => {
         navigate(`/my-workspace/${workspaceId}/chat/${existing._id}`);
         return;
       }
+
+      // ─── Create the DM ──────────────────────────────────────────────
       const result = await createDirectChat({
         workspaceId,
         targetUserId,
       }).unwrap();
+      const newChat = result.chat;
+
+      // ─── 🔥 INSTANT CACHE UPDATE – prevents "Chat not found" ────────
+      dispatch(
+        messagingApiSlice.util.updateQueryData(
+          'getUserChats',
+          workspaceId,
+          (draft) => {
+            if (!draft?.chats) draft.chats = [];
+            if (!draft.chats.some(c => c._id === newChat._id)) {
+              draft.chats.unshift(newChat);
+            }
+          }
+        )
+      );
+
       toast.success('Direct chat created!');
-      refetchChats();
-      navigate(`/my-workspace/${workspaceId}/chat/${result.chat._id}`);
+      navigate(`/my-workspace/${workspaceId}/chat/${newChat._id}`);
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to start DM');
     }
@@ -547,16 +578,20 @@ const MyWorkspaceDMs = () => {
                       <p className="font-semibold text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
                         {name}
                       </p>
-                      <span className="text-xs text-gray-500 dark:text-gray-500 flex-shrink-0">{formatTime(dm.timestamp)}</span>
+                      <span className="text-xs text-gray-500 dark:text-gray-500 flex-shrink-0">
+                        {formatLastMessageTime(dm.lastMessageAt)}
+                      </span>
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <p className="text-sm text-gray-500 dark:text-gray-400 truncate flex-1">{dm.lastMessage}</p>
-                      {dm.unread > 0 && (
+                      <p className="text-sm text-gray-500 dark:text-gray-400 truncate flex-1">
+                        {dm.lastMessagePreview}
+                      </p>
+                      {dm.unreadCount > 0 && (
                         <span
                           className="text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center flex-shrink-0"
                           style={{ backgroundColor: brandColor }}
                         >
-                          {dm.unread}
+                          {dm.unreadCount}
                         </span>
                       )}
                     </div>

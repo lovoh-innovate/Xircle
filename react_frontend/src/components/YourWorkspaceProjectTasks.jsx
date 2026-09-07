@@ -25,6 +25,8 @@ const YourWorkspaceProjectTasks = ({
   onTaskDrop,
   dragOverTaskId,
   canReorderTasks,
+  onCopyClick,
+  onMoveClick,
 }) => {
   const [folderMenuOpen, setFolderMenuOpen] = useState(null);
   const longPressTimer = useRef(null);
@@ -145,6 +147,8 @@ const YourWorkspaceProjectTasks = ({
                 onDragLeave={onTaskDragLeave}
                 onDrop={onTaskDrop}
                 dragOver={dragOverTaskId === task._id}
+                onCopyClick={onCopyClick}
+                onMoveClick={onMoveClick}
               />
             ))}
           </div>

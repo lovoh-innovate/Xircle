@@ -14,7 +14,7 @@ import {
   useUpdateMessageMutation,
 } from "../slices/messagingApiSlice";
 import { useGetUserChatsQuery } from "../slices/messagingApiSlice";
-import { useGetSavedStickersQuery } from "../slices/stickerApiSlice";
+import { useGetSavedStickersQuery, useSaveStickerMutation } from "../slices/stickerApiSlice";
 import { useSocket } from "../components/SocketContext.jsx";
 import { toast } from "react-hot-toast";
 import {
@@ -29,8 +29,6 @@ import {
   FaPause,
   FaEllipsisV,
   FaTrashAlt,
-  FaArchive,
-  FaUndo,
   FaStar,
   FaRegStar,
   FaReply,
@@ -875,8 +873,6 @@ const MediaMessage = ({
   senderProfile,
   onImageClick,
   onDelete,
-  onArchive,
-  onUnarchive,
   onStar,
   onUnstar,
   onReply,
@@ -889,6 +885,7 @@ const MediaMessage = ({
   onJumpToMessage,
   resolveSender,
   showSenderName = true,
+  onSaveSticker,
 }) => {
   // ── Deleted state ──
   if (message.isDeleted) {
@@ -923,8 +920,8 @@ const MediaMessage = ({
   const swipeTriggered = useRef(false);
   const swipeActive = useRef(false);
 
-  const isArchived = message.archivedBy?.some((id) => id === userId) || false;
   const isStarred = message.starredBy?.some((id) => id === userId) || false;
+  const isSticker = message.messageType === "sticker";
 
   const replyPreview = (() => {
     const replyTo = message?.replyTo;
@@ -1009,6 +1006,17 @@ const MediaMessage = ({
           <FaTrashAlt className="text-xs" /> Delete
         </button>
       )}
+      {!isOwn && isSticker && (
+        <button
+          onClick={() => {
+            setShowMenu(false);
+            if (onSaveSticker) onSaveSticker(message);
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
+        >
+          <FaSave className="text-xs" /> Save Sticker
+        </button>
+      )}
       {isStarred ? (
         <button
           onClick={() => {
@@ -1028,27 +1036,6 @@ const MediaMessage = ({
           className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
         >
           <FaRegStar className="text-xs" /> Star
-        </button>
-      )}
-      {isArchived ? (
-        <button
-          onClick={() => {
-            setShowMenu(false);
-            onUnarchive(message._id);
-          }}
-          className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 rounded-lg transition w-full"
-        >
-          <FaUndo className="text-xs" /> Unarchive
-        </button>
-      ) : (
-        <button
-          onClick={() => {
-            setShowMenu(false);
-            onArchive(message._id);
-          }}
-          className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition w-full"
-        >
-          <FaArchive className="text-xs" /> Archive
         </button>
       )}
     </div>
@@ -1179,7 +1166,7 @@ const MediaMessage = ({
   const maxWidthClass = isMobile ? "max-w-[75%]" : "max-w-[85%]";
 
   // ─── Sticker messages ──────────────────────────────────────────────
-  if (message.messageType === "sticker") {
+  if (isSticker) {
     const sticker = message.sticker;
     if (!sticker) {
       return (
@@ -1220,6 +1207,10 @@ const MediaMessage = ({
           setIsHovering(false);
           setShowMenu(false);
           setShowReactions(false);
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setShowMenu(!showMenu);
         }}
       >
         {isMobile && swipeX > 0 && (
@@ -1292,10 +1283,8 @@ const MediaMessage = ({
                 <MessageTicks message={message} isOwn={isOwn} />
               </div>
 
-              {/* ─── Desktop: chevron + reaction on hover ─── */}
               {!isMobile && isHovering && (
                 <>
-                  {/* Reaction smiley — outside bubble */}
                   <div
                     className={`absolute top-1/2 -translate-y-1/2 z-20 ${
                       isOwn ? "right-full mr-2" : "left-full ml-2"
@@ -1323,7 +1312,6 @@ const MediaMessage = ({
                       />
                     </div>
                   </div>
-                  {/* Chevron menu — inside top-right corner */}
                   <div className="absolute top-1.5 right-1.5 z-20">
                     <button
                       onClick={(e) => {
@@ -1341,7 +1329,6 @@ const MediaMessage = ({
               )}
             </div>
 
-            {/* Reactions display */}
             {message.reactions && message.reactions.length > 0 && (
               <div className="mt-1">
                 <ReactionDisplay
@@ -1371,6 +1358,10 @@ const MediaMessage = ({
           setIsHovering(false);
           setShowMenu(false);
           setShowReactions(false);
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setShowMenu(!showMenu);
         }}
       >
         {isMobile && swipeX > 0 && (
@@ -1454,7 +1445,6 @@ const MediaMessage = ({
                 </div>
               </div>
 
-              {/* ─── Desktop: chevron + reaction on hover ─── */}
               {!isMobile && isHovering && (
                 <>
                   <div
@@ -1501,7 +1491,6 @@ const MediaMessage = ({
               )}
             </div>
 
-            {/* Reactions display */}
             {message.reactions && message.reactions.length > 0 && (
               <div className="mt-1">
                 <ReactionDisplay
@@ -1530,6 +1519,10 @@ const MediaMessage = ({
         setIsHovering(false);
         setShowMenu(false);
         setShowReactions(false);
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setShowMenu(!showMenu);
       }}
     >
       {isMobile && swipeX > 0 && (
@@ -1593,7 +1586,6 @@ const MediaMessage = ({
             {firstUrl && <LinkPreviewCard url={firstUrl} isOwn={isOwn} />}
             {renderMediaContent()}
 
-            {/* ─── Desktop: chevron + reaction on hover ─── */}
             {!isMobile && isHovering && (
               <>
                 <div
@@ -1644,7 +1636,6 @@ const MediaMessage = ({
             )}
           </div>
 
-          {/* Reactions display */}
           {message.reactions && message.reactions.length > 0 && (
             <div className="mt-1">
               <ReactionDisplay
@@ -1786,21 +1777,20 @@ const MessageActionModal = ({
   message,
   isOwn,
   isStarred,
-  isArchived,
   onDelete,
-  onArchive,
-  onUnarchive,
   onStar,
   onUnstar,
   onReply,
   onCopy,
   onReaction,
   onEdit,
+  onSaveSticker,
 }) => {
   const [expanded, setExpanded] = useState(false);
   if (!isOpen || !message) return null;
 
   const reactionEmojis = expanded ? EMOJI_LIST : REACTION_EMOJIS;
+  const isSticker = message.messageType === "sticker";
 
   return (
     <div
@@ -1832,7 +1822,6 @@ const MessageActionModal = ({
           </div>
         </div>
 
-        {/* Reactions row with plus */}
         <div className={`${expanded ? "grid grid-cols-6 gap-2" : "flex flex-wrap justify-around"} mb-3 border-b border-gray-200 dark:border-gray-700/60 pb-3`}>
           {reactionEmojis.map((emoji) => (
             <button
@@ -1899,6 +1888,18 @@ const MessageActionModal = ({
               <span className="text-sm font-medium">Delete for everyone</span>
             </button>
           )}
+          {!isOwn && isSticker && (
+            <button
+              onClick={() => {
+                if (onSaveSticker) onSaveSticker(message);
+                onClose();
+              }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition"
+            >
+              <FaSave className="text-sm" />{" "}
+              <span className="text-sm font-medium">Save Sticker</span>
+            </button>
+          )}
           {isStarred ? (
             <button
               onClick={() => {
@@ -1920,29 +1921,6 @@ const MessageActionModal = ({
             >
               <FaRegStar className="text-sm" />{" "}
               <span className="text-sm font-medium">Star</span>
-            </button>
-          )}
-          {isArchived ? (
-            <button
-              onClick={() => {
-                onUnarchive(message._id);
-                onClose();
-              }}
-              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition"
-            >
-              <FaUndo className="text-sm" />{" "}
-              <span className="text-sm font-medium">Unarchive</span>
-            </button>
-          ) : (
-            <button
-              onClick={() => {
-                onArchive(message._id);
-                onClose();
-              }}
-              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
-            >
-              <FaArchive className="text-sm" />{" "}
-              <span className="text-sm font-medium">Archive</span>
             </button>
           )}
         </div>
@@ -2620,6 +2598,7 @@ const GeneralChatId = () => {
   const [toggleReaction] = useToggleReactionMutation();
   const [updateMessageApi] = useUpdateMessageMutation();
   const { data: savedStickersData } = useGetSavedStickersQuery();
+  const [saveSticker] = useSaveStickerMutation();
 
   useEffect(() => {
     isRecordingRef.current = isRecording;
@@ -3997,24 +3976,6 @@ const GeneralChatId = () => {
     });
   };
 
-  const handleArchiveMessage = async (messageId) => {
-    try {
-      await archiveMessage(messageId).unwrap();
-      toast.success("Archived");
-      refetchMessages();
-    } catch (err) {
-      toast.error(err?.data?.message);
-    }
-  };
-  const handleUnarchiveMessage = async (messageId) => {
-    try {
-      await unarchiveMessage(messageId).unwrap();
-      toast.success("Unarchived");
-      refetchMessages();
-    } catch (err) {
-      toast.error(err?.data?.message);
-    }
-  };
   const handleStarMessage = async (messageId) => {
     try {
       await starMessage(messageId).unwrap();
@@ -4056,6 +4017,20 @@ const GeneralChatId = () => {
 
   const handleEdit = (msg) => {
     handleEditMessage(msg);
+  };
+
+  const handleSaveSticker = async (msg) => {
+    try {
+      const stickerId = msg.sticker?._id || msg.sticker;
+      if (!stickerId) {
+        toast.error("Sticker ID not found");
+        return;
+      }
+      await saveSticker(stickerId).unwrap();
+      toast.success("Sticker saved to your collection!");
+    } catch (err) {
+      toast.error(err?.data?.message || "Failed to save sticker");
+    }
   };
 
   const renderMessagesWithDividers = () => {
@@ -4111,8 +4086,6 @@ const GeneralChatId = () => {
           senderProfile={senderProfile}
           onImageClick={(payload) => setPreviewImage(payload)}
           onDelete={handleDeleteMessage}
-          onArchive={handleArchiveMessage}
-          onUnarchive={handleUnarchiveMessage}
           onStar={handleStarMessage}
           onUnstar={handleUnstarMessage}
           onReply={handleReply}
@@ -4125,6 +4098,7 @@ const GeneralChatId = () => {
           onJumpToMessage={handleJumpToMessage}
           resolveSender={resolveSender}
           showSenderName={showSenderName}
+          onSaveSticker={handleSaveSticker}
         />,
       );
     });
@@ -4282,7 +4256,6 @@ const GeneralChatId = () => {
                   />
                 )}
 
-                {/* Voice note ready bar – green */}
                 {showRecordedPreview && recordingBlob && (
                   <div className="flex items-center justify-between px-3 py-2 mb-2 bg-green-50 dark:bg-green-900/30 rounded-lg border border-green-200 dark:border-green-700/40">
                     <div className="flex items-center gap-2">
@@ -4327,7 +4300,6 @@ const GeneralChatId = () => {
                   </div>
                 )}
 
-                {/* Recording bar – teal */}
                 {isRecording && (
                   <div className="flex items-center justify-between px-3 py-2 mb-2 bg-teal-50 dark:bg-teal-900/30 rounded-lg border border-teal-200 dark:border-teal-700/40">
                     <div className="flex items-center gap-2">
@@ -4706,18 +4678,14 @@ const GeneralChatId = () => {
         isStarred={actionModal.message?.starredBy?.some(
           (id) => id === userInfo?._id,
         )}
-        isArchived={actionModal.message?.archivedBy?.some(
-          (id) => id === userInfo?._id,
-        )}
         onDelete={handleDeleteMessage}
-        onArchive={handleArchiveMessage}
-        onUnarchive={handleUnarchiveMessage}
         onStar={handleStarMessage}
         onUnstar={handleUnstarMessage}
         onReply={handleReply}
         onCopy={handleCopyMessage}
         onReaction={handleReaction}
         onEdit={handleEdit}
+        onSaveSticker={handleSaveSticker}
       />
 
       <MediaPickerModal
