@@ -57,6 +57,7 @@ import {
   FaStickyNote,
 } from "react-icons/fa";
 import GeneralSidebar from "../components/GeneralSidebar";
+import { createPortal } from "react-dom";
 
 import { VoiceRecorder } from "capacitor-voice-recorder";
 import { Capacitor } from "@capacitor/core";
@@ -784,6 +785,42 @@ const ReactionPopover = ({ isOpen, onClose, onSelect }) => {
   );
 };
 
+// ─── Reaction Display (shows reactions below message) ──────────────
+const ReactionDisplay = ({ reactions, userId, onReact }) => {
+  if (!reactions || reactions.length === 0) return null;
+
+  const emojiMap = {};
+  reactions.forEach((r) => {
+    if (!emojiMap[r.emoji]) emojiMap[r.emoji] = { count: 0, users: [] };
+    emojiMap[r.emoji].count += 1;
+    emojiMap[r.emoji].users.push(r.user);
+  });
+
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {Object.entries(emojiMap).map(([emoji, data]) => {
+        const isOwnReaction = data.users.some((u) => u === userId);
+        return (
+          <button
+            key={emoji}
+            onClick={() => onReact(emoji)}
+            className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs transition ${
+              isOwnReaction
+                ? "bg-teal-100 dark:bg-teal-800/50 text-teal-700 dark:text-teal-300"
+                : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+            }`}
+          >
+            <span>{emoji}</span>
+            {data.count > 1 && (
+              <span className="text-[10px] opacity-80">{data.count}</span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
 // ─── Media Message Component ──────────────────────────────────────────
 const MediaMessage = ({
   message,
@@ -830,6 +867,9 @@ const MediaMessage = ({
   const time = safeFormatTime(message.createdAt);
   const [showMenu, setShowMenu] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0, visible: false });
+  const menuButtonRef = useRef(null);
+
   const longPressTimer = useRef(null);
   const isLongPress = useRef(false);
   const touchStartRef = useRef({ x: 0, y: 0 });
@@ -871,7 +911,7 @@ const MediaMessage = ({
 
   const firstUrl = extractFirstUrl(message.content);
 
-  // Touch handlers for swipe reply
+  // Touch handlers for swipe reply (mobile)
   const handleTouchStart = (e) => {
     if (!isMobile) return;
     const touch = e.touches[0];
@@ -927,18 +967,55 @@ const MediaMessage = ({
 
   const toggleMenu = (e) => {
     e.stopPropagation();
-    setShowMenu(!showMenu);
+    if (showMenu) {
+      setShowMenu(false);
+      setMenuPosition({ ...menuPosition, visible: false });
+      return;
+    }
+    // Calculate position for portal
+    const btn = menuButtonRef.current;
+    if (btn) {
+      const rect = btn.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const menuWidth = 180; // approximate
+      const menuHeight = 200; // approximate
+
+      let left = rect.right - menuWidth;
+      if (left < 10) left = 10;
+      if (left + menuWidth > viewportWidth - 10) left = viewportWidth - menuWidth - 10;
+
+      let top = rect.bottom + 10;
+      if (top + menuHeight > viewportHeight - 10) {
+        top = rect.top - menuHeight - 10;
+      }
+      if (top < 10) top = 10;
+
+      setMenuPosition({ top, left, visible: true });
+    }
+    setShowMenu(true);
     setShowReactions(false);
   };
-  const closeMenu = () => setShowMenu(false);
-  const menuRef = useRef(null);
+
+  const closeMenu = () => {
+    setShowMenu(false);
+    setMenuPosition({ ...menuPosition, visible: false });
+  };
+
+  // Close on outside click
   useEffect(() => {
+    if (!showMenu) return;
     const handler = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) closeMenu();
+      if (menuButtonRef.current && !menuButtonRef.current.contains(e.target)) {
+        // Check if click is inside portal menu
+        const portalMenu = document.getElementById('message-menu-portal');
+        if (portalMenu && portalMenu.contains(e.target)) return;
+        closeMenu();
+      }
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showMenu]);
 
   const handleDownload = (e) => {
     e.stopPropagation();
@@ -1012,7 +1089,8 @@ const MediaMessage = ({
 
   const renderMenuItems = () => (
     <div
-      className="absolute right-0 top-8 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[160px] z-10 py-1"
+      className="bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[160px] py-1"
+      style={{ width: '180px' }}
       onClick={(e) => e.stopPropagation()}
     >
       <button
@@ -1101,7 +1179,7 @@ const MediaMessage = ({
   const renderReactionButton = () => {
     if (isMobile) return null;
     return (
-      <div className="relative inline-block">
+      <div className="relative inline-block ml-1">
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -1131,7 +1209,7 @@ const MediaMessage = ({
     return (
       <div
         data-message-id={message._id}
-        className="relative"
+        className="relative message-container"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
         onTouchMove={handleTouchMove}
@@ -1216,8 +1294,8 @@ const MediaMessage = ({
               </div>
               {!isMobile && (
                 <div
-                  className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition"
-                  ref={menuRef}
+                  className="absolute top-1.5 right-1.5 flex items-center gap-1 transition"
+                  ref={menuButtonRef}
                   onClick={(e) => e.stopPropagation()}
                 >
                   {renderReactionButton()}
@@ -1227,10 +1305,19 @@ const MediaMessage = ({
                   >
                     <FaEllipsisV className="text-xs" />
                   </button>
-                  {showMenu && renderMenuItems()}
                 </div>
               )}
             </div>
+            {/* Reactions display */}
+            {message.reactions && message.reactions.length > 0 && (
+              <div className="mt-1 ml-1">
+                <ReactionDisplay
+                  reactions={message.reactions}
+                  userId={userId}
+                  onReact={(emoji) => onReaction(message._id, emoji)}
+                />
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1241,7 +1328,7 @@ const MediaMessage = ({
   return (
     <div
       data-message-id={message._id}
-      className="relative"
+      className="relative message-container"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
       onTouchMove={handleTouchMove}
@@ -1307,30 +1394,52 @@ const MediaMessage = ({
             {firstUrl && <LinkPreviewCard url={firstUrl} isOwn={isOwn} />}
             {renderMediaContent()}
             {!isMobile && (
-              <div className="absolute -bottom-4 right-0 opacity-0 group-hover:opacity-100 transition">
+              <div className="absolute -bottom-4 right-0 flex items-center gap-1 transition">
                 {renderReactionButton()}
               </div>
             )}
           </div>
+          {/* Reactions display */}
+          {message.reactions && message.reactions.length > 0 && (
+            <div className="mt-1 ml-1">
+              <ReactionDisplay
+                reactions={message.reactions}
+                userId={userId}
+                onReact={(emoji) => onReaction(message._id, emoji)}
+              />
+            </div>
+          )}
           <div
             className={`flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 ${isOwn ? "flex-row-reverse" : ""}`}
           >
             <span>{time}</span>
             <MessageTicks message={message} isOwn={isOwn} />
             {!isMobile && (
-              <div className="relative ml-2" ref={menuRef}>
+              <div className="relative ml-2">
                 <button
+                  ref={menuButtonRef}
                   onClick={toggleMenu}
                   className="text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition p-0.5"
                 >
                   <FaEllipsisV className="text-xs" />
                 </button>
-                {showMenu && renderMenuItems()}
               </div>
             )}
           </div>
         </div>
       </div>
+
+      {/* Portal menu */}
+      {!isMobile && showMenu && menuPosition.visible && createPortal(
+        <div
+          id="message-menu-portal"
+          className="fixed z-50"
+          style={{ top: menuPosition.top, left: menuPosition.left }}
+        >
+          {renderMenuItems()}
+        </div>,
+        document.body
+      )}
     </div>
   );
 };
