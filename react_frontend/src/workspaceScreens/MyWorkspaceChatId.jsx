@@ -60,6 +60,7 @@ import {
   FaStickyNote,
   FaPlus,
   FaChevronUp,
+  FaMicrophoneAlt, // <-- added for voice note icon overlay
 } from "react-icons/fa";
 import { toast } from "react-hot-toast";
 
@@ -1147,26 +1148,46 @@ const MessageTicks = ({ message, isOwn }) => {
   );
 };
 
-// ─── Audio Player with speed control (1x, 2x, 3x) ──────────────────
+// ─── Enhanced Audio Player (with profile picture + speed overlay) ──
 const AudioPlayer = ({
   src,
   isOwn,
   duration: initialDuration,
   onDurationReady,
-  brandColor,
+  messageId,
+  allMessages,
+  onAudioEnd,
+  onAudioStart,
+  senderProfile,
+  senderName,
 }) => {
   const audioRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(initialDuration || 0);
   const [speed, setSpeed] = useState(1);
+  const [hasEnded, setHasEnded] = useState(false);
 
   const WAVEFORM_BARS = [
-    6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6, 10,
+    6, 11, 15, 9, 17, 12, 7, 14, 18, 10, 6, 13, 16, 11, 8, 15, 12, 7, 13, 9, 6,
+    10,
   ];
 
   const waveformContainerRef = useRef(null);
   const isDraggingRef = useRef(false);
+
+  // Find index of this message in the sorted list
+  const currentIndex = allMessages?.findIndex((m) => m._id === messageId) ?? -1;
+
+  const findNextAudio = useCallback(() => {
+    if (currentIndex === -1 || !allMessages) return null;
+    for (let i = currentIndex + 1; i < allMessages.length; i++) {
+      const msg = allMessages[i];
+      if (msg.messageType !== 'audio') break;
+      return msg;
+    }
+    return null;
+  }, [currentIndex, allMessages]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -1184,20 +1205,26 @@ const AudioPlayer = ({
         onDurationReady?.(dur);
       }
     };
-    const handleEnded = () => setIsPlaying(false);
+    const handleEnded = () => {
+      setIsPlaying(false);
+      setHasEnded(true);
+      if (onAudioEnd) {
+        const next = findNextAudio();
+        onAudioEnd(messageId, next?._id);
+      }
+    };
 
-    audio.addEventListener('timeupdate', handleTimeUpdate);
-    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
-    audio.addEventListener('ended', handleEnded);
+    audio.addEventListener("timeupdate", handleTimeUpdate);
+    audio.addEventListener("loadedmetadata", handleLoadedMetadata);
+    audio.addEventListener("ended", handleEnded);
 
     return () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
-      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
-      audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener("timeupdate", handleTimeUpdate);
+      audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      audio.removeEventListener("ended", handleEnded);
     };
-  }, [onDurationReady]);
+  }, [onDurationReady, onAudioEnd, messageId, findNextAudio]);
 
-  // When speed changes, update the audio element
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.playbackRate = speed;
@@ -1209,10 +1236,13 @@ const AudioPlayer = ({
     if (!audio) return;
     if (isPlaying) {
       audio.pause();
+      setIsPlaying(false);
     } else {
       audio.play().catch(() => {});
+      setIsPlaying(true);
+      setHasEnded(false);
+      if (onAudioStart) onAudioStart(messageId);
     }
-    setIsPlaying(!isPlaying);
   };
 
   const cycleSpeed = () => {
@@ -1270,25 +1300,58 @@ const AudioPlayer = ({
 
   const progressPercent = duration ? (currentTime / duration) * 100 : 0;
 
+  // Profile picture with speed overlay
+  const renderProfileWithIcon = () => (
+    <div className="relative flex-shrink-0" style={{ pointerEvents: "none" }}>
+      <div
+        className="w-8 h-8 sm:w-9 sm:h-9 rounded-md overflow-hidden cursor-pointer select-none"
+        onClick={isPlaying ? cycleSpeed : undefined}
+        style={{ border: isPlaying ? "2px solid #0d9488" : "none", pointerEvents: "auto" }}
+      >
+        {senderProfile ? (
+          <img
+            src={senderProfile}
+            alt={senderName || "User"}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <div className="w-full h-full bg-gray-300 dark:bg-gray-700 flex items-center justify-center text-white text-xs font-bold">
+            {senderName?.charAt(0).toUpperCase() || "?"}
+          </div>
+        )}
+        {isPlaying && (
+          <div className="absolute inset-0 bg-black/50 rounded-md flex items-center justify-center text-white font-bold text-xs sm:text-sm pointer-events-none">
+            {speed}x
+          </div>
+        )}
+      </div>
+      {/* Voice note icon overlay - bottom-left */}
+      <div className="absolute -bottom-0.5 -left-0.5 bg-teal-500 rounded-full p-0.5 border-2 border-white dark:border-[#0f0f12] shadow-sm pointer-events-none">
+        <FaMicrophoneAlt className="text-[8px] sm:text-[10px] text-white" />
+      </div>
+    </div>
+  );
+
   return (
-    <div className="flex items-center gap-2.5 min-w-[220px] py-0.5">
+    <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0 w-full py-0.5">
+      {isOwn && renderProfileWithIcon()}
       <button
         onClick={togglePlay}
-        className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+        className="w-7 h-7 sm:w-9 sm:h-9 rounded-full flex items-center justify-center flex-shrink-0"
         style={{
-          backgroundColor: isOwn ? 'rgba(255,255,255,0.2)' : brandColor,
+          backgroundColor: isOwn ? "rgba(255,255,255,0.2)" : "#0d9488",
         }}
       >
         {isPlaying ? (
-          <FaPause className="text-xs text-white" />
+          <FaPause className="text-[10px] sm:text-xs text-white" />
         ) : (
-          <FaPlay className="text-xs text-white ml-0.5" />
+          <FaPlay className="text-[10px] sm:text-xs text-white ml-0.5" />
         )}
       </button>
 
       <div
         ref={waveformContainerRef}
-        className="flex-1 flex items-center h-6 relative cursor-pointer"
+        className="flex-1 min-w-0 flex items-center h-6 relative cursor-pointer"
         onClick={handleWaveformClick}
         onMouseDown={handleSeekStart}
         onMouseMove={handleSeekMove}
@@ -1298,23 +1361,23 @@ const AudioPlayer = ({
         onTouchMove={handleSeekMove}
         onTouchEnd={handleSeekEnd}
       >
-        <div className="flex items-center gap-[2px] h-full w-full">
+        <div className="flex items-center gap-[1.5px] sm:gap-[2px] h-full w-full">
           {WAVEFORM_BARS.map((h, i) => {
             const barIndex = i / WAVEFORM_BARS.length;
             const isFilled = barIndex <= progressPercent / 100;
             return (
               <span
                 key={i}
-                className="w-[2.5px] rounded-full transition-all"
+                className="w-[2px] sm:w-[2.5px] rounded-full transition-all"
                 style={{
                   height: `${h * 2}px`,
                   backgroundColor: isOwn
                     ? isFilled
-                      ? 'rgba(255,255,255,0.9)'
-                      : 'rgba(255,255,255,0.3)'
+                      ? "rgba(255,255,255,0.9)"
+                      : "rgba(255,255,255,0.3)"
                     : isFilled
-                      ? brandColor
-                      : '#d1d5db',
+                      ? "#0d9488"
+                      : "#d1d5db",
                   opacity: isFilled ? 1 : 0.4,
                 }}
               />
@@ -1324,23 +1387,14 @@ const AudioPlayer = ({
       </div>
 
       <span
-        className={`text-[10px] flex-shrink-0 ${isOwn ? 'text-white/70' : 'text-gray-500 dark:text-gray-400'}`}
+        className={`text-[8px] sm:text-[10px] flex-shrink-0 ${
+          isOwn ? "text-white/70" : "text-gray-500 dark:text-gray-400"
+        }`}
       >
         {formatTime(currentTime)} / {formatTime(duration)}
       </span>
 
-      {/* Speed control - cycles 1x, 2x, 3x */}
-      <button
-        onClick={cycleSpeed}
-        className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full border flex-shrink-0 transition ${
-          isOwn
-            ? "border-white/30 text-white/80 hover:bg-white/10"
-            : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/30"
-        }`}
-        style={{ minWidth: "24px" }}
-      >
-        {speed}x
-      </button>
+      {!isOwn && renderProfileWithIcon()}
 
       <audio ref={audioRef} src={src} className="hidden" />
     </div>
@@ -1362,7 +1416,7 @@ const ReactionPopover = ({ isOpen, onClose, onSelect, align = "center" }) => {
 
   return (
     <div
-      className={`absolute bottom-full mb-2 bg-white dark:bg-[#1e1e26] shadow-lg border border-gray-200 dark:border-gray-800/60 p-2 z-30 ${alignClass} ${
+      className={`absolute bottom-full mb-2 bg-white dark:bg-[#1e1e26] shadow-lg border border-gray-200 dark:border-gray-800/60 p-2 z-[70] ${alignClass} ${
         expanded ? "rounded-xl min-w-[220px] max-h-56 overflow-y-auto" : "rounded-full"
       }`}
       onClick={(e) => e.stopPropagation()}
@@ -1555,7 +1609,7 @@ const ReplyPreview = ({ replyTo, onCancel, brandColor, resolveSender }) => {
   );
 };
 
-// ─── Media Message Component (with link previews, reactions, stickers) ──
+// ─── Media Message Component (with updated z-index, sticker video loading, smaller sticker size) ──
 const MediaMessage = ({
   message,
   isOwn,
@@ -1579,13 +1633,14 @@ const MediaMessage = ({
   allMessages,
   onJumpToMessage,
   resolveSender,
-  showSenderInfo = false, // DM: hide sender info
+  onAudioEnd,
+  onAudioStart,
 }) => {
   // ── Deleted state ──
   if (message.isDeleted) {
     return (
       <div className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}>
-        {!isOwn && showSenderInfo && (
+        {!isOwn && (
           <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
             <FaUser className="text-gray-400 dark:text-gray-500" />
           </div>
@@ -1602,6 +1657,7 @@ const MediaMessage = ({
   const [showMenu, setShowMenu] = useState(false);
   const [showReactions, setShowReactions] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
+  const [videoLoaded, setVideoLoaded] = useState(false);
 
   const longPressTimer = useRef(null);
   const isLongPress = useRef(false);
@@ -1656,7 +1712,7 @@ const MediaMessage = ({
   // ─── Desktop dropdown menu ──────────────────────────────────────
   const renderDesktopMenu = () => (
     <div
-      className={`absolute top-full mt-1 z-30 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[170px] py-1 ${
+      className={`absolute top-full mt-1 z-[70] bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[170px] py-1 ${
         isOwn ? "right-0" : "left-0"
       }`}
       onClick={(e) => e.stopPropagation()}
@@ -1837,8 +1893,13 @@ const MediaMessage = ({
             src={message.mediaUrl}
             isOwn={isOwn}
             duration={message.mediaDuration}
-            brandColor={brandColor}
             onDurationReady={(dur) => {}}
+            messageId={message._id}
+            allMessages={allMessages}
+            onAudioEnd={onAudioEnd}
+            onAudioStart={onAudioStart}
+            senderProfile={senderProfile}
+            senderName={senderName}
           />
         );
       case "file":
@@ -1922,7 +1983,7 @@ const MediaMessage = ({
           className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
           style={isMobile ? swipeStyle : undefined}
         >
-          {!isOwn && showSenderInfo && (
+          {!isOwn && (
             <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
               {senderProfile ? (
                 <img src={senderProfile} alt={senderName} className="w-full h-full object-cover" />
@@ -1937,7 +1998,7 @@ const MediaMessage = ({
             </div>
           )}
           <div className={`${maxWidthClass} relative ${isOwn ? "items-end" : "items-start"} flex flex-col`}>
-            {showSenderInfo && !isOwn && (
+            {!isOwn && (
               <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1 mb-0.5">{senderName}</span>
             )}
             {replyPreview && (
@@ -1946,11 +2007,27 @@ const MediaMessage = ({
               </div>
             )}
             <div className="relative">
-              <div className="rounded-lg overflow-hidden max-w-[200px] max-h-[200px]">
+              <div className="rounded-lg overflow-hidden max-w-[150px] max-h-[150px] bg-transparent">
                 {sticker.type === "image" ? (
                   <img src={sticker.fileUrl} alt="sticker" className="w-full h-full object-contain" />
                 ) : (
-                  <video src={sticker.fileUrl} className="w-full h-full object-contain" muted loop autoPlay />
+                  <>
+                    {!videoLoaded && (
+                      <div className="w-full h-full flex items-center justify-center bg-gray-100 dark:bg-gray-800/30 animate-pulse">
+                        <FaSpinner className="text-gray-400 animate-spin text-lg" />
+                      </div>
+                    )}
+                    <video
+                      src={sticker.fileUrl}
+                      className={`w-full h-full object-contain ${videoLoaded ? "block" : "hidden"}`}
+                      muted
+                      loop
+                      autoPlay
+                      playsInline
+                      preload="metadata"
+                      onLoadedMetadata={() => setVideoLoaded(true)}
+                    />
+                  </>
                 )}
               </div>
               <div className="absolute bottom-1 right-1 flex items-center gap-1 text-[10px] text-white bg-black/40 px-1.5 py-0.5 rounded-full">
@@ -1960,7 +2037,7 @@ const MediaMessage = ({
 
               {!isMobile && isHovering && (
                 <>
-                  <div className={`absolute top-1/2 -translate-y-1/2 z-20 ${isOwn ? "right-full mr-2" : "left-full ml-2"}`}>
+                  <div className={`absolute top-1/2 -translate-y-1/2 z-[60] ${isOwn ? "right-full mr-2" : "left-full ml-2"}`}>
                     <div className="relative">
                       <button
                         onClick={(e) => {
@@ -1983,7 +2060,7 @@ const MediaMessage = ({
                       />
                     </div>
                   </div>
-                  <div className="absolute top-1.5 right-1.5 z-20">
+                  <div className="absolute top-1.5 right-1.5 z-[60]">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -2047,7 +2124,7 @@ const MediaMessage = ({
           className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
           style={isMobile ? swipeStyle : undefined}
         >
-          {!isOwn && showSenderInfo && (
+          {!isOwn && (
             <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
               {senderProfile ? (
                 <img src={senderProfile} alt={senderName} className="w-full h-full object-cover" />
@@ -2062,7 +2139,7 @@ const MediaMessage = ({
             </div>
           )}
           <div className={`${maxWidthClass} ${isOwn ? "items-end" : "items-start"} flex flex-col`}>
-            {showSenderInfo && !isOwn && (
+            {!isOwn && (
               <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1 mb-0.5">{senderName}</span>
             )}
             {replyPreview && (
@@ -2096,7 +2173,7 @@ const MediaMessage = ({
 
               {!isMobile && isHovering && (
                 <>
-                  <div className={`absolute top-1/2 -translate-y-1/2 z-20 ${isOwn ? "right-full mr-2" : "left-full ml-2"}`}>
+                  <div className={`absolute top-1/2 -translate-y-1/2 z-[60] ${isOwn ? "right-full mr-2" : "left-full ml-2"}`}>
                     <div className="relative">
                       <button
                         onClick={(e) => {
@@ -2119,7 +2196,7 @@ const MediaMessage = ({
                       />
                     </div>
                   </div>
-                  <div className="absolute top-1.5 right-1.5 z-20">
+                  <div className="absolute top-1.5 right-1.5 z-[60]">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -2182,7 +2259,7 @@ const MediaMessage = ({
         className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}
         style={isMobile ? swipeStyle : undefined}
       >
-        {!isOwn && showSenderInfo && (
+        {!isOwn && (
           <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden">
             {senderProfile ? (
               <img src={senderProfile} alt={senderName} className="w-full h-full object-cover" />
@@ -2196,8 +2273,8 @@ const MediaMessage = ({
             )}
           </div>
         )}
-        <div className={`${maxWidthClass} relative ${isOwn ? "items-end" : "items-start"} flex flex-col gap-0.5`}>
-          {showSenderInfo && !isOwn && (
+        <div className={`${maxWidthClass} ${isOwn ? "items-end" : "items-start"} flex flex-col gap-0.5`}>
+          {!isOwn && (
             <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1">{senderName}</span>
           )}
           <div
@@ -2219,7 +2296,7 @@ const MediaMessage = ({
 
             {!isMobile && isHovering && (
               <>
-                <div className={`absolute top-1/2 -translate-y-1/2 z-20 ${isOwn ? "right-full mr-2" : "left-full ml-2"}`}>
+                <div className={`absolute top-1/2 -translate-y-1/2 z-[60] ${isOwn ? "right-full mr-2" : "left-full ml-2"}`}>
                   <div className="relative">
                     <button
                       onClick={(e) => {
@@ -2242,7 +2319,7 @@ const MediaMessage = ({
                     />
                   </div>
                 </div>
-                <div className="absolute top-1.5 right-1.5 z-20">
+                <div className="absolute top-1.5 right-1.5 z-[60]">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -2362,6 +2439,19 @@ const MyWorkspaceChatId = () => {
   const [updateMessageApi] = useUpdateMessageMutation();
   const { data: savedStickersData } = useGetSavedStickersQuery();
   const [saveSticker] = useSaveStickerMutation();
+
+  // ─── Audio auto‑play state ──────────────────────────────────────
+  const [currentlyPlayingAudio, setCurrentlyPlayingAudio] = useState(null);
+
+  const handleAudioStart = useCallback((messageId) => {
+    setCurrentlyPlayingAudio(messageId);
+  }, []);
+
+  const handleAudioEndWithAutoPlay = useCallback((endedId) => {
+    if (currentlyPlayingAudio === endedId) {
+      setCurrentlyPlayingAudio(null);
+    }
+  }, [currentlyPlayingAudio]);
 
   // ─── Voice recording states ──────────────────────────────────────
   const [isRecording, setIsRecording] = useState(false);
@@ -2761,6 +2851,12 @@ const MyWorkspaceChatId = () => {
       toast.error("Not connected");
       return;
     }
+    // Find the full sticker object from saved stickers
+    const stickerObj = savedStickersData?.stickers?.find(s => s._id === stickerId);
+    if (!stickerObj) {
+      toast.error("Sticker not found");
+      return;
+    }
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const senderWithName = {
       ...userInfo,
@@ -2780,7 +2876,7 @@ const MyWorkspaceChatId = () => {
       createdAt: new Date().toISOString(),
       messageType: "sticker",
       chat: chatId,
-      sticker: stickerId,
+      sticker: stickerObj, // full object
       replyTo: replyToMessage ? { _id: replyToMessage._id } : null,
     };
     setLocalMessages((prev) => [...prev, optimisticMsg]);
@@ -3840,6 +3936,8 @@ const MyWorkspaceChatId = () => {
           onJumpToMessage={handleJumpToMessage}
           resolveSender={resolveSender}
           showSenderInfo={false} // DM: hide sender info
+          onAudioEnd={handleAudioEndWithAutoPlay}
+          onAudioStart={handleAudioStart}
         />
       );
     });

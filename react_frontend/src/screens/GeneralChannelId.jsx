@@ -74,6 +74,7 @@ import {
   FaSave,
   FaUndoAlt,
   FaStickyNote,
+  FaMicrophoneAlt, // added for voice note icon
 } from "react-icons/fa";
 import GeneralSidebar from "../components/GeneralSidebar";
 
@@ -451,7 +452,8 @@ const MediaPickerModal = ({ isOpen, onClose, onTakePhoto, onChooseFromGallery })
   );
 };
 
-// ─── Audio Player with waveform, speed, and auto‑play ────────────
+// ─── Audio Player (with profile pic + speed overlay, fixed z‑index) ──
+// This is the enhanced version ported from GeneralChatId
 const AudioPlayer = ({
   src,
   isOwn,
@@ -461,6 +463,8 @@ const AudioPlayer = ({
   allMessages,
   onAudioEnd,
   onAudioStart,
+  senderProfile,
+  senderName,
 }) => {
   const audioRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -480,14 +484,11 @@ const AudioPlayer = ({
   // Find index of this message in the sorted list
   const currentIndex = allMessages?.findIndex((m) => m._id === messageId) ?? -1;
 
-  // Find the next consecutive audio message (skip non‑audio)
   const findNextAudio = useCallback(() => {
     if (currentIndex === -1 || !allMessages) return null;
     for (let i = currentIndex + 1; i < allMessages.length; i++) {
       const msg = allMessages[i];
-      // If the next message is not audio, stop searching (no consecutive audio)
       if (msg.messageType !== 'audio') break;
-      // But if it is audio, return it
       return msg;
     }
     return null;
@@ -512,7 +513,6 @@ const AudioPlayer = ({
     const handleEnded = () => {
       setIsPlaying(false);
       setHasEnded(true);
-      // Tell parent that this audio ended
       if (onAudioEnd) {
         const next = findNextAudio();
         onAudioEnd(messageId, next?._id);
@@ -530,25 +530,11 @@ const AudioPlayer = ({
     };
   }, [onDurationReady, onAudioEnd, messageId, findNextAudio]);
 
-  // When speed changes, update the audio element
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.playbackRate = speed;
     }
   }, [speed]);
-
-  // If autoplay is triggered externally, play
-  const playAudio = useCallback(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.play().catch(() => {});
-    setIsPlaying(true);
-    setHasEnded(false);
-    if (onAudioStart) onAudioStart(messageId);
-  }, [onAudioStart, messageId]);
-
-  // Expose play to parent via ref (optional, but we'll use the callback)
-  // We'll use the onAudioEnd callback to start the next one.
 
   const togglePlay = () => {
     const audio = audioRef.current;
@@ -619,25 +605,58 @@ const AudioPlayer = ({
 
   const progressPercent = duration ? (currentTime / duration) * 100 : 0;
 
+  // Profile picture with speed overlay
+  const renderProfileWithIcon = () => (
+    <div className="relative flex-shrink-0" style={{ pointerEvents: "none" }}>
+      <div
+        className="w-8 h-8 sm:w-9 sm:h-9 rounded-md overflow-hidden cursor-pointer select-none"
+        onClick={isPlaying ? cycleSpeed : undefined}
+        style={{ border: isPlaying ? "2px solid #0d9488" : "none", pointerEvents: "auto" }}
+      >
+        {senderProfile ? (
+          <img
+            src={senderProfile}
+            alt={senderName || "User"}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <div className="w-full h-full bg-gray-300 dark:bg-gray-700 flex items-center justify-center text-white text-xs font-bold">
+            {senderName?.charAt(0).toUpperCase() || "?"}
+          </div>
+        )}
+        {isPlaying && (
+          <div className="absolute inset-0 bg-black/50 rounded-md flex items-center justify-center text-white font-bold text-xs sm:text-sm pointer-events-none">
+            {speed}x
+          </div>
+        )}
+      </div>
+      {/* Voice note icon overlay - bottom-left */}
+      <div className="absolute -bottom-0.5 -left-0.5 bg-teal-500 rounded-full p-0.5 border-2 border-white dark:border-[#0f0f12] shadow-sm pointer-events-none">
+        <FaMicrophoneAlt className="text-[8px] sm:text-[10px] text-white" />
+      </div>
+    </div>
+  );
+
   return (
-    <div className="flex items-center gap-2.5 min-w-[220px] py-0.5">
+    <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0 w-full py-0.5">
+      {isOwn && renderProfileWithIcon()}
       <button
         onClick={togglePlay}
-        className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+        className="w-7 h-7 sm:w-9 sm:h-9 rounded-full flex items-center justify-center flex-shrink-0"
         style={{
           backgroundColor: isOwn ? "rgba(255,255,255,0.2)" : "#0d9488",
         }}
       >
         {isPlaying ? (
-          <FaPause className="text-xs text-white" />
+          <FaPause className="text-[10px] sm:text-xs text-white" />
         ) : (
-          <FaPlay className="text-xs text-white ml-0.5" />
+          <FaPlay className="text-[10px] sm:text-xs text-white ml-0.5" />
         )}
       </button>
 
       <div
         ref={waveformContainerRef}
-        className="flex-1 flex items-center h-6 relative cursor-pointer"
+        className="flex-1 min-w-0 flex items-center h-6 relative cursor-pointer"
         onClick={handleWaveformClick}
         onMouseDown={handleSeekStart}
         onMouseMove={handleSeekMove}
@@ -647,14 +666,14 @@ const AudioPlayer = ({
         onTouchMove={handleSeekMove}
         onTouchEnd={handleSeekEnd}
       >
-        <div className="flex items-center gap-[2px] h-full w-full">
+        <div className="flex items-center gap-[1.5px] sm:gap-[2px] h-full w-full">
           {WAVEFORM_BARS.map((h, i) => {
             const barIndex = i / WAVEFORM_BARS.length;
             const isFilled = barIndex <= progressPercent / 100;
             return (
               <span
                 key={i}
-                className="w-[2.5px] rounded-full transition-all"
+                className="w-[2px] sm:w-[2.5px] rounded-full transition-all"
                 style={{
                   height: `${h * 2}px`,
                   backgroundColor: isOwn
@@ -673,23 +692,14 @@ const AudioPlayer = ({
       </div>
 
       <span
-        className={`text-[10px] flex-shrink-0 ${isOwn ? "text-white/70" : "text-gray-500 dark:text-gray-400"}`}
+        className={`text-[8px] sm:text-[10px] flex-shrink-0 ${
+          isOwn ? "text-white/70" : "text-gray-500 dark:text-gray-400"
+        }`}
       >
         {formatTime(currentTime)} / {formatTime(duration)}
       </span>
 
-      {/* Speed control */}
-      <button
-        onClick={cycleSpeed}
-        className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full border flex-shrink-0 transition ${
-          isOwn
-            ? "border-white/30 text-white/80 hover:bg-white/10"
-            : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/30"
-        }`}
-        style={{ minWidth: "24px" }}
-      >
-        {speed}x
-      </button>
+      {!isOwn && renderProfileWithIcon()}
 
       <audio ref={audioRef} src={src} className="hidden" />
     </div>
@@ -783,7 +793,7 @@ const ReactionPopover = ({ isOpen, onClose, onSelect, align = "center" }) => {
 
   return (
     <div
-      className={`absolute bottom-full mb-2 bg-white dark:bg-[#1e1e26] shadow-lg border border-gray-200 dark:border-gray-800/60 p-2 z-30 ${alignClass} ${
+      className={`absolute bottom-full mb-2 bg-white dark:bg-[#1e1e26] shadow-lg border border-gray-200 dark:border-gray-800/60 p-2 z-[70] ${alignClass} ${
         expanded ? "rounded-xl min-w-[220px] max-h-56 overflow-y-auto" : "rounded-full"
       }`}
       onClick={(e) => e.stopPropagation()}
@@ -946,7 +956,7 @@ const MediaMessage = ({
   onSaveSticker,
   onAudioEnd,
   onAudioStart,
-  isAdmin = false, // new prop for admin delete permission
+  isAdmin = false,
 }) => {
   // ── Deleted state ──
   if (message.isDeleted) {
@@ -1026,7 +1036,7 @@ const MediaMessage = ({
   // ─── Desktop dropdown menu ──────────────────────────────────────
   const renderDesktopMenu = () => (
     <div
-      className={`absolute top-full mt-1 z-30 bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[170px] py-1 ${
+      className={`absolute top-full mt-1 z-[70] bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[170px] py-1 ${
         isOwn ? "right-0" : "left-0"
       }`}
       onClick={(e) => e.stopPropagation()}
@@ -1052,7 +1062,6 @@ const MediaMessage = ({
           <FaPencilAlt className="text-xs" /> Edit
         </button>
       )}
-      {/* Show delete if own OR admin */}
       {(isOwn || isAdmin) && (
         <button
           onClick={() => {
@@ -1210,6 +1219,8 @@ const MediaMessage = ({
             allMessages={allMessages}
             onAudioEnd={onAudioEnd}
             onAudioStart={onAudioStart}
+            senderProfile={senderProfile}   // <-- added
+            senderName={senderName}         // <-- added
           />
         );
       case "file":
@@ -1386,7 +1397,7 @@ const MediaMessage = ({
               {!isMobile && isHovering && (
                 <>
                   <div
-                    className={`absolute top-1/2 -translate-y-1/2 z-20 ${
+                    className={`absolute top-1/2 -translate-y-1/2 z-[60] ${
                       isOwn ? "right-full mr-2" : "left-full ml-2"
                     }`}
                   >
@@ -1412,7 +1423,7 @@ const MediaMessage = ({
                       />
                     </div>
                   </div>
-                  <div className="absolute top-1.5 right-1.5 z-20">
+                  <div className="absolute top-1.5 right-1.5 z-[60]">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1555,7 +1566,7 @@ const MediaMessage = ({
               {!isMobile && isHovering && (
                 <>
                   <div
-                    className={`absolute top-1/2 -translate-y-1/2 z-20 ${
+                    className={`absolute top-1/2 -translate-y-1/2 z-[60] ${
                       isOwn ? "right-full mr-2" : "left-full ml-2"
                     }`}
                   >
@@ -1581,7 +1592,7 @@ const MediaMessage = ({
                       />
                     </div>
                   </div>
-                  <div className="absolute top-1.5 right-1.5 z-20">
+                  <div className="absolute top-1.5 right-1.5 z-[60]">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1614,6 +1625,7 @@ const MediaMessage = ({
   }
 
   // ─── Text and other messages ──────────────────────────────────────
+  // (Restructured to place hover buttons as siblings of the bubble)
   return (
     <div
       data-message-id={message._id}
@@ -1677,33 +1689,36 @@ const MediaMessage = ({
               {senderName}
             </button>
           )}
-          <div
-            className={`relative px-4 py-2.5 rounded-2xl text-sm break-words w-full ${
-              isOwn
-                ? "text-white"
-                : "bg-gray-100 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200"
-            }`}
-            style={isOwn ? { backgroundColor: "#0d9488" } : {}}
-          >
-            {replyPreview && (
-              <QuotedReplyBlock
-                replyData={replyPreview}
-                isOwn={isOwn}
-                onJump={onJumpToMessage}
-              />
-            )}
-            {message.content && (
-              <p className="mb-2 pr-5 whitespace-pre-wrap break-words">
-                <LinkifiedText text={message.content} isOwn={isOwn} />
-              </p>
-            )}
-            {firstUrl && <LinkPreviewCard url={firstUrl} isOwn={isOwn} />}
-            {renderMediaContent()}
+          {/* Wrapper for bubble + hover buttons (no overflow-hidden) */}
+          <div className="relative w-full">
+            <div
+              className={`relative px-4 py-2.5 rounded-2xl text-sm break-words w-full ${
+                isOwn
+                  ? "text-white"
+                  : "bg-gray-100 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200"
+              }`}
+              style={isOwn ? { backgroundColor: "#0d9488" } : {}}
+            >
+              {replyPreview && (
+                <QuotedReplyBlock
+                  replyData={replyPreview}
+                  isOwn={isOwn}
+                  onJump={onJumpToMessage}
+                />
+              )}
+              {message.content && (
+                <p className="mb-2 pr-5 whitespace-pre-wrap break-words">
+                  <LinkifiedText text={message.content} isOwn={isOwn} />
+                </p>
+              )}
+              {firstUrl && <LinkPreviewCard url={firstUrl} isOwn={isOwn} />}
+              {renderMediaContent()}
+            </div>
 
             {!isMobile && isHovering && (
               <>
                 <div
-                  className={`absolute top-1/2 -translate-y-1/2 z-20 ${
+                  className={`absolute top-1/2 -translate-y-1/2 z-[60] ${
                     isOwn ? "right-full mr-2" : "left-full ml-2"
                   }`}
                 >
@@ -1729,7 +1744,7 @@ const MediaMessage = ({
                     />
                   </div>
                 </div>
-                <div className="absolute top-1.5 right-1.5 z-20">
+                <div className="absolute top-1.5 right-1.5 z-[60]">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -3180,23 +3195,12 @@ const GeneralChannelId = () => {
   }, []);
 
   const handleAudioEndWithAutoPlay = useCallback((endedId) => {
-    // Find the next audio in the sorted messages
-    const sorted = [...localMessages].sort(
-      (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
-    );
-    const index = sorted.findIndex((m) => m._id === endedId);
-    if (index === -1) return;
-    // Look forward for next audio (skip non‑audio)
-    for (let i = index + 1; i < sorted.length; i++) {
-      const msg = sorted[i];
-      if (msg.messageType !== 'audio') break; // stop if non‑audio
-      // Found next audio
-      const nextId = msg._id;
-      // We'll let the AudioPlayer handle the auto-play via onAudioEnd callback
-      // But we need to trigger it from the parent to avoid re-renders.
-      // Instead, we'll let the AudioPlayer find the next itself.
+    // The AudioPlayer now handles auto‑play internally via findNextAudio.
+    // We just need to reset the playing state.
+    if (currentlyPlayingAudio === endedId) {
+      setCurrentlyPlayingAudio(null);
     }
-  }, [localMessages]);
+  }, [currentlyPlayingAudio]);
 
   const { socket, isConnected } = useSocket();
 
@@ -3418,7 +3422,6 @@ const GeneralChannelId = () => {
       return;
     }
 
-    // Find the full sticker object from saved stickers
     const stickerObj = savedStickersData?.stickers?.find(s => s._id === stickerId);
     if (!stickerObj) {
       toast.error("Sticker not found");
@@ -3444,7 +3447,7 @@ const GeneralChannelId = () => {
       createdAt: new Date().toISOString(),
       messageType: "sticker",
       chat: chatId,
-      sticker: stickerObj, // full object
+      sticker: stickerObj,
       replyTo: replyToMessage ? { _id: replyToMessage._id } : null,
     };
     setLocalMessages((prev) => [...prev, optimisticMsg]);
@@ -3831,7 +3834,6 @@ const GeneralChannelId = () => {
 
   // ─── Reaction handler ──────────────────────────────────────────────
   const handleReaction = async (messageId, emoji) => {
-    // Optimistic update
     const previousState = localMessages;
     setLocalMessages((prev) =>
       prev.map((msg) => {
@@ -3860,9 +3862,7 @@ const GeneralChannelId = () => {
 
     try {
       await toggleReaction({ messageId, emoji }).unwrap();
-      // If API succeeds, keep the optimistic state; socket events will sync as well.
     } catch (err) {
-      // Rollback on error
       setLocalMessages(previousState);
       toast.error("Failed to update reaction");
     }
@@ -3890,7 +3890,6 @@ const GeneralChannelId = () => {
       return;
     }
 
-    // Optimistic update
     const previousState = localMessages;
     const updatedMessage = {
       content: trimmed,
@@ -3902,16 +3901,14 @@ const GeneralChannelId = () => {
         m._id === editingMessageId ? { ...m, ...updatedMessage } : m
       )
     );
-    handleCancelEdit(); // clear edit bar
+    handleCancelEdit();
 
     try {
       await updateMessageApi({ messageId: editingMessageId, content: trimmed }).unwrap();
       toast.success("Message updated");
     } catch (err) {
-      // Rollback
       setLocalMessages(previousState);
       toast.error(err?.data?.message || "Failed to update");
-      // Re-open edit bar with old content
       const oldMsg = previousState.find(m => m._id === editingMessageId);
       if (oldMsg) {
         setEditingMessageId(oldMsg._id);
@@ -4829,7 +4826,7 @@ const GeneralChannelId = () => {
             onJumpToMessage={handleJumpToMessage}
             resolveSender={resolveSender}
             onSaveSticker={handleSaveSticker}
-            isAdmin={isAdmin} // 👈 pass admin flag
+            isAdmin={isAdmin}
             onAudioEnd={handleAudioEndWithAutoPlay}
             onAudioStart={handleAudioStart}
           />
@@ -5448,7 +5445,7 @@ const GeneralChannelId = () => {
         onReaction={handleReaction}
         onEdit={handleEditMessage}
         onSaveSticker={handleSaveSticker}
-        isAdmin={isAdmin} // 👈 pass admin flag
+        isAdmin={isAdmin}
       />
 
       <MediaPickerModal
