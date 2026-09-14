@@ -21,7 +21,7 @@ import {
   useDeleteSubTaskMutation,
 } from '../slices/taskApiSlice';
 import { useAddTeamMemberMutation } from '../slices/projectApiSlice';
-import { useMediaPicker } from '../hooks/useMediaPicker'; // <-- import custom hook
+import { useMediaPicker } from '../hooks/useMediaPicker';
 
 // ─── Format helpers ──────────────────────────────────────────────
 export const formatDate = (date) => {
@@ -82,6 +82,84 @@ export const CustomDropdown = React.memo(({ options, value, onChange, placeholde
   );
 });
 
+// ─── Multi-Select Dropdown (assignees) ────────────────────────────
+export const MultiSelectDropdown = React.memo(({
+  options,
+  values = [],
+  onChange,
+  placeholder = 'Select...',
+  label,
+  brandColor,
+}) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const selected = options.filter(o => values.includes(o.value));
+  const displayText =
+    selected.length === 0
+      ? placeholder
+      : selected.length === 1
+      ? selected[0].label
+      : `${selected.length} assignees`;
+
+  const toggle = (value) => {
+    if (values.includes(value)) onChange(values.filter(v => v !== value));
+    else onChange([...values, value]);
+  };
+
+  return (
+    <div className="relative" ref={ref}>
+      {label && <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{label}</label>}
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#0d9488] text-sm bg-white dark:bg-[#1a1a24] text-gray-800 dark:text-gray-200 hover:border-gray-400 dark:hover:border-gray-600 transition"
+      >
+        <span className={selected.length > 0 ? 'text-gray-800 dark:text-gray-200' : 'text-gray-400 dark:text-gray-500'}>
+          {displayText}
+        </span>
+        <FaAngleDown className={`text-gray-500 dark:text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute z-10 w-full mt-1 bg-white dark:bg-[#1e1e26] border border-gray-300 dark:border-gray-700/60 rounded-xl overflow-hidden max-h-60 overflow-y-auto shadow-lg">
+          {options.length === 0 && (
+            <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-500">No members available</div>
+          )}
+          {options.map((o) => {
+            const checked = values.includes(o.value);
+            return (
+              <button
+                key={String(o.value)}
+                type="button"
+                onClick={() => toggle(o.value)}
+                className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-[#0d9488]/10 transition text-left text-gray-700 dark:text-gray-300 ${checked ? 'bg-[#0d9488]/10' : ''}`}
+              >
+                <span
+                  className={`w-3.5 h-3.5 flex items-center justify-center border rounded flex-shrink-0 transition ${
+                    checked
+                      ? 'bg-[#0d9488] border-[#0d9488] text-white'
+                      : 'border-gray-400 dark:border-gray-600'
+                  }`}
+                >
+                  {checked && <FaCheck className="text-[8px]" />}
+                </span>
+                {o.icon && <span className="text-gray-500 dark:text-gray-400">{o.icon}</span>}
+                <span className="truncate">{o.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+});
+
 // ─── Priority / Status Options ──────────────────────────────────
 export const priorityOptions = [
   { value: 'low', label: 'Low', icon: <FaFlag className="text-blue-400" /> },
@@ -95,6 +173,7 @@ export const statusOptions = [
   { value: 'ready_for_completion', label: 'Ready', icon: <FaCheckCircle className="text-blue-400" /> },
   { value: 'completed', label: 'Completed', icon: <FaCheckCircle className="text-green-400" /> },
   { value: 'confirmed_completed', label: 'Confirmed', icon: <FaCheckCircle className="text-green-600" /> },
+  { value: 'cancelled', label: 'Cancelled', icon: <FaTimes className="text-red-400" /> },
 ];
 export const taskTypeOptions = [
   { value: 'general', label: 'General' },
@@ -111,6 +190,7 @@ export const TaskStatusBadge = React.memo(({ status }) => {
     ready_for_completion: { label: 'Ready', color: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700/50' },
     completed: { label: 'Completed', color: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700/50' },
     confirmed_completed: { label: 'Confirmed', color: 'bg-green-200 dark:bg-green-800/50 text-green-800 dark:text-green-200 border-green-400 dark:border-green-600/50' },
+    cancelled: { label: 'Cancelled', color: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border-red-300 dark:border-red-700/50' },
   };
   const s = map[status] || map.pending;
   return <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2.5 py-0.5 rounded-full border ${s.color}`}>{s.label}</span>;
@@ -201,7 +281,7 @@ export const DeleteTaskConfirmModal = React.memo(({ isOpen, onClose, onConfirm, 
   );
 });
 
-// ─── Mark Complete Modal (assignee submits links & attachments) ────
+// ─── Mark Complete Modal ──────────────────────────────────────────
 export const MarkCompleteModal = React.memo(({ isOpen, onClose, task, brandColor, onSubmit }) => {
   const [notes, setNotes] = useState('');
   const [linksText, setLinksText] = useState('');
@@ -222,7 +302,7 @@ export const MarkCompleteModal = React.memo(({ isOpen, onClose, task, brandColor
       setLinksText('');
       setFiles([]);
     } catch (err) {
-      // error handled in parent
+      // handled in parent
     } finally {
       setLoading(false);
     }
@@ -303,7 +383,7 @@ export const ConfirmCompletionModal = React.memo(({
   task,
   brandColor,
   onSubmit,
-  onReject,   // now required – we expect it to be a function
+  onReject,
 }) => {
   const [feedback, setFeedback] = useState('');
   const [finalHours, setFinalHours] = useState('');
@@ -331,7 +411,7 @@ export const ConfirmCompletionModal = React.memo(({
       onClose();
       resetForm();
     } catch (err) {
-      // error handled in parent
+      // handled in parent
     } finally {
       setConfirmLoading(false);
     }
@@ -353,7 +433,6 @@ export const ConfirmCompletionModal = React.memo(({
       resetForm();
       setShowReject(false);
     } catch (err) {
-      // The parent already shows a toast, but we add a fallback
       toast.error(err?.data?.message || 'Failed to reject task');
     } finally {
       setRejectLoading(false);
@@ -384,7 +463,6 @@ export const ConfirmCompletionModal = React.memo(({
           Review the submission for <span className="font-medium text-gray-800 dark:text-gray-200">"{task?.title}"</span> and either confirm or reject it.
         </p>
 
-        {/* ─── Display submitted notes ─── */}
         {task?.completionNotes && (
           <div className="mb-3 text-sm text-gray-700 dark:text-gray-300">
             <span className="font-medium">Submitted notes:</span>
@@ -393,8 +471,6 @@ export const ConfirmCompletionModal = React.memo(({
             </p>
           </div>
         )}
-
-        {/* ─── Display submitted links ─── */}
         {task?.finalLinks && task.finalLinks.length > 0 && (
           <div className="mb-3 text-sm text-gray-700 dark:text-gray-300">
             <span className="font-medium">Submitted links:</span>
@@ -405,8 +481,6 @@ export const ConfirmCompletionModal = React.memo(({
             </ul>
           </div>
         )}
-
-        {/* ─── Display submitted attachments ─── */}
         {task?.finalAttachments && task.finalAttachments.length > 0 && (
           <div className="mb-3 text-sm text-gray-700 dark:text-gray-300">
             <span className="font-medium">Submitted attachments:</span>
@@ -634,8 +708,8 @@ export const TaskCard = React.memo(({
   const subTaskCount = task.subTasks?.length || 0;
   const confirmedCount = (task.subTasks || []).filter(st => st.status === 'confirmed').length || 0;
   const due = task.dueDate ? new Date(task.dueDate) : null;
-  const isOverdue = due && due < new Date() && task.status !== 'completed' && task.status !== 'confirmed_completed';
-  const assignee = task.assignee;
+  const isOverdue = due && due < new Date() && task.status !== 'completed' && task.status !== 'confirmed_completed' && task.status !== 'cancelled';
+  const assignees = task.assignees || [];
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   useEffect(() => {
@@ -695,8 +769,8 @@ export const TaskCard = React.memo(({
                       </>
                     ) : (
                       <>
-                        <button onClick={(e) => { e.stopPropagation(); setMenuOpen(false); /* handled by parent */ }} className="flex items-center gap-2 px-3 py-2 text-sm text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-500/10 w-full transition"><FaUndo className="text-xs" /> Unarchive</button>
-                        <button onClick={(e) => { e.stopPropagation(); setMenuOpen(false); /* handled by parent */ }} className="flex items-center gap-2 px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/10 w-full transition"><FaTrashAlt className="text-xs" /> Delete Permanently</button>
+                        <button onClick={(e) => { e.stopPropagation(); setMenuOpen(false); }} className="flex items-center gap-2 px-3 py-2 text-sm text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-500/10 w-full transition"><FaUndo className="text-xs" /> Unarchive</button>
+                        <button onClick={(e) => { e.stopPropagation(); setMenuOpen(false); }} className="flex items-center gap-2 px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/10 w-full transition"><FaTrashAlt className="text-xs" /> Delete Permanently</button>
                       </>
                     )}
                   </div>
@@ -712,9 +786,41 @@ export const TaskCard = React.memo(({
           {readOnly && (<span className="text-[10px] text-blue-400 flex items-center gap-1"><FaLock className="text-[8px]" /> Read‑only</span>)}
         </div>
         {task.description && (<p className="text-xs text-gray-600 dark:text-gray-400 mt-1 line-clamp-2 truncate">{task.description}</p>)}
-        <div className="mt-3 flex items-center justify-between">
-          <span className="text-xs text-gray-500 dark:text-gray-500 truncate max-w-[80px] md:max-w-[120px]">{assignee ? `${assignee.name}` : 'Unassigned'}</span>
-          <span className="text-xs text-gray-500 dark:text-gray-500 truncate">{task.dueDate ? formatDateTime(task.dueDate) : 'No due'}</span>
+        <div className="mt-3 flex items-center justify-between gap-2">
+          {/* ── Assignees (stacked avatars) ── */}
+          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+            {assignees.length === 0 ? (
+              <span className="text-xs text-gray-500 dark:text-gray-500 truncate">Unassigned</span>
+            ) : (
+              <>
+                <div className="flex -space-x-1.5 flex-shrink-0">
+                  {assignees.slice(0, 3).map((a, i) => (
+                    <div
+                      key={a._id || i}
+                      className="w-5 h-5 rounded-full border border-white dark:border-[#14141a] flex items-center justify-center text-white text-[9px] font-semibold overflow-hidden flex-shrink-0"
+                      style={{ backgroundColor: brandColor }}
+                      title={a.name}
+                    >
+                      {a.profile ? (
+                        <img src={a.profile} className="w-full h-full object-cover" alt="" />
+                      ) : (
+                        (a.name || '?').charAt(0).toUpperCase()
+                      )}
+                    </div>
+                  ))}
+                  {assignees.length > 3 && (
+                    <div className="w-5 h-5 rounded-full border border-white dark:border-[#14141a] flex items-center justify-center bg-gray-500 text-white text-[8px] font-semibold flex-shrink-0">
+                      +{assignees.length - 3}
+                    </div>
+                  )}
+                </div>
+                <span className="text-xs text-gray-500 dark:text-gray-500 truncate">
+                  {assignees.length === 1 ? assignees[0].name : `${assignees.length} assignees`}
+                </span>
+              </>
+            )}
+          </div>
+          <span className="text-xs text-gray-500 dark:text-gray-500 truncate flex-shrink-0">{task.dueDate ? formatDateTime(task.dueDate) : 'No due'}</span>
         </div>
         <div className="mt-2 flex items-center gap-2">
           <div className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
@@ -759,7 +865,8 @@ export const SubTaskItem = React.memo(({
       fd.append('links', JSON.stringify(doneLinks.split('\n').filter(Boolean)));
       doneFiles.forEach(f => fd.append('attachments', f));
       await markDone({ taskId, subTaskIndex: index, data: fd }).unwrap();
-      toast.success('Sub‑task marked done');
+      // Manager's click auto-confirms on the backend.
+      toast.success(canManage ? 'Sub‑task completed & confirmed' : 'Sub‑task marked done');
       setShowDoneForm(false);
       setDoneNotes('');
       setDoneLinks('');
@@ -820,6 +927,13 @@ export const SubTaskItem = React.memo(({
     e.preventDefault();
     if (onDrop) onDrop(e, index);
   };
+
+  // Managers can mark a pending sub-task done too (auto-confirms).
+  const showMarkDoneBtn = !readOnly && subTask.status === 'pending' && (isAssignee || canManage);
+  // Assignee → done (await confirmation). Manager → done + confirmed. So
+  // only show confirm/reject to managers when status is `done`.
+  const showConfirmReject = !readOnly && canManage && subTask.status === 'done';
+
   return (
     <>
       <div
@@ -847,9 +961,9 @@ export const SubTaskItem = React.memo(({
         </div>
         {!readOnly && (
           <div className="flex flex-wrap items-center gap-1 mt-1 sm:mt-0 sm:ml-auto sm:flex-nowrap">
-            {isAssignee && subTask.status === 'pending' && (<button onClick={handleMarkDone} disabled={updating} className="p-1 text-blue-500 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/10 rounded-lg transition"><FaCheck className="text-xs" /></button>)}
-            {canManage && subTask.status === 'done' && (<><button onClick={handleConfirmClick} disabled={updating} className="p-1 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-500/10 rounded-lg transition"><FaCheckDouble className="text-xs" /></button><button onClick={handleRejectClick} disabled={updating} className="p-1 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/10 rounded-lg transition"><FaTimes className="text-xs" /></button></>)}
-            {(isAssignee && subTask.status !== 'confirmed') || canManage ? (<button onClick={handleDelete} disabled={updating} className="p-1 text-red-400/60 hover:bg-red-100 dark:hover:bg-red-500/10 rounded-lg transition"><FaTrashAlt className="text-xs" /></button>) : null}
+            {showMarkDoneBtn && (<button onClick={handleMarkDone} disabled={updating} className="p-1 text-blue-500 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/10 rounded-lg transition"><FaCheck className="text-xs" /></button>)}
+            {showConfirmReject && (<><button onClick={handleConfirmClick} disabled={updating} className="p-1 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-500/10 rounded-lg transition"><FaCheckDouble className="text-xs" /></button><button onClick={handleRejectClick} disabled={updating} className="p-1 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/10 rounded-lg transition"><FaTimes className="text-xs" /></button></>)}
+            {((isAssignee && subTask.status !== 'confirmed') || canManage) && (<button onClick={handleDelete} disabled={updating} className="p-1 text-red-400/60 hover:bg-red-100 dark:hover:bg-red-500/10 rounded-lg transition"><FaTrashAlt className="text-xs" /></button>)}
           </div>
         )}
         {isExpanded && (
@@ -889,7 +1003,7 @@ export const SubTaskItem = React.memo(({
               </div>
             )}
             <div className="flex gap-2 mt-2">
-              <button onClick={submitDone} disabled={updating} className="px-3 py-1.5 bg-[#0d9488] text-white text-xs rounded-lg hover:bg-[#0f9e96] transition">{updating ? 'Saving...' : 'Submit Done'}</button>
+              <button onClick={submitDone} disabled={updating} className="px-3 py-1.5 bg-[#0d9488] text-white text-xs rounded-lg hover:bg-[#0f9e96] transition">{updating ? 'Saving...' : (canManage ? 'Complete & Confirm' : 'Submit Done')}</button>
               <button onClick={cancelDone} className="px-3 py-1.5 bg-gray-300 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs rounded-lg hover:bg-gray-400 dark:hover:bg-gray-600 transition">Cancel</button>
             </div>
           </div>
@@ -931,7 +1045,7 @@ export const CreateTaskForm = React.memo(({ projectId, brandColor, assignableMem
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [taskType, setTaskType] = useState('general');
-  const [assigneeId, setAssigneeId] = useState('');
+  const [assigneeIds, setAssigneeIds] = useState([]);
   const [priority, setPriority] = useState('medium');
   const [startDate, setStartDate] = useState('');
   const [dueDate, setDueDate] = useState('');
@@ -950,7 +1064,7 @@ export const CreateTaskForm = React.memo(({ projectId, brandColor, assignableMem
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const [showDetails, setShowDetails] = useState(false);
   const toggleDay = (day) => { if (recurrenceDays.includes(day)) setRecurrenceDays(recurrenceDays.filter(d => d !== day)); else setRecurrenceDays([...recurrenceDays, day].sort()); };
-  const assigneeOpts = [{ value: '', label: 'Unassigned', icon: <FaUser className="text-gray-400" /> }, ...assignableMembers.map(m => { const u = m.user || m; return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" alt="" /> : <FaUser className="text-gray-400" /> }; })];
+  const assigneeOpts = assignableMembers.map(m => { const u = m.user || m; return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" alt="" /> : <FaUser className="text-gray-400" /> }; });
   const folderOpts = [{ value: null, label: 'No Folder', icon: <FaFolder className="text-gray-400" /> }, ...folders.map(f => ({ value: f._id, label: f.name, icon: <FaFolder className="text-gray-400" /> }))];
   const setDueDateRelative = (hours) => { const now = new Date(); setStartDate(now.toISOString().slice(0, 16)); const due = new Date(now.getTime() + hours * 60 * 60 * 1000); setDueDate(due.toISOString().slice(0, 16)); };
   const setDueDateToday = () => { const now = new Date(); setStartDate(now.toISOString().slice(0, 16)); const endOfDay = new Date(now); endOfDay.setHours(23, 59, 0, 0); setDueDate(endOfDay.toISOString().slice(0, 16)); };
@@ -967,7 +1081,10 @@ export const CreateTaskForm = React.memo(({ projectId, brandColor, assignableMem
       fd.append('title', title.trim());
       fd.append('description', description.trim());
       fd.append('taskType', taskType);
-      if (assigneeId) fd.append('assigneeId', assigneeId);
+      if (assigneeIds.length > 0) {
+        fd.append('assigneeIds', JSON.stringify(assigneeIds));
+        fd.append('assigneeId', assigneeIds[0]);
+      }
       fd.append('priority', priority);
       if (startDate) fd.append('startDate', new Date(startDate).toISOString());
       if (dueDate) fd.append('dueDate', new Date(dueDate).toISOString());
@@ -996,7 +1113,7 @@ export const CreateTaskForm = React.memo(({ projectId, brandColor, assignableMem
           <div><label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label><textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" /></div>
           <CustomDropdown label="Task Type" options={taskTypeOptions} value={taskType} onChange={setTaskType} brandColor={brandColor} />
           <CustomDropdown label="Folder" options={folderOpts} value={folderId} onChange={setFolderId} brandColor={brandColor} />
-          <CustomDropdown label="Assignee" options={assigneeOpts} value={assigneeId} onChange={setAssigneeId} brandColor={brandColor} />
+          <MultiSelectDropdown label="Assignees" options={assigneeOpts} values={assigneeIds} onChange={setAssigneeIds} placeholder="Select members..." brandColor={brandColor} />
           <div className="grid grid-cols-2 gap-3">
             <CustomDropdown label="Priority" options={priorityOptions} value={priority} onChange={setPriority} brandColor={brandColor} />
             <div><label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Start Date & Time</label><input type="datetime-local" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" /></div>
@@ -1065,10 +1182,11 @@ export const CreateTaskForm = React.memo(({ projectId, brandColor, assignableMem
 });
 
 export const EditTaskForm = React.memo(({ task, brandColor, assignableMembers, folders, onSuccess, onCancel }) => {
+  const initialAssigneeIds = (task?.assignees || []).map(a => a._id || a).filter(Boolean);
   const [title, setTitle] = useState(task?.title || '');
   const [description, setDescription] = useState(task?.description || '');
   const [taskType, setTaskType] = useState(task?.taskType || 'general');
-  const [assigneeId, setAssigneeId] = useState(task?.assignee?._id || task?.assignee || '');
+  const [assigneeIds, setAssigneeIds] = useState(initialAssigneeIds);
   const [priority, setPriority] = useState(task?.priority || 'medium');
   const [startDate, setStartDate] = useState(task?.startDate ? new Date(task.startDate).toISOString().slice(0, 16) : '');
   const [dueDate, setDueDate] = useState(task?.dueDate ? new Date(task.dueDate).toISOString().slice(0, 16) : '');
@@ -1087,11 +1205,13 @@ export const EditTaskForm = React.memo(({ task, brandColor, assignableMembers, f
   const [recurrenceEndDate, setRecurrenceEndDate] = useState(task?.recurrenceEndDate ? new Date(task.recurrenceEndDate).toISOString().slice(0, 16) : '');
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const toggleDay = (day) => { if (recurrenceDays.includes(day)) setRecurrenceDays(recurrenceDays.filter(d => d !== day)); else setRecurrenceDays([...recurrenceDays, day].sort()); };
-  const assigneeOpts = [{ value: '', label: 'Unassigned', icon: <FaUser className="text-gray-400" /> }, ...assignableMembers.map(m => { const u = m.user || m; return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" alt="" /> : <FaUser className="text-gray-400" /> }; })];
+  const assigneeOpts = assignableMembers.map(m => { const u = m.user || m; return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" alt="" /> : <FaUser className="text-gray-400" /> }; });
   const folderOpts = [{ value: null, label: 'No Folder', icon: <FaFolder className="text-gray-400" /> }, ...folders.map(f => ({ value: f._id, label: f.name, icon: <FaFolder className="text-gray-400" /> }))];
   useEffect(() => {
     if (task) {
-      setTitle(task.title || ''); setDescription(task.description || ''); setTaskType(task.taskType || 'general'); setAssigneeId(task.assignee?._id || task.assignee || ''); setPriority(task.priority || 'medium'); setStartDate(task.startDate ? new Date(task.startDate).toISOString().slice(0, 16) : ''); setDueDate(task.dueDate ? new Date(task.dueDate).toISOString().slice(0, 16) : ''); setStatus(task.status || 'pending'); setEstimatedHours(task.estimatedHours || ''); setBufferTime(task.bufferTime || 0); setAllowAssigneeEditSubtasks(task.allowAssigneeEditSubtasks || false); setLinks((task.links || []).join('\n')); setFolderId(task.folder?._id || null); setDailyReminderTime(task.dailyReminderTime || ''); setRecurrenceType(task.recurrenceType || 'none'); setRecurrenceDays(task.recurrenceDays || []); setRecurrenceEndDate(task.recurrenceEndDate ? new Date(task.recurrenceEndDate).toISOString().slice(0, 16) : '');
+      setTitle(task.title || ''); setDescription(task.description || ''); setTaskType(task.taskType || 'general');
+      setAssigneeIds((task.assignees || []).map(a => a._id || a).filter(Boolean));
+      setPriority(task.priority || 'medium'); setStartDate(task.startDate ? new Date(task.startDate).toISOString().slice(0, 16) : ''); setDueDate(task.dueDate ? new Date(task.dueDate).toISOString().slice(0, 16) : ''); setStatus(task.status || 'pending'); setEstimatedHours(task.estimatedHours || ''); setBufferTime(task.bufferTime || 0); setAllowAssigneeEditSubtasks(task.allowAssigneeEditSubtasks || false); setLinks((task.links || []).join('\n')); setFolderId(task.folder?._id || null); setDailyReminderTime(task.dailyReminderTime || ''); setRecurrenceType(task.recurrenceType || 'none'); setRecurrenceDays(task.recurrenceDays || []); setRecurrenceEndDate(task.recurrenceEndDate ? new Date(task.recurrenceEndDate).toISOString().slice(0, 16) : '');
     }
   }, [task]);
   const handleSubmit = async (e) => {
@@ -1102,7 +1222,8 @@ export const EditTaskForm = React.memo(({ task, brandColor, assignableMembers, f
       fd.append('title', title.trim());
       fd.append('description', description.trim());
       fd.append('taskType', taskType);
-      if (assigneeId) fd.append('assigneeId', assigneeId);
+      fd.append('assigneeIds', JSON.stringify(assigneeIds));
+      if (assigneeIds[0]) fd.append('assigneeId', assigneeIds[0]);
       fd.append('priority', priority);
       if (startDate) fd.append('startDate', new Date(startDate).toISOString());
       if (dueDate) fd.append('dueDate', new Date(dueDate).toISOString());
@@ -1130,7 +1251,7 @@ export const EditTaskForm = React.memo(({ task, brandColor, assignableMembers, f
       <CustomDropdown label="Task Type" options={taskTypeOptions} value={taskType} onChange={setTaskType} brandColor={brandColor} />
       <CustomDropdown label="Status" options={statusOptions} value={status} onChange={setStatus} brandColor={brandColor} />
       <CustomDropdown label="Folder" options={folderOpts} value={folderId} onChange={setFolderId} brandColor={brandColor} />
-      <CustomDropdown label="Assignee" options={assigneeOpts} value={assigneeId} onChange={setAssigneeId} brandColor={brandColor} />
+      <MultiSelectDropdown label="Assignees" options={assigneeOpts} values={assigneeIds} onChange={setAssigneeIds} placeholder="Select members..." brandColor={brandColor} />
       <div className="grid grid-cols-2 gap-3">
         <CustomDropdown label="Priority" options={priorityOptions} value={priority} onChange={setPriority} brandColor={brandColor} />
         <div><label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Start Date & Time</label><input type="datetime-local" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" /></div>
@@ -1226,26 +1347,33 @@ export const AddMemberForm = React.memo(({ project, workspace, brandColor, onSuc
   );
 });
 
-export const AssignForm = React.memo(({ assignableMembers, onAssign, brandColor, onCancel }) => {
-  const [assigneeId, setAssigneeId] = useState('');
+// ─── Assign Form (multi-select) ────────────────────────────────────────
+export const AssignForm = React.memo(({ assignableMembers, onAssign, brandColor, onCancel, currentAssignees = [] }) => {
+  const initialIds = (currentAssignees || []).map(a => a._id || a).filter(Boolean);
+  const [assigneeIds, setAssigneeIds] = useState(initialIds);
   const [loading, setLoading] = useState(false);
   const assigneeOpts = assignableMembers.map(m => { const u = m.user || m; return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" alt="" /> : <FaUser className="text-gray-400" /> }; });
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!assigneeId) return toast.error('Select a member');
+    if (assigneeIds.length === 0) return toast.error('Select at least one member');
     setLoading(true);
     try {
-      await onAssign(assigneeId);
+      await onAssign(assigneeIds);
       onCancel();
     } catch (e) { toast.error(e?.data?.message || 'Failed'); }
     finally { setLoading(false); }
   };
   return (
     <form onSubmit={handleSubmit}>
-      <CustomDropdown label="Select Member" options={assigneeOpts} value={assigneeId} onChange={setAssigneeId} brandColor={brandColor} />
+      <MultiSelectDropdown label="Assignees" options={assigneeOpts} values={assigneeIds} onChange={setAssigneeIds} placeholder="Select members..." brandColor={brandColor} />
+      {assigneeIds.length > 0 && (
+        <p className="text-xs text-gray-500 dark:text-gray-500 mt-2">
+          {assigneeIds.length} member{assigneeIds.length === 1 ? '' : 's'} selected
+        </p>
+      )}
       <div className="flex gap-3 mt-4">
         <button type="button" onClick={onCancel} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
-        <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80" style={{ backgroundColor: brandColor }}>{loading ? 'Assigning...' : 'Assign'}</button>
+        <button type="submit" disabled={loading || assigneeIds.length === 0} className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80 disabled:opacity-50" style={{ backgroundColor: brandColor }}>{loading ? 'Assigning...' : 'Assign'}</button>
       </div>
     </form>
   );

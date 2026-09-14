@@ -1,3 +1,4 @@
+// models/taskModel.js
 import mongoose from 'mongoose';
 
 const attachmentSchema = new mongoose.Schema(
@@ -36,7 +37,7 @@ const subTaskSchema = new mongoose.Schema(
     rejectedAt: { type: Date, default: null },
     rejectionReason: { type: String, default: '' },
 
-    // ─── RECURRENCE FIELDS ──────────────────────────────────────────
+    // ─── RECURRENCE ────────────────────────────────────────────────
     recurrenceType: {
       type: String,
       enum: ['none', 'daily', 'weekly'],
@@ -51,7 +52,7 @@ const subTaskSchema = new mongoose.Schema(
       default: null,
     },
 
-    // ─── ORDER FIELD (NEW) ──────────────────────────────────────────
+    // ─── ORDER ─────────────────────────────────────────────────────
     order: { type: Number, default: 0 },
   },
   { _id: false }
@@ -94,11 +95,17 @@ const taskSchema = new mongoose.Schema(
       enum: ['general', 'bug', 'feature', 'improvement', 'design', 'content', 'other'],
       default: 'general',
     },
-    assignee: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      index: true,
-    },
+
+    // ─── MULTI-ASSIGNEE ────────────────────────────────────────────
+    // Multiple people can now own a task. Empty array = unassigned.
+    assignees: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        index: true,
+      },
+    ],
+
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
@@ -165,7 +172,7 @@ const taskSchema = new mongoose.Schema(
       default: false,
     },
     dailyReminderTime: {
-      type: String,          // e.g., "09:00" (HH:MM)
+      type: String, // e.g., "09:00" (HH:MM)
       default: null,
     },
     lastDailyReminderSent: {
@@ -173,7 +180,7 @@ const taskSchema = new mongoose.Schema(
       default: null,
     },
 
-    // ─── RECURRENCE FIELDS ──────────────────────────────────────────
+    // ─── RECURRENCE ────────────────────────────────────────────────
     recurrenceType: {
       type: String,
       enum: ['none', 'daily', 'weekly'],
@@ -188,10 +195,10 @@ const taskSchema = new mongoose.Schema(
       default: null,
     },
 
-    // ─── ORDER FIELD (NEW) ──────────────────────────────────────────
+    // ─── ORDER ─────────────────────────────────────────────────────
     order: { type: Number, default: 0 },
 
-    // ─── ARCHIVE / TRASH ─────────────────────────────────────────────
+    // ─── ARCHIVE / TRASH ───────────────────────────────────────────
     isArchived: {
       type: Boolean,
       default: false,
@@ -210,7 +217,10 @@ const taskSchema = new mongoose.Schema(
       default: null,
     },
 
-    // ─── COMPLETION / CONFIRMATION ──────────────────────────────────
+    // ─── COMPLETION / CONFIRMATION ─────────────────────────────────
+    // completedBy = whoever clicked "mark done" (assignee OR manager)
+    // confirmedBy = whoever confirmed. For manager-marked-as-done,
+    //               completedBy === confirmedBy.
     completedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
@@ -237,10 +247,23 @@ const taskSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    rejectedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    rejectedAt: {
+      type: Date,
+      default: null,
+    },
+    rejectionReason: {
+      type: String,
+      default: '',
+    },
     finalLinks: [String],
     finalAttachments: [attachmentSchema],
 
-    // ─── LEGACY FIELDS ──────────────────────────────────────────────
+    // ─── LEGACY FIELDS (keep if anything still reads them) ─────────
     submittedProgress: {
       type: Number,
       default: 0,
@@ -312,12 +335,11 @@ const taskSchema = new mongoose.Schema(
   }
 );
 
-// Indexes
+// ─── Indexes ───────────────────────────────────────────────────────
 taskSchema.index({ project: 1, status: 1 });
-taskSchema.index({ assignee: 1, status: 1 });
+taskSchema.index({ assignees: 1, status: 1 }); // multi-assignee queries
 taskSchema.index({ dueDate: 1 });
 taskSchema.index({ isTrash: 1, trashedAt: 1 });
-// Add index for ordering
 taskSchema.index({ project: 1, order: 1 });
 
 const Task = mongoose.model('Task', taskSchema);

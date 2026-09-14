@@ -22,6 +22,13 @@ import {
 import { useAddSubTaskMutation } from '../slices/taskApiSlice';
 import toast from 'react-hot-toast';
 
+// ─── Helper ─────────────────────────────────────────────
+const isUserInArray = (arr, userId) =>
+  (arr || []).some((a) => {
+    const id = a?._id || a;
+    return id?.toString() === userId?.toString();
+  });
+
 const MyWorkspaceProjectTaskId = ({
   task,
   brandColor,
@@ -32,12 +39,10 @@ const MyWorkspaceProjectTaskId = ({
   onRefresh,
   canManage,
   onSendReminder,
-  // ─── Renamed to match parent ────────────────────────────
-  onMarkCompleteClick,          // <-- was onMarkComplete
-  onConfirmCompletionClick,     // <-- was onConfirmCompletion
+  onMarkCompleteClick,
+  onConfirmCompletionClick,
   onReject,
   onAssignTask,
-  onSetReadyForCompletion,
   onArchiveTask,
   onUnarchiveTask,
   onPermanentDelete,
@@ -66,25 +71,22 @@ const MyWorkspaceProjectTaskId = ({
   const [showMarkCompleteModal, setShowMarkCompleteModal] = useState(false);
   const [showConfirmCompletionModal, setShowConfirmCompletionModal] = useState(false);
 
-  // ─── Collapsible states for submission & rejection ──────────────
   const [submissionExpanded, setSubmissionExpanded] = useState(false);
   const [rejectionExpanded, setRejectionExpanded] = useState(false);
 
-  // Auto‑expand rejection if data exists
   useEffect(() => {
     if (task.rejectedBy && task.rejectedAt) {
       setRejectionExpanded(true);
     }
   }, [task.rejectedBy, task.rejectedAt]);
 
-  const isAssignee = task.assignee?._id === userInfo?._id;
+  // New model: assignees array
+  const isAssignee = isUserInArray(task.assignees, userInfo?._id);
   const hasRecurrence = task.recurrenceType && task.recurrenceType !== 'none';
   const recurrenceLabel = task.recurrenceType === 'daily' ? 'Daily' : task.recurrenceType === 'weekly' ? 'Weekly' : '';
 
-  // Read‑only if explicitly passed or task is archived
   const isReadOnly = isReadOnlyProp || task.isArchived || false;
 
-  // ─── Submission / Rejection data flags ──────────────────────────
   const hasSubmissionData = task.completionNotes ||
     (task.finalLinks && task.finalLinks.length > 0) ||
     (task.finalAttachments && task.finalAttachments.length > 0) ||
@@ -92,9 +94,6 @@ const MyWorkspaceProjectTaskId = ({
 
   const showRejection = task.rejectedBy && task.rejectedAt;
   const hasRejectionData = task.rejectedBy || task.rejectionReason;
-
-  // ─── Self‑assigned check ────────────────────────────────────────
-  const isSelfAssigned = task.assignee?._id === userInfo?._id && task.createdBy?._id === userInfo?._id;
 
   const handleAddSubTask = async () => {
     if (!newSubTaskTitle.trim()) { toast.error('Sub‑task title required'); return; }
@@ -128,20 +127,20 @@ const MyWorkspaceProjectTaskId = ({
 
   const canReorderSub = !isReadOnly && (canManage || (isAssignee && task.allowAssigneeEditSubtasks));
 
-  // ─── Bottom action bar conditions ──────────────────────────────
-  const showSetReady = canManage && !isReadOnly &&
-    task.status !== 'ready_for_completion' &&
-    task.status !== 'completed' &&
-    task.status !== 'confirmed_completed';
+  const hasAssignees = (task.assignees || []).length > 0;
 
-  const showMarkComplete = isAssignee && !isReadOnly && task.status === 'ready_for_completion';
+  // ─── Action visibility rules (new) ─────────────────────────────
+  // "Mark as Complete" — assignees and managers, when ready_for_completion.
+  // Manager's click auto-confirms on the backend.
+  const showMarkComplete =
+    !isReadOnly &&
+    task.status === 'ready_for_completion' &&
+    (isAssignee || canManage);
 
-  // ✅ Allow self‑assigned users to confirm as well
-  const showConfirmCompletion = !isReadOnly && 
-    (canManage || isSelfAssigned) && 
-    task.status === 'completed';
+  // "Confirm Completion" — manager only, when an assignee already marked done.
+  const showConfirmCompletion =
+    !isReadOnly && canManage && task.status === 'completed';
 
-  // ─── Render ──────────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -154,7 +153,11 @@ const MyWorkspaceProjectTaskId = ({
             <TaskStatusBadge status={task.status} />
             <TaskPriorityBadge priority={task.priority} />
             {hasRecurrence && (<span className="flex items-center gap-0.5 text-teal-600 dark:text-[#0d9488]"><FaRedo className="text-[10px]" /> {recurrenceLabel}</span>)}
-            {task.assignee && <span className="text-gray-500 dark:text-gray-400 truncate max-w-[80px] md:max-w-[120px]">{task.assignee.name}</span>}
+            {hasAssignees && (
+              <span className="text-gray-500 dark:text-gray-400 truncate max-w-[160px] md:max-w-[240px]">
+                {(task.assignees || []).map(a => a.name).filter(Boolean).join(', ')}
+              </span>
+            )}
             {task.isArchived && (<span className="text-orange-600 dark:text-orange-400 flex items-center gap-1"><FaArchive className="text-[10px]" /> Archived</span>)}
           </div>
         </div>
@@ -178,7 +181,7 @@ const MyWorkspaceProjectTaskId = ({
                 </>
               )}
               <button onClick={() => { setShowMenu(false); onEdit(task); }} className="flex items-center gap-2 px-4 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/10 w-full transition"><FaEdit className="text-xs" /> Edit</button>
-              {canManage && !task.assignee && !task.isArchived && !isReadOnly && (
+              {canManage && !hasAssignees && !task.isArchived && !isReadOnly && (
                 <button onClick={() => { setShowMenu(false); onAssignTask(task); }} className="flex items-center gap-2 px-4 py-2 text-sm text-[#0d9488] hover:bg-[#0d9488]/10 w-full transition"><FaUserPlus className="text-xs" /> Assign Task</button>
               )}
             </div>
@@ -204,7 +207,6 @@ const MyWorkspaceProjectTaskId = ({
           )}
         </div>
 
-        {/* ─── SUBMISSION DETAILS ────────────────────────────────── */}
         {hasSubmissionData && (
           <div className="mt-2">
             <button
@@ -270,7 +272,6 @@ const MyWorkspaceProjectTaskId = ({
           </div>
         )}
 
-        {/* ─── REJECTION DETAILS ────────────────────────────────── */}
         {showRejection && hasRejectionData && (
           <div className="mt-2">
             <button
@@ -295,7 +296,6 @@ const MyWorkspaceProjectTaskId = ({
                     <span className="font-medium text-gray-700 dark:text-gray-300">Reason:</span> {task.rejectionReason}
                   </div>
                 )}
-                {/* Show submitted data inside rejection for context */}
                 {task.completionNotes && (
                   <div className="text-gray-600 dark:text-gray-400 pt-1 border-t border-red-200 dark:border-red-800/30">
                     <span className="font-medium text-gray-700 dark:text-gray-300">Submitted notes:</span> {task.completionNotes}
@@ -395,43 +395,45 @@ const MyWorkspaceProjectTaskId = ({
       {/* Bottom action bar */}
       {!isReadOnly && (
         <div className="border-t border-gray-200 dark:border-gray-800/40 bg-white dark:bg-[#14141a] px-3 py-2 flex-shrink-0 sticky bottom-0 space-y-2">
-          {showSetReady && (
-            <button onClick={onSetReadyForCompletion} className="w-full py-2 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 transition hover:opacity-80" style={{ backgroundColor: brandColor }}>
-              <FaCheckCircle className="text-sm" /> Set Ready for Completion
-            </button>
-          )}
           {showMarkComplete && (
             <button onClick={() => setShowMarkCompleteModal(true)} className="w-full py-2 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 transition hover:opacity-80" style={{ backgroundColor: brandColor }}>
-              <FaCheckDouble className="text-sm" /> Mark as Complete
+              <FaCheckDouble className="text-sm" />
+              {canManage ? 'Mark as Complete & Confirm' : 'Mark as Complete'}
             </button>
           )}
           {showConfirmCompletion && (
             <button onClick={() => setShowConfirmCompletionModal(true)} className="w-full py-2 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 transition hover:opacity-80" style={{ backgroundColor: brandColor }}>
-              <FaCheckDouble className="text-sm" /> Confirm Completion
+              <FaCheckCircle className="text-sm" /> Confirm Completion
             </button>
           )}
-          {!showSetReady && !showMarkComplete && !showConfirmCompletion && (
+          {!showMarkComplete && !showConfirmCompletion && (
             <p className="text-center text-xs text-gray-500 dark:text-gray-400">
-              {task.status === 'confirmed_completed' ? 'Task confirmed' : 'No actions available'}
+              {task.status === 'confirmed_completed'
+                ? 'Task confirmed'
+                : task.status === 'completed'
+                ? 'Awaiting manager confirmation'
+                : !hasAssignees
+                ? 'Not assigned yet'
+                : 'No actions available'}
             </p>
           )}
         </div>
       )}
 
-      {/* ─── Modals ────────────────────────────────────────────── */}
+      {/* Modals */}
       <MarkCompleteModal
         isOpen={showMarkCompleteModal}
         onClose={() => setShowMarkCompleteModal(false)}
         task={task}
         brandColor={brandColor}
-        onSubmit={onMarkCompleteClick}   // <-- corrected
+        onSubmit={onMarkCompleteClick}
       />
       <ConfirmCompletionModal
         isOpen={showConfirmCompletionModal}
         onClose={() => setShowConfirmCompletionModal(false)}
         task={task}
         brandColor={brandColor}
-        onSubmit={onConfirmCompletionClick}   // <-- corrected
+        onSubmit={onConfirmCompletionClick}
         onReject={onReject}
       />
     </div>

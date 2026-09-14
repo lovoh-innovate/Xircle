@@ -22,7 +22,7 @@ import {
   useAddCollaboratorMutation,
   useGetPendingInvitationsQuery,
   useAcceptInvitationWithTokenMutation,
-  // 👇 NEW: collaborator management
+  // collaborator management
   useUpdateCollaboratorRoleMutation,
   useRemoveCollaboratorMutation,
 } from '../slices/personalTaskApiSlice';
@@ -184,7 +184,7 @@ const BottomSheet = ({ isOpen, onClose, children }) => {
 const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, danger = false }) => {
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
       <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
         <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2 break-words">{title}</h3>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-6 break-words">{message}</p>
@@ -285,7 +285,7 @@ const PermanentDeleteModal = ({ isOpen, onClose, onConfirm, itemName, isBulk = f
   );
 };
 
-// ─── Collaborate Modal ──────────────────────────────────────────
+// ─── Collaborate Modal (kept for BULK invites) ──────────────────
 const CollaborateModal = ({ isOpen, onClose, onInvite, isLoading, taskTitle, isBulk = false }) => {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('write');
@@ -369,24 +369,34 @@ const CollaborateModal = ({ isOpen, onClose, onInvite, isLoading, taskTitle, isB
   );
 };
 
-// ─── Manage Collaborators Modal (NEW) ──────────────────────────
+// ─── Manage Collaborators Modal ────────────────────────────────
+// Inline invite form — no nested modal.
 const ManageCollaboratorsModal = ({
   isOpen,
   onClose,
   task,
   onUpdateRole,
   onRemove,
-  onInviteAnother,
+  onInvite,
   isLoading = false,
+  isInviting = false,
 }) => {
   const [editingId, setEditingId] = useState(null);
   const [draftRole, setDraftRole] = useState('write');
   const [confirmRemove, setConfirmRemove] = useState(null);
 
+  // ── Inline invite form state ──
+  const [showInviteForm, setShowInviteForm] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('write');
+
   useEffect(() => {
     if (!isOpen) {
       setEditingId(null);
       setConfirmRemove(null);
+      setShowInviteForm(false);
+      setInviteEmail('');
+      setInviteRole('write');
     }
   }, [isOpen]);
 
@@ -414,9 +424,36 @@ const ManageCollaboratorsModal = ({
     setEditingId(null);
   };
 
+  const handleInviteSubmit = async (e) => {
+    e.preventDefault();
+    const email = inviteEmail.trim();
+    if (!email) {
+      toast.error('Email is required');
+      return;
+    }
+    // Basic email sanity check
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      toast.error('Enter a valid email address');
+      return;
+    }
+    const ok = await onInvite({ email, role: inviteRole });
+    if (ok !== false) {
+      setInviteEmail('');
+      setInviteRole('write');
+      setShowInviteForm(false);
+    }
+  };
+
+  const handleCancelInvite = () => {
+    setShowInviteForm(false);
+    setInviteEmail('');
+    setInviteRole('write');
+  };
+
   return (
     <BottomSheet isOpen={isOpen} onClose={onClose}>
       <div className="p-6 space-y-4">
+        {/* Header */}
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-800 dark:text-white flex items-center gap-2">
             <FaUsers className="text-teal-500" /> Collaborators
@@ -426,11 +463,13 @@ const ManageCollaboratorsModal = ({
           </button>
         </div>
 
+        {/* Task title */}
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-0.5">Task</p>
           <p className="text-sm font-medium text-gray-800 dark:text-white break-words">{task.title}</p>
         </div>
 
+        {/* Collaborators list */}
         {collaborators.length === 0 ? (
           <div className="text-center py-6 text-gray-400 dark:text-gray-500 text-sm">
             No collaborators yet. Invite someone to start working together.
@@ -518,12 +557,68 @@ const ManageCollaboratorsModal = ({
           </div>
         )}
 
-        <button
-          onClick={onInviteAnother}
-          className="w-full py-2 bg-teal-600 dark:bg-teal-500 text-white rounded-xl text-sm font-medium hover:bg-teal-700 dark:hover:bg-teal-600 transition flex items-center justify-center gap-2"
-        >
-          <FaUserPlus className="text-xs" /> Invite another
-        </button>
+        {/* Inline Invite Form */}
+        {!showInviteForm ? (
+          <button
+            onClick={() => setShowInviteForm(true)}
+            className="w-full py-2 bg-teal-600 dark:bg-teal-500 text-white rounded-xl text-sm font-medium hover:bg-teal-700 dark:hover:bg-teal-600 transition flex items-center justify-center gap-2"
+          >
+            <FaUserPlus className="text-xs" /> Invite someone
+          </button>
+        ) : (
+          <form
+            onSubmit={handleInviteSubmit}
+            className="rounded-xl border border-teal-200/70 dark:border-teal-800/40 bg-teal-50/40 dark:bg-teal-900/10 p-3 space-y-2.5"
+          >
+            <p className="text-xs font-medium text-teal-700 dark:text-teal-300 flex items-center gap-1.5">
+              <FaUserPlus className="text-[10px]" /> Invite a collaborator
+            </p>
+            <div>
+              <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
+                Email
+              </label>
+              <input
+                type="email"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="collaborator@example.com"
+                autoFocus
+                className="w-full px-3 py-2 bg-white dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-800 dark:text-white placeholder-gray-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
+                Permission
+              </label>
+              <CustomSelect
+                value={inviteRole}
+                onChange={setInviteRole}
+                options={roleOptions}
+                placeholder="Select role"
+                className="w-full"
+              />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleCancelInvite}
+                disabled={isInviting}
+                className="flex-1 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-[#2a2a2a] transition disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isInviting}
+                className="flex-1 py-1.5 bg-teal-600 dark:bg-teal-500 text-white rounded-lg text-xs font-medium hover:bg-teal-700 dark:hover:bg-teal-600 transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                {isInviting ? <FaSpinner className="animate-spin text-[10px]" /> : <FaCheck className="text-[10px]" />}
+                Send invite
+              </button>
+            </div>
+          </form>
+        )}
+
         <button
           onClick={onClose}
           className="w-full py-2 text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition"
@@ -2282,12 +2377,13 @@ const PersonalTasks = () => {
   const [permanentDeleteTarget, setPermanentDeleteTarget] = useState(null);
 
   // ─── Collaboration state ──────────────────────────────────────
+  // (Only used for BULK invites now — single-task invites are inline.)
   const [showCollaborateModal, setShowCollaborateModal] = useState(false);
   const [collaborateTarget, setCollaborateTarget] = useState(null);
   const [collaborateLoading, setCollaborateLoading] = useState(false);
-  const [addCollaborator] = useAddCollaboratorMutation();
+  const [addCollaborator, { isLoading: isAddingCollaborator }] = useAddCollaboratorMutation();
 
-  // 👇 NEW: manage collaborators
+  // Manage collaborators
   const [showManageCollabModal, setShowManageCollabModal] = useState(false);
   const [manageCollabTask, setManageCollabTask] = useState(null);
   const [updateCollaboratorRole, { isLoading: isUpdatingRole }] = useUpdateCollaboratorRoleMutation();
@@ -2572,7 +2668,7 @@ const PersonalTasks = () => {
     }
   };
 
-  // ─── Collaboration handler ────────────────────────────────────
+  // ─── Collaboration handler (BULK only now) ──────────────────
   const handleCollaborateInvite = async ({ email, role }) => {
     setCollaborateLoading(true);
     try {
@@ -2598,16 +2694,6 @@ const PersonalTasks = () => {
         setCollaborateTarget(null);
         clearSelection();
         refetchTasks();
-      } else {
-        const result = await addCollaborator({ taskId: collaborateTarget, email, role }).unwrap();
-        toast.success('Collaborator invited successfully!');
-        setShowCollaborateModal(false);
-        // If the manage modal is open for this task, refresh its data
-        if (manageCollabTask && result?.task?._id === manageCollabTask._id) {
-          setManageCollabTask(result.task);
-        }
-        setCollaborateTarget(null);
-        refetchTasks();
       }
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to invite collaborator');
@@ -2616,7 +2702,7 @@ const PersonalTasks = () => {
     }
   };
 
-  // 👇 NEW: manage collaborators handlers
+  // ─── Manage collaborators handlers ───────────────────────────
   const handleOpenManageCollaborators = (task) => {
     setManageCollabTask(task);
     setShowManageCollabModal(true);
@@ -2654,10 +2740,26 @@ const PersonalTasks = () => {
     }
   };
 
-  const handleInviteAnotherFromManage = () => {
-    if (!manageCollabTask) return;
-    setCollaborateTarget(manageCollabTask._id);
-    setShowCollaborateModal(true);
+  // Inline invite from the Manage Collaborators modal.
+  // Returns `false` on failure so the modal can keep the form open.
+  const handleInviteFromManage = async ({ email, role }) => {
+    if (!manageCollabTask) return false;
+    try {
+      const result = await addCollaborator({
+        taskId: manageCollabTask._id,
+        email,
+        role,
+      }).unwrap();
+      toast.success('Collaborator invited successfully!');
+      if (result?.task?._id === manageCollabTask._id) {
+        setManageCollabTask(result.task);
+      }
+      refetchTasks();
+      return true;
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to invite collaborator');
+      return false;
+    }
   };
 
   // ─── Handlers ──────────────────────────────────────────────────
@@ -3399,28 +3501,26 @@ const PersonalTasks = () => {
         onMoveTask={handleMoveTaskToFolder}
       />
 
+      {/* Bulk invite still uses the standalone modal */}
       <CollaborateModal
         isOpen={showCollaborateModal}
         onClose={() => { setShowCollaborateModal(false); setCollaborateTarget(null); }}
         onInvite={handleCollaborateInvite}
         isLoading={collaborateLoading}
-        taskTitle={
-          collaborateTarget === 'bulk'
-            ? `${selectedIds.size} tasks`
-            : localTasks.find(t => t._id === collaborateTarget)?.title || 'task'
-        }
-        isBulk={collaborateTarget === 'bulk'}
+        taskTitle={`${selectedIds.size} tasks`}
+        isBulk={true}
       />
 
-      {/* 👇 NEW: Manage Collaborators modal */}
+      {/* Manage Collaborators — inline invite form, no nested modal */}
       <ManageCollaboratorsModal
         isOpen={showManageCollabModal}
         onClose={() => { setShowManageCollabModal(false); setManageCollabTask(null); }}
         task={manageCollabTask}
         onUpdateRole={handleUpdateCollaboratorRole}
         onRemove={handleRemoveCollaborator}
-        onInviteAnother={handleInviteAnotherFromManage}
+        onInvite={handleInviteFromManage}
         isLoading={isUpdatingRole || isRemovingCollab}
+        isInviting={isAddingCollaborator}
       />
 
       {!selectedTask && !selectionMode && viewType === 'personal' && (

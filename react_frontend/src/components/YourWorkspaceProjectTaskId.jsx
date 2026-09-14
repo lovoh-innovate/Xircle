@@ -24,6 +24,15 @@ import {
 } from '../slices/taskApiSlice';
 import toast from 'react-hot-toast';
 
+// ─────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────
+const isUserInArray = (arr, userId) =>
+  (arr || []).some((a) => {
+    const id = a?._id || a;
+    return id?.toString() === userId?.toString();
+  });
+
 // ─── SubTaskItem ──────────────────────────────────────────────────────
 const SubTaskItem = React.memo(({
   subTask,
@@ -55,9 +64,7 @@ const SubTaskItem = React.memo(({
   const [confirmFeedback, setConfirmFeedback] = useState('');
 
   const [isExpanded, setIsExpanded] = useState(false);
-
   const [showRejectModal, setShowRejectModal] = useState(false);
-
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const hasDetails = subTask.notes ||
@@ -78,8 +85,9 @@ const SubTaskItem = React.memo(({
       fd.append('notes', doneNotes);
       fd.append('links', JSON.stringify(doneLinks.split('\n').filter(Boolean)));
       doneFiles.forEach(f => fd.append('attachments', f));
-      await markDone({ taskId, subTaskIndex: index, data: fd }).unwrap();
-      toast.success('Sub‑task marked done');
+      const res = await markDone({ taskId, subTaskIndex: index, data: fd }).unwrap();
+      // Manager click auto-confirms on the backend.
+      toast.success(canManage ? 'Sub‑task completed & confirmed' : 'Sub‑task marked done');
       setShowDoneForm(false);
       setDoneNotes('');
       setDoneLinks('');
@@ -152,10 +160,7 @@ const SubTaskItem = React.memo(({
   const st = statusMap[subTask.status] || statusMap.pending;
 
   const handleDragStart = (e) => {
-    if (!draggable) {
-      e.preventDefault();
-      return;
-    }
+    if (!draggable) { e.preventDefault(); return; }
     e.dataTransfer.setData('text/plain', String(index));
     e.dataTransfer.effectAllowed = 'move';
     if (onDragStart) onDragStart(e, index);
@@ -171,6 +176,13 @@ const SubTaskItem = React.memo(({
     e.preventDefault();
     if (onDrop) onDrop(e, index);
   };
+
+  // Assignee OR manager can mark a pending subtask done.
+  const showMarkDoneBtn =
+    (isAssignee || canManage) && subTask.status === 'pending';
+
+  // Only managers confirm a `done` subtask (assignee submitted it).
+  const showConfirmReject = canManage && subTask.status === 'done';
 
   return (
     <>
@@ -211,12 +223,12 @@ const SubTaskItem = React.memo(({
         </div>
 
         <div className="flex flex-wrap items-center gap-1 mt-1 sm:mt-0 sm:ml-auto sm:flex-nowrap">
-          {isAssignee && subTask.status === 'pending' && (
+          {showMarkDoneBtn && (
             <button onClick={handleMarkDone} disabled={updating} className="p-1 text-blue-500 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg transition">
               <FaCheck className="text-xs" />
             </button>
           )}
-          {canManage && subTask.status === 'done' && (
+          {showConfirmReject && (
             <>
               <button onClick={handleConfirmClick} disabled={updating} className="p-1 text-green-500 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-500/10 rounded-lg transition">
                 <FaCheckDouble className="text-xs" />
@@ -226,11 +238,11 @@ const SubTaskItem = React.memo(({
               </button>
             </>
           )}
-          {(isAssignee && subTask.status !== 'confirmed') || canManage ? (
+          {((isAssignee && subTask.status !== 'confirmed') || canManage) && (
             <button onClick={handleDelete} disabled={updating} className="p-1 text-red-400 dark:text-red-400/60 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition">
               <FaTrashAlt className="text-xs" />
             </button>
-          ) : null}
+          )}
         </div>
 
         {isExpanded && (
@@ -242,14 +254,7 @@ const SubTaskItem = React.memo(({
                 <div className="flex flex-wrap items-center gap-1 mt-0.5">
                   {subTask.links.map((l, i) => (
                     <React.Fragment key={i}>
-                      <a
-                        href={l}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-teal-600 dark:text-[#0d9488] underline hover:text-teal-700 dark:hover:text-[#14b8a6] break-all"
-                      >
-                        {l}
-                      </a>
+                      <a href={l} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] underline hover:text-teal-700 dark:hover:text-[#14b8a6] break-all">{l}</a>
                       {i < subTask.links.length - 1 && <span className="text-gray-400 dark:text-gray-500">,</span>}
                     </React.Fragment>
                   ))}
@@ -262,9 +267,7 @@ const SubTaskItem = React.memo(({
                 <div className="flex flex-wrap items-center gap-1 mt-0.5">
                   {subTask.attachments.map((att, i) => (
                     <React.Fragment key={i}>
-                      <a href={att.url} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] underline hover:text-teal-700 dark:hover:text-[#14b8a6] break-all">
-                        {att.name || 'file'}
-                      </a>
+                      <a href={att.url} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-[#0d9488] underline hover:text-teal-700 dark:hover:text-[#14b8a6] break-all">{att.name || 'file'}</a>
                       {i < subTask.attachments.length - 1 && <span className="text-gray-400 dark:text-gray-500">,</span>}
                     </React.Fragment>
                   ))}
@@ -308,7 +311,7 @@ const SubTaskItem = React.memo(({
             </div>
             <div className="flex gap-2">
               <button onClick={submitDone} disabled={updating} className="px-3 py-1.5 bg-teal-600 dark:bg-[#0d9488] text-white text-xs rounded-lg hover:bg-teal-700 dark:hover:bg-[#0f9e96] transition">
-                {updating ? 'Saving...' : 'Submit Done'}
+                {updating ? 'Saving...' : (canManage ? 'Complete & Confirm' : 'Submit Done')}
               </button>
               <button onClick={cancelDone} className="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition">
                 Cancel
@@ -401,7 +404,6 @@ const TaskDetailView = React.memo(({
   onAssignTask,
   onMarkCompleteClick,
   onConfirmCompletionClick,
-  onSetReadyForCompletion,
   subDragStart,
   subDragEnd,
   subDragOver,
@@ -409,7 +411,7 @@ const TaskDetailView = React.memo(({
   subDragLeave,
   subDragOverIndex,
 }) => {
-  const isAssignee = task.assignee?._id === userInfo?._id;
+  const isAssignee = isUserInArray(task.assignees, userInfo?._id);
   const [showMenu, setShowMenu] = useState(false);
   const [addSubTaskOpen, setAddSubTaskOpen] = useState(false);
   const [newSubTaskTitle, setNewSubTaskTitle] = useState('');
@@ -418,7 +420,6 @@ const TaskDetailView = React.memo(({
   const [adding, setAdding] = useState(false);
   const [addSubTask] = useAddSubTaskMutation();
 
-  // ─── Collapsible states ──────────────────────────────────────────
   const [submissionExpanded, setSubmissionExpanded] = useState(false);
   const [rejectionExpanded, setRejectionExpanded] = useState(false);
 
@@ -454,32 +455,34 @@ const TaskDetailView = React.memo(({
   const canReorderSub = canManage || (isAssignee && task.allowAssigneeEditSubtasks);
   const isReadOnly = task.isArchived || task.isTrash || false;
 
-  const handleSetReadyClick = () => onSetReadyForCompletion(task);
-
-  // ─── Check if we have submission data (regardless of status) ──────
   const hasSubmissionData = task.completionNotes ||
     (task.finalLinks && task.finalLinks.length > 0) ||
     (task.finalAttachments && task.finalAttachments.length > 0) ||
     task.completedBy;
 
-  // ─── Check if we have rejection data ──────────────────────────────
   const showRejection = task.rejectedBy && task.rejectedAt;
   const hasRejectionData = task.rejectedBy || task.rejectionReason;
 
-  // ─── Auto‑expand rejection when it exists ──────────────────────────
   useEffect(() => {
-    if (showRejection && hasRejectionData) {
-      setRejectionExpanded(true);
-    }
+    if (showRejection && hasRejectionData) setRejectionExpanded(true);
   }, [showRejection, hasRejectionData]);
 
-  const showSetReady = canManage && !isReadOnly &&
-    task.status !== 'ready_for_completion' &&
-    task.status !== 'completed' &&
-    task.status !== 'confirmed_completed';
+  // ─── New action visibility rules ─────────────────────────────
+  // Managers + assignees can both click "Mark as Complete" once the
+  // task is ready. Manager click auto-confirms on the backend.
+  const showMarkComplete =
+    !isReadOnly &&
+    task.status === 'ready_for_completion' &&
+    (isAssignee || canManage);
 
-  const showMarkComplete = isAssignee && !isReadOnly && task.status === 'ready_for_completion';
-  const showConfirmCompletion = !isReadOnly && canManage && task.status === 'completed';
+  // Manager only — appears when an assignee has already marked it done.
+  const showConfirmCompletion =
+    !isReadOnly &&
+    canManage &&
+    task.status === 'completed';
+
+  // "Assign Task" only when nobody is assigned yet.
+  const hasAssignees = (task.assignees || []).length > 0;
 
   return (
     <div className="flex flex-col h-full bg-gray-50 dark:bg-[#0f0f12]">
@@ -502,7 +505,11 @@ const TaskDetailView = React.memo(({
                 <FaRedo className="text-[10px]" /> {recurrenceLabel}
               </span>
             )}
-            {task.assignee && <span className="text-gray-600 dark:text-gray-400 truncate max-w-[80px] md:max-w-[120px]">{task.assignee.name}</span>}
+            {hasAssignees && (
+              <span className="text-gray-600 dark:text-gray-400 truncate max-w-[160px] md:max-w-[240px]">
+                {(task.assignees || []).map(a => a.name).filter(Boolean).join(', ')}
+              </span>
+            )}
             {task.folder && <span className="text-gray-600 dark:text-gray-400 truncate flex items-center gap-1"><FaFolder className="text-xs" /> {task.folder.name}</span>}
           </div>
         </div>
@@ -526,7 +533,7 @@ const TaskDetailView = React.memo(({
                 <FaTrashAlt className="text-xs" /> Delete
               </button>
             )}
-            {canManage && !task.assignee && !isReadOnly && (
+            {canManage && !hasAssignees && !isReadOnly && (
               <button onClick={() => { setShowMenu(false); onAssignTask(task); }} className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 dark:text-[#0d9488] hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 w-full transition">
                 <FaUserPlus className="text-xs" /> Assign Task
               </button>
@@ -553,7 +560,6 @@ const TaskDetailView = React.memo(({
           )}
         </div>
 
-        {/* ─── SUBMISSION DETAILS (always show if data exists) ────── */}
         {hasSubmissionData && (
           <div className="mt-2">
             <button
@@ -619,7 +625,6 @@ const TaskDetailView = React.memo(({
           </div>
         )}
 
-        {/* ─── REJECTION DETAILS ────────────────────────────────── */}
         {showRejection && hasRejectionData && (
           <div className="mt-2">
             <button
@@ -644,7 +649,6 @@ const TaskDetailView = React.memo(({
                     <span className="font-medium text-gray-700 dark:text-gray-300">Reason:</span> {task.rejectionReason}
                   </div>
                 )}
-                {/* Also show the submitted data inside rejection for clarity */}
                 {task.completionNotes && (
                   <div className="text-gray-600 dark:text-gray-400 pt-1 border-t border-red-200 dark:border-red-800/30">
                     <span className="font-medium text-gray-700 dark:text-gray-300">Submitted notes:</span> {task.completionNotes}
@@ -706,14 +710,12 @@ const TaskDetailView = React.memo(({
             />
             <input
               type="datetime-local"
-              placeholder="Start date & time"
               value={newSubTaskStart}
               onChange={(e) => setNewSubTaskStart(e.target.value)}
               className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none mb-2"
             />
             <input
               type="datetime-local"
-              placeholder="Due date & time"
               value={newSubTaskDue}
               onChange={(e) => setNewSubTaskDue(e.target.value)}
               className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none mb-2"
@@ -757,22 +759,14 @@ const TaskDetailView = React.memo(({
 
       {/* Bottom action bar */}
       <div className="border-t border-gray-200/60 dark:border-gray-800/40 bg-white dark:bg-[#14141a] px-3 py-2 flex-shrink-0 sticky bottom-0 space-y-2">
-        {showSetReady && (
-          <button
-            onClick={handleSetReadyClick}
-            className="w-full py-2 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 transition hover:opacity-80"
-            style={{ backgroundColor: brandColor }}
-          >
-            <FaCheckCircle className="text-sm" /> Set Ready for Completion
-          </button>
-        )}
         {showMarkComplete && (
           <button
             onClick={onMarkCompleteClick}
             className="w-full py-2 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 transition hover:opacity-80"
             style={{ backgroundColor: brandColor }}
           >
-            <FaCheckDouble className="text-sm" /> Mark as Complete
+            <FaCheckDouble className="text-sm" />
+            {canManage ? 'Mark as Complete & Confirm' : 'Mark as Complete'}
           </button>
         )}
         {showConfirmCompletion && (
@@ -781,12 +775,18 @@ const TaskDetailView = React.memo(({
             className="w-full py-2 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 transition hover:opacity-80"
             style={{ backgroundColor: brandColor }}
           >
-            <FaCheckDouble className="text-sm" /> Confirm Completion
+            <FaCheckCircle className="text-sm" /> Confirm Completion
           </button>
         )}
-        {!showSetReady && !showMarkComplete && !showConfirmCompletion && (
+        {!showMarkComplete && !showConfirmCompletion && (
           <p className="text-center text-xs text-gray-500 dark:text-gray-400">
-            {task.status === 'confirmed_completed' ? 'Task confirmed' : 'No actions available'}
+            {task.status === 'confirmed_completed'
+              ? 'Task confirmed'
+              : task.status === 'completed'
+              ? 'Awaiting manager confirmation'
+              : !hasAssignees
+              ? 'Not assigned yet'
+              : 'No actions available'}
           </p>
         )}
       </div>

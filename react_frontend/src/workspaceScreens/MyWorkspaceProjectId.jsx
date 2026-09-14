@@ -22,7 +22,7 @@ import {
   useDeleteSubTaskMutation,
   useMarkTaskCompletedMutation,
   useConfirmTaskCompletionMutation,
-  useRejectTaskMutation,              // <-- ADDED
+  useRejectTaskMutation,
   useSendManualReminderMutation,
   useGetTaskFeedbackQuery,
   useAssignTaskMutation,
@@ -42,7 +42,7 @@ import {
 } from '../slices/taskApiSlice';
 import MyWorkspaceSidebar from '../workspaceComponents/MyWorkspaceSidebar';
 import MyWorkspaceBottombar from '../workspaceComponents/MyWorkspaceBottombar';
-import { FaCommentDots, FaUser, FaEdit, FaTimes, FaTasks, FaUserPlus } from 'react-icons/fa';
+import { FaCommentDots, FaUser, FaEdit, FaTimes, FaTasks, FaUserPlus, FaFolder, FaPen } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 
 // ─── Import the four components ──────────────────────────────────────
@@ -85,14 +85,6 @@ const MyWorkspaceProjectId = () => {
   const [showAddManager, setShowAddManager] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assignTaskTarget, setAssignTaskTarget] = useState(null);
-  const [addSubTaskOpen, setAddSubTaskOpen] = useState(false);
-  const [newSubTaskTitle, setNewSubTaskTitle] = useState('');
-  const [newSubTaskStart, setNewSubTaskStart] = useState('');
-  const [newSubTaskDue, setNewSubTaskDue] = useState('');
-  const [newSubTaskRecurrenceType, setNewSubTaskRecurrenceType] = useState('none');
-  const [newSubTaskRecurrenceDays, setNewSubTaskRecurrenceDays] = useState([]);
-  const [newSubTaskRecurrenceEndDate, setNewSubTaskRecurrenceEndDate] = useState('');
-  const [addingSubTask, setAddingSubTask] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {}, danger: false });
   const [deleteTaskModal, setDeleteTaskModal] = useState({ isOpen: false, taskName: '', onConfirm: () => {} });
@@ -132,7 +124,7 @@ const MyWorkspaceProjectId = () => {
   const [deleteTask] = useDeleteTaskMutation();
   const [sendManualReminder] = useSendManualReminderMutation();
   const [confirmTaskCompletion] = useConfirmTaskCompletionMutation();
-  const [rejectTask] = useRejectTaskMutation();                      // <-- ADDED
+  const [rejectTask] = useRejectTaskMutation();
   const [assignTask] = useAssignTaskMutation();
   const [archiveTask] = useArchiveTaskMutation();
   const [restoreTask] = useRestoreTaskMutation();
@@ -195,7 +187,7 @@ const MyWorkspaceProjectId = () => {
   const projectManagers = project?.projectManagers || [];
   const projectProgress = project?.progress || 0;
 
-  const availableForManager = useMemo(() => workspace?.members?.filter(m => m.status === 'active' && !projectManagers.some(pm => pm._id === (m.user?._id || m._id))) || [], [workspace, projectManagers]);
+  const availableForManager = useMemo(() => workspace?.members?.filter(m => m.status === 'active' && !projectManagers.some(pm => (pm._id || pm) === (m.user?._id || m._id))) || [], [workspace, projectManagers]);
   const managerOptions = useMemo(() => availableForManager.map(m => {
     const u = m.user || m;
     return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full" /> : <FaUser className="text-gray-400" /> };
@@ -203,7 +195,11 @@ const MyWorkspaceProjectId = () => {
 
   const isFolderReadOnly = useCallback((folderId) => {
     if (canManage) return false;
-    const hasAssigned = tasks.some(t => { const fid = t.folder?._id || t.folder; return fid === folderId && t.assignee?._id === userInfo?._id; });
+    const hasAssigned = tasks.some(t => {
+      const fid = t.folder?._id || t.folder;
+      const inArr = (t.assignees || []).some(a => (a._id || a) === userInfo?._id);
+      return fid === folderId && inArr;
+    });
     if (hasAssigned) return false;
     return visibleFolders.some(f => f._id === folderId);
   }, [canManage, tasks, userInfo, visibleFolders]);
@@ -212,8 +208,38 @@ const MyWorkspaceProjectId = () => {
   const refreshAll = useCallback(() => { refetchTasks(); refetchProject(); }, [refetchTasks, refetchProject]);
 
   const handleCreateTaskOptimistic = useCallback(async (formData) => {
+    // Normalize assignee IDs (array preferred, single fallback).
+    const assigneeIds = Array.isArray(formData.assigneeIds) && formData.assigneeIds.length > 0
+      ? formData.assigneeIds
+      : (formData.assigneeId ? [formData.assigneeId] : []);
+
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-    const optimisticTask = { _id: tempId, title: formData.title, description: formData.description || '', taskType: formData.taskType || 'general', priority: formData.priority || 'medium', status: 'pending', progress: 0, assignee: formData.assigneeId ? { _id: formData.assigneeId, name: 'Loading...' } : null, folder: formData.folderId ? { _id: formData.folderId, name: visibleFolders.find(f => f._id === formData.folderId)?.name || 'Folder' } : null, startDate: formData.startDate || null, dueDate: formData.dueDate || null, estimatedHours: formData.estimatedHours || 0, bufferTime: parseFloat(formData.bufferTime) || 0, allowAssigneeEditSubtasks: formData.allowAssigneeEditSubtasks || false, recurrenceType: formData.recurrenceType || 'none', recurrenceDays: formData.recurrenceDays || [], recurrenceEndDate: formData.recurrenceEndDate || null, links: formData.links || [], attachments: [], subTasks: [], isArchived: false, isTrash: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const optimisticTask = {
+      _id: tempId,
+      title: formData.title,
+      description: formData.description || '',
+      taskType: formData.taskType || 'general',
+      priority: formData.priority || 'medium',
+      status: assigneeIds.length > 0 ? 'ready_for_completion' : 'pending',
+      progress: 0,
+      assignees: assigneeIds.map(id => ({ _id: id, name: 'Loading...' })),
+      folder: formData.folderId ? { _id: formData.folderId, name: visibleFolders.find(f => f._id === formData.folderId)?.name || 'Folder' } : null,
+      startDate: formData.startDate || null,
+      dueDate: formData.dueDate || null,
+      estimatedHours: formData.estimatedHours || 0,
+      bufferTime: parseFloat(formData.bufferTime) || 0,
+      allowAssigneeEditSubtasks: formData.allowAssigneeEditSubtasks || false,
+      recurrenceType: formData.recurrenceType || 'none',
+      recurrenceDays: formData.recurrenceDays || [],
+      recurrenceEndDate: formData.recurrenceEndDate || null,
+      links: formData.links || [],
+      attachments: [],
+      subTasks: [],
+      isArchived: false,
+      isTrash: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
     setLocalTasks(prev => [optimisticTask, ...prev]);
     try {
       const fd = new FormData();
@@ -221,7 +247,10 @@ const MyWorkspaceProjectId = () => {
       fd.append('title', formData.title);
       fd.append('description', formData.description);
       fd.append('taskType', formData.taskType);
-      if (formData.assigneeId) fd.append('assigneeId', formData.assigneeId);
+      if (assigneeIds.length > 0) {
+        fd.append('assigneeIds', JSON.stringify(assigneeIds));
+        fd.append('assigneeId', assigneeIds[0]);
+      }
       fd.append('priority', formData.priority);
       if (formData.startDate) fd.append('startDate', new Date(formData.startDate).toISOString());
       if (formData.dueDate) fd.append('dueDate', new Date(formData.dueDate).toISOString());
@@ -288,6 +317,7 @@ const MyWorkspaceProjectId = () => {
   }, [sendManualReminder]);
 
   // ─── Completion handlers ────────────────────────────────────────────
+  // Manager click → auto-confirmed by backend. Assignee click → awaits confirm.
   const handleMarkComplete = useCallback(async (data) => {
     try {
       const fd = new FormData();
@@ -295,13 +325,14 @@ const MyWorkspaceProjectId = () => {
       if (data.links) { data.links.forEach(l => fd.append('links', l)); }
       if (data.attachments) { data.attachments.forEach(f => fd.append('completionAttachments', f)); }
       await markTaskCompleted({ taskId: activeTask._id, data: fd }).unwrap();
-      toast.success('Task marked as complete');
+      toast.success(canManage ? 'Task completed and confirmed' : 'Task marked as complete, awaiting confirmation');
       refreshAll();
+      setShowMarkCompleteModal(false);
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to mark task complete');
       throw err;
     }
-  }, [activeTask, markTaskCompleted, refreshAll]);
+  }, [activeTask, markTaskCompleted, refreshAll, canManage]);
 
   const handleConfirmCompletion = useCallback(async (data) => {
     try {
@@ -313,6 +344,7 @@ const MyWorkspaceProjectId = () => {
       await confirmTaskCompletion({ taskId: activeTask._id, data: fd }).unwrap();
       toast.success('Task completion confirmed');
       refreshAll();
+      setShowConfirmCompletionModal(false);
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to confirm completion');
       throw err;
@@ -324,6 +356,7 @@ const MyWorkspaceProjectId = () => {
       await rejectTask({ taskId, reason }).unwrap();
       toast.success('Task rejected');
       refreshAll();
+      setShowConfirmCompletionModal(false);
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to reject task');
       throw err;
@@ -334,21 +367,20 @@ const MyWorkspaceProjectId = () => {
   const handleMarkCompleteClick = useCallback(() => setShowMarkCompleteModal(true), []);
   const handleConfirmCompletionClick = useCallback(() => setShowConfirmCompletionModal(true), []);
 
-  const handleSetReadyForCompletion = useCallback(async () => {
-    const previousStatus = activeTask.status;
-    setLocalTasks(prev => prev.map(t => t._id === activeTask._id ? { ...t, status: 'ready_for_completion' } : t));
+  // ─── Assign (multi-select) ──────────────────────────────────────────
+  const handleAssignTask = useCallback(async (assigneeIds) => {
     try {
-      await updateTask({ taskId: activeTask._id, data: { status: 'ready_for_completion' } }).unwrap();
-      toast.success('Task is now ready for completion');
-      refreshAll();
-    } catch (err) {
-      setLocalTasks(prev => prev.map(t => t._id === activeTask._id ? { ...t, status: previousStatus } : t));
-      toast.error(err?.data?.message || 'Failed to update task status');
-    }
-  }, [activeTask, updateTask, refreshAll]);
-
-  const handleAssignTask = useCallback(async (assigneeId) => {
-    try { await assignTask({ taskId: assignTaskTarget._id, assigneeId }).unwrap(); toast.success('Task assigned'); refetchTasks(); setShowAssignModal(false); setAssignTaskTarget(null); } catch (e) { throw e; }
+      const ids = Array.isArray(assigneeIds) ? assigneeIds : (assigneeIds ? [assigneeIds] : []);
+      await assignTask({
+        taskId: assignTaskTarget._id,
+        assigneeIds: ids,
+        assigneeId: ids[0] || '',
+      }).unwrap();
+      toast.success('Task assigned');
+      refetchTasks();
+      setShowAssignModal(false);
+      setAssignTaskTarget(null);
+    } catch (e) { throw e; }
   }, [assignTask, assignTaskTarget, refetchTasks]);
 
   const openAssignModal = useCallback((task) => { setAssignTaskTarget(task); setShowAssignModal(true); }, []);
@@ -498,11 +530,12 @@ const MyWorkspaceProjectId = () => {
     try { await reorderTasks({ projectId, orderedTaskIds: orderedIds }).unwrap(); refetchTasks(); } catch (err) { toast.error(err?.data?.message || 'Failed to reorder tasks'); setLocalTasks(previousTasks); }
   }, [draggedTaskId, tasks, reorderTasks, projectId, refetchTasks]);
 
-  // ── Sub-task reordering ──
+  // ── Sub-task reordering (uses assignees array) ──
   const canReorderSub = useCallback(() => {
     if (!activeTask) return false;
     if (isFolderReadOnly(activeFolderId)) return false;
-    return !activeTask.isArchived && (canManage || (activeTask.assignee?._id === userInfo?._id && activeTask.allowAssigneeEditSubtasks));
+    const isAssignee = (activeTask.assignees || []).some(a => (a._id || a) === userInfo?._id);
+    return !activeTask.isArchived && (canManage || (isAssignee && activeTask.allowAssigneeEditSubtasks));
   }, [activeTask, isFolderReadOnly, activeFolderId, canManage, userInfo]);
 
   const handleSubDragStart = useCallback((e, index) => {
@@ -672,34 +705,33 @@ const MyWorkspaceProjectId = () => {
           {/* Right panel – Task Detail */}
           <div className={`flex flex-col flex-1 h-full bg-gray-50 dark:bg-[#0f0f12] ${!isMd && !mobileShowDetail ? 'hidden' : ''}`}>
             {activeTask ? (
-             <MyWorkspaceProjectTaskId
-  task={activeTask}
-  brandColor={brandColor}
-  userInfo={userInfo}
-  onBack={handleBackToList}
-  onEdit={handleEditTask}
-  onDelete={handleDeleteTask}
-  onRefresh={refreshAll}
-  canManage={canManage}
-  onSendReminder={handleSendManualReminder}
-  onAssignTask={openAssignModal}
-  onMarkCompleteClick={handleMarkCompleteClick}
-  onConfirmCompletionClick={handleConfirmCompletionClick}
-  onSetReadyForCompletion={handleSetReadyForCompletion}
-  onArchiveTask={handleArchiveTask}
-  onUnarchiveTask={handleUnarchiveTask}
-  onPermanentDelete={handlePermanentDeleteTask}
-  onCopyClick={openCopyModal}
-  onMoveClick={openMoveModal}
-  onReject={handleRejectTask}              // <-- ADD THIS
-  isReadOnly={activeFolderId ? isFolderReadOnly(activeFolderId) : false}
-  subDragStart={canReorderSub() ? handleSubDragStart : null}
-  subDragEnd={handleSubDragEnd}
-  subDragOver={canReorderSub() ? handleSubDragOver : null}
-  subDrop={canReorderSub() ? handleSubDrop : null}
-  subDragLeave={handleSubDragLeave}
-  subDragOverIndex={dragOverSubIdx}
-/>
+              <MyWorkspaceProjectTaskId
+                task={activeTask}
+                brandColor={brandColor}
+                userInfo={userInfo}
+                onBack={handleBackToList}
+                onEdit={handleEditTask}
+                onDelete={handleDeleteTask}
+                onRefresh={refreshAll}
+                canManage={canManage}
+                onSendReminder={handleSendManualReminder}
+                onAssignTask={openAssignModal}
+                onMarkCompleteClick={handleMarkCompleteClick}
+                onConfirmCompletionClick={handleConfirmCompletionClick}
+                onArchiveTask={handleArchiveTask}
+                onUnarchiveTask={handleUnarchiveTask}
+                onPermanentDelete={handlePermanentDeleteTask}
+                onCopyClick={openCopyModal}
+                onMoveClick={openMoveModal}
+                onReject={handleRejectTask}
+                isReadOnly={activeFolderId ? isFolderReadOnly(activeFolderId) : false}
+                subDragStart={canReorderSub() ? handleSubDragStart : null}
+                subDragEnd={handleSubDragEnd}
+                subDragOver={canReorderSub() ? handleSubDragOver : null}
+                subDrop={canReorderSub() ? handleSubDrop : null}
+                subDragLeave={handleSubDragLeave}
+                subDragOverIndex={dragOverSubIdx}
+              />
             ) : (
               <div className="flex-1 flex items-center justify-center text-gray-500 dark:text-gray-500">
                 <div className="text-center">
@@ -785,6 +817,7 @@ const MyWorkspaceProjectId = () => {
               onAssign={handleAssignTask}
               brandColor={brandColor}
               onCancel={() => setShowAssignModal(false)}
+              currentAssignees={assignTaskTarget.assignees || []}
             />
           </div>
         </div>

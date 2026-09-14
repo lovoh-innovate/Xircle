@@ -164,11 +164,11 @@ const YourWorkspaceProjectId = () => {
     managerId: '',
   });
 
-  // ─── NEW: Modals for task completion flow ─────────────────────────
+  // ─── Modals for task completion flow ──────────────────────────────
   const [showMarkCompleteModal, setShowMarkCompleteModal] = useState(false);
   const [showConfirmCompletionModal, setShowConfirmCompletionModal] = useState(false);
 
-  // ─── NEW: Modals for copy/move ──────────────────────────────────────
+  // ─── Modals for copy/move ─────────────────────────────────────────
   const [showMoveCopyModal, setShowMoveCopyModal] = useState(false);
   const [moveCopyTask, setMoveCopyTask] = useState(null);
   const [moveCopyMode, setMoveCopyMode] = useState('move'); // 'move' or 'copy'
@@ -300,15 +300,21 @@ const YourWorkspaceProjectId = () => {
   }, [refetchTasks, refetchProject, refetchFolders]);
 
   const handleCreateTaskOptimistic = useCallback(async (formData) => {
+    // ── Extract assignee IDs (prefer array, fall back to single) ──
+    const assigneeIds = Array.isArray(formData.assigneeIds) && formData.assigneeIds.length > 0
+      ? formData.assigneeIds
+      : (formData.assigneeId ? [formData.assigneeId] : []);
+
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
     const optimisticTask = {
       _id: tempId,
       title: formData.title,
       description: formData.description || '',
       priority: formData.priority || 'medium',
-      status: 'pending',
+      // Assigned tasks start as ready_for_completion (backend rule).
+      status: assigneeIds.length > 0 ? 'ready_for_completion' : 'pending',
       progress: 0,
-      assignee: formData.assigneeId ? { _id: formData.assigneeId, name: 'Loading...' } : null,
+      assignees: assigneeIds.map(id => ({ _id: id, name: 'Loading...' })),
       folder: formData.folderId ? { _id: formData.folderId, name: folders.find(f => f._id === formData.folderId)?.name || 'Folder' } : null,
       startDate: formData.startDate || null,
       dueDate: formData.dueDate || null,
@@ -333,7 +339,11 @@ const YourWorkspaceProjectId = () => {
     fd.append('projectId', formData.projectId);
     fd.append('title', formData.title);
     fd.append('description', formData.description);
-    fd.append('assigneeId', formData.assigneeId || '');
+    // Multi-assignee payload — send both for backwards compat.
+    if (assigneeIds.length > 0) {
+      fd.append('assigneeIds', JSON.stringify(assigneeIds));
+      fd.append('assigneeId', assigneeIds[0]);
+    }
     fd.append('priority', formData.priority);
     fd.append('estimatedHours', formData.estimatedHours || '');
     fd.append('bufferTime', formData.bufferTime);
@@ -555,11 +565,13 @@ const YourWorkspaceProjectId = () => {
   const handleSendManualReminder = useCallback(async (task) => {
     try {
       await sendManualReminder({ taskId: task._id, message: '' }).unwrap();
-      toast.success('Reminder sent to assignee');
+      toast.success('Reminder sent to assignee(s)');
     } catch (e) { toast.error(e?.data?.message || 'Failed to send reminder'); }
   }, [sendManualReminder]);
 
   // ─── Mark complete handlers ─────────────────────────────────────────
+  // Manager click → backend auto-confirms (confirmed_completed).
+  // Assignee click → completed, awaiting manager confirmation.
   const handleMarkComplete = useCallback(async ({ notes, links, attachments }) => {
     try {
       const fd = new FormData();
@@ -571,14 +583,18 @@ const YourWorkspaceProjectId = () => {
         attachments.forEach(f => fd.append('completionAttachments', f));
       }
       await markTaskCompleted({ taskId: activeTask._id, data: fd }).unwrap();
-      toast.success('Task submitted for review');
+      toast.success(
+        canManage
+          ? 'Task completed and confirmed'
+          : 'Task submitted, awaiting confirmation'
+      );
       refreshAll();
       setShowMarkCompleteModal(false);
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to submit task');
       throw err;
     }
-  }, [activeTask, markTaskCompleted, refreshAll]);
+  }, [activeTask, markTaskCompleted, refreshAll, canManage]);
 
   const handleConfirmCompletion = useCallback(async (data) => {
     try {
@@ -604,7 +620,7 @@ const YourWorkspaceProjectId = () => {
   const handleRejectTask = useCallback(async (taskId, reason) => {
     try {
       await rejectTask({ taskId, reason }).unwrap();
-      toast.success('Task rejected – returned to pending');
+      toast.success('Task rejected – returned to assignee');
       refreshAll();
       setShowConfirmCompletionModal(false);
     } catch (err) {
@@ -613,26 +629,17 @@ const YourWorkspaceProjectId = () => {
     }
   }, [rejectTask, refreshAll]);
 
-  const handleSetReadyForCompletion = useCallback(async (task) => {
-    const previousStatus = task.status;
-    setLocalTasks(prev => prev.map(t =>
-      t._id === task._id ? { ...t, status: 'ready_for_completion' } : t
-    ));
+  const handleAssignTask = useCallback(async (assigneeIds) => {
     try {
-      await updateTask({ taskId: task._id, data: { status: 'ready_for_completion' } }).unwrap();
-      toast.success('Task is now ready for completion');
-      refreshAll();
-    } catch (err) {
-      setLocalTasks(prev => prev.map(t =>
-        t._id === task._id ? { ...t, status: previousStatus } : t
-      ));
-      toast.error(err?.data?.message || 'Failed to update task status');
-    }
-  }, [updateTask, refreshAll]);
-
-  const handleAssignTask = useCallback(async (assigneeId) => {
-    try {
-      await assignTask({ taskId: assignTaskTarget._id, assigneeId }).unwrap();
+      // Accept either a single ID or an array; normalize to array.
+      const ids = Array.isArray(assigneeIds)
+        ? assigneeIds
+        : (assigneeIds ? [assigneeIds] : []);
+      await assignTask({
+        taskId: assignTaskTarget._id,
+        assigneeIds: ids,
+        assigneeId: ids[0] || '',
+      }).unwrap();
       toast.success('Task assigned successfully');
       refreshAll();
       setShowAssignModal(false);
@@ -647,7 +654,7 @@ const YourWorkspaceProjectId = () => {
     setShowAssignModal(true);
   }, []);
 
-  // ─── NEW: Copy / Move handlers ──────────────────────────────────────
+  // ─── Copy / Move handlers ───────────────────────────────────────────
   const handleCopyClick = useCallback((task) => {
     setMoveCopyTask(task);
     setMoveCopyMode('copy');
@@ -665,7 +672,6 @@ const YourWorkspaceProjectId = () => {
 
     try {
       if (moveCopyMode === 'move') {
-        // Move: update the task's folder
         await updateTask({ taskId: moveCopyTask._id, data: { folderId: folderId || null } }).unwrap();
         toast.success(`Task moved to ${folderId ? folders.find(f => f._id === folderId)?.name || 'folder' : 'Uncategorized'}`);
       } else {
@@ -674,8 +680,6 @@ const YourWorkspaceProjectId = () => {
           title: moveCopyTask.title,
           description: moveCopyTask.description || '',
           priority: moveCopyTask.priority || 'medium',
-          status: 'pending', // always start as pending
-          assigneeId: moveCopyTask.assignee?._id || null,
           estimatedHours: moveCopyTask.estimatedHours || 0,
           bufferTime: moveCopyTask.bufferTime || 0,
           allowAssigneeEditSubtasks: moveCopyTask.allowAssigneeEditSubtasks ? 'true' : 'false',
@@ -686,7 +690,6 @@ const YourWorkspaceProjectId = () => {
           recurrenceDays: moveCopyTask.recurrenceDays || [],
           recurrenceEndDate: moveCopyTask.recurrenceEndDate || null,
           links: moveCopyTask.links || [],
-          attachments: [],
           projectId: projectId,
         };
 
@@ -694,15 +697,19 @@ const YourWorkspaceProjectId = () => {
         Object.keys(newTaskData).forEach(key => {
           if (key === 'links') {
             newTaskData.links.forEach(l => fd.append('links', l));
-          } else if (key === 'attachments') {
-            // attachments are empty for copy
           } else if (key === 'recurrenceDays' && newTaskData.recurrenceType === 'weekly') {
             fd.append('recurrenceDays', JSON.stringify(newTaskData.recurrenceDays));
           } else {
             fd.append(key, newTaskData[key] !== undefined && newTaskData[key] !== null ? String(newTaskData[key]) : '');
           }
         });
-        fd.append('projectId', projectId);
+
+        // Preserve every assignee on the copied task.
+        const assigneeIds = (moveCopyTask.assignees || [])
+          .map(a => a._id || a)
+          .filter(Boolean);
+        fd.append('assigneeIds', JSON.stringify(assigneeIds));
+        if (assigneeIds[0]) fd.append('assigneeId', assigneeIds[0]);
 
         await createTask(fd).unwrap();
         toast.success(`Task copied to ${folderId ? folders.find(f => f._id === folderId)?.name || 'folder' : 'Uncategorized'}`);
@@ -814,8 +821,13 @@ const YourWorkspaceProjectId = () => {
   }, [draggedTaskId, tasks, reorderTasks, projectId, refetchTasks]);
 
   // ─── Sub‑task drag & drop ────────────────────────────────────────────
+  // Uses the `assignees` array instead of singular `assignee`.
   const canReorderSub = useCallback((task) => {
-    return !isTrash && !isArchivedForMe && !task.isArchived && (canManage || (task.assignee?._id === userInfo?._id && task.allowAssigneeEditSubtasks));
+    const isUserAssignee = (task.assignees || []).some(
+      (a) => (a._id || a)?.toString() === userInfo?._id?.toString()
+    );
+    return !isTrash && !isArchivedForMe && !task.isArchived &&
+      (canManage || (isUserAssignee && task.allowAssigneeEditSubtasks));
   }, [isTrash, isArchivedForMe, canManage, userInfo]);
 
   const handleSubDragStart = useCallback((e, index) => {
@@ -1001,7 +1013,6 @@ const YourWorkspaceProjectId = () => {
                 onAssignTask={openAssignModal}
                 onMarkCompleteClick={() => setShowMarkCompleteModal(true)}
                 onConfirmCompletionClick={() => setShowConfirmCompletionModal(true)}
-                onSetReadyForCompletion={handleSetReadyForCompletion}
                 subDragStart={handleSubDragStart}
                 subDragEnd={handleSubDragEnd}
                 subDragOver={handleSubDragOver}

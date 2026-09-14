@@ -1,5 +1,5 @@
 // src/workspaceScreens/YourWorkspaceProjects.jsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
@@ -15,34 +15,33 @@ import {
   useUpdateProjectMutation,
 } from '../slices/projectApiSlice';
 import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
+import { usePlanWithAIMutation, useExecuteAIPlanMutation } from '../slices/aiApiSlice';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
 import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
 import {
-  FaPlus,
-  FaFolder,
-  FaUsers,
-  FaSearch,
-  FaTasks,
-  FaTrashAlt,
-  FaEdit,
-  FaEllipsisV,
-  FaTimes,
-  FaArrowLeft,
-  FaSpinner,
-  FaCheckCircle,
-  FaClock,
-  FaRocket,
-  FaFilter,
-  FaChevronDown,
-  FaChartPie,
-  FaArchive,
-  FaUndo,
-  FaTrashRestore,
+  FaPlus, FaFolder, FaUsers, FaSearch, FaTasks, FaTrashAlt, FaEdit, FaEllipsisV,
+  FaTimes, FaArrowLeft, FaSpinner, FaCheckCircle, FaClock, FaRocket, FaFilter,
+  FaChevronDown, FaChartPie, FaArchive, FaUndo, FaTrashRestore,
+  FaMagic, FaPaperPlane, FaExclamationTriangle, FaCheck, FaUser,
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
 // Helper: treat progress >= 100 as completed
 const isProjectCompleted = (p) => p.status === 'completed' || (p.progress || 0) >= 100;
+
+// ─── Media query hook ──────────────────────────────────────────────────
+const useMediaQuery = (query) => {
+  const [matches, setMatches] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia(query).matches : false
+  );
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const listener = () => setMatches(media.matches);
+    media.addEventListener('change', listener);
+    return () => media.removeEventListener('change', listener);
+  }, [query]);
+  return matches;
+};
 
 // ─── Confirm Modal ──────────────────────────────────────────────────────
 const ConfirmModal = ({
@@ -82,13 +81,11 @@ const ConfirmModal = ({
 // ─── Filter Drawer (mobile) ─────────────────────────────────────────────
 const FilterDrawer = ({ isOpen, onClose, filters, setFilters, view, setView, canManage }) => {
   if (!isOpen) return null;
-  const statuses = view === 'active'
-    ? ['all', 'planning', 'in-progress', 'completed']
-    : [];
+  const statuses = view === 'active' ? ['all', 'planning', 'in-progress', 'completed'] : [];
 
   return (
     <div className="fixed inset-0 z-40 bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm flex justify-end">
-      <div className="w-72 max-w-full h-full bg-white dark:bg-[#14141a] border-l border-gray-200 dark:border-gray-800/60 p-6 overflow-y-auto animate-slide-in-right">
+      <div className="w-72 max-w-full h-full bg-white dark:bg-[#14141a] border-l border-gray-200 dark:border-gray-800/60 p-6 overflow-y-auto">
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-lg font-bold text-gray-800 dark:text-gray-200">Filters</h3>
           <button onClick={onClose} className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white">
@@ -337,7 +334,7 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
   );
 };
 
-// ─── Edit Project Modal (bottom sheet on mobile, centered on desktop) ──
+// ─── Edit Project Modal ─────────────────────────────────────────────
 const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor, onSuccess }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -400,9 +397,7 @@ const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor,
       onClick={onClose}
     >
       <div
-        className={`bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl md:rounded-2xl w-full md:max-w-md ${isMobile ? 'max-h-[90vh]' : 'max-h-[90vh]'} overflow-y-auto transform transition-transform duration-300 ${
-          isMobile ? 'mt-auto' : 'mx-auto'
-        }`}
+        className={`bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl md:rounded-2xl w-full md:max-w-md max-h-[90vh] overflow-y-auto transform transition-transform duration-300 ${isMobile ? 'mt-auto' : 'mx-auto'}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="p-5">
@@ -513,7 +508,7 @@ const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor,
   );
 };
 
-// ─── Project Menu Modal (bottom sheet on mobile, centered on desktop) ──
+// ─── Project Menu Modal ─────────────────────────────────────────────
 const ProjectMenuModal = ({
   isOpen,
   onClose,
@@ -545,9 +540,7 @@ const ProjectMenuModal = ({
       onClick={onClose}
     >
       <div
-        className={`bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl md:rounded-2xl w-full md:max-w-sm ${isMobile ? 'max-h-[80vh]' : 'max-h-[80vh]'} overflow-y-auto transform transition-transform duration-300 ${
-          isMobile ? 'mt-auto' : 'mx-auto'
-        }`}
+        className={`bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl md:rounded-2xl w-full md:max-w-sm max-h-[80vh] overflow-y-auto transform transition-transform duration-300 ${isMobile ? 'mt-auto' : 'mx-auto'}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="p-5">
@@ -689,7 +682,6 @@ const ProjectCard = ({
           {statusLabels[displayStatus] || 'Planning'}
         </span>
 
-        {/* Menu button */}
         <button
           onClick={(e) => { stopProp(e); onMenuOpen(project); }}
           className="absolute top-2 left-2 p-1.5 bg-white/60 dark:bg-black/40 backdrop-blur-sm rounded-lg text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-black/60 transition z-10"
@@ -698,7 +690,6 @@ const ProjectCard = ({
         </button>
       </div>
 
-      {/* Content */}
       <div className="p-3 md:p-4">
         <h3 className="text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">
           {project.name}
@@ -764,11 +755,306 @@ const ProjectCard = ({
   );
 };
 
+// ─── AI Panel ──────────────────────────────────────────────────────────
+const EXAMPLE_PROMPTS = [
+  'Build a marketing website in 3 weeks with design, dev and QA phases.',
+  'Launch a new mobile app feature. Need a designer, backend dev and tester.',
+  'Plan a 2-day team offsite with logistics and activities.',
+  'Create a content calendar for our social media for the next month.',
+];
+
+const AIProjectPanel = ({ workspaceId, brandColor, onClose, onExecuted }) => {
+  const [prompt, setPrompt] = useState('');
+  const [plan, setPlan] = useState(null);
+  const [planWithAI, { isLoading: isPlanning }] = usePlanWithAIMutation();
+  const [executeAIPlan, { isLoading: isExecuting }] = useExecuteAIPlanMutation();
+
+  const handlePlan = async () => {
+    if (!prompt.trim()) {
+      toast.error('Describe your project first');
+      return;
+    }
+    try {
+      const res = await planWithAI({ workspaceId, prompt: prompt.trim() }).unwrap();
+      setPlan(res.plan);
+      if (res.plan.warnings?.length > 0) {
+        toast.warn(`${res.plan.warnings.length} warning(s) — some assignments were dropped.`);
+      }
+    } catch (err) {
+      toast.error(err?.data?.message || 'AI planning failed. Try again.');
+    }
+  };
+
+  const handleExecute = async () => {
+    if (!plan) return;
+    try {
+      const res = await executeAIPlan({ workspaceId, plan }).unwrap();
+      toast.success(`Created "${res.project.name}" with ${res.taskCount} task${res.taskCount === 1 ? '' : 's'}.`);
+      onExecuted?.(res.project);
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to create project.');
+    }
+  };
+
+  const resetPlan = () => setPlan(null);
+
+  return (
+    <div className="flex flex-col h-full bg-white dark:bg-[#14141a]">
+      {/* Panel header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800/60 bg-gradient-to-r from-[#0d9488]/5 to-transparent">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#0d9488] to-[#0f766e] flex items-center justify-center flex-shrink-0 shadow-lg shadow-[#0d9488]/30">
+            <FaMagic className="text-white text-xs" />
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate">
+              AI Project Planner
+            </h3>
+            <p className="text-[10px] text-gray-500 dark:text-gray-500 truncate">
+              Describe it — we'll plan it
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition flex-shrink-0"
+          title="Close AI mode"
+        >
+          <FaTimes className="text-sm" />
+        </button>
+      </div>
+
+      {/* Panel body */}
+      <div className="flex-1 overflow-y-auto p-4">
+        {!plan ? (
+          /* ─── Stage 1: Prompt input ─────────────────────────── */
+          <>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
+              What do you want to build?
+            </label>
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="e.g. Build a coffee shop landing page in 2 weeks. Include design, development and QA. Sarah can do UI, John backend."
+              rows={6}
+              disabled={isPlanning}
+              className="w-full px-3 py-2.5 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-[#0d9488] outline-none resize-none disabled:opacity-60"
+            />
+
+            <div className="mt-3">
+              <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-500 mb-2">
+                Try an example
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {EXAMPLE_PROMPTS.map((ex, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setPrompt(ex)}
+                    disabled={isPlanning}
+                    className="text-[10px] px-2.5 py-1 rounded-full bg-gray-100 dark:bg-[#1a1a24] hover:bg-[#0d9488]/10 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-800/40 hover:border-[#0d9488]/40 transition disabled:opacity-50 text-left max-w-full truncate"
+                  >
+                    {ex.length > 45 ? `${ex.slice(0, 45)}…` : ex}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button
+              onClick={handlePlan}
+              disabled={isPlanning || !prompt.trim()}
+              className="w-full mt-4 py-2.5 rounded-xl text-sm font-medium text-white flex items-center justify-center gap-2 transition hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-[#0d9488]/20"
+              style={{ backgroundColor: brandColor }}
+            >
+              {isPlanning ? (
+                <>
+                  <FaSpinner className="animate-spin text-xs" /> Planning…
+                </>
+              ) : (
+                <>
+                  <FaMagic className="text-xs" /> Generate Plan
+                </>
+              )}
+            </button>
+
+            {isPlanning && (
+              <p className="text-[10px] text-gray-500 dark:text-gray-500 text-center mt-2">
+                Gemini is reading your workspace members and drafting the plan…
+              </p>
+            )}
+          </>
+        ) : (
+          /* ─── Stage 2: Plan preview ─────────────────────────── */
+          <>
+            {/* Project header card */}
+            <div className="rounded-2xl border border-gray-200 dark:border-gray-800/40 bg-gradient-to-br from-[#0d9488]/5 to-transparent p-3.5 mb-4">
+              <h4 className="text-base font-semibold text-gray-800 dark:text-gray-100 leading-tight">
+                {plan.project.name}
+              </h4>
+              {plan.project.description && (
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                  {plan.project.description}
+                </p>
+              )}
+              <div className="flex items-center gap-2 mt-3 flex-wrap">
+                <span className="text-[10px] px-2 py-0.5 rounded-full border border-[#0d9488]/30 bg-[#0d9488]/10 text-[#0d9488] font-medium uppercase tracking-wider">
+                  {plan.project.priority}
+                </span>
+                {plan.project.teamMembers?.length > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <div className="flex -space-x-1.5">
+                      {plan.project.teamMembers.slice(0, 4).map((m, i) => (
+                        <div
+                          key={i}
+                          className="w-5 h-5 rounded-full border border-white dark:border-[#14141a] flex items-center justify-center text-white text-[8px] font-semibold overflow-hidden"
+                          style={{ backgroundColor: brandColor }}
+                          title={m.name}
+                        >
+                          {m.profile ? (
+                            <img src={m.profile} className="w-full h-full object-cover" alt="" />
+                          ) : (
+                            (m.name || '?').charAt(0).toUpperCase()
+                          )}
+                        </div>
+                      ))}
+                      {plan.project.teamMembers.length > 4 && (
+                        <div className="w-5 h-5 rounded-full border border-white dark:border-[#14141a] bg-gray-500 text-white text-[8px] font-semibold flex items-center justify-center">
+                          +{plan.project.teamMembers.length - 4}
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-gray-500 dark:text-gray-500">
+                      {plan.project.teamMembers.length} member{plan.project.teamMembers.length === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Tasks list */}
+            <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-500 mb-2 flex items-center gap-1.5">
+              <FaTasks className="text-[10px]" />
+              {plan.tasks.length} task{plan.tasks.length === 1 ? '' : 's'} planned
+            </p>
+            <div className="space-y-2">
+              {plan.tasks.map((t, i) => (
+                <div
+                  key={i}
+                  className="rounded-xl border border-gray-200 dark:border-gray-800/40 bg-white dark:bg-[#0b0b10] p-3"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-sm font-medium text-gray-800 dark:text-gray-200 leading-tight">
+                      {t.title}
+                    </span>
+                    <span
+                      className={`text-[9px] px-1.5 py-0.5 rounded-full border font-medium uppercase tracking-wider flex-shrink-0 ${
+                        t.priority === 'urgent'
+                          ? 'border-red-300 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20'
+                          : t.priority === 'high'
+                          ? 'border-orange-300 text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20'
+                          : t.priority === 'low'
+                          ? 'border-blue-300 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20'
+                          : 'border-yellow-300 text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20'
+                      }`}
+                    >
+                      {t.priority}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2 mt-2 flex-wrap">
+                    {t.assignees?.length > 0 ? (
+                      <>
+                        <div className="flex -space-x-1.5">
+                          {t.assignees.slice(0, 3).map((a, j) => (
+                            <div
+                              key={j}
+                              className="w-4 h-4 rounded-full border border-white dark:border-[#0b0b10] flex items-center justify-center text-white text-[7px] font-semibold overflow-hidden"
+                              style={{ backgroundColor: brandColor }}
+                              title={a.name}
+                            >
+                              {a.profile ? (
+                                <img src={a.profile} className="w-full h-full object-cover" alt="" />
+                              ) : (
+                                (a.name || '?').charAt(0).toUpperCase()
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        <span className="text-[10px] text-gray-600 dark:text-gray-400 truncate">
+                          {t.assignees.map((a) => a.name).join(', ')}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-[10px] text-gray-500 dark:text-gray-500 italic">
+                        Unassigned
+                      </span>
+                    )}
+
+                    {t.subtasks?.length > 0 && (
+                      <span className="text-[10px] text-gray-500 dark:text-gray-500 ml-auto flex-shrink-0">
+                        {t.subtasks.length} subtask{t.subtasks.length === 1 ? '' : 's'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Warnings */}
+            {plan.warnings?.length > 0 && (
+              <div className="mt-4 p-3 rounded-xl bg-yellow-50 dark:bg-yellow-900/10 border border-yellow-200 dark:border-yellow-700/40">
+                <p className="text-[11px] font-medium text-yellow-700 dark:text-yellow-400 flex items-center gap-1.5">
+                  <FaExclamationTriangle className="text-xs" />
+                  {plan.warnings.length} warning{plan.warnings.length === 1 ? '' : 's'}
+                </p>
+                <ul className="mt-1 text-[10px] text-yellow-700 dark:text-yellow-400 space-y-0.5">
+                  {plan.warnings.slice(0, 3).map((w, i) => (
+                    <li key={i}>• {w}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={resetPlan}
+                disabled={isExecuting}
+                className="flex-1 py-2 rounded-xl border border-gray-300 dark:border-gray-700/60 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition disabled:opacity-50"
+              >
+                Back
+              </button>
+              <button
+                onClick={handleExecute}
+                disabled={isExecuting}
+                className="flex-1 py-2 rounded-xl text-sm text-white font-medium flex items-center justify-center gap-2 transition hover:opacity-90 disabled:opacity-50 shadow-lg shadow-[#0d9488]/20"
+                style={{ backgroundColor: brandColor }}
+              >
+                {isExecuting ? (
+                  <>
+                    <FaSpinner className="animate-spin text-xs" /> Creating…
+                  </>
+                ) : (
+                  <>
+                    <FaCheck className="text-xs" /> Confirm & Create
+                  </>
+                )}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ─── Main Component ─────────────────────────────────────────────────────
 const YourWorkspaceProjects = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
+  const isDesktop = useMediaQuery('(min-width: 1024px)');
+
   const [searchOpen, setSearchOpen] = useState(false);
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -777,8 +1063,13 @@ const YourWorkspaceProjects = () => {
   const [menuModalOpen, setMenuModalOpen] = useState(false);
   const [filters, setFilters] = useState({ status: 'all', sort: 'newest', search: '' });
   const [view, setView] = useState('active');
-
   const [optimisticArchivedIds, setOptimisticArchivedIds] = useState([]);
+
+  // ─── AI mode state ──────────────────────────────────────────────────
+  const [aiOpen, setAiOpen] = useState(false);
+  const [leftWidthPercent, setLeftWidthPercent] = useState(60);
+  const [isDraggingSplitter, setIsDraggingSplitter] = useState(false);
+  const containerRef = useRef(null);
 
   const { data: workspaceData, isLoading: workspaceLoading, error: workspaceError } = useGetWorkspaceQuery(workspaceId);
 
@@ -813,6 +1104,54 @@ const YourWorkspaceProjects = () => {
       setOptimisticArchivedIds([]);
     }
   }, [projectsLoading, optimisticArchivedIds]);
+
+  // ─── Splitter drag handlers ─────────────────────────────────────────
+  const handleSplitterMove = useCallback((e) => {
+    if (!isDraggingSplitter || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    let pct = ((e.clientX - rect.left) / rect.width) * 100;
+    // Clamp: projects 35%–75%
+    pct = Math.min(75, Math.max(35, pct));
+    setLeftWidthPercent(pct);
+  }, [isDraggingSplitter]);
+
+  const handleSplitterUp = useCallback(() => {
+    setIsDraggingSplitter(false);
+    document.removeEventListener('mousemove', handleSplitterMove);
+    document.removeEventListener('mouseup', handleSplitterUp);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  }, [handleSplitterMove]);
+
+  const handleSplitterDown = useCallback((e) => {
+    e.preventDefault();
+    setIsDraggingSplitter(true);
+    document.addEventListener('mousemove', handleSplitterMove);
+    document.addEventListener('mouseup', handleSplitterUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [handleSplitterMove, handleSplitterUp]);
+
+  useEffect(() => {
+    return () => {
+      document.removeEventListener('mousemove', handleSplitterMove);
+      document.removeEventListener('mouseup', handleSplitterUp);
+    };
+  }, [handleSplitterMove, handleSplitterUp]);
+
+  // ESC closes AI mode
+  useEffect(() => {
+    if (!aiOpen) return;
+    const handler = (e) => { if (e.key === 'Escape') setAiOpen(false); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [aiOpen]);
+
+  const handleAIPlanExecuted = useCallback(() => {
+    setAiOpen(false);
+    setView('active');
+    refetchProjects();
+  }, [refetchProjects]);
 
   if (workspaceError) { navigate('/workspaces'); return null; }
   if (workspaceLoading || projectsLoading) {
@@ -914,24 +1253,10 @@ const YourWorkspaceProjects = () => {
     } catch (err) { toast.error(err?.data?.message || 'Failed to unarchive project'); }
   };
 
-  const handleEdit = (projectId) => {
-    setEditProjectId(projectId);
-  };
-
-  const handleEditSuccess = () => {
-    refetchProjects();
-    setEditProjectId(null);
-  };
-
-  const handleMenuOpen = (project) => {
-    setSelectedProject(project);
-    setMenuModalOpen(true);
-  };
-
-  const handleMenuClose = () => {
-    setMenuModalOpen(false);
-    setSelectedProject(null);
-  };
+  const handleEdit = (projectId) => setEditProjectId(projectId);
+  const handleEditSuccess = () => { refetchProjects(); setEditProjectId(null); };
+  const handleMenuOpen = (project) => { setSelectedProject(project); setMenuModalOpen(true); };
+  const handleMenuClose = () => { setMenuModalOpen(false); setSelectedProject(null); };
 
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
@@ -940,6 +1265,7 @@ const YourWorkspaceProjects = () => {
       </div>
 
       <div className="flex-1 flex flex-col h-full overflow-hidden">
+        {/* ─── Header ───────────────────────────────────────────── */}
         <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800/40 flex-shrink-0">
           <div className="flex items-center justify-between px-4 h-14 lg:h-16">
             <div className="flex items-center gap-3">
@@ -976,6 +1302,23 @@ const YourWorkspaceProjects = () => {
               <button onClick={() => setFilterDrawerOpen(true)} className="md:hidden p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition">
                 <FaFilter className="text-sm" />
               </button>
+
+              {/* ─── AI toggle ─────────────────────────────────── */}
+              {canManage && (
+                <button
+                  onClick={() => setAiOpen(v => !v)}
+                  className={`text-sm font-medium px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 ${
+                    aiOpen
+                      ? 'bg-gradient-to-r from-[#0d9488] to-[#0f766e] text-white shadow-lg shadow-[#0d9488]/30'
+                      : 'bg-gray-100 dark:bg-[#1a1a24] border border-gray-300 dark:border-gray-800/60 text-gray-700 dark:text-gray-300 hover:border-[#0d9488]/50 hover:text-[#0d9488]'
+                  }`}
+                  title={aiOpen ? 'Close AI planner' : 'Open AI planner'}
+                >
+                  <FaMagic className="text-xs" />
+                  <span className="hidden sm:inline">{aiOpen ? 'Close AI' : 'AI'}</span>
+                </button>
+              )}
+
               {canManage && (
                 <button onClick={() => setShowCreateModal(true)} className="bg-[#0d9488] hover:bg-[#0f9e96] text-white text-sm font-medium px-3 py-1.5 rounded-xl transition flex items-center gap-1.5">
                   <FaPlus className="text-xs" /> <span className="hidden sm:inline">New</span>
@@ -998,7 +1341,7 @@ const YourWorkspaceProjects = () => {
                 </button>
               ))}
             </div>
-            {view === 'active' && (
+            {view === 'active' && !aiOpen && (
               <div className="hidden md:flex items-center gap-2 overflow-x-auto">
                 {['all', 'planning', 'in-progress', 'completed'].map((status) => (
                   <button
@@ -1016,181 +1359,231 @@ const YourWorkspaceProjects = () => {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-5 pb-28 md:pb-6">
-          {view === 'active' && (
-            <div className="md:hidden mb-4">
-              <div className="relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 p-4 overflow-hidden">
-                <div className="absolute top-0 right-0 w-24 h-24 bg-[#0d9488]/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
-                <div className="relative flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
-                    <FaChartPie className="text-[#0d9488]" /> Overview
-                  </h3>
-                  <span className="text-xs text-gray-500 dark:text-gray-500">
-                    {completedProjects}/{totalProjects} done
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-gray-100 dark:bg-[#1a1a24] rounded-xl p-3 border border-gray-200 dark:border-gray-800/30">
-                    <p className="text-2xl font-bold text-gray-800 dark:text-gray-100">{totalProjects}</p>
-                    <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1">
-                      <FaFolder className="text-[10px] text-[#0d9488]" /> Total
-                    </p>
+        {/* ─── Body: split area ─────────────────────────────────── */}
+        <div ref={containerRef} className="flex-1 flex overflow-hidden">
+          {/* Projects side */}
+          <div
+            className="overflow-y-auto px-4 sm:px-6 lg:px-8 py-5 pb-28 md:pb-6 flex-shrink-0"
+            style={{ width: aiOpen && isDesktop ? `${leftWidthPercent}%` : '100%' }}
+          >
+            {view === 'active' && !aiOpen && (
+              <div className="md:hidden mb-4">
+                <div className="relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 p-4 overflow-hidden">
+                  <div className="absolute top-0 right-0 w-24 h-24 bg-[#0d9488]/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
+                  <div className="relative flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
+                      <FaChartPie className="text-[#0d9488]" /> Overview
+                    </h3>
+                    <span className="text-xs text-gray-500 dark:text-gray-500">
+                      {completedProjects}/{totalProjects} done
+                    </span>
                   </div>
-                  <div className="bg-gray-100 dark:bg-[#1a1a24] rounded-xl p-3 border border-blue-200 dark:border-blue-500/20">
-                    <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{planningProjects}</p>
-                    <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1">
-                      <FaClock className="text-[10px] text-blue-600 dark:text-blue-400" /> Planning
-                    </p>
-                  </div>
-                  <div className="bg-gray-100 dark:bg-[#1a1a24] rounded-xl p-3 border border-yellow-200 dark:border-yellow-500/20">
-                    <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{inProgressProjects}</p>
-                    <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1">
-                      <FaSpinner className="text-[10px] text-yellow-600 dark:text-yellow-400" /> In Progress
-                    </p>
-                  </div>
-                  <div className="bg-gray-100 dark:bg-[#1a1a24] rounded-xl p-3 border border-green-200 dark:border-green-500/20">
-                    <p className="text-2xl font-bold text-green-600 dark:text-green-400">{completedProjects}</p>
-                    <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1">
-                      <FaCheckCircle className="text-[10px] text-green-600 dark:text-green-400" /> Completed
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-3">
-                  <div className="flex justify-between text-[10px] text-gray-500 dark:text-gray-500 mb-1">
-                    <span>Overall progress</span>
-                    <span className="font-mono">{overallProgress}%</span>
-                  </div>
-                  <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
-                    <div className="h-full rounded-full transition-all duration-700" style={{ width: `${overallProgress}%`, backgroundColor: brandColor }} />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {view === 'active' && (
-            <div className="hidden md:grid md:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-              <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 p-4 backdrop-blur-sm hover:border-[#0d9488]/30 transition group">
-                <p className="text-2xl font-bold text-gray-800 dark:text-gray-100 group-hover:text-[#0d9488] transition">{totalProjects}</p>
-                <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">Total</p>
-              </div>
-              <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 p-4 hover:border-blue-400 dark:hover:border-blue-500/30 transition group">
-                <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 group-hover:text-blue-500 dark:group-hover:text-blue-300 transition">{planningProjects}</p>
-                <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">Planning</p>
-              </div>
-              <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 p-4 hover:border-yellow-400 dark:hover:border-yellow-500/30 transition group">
-                <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400 group-hover:text-yellow-500 dark:group-hover:text-yellow-300 transition">{inProgressProjects}</p>
-                <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">In Progress</p>
-              </div>
-              <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 p-4 hover:border-green-400 dark:hover:border-green-500/30 transition group">
-                <p className="text-2xl font-bold text-green-600 dark:text-green-400 group-hover:text-green-500 dark:group-hover:text-green-300 transition">{completedProjects}</p>
-                <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">Completed</p>
-              </div>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2">
-              {filteredProjects.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 text-gray-500 dark:text-gray-500">
-                  <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 flex items-center justify-center mb-4">
-                    <FaFolder className="text-3xl text-gray-400 dark:text-gray-700" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300">No projects</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-600 mt-1">
-                    {view === 'trash' ? 'Trash is empty' : view === 'archived' ? 'No archived projects' : 'No projects match your filters'}
-                  </p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {filteredProjects.map((project) => (
-                    <ProjectCard
-                      key={project._id}
-                      project={project}
-                      brandColor={brandColor}
-                      workspaceId={workspaceId}
-                      canManage={canManage}
-                      onDelete={handleDeleteProject}
-                      onPermanentDelete={handlePermanentDelete}
-                      onRestore={handleRestore}
-                      onArchive={handleArchive}
-                      onUnarchive={handleUnarchive}
-                      onEdit={handleEdit}
-                      onMenuOpen={handleMenuOpen}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {view === 'active' && (
-              <div className="hidden lg:block space-y-5">
-                <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 p-4">
-                  <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-2">
-                    <FaRocket className="text-[#0d9488]" /> Active Projects
-                  </h4>
-                  <div className="mt-3 space-y-3">
-                    {activeProjects.length === 0 ? (
-                      <p className="text-xs text-gray-500 dark:text-gray-500">No active projects</p>
-                    ) : (
-                      activeProjects.map((p) => (
-                        <Link key={p._id} to={`/workspace/${workspaceId}/project/${p._id}`} className="flex items-center justify-between group">
-                          <span className="text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">{p.name}</span>
-                          <div className="flex items-center gap-2">
-                            <div className="w-12 h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
-                              <div className="h-full rounded-full transition-all" style={{ width: `${p.progress || 0}%`, backgroundColor: brandColor }} />
-                            </div>
-                            <span className="text-xs font-mono text-gray-500 dark:text-gray-500">{p.progress || 0}%</span>
-                          </div>
-                        </Link>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 p-4">
-                  <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-2">
-                    <FaClock className="text-[#0d9488]" /> Recent Activity
-                  </h4>
-                  <div className="mt-3 space-y-2">
-                    {recentActivity.length === 0 ? (
-                      <p className="text-xs text-gray-500 dark:text-gray-500">No recent activity</p>
-                    ) : (
-                      recentActivity.map((act) => (
-                        <div key={act.id} className="flex items-start gap-2 text-xs">
-                          <div className="w-1.5 h-1.5 rounded-full bg-[#0d9488] mt-1.5 flex-shrink-0" />
-                          <div>
-                            <span className="text-gray-800 dark:text-gray-300">{act.projectName}</span>
-                            <span className="text-gray-500 dark:text-gray-500"> {act.action}</span>
-                            <span className="text-gray-500 dark:text-gray-600 block">{new Date(act.time).toLocaleDateString()}</span>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 p-4">
-                  <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-2">
-                    <FaCheckCircle className="text-[#0d9488]" /> Completion Rate
-                  </h4>
-                  <div className="mt-3 flex items-center gap-4">
-                    <div className="relative w-16 h-16">
-                      <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
-                        <circle cx="18" cy="18" r="16" fill="none" className="stroke-gray-200 dark:stroke-gray-800/60" strokeWidth="3" />
-                        <circle cx="18" cy="18" r="16" fill="none" className="stroke-[#0d9488] transition-all duration-1000" strokeWidth="3" strokeDasharray="100" strokeDashoffset={100 - overallProgress} strokeLinecap="round" />
-                      </svg>
-                      <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-gray-800 dark:text-gray-300">{overallProgress}%</span>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-gray-100 dark:bg-[#1a1a24] rounded-xl p-3 border border-gray-200 dark:border-gray-800/30">
+                      <p className="text-2xl font-bold text-gray-800 dark:text-gray-100">{totalProjects}</p>
+                      <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1">
+                        <FaFolder className="text-[10px] text-[#0d9488]" /> Total
+                      </p>
                     </div>
-                    <div>
-                      <p className="text-sm text-gray-800 dark:text-gray-300">{completedProjects} of {totalProjects} completed</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-500">{totalProjects - completedProjects} remaining</p>
+                    <div className="bg-gray-100 dark:bg-[#1a1a24] rounded-xl p-3 border border-blue-200 dark:border-blue-500/20">
+                      <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{planningProjects}</p>
+                      <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1">
+                        <FaClock className="text-[10px] text-blue-600 dark:text-blue-400" /> Planning
+                      </p>
+                    </div>
+                    <div className="bg-gray-100 dark:bg-[#1a1a24] rounded-xl p-3 border border-yellow-200 dark:border-yellow-500/20">
+                      <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{inProgressProjects}</p>
+                      <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1">
+                        <FaSpinner className="text-[10px] text-yellow-600 dark:text-yellow-400" /> In Progress
+                      </p>
+                    </div>
+                    <div className="bg-gray-100 dark:bg-[#1a1a24] rounded-xl p-3 border border-green-200 dark:border-green-500/20">
+                      <p className="text-2xl font-bold text-green-600 dark:text-green-400">{completedProjects}</p>
+                      <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1">
+                        <FaCheckCircle className="text-[10px] text-green-600 dark:text-green-400" /> Completed
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3">
+                    <div className="flex justify-between text-[10px] text-gray-500 dark:text-gray-500 mb-1">
+                      <span>Overall progress</span>
+                      <span className="font-mono">{overallProgress}%</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full transition-all duration-700" style={{ width: `${overallProgress}%`, backgroundColor: brandColor }} />
                     </div>
                   </div>
                 </div>
               </div>
             )}
+
+            {view === 'active' && !aiOpen && (
+              <div className="hidden md:grid md:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+                <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 p-4 backdrop-blur-sm hover:border-[#0d9488]/30 transition group">
+                  <p className="text-2xl font-bold text-gray-800 dark:text-gray-100 group-hover:text-[#0d9488] transition">{totalProjects}</p>
+                  <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">Total</p>
+                </div>
+                <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 p-4 hover:border-blue-400 dark:hover:border-blue-500/30 transition group">
+                  <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 group-hover:text-blue-500 dark:group-hover:text-blue-300 transition">{planningProjects}</p>
+                  <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">Planning</p>
+                </div>
+                <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 p-4 hover:border-yellow-400 dark:hover:border-yellow-500/30 transition group">
+                  <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400 group-hover:text-yellow-500 dark:group-hover:text-yellow-300 transition">{inProgressProjects}</p>
+                  <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">In Progress</p>
+                </div>
+                <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 p-4 hover:border-green-400 dark:hover:border-green-500/30 transition group">
+                  <p className="text-2xl font-bold text-green-600 dark:text-green-400 group-hover:text-green-500 dark:group-hover:text-green-300 transition">{completedProjects}</p>
+                  <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">Completed</p>
+                </div>
+              </div>
+            )}
+
+            <div className={aiOpen ? 'grid grid-cols-1 gap-6' : 'grid grid-cols-1 lg:grid-cols-3 gap-6'}>
+              <div className={aiOpen ? '' : 'lg:col-span-2'}>
+                {filteredProjects.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-gray-500 dark:text-gray-500">
+                    <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 flex items-center justify-center mb-4">
+                      <FaFolder className="text-3xl text-gray-400 dark:text-gray-700" />
+                    </div>
+                    <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300">No projects</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-600 mt-1">
+                      {view === 'trash' ? 'Trash is empty' : view === 'archived' ? 'No archived projects' : 'No projects match your filters'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className={aiOpen ? 'grid grid-cols-1 sm:grid-cols-2 gap-4' : 'grid grid-cols-1 sm:grid-cols-2 gap-4'}>
+                    {filteredProjects.map((project) => (
+                      <ProjectCard
+                        key={project._id}
+                        project={project}
+                        brandColor={brandColor}
+                        workspaceId={workspaceId}
+                        canManage={canManage}
+                        onDelete={handleDeleteProject}
+                        onPermanentDelete={handlePermanentDelete}
+                        onRestore={handleRestore}
+                        onArchive={handleArchive}
+                        onUnarchive={handleUnarchive}
+                        onEdit={handleEdit}
+                        onMenuOpen={handleMenuOpen}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {view === 'active' && !aiOpen && (
+                <div className="hidden lg:block space-y-5">
+                  <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 p-4">
+                    <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                      <FaRocket className="text-[#0d9488]" /> Active Projects
+                    </h4>
+                    <div className="mt-3 space-y-3">
+                      {activeProjects.length === 0 ? (
+                        <p className="text-xs text-gray-500 dark:text-gray-500">No active projects</p>
+                      ) : (
+                        activeProjects.map((p) => (
+                          <Link key={p._id} to={`/workspace/${workspaceId}/project/${p._id}`} className="flex items-center justify-between group">
+                            <span className="text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">{p.name}</span>
+                            <div className="flex items-center gap-2">
+                              <div className="w-12 h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
+                                <div className="h-full rounded-full transition-all" style={{ width: `${p.progress || 0}%`, backgroundColor: brandColor }} />
+                              </div>
+                              <span className="text-xs font-mono text-gray-500 dark:text-gray-500">{p.progress || 0}%</span>
+                            </div>
+                          </Link>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 p-4">
+                    <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                      <FaClock className="text-[#0d9488]" /> Recent Activity
+                    </h4>
+                    <div className="mt-3 space-y-2">
+                      {recentActivity.length === 0 ? (
+                        <p className="text-xs text-gray-500 dark:text-gray-500">No recent activity</p>
+                      ) : (
+                        recentActivity.map((act) => (
+                          <div key={act.id} className="flex items-start gap-2 text-xs">
+                            <div className="w-1.5 h-1.5 rounded-full bg-[#0d9488] mt-1.5 flex-shrink-0" />
+                            <div>
+                              <span className="text-gray-800 dark:text-gray-300">{act.projectName}</span>
+                              <span className="text-gray-500 dark:text-gray-500"> {act.action}</span>
+                              <span className="text-gray-500 dark:text-gray-600 block">{new Date(act.time).toLocaleDateString()}</span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 p-4">
+                    <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                      <FaCheckCircle className="text-[#0d9488]" /> Completion Rate
+                    </h4>
+                    <div className="mt-3 flex items-center gap-4">
+                      <div className="relative w-16 h-16">
+                        <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
+                          <circle cx="18" cy="18" r="16" fill="none" className="stroke-gray-200 dark:stroke-gray-800/60" strokeWidth="3" />
+                          <circle cx="18" cy="18" r="16" fill="none" className="stroke-[#0d9488] transition-all duration-1000" strokeWidth="3" strokeDasharray="100" strokeDashoffset={100 - overallProgress} strokeLinecap="round" />
+                        </svg>
+                        <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-gray-800 dark:text-gray-300">{overallProgress}%</span>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-800 dark:text-gray-300">{completedProjects} of {totalProjects} completed</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-500">{totalProjects - completedProjects} remaining</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
+
+          {/* Splitter — desktop only, AI open only */}
+          {aiOpen && isDesktop && (
+            <div
+              onMouseDown={handleSplitterDown}
+              className={`w-1.5 flex-shrink-0 cursor-col-resize group relative transition-colors ${
+                isDraggingSplitter ? 'bg-[#0d9488]/40' : 'bg-transparent hover:bg-[#0d9488]/10'
+              }`}
+              style={{ touchAction: 'none' }}
+            >
+              <div
+                className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-0.5 h-12 rounded-full transition-colors ${
+                  isDraggingSplitter ? 'bg-[#0d9488]' : 'bg-gray-300 dark:bg-gray-700 group-hover:bg-[#0d9488]'
+                }`}
+              />
+            </div>
+          )}
+
+          {/* AI Panel — desktop inline / mobile overlay */}
+          {aiOpen && (
+            isDesktop ? (
+              <div
+                className="flex-shrink-0 border-l border-gray-200 dark:border-gray-800/60 overflow-hidden"
+                style={{ width: `${100 - leftWidthPercent}%` }}
+              >
+                <AIProjectPanel
+                  workspaceId={workspaceId}
+                  brandColor={brandColor}
+                  onClose={() => setAiOpen(false)}
+                  onExecuted={handleAIPlanExecuted}
+                />
+              </div>
+            ) : (
+              <div className="fixed inset-0 z-50 bg-white dark:bg-[#14141a] flex flex-col">
+                <AIProjectPanel
+                  workspaceId={workspaceId}
+                  brandColor={brandColor}
+                  onClose={() => setAiOpen(false)}
+                  onExecuted={handleAIPlanExecuted}
+                />
+              </div>
+            )
+          )}
         </div>
       </div>
 
@@ -1200,7 +1593,6 @@ const YourWorkspaceProjects = () => {
       <FilterDrawer isOpen={filterDrawerOpen} onClose={() => setFilterDrawerOpen(false)} filters={filters} setFilters={setFilters} view={view} setView={setView} canManage={canManage} />
       {canManage && <CreateProjectModal workspace={workspace} isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} onCreated={() => refetchProjects()} />}
 
-      {/* Edit Project Modal */}
       <EditProjectModal
         isOpen={!!editProjectId}
         onClose={() => setEditProjectId(null)}
@@ -1210,7 +1602,6 @@ const YourWorkspaceProjects = () => {
         onSuccess={handleEditSuccess}
       />
 
-      {/* Project Menu Modal */}
       <ProjectMenuModal
         isOpen={menuModalOpen}
         onClose={handleMenuClose}

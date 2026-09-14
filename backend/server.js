@@ -23,6 +23,7 @@ import clockInRoutes from './routes/clockInRoutes.js';
 import personalNoteRoutes from "./routes/personalNoteRoutes.js";
 import workspaceNoteRoutes from "./routes/workspaceNoteRoutes.js";
 import stickerRoutes from './routes/stickerRoutes.js';
+import aiRoutes from './routes/aiRoutes.js';                       // 👈 NEW
 
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 import { initSocket } from "./controllers/socket.js";
@@ -53,8 +54,8 @@ const PORT = process.env.PORT || 8000;
 const MONGO_URL = process.env.MONGO_URL;
 
 // ── Middleware ──
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '2mb' }));                            // 👈 bumped for AI payloads
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));      // 👈 same
 app.use(cookieParser());
 
 // ── CORS ──
@@ -101,6 +102,7 @@ app.use('/api/personal-tasks', personalTaskRoutes);
 app.use('/api/app', appRoutes);
 app.use('/api/clockin', clockInRoutes);
 app.use('/api/stickers', stickerRoutes);
+app.use('/api/ai', aiRoutes);                                       // 👈 NEW
 
 //note routes
 app.use("/api/personal-notes", personalNoteRoutes);
