@@ -10,13 +10,14 @@ import crypto from 'crypto';
 // HELPERS (internal)
 // ─────────────────────────────────────────────────────────────────────
 
-const notifyUser = async (userId, { title, body, data = {} }) => {
+const notifyUser = async (userId, { title, body, data = {}, type = 'task_update' }) => {
   if (!userId) return;
   createAndSendNotification({
     recipient: userId,
     title,
     body,
-    data,
+    data: { ...data, type },
+    type, // <-- lets socket/notification handler route correctly
     sendPush: true,
     emailEventType: 'taskUpdate',
     emailSubject: title,
@@ -262,49 +263,47 @@ export const getPersonalTasks = async (req, res) => {
     const isTrash = trash === 'true';
     const isArchived = archived === 'true';
 
-    // Base filters
     const query = {
       isTrash: isTrash ? true : { $ne: true },
       isArchived: isArchived ? true : { $ne: true },
     };
 
     if (type === 'owner') {
-      // Only tasks owned by the user
       query.user = userId;
+      // ✅ Personal tab shows ONLY tasks with zero collaborators.
+      // Once you invite someone, the task "moves" to Collab.
+      if (!isTrash && !isArchived) {
+        query['collaborators.0'] = { $exists: false };
+      }
       delete query.$or;
     } else if (type === 'collaborator') {
-      // Tasks where user is either:
-      // - an accepted collaborator, OR
-      // - the owner AND there is at least one accepted collaborator
+      // ✅ Collab tab shows:
+      //   (a) tasks where I'm an ACCEPTED collaborator, OR
+      //   (b) tasks I own that have at least one collaborator (pending or accepted)
       query.$or = [
         { 'collaborators.user': userId, 'collaborators.accepted': true },
-        {
-          user: userId,
-          collaborators: { $elemMatch: { accepted: true } }
-        }
+        { user: userId, 'collaborators.0': { $exists: true } },
       ];
       delete query.user;
     } else {
-      // Default: owner OR accepted collaborator
       query.$or = [
         { user: userId },
-        { 'collaborators.user': userId, 'collaborators.accepted': true }
+        { 'collaborators.user': userId, 'collaborators.accepted': true },
       ];
     }
 
-    // Additional filters (only for owner view; collaborator view ignores them)
     if (type !== 'collaborator') {
       if (folderId) query.folder = folderId;
       if (status) query.status = status;
       if (priority) query.priority = priority;
     }
 
-    // For trash, only owner's trash
     if (isTrash) {
       query.user = userId;
       delete query.$or;
       delete query['collaborators.user'];
       delete query['collaborators.accepted'];
+      delete query['collaborators.0'];
       query.isArchived = { $ne: true };
     }
 
@@ -317,6 +316,7 @@ export const getPersonalTasks = async (req, res) => {
 
     res.status(200).json({ success: true, tasks, count: tasks.length });
   } catch (error) {
+    console.error('getPersonalTasks error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -572,12 +572,19 @@ export const addCollaborator = async (req, res) => {
       existingUser: !!invitedUser,
     });
 
-    // If user exists, send push notification
+    // If user exists, send push notification (real-time + push)
     if (invitedUser) {
       await notifyUser(invitedUser._id, {
         title: 'Collaboration Invitation',
         body: `${req.user.name || 'Someone'} invited you to collaborate on "${task.title}"`,
-        data: { taskId: task._id, invitationToken: token },
+        data: {
+          taskId: task._id,
+          invitationToken: token,
+          screen: 'PersonalTasks',
+          ownerName: req.user.name || 'Someone',
+          taskTitle: task.title,
+        },
+        type: 'collaboration_invite',
       });
     }
 
@@ -596,27 +603,42 @@ export const addCollaborator = async (req, res) => {
 export const getPendingInvitations = async (req, res) => {
   try {
     const userId = req.user.id;
+    console.log('[getPendingInvitations] userId =', userId);
+
     const tasks = await PersonalTask.find({
-      'collaborators.user': userId,
-      'collaborators.accepted': false,
+      collaborators: {
+        $elemMatch: {
+          user: userId,
+          accepted: false,
+        },
+      },
     })
-      .populate('user', 'name email')
-      .populate('collaborators.user', 'name email')
+      .populate('user', 'name email profile')
+      .populate('collaborators.user', 'name email profile')
       .select('title collaborators user');
 
-    const invitations = tasks.map(task => {
-      const inv = task.collaborators.find(c => c.user && c.user.toString() === userId && !c.accepted);
-      return {
-        taskId: task._id,
-        taskTitle: task.title,
-        owner: task.user,
-        role: inv.role,
-        invitedAt: inv.invitedAt,
-        invitationToken: inv.invitationToken,
-      };
-    });
+    console.log('[getPendingInvitations] found tasks:', tasks.length);
+
+    const invitations = tasks
+      .map((task) => {
+        const inv = task.collaborators.find(
+          (c) => c.user && c.user._id?.toString() === userId.toString() && !c.accepted
+        );
+        if (!inv) return null;
+        return {
+          taskId: task._id,
+          taskTitle: task.title,
+          owner: task.user,
+          role: inv.role,
+          invitedAt: inv.invitedAt,
+          invitationToken: inv.invitationToken,
+        };
+      })
+      .filter(Boolean);
+
     res.status(200).json({ success: true, invitations });
   } catch (error) {
+    console.error('getPendingInvitations error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -654,7 +676,8 @@ export const acceptInvitationWithToken = async (req, res) => {
     await notifyUser(task.user, {
       title: 'Collaboration Accepted',
       body: `${user.name || 'Someone'} accepted your invitation to collaborate on "${task.title}"`,
-      data: { taskId: task._id, collaborator: userId },
+      data: { taskId: task._id, collaborator: userId, screen: 'PersonalTasks' },
+      type: 'collaboration_accepted',
     });
 
     const updated = await PersonalTask.findById(task._id)

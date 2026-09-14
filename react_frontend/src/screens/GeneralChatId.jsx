@@ -1,5 +1,12 @@
 // pages/GeneralChatId.jsx
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+  useLayoutEffect,
+} from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useSelector } from "react-redux";
 import {
@@ -54,6 +61,7 @@ import {
   FaPlus,
   FaChevronUp,
   FaMicrophoneAlt,
+  FaSearch,
 } from "react-icons/fa";
 import GeneralSidebar from "../components/GeneralSidebar";
 
@@ -62,6 +70,9 @@ import { Capacitor } from "@capacitor/core";
 import { Filesystem, Directory } from "@capacitor/filesystem";
 import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
 import { FilePicker } from "@capawesome/capacitor-file-picker";
+
+// ─── Constants ────────────────────────────────────────────────────────
+const MESSAGES_PAGE_SIZE = 50;
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 const formatTime = (seconds) => {
@@ -286,14 +297,7 @@ const LinkPreviewCard = ({ url, isOwn }) => {
 const SkeletonMessage = ({ isOwn }) => {
   const randomWidth = useCallback(() => {
     const widths = [
-      "w-32",
-      "w-40",
-      "w-48",
-      "w-52",
-      "w-56",
-      "w-36",
-      "w-44",
-      "w-60",
+      "w-32", "w-40", "w-48", "w-52", "w-56", "w-36", "w-44", "w-60",
     ];
     return widths[Math.floor(Math.random() * widths.length)];
   }, []);
@@ -446,7 +450,7 @@ const MediaPickerModal = ({
   );
 };
 
-// ─── Audio Player (with profile pic + speed overlay, fixed z‑index) ──
+// ─── Audio Player ────────────────────────────────────────────────────
 const AudioPlayer = ({
   src,
   isOwn,
@@ -474,7 +478,6 @@ const AudioPlayer = ({
   const waveformContainerRef = useRef(null);
   const isDraggingRef = useRef(false);
 
-  // Find index of this message in the sorted list
   const currentIndex = allMessages?.findIndex((m) => m._id === messageId) ?? -1;
 
   const findNextAudio = useCallback(() => {
@@ -543,10 +546,11 @@ const AudioPlayer = ({
     }
   };
 
+  // ─── FIX: speed cycles 1x → 1.5x → 2x (2x is the fastest) ────────
   const cycleSpeed = () => {
     setSpeed((prev) => {
-      if (prev === 1) return 2;
-      if (prev === 2) return 3;
+      if (prev === 1) return 1.5;
+      if (prev === 1.5) return 2;
       return 1;
     });
   };
@@ -598,9 +602,6 @@ const AudioPlayer = ({
 
   const progressPercent = duration ? (currentTime / duration) * 100 : 0;
 
-  // Profile picture with speed overlay – pointer events only on the image itself.
-  // FIX: overlay now carries its own rounded-md so it never paints square
-  // corners over the rounded avatar, regardless of browser/renderer.
   const renderProfileWithIcon = () => (
     <div className="relative flex-shrink-0" style={{ pointerEvents: "none" }}>
       <div
@@ -625,7 +626,6 @@ const AudioPlayer = ({
           </div>
         )}
       </div>
-      {/* Voice note icon overlay - bottom-left */}
       <div className="absolute -bottom-0.5 -left-0.5 bg-teal-500 rounded-full p-0.5 border-2 border-white dark:border-[#0f0f12] shadow-sm pointer-events-none">
         <FaMicrophoneAlt className="text-[8px] sm:text-[10px] text-white" />
       </div>
@@ -738,7 +738,7 @@ const MessageTicks = ({ message, isOwn }) => {
   );
 };
 
-// ─── Quoted Reply Block (with thumbnail for image/sticker) ──────────
+// ─── Quoted Reply Block ─────────────────────────────────────────────
 const QuotedReplyBlock = ({ replyData, isOwn, onJump }) => {
   if (!replyData) return null;
   const name = replyData.senderName || "Unknown";
@@ -866,9 +866,6 @@ const MediaPreview = ({ mediaFile, onRemove, onSend, brandColor, isSending, onEd
 };
 
 // ─── Reaction Popover (desktop) ──────────────────────────────
-// FIX: bumped from z-50 -> z-[70] (arbitrary value; Tailwind has no default
-// z-60/z-70 utility) so it always sits above the z-[60] trigger buttons and
-// above regular message bubbles/avatars.
 const ReactionPopover = ({ isOpen, onClose, onSelect, align = "center" }) => {
   const [expanded, setExpanded] = useState(false);
   if (!isOpen) return null;
@@ -952,7 +949,7 @@ const ReactionDisplay = ({ reactions, userId, onReact }) => {
   );
 };
 
-// ─── Media Message Component (fixed z‑index for hover buttons) ────
+// ─── Media Message Component ──────────────────────────────────────
 const MediaMessage = ({
   message,
   isOwn,
@@ -976,7 +973,6 @@ const MediaMessage = ({
   onAudioEnd,
   onAudioStart,
 }) => {
-  // ── Deleted state ──
   if (message.isDeleted) {
     return (
       <div
@@ -1056,8 +1052,6 @@ const MediaMessage = ({
 
   const firstUrl = extractFirstUrl(message.content);
 
-  // ─── Desktop dropdown menu ──────────────────────────────────────
-  // FIX: z-50 -> z-[70] to match the popover tier above the z-[60] triggers.
   const renderDesktopMenu = () => (
     <div
       className={`absolute top-full mt-1 z-[70] bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[170px] py-1 ${
@@ -1132,7 +1126,6 @@ const MediaMessage = ({
     </div>
   );
 
-  // Touch handlers for swipe reply (mobile)
   const handleTouchStart = (e) => {
     if (!isMobile) return;
     const touch = e.touches[0];
@@ -1357,10 +1350,6 @@ const MediaMessage = ({
                 />
               </div>
             )}
-            {/* Sticker box keeps its own overflow-hidden for the media only.
-                Hover buttons below are siblings of it (not inside it), so
-                they are never clipped, and use z-[60]/z-[70] to sit above
-                bubbles/avatars/sticky header. */}
             <div className="relative">
               <div className="rounded-lg overflow-hidden max-w-[150px] max-h-[150px] bg-transparent">
                 {sticker.type === "image" ? (
@@ -1522,8 +1511,6 @@ const MediaMessage = ({
                 />
               </div>
             )}
-            {/* Image box keeps its own overflow-hidden for rounded corners.
-                Hover buttons are siblings of it, never clipped. */}
             <div className="relative">
               <div
                 className="relative rounded-2xl overflow-hidden cursor-pointer group"
@@ -1677,23 +1664,6 @@ const MediaMessage = ({
             </span>
           )}
 
-          {/*
-            FIX (root cause of the "options hidden under the bubble" bug):
-            the text bubble below needs `overflow-hidden` to clip its own
-            content (quoted-reply block, long text, link preview corners).
-            The hover buttons and their popovers used to live INSIDE that
-            same overflow-hidden bubble, positioned partly outside its box
-            (right-full / left-full). A parent's overflow-hidden clips any
-            descendant that falls outside its box, no matter the z-index —
-            z-index only controls paint order between overlapping elements,
-            it cannot un-clip something an ancestor has hidden. That's why
-            raising z-index alone never fixed it.
-
-            Fix: wrap the bubble in a plain `relative` wrapper (no
-            overflow-hidden) and move the hover buttons to be siblings of
-            the bubble, inside that wrapper instead of inside it. This is
-            the same pattern already used for image/sticker messages below.
-          */}
           <div className="relative w-full">
             <div
               className={`relative px-4 py-2.5 rounded-2xl text-sm break-words w-full overflow-hidden ${
@@ -2677,6 +2647,194 @@ const ImageEditorScreen = ({ file, onSave, onCancel }) => {
   );
 };
 
+// ─── Search Modal ────────────────────────────────────────────────────
+const ChatSearchModal = ({
+  isOpen,
+  onClose,
+  isMobile,
+  messages,
+  resolveSender,
+  currentUserId,
+  onJumpToMessage,
+}) => {
+  const [query, setQuery] = useState("");
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setQuery("");
+      const t = setTimeout(() => inputRef.current?.focus(), 120);
+      return () => clearTimeout(t);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [isOpen, onClose]);
+
+  const results = useMemo(() => {
+    if (!query.trim()) return [];
+    const q = query.toLowerCase().trim();
+    return messages
+      .filter((m) => !m.isDeleted)
+      .filter((m) => {
+        if (m.content && m.content.toLowerCase().includes(q)) return true;
+        if (m.mediaName && m.mediaName.toLowerCase().includes(q)) return true;
+        return false;
+      })
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }, [messages, query]);
+
+  if (!isOpen) return null;
+
+  const getPreview = (m) => {
+    if (m.messageType === "image") return "📷 Photo";
+    if (m.messageType === "video") return "🎬 Video";
+    if (m.messageType === "audio") return "🎵 Voice message";
+    if (m.messageType === "sticker") return "📌 Sticker";
+    if (m.messageType === "file") return `📎 ${m.mediaName || "File"}`;
+    return m.content || "";
+  };
+
+  const highlight = (text, q) => {
+    if (!q || !text) return text;
+    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const parts = String(text).split(new RegExp(`(${escaped})`, "gi"));
+    return parts.map((part, i) =>
+      part.toLowerCase() === q.toLowerCase() ? (
+        <mark
+          key={i}
+          className="bg-teal-200 dark:bg-teal-700/60 text-inherit rounded px-0.5"
+        >
+          {part}
+        </mark>
+      ) : (
+        <React.Fragment key={i}>{part}</React.Fragment>
+      ),
+    );
+  };
+
+  const handleResultClick = (msgId) => {
+    onClose();
+    setTimeout(() => onJumpToMessage(msgId), 160);
+  };
+
+  const content = (
+    <div className="flex flex-col h-full min-h-0">
+      <div className="flex items-center gap-2 p-3 border-b border-gray-200 dark:border-gray-800/60 flex-shrink-0">
+        {isMobile && (
+          <button
+            onClick={onClose}
+            className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
+          >
+            <FaArrowLeft />
+          </button>
+        )}
+        <div className="flex-1 relative">
+          <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none" />
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search messages..."
+            className="w-full pl-9 pr-9 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
+          />
+          {query && (
+            <button
+              onClick={() => setQuery("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-white"
+            >
+              <FaTimes className="text-xs" />
+            </button>
+          )}
+        </div>
+        {!isMobile && (
+          <button
+            onClick={onClose}
+            className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50"
+          >
+            <FaTimes />
+          </button>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto min-h-0">
+        {!query.trim() ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500 py-10">
+            <FaSearch className="text-3xl mb-2 opacity-30" />
+            <p className="text-sm">Search in conversation</p>
+          </div>
+        ) : results.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500 py-10">
+            <FaComment className="text-3xl mb-2 opacity-30" />
+            <p className="text-sm">No messages found</p>
+          </div>
+        ) : (
+          <div className="py-1">
+            <p className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 sticky top-0 bg-white dark:bg-[#14141a] z-10 border-b border-gray-100 dark:border-gray-800/50">
+              {results.length} result{results.length !== 1 ? "s" : ""}
+            </p>
+            {results.map((msg) => {
+              const sender = resolveSender ? resolveSender(msg.sender) : {};
+              const isOwn =
+                sender?._id === currentUserId ||
+                msg.sender === currentUserId ||
+                msg.sender?._id === currentUserId;
+              const senderName = isOwn ? "You" : sender?.name || "Unknown";
+              return (
+                <button
+                  key={msg._id}
+                  onClick={() => handleResultClick(msg._id)}
+                  className="w-full text-left px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition flex items-start gap-3 border-b border-gray-50 dark:border-gray-800/30 last:border-b-0"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-teal-600 dark:text-teal-400 truncate">
+                        {senderName}
+                      </span>
+                      <span className="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0">
+                        {safeFormatTime(msg.createdAt)}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-700 dark:text-gray-300 truncate">
+                      {highlight(getPreview(msg), query)}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  if (isMobile) {
+    return (
+      <div className="fixed inset-0 z-[80] bg-white dark:bg-[#0f0f12] flex flex-col">
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <div className="absolute top-full left-0 right-0 mt-2 px-4 z-[80]">
+      <div
+        className="mx-auto w-full max-w-2xl bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+        style={{ height: "min(70vh, 560px)" }}
+      >
+        {content}
+      </div>
+    </div>
+  );
+};
+
 // ─── Main Component ──────────────────────────────────────────────────
 const GeneralChatId = () => {
   const { chatId } = useParams();
@@ -2695,6 +2853,7 @@ const GeneralChatId = () => {
   const [replyToMessage, setReplyToMessage] = useState(null);
   const [localMessages, setLocalMessages] = useState([]);
   const [showDetails, setShowDetails] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
   const [pendingMedia, setPendingMedia] = useState(null);
   const isMobile = useMediaQuery("(max-width: 768px)");
   const isDesktop = !isMobile;
@@ -2727,6 +2886,13 @@ const GeneralChatId = () => {
   const cancelledRef = useRef(false);
   const micPressStartRef = useRef(0);
   const micActionLockRef = useRef(false);
+
+  // ─── Pagination state (fixes truncated chat history) ────────────
+  const [messagesPage, setMessagesPage] = useState(1);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const scrollRestoreRef = useRef(null);
+  const loadOlderGuardRef = useRef(false);
 
   const [toggleReaction] = useToggleReactionMutation();
   const [updateMessageApi] = useUpdateMessageMutation();
@@ -3241,9 +3407,10 @@ const GeneralChatId = () => {
   const {
     data: messagesData,
     isLoading: messagesLoading,
+    isFetching: messagesFetching,
     refetch: refetchMessages,
   } = useGetChatMessagesQuery(
-    { chatId, page: 1, limit: 50 },
+    { chatId, page: messagesPage, limit: MESSAGES_PAGE_SIZE },
     { skip: !chatId },
   );
   const [sendMessageApi] = useSendMessageMutation();
@@ -3268,6 +3435,59 @@ const GeneralChatId = () => {
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showScrollDown, setShowScrollDown] = useState(false);
 
+  // ─── Reset per-chat state on chat switch ─────────────────────────
+  useEffect(() => {
+    setMessagesPage(1);
+    setHasMoreMessages(false);
+    setIsLoadingMore(false);
+    scrollRestoreRef.current = null;
+    loadOlderGuardRef.current = false;
+    setShowSearch(false);
+    setShowDetails(false);
+  }, [chatId]);
+
+  // ─── Load older messages (pagination) ────────────────────────────
+  const loadOlderMessages = useCallback(() => {
+    if (!hasMoreMessages) return;
+    if (isLoadingMore || messagesFetching) return;
+    if (loadOlderGuardRef.current) return;
+    loadOlderGuardRef.current = true;
+    const el = messagesContainerRef.current;
+    if (el) {
+      scrollRestoreRef.current = {
+        scrollHeight: el.scrollHeight,
+        scrollTop: el.scrollTop,
+      };
+    }
+    setIsLoadingMore(true);
+    setMessagesPage((p) => p + 1);
+  }, [hasMoreMessages, isLoadingMore, messagesFetching]);
+
+  // Restore scroll position after older messages are prepended
+  useLayoutEffect(() => {
+    if (scrollRestoreRef.current && messagesContainerRef.current) {
+      const el = messagesContainerRef.current;
+      const delta = el.scrollHeight - scrollRestoreRef.current.scrollHeight;
+      if (delta > 0) {
+        el.scrollTop = scrollRestoreRef.current.scrollTop + delta;
+      }
+      scrollRestoreRef.current = null;
+      setIsLoadingMore(false);
+      loadOlderGuardRef.current = false;
+    }
+  }, [localMessages]);
+
+  // Safety: if fetch fails / never resolves, unlock the guard
+  useEffect(() => {
+    if (!isLoadingMore) return;
+    const t = setTimeout(() => {
+      setIsLoadingMore(false);
+      loadOlderGuardRef.current = false;
+      scrollRestoreRef.current = null;
+    }, 10000);
+    return () => clearTimeout(t);
+  }, [isLoadingMore]);
+
   const handleMessagesScroll = () => {
     const el = messagesContainerRef.current;
     if (!el) return;
@@ -3276,6 +3496,16 @@ const GeneralChatId = () => {
       el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
     setIsAtBottom(atBottom);
     if (atBottom) setShowScrollDown(false);
+
+    // Trigger pagination when user scrolls near the top
+    if (
+      el.scrollTop < 80 &&
+      hasMoreMessages &&
+      !isLoadingMore &&
+      !messagesFetching
+    ) {
+      loadOlderMessages();
+    }
   };
 
   const scrollToBottom = () => {
@@ -3588,7 +3818,14 @@ const GeneralChatId = () => {
       const msgChatId =
         typeof firstMsg.chat === "string" ? firstMsg.chat : firstMsg.chat?._id;
       if (msgChatId && msgChatId !== chatId) return;
+
+      // Track whether more (older) messages exist
+      const len = messagesData.messages.length;
+      setHasMoreMessages(len >= MESSAGES_PAGE_SIZE);
+
       mergeMessagesIntoState(messagesData.messages);
+    } else if (messagesData?.messages && messagesData.messages.length === 0) {
+      setHasMoreMessages(false);
     }
   }, [messagesData, mergeMessagesIntoState, chatId]);
 
@@ -4236,7 +4473,7 @@ const GeneralChatId = () => {
   };
 
   const renderMessagesWithDividers = () => {
-    if (messagesLoading) {
+    if (messagesLoading && localMessages.length === 0) {
       return <SkeletonMessages count={6} />;
     }
 
@@ -4368,50 +4605,81 @@ const GeneralChatId = () => {
             }`}
           >
             <header
-              className="fixed lg:sticky top-0 left-0 right-0 lg:left-auto lg:right-auto z-20 flex items-center justify-between px-4 py-3 border-b border-gray-200/60 dark:border-gray-800/60 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl text-gray-800 dark:text-white flex-shrink-0 cursor-pointer"
-              onClick={() => setShowDetails(!showDetails)}
+              className="fixed lg:sticky top-0 left-0 right-0 lg:left-auto lg:right-auto z-20 border-b border-gray-200/60 dark:border-gray-800/60 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl text-gray-800 dark:text-white flex-shrink-0 relative"
             >
-              <div className="flex items-center gap-3 min-w-0 flex-1">
-                <button
-                  onClick={() => navigate("/chat")}
-                  className="p-1 lg:hidden flex-shrink-0 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
-                >
-                  <FaArrowLeft />
-                </button>
-                {displayAvatar ? (
-                  <img
-                    src={displayAvatar}
-                    alt=""
-                    className="w-9 h-9 rounded-full object-cover flex-shrink-0 border border-gray-200 dark:border-gray-700/60"
-                  />
-                ) : (
-                  <div className="w-9 h-9 rounded-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center font-bold text-sm flex-shrink-0">
-                    {displayName.charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <h2 className="font-semibold text-base text-gray-800 dark:text-gray-100 truncate">
-                    {displayName}
-                  </h2>
-                  <p
-                    className={`text-xs truncate ${otherUserOnline === true ? "text-green-500 dark:text-green-400" : otherUserOnline === false ? "text-gray-500 dark:text-gray-400" : "text-gray-400 dark:text-gray-500"}`}
+              <div
+                className="flex items-center justify-between px-4 py-3 cursor-pointer"
+                onClick={() => setShowDetails(!showDetails)}
+              >
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate("/chat");
+                    }}
+                    className="p-1 lg:hidden flex-shrink-0 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
                   >
-                    {otherUserOnline === true ? "Online" : otherUserOnline === false ? "Offline" : ""}
-                  </p>
+                    <FaArrowLeft />
+                  </button>
+                  {displayAvatar ? (
+                    <img
+                      src={displayAvatar}
+                      alt=""
+                      className="w-9 h-9 rounded-full object-cover flex-shrink-0 border border-gray-200 dark:border-gray-700/60"
+                    />
+                  ) : (
+                    <div className="w-9 h-9 rounded-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center font-bold text-sm flex-shrink-0">
+                      {displayName.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <h2 className="font-semibold text-base text-gray-800 dark:text-gray-100 truncate">
+                      {displayName}
+                    </h2>
+                    <p
+                      className={`text-xs truncate ${otherUserOnline === true ? "text-green-500 dark:text-green-400" : otherUserOnline === false ? "text-gray-500 dark:text-gray-400" : "text-gray-400 dark:text-gray-500"}`}
+                    >
+                      {otherUserOnline === true ? "Online" : otherUserOnline === false ? "Offline" : ""}
+                    </p>
+                  </div>
+                </div>
+                <div
+                  className="flex items-center gap-1 flex-shrink-0 relative"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    onClick={() => setShowSearch((s) => !s)}
+                    className={`p-2 rounded-lg transition ${
+                      showSearch
+                        ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
+                        : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/50"
+                    }`}
+                    aria-label="Search in chat"
+                  >
+                    <FaSearch className="text-lg" />
+                  </button>
+                  <button
+                    onClick={() => setShowDetails(!showDetails)}
+                    className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/50 transition relative"
+                    aria-label="Contact info"
+                  >
+                    <FaInfoCircle className="text-lg" />
+                  </button>
                 </div>
               </div>
-              <div
-                className="flex items-center gap-2 flex-shrink-0 relative"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <button
-                  onClick={() => setShowDetails(!showDetails)}
-                  className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition relative"
-                  aria-label="Contact info"
-                >
-                  <FaInfoCircle className="text-lg" />
-                </button>
-              </div>
+
+              {/* Desktop search dropdown - sits right under the header */}
+              {isDesktop && (
+                <ChatSearchModal
+                  isOpen={showSearch}
+                  onClose={() => setShowSearch(false)}
+                  isMobile={false}
+                  messages={localMessages}
+                  resolveSender={resolveSender}
+                  currentUserId={userInfo?._id}
+                  onJumpToMessage={handleJumpToMessage}
+                />
+              )}
             </header>
 
             <div className="relative flex-1 overflow-hidden">
@@ -4423,6 +4691,25 @@ const GeneralChatId = () => {
                   paddingBottom: isMobile ? `${inputHeight}px` : undefined,
                 }}
               >
+                {/* Pagination trigger / indicator at the top */}
+                {hasMoreMessages && !messagesLoading && (
+                  <div className="flex justify-center py-2">
+                    {isLoadingMore ||
+                    (messagesFetching && messagesPage > 1) ? (
+                      <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500">
+                        <FaSpinner className="animate-spin" />
+                        <span>Loading older messages…</span>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={loadOlderMessages}
+                        className="text-xs text-teal-600 dark:text-teal-400 hover:underline"
+                      >
+                        Load older messages
+                      </button>
+                    )}
+                  </div>
+                )}
                 {renderMessagesWithDividers()}
                 <div ref={messagesEndRef} />
               </div>
@@ -4833,6 +5120,19 @@ const GeneralChatId = () => {
           )}
         </div>
       </div>
+
+      {/* Mobile: search overlay (full-screen) */}
+      {isMobile && (
+        <ChatSearchModal
+          isOpen={showSearch}
+          onClose={() => setShowSearch(false)}
+          isMobile={true}
+          messages={localMessages}
+          resolveSender={resolveSender}
+          currentUserId={userInfo?._id}
+          onJumpToMessage={handleJumpToMessage}
+        />
+      )}
 
       {isMobile && showDetails && (
         <>

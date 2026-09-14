@@ -1,5 +1,5 @@
 // src/workspaceScreens/MyWorkspaceChatId.jsx
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useSelector } from "react-redux";
 import { useGetWorkspaceQuery } from "../slices/workspaceApiSlice";
@@ -60,7 +60,8 @@ import {
   FaStickyNote,
   FaPlus,
   FaChevronUp,
-  FaMicrophoneAlt, // <-- added for voice note icon overlay
+  FaMicrophoneAlt,
+  FaSearch, // <-- added for search
 } from "react-icons/fa";
 import { toast } from "react-hot-toast";
 
@@ -70,6 +71,9 @@ import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { FilePicker } from '@capawesome/capacitor-file-picker';
 import { VoiceRecorder } from 'capacitor-voice-recorder';
+
+// ─── Constants ──────────────────────────────────────────────────────
+const MESSAGES_PAGE_SIZE = 50;
 
 // ─── Helper: base64 to File ─────────────────────────────────────────
 const base64ToFile = (base64Data, fileName, mimeType) => {
@@ -1245,10 +1249,11 @@ const AudioPlayer = ({
     }
   };
 
+  // ─── FIX: speed cycles 1x → 1.5x → 2x (2x is the fastest) ────────
   const cycleSpeed = () => {
     setSpeed((prev) => {
-      if (prev === 1) return 2;
-      if (prev === 2) return 3;
+      if (prev === 1) return 1.5;
+      if (prev === 1.5) return 2;
       return 1;
     });
   };
@@ -1609,7 +1614,7 @@ const ReplyPreview = ({ replyTo, onCancel, brandColor, resolveSender }) => {
   );
 };
 
-// ─── Media Message Component (with updated z-index, sticker video loading, smaller sticker size) ──
+// ─── Media Message Component ──
 const MediaMessage = ({
   message,
   isOwn,
@@ -2360,6 +2365,195 @@ const MediaMessage = ({
   );
 };
 
+// ─── Chat Search Modal ──────────────────────────────────────────────
+const ChatSearchModal = ({
+  isOpen,
+  onClose,
+  isMobile,
+  messages,
+  resolveSender,
+  currentUserId,
+  onJumpToMessage,
+  brandColor,
+}) => {
+  const [query, setQuery] = useState("");
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setQuery("");
+      const t = setTimeout(() => inputRef.current?.focus(), 120);
+      return () => clearTimeout(t);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [isOpen, onClose]);
+
+  const results = useMemo(() => {
+    if (!query.trim()) return [];
+    const q = query.toLowerCase().trim();
+    return messages
+      .filter((m) => !m.isDeleted)
+      .filter((m) => {
+        if (m.content && m.content.toLowerCase().includes(q)) return true;
+        if (m.mediaName && m.mediaName.toLowerCase().includes(q)) return true;
+        return false;
+      })
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }, [messages, query]);
+
+  if (!isOpen) return null;
+
+  const getPreview = (m) => {
+    if (m.messageType === "image") return "📷 Photo";
+    if (m.messageType === "video") return "🎬 Video";
+    if (m.messageType === "audio") return "🎵 Voice message";
+    if (m.messageType === "sticker") return "📌 Sticker";
+    if (m.messageType === "file") return `📎 ${m.mediaName || "File"}`;
+    return m.content || "";
+  };
+
+  const highlight = (text, q) => {
+    if (!q || !text) return text;
+    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const parts = String(text).split(new RegExp(`(${escaped})`, "gi"));
+    return parts.map((part, i) =>
+      part.toLowerCase() === q.toLowerCase() ? (
+        <mark
+          key={i}
+          className="bg-teal-200 dark:bg-teal-700/60 text-inherit rounded px-0.5"
+        >
+          {part}
+        </mark>
+      ) : (
+        <React.Fragment key={i}>{part}</React.Fragment>
+      )
+    );
+  };
+
+  const handleResultClick = (msgId) => {
+    onClose();
+    setTimeout(() => onJumpToMessage(msgId), 160);
+  };
+
+  const content = (
+    <div className="flex flex-col h-full min-h-0">
+      <div className="flex items-center gap-2 p-3 border-b border-gray-200 dark:border-gray-800/60 flex-shrink-0">
+        {isMobile && (
+          <button
+            onClick={onClose}
+            className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
+          >
+            <FaArrowLeft />
+          </button>
+        )}
+        <div className="flex-1 relative">
+          <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none" />
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search messages..."
+            className="w-full pl-9 pr-9 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
+          />
+          {query && (
+            <button
+              onClick={() => setQuery("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-white"
+            >
+              <FaTimes className="text-xs" />
+            </button>
+          )}
+        </div>
+        {!isMobile && (
+          <button
+            onClick={onClose}
+            className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50"
+          >
+            <FaTimes />
+          </button>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto min-h-0">
+        {!query.trim() ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500 py-10">
+            <FaSearch className="text-3xl mb-2 opacity-30" />
+            <p className="text-sm">Search in conversation</p>
+          </div>
+        ) : results.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500 py-10">
+            <FaComment className="text-3xl mb-2 opacity-30" />
+            <p className="text-sm">No messages found</p>
+          </div>
+        ) : (
+          <div className="py-1">
+            <p className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 sticky top-0 bg-white dark:bg-[#14141a] z-10 border-b border-gray-100 dark:border-gray-800/50">
+              {results.length} result{results.length !== 1 ? "s" : ""}
+            </p>
+            {results.map((msg) => {
+              const sender = resolveSender ? resolveSender(msg.sender) : {};
+              const isOwn =
+                sender?._id === currentUserId ||
+                msg.sender === currentUserId ||
+                msg.sender?._id === currentUserId;
+              const senderName = isOwn ? "You" : sender?.name || "Unknown";
+              return (
+                <button
+                  key={msg._id}
+                  onClick={() => handleResultClick(msg._id)}
+                  className="w-full text-left px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition flex items-start gap-3 border-b border-gray-50 dark:border-gray-800/30 last:border-b-0"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-teal-600 dark:text-teal-400 truncate">
+                        {senderName}
+                      </span>
+                      <span className="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0">
+                        {safeFormatTime(msg.createdAt)}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-700 dark:text-gray-300 truncate">
+                      {highlight(getPreview(msg), query)}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  if (isMobile) {
+    return (
+      <div className="fixed inset-0 z-[80] bg-white dark:bg-[#0f0f12] flex flex-col">
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <div className="absolute top-full left-0 right-0 mt-2 px-4 z-[80]">
+      <div
+        className="mx-auto w-full max-w-2xl bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+        style={{ height: "min(70vh, 560px)" }}
+      >
+        {content}
+      </div>
+    </div>
+  );
+};
+
 // ─── Main Component ──────────────────────────────────────────────────
 const MyWorkspaceChatId = () => {
   const { workspaceId, chatId } = useParams();
@@ -2393,6 +2587,9 @@ const MyWorkspaceChatId = () => {
   const emojiPickerRef = useRef(null);
   const [inputHeight, setInputHeight] = useState(0);
 
+  // ── Chat search ──────────────────────────────────────────────────
+  const [showSearch, setShowSearch] = useState(false);
+
   const [otherUserOnline, setOtherUserOnline] = useState(null);
 
   const [confirmModal, setConfirmModal] = useState({
@@ -2414,6 +2611,13 @@ const MyWorkspaceChatId = () => {
   const { socket, isConnected } = useSocket();
   const [initiateCall] = useInitiateCallMutation();
 
+  // ─── PAGINATION STATE ─────────────────────────────────────────────
+  const [messagesPage, setMessagesPage] = useState(1);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const scrollRestoreRef = useRef(null);
+  const loadOlderGuardRef = useRef(false);
+
   // API hooks
   const {
     data: workspaceData,
@@ -2424,9 +2628,10 @@ const MyWorkspaceChatId = () => {
   const {
     data: messagesData,
     isLoading: messagesLoading,
+    isFetching: messagesFetching,
     refetch: refetchMessages,
   } = useGetChatMessagesQuery(
-    { chatId, page: 1, limit: 50 },
+    { chatId, page: messagesPage, limit: MESSAGES_PAGE_SIZE },
     { skip: !chatId }
   );
   const [sendMessageApi] = useSendMessageMutation();
@@ -2532,6 +2737,16 @@ const MyWorkspaceChatId = () => {
       userMapRef.current = map;
     }
   }, [workspace, otherParticipant, userInfo]);
+
+  // ─── Reset per-chat pagination state on chat switch ─────────────
+  useEffect(() => {
+    setMessagesPage(1);
+    setHasMoreMessages(false);
+    setIsLoadingMore(false);
+    scrollRestoreRef.current = null;
+    loadOlderGuardRef.current = false;
+    setShowSearch(false);
+  }, [chatId]);
 
   // ─── Duplicate detection ──────────────────────────────────────────
   const isRecentDuplicateMedia = useCallback(
@@ -2668,9 +2883,57 @@ const MyWorkspaceChatId = () => {
   // ─── Initial messages ─────────────────────────────────────────────
   useEffect(() => {
     if (messagesData?.messages) {
-      mergeMessagesIntoState(messagesData.messages);
+      const messages = messagesData.messages;
+      if (messages.length > 0) {
+        setHasMoreMessages(messages.length >= MESSAGES_PAGE_SIZE);
+      } else {
+        setHasMoreMessages(false);
+      }
+      mergeMessagesIntoState(messages);
     }
   }, [messagesData, mergeMessagesIntoState]);
+
+  // ─── Load older messages (pagination) ────────────────────────────
+  const loadOlderMessages = useCallback(() => {
+    if (!hasMoreMessages) return;
+    if (isLoadingMore || messagesFetching) return;
+    if (loadOlderGuardRef.current) return;
+    loadOlderGuardRef.current = true;
+    const el = messagesContainerRef.current;
+    if (el) {
+      scrollRestoreRef.current = {
+        scrollHeight: el.scrollHeight,
+        scrollTop: el.scrollTop,
+      };
+    }
+    setIsLoadingMore(true);
+    setMessagesPage((p) => p + 1);
+  }, [hasMoreMessages, isLoadingMore, messagesFetching]);
+
+  // Restore scroll position after older messages are prepended
+  useLayoutEffect(() => {
+    if (scrollRestoreRef.current && messagesContainerRef.current) {
+      const el = messagesContainerRef.current;
+      const delta = el.scrollHeight - scrollRestoreRef.current.scrollHeight;
+      if (delta > 0) {
+        el.scrollTop = scrollRestoreRef.current.scrollTop + delta;
+      }
+      scrollRestoreRef.current = null;
+      setIsLoadingMore(false);
+      loadOlderGuardRef.current = false;
+    }
+  }, [localMessages]);
+
+  // Safety: unlock guard if fetch never resolves
+  useEffect(() => {
+    if (!isLoadingMore) return;
+    const t = setTimeout(() => {
+      setIsLoadingMore(false);
+      loadOlderGuardRef.current = false;
+      scrollRestoreRef.current = null;
+    }, 10000);
+    return () => clearTimeout(t);
+  }, [isLoadingMore]);
 
   // ─── Socket events ────────────────────────────────────────────────
   useEffect(() => {
@@ -2762,16 +3025,17 @@ const MyWorkspaceChatId = () => {
   }, [socket, isConnected, chatId, mergeMessagesIntoState, otherParticipant?._id]);
 
   // ─── Polling ──────────────────────────────────────────────────────
+  // Only poll on latest page; older pages fetched via pagination.
   useEffect(() => {
     if (!chatId) return;
     const interval = setInterval(() => {
-      if (!isConnected) {
+      if (!isConnected && messagesPage === 1) {
         refetchMessages();
         refetchChats();
       }
     }, 15000);
     return () => clearInterval(interval);
-  }, [chatId, isConnected, refetchMessages, refetchChats]);
+  }, [chatId, isConnected, messagesPage, refetchMessages, refetchChats]);
 
   // ─── Focus input on reply ─────────────────────────────────────────
   useEffect(() => {
@@ -2788,6 +3052,16 @@ const MyWorkspaceChatId = () => {
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
     setIsAtBottom(atBottom);
     if (atBottom) setShowScrollDown(false);
+
+    // Trigger pagination when user scrolls near the top
+    if (
+      el.scrollTop < 80 &&
+      hasMoreMessages &&
+      !isLoadingMore &&
+      !messagesFetching
+    ) {
+      loadOlderMessages();
+    }
   };
 
   const scrollToBottom = () => {
@@ -3873,7 +4147,7 @@ const MyWorkspaceChatId = () => {
 
   // ─── Render messages with dividers ──────────────────────────────
   const renderMessagesWithDividers = () => {
-    if (messagesLoading) {
+    if (messagesLoading && localMessages.length === 0) {
       return <SkeletonMessages count={6} />;
     }
 
@@ -3976,7 +4250,7 @@ const MyWorkspaceChatId = () => {
 
       <div className="flex-1 flex flex-col bg-white dark:bg-[#0f0f12] h-full overflow-hidden">
         {/* Header */}
-        <header className="fixed lg:sticky top-0 left-0 right-0 lg:left-auto lg:right-auto z-20 flex items-center justify-between px-4 py-3 border-b border-gray-200/60 dark:border-gray-800/60 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl text-gray-800 dark:text-white flex-shrink-0">
+        <header className="fixed lg:sticky top-0 left-0 right-0 lg:left-auto lg:right-auto z-20 flex items-center justify-between px-4 py-3 border-b border-gray-200/60 dark:border-gray-800/60 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl text-gray-800 dark:text-white flex-shrink-0 relative">
           <div className="flex items-center gap-3 min-w-0 flex-1">
             <button
               onClick={() => navigate(-1)}
@@ -4002,7 +4276,18 @@ const MyWorkspaceChatId = () => {
               </p>
             </div>
           </div>
-          <div className="flex gap-2 flex-shrink-0">
+          <div className="flex gap-1 flex-shrink-0">
+            <button
+              onClick={() => setShowSearch((s) => !s)}
+              className={`p-2 rounded-lg transition ${
+                showSearch
+                  ? "bg-teal-100 dark:bg-teal-800/40 text-teal-600 dark:text-teal-400"
+                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/50"
+              }`}
+              aria-label="Search in chat"
+            >
+              <FaSearch />
+            </button>
             <button onClick={() => handleCall("voice")} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition">
               <FaPhone />
             </button>
@@ -4010,6 +4295,20 @@ const MyWorkspaceChatId = () => {
               <FaVideo />
             </button>
           </div>
+
+          {/* Desktop search dropdown - sits right under the header */}
+          {!isMobile && (
+            <ChatSearchModal
+              isOpen={showSearch}
+              onClose={() => setShowSearch(false)}
+              isMobile={false}
+              messages={localMessages}
+              resolveSender={resolveSender}
+              currentUserId={userInfo?._id}
+              onJumpToMessage={handleJumpToMessage}
+              brandColor={brandColor}
+            />
+          )}
         </header>
 
         {/* Messages */}
@@ -4022,6 +4321,24 @@ const MyWorkspaceChatId = () => {
               paddingBottom: isMobile ? `${inputHeight + 60}px` : undefined,
             }}
           >
+            {/* Pagination trigger / indicator at the top */}
+            {hasMoreMessages && !messagesLoading && (
+              <div className="flex justify-center py-2">
+                {isLoadingMore || (messagesFetching && messagesPage > 1) ? (
+                  <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500">
+                    <FaSpinner className="animate-spin" />
+                    <span>Loading older messages…</span>
+                  </div>
+                ) : (
+                  <button
+                    onClick={loadOlderMessages}
+                    className="text-xs text-teal-600 dark:text-teal-400 hover:underline"
+                  >
+                    Load older messages
+                  </button>
+                )}
+              </div>
+            )}
             {renderMessagesWithDividers()}
             <div ref={messagesEndRef} />
           </div>
@@ -4400,6 +4717,20 @@ const MyWorkspaceChatId = () => {
           )}
         </div>
       </div>
+
+      {/* Mobile: search overlay (full-screen) */}
+      {isMobile && (
+        <ChatSearchModal
+          isOpen={showSearch}
+          onClose={() => setShowSearch(false)}
+          isMobile={true}
+          messages={localMessages}
+          resolveSender={resolveSender}
+          currentUserId={userInfo?._id}
+          onJumpToMessage={handleJumpToMessage}
+          brandColor={brandColor}
+        />
+      )}
 
       {/* Modals */}
       <ConfirmModal

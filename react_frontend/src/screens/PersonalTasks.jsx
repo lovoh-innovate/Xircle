@@ -20,6 +20,8 @@ import {
   useUpdatePersonalSubTaskMutation,
   useReorderPersonalSubTasksMutation,
   useAddCollaboratorMutation,
+  useGetPendingInvitationsQuery,
+  useAcceptInvitationWithTokenMutation,
 } from '../slices/personalTaskApiSlice';
 import toast from 'react-hot-toast';
 import {
@@ -50,6 +52,7 @@ import {
   FaUsers,
   FaUser,
   FaUserPlus,
+  FaEnvelopeOpen,
 } from 'react-icons/fa';
 import { motion } from 'framer-motion';
 import GeneralSidebar from '../components/GeneralSidebar';
@@ -76,6 +79,11 @@ import { CSS } from '@dnd-kit/utilities';
 const FOLDER_DROP_PREFIX = 'folder-drop-';
 
 const isReminderTask = (task) => !!(task?.recurrenceType && task.recurrenceType !== 'none');
+
+const getFirstName = (name) => {
+  if (!name) return 'someone';
+  return String(name).trim().split(/\s+/)[0] || 'someone';
+};
 
 const useIsTouchDevice = () => {
   const [isTouch, setIsTouch] = useState(false);
@@ -820,13 +828,13 @@ const ChecklistItem = ({
 
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-1 sm:gap-2">
-            <span className={`text-sm break-words flex-1 min-w-0 ${
-              checklistItem.done ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-800 dark:text-white'
-            }`}>
-              {checklistItem.title}
+            <span className="text-sm break-words flex-1 min-w-0">
+              <span className={checklistItem.done ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-800 dark:text-white'}>
+                {checklistItem.title}
+              </span>
               {checklistItem.done && checklistItem.toggledBy && (
                 <span className="text-[10px] text-gray-400 dark:text-gray-500 ml-1">
-                  by {checklistItem.toggledBy.name || 'someone'}
+                  by {getFirstName(checklistItem.toggledBy.name)}
                 </span>
               )}
             </span>
@@ -1460,7 +1468,7 @@ const TaskCard = React.memo(({
                 {task.status}
                 {isCompleted && task.completedBy && (
                   <span className="text-[10px] text-gray-400 dark:text-gray-500">
-                    by {task.completedBy.name || 'someone'}
+                    by {getFirstName(task.completedBy.name)}
                   </span>
                 )}
               </span>
@@ -1720,135 +1728,183 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
     });
   };
 
+  const inputBase =
+    'w-full px-3 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl text-sm text-gray-800 dark:text-white placeholder-gray-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none transition';
+  const labelBase = 'block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1';
+
   return (
-    <form onSubmit={handleSubmit} className="p-6 space-y-4">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-bold text-gray-800 dark:text-white">
+    <form onSubmit={handleSubmit} className="p-5 space-y-3">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold text-gray-800 dark:text-white">
           {isEditing
             ? (isReminder ? 'Edit Reminder' : 'Edit Task')
             : (isReminder ? 'New Reminder' : 'New Personal Task')}
         </h2>
-        <button type="button" onClick={onCancel} className="text-gray-400 hover:text-gray-600 dark:hover:text-white transition">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-lg transition"
+          aria-label="Close"
+        >
           <FaTimes />
         </button>
       </div>
 
+      {/* Title — the only field visible by default */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Title *</label>
+        <label className={labelBase}>Title *</label>
         <input
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white placeholder-gray-400"
+          placeholder="What needs to be done?"
+          className={inputBase}
           required
+          autoFocus
         />
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description (Optional)</label>
-        <textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          rows={2}
-          className="w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white placeholder-gray-400"
-        />
-      </div>
-
-      <div className={`border rounded-xl p-3 transition ${isReminder ? 'border-teal-400 dark:border-teal-600 bg-teal-50/40 dark:bg-teal-900/10' : 'border-gray-200 dark:border-gray-700'}`}>
-        <label className="flex items-center gap-2 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={isReminder}
-            onChange={(e) => setIsReminder(e.target.checked)}
-            className="w-4 h-4 rounded accent-teal-600 cursor-pointer"
-          />
-          <span className="text-sm font-medium text-gray-800 dark:text-white flex items-center gap-1.5">
-            <FaBell className="text-teal-500 text-xs" /> Set as Reminder
+      {/* Slim "Set as Reminder" toggle row */}
+      <button
+        type="button"
+        onClick={() => setIsReminder((v) => !v)}
+        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border transition text-left ${
+          isReminder
+            ? 'border-teal-400 dark:border-teal-600 bg-teal-50/60 dark:bg-teal-900/15'
+            : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-[#2a2a2a]'
+        }`}
+        aria-pressed={isReminder}
+      >
+        <span
+          className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition ${
+            isReminder ? 'bg-teal-500 text-white' : 'bg-gray-100 dark:bg-[#2a2a2a] text-gray-400'
+          }`}
+        >
+          <FaBell className="text-[11px]" />
+        </span>
+        <span className="flex-1 min-w-0">
+          <span
+            className={`block text-sm font-medium leading-tight ${
+              isReminder ? 'text-teal-700 dark:text-teal-300' : 'text-gray-700 dark:text-gray-300'
+            }`}
+          >
+            Set as Reminder
           </span>
-        </label>
-        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 pl-6">
-          Reminders repeat automatically and don't have a "Complete" state.
-        </p>
+          <span className="block text-[11px] text-gray-400 dark:text-gray-500 leading-tight truncate">
+            Repeats automatically · no "Complete" state
+          </span>
+        </span>
+        <span
+          className={`relative w-9 h-5 rounded-full flex-shrink-0 transition ${
+            isReminder ? 'bg-teal-500' : 'bg-gray-300 dark:bg-gray-600'
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${
+              isReminder ? 'translate-x-4' : 'translate-x-0'
+            }`}
+          />
+        </span>
+      </button>
 
-        {isReminder && (
-          <div className="mt-3 space-y-3 pl-6">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Repeat</label>
-              <div className="flex gap-2">
+      {/* Compact reminder options (only when enabled) */}
+      {isReminder && (
+        <div className="rounded-xl border border-teal-200/70 dark:border-teal-800/40 bg-teal-50/40 dark:bg-teal-900/10 p-3 space-y-2.5">
+          {/* Repeat — segmented control */}
+          <div>
+            <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
+              Repeat
+            </label>
+            <div className="inline-flex rounded-lg bg-gray-100 dark:bg-[#2a2a2a] p-0.5">
+              {['daily', 'weekly'].map((f) => (
                 <button
+                  key={f}
                   type="button"
-                  onClick={() => setFrequency('daily')}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${
-                    frequency === 'daily'
-                      ? 'bg-teal-500 text-white'
-                      : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'
+                  onClick={() => setFrequency(f)}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition ${
+                    frequency === f
+                      ? 'bg-white dark:bg-[#1e1e26] text-teal-600 dark:text-teal-400 shadow-sm'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
                   }`}
                 >
-                  Everyday
+                  {f === 'daily' ? 'Everyday' : 'Weekly'}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setFrequency('weekly')}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${
-                    frequency === 'weekly'
-                      ? 'bg-teal-500 text-white'
-                      : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'
-                  }`}
-                >
-                  Weekly
-                </button>
-              </div>
-            </div>
-
-            {frequency === 'weekly' && (
-              <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">On these days</label>
-                <div className="flex flex-wrap gap-2">
-                  {weekDays.map((day, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => toggleDay(idx)}
-                      className={`px-3 py-1 rounded-full text-xs font-medium transition ${
-                        recurrenceDays.includes(idx)
-                          ? 'bg-teal-500 text-white'
-                          : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'
-                      }`}
-                    >
-                      {day}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">End Date (optional)</label>
-              <input
-                type="datetime-local"
-                value={recurrenceEndDate}
-                onChange={(e) => setRecurrenceEndDate(e.target.value)}
-                className="w-full px-4 py-2 bg-white dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 outline-none text-sm"
-              />
+              ))}
             </div>
           </div>
-        )}
-      </div>
 
+          {/* Weekly day picker */}
+          {frequency === 'weekly' && (
+            <div>
+              <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
+                On these days
+              </label>
+              <div className="flex flex-wrap gap-1">
+                {weekDays.map((day, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => toggleDay(idx)}
+                    className={`w-8 h-8 text-[10px] font-semibold rounded-full transition ${
+                      recurrenceDays.includes(idx)
+                        ? 'bg-teal-500 text-white'
+                        : 'bg-white dark:bg-[#2a2a2a] text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-teal-400'
+                    }`}
+                  >
+                    {day[0]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* End date */}
+          <div className="min-w-0">
+            <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
+              End Date (optional)
+            </label>
+            <input
+              type="datetime-local"
+              value={recurrenceEndDate}
+              onChange={(e) => setRecurrenceEndDate(e.target.value)}
+              className="w-full min-w-0 px-3 py-1.5 bg-white dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-lg text-xs text-gray-800 dark:text-white focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* More details toggle */}
       <button
         type="button"
         onClick={() => setShowDetails(!showDetails)}
-        className="flex items-center gap-2 text-sm text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 transition"
+        className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-teal-600 dark:hover:text-teal-400 transition rounded-lg hover:bg-gray-50 dark:hover:bg-[#2a2a2a]"
       >
-        <FaAngleDown className={`transition-transform ${showDetails ? 'rotate-180' : ''}`} />
-        {showDetails ? 'Hide details' : 'Add more details'}
+        <span className="flex items-center gap-1.5">
+          <FaAngleDown className={`text-[10px] transition-transform ${showDetails ? 'rotate-180' : ''}`} />
+          {showDetails ? 'Hide details' : 'Add more details'}
+        </span>
       </button>
 
+      {/* Details section */}
       {showDetails && (
-        <>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Priority</label>
+        <div className="space-y-3">
+          {/* Description */}
+          <div>
+            <label className={labelBase}>Description (Optional)</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={2}
+              placeholder="Add notes..."
+              className={`${inputBase} resize-none`}
+            />
+          </div>
+
+          {/* Priority + Folder */}
+          <div className="grid grid-cols-2 gap-2">
+            <div className="min-w-0">
+              <label className={labelBase}>Priority</label>
               <CustomSelect
                 value={priority}
                 onChange={setPriority}
@@ -1857,8 +1913,8 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
                 disabled={isReminder}
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Folder</label>
+            <div className="min-w-0">
+              <label className={labelBase}>Folder</label>
               <CustomSelect
                 value={folderId}
                 onChange={setFolderId}
@@ -1869,29 +1925,38 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
               />
             </div>
           </div>
+
+          {/* Due date */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Due Date</label>
+            <label className={labelBase}>Due Date</label>
             <input
               type="datetime-local"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
               disabled={isReminder}
-              className={`w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none ${isReminder ? 'opacity-50 cursor-not-allowed' : ''}`}
+              className={`${inputBase} ${
+                isReminder ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
             />
           </div>
+
+          {/* Daily notify time */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Daily Notify Time (HH:MM)</label>
+            <label className={labelBase}>Daily Notify Time</label>
             <input
               type="time"
               value={dailyReminderTime}
               onChange={(e) => setDailyReminderTime(e.target.value)}
               disabled={isReminder}
-              className={`w-full px-4 py-2 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none ${isReminder ? 'opacity-50 cursor-not-allowed' : ''}`}
+              className={`${inputBase} ${
+                isReminder ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
             />
           </div>
-        </>
+        </div>
       )}
 
+      {/* Actions */}
       <div className="flex gap-3 pt-2">
         <button
           type="button"
@@ -1903,9 +1968,9 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
         <button
           type="submit"
           disabled={isLoading}
-          className="flex-1 py-2 bg-teal-600 dark:bg-teal-500 text-white rounded-xl text-sm font-medium hover:bg-teal-700 dark:hover:bg-teal-600 disabled:opacity-50 transition"
+          className="flex-1 py-2 bg-teal-600 dark:bg-teal-500 text-white rounded-xl text-sm font-medium hover:bg-teal-700 dark:hover:bg-teal-600 disabled:opacity-50 transition flex items-center justify-center"
         >
-          {isLoading ? <FaSpinner className="animate-spin mx-auto" /> : (isEditing ? 'Update' : 'Create')}
+          {isLoading ? <FaSpinner className="animate-spin" /> : (isEditing ? 'Update' : 'Create')}
         </button>
       </div>
     </form>
@@ -2023,6 +2088,18 @@ const PersonalTasks = () => {
   const [collaborateTarget, setCollaborateTarget] = useState(null);
   const [collaborateLoading, setCollaborateLoading] = useState(false);
   const [addCollaborator] = useAddCollaboratorMutation();
+
+  // ─── Pending invitations ──────────────────────────────────────
+  const {
+    data: pendingInvitesData,
+    refetch: refetchPendingInvites,
+  } = useGetPendingInvitationsQuery(undefined, {
+    pollingInterval: 30000,
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
+  });
+  const [acceptInvitation, { isLoading: isAcceptingInvite }] = useAcceptInvitationWithTokenMutation();
+  const pendingInvites = pendingInvitesData?.invitations || [];
 
   // ─── View type ──────────────────────────────────────────────
   const [viewType, setViewType] = useState('personal');
@@ -2277,6 +2354,20 @@ const PersonalTasks = () => {
       ),
       { duration: 6000, position: 'top-center' }
     );
+  };
+
+  // ─── Accept pending invitation ──────────────────────────────
+  const handleAcceptInvite = async (token) => {
+    if (!token) return;
+    try {
+      await acceptInvitation({ token }).unwrap();
+      toast.success('Invitation accepted!');
+      refetchPendingInvites();
+      refetchTasks();
+      refetchFolders();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to accept invitation');
+    }
   };
 
   // ─── Collaboration handler ────────────────────────────────────
@@ -2913,6 +3004,38 @@ const PersonalTasks = () => {
               </header>
 
               <main className="flex-1 overflow-y-auto">
+                {/* ─── Pending Invitations Banner ─── */}
+                {pendingInvites.length > 0 && (
+                  <div className="px-3 sm:px-6 pt-3 pb-1 space-y-2">
+                    {pendingInvites.map((inv) => (
+                      <div
+                        key={`${inv.taskId}-${inv.invitationToken}`}
+                        className="flex items-start gap-3 p-3 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800"
+                      >
+                        <div className="w-9 h-9 rounded-full bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center flex-shrink-0">
+                          <FaEnvelopeOpen className="text-indigo-500 dark:text-indigo-400 text-sm" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-800 dark:text-white truncate">
+                            {inv.owner?.name || 'Someone'} invited you to collaborate
+                          </p>
+                          <p className="text-xs text-gray-600 dark:text-gray-300 truncate">
+                            "{inv.taskTitle}" · <span className="capitalize">{inv.role}</span>
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleAcceptInvite(inv.invitationToken)}
+                          disabled={isAcceptingInvite}
+                          className="flex-shrink-0 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-lg transition disabled:opacity-50 flex items-center gap-1"
+                        >
+                          {isAcceptingInvite ? <FaSpinner className="animate-spin" /> : <FaCheck className="text-[10px]" />}
+                          Accept
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {displayedTasks.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500 p-8">
                     {filters.trash ? (
