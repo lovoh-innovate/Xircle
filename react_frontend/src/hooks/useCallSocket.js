@@ -8,10 +8,33 @@ import {
   useInviteToCallMutation,   // ← new
 } from '../slices/callApiSlice';
 
+// ── ICE servers ──────────────────────────────────────────────────────
+// STUN alone only works when both peers' NATs allow direct hole-punching.
+// On localhost this always "worked" because both peers were the same
+// machine — no NAT traversal was ever actually needed, which is exactly
+// why this gap didn't show up until production. In production, two users
+// on separate real networks (mobile carrier CGNAT, corporate firewalls,
+// symmetric NATs) frequently CANNOT connect directly — ICE just sits at
+// "checking" and eventually "failed", with no error surfaced to the UI.
+// That's the "wants to connect, stuck at 0 participants" symptom. A TURN
+// server relays media when a direct path isn't possible; without one,
+// some real-world pairs of users will simply never connect.
+//
+// Replace the placeholder TURN entry with real credentials before
+// shipping. Options: self-host coturn, or a managed service (Twilio
+// Network Traversal Service, Xirsys, Cloudflare Calls, Metered TURN).
 const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    // Add your TURN server here if needed
+    {
+      urls: [
+        'turn:YOUR_TURN_HOST:3478?transport=udp',
+        'turn:YOUR_TURN_HOST:3478?transport=tcp',
+        'turns:YOUR_TURN_HOST:5349?transport=tcp',
+      ],
+      username: 'YOUR_TURN_USERNAME',
+      credential: 'YOUR_TURN_CREDENTIAL',
+    },
   ],
 };
 
@@ -52,22 +75,6 @@ export const useCallSocket = (callData) => {
   }, []);
 
   // ── Get local media ──────────────────────────────────────────────
-  // IMPORTANT: this is awaited by both sendOfferToUser and handleOffer
-  // (via addRemoteUser / handleOffer below) *before* a peer connection
-  // is created. createPeerConnection only ever adds tracks that exist
-  // on localStreamRef.current at creation time — it never retro-adds
-  // tracks to a pc that already exists. So if a peer connection gets
-  // created while getUserMedia is still pending (mic permission prompt,
-  // slow device init, etc.), that pc is permanently trackless: it can
-  // still *receive* the remote side's audio fine, but the remote side
-  // will never get an 'ontrack' event from it. That produces exactly
-  // the asymmetric bug where one side sees the other participant and
-  // the other sees "0 participants" — whichever side's stream wasn't
-  // ready yet when its pc was built is the "invisible" one.
-  //
-  // We use a shared in-flight promise so that if multiple call sites
-  // race to request media at once, they all await the same getUserMedia
-  // call instead of firing it twice.
   const startLocalStream = useCallback(async (videoEnabled = true) => {
     if (localStreamRef.current) return localStreamRef.current;
     if (localStreamPromiseRef.current) return localStreamPromiseRef.current;
@@ -114,8 +121,38 @@ export const useCallSocket = (callData) => {
       );
     }
 
+    // ── ICE / connection diagnostics ───────────────────────────────
+    // This is the key signal for the "0 participants, never connects"
+    // production symptom: if this logs "failed" (and you never see
+    // "connected"), it's ICE/TURN, not signaling — call-offer/answer
+    // already succeeded or you wouldn't have a pc to log from.
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[call:ice-state] peer=${remoteUserId} iceConnectionState=${pc.iceConnectionState}`);
+      if (pc.iceConnectionState === 'failed') {
+        console.error(
+          `[call:ice-state] ICE FAILED for peer=${remoteUserId}. This almost always means ` +
+          `no direct path exists between the two networks and no working TURN server is ` +
+          `configured to relay media. Check ICE_SERVERS in useCallSocket.js.`
+        );
+      }
+    };
+    pc.onconnectionstatechange = () => {
+      console.log(`[call:pc-state] peer=${remoteUserId} connectionState=${pc.connectionState}`);
+    };
+    pc.onicegatheringstatechange = () => {
+      console.log(`[call:ice-gathering] peer=${remoteUserId} iceGatheringState=${pc.iceGatheringState}`);
+    };
+    pc.onicecandidateerror = (event) => {
+      console.warn(`[call:ice-candidate-error] peer=${remoteUserId}`, {
+        errorCode: event.errorCode,
+        errorText: event.errorText,
+        url: event.url,
+      });
+    };
+
     // Handle remote stream
     pc.ontrack = (event) => {
+      console.log(`[call:ontrack] received remote track from peer=${remoteUserId}`, event.track.kind);
       setRemoteStreams(prev => ({
         ...prev,
         [remoteUserId]: event.streams[0],
@@ -125,6 +162,12 @@ export const useCallSocket = (callData) => {
     // Handle ICE candidates
     pc.onicecandidate = (event) => {
       if (event.candidate && socket) {
+        // Candidate type (host/srflx/relay) tells you what kind of path
+        // was found. If you only ever see "host"/"srflx" and never
+        // "relay" candidates being generated locally, that's expected
+        // without TURN — but if the OTHER side also has none, and
+        // srflx/host don't reach each other, connection fails.
+        console.log(`[call:ice-candidate] peer=${remoteUserId} type=${event.candidate.type} protocol=${event.candidate.protocol}`);
         socket.emit('ice-candidate', {
           toUserId: remoteUserId,
           roomId: callData.roomId,
@@ -184,9 +227,6 @@ export const useCallSocket = (callData) => {
   }, [callData, socket?.userId, startLocalStream, sendOfferToUser]);
 
   // ── Add a remote user (call this when a new participant joins) ──
-  // Always wait for local media to actually be ready before we build
-  // the peer connection that will send our offer — otherwise the offer
-  // goes out on a trackless pc and the remote side never sees us.
   const addRemoteUser = useCallback(async (userId) => {
     if (userId === socket?.userId) return;
     if (connectedUsers.current.has(userId)) return;
@@ -201,9 +241,6 @@ export const useCallSocket = (callData) => {
     socket.emit('join-call-room', callData.roomId);
 
     const handleOffer = async ({ from, sdp }) => {
-      // Same reasoning as addRemoteUser: make sure our own tracks exist
-      // before we build the answering peer connection, or the offering
-      // side will never receive our audio/video.
       await startLocalStream(true);
 
       let pc = peerConnections.current[from];
