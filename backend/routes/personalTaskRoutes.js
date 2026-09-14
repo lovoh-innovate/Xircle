@@ -22,6 +22,8 @@ import {
   reorderPersonalSubTasks,
   // Collaboration endpoints
   addCollaborator,
+  updateCollaboratorRole,
+  removeCollaborator,
   getPendingInvitations,
   acceptInvitationWithToken,
 } from '../controllers/personalTaskController.js';
@@ -39,7 +41,7 @@ router.put('/folders/:folderId', updatePersonalFolder);
 router.delete('/folders/:folderId', deletePersonalFolder);
 
 // ── Personal Tasks ────────────────────────────────────────────────
-router.get('/', getPersonalTasks);                       // supports ?folderId, ?status, ?priority, ?archived
+router.get('/', getPersonalTasks);                       // supports ?folderId, ?status, ?priority, ?archived, ?trash, ?type
 router.post('/', createPersonalTask);
 
 // IMPORTANT: reorder must come before `/:taskId` to avoid being matched as a task ID
@@ -54,14 +56,23 @@ router.delete('/:taskId', deletePersonalTask);            // soft‑delete → t
 router.delete('/:taskId/permanent', permanentlyDeletePersonalTask);
 
 // ── Collaboration ──────────────────────────────────────────────────
-// Add a collaborator to a specific task (owner only)
-router.post('/:taskId/collaborators', addCollaborator);
+// ⚠️ Order matters! Literal paths like `/collaborators/pending` must be
+// declared BEFORE parameterised `/collaborators/:collaboratorId` paths.
 
 // Get pending invitations for the current user
 router.get('/collaborators/pending', getPendingInvitations);
 
 // Accept an invitation using the token from email
 router.post('/collaborators/accept-token', acceptInvitationWithToken);
+
+// Add a collaborator to a specific task (owner only)
+router.post('/:taskId/collaborators', addCollaborator);
+
+// Update a collaborator's role (owner only)
+router.patch('/:taskId/collaborators/:collaboratorId', updateCollaboratorRole);
+
+// Remove a collaborator from a task (owner only)
+router.delete('/:taskId/collaborators/:collaboratorId', removeCollaborator);
 
 // ── Personal Sub‑tasks ────────────────────────────────────────────
 router.post('/:taskId/subtasks', addPersonalSubTask);

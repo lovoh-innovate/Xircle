@@ -85,6 +85,12 @@ async function notifyUsers(userIds, { title, body, data = {}, emailEventType = n
 // POST /api/projects?workspaceId=xxx
 // ─────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────
+// CREATE PROJECT  (workspace owner or admin)
+// POST /api/projects?workspaceId=xxx
+// Creator is automatically added as a Project Manager.
+// ─────────────────────────────────────────────────────────────────────
+
 const createProject = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -117,6 +123,7 @@ const createProject = async (req, res) => {
     if (!workspace) {
       return res.status(404).json({ success: false, message: 'Workspace not found.' });
     }
+
     // Allow workspace owner OR admin to create projects
     if (!canManageWorkspace(workspace, userId)) {
       return res.status(403).json({
@@ -125,7 +132,7 @@ const createProject = async (req, res) => {
       });
     }
 
-    // Uploaded files
+    // ── Uploaded files ────────────────────────────────────────
     const documents = [];
     if (req.files?.documents) {
       for (const file of req.files.documents) {
@@ -139,7 +146,7 @@ const createProject = async (req, res) => {
     }
     const coverImage = req.files?.coverImage?.[0]?.path || '';
 
-    // Validate PMs against active workspace members
+    // ── Validate PMs against active workspace members ─────────
     const validPMs = [];
     for (const pmId of projectManagerIds) {
       const ok = workspace.members.some(
@@ -148,7 +155,14 @@ const createProject = async (req, res) => {
       if (ok && !validPMs.includes(pmId)) validPMs.push(pmId);
     }
 
-    // Validate team members (skip anyone already a PM)
+    // ── Creator is ALWAYS a Project Manager ───────────────────
+    // Added before team-member validation so the dupe check below
+    // automatically keeps the creator out of `teamMembers`.
+    if (!validPMs.includes(userId)) {
+      validPMs.push(userId);
+    }
+
+    // ── Validate team members (skip anyone already a PM) ──────
     const validTeamMembers = [];
     for (const memberId of teamMemberIds) {
       const ok = workspace.members.some(
@@ -190,11 +204,12 @@ const createProject = async (req, res) => {
       isTrash: false,
     });
 
-    // ── Notify all newly added members ────────────────────────
+    // ── Notify newly added members (excluding the creator) ────
     const allNewMembers = [
       ...validPMs,
-      ...validTeamMembers.map(tm => tm.user)
-    ];
+      ...validTeamMembers.map((tm) => tm.user),
+    ].filter((id) => id.toString() !== userId);
+
     if (allNewMembers.length > 0) {
       const projectName = project.name;
       notifyUsers(allNewMembers, {

@@ -17,7 +17,7 @@ const notifyUser = async (userId, { title, body, data = {}, type = 'task_update'
     title,
     body,
     data: { ...data, type },
-    type, // <-- lets socket/notification handler route correctly
+    type,
     sendPush: true,
     emailEventType: 'taskUpdate',
     emailSubject: title,
@@ -218,13 +218,11 @@ export const createPersonalTask = async (req, res) => {
       return res.status(400).json({ success: false, message: err.message });
     }
 
-    // New tasks go to the top of the user's ordering (order 0)
     await PersonalTask.updateMany(
       { user: req.user.id, isTrash: { $ne: true } },
       { $inc: { order: 1 } }
     );
 
-    // Ensure subtasks have toggledBy null initially
     const cleanedSubtasks = (subtasks || []).map(st => ({
       ...st,
       toggledBy: null,
@@ -270,14 +268,19 @@ export const getPersonalTasks = async (req, res) => {
 
     if (type === 'owner') {
       query.user = userId;
-      // ✅ Personal tab shows ONLY tasks with zero collaborators.
-      // Once you invite someone, the task "moves" to Collab.
-      if (!isTrash && !isArchived) {
+
+      // ✅ Personal tab "All" shows ONLY tasks with zero collaborators.
+      //    BUT when a specific folder is selected we DO NOT hide collaborated
+      //    tasks — otherwise a task that lives in a folder vanishes the moment
+      //    you invite someone. Keeping it visible in the folder satisfies the
+      //    "still in the folder" requirement.
+      const filteringByFolder = !!folderId;
+      if (!isTrash && !isArchived && !filteringByFolder) {
         query['collaborators.0'] = { $exists: false };
       }
       delete query.$or;
     } else if (type === 'collaborator') {
-      // ✅ Collab tab shows:
+      // Collab tab shows:
       //   (a) tasks where I'm an ACCEPTED collaborator, OR
       //   (b) tasks I own that have at least one collaborator (pending or accepted)
       query.$or = [
@@ -350,7 +353,6 @@ export const updatePersonalTask = async (req, res) => {
       }
     }
 
-    // Only owner can change folder
     if (folderId !== undefined && task.user.toString() === userId) {
       if (folderId) {
         const folder = await PersonalFolder.findOne({ _id: folderId, user: userId });
@@ -369,9 +371,6 @@ export const updatePersonalTask = async (req, res) => {
     if (dueDate !== undefined) task.dueDate = dueDate ? new Date(dueDate) : null;
     if (dailyReminderTime !== undefined) task.dailyReminderTime = dailyReminderTime;
     if (subtasks) {
-      // Preserve existing toggledBy values for subtasks that are not being changed
-      // We'll merge: for each new subtask, if it has no toggledBy, keep the old one if the title/done/dueDate didn't change?
-      // For simplicity, we just accept the incoming subtasks as-is, but the frontend will send toggledBy when toggled.
       task.subtasks = subtasks;
     }
     if (notes !== undefined) task.notes = notes;
@@ -381,7 +380,6 @@ export const updatePersonalTask = async (req, res) => {
       task.recurrenceEndDate = recurrenceData.recurrenceEndDate;
     }
 
-    // Status update with completedBy tracking
     if (status !== undefined) {
       const oldStatus = task.status;
       if (status === 'completed' && task.recurrenceType !== 'none') {
@@ -404,7 +402,6 @@ export const updatePersonalTask = async (req, res) => {
         task.completedBy = status === 'completed' ? userId : null;
       }
 
-      // Notify all collaborators about status change
       if (oldStatus !== task.status) {
         const updater = await User.findById(userId);
         const message = `${updater.name || 'A collaborator'} marked task "${task.title}" as ${task.status}`;
@@ -542,7 +539,6 @@ export const addCollaborator = async (req, res) => {
     const task = await PersonalTask.findOne({ _id: taskId, user: req.user.id });
     if (!task) return res.status(404).json({ success: false, message: 'Task not found or not owner.' });
 
-    // Check if already invited
     const existing = task.collaborators.find(c => c.email === email);
     if (existing) {
       return res.status(400).json({ success: false, message: 'User already invited to this task.' });
@@ -562,7 +558,6 @@ export const addCollaborator = async (req, res) => {
     task.collaborators.push(collaborator);
     await task.save();
 
-    // Send email with invitation link
     const inviteLink = `${process.env.FRONTEND_URL}/accept-task-collab?token=${token}`;
     await sendCollaborationInvitationEmail({
       to: email,
@@ -572,7 +567,6 @@ export const addCollaborator = async (req, res) => {
       existingUser: !!invitedUser,
     });
 
-    // If user exists, send push notification (real-time + push)
     if (invitedUser) {
       await notifyUser(invitedUser._id, {
         title: 'Collaboration Invitation',
@@ -600,10 +594,106 @@ export const addCollaborator = async (req, res) => {
   }
 };
 
+/**
+ * Owner‑only: update a collaborator's role (read/write)
+ * PATCH /personal-tasks/:taskId/collaborators/:collaboratorId
+ */
+export const updateCollaboratorRole = async (req, res) => {
+  try {
+    const { taskId, collaboratorId } = req.params;
+    const { role } = req.body;
+
+    if (!['read', 'write'].includes(role)) {
+      return res.status(400).json({ success: false, message: 'Role must be "read" or "write".' });
+    }
+
+    const task = await PersonalTask.findOne({ _id: taskId, user: req.user.id });
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found or not owner.' });
+
+    const collab = task.collaborators.id(collaboratorId);
+    if (!collab) return res.status(404).json({ success: false, message: 'Collaborator not found.' });
+
+    const oldRole = collab.role;
+    if (oldRole === role) {
+      const unchanged = await PersonalTask.findById(task._id)
+        .populate('collaborators.user', 'name email')
+        .populate('completedBy', 'name email')
+        .populate('subtasks.toggledBy', 'name email');
+      return res.status(200).json({ success: true, task: unchanged });
+    }
+
+    collab.role = role;
+    await task.save();
+
+    if (collab.user) {
+      await notifyUser(collab.user, {
+        title: 'Collaboration Role Updated',
+        body: `Your role on "${task.title}" was changed to ${role === 'write' ? 'Can edit' : 'Read only'}.`,
+        data: { taskId: task._id, role, screen: 'PersonalTasks' },
+        type: 'collaboration_role_updated',
+      });
+    }
+
+    const updated = await PersonalTask.findById(task._id)
+      .populate('collaborators.user', 'name email')
+      .populate('completedBy', 'name email')
+      .populate('subtasks.toggledBy', 'name email');
+
+    res.status(200).json({ success: true, task: updated });
+  } catch (error) {
+    console.error('Update collaborator role error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Owner‑only: remove a collaborator from a task.
+ * DELETE /personal-tasks/:taskId/collaborators/:collaboratorId
+ */
+export const removeCollaborator = async (req, res) => {
+  try {
+    const { taskId, collaboratorId } = req.params;
+
+    const task = await PersonalTask.findOne({ _id: taskId, user: req.user.id });
+    if (!task) return res.status(404).json({ success: false, message: 'Task not found or not owner.' });
+
+    const collab = task.collaborators.id(collaboratorId);
+    if (!collab) return res.status(404).json({ success: false, message: 'Collaborator not found.' });
+
+    const removedUserId = collab.user;
+    const removedEmail = collab.email;
+
+    collab.deleteOne();
+    await task.save();
+
+    if (removedUserId) {
+      await notifyUser(removedUserId, {
+        title: 'Collaboration Removed',
+        body: `You've been removed from "${task.title}".`,
+        data: { taskId: task._id, screen: 'PersonalTasks' },
+        type: 'collaboration_removed',
+      });
+    }
+
+    const updated = await PersonalTask.findById(task._id)
+      .populate('collaborators.user', 'name email')
+      .populate('completedBy', 'name email')
+      .populate('subtasks.toggledBy', 'name email');
+
+    res.status(200).json({
+      success: true,
+      message: `Removed ${removedEmail || 'collaborator'}.`,
+      task: updated,
+    });
+  } catch (error) {
+    console.error('Remove collaborator error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 export const getPendingInvitations = async (req, res) => {
   try {
     const userId = req.user.id;
-    console.log('[getPendingInvitations] userId =', userId);
 
     const tasks = await PersonalTask.find({
       collaborators: {
@@ -616,8 +706,6 @@ export const getPendingInvitations = async (req, res) => {
       .populate('user', 'name email profile')
       .populate('collaborators.user', 'name email profile')
       .select('title collaborators user');
-
-    console.log('[getPendingInvitations] found tasks:', tasks.length);
 
     const invitations = tasks
       .map((task) => {
@@ -672,7 +760,6 @@ export const acceptInvitationWithToken = async (req, res) => {
     collab.accepted = true;
     await task.save();
 
-    // Notify owner
     await notifyUser(task.user, {
       title: 'Collaboration Accepted',
       body: `${user.name || 'Someone'} accepted your invitation to collaborate on "${task.title}"`,
@@ -729,7 +816,6 @@ export const addPersonalSubTask = async (req, res) => {
     });
     await task.save();
 
-    // Return populated task
     const updated = await PersonalTask.findById(task._id)
       .populate('completedBy', 'name email')
       .populate('subtasks.toggledBy', 'name email');
@@ -806,7 +892,6 @@ export const togglePersonalSubTask = async (req, res) => {
     const subtask = task.subtasks[index];
     const newDone = done !== undefined ? (done === true || done === 'true') : !subtask.done;
 
-    // Only record who toggled if the done state actually changes
     if (newDone !== subtask.done) {
       subtask.toggledBy = userId;
     }
@@ -837,7 +922,6 @@ export const togglePersonalSubTask = async (req, res) => {
     await task.save();
     await updatePersonalTaskStatus(taskId);
 
-    // Notify collaborators about subtask toggle
     const updater = await User.findById(userId);
     const action = subtask.done ? 'completed' : 'unchecked';
     const message = `${updater.name || 'A collaborator'} ${action} subtask "${subtask.title}" in task "${task.title}"`;

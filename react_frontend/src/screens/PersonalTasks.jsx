@@ -22,6 +22,9 @@ import {
   useAddCollaboratorMutation,
   useGetPendingInvitationsQuery,
   useAcceptInvitationWithTokenMutation,
+  // 👇 NEW: collaborator management
+  useUpdateCollaboratorRoleMutation,
+  useRemoveCollaboratorMutation,
 } from '../slices/personalTaskApiSlice';
 import toast from 'react-hot-toast';
 import {
@@ -53,6 +56,7 @@ import {
   FaUser,
   FaUserPlus,
   FaEnvelopeOpen,
+  FaUserCog,
 } from 'react-icons/fa';
 import { motion } from 'framer-motion';
 import GeneralSidebar from '../components/GeneralSidebar';
@@ -180,7 +184,7 @@ const BottomSheet = ({ isOpen, onClose, children }) => {
 const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, danger = false }) => {
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
       <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
         <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2 break-words">{title}</h3>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-6 break-words">{message}</p>
@@ -243,7 +247,7 @@ const PermanentDeleteModal = ({ isOpen, onClose, onConfirm, itemName, isBulk = f
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
       <form
         onSubmit={handleSubmit}
         className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl"
@@ -365,13 +369,205 @@ const CollaborateModal = ({ isOpen, onClose, onInvite, isLoading, taskTitle, isB
   );
 };
 
+// ─── Manage Collaborators Modal (NEW) ──────────────────────────
+const ManageCollaboratorsModal = ({
+  isOpen,
+  onClose,
+  task,
+  onUpdateRole,
+  onRemove,
+  onInviteAnother,
+  isLoading = false,
+}) => {
+  const [editingId, setEditingId] = useState(null);
+  const [draftRole, setDraftRole] = useState('write');
+  const [confirmRemove, setConfirmRemove] = useState(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setEditingId(null);
+      setConfirmRemove(null);
+    }
+  }, [isOpen]);
+
+  if (!isOpen || !task) return null;
+
+  const collaborators = task.collaborators || [];
+  const roleOptions = [
+    { value: 'read', label: 'Read only' },
+    { value: 'write', label: 'Can edit' },
+  ];
+
+  const startEdit = (c) => {
+    setEditingId(c._id);
+    setDraftRole(c.role || 'write');
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+  };
+
+  const commitEdit = (c) => {
+    if (draftRole !== c.role) {
+      onUpdateRole(c._id, draftRole);
+    }
+    setEditingId(null);
+  };
+
+  return (
+    <BottomSheet isOpen={isOpen} onClose={onClose}>
+      <div className="p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-gray-800 dark:text-white flex items-center gap-2">
+            <FaUsers className="text-teal-500" /> Collaborators
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-white">
+            <FaTimes />
+          </button>
+        </div>
+
+        <div className="min-w-0">
+          <p className="text-xs uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-0.5">Task</p>
+          <p className="text-sm font-medium text-gray-800 dark:text-white break-words">{task.title}</p>
+        </div>
+
+        {collaborators.length === 0 ? (
+          <div className="text-center py-6 text-gray-400 dark:text-gray-500 text-sm">
+            No collaborators yet. Invite someone to start working together.
+          </div>
+        ) : (
+          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+            {collaborators.map((c) => {
+              const isEditing = editingId === c._id;
+              const displayName = c.user?.name || c.email || 'Pending invite';
+              const statusLabel = c.accepted ? 'Accepted' : 'Pending';
+              const statusColor = c.accepted
+                ? 'text-green-600 dark:text-green-400'
+                : 'text-amber-600 dark:text-amber-400';
+              const roleLabel = c.role === 'write' ? 'Can edit' : 'Read only';
+              const roleClass =
+                c.role === 'write'
+                  ? 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300'
+                  : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300';
+              return (
+                <div
+                  key={c._id}
+                  className="flex items-center gap-2 p-3 bg-gray-50 dark:bg-[#2a2a2a] rounded-xl"
+                >
+                  <div className="w-8 h-8 rounded-full bg-teal-100 dark:bg-teal-900/40 flex items-center justify-center flex-shrink-0">
+                    <FaUser className="text-teal-600 dark:text-teal-400 text-xs" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 dark:text-white truncate">
+                      {displayName}
+                    </p>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
+                      {c.email} · <span className={statusColor}>{statusLabel}</span>
+                    </p>
+                  </div>
+
+                  {isEditing ? (
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <CustomSelect
+                        value={draftRole}
+                        onChange={setDraftRole}
+                        options={roleOptions}
+                        placeholder="Role"
+                        className="w-28"
+                      />
+                      <button
+                        onClick={() => commitEdit(c)}
+                        disabled={isLoading}
+                        className="p-1.5 text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/30 rounded-lg disabled:opacity-50"
+                        title="Save"
+                      >
+                        {isLoading ? <FaSpinner className="animate-spin text-xs" /> : <FaCheck className="text-xs" />}
+                      </button>
+                      <button
+                        onClick={cancelEdit}
+                        className="p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
+                        title="Cancel"
+                      >
+                        <FaTimes className="text-xs" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <span className={`px-2 py-0.5 text-[10px] font-medium rounded-full ${roleClass}`}>
+                        {roleLabel}
+                      </span>
+                      <button
+                        onClick={() => startEdit(c)}
+                        className="p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+                        title="Change role"
+                      >
+                        <FaEdit className="text-xs" />
+                      </button>
+                      <button
+                        onClick={() => setConfirmRemove(c)}
+                        className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+                        title="Remove"
+                      >
+                        <FaTrashAlt className="text-xs" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <button
+          onClick={onInviteAnother}
+          className="w-full py-2 bg-teal-600 dark:bg-teal-500 text-white rounded-xl text-sm font-medium hover:bg-teal-700 dark:hover:bg-teal-600 transition flex items-center justify-center gap-2"
+        >
+          <FaUserPlus className="text-xs" /> Invite another
+        </button>
+        <button
+          onClick={onClose}
+          className="w-full py-2 text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition"
+        >
+          Close
+        </button>
+      </div>
+
+      <ConfirmModal
+        isOpen={!!confirmRemove}
+        onClose={() => setConfirmRemove(null)}
+        onConfirm={() => {
+          if (confirmRemove) onRemove(confirmRemove._id);
+          setConfirmRemove(null);
+        }}
+        title="Remove Collaborator"
+        message={`Remove ${confirmRemove?.user?.name || confirmRemove?.email || 'this person'} from this task? They will lose access immediately.`}
+        danger
+      />
+    </BottomSheet>
+  );
+};
+
 // ─── Task Action Modal ──────────────────────────────────────────
-const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, onDelete, onStatusToggle, onMove, onPermanentDelete, onSelect, onCollaborate }) => {
+const TaskActionModal = ({
+  isOpen,
+  onClose,
+  task,
+  onEdit,
+  onArchive,
+  onRestore,
+  onDelete,
+  onStatusToggle,
+  onMove,
+  onPermanentDelete,
+  onSelect,
+  onManageCollaborators,
+}) => {
   if (!isOpen || !task) return null;
   const isTrash = task.isTrash;
   const isArchived = task.isArchived;
   const isCompleted = task.status === 'completed';
   const isReminder = isReminderTask(task);
+  const collaboratorsCount = task.collaborators?.length || 0;
 
   if (isTrash) {
     return (
@@ -475,10 +671,15 @@ const TaskActionModal = ({ isOpen, onClose, task, onEdit, onArchive, onRestore, 
           </button>
           {!isArchived && !isTrash && !isReminder && (
             <button
-              onClick={() => { onCollaborate(task); onClose(); }}
-              className="flex items-center justify-center gap-2 px-4 py-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition col-span-2"
+              onClick={() => { onManageCollaborators(task); onClose(); }}
+              className="flex items-center justify-center gap-2 px-4 py-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition col-span-2 relative"
             >
-              <FaUserPlus className="text-xs" /> Collaborate
+              <FaUserCog className="text-xs" /> Collaborators
+              {collaboratorsCount > 0 && (
+                <span className="ml-1 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[10px] font-semibold bg-indigo-500 text-white rounded-full">
+                  {collaboratorsCount}
+                </span>
+              )}
             </button>
           )}
         </div>
@@ -1095,7 +1296,7 @@ const TaskDetailView = ({
       await onAddChecklist(task._id, { title: newChecklistTitle.trim() });
       setNewChecklistTitle('');
     } catch (err) {
-      // toast already handled in parent
+      // handled upstream
     } finally {
       setIsAddingChecklist(false);
     }
@@ -1180,6 +1381,11 @@ const TaskDetailView = ({
             {task.folder && (
               <span className="flex items-center gap-1">
                 <FaFolder className="text-[9px]" style={{ color: task.folder.color || undefined }} /> {task.folder.name}
+              </span>
+            )}
+            {task.collaborators?.length > 0 && (
+              <span className="flex items-center gap-1 text-indigo-500 dark:text-indigo-400">
+                <FaUsers className="text-[9px]" /> {task.collaborators.length}
               </span>
             )}
             {isReminder && (
@@ -1345,6 +1551,7 @@ const TaskCard = React.memo(({
   const isCompleted = task.status === 'completed';
   const checklistCount = task.subtasks?.length || 0;
   const doneCount = task.subtasks?.filter(st => st.done).length || 0;
+  const collaboratorsCount = task.collaborators?.length || 0;
 
   const longPressTimer = useRef(null);
   const handleTouchStart = (e) => {
@@ -1475,6 +1682,11 @@ const TaskCard = React.memo(({
             )}
             {!isTrash && !isReminder && task.dueDate && <span>{formatDate(task.dueDate)}</span>}
             {checklistCount > 0 && <span>{doneCount}/{checklistCount}</span>}
+            {!isTrash && collaboratorsCount > 0 && (
+              <span className="flex items-center gap-1 text-indigo-500 dark:text-indigo-400">
+                <FaUsers className="text-[9px]" /> {collaboratorsCount}
+              </span>
+            )}
             {!isTrash && task.folder?.name && (
               <span className="flex items-center gap-1">
                 <FaFolder className="text-[9px]" style={{ color: task.folder.color || undefined }} /> {task.folder.name}
@@ -1734,7 +1946,6 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
 
   return (
     <form onSubmit={handleSubmit} className="p-5 space-y-3">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-gray-800 dark:text-white">
           {isEditing
@@ -1751,7 +1962,6 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
         </button>
       </div>
 
-      {/* Title — the only field visible by default */}
       <div>
         <label className={labelBase}>Title *</label>
         <input
@@ -1765,7 +1975,6 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
         />
       </div>
 
-      {/* Slim "Set as Reminder" toggle row */}
       <button
         type="button"
         onClick={() => setIsReminder((v) => !v)}
@@ -1808,10 +2017,8 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
         </span>
       </button>
 
-      {/* Compact reminder options (only when enabled) */}
       {isReminder && (
         <div className="rounded-xl border border-teal-200/70 dark:border-teal-800/40 bg-teal-50/40 dark:bg-teal-900/10 p-3 space-y-2.5">
-          {/* Repeat — segmented control */}
           <div>
             <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
               Repeat
@@ -1834,7 +2041,6 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
             </div>
           </div>
 
-          {/* Weekly day picker */}
           {frequency === 'weekly' && (
             <div>
               <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
@@ -1859,7 +2065,6 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
             </div>
           )}
 
-          {/* End date */}
           <div className="min-w-0">
             <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
               End Date (optional)
@@ -1874,7 +2079,6 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
         </div>
       )}
 
-      {/* More details toggle */}
       <button
         type="button"
         onClick={() => setShowDetails(!showDetails)}
@@ -1886,10 +2090,8 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
         </span>
       </button>
 
-      {/* Details section */}
       {showDetails && (
         <div className="space-y-3">
-          {/* Description */}
           <div>
             <label className={labelBase}>Description (Optional)</label>
             <textarea
@@ -1901,7 +2103,6 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
             />
           </div>
 
-          {/* Priority + Folder */}
           <div className="grid grid-cols-2 gap-2">
             <div className="min-w-0">
               <label className={labelBase}>Priority</label>
@@ -1926,7 +2127,6 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
             </div>
           </div>
 
-          {/* Due date */}
           <div>
             <label className={labelBase}>Due Date</label>
             <input
@@ -1940,7 +2140,6 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
             />
           </div>
 
-          {/* Daily notify time */}
           <div>
             <label className={labelBase}>Daily Notify Time</label>
             <input
@@ -1956,7 +2155,6 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
         </div>
       )}
 
-      {/* Actions */}
       <div className="flex gap-3 pt-2">
         <button
           type="button"
@@ -2089,6 +2287,12 @@ const PersonalTasks = () => {
   const [collaborateLoading, setCollaborateLoading] = useState(false);
   const [addCollaborator] = useAddCollaboratorMutation();
 
+  // 👇 NEW: manage collaborators
+  const [showManageCollabModal, setShowManageCollabModal] = useState(false);
+  const [manageCollabTask, setManageCollabTask] = useState(null);
+  const [updateCollaboratorRole, { isLoading: isUpdatingRole }] = useUpdateCollaboratorRoleMutation();
+  const [removeCollaborator, { isLoading: isRemovingCollab }] = useRemoveCollaboratorMutation();
+
   // ─── Pending invitations ──────────────────────────────────────
   const {
     data: pendingInvitesData,
@@ -2176,6 +2380,8 @@ const PersonalTasks = () => {
         return orderA - orderB;
       });
       setLocalTasks(sorted);
+      // Keep the open manage modal in sync with fresh server data
+      setManageCollabTask(prev => prev ? sorted.find(t => t._id === prev._id) || prev : null);
     }
   }, [tasksData]);
 
@@ -2297,14 +2503,12 @@ const PersonalTasks = () => {
     'Failed to restore some tasks'
   );
 
-  // ─── Bulk collaborate ──────────────────────────────────────
   const handleBulkCollaborate = () => {
     if (selectedIds.size === 0) return;
     setCollaborateTarget('bulk');
     setShowCollaborateModal(true);
   };
 
-  // ─── Confirm permanent delete for bulk ──────────────────────
   const confirmBulkPermanentDelete = async () => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
@@ -2331,7 +2535,6 @@ const PersonalTasks = () => {
     refetchTasks();
   };
 
-  // ─── Show gesture instruction as toast ──────────────────────
   const showGestureToast = () => {
     if (gestureShownRef.current) return;
     gestureShownRef.current = true;
@@ -2356,7 +2559,6 @@ const PersonalTasks = () => {
     );
   };
 
-  // ─── Accept pending invitation ──────────────────────────────
   const handleAcceptInvite = async (token) => {
     if (!token) return;
     try {
@@ -2397,9 +2599,13 @@ const PersonalTasks = () => {
         clearSelection();
         refetchTasks();
       } else {
-        await addCollaborator({ taskId: collaborateTarget, email, role }).unwrap();
+        const result = await addCollaborator({ taskId: collaborateTarget, email, role }).unwrap();
         toast.success('Collaborator invited successfully!');
         setShowCollaborateModal(false);
+        // If the manage modal is open for this task, refresh its data
+        if (manageCollabTask && result?.task?._id === manageCollabTask._id) {
+          setManageCollabTask(result.task);
+        }
         setCollaborateTarget(null);
         refetchTasks();
       }
@@ -2408,6 +2614,50 @@ const PersonalTasks = () => {
     } finally {
       setCollaborateLoading(false);
     }
+  };
+
+  // 👇 NEW: manage collaborators handlers
+  const handleOpenManageCollaborators = (task) => {
+    setManageCollabTask(task);
+    setShowManageCollabModal(true);
+    setShowActionModal(false);
+  };
+
+  const handleUpdateCollaboratorRole = async (collaboratorId, role) => {
+    if (!manageCollabTask) return;
+    try {
+      const result = await updateCollaboratorRole({
+        taskId: manageCollabTask._id,
+        collaboratorId,
+        role,
+      }).unwrap();
+      toast.success('Role updated');
+      setManageCollabTask(result.task);
+      refetchTasks();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to update role');
+    }
+  };
+
+  const handleRemoveCollaborator = async (collaboratorId) => {
+    if (!manageCollabTask) return;
+    try {
+      const result = await removeCollaborator({
+        taskId: manageCollabTask._id,
+        collaboratorId,
+      }).unwrap();
+      toast.success('Collaborator removed');
+      setManageCollabTask(result.task);
+      refetchTasks();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to remove collaborator');
+    }
+  };
+
+  const handleInviteAnotherFromManage = () => {
+    if (!manageCollabTask) return;
+    setCollaborateTarget(manageCollabTask._id);
+    setShowCollaborateModal(true);
   };
 
   // ─── Handlers ──────────────────────────────────────────────────
@@ -2757,12 +3007,6 @@ const PersonalTasks = () => {
     setShowActionModal(false);
   };
 
-  const handleCollaborateFromModal = (task) => {
-    setCollaborateTarget(task._id);
-    setShowCollaborateModal(true);
-    setShowActionModal(false);
-  };
-
   const selectedTask = useMemo(() => localTasks.find(t => t._id === selectedTaskId), [localTasks, selectedTaskId]);
 
   // ─── Filtering & sorting ──────────────────────────────────────
@@ -3004,7 +3248,6 @@ const PersonalTasks = () => {
               </header>
 
               <main className="flex-1 overflow-y-auto">
-                {/* ─── Pending Invitations Banner ─── */}
                 {pendingInvites.length > 0 && (
                   <div className="px-3 sm:px-6 pt-3 pb-1 space-y-2">
                     {pendingInvites.map((inv) => (
@@ -3145,7 +3388,7 @@ const PersonalTasks = () => {
         onMove={handleMoveFromModal}
         onPermanentDelete={handlePermanentDelete}
         onSelect={handleSelectFromModal}
-        onCollaborate={handleCollaborateFromModal}
+        onManageCollaborators={handleOpenManageCollaborators}
       />
 
       <MoveTaskModal
@@ -3167,6 +3410,17 @@ const PersonalTasks = () => {
             : localTasks.find(t => t._id === collaborateTarget)?.title || 'task'
         }
         isBulk={collaborateTarget === 'bulk'}
+      />
+
+      {/* 👇 NEW: Manage Collaborators modal */}
+      <ManageCollaboratorsModal
+        isOpen={showManageCollabModal}
+        onClose={() => { setShowManageCollabModal(false); setManageCollabTask(null); }}
+        task={manageCollabTask}
+        onUpdateRole={handleUpdateCollaboratorRole}
+        onRemove={handleRemoveCollaborator}
+        onInviteAnother={handleInviteAnotherFromManage}
+        isLoading={isUpdatingRole || isRemovingCollab}
       />
 
       {!selectedTask && !selectionMode && viewType === 'personal' && (

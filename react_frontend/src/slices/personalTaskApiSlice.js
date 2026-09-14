@@ -50,21 +50,21 @@ export const personalTaskApiSlice = apiSlice.injectEndpoints({
 
     // ─── Personal Tasks ────────────────────────────────────────────
     getPersonalTasks: builder.query({
-  query: ({ folderId, status, priority, archived, trash, type } = {}) => ({
-    url: PERSONAL_TASKS_URL,
-    params: { folderId, status, priority, archived, trash, type },
-  }),
-  providesTags: (result) =>
-    result
-      ? [
-          ...result.tasks.map((t) => ({
-            type: 'PersonalTask',
-            id: t._id,
-          })),
-          { type: 'PersonalTask', id: 'LIST' },
-        ]
-      : [{ type: 'PersonalTask', id: 'LIST' }],
-}),
+      query: ({ folderId, status, priority, archived, trash, type } = {}) => ({
+        url: PERSONAL_TASKS_URL,
+        params: { folderId, status, priority, archived, trash, type },
+      }),
+      providesTags: (result) =>
+        result
+          ? [
+              ...result.tasks.map((t) => ({
+                type: 'PersonalTask',
+                id: t._id,
+              })),
+              { type: 'PersonalTask', id: 'LIST' },
+            ]
+          : [{ type: 'PersonalTask', id: 'LIST' }],
+    }),
 
     createPersonalTask: builder.mutation({
       query: (data) => ({
@@ -208,6 +208,35 @@ export const personalTaskApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    /**
+     * Owner‑only: change a collaborator's role ("read" | "write")
+     */
+    updateCollaboratorRole: builder.mutation({
+      query: ({ taskId, collaboratorId, role }) => ({
+        url: `${PERSONAL_TASKS_URL}/${taskId}/collaborators/${collaboratorId}`,
+        method: 'PATCH',
+        body: { role },
+      }),
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'PersonalTask', id: taskId },
+        'PersonalTask',
+      ],
+    }),
+
+    /**
+     * Owner‑only: remove a collaborator from a task
+     */
+    removeCollaborator: builder.mutation({
+      query: ({ taskId, collaboratorId }) => ({
+        url: `${PERSONAL_TASKS_URL}/${taskId}/collaborators/${collaboratorId}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'PersonalTask', id: taskId },
+        'PersonalTask',
+      ],
+    }),
+
     getPendingInvitations: builder.query({
       query: () => ({
         url: `${PERSONAL_TASKS_URL}/collaborators/pending`,
@@ -246,6 +275,8 @@ export const {
   useReorderPersonalSubTasksMutation,
   // Collaboration hooks
   useAddCollaboratorMutation,
+  useUpdateCollaboratorRoleMutation,
+  useRemoveCollaboratorMutation,
   useGetPendingInvitationsQuery,
   useAcceptInvitationWithTokenMutation,
 } = personalTaskApiSlice;
