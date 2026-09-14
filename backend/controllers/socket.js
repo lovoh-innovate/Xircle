@@ -12,6 +12,11 @@ let io;
 
 const NOTIFICATION_DELAY_MS = 2500;
 
+// Track which call rooms each socket has joined, so we can clean up
+// and notify other participants on disconnect (browser refresh, app kill,
+// dropped connection, etc.) even if the client never emits 'leave-call'.
+const socketCallRooms = new Map(); // socketId -> Set<roomId>
+
 const isSocketUserOnline = (userId) => {
   const room = io.sockets.adapter.rooms.get(`user:${userId}`);
   return !!room && room.size > 0;
@@ -52,6 +57,7 @@ export const initSocket = (server) => {
   io.on('connection', async (socket) => {
     console.log(`✅ User connected: ${socket.userId} - ${socket.user.name}`);
     socket.join(`user:${socket.userId}`);
+    socketCallRooms.set(socket.id, new Set());
 
     const updateUserOnlineStatus = async (isOnline) => {
       try {
@@ -327,16 +333,86 @@ export const initSocket = (server) => {
     // ── Reactions (unchanged) ────────────────────────────────────────
     socket.on('toggle-reaction', async (data, callback) => { /* ... */ });
 
-    // ── Call signaling (unchanged) ──────────────────────────────────
-    socket.on('join-call-room', async (roomId) => { /* ... */ });
-    socket.on('leave-call-room', (roomId) => { /* ... */ });
-    socket.on('call-offer', (data) => { /* ... */ });
-    socket.on('call-answer', (data) => { /* ... */ });
-    socket.on('ice-candidate', (data) => { /* ... */ });
-    socket.on('leave-call', (roomId) => { /* ... */ });
+    // ─────────────────────────────────────────────────────────────
+    // ── Call signaling — THIS is what was missing/broken before ──
+    // Every one of these was previously an empty `{ /* ... */ }`
+    // stub, so join-call-room never actually joined the Socket.IO
+    // room, and call-offer / call-answer / ice-candidate were never
+    // relayed to the other participant. That's why calls would ring
+    // and "join" successfully (that part is plain REST + notifications)
+    // but no audio/video would ever connect — the WebRTC handshake
+    // packets had nowhere to go.
+    // ─────────────────────────────────────────────────────────────
+
+    socket.on('join-call-room', async (roomId) => {
+      if (!roomId) return;
+      socket.join(`room:${roomId}`);
+
+      const rooms = socketCallRooms.get(socket.id);
+      if (rooms) rooms.add(roomId);
+
+      // Tell everyone already in the room that this user just joined,
+      // so they know to send this user a WebRTC offer.
+      socket.to(`room:${roomId}`).emit('participant-joined', socket.userId);
+    });
+
+    socket.on('leave-call-room', (roomId) => {
+      if (!roomId) return;
+      socket.leave(`room:${roomId}`);
+      const rooms = socketCallRooms.get(socket.id);
+      if (rooms) rooms.delete(roomId);
+    });
+
+    socket.on('call-offer', ({ toUserId, roomId, sdp } = {}) => {
+      if (!toUserId || !sdp) return;
+      io.to(`user:${toUserId}`).emit('call-offer', {
+        from: socket.userId,
+        roomId,
+        sdp,
+      });
+    });
+
+    socket.on('call-answer', ({ toUserId, roomId, sdp } = {}) => {
+      if (!toUserId || !sdp) return;
+      io.to(`user:${toUserId}`).emit('call-answer', {
+        from: socket.userId,
+        roomId,
+        sdp,
+      });
+    });
+
+    socket.on('ice-candidate', ({ toUserId, roomId, candidate } = {}) => {
+      if (!toUserId || !candidate) return;
+      io.to(`user:${toUserId}`).emit('ice-candidate', {
+        from: socket.userId,
+        roomId,
+        candidate,
+      });
+    });
+
+    socket.on('leave-call', (roomId) => {
+      if (!roomId) return;
+      socket.to(`room:${roomId}`).emit('participant-left', socket.userId);
+      socket.leave(`room:${roomId}`);
+      const rooms = socketCallRooms.get(socket.id);
+      if (rooms) rooms.delete(roomId);
+    });
 
     socket.on('disconnect', async () => {
       console.log(`❌ User disconnected: ${socket.userId} - ${socket.user.name}`);
+
+      // Make sure any call rooms this socket was in get notified that
+      // this participant is gone (covers dropped connections, app kill,
+      // browser refresh — cases where the client never gets to emit
+      // 'leave-call' explicitly).
+      const rooms = socketCallRooms.get(socket.id);
+      if (rooms && rooms.size > 0) {
+        for (const roomId of rooms) {
+          socket.to(`room:${roomId}`).emit('participant-left', socket.userId);
+        }
+      }
+      socketCallRooms.delete(socket.id);
+
       await updateUserOnlineStatus(false);
     });
   });

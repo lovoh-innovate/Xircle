@@ -368,8 +368,23 @@ const joinCall = asyncHandler(async (req, res) => {
     });
   });
 
-  // Emit participant-joined for new peer connections
-  io.to(`room:${call.roomId}`).emit('participant-joined', userId);
+  // ─────────────────────────────────────────────────────────────
+  // NOTE: We deliberately do NOT emit 'participant-joined' here.
+  //
+  // That event is already broadcast by socket.js's 'join-call-room'
+  // handler the moment this user's socket actually joins the call
+  // room — which is what the WebRTC signaling flow in useCallSocket.js
+  // listens for to know when to send/receive offers.
+  //
+  // Emitting it a second time from here (using io.to(), which reaches
+  // everyone in the room including the sender) was pure duplication:
+  // harmless in the common case because the client guards against it,
+  // but it's the kind of hidden double-fire that causes hard-to-trace
+  // races (double offers, glare, stale peer connections) once timing
+  // shifts even slightly — e.g. under load, on slower connections, or
+  // with retries. One source of truth for "someone joined the call
+  // room" (the socket layer) is much easier to reason about than two.
+  // ─────────────────────────────────────────────────────────────
 
   res.status(200).json({ success: true, call });
 });

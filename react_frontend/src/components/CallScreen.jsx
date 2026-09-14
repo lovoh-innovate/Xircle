@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useSocket } from './SocketContext.jsx';
@@ -17,6 +17,27 @@ import {
 // the SocketContext state update landing on a re-render.
 const CALL_DATA_GRACE_MS = 4000;
 
+// Resolve a display name for a remote participant given their WebRTC
+// userId. `participants` can arrive in two different shapes depending on
+// where callData came from:
+//  - the flat socket/push shape:            { _id, name, email }
+//  - the raw Mongoose-populated subdoc:      { user: { _id, name }, status }
+// (the caller's callData currently comes from the raw REST response of
+// initiateCall, which is the second shape; the callee's comes from the
+// socket 'incoming-call' event / push payload, which is the first shape.)
+// This handles both so the name resolves regardless of which flow built
+// callData, instead of falling back to printing the raw uid.
+const resolveParticipantName = (participants, uid) => {
+  const participant = (participants || []).find((p) => {
+    if (!p) return false;
+    if (p._id === uid) return true;
+    if (typeof p.user === 'string') return p.user === uid;
+    if (p.user && typeof p.user === 'object') return p.user._id === uid;
+    return false;
+  });
+  return participant?.name || participant?.user?.name || 'Participant';
+};
+
 const CallScreen = () => {
   const { roomId } = useParams();
   const location = useLocation();
@@ -31,13 +52,16 @@ const CallScreen = () => {
   const userId = userInfo?._id || userInfo?.id;
 
   // ── Get socket context ──────────────────────────────────────────────
+  // IMPORTANT: never throw here based on this value. socketContext can be
+  // legitimately falsy for a render or two (StrictMode's double-invoke,
+  // or a brief instant before SocketProvider finishes mounting), and a
+  // component that sometimes throws mid-render and sometimes doesn't is
+  // exactly what corrupts React's hook bookkeeping ("Should have a
+  // queue" / "change in the order of Hooks"). Every hook below this line
+  // must run unconditionally, every render, regardless of this value —
+  // so we destructure with a safe fallback instead of bailing out.
   const socketContext = useSocket();
-  // Guard against missing context
-  if (!socketContext) {
-    // This should never happen if SocketProvider wraps the app, but just in case
-    throw new Error('useSocket must be used within a SocketProvider');
-  }
-  const { incomingCall, clearIncomingCall } = socketContext;
+  const { incomingCall, clearIncomingCall } = socketContext || {};
 
   // ── Resolve callData from whichever source has it ──────────────────
   // 1. location.state – used when the caller initiates a call from within
@@ -53,6 +77,23 @@ const CallScreen = () => {
   const callData = stateCallData || socketCallData;
 
   const [waitedTooLong, setWaitedTooLong] = useState(false);
+
+  // ── Go back to wherever the call was started from ───────────────────
+  // react-router marks the very first history entry in a browsing
+  // session with location.key === 'default'. If that's what we're on,
+  // there is no real "previous page" to go back to in-app (e.g. the
+  // user arrived here fresh via a push-notification deep link) — in
+  // that case navigate(-1) could exit the app or land somewhere
+  // meaningless, so we fall back to /my-workspaces instead. Otherwise,
+  // navigate(-1) genuinely returns to whatever screen the call was
+  // started/received from.
+  const goBackFromCall = useCallback(() => {
+    if (location.key && location.key !== 'default') {
+      navigate(-1);
+    } else {
+      navigate('/my-workspaces', { replace: true });
+    }
+  }, [location.key, navigate]);
 
   // Give callData a moment to arrive (covers native cold‑start timing)
   // before deciding there's genuinely nothing to show.
@@ -72,7 +113,7 @@ const CallScreen = () => {
   // Clear the "incoming call" flag from context once we've consumed it into
   // this screen, so IncomingCallModal doesn't also try to render it.
   useEffect(() => {
-    if (socketCallData) {
+    if (socketCallData && clearIncomingCall) {
       clearIncomingCall();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -92,7 +133,7 @@ const CallScreen = () => {
     toggleMute,
     toggleCamera,
     acceptCall,
-    initiatePeerConnections,
+    startLocalStream,
   } = useCallSocket(callData);
 
   const localVideoRef = useRef(null);
@@ -125,8 +166,15 @@ const CallScreen = () => {
       setIsConnecting(true);
       try {
         if (callData.isInitiator) {
-          // Caller: start peer connections
-          await initiatePeerConnections();
+          // Caller: just warm up the mic/camera and wait. We do NOT
+          // send a WebRTC offer here — the callee hasn't navigated to
+          // their call screen yet, so nobody is listening for it and
+          // it would be lost. Once the callee actually joins the call
+          // room, the socket layer fires 'participant-joined' to us,
+          // and *that* is what triggers sending them the offer (see
+          // useCallSocket's handleParticipantJoined). This removes the
+          // race that was causing calls to ring forever with no audio.
+          await startLocalStream(true);
         } else {
           // Receiver: accept call (either via push auto‑join or manual accept)
           await acceptCall();
@@ -143,9 +191,23 @@ const CallScreen = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [callData]);
 
+  // ── End the call and return to wherever it was started from ────────
+  const handleHangUp = useCallback(async () => {
+    await hangUp();
+    goBackFromCall();
+  }, [hangUp, goBackFromCall]);
+
   // ── NOW it's safe to bail out — every hook above has already run on
-  // every render, so hook count stays constant whether callData exists
-  // or not. ─────────────────────────────────────────────────────────
+  // every render, so hook count stays constant whether callData exists,
+  // or socketContext is momentarily missing, or not. ──────────────────
+  if (!socketContext) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white">
+        <FaSpinner className="animate-spin text-3xl" />
+      </div>
+    );
+  }
+
   if (!callData) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white">
@@ -175,7 +237,7 @@ const CallScreen = () => {
             {type === 'video' ? 'Your video call has ended.' : 'Your voice call has ended.'}
           </p>
           <button
-            onClick={() => navigate('/my-workspaces')}
+            onClick={goBackFromCall}
             className="px-6 py-3 rounded-full font-semibold text-white transition"
             style={{ backgroundColor: workspaceColor }}
           >
@@ -236,8 +298,7 @@ const CallScreen = () => {
 
             {/* Remote video tiles */}
             {Object.entries(remoteStreams).map(([uid, stream]) => {
-              const participant = participants.find((p) => p._id === uid || p.user === uid);
-              const name = participant?.name || participant?.user?.name || uid;
+              const name = resolveParticipantName(participants, uid);
               return (
                 <div
                   key={uid}
@@ -295,7 +356,7 @@ const CallScreen = () => {
         )}
 
         <button
-          onClick={hangUp}
+          onClick={handleHangUp}
           className="w-16 h-16 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center transition shadow-lg"
           aria-label="End Call"
         >

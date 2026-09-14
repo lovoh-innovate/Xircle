@@ -27,6 +27,7 @@ export const useCallSocket = (callData) => {
   const peerConnections = useRef({});        // userId -> RTCPeerConnection
   const connectedUsers = useRef(new Set()); // track already connected
   const localStreamRef = useRef(null);
+  const localStreamPromiseRef = useRef(null); // in-flight getUserMedia promise, so concurrent callers await the same one
 
   const [joinCall] = useJoinCallMutation();
   const [rejectCall] = useRejectCallMutation();
@@ -45,24 +46,51 @@ export const useCallSocket = (callData) => {
       localStreamRef.current = null;
       setLocalStream(null);
     }
+    localStreamPromiseRef.current = null;
 
     setRemoteStreams({});
   }, []);
 
   // ── Get local media ──────────────────────────────────────────────
+  // IMPORTANT: this is awaited by both sendOfferToUser and handleOffer
+  // (via addRemoteUser / handleOffer below) *before* a peer connection
+  // is created. createPeerConnection only ever adds tracks that exist
+  // on localStreamRef.current at creation time — it never retro-adds
+  // tracks to a pc that already exists. So if a peer connection gets
+  // created while getUserMedia is still pending (mic permission prompt,
+  // slow device init, etc.), that pc is permanently trackless: it can
+  // still *receive* the remote side's audio fine, but the remote side
+  // will never get an 'ontrack' event from it. That produces exactly
+  // the asymmetric bug where one side sees the other participant and
+  // the other sees "0 participants" — whichever side's stream wasn't
+  // ready yet when its pc was built is the "invisible" one.
+  //
+  // We use a shared in-flight promise so that if multiple call sites
+  // race to request media at once, they all await the same getUserMedia
+  // call instead of firing it twice.
   const startLocalStream = useCallback(async (videoEnabled = true) => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: callData?.type === 'video' ? videoEnabled : false,
-      });
-      localStreamRef.current = stream;
-      setLocalStream(stream);
-      return stream;
-    } catch (err) {
-      console.error('Error accessing media devices:', err);
-      return null;
-    }
+    if (localStreamRef.current) return localStreamRef.current;
+    if (localStreamPromiseRef.current) return localStreamPromiseRef.current;
+
+    const promise = (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: callData?.type === 'video' ? videoEnabled : false,
+        });
+        localStreamRef.current = stream;
+        setLocalStream(stream);
+        return stream;
+      } catch (err) {
+        console.error('Error accessing media devices:', err);
+        return null;
+      } finally {
+        localStreamPromiseRef.current = null;
+      }
+    })();
+
+    localStreamPromiseRef.current = promise;
+    return promise;
   }, [callData?.type]);
 
   // ── Create a peer connection for a specific user ────────────────
@@ -78,6 +106,12 @@ export const useCallSocket = (callData) => {
       localStreamRef.current.getTracks().forEach(track => {
         pc.addTrack(track, localStreamRef.current);
       });
+    } else {
+      console.warn(
+        `[call] Creating peer connection to ${remoteUserId} with NO local stream yet — ` +
+        `this pc will not send any tracks. Callers of createPeerConnection must await ` +
+        `startLocalStream() first.`
+      );
     }
 
     // Handle remote stream
@@ -121,7 +155,22 @@ export const useCallSocket = (callData) => {
     }
   }, [createPeerConnection, socket, callData?.roomId]);
 
-  // ── Initiate connections to all other participants ───────────────
+  // ── Initiate connections to all currently-known participants.
+  // NOTE: this is intentionally NOT called automatically when a call
+  // starts. Sending an offer immediately on mount races against the
+  // other participant navigating to their call screen and registering
+  // their 'call-offer' listener — if we're faster (which we usually
+  // are, since we don't need to wait for a push notification tap),
+  // the offer is emitted to a socket with no listener yet and is lost
+  // forever, silently breaking the whole call.
+  //
+  // Instead, offers are sent reactively: whoever is *already in* the
+  // call room gets a 'participant-joined' event the moment someone
+  // else joins (see the socket effect below), and sends the offer at
+  // that point — by which time the joiner's listeners are guaranteed
+  // to be live. This function is kept around for cases where you
+  // already know who's in the room (e.g. a manual retry/reconnect).
+  // ──────────────────────────────────────────────────────────────
   const initiatePeerConnections = useCallback(async () => {
     const stream = await startLocalStream(true);
     if (!stream) return;
@@ -135,11 +184,15 @@ export const useCallSocket = (callData) => {
   }, [callData, socket?.userId, startLocalStream, sendOfferToUser]);
 
   // ── Add a remote user (call this when a new participant joins) ──
+  // Always wait for local media to actually be ready before we build
+  // the peer connection that will send our offer — otherwise the offer
+  // goes out on a trackless pc and the remote side never sees us.
   const addRemoteUser = useCallback(async (userId) => {
     if (userId === socket?.userId) return;
     if (connectedUsers.current.has(userId)) return;
+    await startLocalStream(true);
     await sendOfferToUser(userId);
-  }, [socket?.userId, sendOfferToUser]);
+  }, [socket?.userId, sendOfferToUser, startLocalStream]);
 
   // ── Join call room and set up signaling listeners ───────────────
   useEffect(() => {
@@ -148,6 +201,11 @@ export const useCallSocket = (callData) => {
     socket.emit('join-call-room', callData.roomId);
 
     const handleOffer = async ({ from, sdp }) => {
+      // Same reasoning as addRemoteUser: make sure our own tracks exist
+      // before we build the answering peer connection, or the offering
+      // side will never receive our audio/video.
+      await startLocalStream(true);
+
       let pc = peerConnections.current[from];
       if (!pc) {
         pc = createPeerConnection(from);
@@ -161,6 +219,8 @@ export const useCallSocket = (callData) => {
         roomId: callData.roomId,
         sdp: answer,
       });
+      // Receiving a real offer means someone is actually on the call.
+      setCallStatus((prev) => (prev === 'ended' ? prev : 'ongoing'));
     };
 
     const handleAnswer = async ({ from, sdp }) => {
@@ -168,6 +228,9 @@ export const useCallSocket = (callData) => {
       if (pc) {
         await pc.setRemoteDescription(new RTCSessionDescription(sdp));
       }
+      // We only get an answer once someone has actually joined and
+      // accepted — flip the caller's UI out of "Ringing" here.
+      setCallStatus((prev) => (prev === 'ended' ? prev : 'ongoing'));
     };
 
     const handleIceCandidate = async ({ from, candidate }) => {
@@ -201,9 +264,14 @@ export const useCallSocket = (callData) => {
       }
     };
 
-    // ── New participant joined the call (invitee or late joiner) ──
+    // ── New participant joined the call (invitee, late joiner, or —
+    // in the normal two-party case — the callee finally accepting).
+    // Whoever is already in the room sends the newcomer an offer. ──
     const handleParticipantJoined = (userId) => {
       addRemoteUser(userId);
+      // Someone joining means the call is live now, regardless of
+      // which side we are (caller or callee).
+      setCallStatus((prev) => (prev === 'ended' ? prev : 'ongoing'));
     };
 
     socket.on('call-offer', handleOffer);
@@ -222,30 +290,44 @@ export const useCallSocket = (callData) => {
       socket.off('participant-left', handleParticipantLeft);
       socket.off('participant-joined', handleParticipantJoined);
     };
-  }, [socket, callData?.roomId, isConnected, createPeerConnection, addRemoteUser, releaseCallResources]);
+  }, [socket, callData?.roomId, isConnected, createPeerConnection, addRemoteUser, releaseCallResources, startLocalStream]);
 
   // ── Call controls ────────────────────────────────────────────────
   const acceptCall = useCallback(async () => {
-    await startLocalStream(true);
-    const result = await joinCall(callData.callId);
-    setCallStatus('ongoing');
-
-    // If the call is already ongoing (late join), connect to all participants
-    if (callData.status === 'ongoing') {
-      await initiatePeerConnections();
+    if (!callData?.callId) {
+      console.warn('[call] acceptCall called with no callId — ignoring', callData);
+      return;
     }
-    // If it was ringing, the caller will send offers; we just listen.
-  }, [callData, joinCall, startLocalStream, initiatePeerConnections]);
+    await startLocalStream(true);
+    await joinCall(callData.callId);
+    setCallStatus('ongoing');
+    // Do NOT proactively send offers here. Joining the call room (in
+    // the effect above) already triggers a 'participant-joined'
+    // broadcast that every existing participant receives — they will
+    // send *us* the offer. Sending our own offers too would race
+    // against theirs and create duplicate/glaring SDP exchanges.
+  }, [callData, joinCall, startLocalStream]);
 
   const rejectTheCall = useCallback(async () => {
+    if (!callData?.callId) {
+      console.warn('[call] rejectCall called with no callId — ignoring', callData);
+      setCallStatus('ended');
+      return;
+    }
     await rejectCall(callData.callId);
     setCallStatus('ended');
   }, [callData, rejectCall]);
 
   const hangUp = useCallback(async () => {
     releaseCallResources();
-    await endCall(callData.callId);
-    socket.emit('leave-call', callData.roomId);
+    if (callData?.callId) {
+      await endCall(callData.callId);
+    } else {
+      console.warn('[call] hangUp called with no callId — skipping endCall request', callData);
+    }
+    if (socket && callData?.roomId) {
+      socket.emit('leave-call', callData.roomId);
+    }
     setCallStatus('ended');
   }, [callData, endCall, socket, releaseCallResources]);
 
@@ -300,7 +382,9 @@ export const useCallSocket = (callData) => {
     hangUp,
     toggleMute,
     toggleCamera,
-    initiatePeerConnections,
+    startLocalStream,       // ← exposed: the initiator uses this to warm
+                            //   up mic/camera without sending offers
+    initiatePeerConnections, // kept for manual/late-join use if ever needed
     inviteUsers,           // ← new: call this with an array of userIds
     addRemoteUser,         // ← expose in case you need to manually add a user
   };
