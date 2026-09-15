@@ -50,11 +50,14 @@ import Sticker from './screens/Sticker.jsx';
 
 import AllTasks from './screens/AllTasks.jsx';
 
+// ─── MyWorkspace screens ─────────────────────────────────────────────
 import MyWorkspaceChannels from './workspaceScreens/MyWorkspaceChannels.jsx';
 import MyWorkspaceChatId from './workspaceScreens/MyWorkspaceChatId.jsx';
 import MyWorkspaceChannelId from './workspaceScreens/MyWorkspaceChannelId.jsx';
 import MyWorkspaceProjects from './workspaceScreens/MyWorkspaceProjects.jsx';
 import MyWorkspaceProjectId from './workspaceScreens/MyWorkspaceProjectId.jsx';
+import MyWorkspaceProjectTeam from './workspaceScreens/MyWorkspaceProjectTeam.jsx';   // NEW
+import MyWorkspaceTaskId from './workspaceScreens/MyWorkspaceTaskId.jsx';            // NEW
 import MyWorkspaceMembers from './workspaceScreens/MyWorkspaceMembers.jsx';
 import MyWorkspaceDMs from './workspaceScreens/MyWorkspaceDMs.jsx';
 import MyWorkspaceSettings from './workspaceScreens/MyWorkspaceSettings.jsx';
@@ -63,6 +66,7 @@ import MyWorkspaceUpdateProject from './workspaceScreens/MyWorkspaceUpdateProjec
 import MyWorkspaceClockin from './workspaceScreens/MyWorkspaceClockin.jsx';
 import MyWorkspaceNotifications from './workspaceScreens/MyWorkspaceNotifications.jsx';
 
+// ─── YourWorkspace screens ───────────────────────────────────────────
 import YourWorkspaceChannels from './screens/YourWorkspaceChannels.jsx';
 import YourWorkspaceChannelId from './screens/YourWorkspaceChannelId.jsx';
 import YourWorkspaceDMs from './screens/YourWorkspaceDMs.jsx';
@@ -138,7 +142,7 @@ const AppInitializer = ({ children }) => {
 
 // ─── Global Pull‑to‑Refresh Component ──────────────────────────────
 const PullToRefresh = ({ children }) => {
-  const { refreshAll } = useRefresh(); // we'll keep using refreshAll, but it will call syncManager via RefreshContext later
+  const { refreshAll } = useRefresh();
   const [refreshing, setRefreshing] = useState(false);
   const startY = useRef(0);
   const pullDistance = useRef(0);
@@ -322,7 +326,6 @@ const routeFromNotificationData = (data) => {
   }
 
   // ── Determine workspace prefix ────────────────────────────────────
-  // Use workspaceType from payload; default to 'owned' (legacy) if missing
   const workspaceType = data.workspaceType || 'owned';
   const workspacePrefix = workspaceType === 'my' ? '/my-workspace' : '/workspace';
 
@@ -336,8 +339,9 @@ const routeFromNotificationData = (data) => {
   }
 
   // ── Task Notifications ────────────────────────────────────────────
+  // Deep link: workspace → project → task
   if (data.taskId && data.projectId && data.workspaceId) {
-    return `${workspacePrefix}/${data.workspaceId}/project/${data.projectId}`;
+    return `${workspacePrefix}/${data.workspaceId}/project/${data.projectId}/task/${data.taskId}`;
   }
 
   // ── Project Notifications ─────────────────────────────────────────
@@ -347,12 +351,11 @@ const routeFromNotificationData = (data) => {
 
   // ── Workspace Notifications ───────────────────────────────────────
   if (data.workspaceId) {
-    // If no specific sub-route, go to the main workspace view
     return `${workspacePrefix}/${data.workspaceId}`;
   }
 
   // ── Clock-in Notifications ────────────────────────────────────────
-  if (data.type === 'clockin' || data.type === 'clockout' || 
+  if (data.type === 'clockin' || data.type === 'clockout' ||
       data.type === 'clockin-reminder' || data.type === 'auto-clockout' ||
       data.type === 'clockin-confirmation' || data.type === 'clockout-confirmation') {
     if (data.workspaceId) {
@@ -369,17 +372,13 @@ const RootLayout = () => {
   const navigate = useNavigate();
   const { setIncomingCallFromPush, socket } = useSocket();
   const { isDarkMode } = useTheme();
-  const { refreshAll } = useRefresh(); // keep for pull-to-refresh but socket will use syncManager
+  const { refreshAll } = useRefresh();
 
   useEffect(() => {
     if (!socket) return;
 
-    // ─── CHANGED: socket 'data-changed' now triggers background sync ──
     const handleDataChange = async (data) => {
       console.log('🔄 Real‑time data update received:', data);
-      // Instead of refreshAll() (which forces full refetch), we use
-      // syncManager to fetch only changes and update SQLite.
-      // This avoids unnecessary network load and improves speed.
       try {
         await syncManager.backgroundSync();
         await syncManager.processOutbox();
@@ -393,9 +392,9 @@ const RootLayout = () => {
     return () => {
       socket.off('data-changed', handleDataChange);
     };
-  }, [socket, refreshAll]); // refreshAll dependency kept but not used
+  }, [socket, refreshAll]);
 
-  // ── Push notification handlers (unchanged) ────────────────────────
+  // ── Push notification handlers ────────────────────────────────────
   useEffect(() => {
     const handlePushReceived = (event) => {
       const notification = event.detail;
@@ -406,7 +405,7 @@ const RootLayout = () => {
       if (data.type === 'app_update' || data.type === 'APP_UPDATE' || data.notificationType === 'app_update') {
         const isRequired = data.isRequired === 'true' || data.isRequired === true;
         const version = data.version || 'new';
-        
+
         toast(
           (t) => (
             <div className="flex flex-col gap-1 max-w-[280px]">
@@ -460,22 +459,17 @@ const RootLayout = () => {
       const data = event.detail || {};
       console.log('📱 Push tapped data:', data);
 
-      // ── Handle App Update Taps ────────────────────────────────────
       if (data.type === 'app_update' || data.type === 'APP_UPDATE' || data.notificationType === 'app_update') {
         console.log('📱 User tapped app update notification, navigating to /app-versions');
         navigate('/app-versions');
         return;
       }
 
-      // ── Handle Call Taps ──────────────────────────────────────────
       if (data.notificationType === 'call' && data.roomId) {
         setIncomingCallFromPush(buildCallDataFromPush(data));
-        // Let the modal handle navigation
         return;
       }
 
-      // ── Route all other notifications ────────────────────────────
-      // Determine the target route using the updated function
       const target = routeFromNotificationData(data);
       console.log('📍 Routing to:', target);
       navigate(target);
@@ -493,9 +487,6 @@ const RootLayout = () => {
   return (
     <div className="bg-gray-50 dark:bg-[#0b0b10] min-h-screen w-full transition-colors duration-300">
       <GlobalNavigator />
-
-      {/* ─── REMOVED: PreloadAppData – initial sync now handled by AppInitializer ── */}
-      {/* <PreloadAppData /> */}
 
       <PullToRefresh>
         <Outlet />
@@ -550,7 +541,7 @@ const router = createBrowserRouter([
       { path: 'signup', element: <Signup /> },
       { path: 'forgot-password', element: <ForgotPassword /> },
       { path: 'app/download/:versionId', element: <AppDownload /> },
-      {path: '*', element: <NotFound />},
+      { path: '*', element: <NotFound /> },
 
       {
         element: <PrivateRoute />,
@@ -559,13 +550,15 @@ const router = createBrowserRouter([
           { path: 'my-workspaces', element: <MyWorkspaces /> },
           { path: 'workspace/:workspaceId', element: <YourWorkspaceId /> },
           { path: 'my-workspace/:workspaceId', element: <MyWorkspaceId /> },
-          
 
+          // ── MyWorkspace routes ─────────────────────────────────
           { path: 'my-workspace/:workspaceId/channels', element: <MyWorkspaceChannels /> },
           { path: 'my-workspace/:workspaceId/chat/:chatId', element: <MyWorkspaceChatId /> },
           { path: 'my-workspace/:workspaceId/channels/:chatId', element: <MyWorkspaceChannelId /> },
           { path: 'my-workspace/:workspaceId/projects', element: <MyWorkspaceProjects /> },
           { path: 'my-workspace/:workspaceId/project/:projectId', element: <MyWorkspaceProjectId /> },
+          { path: 'my-workspace/:workspaceId/project/:projectId/team', element: <MyWorkspaceProjectTeam /> },
+          { path: 'my-workspace/:workspaceId/project/:projectId/task/:taskId', element: <MyWorkspaceTaskId /> },
           { path: 'my-workspace/:workspaceId/members', element: <MyWorkspaceMembers /> },
           { path: 'my-workspace/:workspaceId/dms', element: <MyWorkspaceDMs /> },
           { path: 'my-workspace/:workspaceId/settings', element: <MyWorkspaceSettings /> },
@@ -575,14 +568,14 @@ const router = createBrowserRouter([
           { path: 'my-workspace/:workspaceId/tasks', element: <AllTasks /> },
           { path: 'my-workspace/:workspaceId/notifications', element: <MyWorkspaceNotifications /> },
 
-
+          // ── YourWorkspace routes ───────────────────────────────
           { path: 'workspace/:workspaceId/channels', element: <YourWorkspaceChannels /> },
           { path: 'workspace/:workspaceId/chat/:chatId', element: <YourWorkspaceChannelId /> },
           { path: 'workspace/:workspaceId/dms', element: <YourWorkspaceDMs /> },
           { path: 'workspace/:workspaceId/projects', element: <YourWorkspaceProjects /> },
           { path: 'workspace/:workspaceId/project/:projectId', element: <YourWorkspaceProjectId /> },
-          {path: 'workspace/:workspaceId/project/:projectId/task/:taskId', element: <YourWorkspaceTaskId />},
-          {path: 'workspace/:workspaceId/project/:projectId/team', element: <YourWorkspaceProjectTeam />},
+          { path: 'workspace/:workspaceId/project/:projectId/task/:taskId', element: <YourWorkspaceTaskId /> },
+          { path: 'workspace/:workspaceId/project/:projectId/team', element: <YourWorkspaceProjectTeam /> },
           { path: 'workspace/:workspaceId/members', element: <YourWorkspaceMembers /> },
           { path: 'workspace/:workspaceId/tasks', element: <AllTasks /> },
           { path: 'workspace/:workspaceId/clockin', element: <YourWorkspaceClockin /> },
@@ -596,17 +589,17 @@ const router = createBrowserRouter([
           { path: 'chats/:chatId', element: <GeneralChatId /> },
           { path: 'personal-tasks', element: <PersonalTasks /> },
           { path: 'notifications', element: <Notifications /> },
-          {path: 'app-versions', element: <AppVersions />},
-          {path: 'auth/google/callback', element: <AuthCallback />},
-          {path: 'notes', element: <Notes />},
-          {path: 'notes/:id', element: <WriteNote />},
-          {path: 'accept-task-collab', element: <AcceptTaskCollab />},
-          {path: 'stickers', element: <Sticker />},
+          { path: 'app-versions', element: <AppVersions /> },
+          { path: 'auth/google/callback', element: <AuthCallback /> },
+          { path: 'notes', element: <Notes /> },
+          { path: 'notes/:id', element: <WriteNote /> },
+          { path: 'accept-task-collab', element: <AcceptTaskCollab /> },
+          { path: 'stickers', element: <Sticker /> },
 
           { path: 'call/:roomId', element: <CallScreen /> },
 
           { path: 'admin/upload', element: <UploadApp /> },
-          {path: '*', element: <NotFound />},
+          { path: '*', element: <NotFound /> },
         ],
       },
     ],
@@ -621,7 +614,6 @@ const AppRoot = () => {
   return (
     <SocketProvider token={token}>
       <PushNotificationProvider>
-        {/* ─── NEW: Wrap with AppInitializer ──────────────────────── */}
         <AppInitializer>
           <ServiceWorkerRegister />
           <PushNotificationInitializer />
