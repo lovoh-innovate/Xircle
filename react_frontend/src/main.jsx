@@ -68,6 +68,8 @@ import YourWorkspaceChannelId from './screens/YourWorkspaceChannelId.jsx';
 import YourWorkspaceDMs from './screens/YourWorkspaceDMs.jsx';
 import YourWorkspaceProjects from './screens/YourWorkspaceProjects.jsx';
 import YourWorkspaceProjectId from './screens/YourWorkspaceProjectId.jsx';
+import YourWorkspaceTaskId from './screens/YourWorkspaceTaskId.jsx';
+import YourWorkspaceProjectTeam from './screens/YourWorkspaceProjectTeam.jsx';
 import YourWorkspaceMembers from './screens/YourWorkspaceMembers.jsx';
 import YourWorkspaceClockin from './screens/YourWorkspaceClockin.jsx';
 import YourWorkspaceNotifications from './screens/YourWorkspaceNotifications.jsx';
@@ -579,6 +581,8 @@ const router = createBrowserRouter([
           { path: 'workspace/:workspaceId/dms', element: <YourWorkspaceDMs /> },
           { path: 'workspace/:workspaceId/projects', element: <YourWorkspaceProjects /> },
           { path: 'workspace/:workspaceId/project/:projectId', element: <YourWorkspaceProjectId /> },
+          {path: 'workspace/:workspaceId/project/:projectId/task/:taskId', element: <YourWorkspaceTaskId />},
+          {path: 'workspace/:workspaceId/project/:projectId/team', element: <YourWorkspaceProjectTeam />},
           { path: 'workspace/:workspaceId/members', element: <YourWorkspaceMembers /> },
           { path: 'workspace/:workspaceId/tasks', element: <AllTasks /> },
           { path: 'workspace/:workspaceId/clockin', element: <YourWorkspaceClockin /> },

@@ -45,6 +45,7 @@
     "date-fns": "^4.4.0",
     "firebase": "^12.18.0",
     "framer-motion": "^12.43.0",
+    "jspdf": "^4.2.1",
     "lucide-react": "^1.28.0",
     "react": "^19.2.7",
     "react-datepicker": "^9.1.0",

@@ -4,12 +4,17 @@ import Project from '../models/projectModel.js';
 import Task from '../models/taskModel.js';
 import Workspace from '../models/workspaceModel.js';
 import User from '../models/userModel.js';
-import { planProject } from '../services/geminiService.js';
+import {
+  planProject,
+  reviewProject,
+  summarizeProject,
+  explainContext,
+  generateProjectDocs,
+} from '../services/geminiService.js';
 import { createAndSendNotification } from './notificationController.js';
 
 // ─────────────────────────────────────────────────────────────────────
 // ENUMS — pulled straight from the schemas so nothing can drift.
-// If you add a value to the model, the AI picks it up automatically.
 // ─────────────────────────────────────────────────────────────────────
 const PROJECT_TYPE_ENUM =
   Project.schema.path('projectType')?.enumValues || ['general'];
@@ -52,11 +57,7 @@ const addDays = (base, days) => {
   return d;
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// SANITIZE — never trust LLM output.
-//   • drops invented member IDs
-//   • clamps enums to whatever the schema actually allows
-// ─────────────────────────────────────────────────────────────────────
+// Never trust LLM output — drop invented member IDs, clamp enums.
 const sanitizePlan = (rawPlan, validMemberIds) => {
   const valid = new Set(validMemberIds.map(String));
   const warnings = [];
@@ -110,10 +111,110 @@ const sanitizePlan = (rawPlan, validMemberIds) => {
   return { project: cleanedProject, tasks: cleanedTasks, warnings };
 };
 
+// Fetch project + tasks + unique members, with full access check.
+// Used by review / summarize / explain / document.
+const loadProjectContext = async (projectId, userId) => {
+  if (!mongoose.Types.ObjectId.isValid(projectId)) {
+    throw Object.assign(new Error('Invalid projectId.'), { status: 400 });
+  }
+
+  const project = await Project.findById(projectId)
+    .populate('projectManagers', 'name email profile title skills')
+    .populate('teamMembers.user', 'name email profile title skills');
+
+  if (!project) throw Object.assign(new Error('Project not found.'), { status: 404 });
+
+  const workspace = await Workspace.findById(project.workspace).populate(
+    'owner',
+    'name email profile title skills'
+  );
+  if (!workspace) throw Object.assign(new Error('Workspace not found.'), { status: 404 });
+
+  const ownerId = (workspace.owner?._id || workspace.owner)?.toString();
+  const isOwner = ownerId === userId;
+  const isAdmin = workspace.members.some(
+    (m) =>
+      (m.user?._id || m.user)?.toString() === userId &&
+      m.role === 'Admin' &&
+      m.status === 'active'
+  );
+  const isPM = (project.projectManagers || []).some(
+    (pm) => (pm._id || pm).toString() === userId
+  );
+  const isMember = (project.teamMembers || []).some(
+    (tm) =>
+      (tm.user?._id || tm.user)?.toString() === userId && tm.status === 'active'
+  );
+
+  if (!isOwner && !isAdmin && !isPM && !isMember) {
+    throw Object.assign(new Error('Access denied.'), { status: 403 });
+  }
+
+  const tasks = await Task.find({
+    project: projectId,
+    isDeleted: false,
+    isTrash: { $ne: true },
+  })
+    .populate('assignees', 'name email profile')
+    .sort({ order: 1, createdAt: -1 });
+
+  const memberMap = new Map();
+  if (workspace.owner) {
+    memberMap.set(workspace.owner._id.toString(), {
+      _id: workspace.owner._id,
+      name: workspace.owner.name,
+      email: workspace.owner.email,
+      title: workspace.owner.title,
+      skills: workspace.owner.skills || [],
+      workspaceRole: 'Owner',
+    });
+  }
+  (project.projectManagers || []).forEach((pm) => {
+    const id = (pm._id || pm).toString();
+    if (!memberMap.has(id)) {
+      memberMap.set(id, {
+        _id: pm._id || pm,
+        name: pm.name || 'Unknown',
+        email: pm.email || '',
+        title: pm.title,
+        skills: pm.skills || [],
+        workspaceRole: 'Project Manager',
+      });
+    }
+  });
+  (project.teamMembers || [])
+    .filter((tm) => tm.status === 'active')
+    .forEach((tm) => {
+      const u = tm.user;
+      if (!u?._id) return;
+      const id = u._id.toString();
+      if (!memberMap.has(id)) {
+        memberMap.set(id, {
+          _id: u._id,
+          name: u.name,
+          email: u.email,
+          title: u.title,
+          skills: u.skills || [],
+          workspaceRole: 'Member',
+        });
+      }
+    });
+
+  return {
+    project,
+    workspace,
+    tasks,
+    members: Array.from(memberMap.values()),
+    isOwner,
+    isAdmin,
+    isPM,
+    canManage: isOwner || isAdmin || isPM,
+  };
+};
+
 // ─────────────────────────────────────────────────────────────────────
 // POST /api/ai/plan
-// Body: { workspaceId, prompt }
-// Returns a preview plan — no DB writes.
+// Preview only — no DB writes.
 // ─────────────────────────────────────────────────────────────────────
 export const planWithAI = async (req, res) => {
   try {
@@ -141,11 +242,8 @@ export const planWithAI = async (req, res) => {
       });
     }
 
-    // Collect active workspace members + their User docs for role hints.
     const activeMemberships = workspace.members.filter((m) => m.status === 'active');
     const userIds = activeMemberships.map((m) => m.user?._id || m.user).filter(Boolean);
-
-    // Include the owner even if they're not in members[].
     const ownerId = workspace.owner?._id || workspace.owner;
     if (ownerId && !userIds.some((id) => id.toString() === ownerId.toString())) {
       userIds.push(ownerId);
@@ -180,7 +278,6 @@ export const planWithAI = async (req, res) => {
     const validIds = memberContext.map((m) => m._id);
     const plan = sanitizePlan(rawPlan, validIds);
 
-    // Attach display names so the UI can render the plan without another fetch.
     const idToUser = new Map(memberContext.map((m) => [String(m._id), m]));
     const hydratedPlan = {
       project: {
@@ -208,8 +305,7 @@ export const planWithAI = async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────
 // POST /api/ai/execute
-// Body: { workspaceId, plan }
-// Commit the plan: create project, add members, create tasks + subtasks.
+// Commit the plan. Accepts any user-edited version of the preview.
 // ─────────────────────────────────────────────────────────────────────
 export const executeAIPlan = async (req, res) => {
   try {
@@ -234,24 +330,19 @@ export const executeAIPlan = async (req, res) => {
       });
     }
 
-    // Rebuild the "allowed" set from the live workspace — never trust the
-    // client to send us a plan referencing IDs outside the workspace.
     const activeMemberIds = workspace.members
       .filter((m) => m.status === 'active')
       .map((m) => (m.user?._id || m.user)?.toString())
       .filter(Boolean);
-
     const ownerId = (workspace.owner?._id || workspace.owner)?.toString();
     if (ownerId) activeMemberIds.push(ownerId);
 
     const sanitized = sanitizePlan(plan, activeMemberIds);
 
-    // ── 1. Validate team membership (active workspace members only) ──
     const validTeamIds = sanitized.project.teamMemberIds.filter(
-      (id) => id !== userId // creator is PM automatically, don't double-add
+      (id) => id !== userId
     );
 
-    // ── 2. Create the project — creator is PM (same rule as manual flow) ──
     const teamMembers = validTeamIds.map((id) => ({
       user: id,
       role: 'member',
@@ -265,7 +356,7 @@ export const executeAIPlan = async (req, res) => {
       description: sanitized.project.description,
       detailedDescription: sanitized.project.detailedDescription,
       createdBy: userId,
-      projectManagers: [userId], // creator is PM — no manual add needed
+      projectManagers: [userId],
       teamMembers,
       priority: sanitized.project.priority,
       projectType: sanitized.project.projectType,
@@ -280,19 +371,14 @@ export const executeAIPlan = async (req, res) => {
       aiGenerated: true,
     });
 
-    // ── 3. Create tasks + subtasks ────────────────────────────────
     const now = new Date();
     const createdTasks = [];
     let taskOrder = 0;
 
     for (const t of sanitized.tasks) {
-      // Creator must be a valid assignee too (they're PM), so union with team.
       const allowedAssignees = new Set([...validTeamIds, userId]);
       const finalAssignees = t.assigneeIds.filter((id) => allowedAssignees.has(id));
-
-      // Backend rule: assigned → ready_for_completion, else pending.
       const status = finalAssignees.length > 0 ? 'ready_for_completion' : 'pending';
-
       const dueDate = addDays(now, t.dueDateOffsetDays);
 
       const subtasks = (t.subtasks || []).map((s, idx) => ({
@@ -344,7 +430,6 @@ export const executeAIPlan = async (req, res) => {
       createdTasks.push(task);
     }
 
-    // ── 4. Notify every assignee + every team member ──────────────
     const notifySet = new Set([...validTeamIds]);
     createdTasks.forEach((t) =>
       (t.assignees || []).forEach((a) => {
@@ -388,5 +473,135 @@ export const executeAIPlan = async (req, res) => {
       success: false,
       message: error.message || 'Failed to execute AI plan.',
     });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// POST /api/ai/review  { projectId, focus? }
+// ─────────────────────────────────────────────────────────────────────
+export const reviewExistingProject = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { projectId, focus } = req.body;
+    if (!projectId) {
+      return res.status(400).json({ success: false, message: 'projectId is required.' });
+    }
+
+    const ctx = await loadProjectContext(projectId, userId);
+    if (!ctx.canManage) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only workspace owners, admins, or project managers can request reviews.',
+      });
+    }
+
+    const review = await reviewProject({
+      project: ctx.project,
+      tasks: ctx.tasks,
+      members: ctx.members,
+      focus: focus?.trim() || null,
+    });
+
+    res.status(200).json({ success: true, review });
+  } catch (err) {
+    console.error('❌ AI review error:', err);
+    res.status(err.status || 500).json({ success: false, message: err.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// POST /api/ai/summarize  { projectId }
+// ─────────────────────────────────────────────────────────────────────
+export const summarizeProjectAI = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { projectId } = req.body;
+    if (!projectId) {
+      return res.status(400).json({ success: false, message: 'projectId is required.' });
+    }
+
+    const ctx = await loadProjectContext(projectId, userId);
+    const summary = await summarizeProject({
+      project: ctx.project,
+      tasks: ctx.tasks,
+      members: ctx.members,
+    });
+
+    res.status(200).json({ success: true, summary });
+  } catch (err) {
+    console.error('❌ AI summarize error:', err);
+    res.status(err.status || 500).json({ success: false, message: err.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// POST /api/ai/explain  { projectId, taskId?, question?, audience? }
+// ─────────────────────────────────────────────────────────────────────
+export const explainProjectAI = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { projectId, taskId, question, audience } = req.body;
+    if (!projectId) {
+      return res.status(400).json({ success: false, message: 'projectId is required.' });
+    }
+
+    const ctx = await loadProjectContext(projectId, userId);
+
+    let task = null;
+    if (taskId) {
+      if (!mongoose.Types.ObjectId.isValid(taskId)) {
+        return res.status(400).json({ success: false, message: 'Invalid taskId.' });
+      }
+      task = ctx.tasks.find((t) => t._id.toString() === taskId);
+      if (!task) {
+        return res.status(404).json({ success: false, message: 'Task not found in this project.' });
+      }
+    }
+
+    const explanation = await explainContext({
+      project: ctx.project,
+      task,
+      question: question?.trim() || null,
+      audience: audience?.trim() || null,
+    });
+
+    res.status(200).json({ success: true, explanation });
+  } catch (err) {
+    console.error('❌ AI explain error:', err);
+    res.status(err.status || 500).json({ success: false, message: err.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// POST /api/ai/document  { projectId }
+// Returns structured doc; frontend renders to PDF.
+// ─────────────────────────────────────────────────────────────────────
+export const generateProjectDocsAI = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { projectId } = req.body;
+    if (!projectId) {
+      return res.status(400).json({ success: false, message: 'projectId is required.' });
+    }
+
+    const ctx = await loadProjectContext(projectId, userId);
+
+    const doc = await generateProjectDocs({
+      project: ctx.project,
+      tasks: ctx.tasks,
+      members: ctx.members,
+    });
+
+    doc.meta = {
+      ...doc.meta,
+      projectName: ctx.project.name,
+      generatedAt: new Date().toISOString(),
+      generatedBy: req.user.name || null,
+    };
+
+    res.status(200).json({ success: true, doc });
+  } catch (err) {
+    console.error('❌ AI docs error:', err);
+    res.status(err.status || 500).json({ success: false, message: err.message });
   }
 };
