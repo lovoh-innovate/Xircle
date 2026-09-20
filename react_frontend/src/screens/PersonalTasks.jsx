@@ -22,7 +22,6 @@ import {
   useAddCollaboratorMutation,
   useGetPendingInvitationsQuery,
   useAcceptInvitationWithTokenMutation,
-  // collaborator management
   useUpdateCollaboratorRoleMutation,
   useRemoveCollaboratorMutation,
 } from '../slices/personalTaskApiSlice';
@@ -370,7 +369,6 @@ const CollaborateModal = ({ isOpen, onClose, onInvite, isLoading, taskTitle, isB
 };
 
 // ─── Manage Collaborators Modal ────────────────────────────────
-// Inline invite form — no nested modal.
 const ManageCollaboratorsModal = ({
   isOpen,
   onClose,
@@ -385,7 +383,6 @@ const ManageCollaboratorsModal = ({
   const [draftRole, setDraftRole] = useState('write');
   const [confirmRemove, setConfirmRemove] = useState(null);
 
-  // ── Inline invite form state ──
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('write');
@@ -431,7 +428,6 @@ const ManageCollaboratorsModal = ({
       toast.error('Email is required');
       return;
     }
-    // Basic email sanity check
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       toast.error('Enter a valid email address');
       return;
@@ -453,7 +449,6 @@ const ManageCollaboratorsModal = ({
   return (
     <BottomSheet isOpen={isOpen} onClose={onClose}>
       <div className="p-6 space-y-4">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-800 dark:text-white flex items-center gap-2">
             <FaUsers className="text-teal-500" /> Collaborators
@@ -463,13 +458,11 @@ const ManageCollaboratorsModal = ({
           </button>
         </div>
 
-        {/* Task title */}
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-0.5">Task</p>
           <p className="text-sm font-medium text-gray-800 dark:text-white break-words">{task.title}</p>
         </div>
 
-        {/* Collaborators list */}
         {collaborators.length === 0 ? (
           <div className="text-center py-6 text-gray-400 dark:text-gray-500 text-sm">
             No collaborators yet. Invite someone to start working together.
@@ -557,7 +550,6 @@ const ManageCollaboratorsModal = ({
           </div>
         )}
 
-        {/* Inline Invite Form */}
         {!showInviteForm ? (
           <button
             onClick={() => setShowInviteForm(true)}
@@ -1034,6 +1026,7 @@ const ChecklistItem = ({
   index,
   onToggle,
   onOpenModal,
+  onEdit,
   isOverdue,
   formatDate,
   weekDays,
@@ -1048,7 +1041,11 @@ const ChecklistItem = ({
   const lastTap = useRef(0);
 
   const handleRowClick = (e) => {
-    if (e.target.closest('.checklist-toggle-btn') || e.target.closest('.checklist-more-btn')) return;
+    if (
+      e.target.closest('.checklist-toggle-btn') ||
+      e.target.closest('.checklist-more-btn') ||
+      e.target.closest('.checklist-edit-btn')
+    ) return;
 
     if (isTouch) {
       const now = Date.now();
@@ -1072,9 +1069,20 @@ const ChecklistItem = ({
     }
   };
 
+  // Desktop right-click → open action modal
+  const handleContextMenu = (e) => {
+    e.preventDefault();
+    if (selectionMode) return;
+    onOpenModal(index);
+  };
+
   const longPressTimer = useRef(null);
   const handleTouchStart = (e) => {
-    if (e.target.closest('.checklist-toggle-btn') || e.target.closest('.checklist-more-btn')) return;
+    if (
+      e.target.closest('.checklist-toggle-btn') ||
+      e.target.closest('.checklist-more-btn') ||
+      e.target.closest('.checklist-edit-btn')
+    ) return;
     longPressTimer.current = setTimeout(() => {
       if (onLongPress) onLongPress(index);
     }, 500);
@@ -1100,6 +1108,7 @@ const ChecklistItem = ({
         isSelected ? 'bg-teal-50/70 dark:bg-teal-900/30' : ''
       }`}
       onClick={handleRowClick}
+      onContextMenu={handleContextMenu}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
       onTouchMove={handleTouchMove}
@@ -1134,13 +1143,24 @@ const ChecklistItem = ({
                 </span>
               )}
             </span>
-            <button
-              onClick={(e) => { e.stopPropagation(); onOpenModal(index); }}
-              className="checklist-more-btn hidden md:flex p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition flex-shrink-0"
-              aria-label="More actions"
-            >
-              <FaEllipsisV className="text-sm" />
-            </button>
+            <div className="flex items-center flex-shrink-0 -mr-1">
+              {/* Mobile: visible edit button */}
+              <button
+                onClick={(e) => { e.stopPropagation(); onEdit(index); }}
+                className="checklist-edit-btn flex md:hidden p-1.5 text-gray-400 hover:text-teal-500 active:text-teal-600 rounded-lg transition"
+                aria-label="Edit checklist item"
+              >
+                <FaEdit className="text-sm" />
+              </button>
+              {/* Desktop: 3-dot more button */}
+              <button
+                onClick={(e) => { e.stopPropagation(); onOpenModal(index); }}
+                className="checklist-more-btn hidden md:flex p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+                aria-label="More actions"
+              >
+                <FaEllipsisV className="text-sm" />
+              </button>
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-1 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             {checklistItem.dueDate && (
@@ -1171,6 +1191,7 @@ const SortableChecklistItem = ({
   index,
   onToggle,
   onOpenModal,
+  onEdit,
   isOverdue,
   formatDate,
   weekDays,
@@ -1202,6 +1223,7 @@ const SortableChecklistItem = ({
         index={index}
         onToggle={onToggle}
         onOpenModal={onOpenModal}
+        onEdit={onEdit}
         isOverdue={isOverdue}
         formatDate={formatDate}
         weekDays={weekDays}
@@ -1455,7 +1477,7 @@ const TaskDetailView = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-white dark:bg-[#0f0f12] overflow-hidden">
+    <div className="flex-1 flex flex-col h-full min-h-0 bg-white dark:bg-[#0f0f12] overflow-hidden">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-[#0f0f12] flex-shrink-0">
         <button
           onClick={onBack}
@@ -1518,7 +1540,7 @@ const TaskDetailView = ({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3">
+      <div className="flex-1 overflow-y-auto min-h-0 px-4 py-3">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wider">Checklist</h3>
           <span className="text-xs text-gray-400 dark:text-gray-500">{task.subtasks?.length || 0}</span>
@@ -1552,6 +1574,7 @@ const TaskDetailView = ({
                   index={idx}
                   onToggle={handleToggle}
                   onOpenModal={handleOpenChecklistModal}
+                  onEdit={handleEditChecklist}
                   isOverdue={isOverdue}
                   formatDate={formatDate}
                   weekDays={weekDays}
@@ -1699,6 +1722,13 @@ const TaskCard = React.memo(({
     }
   };
 
+  // Desktop right-click → open action modal (skip when selecting)
+  const handleContextMenu = (e) => {
+    e.preventDefault();
+    if (selectionMode) return;
+    onOpenModal(task);
+  };
+
   const gripProps = isTrash ? {} : { ...listeners, ...attributes };
 
   return (
@@ -1707,6 +1737,7 @@ const TaskCard = React.memo(({
         isSelected ? 'bg-teal-50/70 dark:bg-teal-900/30' : ''
       } ${selectionMode && !isSelected ? 'hover:ring-1 hover:ring-teal-300 dark:hover:ring-teal-700' : ''}`}
       onClick={handleCardClick}
+      onContextMenu={handleContextMenu}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
       onTouchMove={handleTouchMove}
@@ -2376,20 +2407,16 @@ const PersonalTasks = () => {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [permanentDeleteTarget, setPermanentDeleteTarget] = useState(null);
 
-  // ─── Collaboration state ──────────────────────────────────────
-  // (Only used for BULK invites now — single-task invites are inline.)
   const [showCollaborateModal, setShowCollaborateModal] = useState(false);
   const [collaborateTarget, setCollaborateTarget] = useState(null);
   const [collaborateLoading, setCollaborateLoading] = useState(false);
   const [addCollaborator, { isLoading: isAddingCollaborator }] = useAddCollaboratorMutation();
 
-  // Manage collaborators
   const [showManageCollabModal, setShowManageCollabModal] = useState(false);
   const [manageCollabTask, setManageCollabTask] = useState(null);
   const [updateCollaboratorRole, { isLoading: isUpdatingRole }] = useUpdateCollaboratorRoleMutation();
   const [removeCollaborator, { isLoading: isRemovingCollab }] = useRemoveCollaboratorMutation();
 
-  // ─── Pending invitations ──────────────────────────────────────
   const {
     data: pendingInvitesData,
     refetch: refetchPendingInvites,
@@ -2401,22 +2428,17 @@ const PersonalTasks = () => {
   const [acceptInvitation, { isLoading: isAcceptingInvite }] = useAcceptInvitationWithTokenMutation();
   const pendingInvites = pendingInvitesData?.invitations || [];
 
-  // ─── View type ──────────────────────────────────────────────
   const [viewType, setViewType] = useState('personal');
 
-  // ─── Selection state ──────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
 
-  // ─── Move to folder state ────────────────────────────────────
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [moveTask, setMoveTask] = useState(null);
 
-  // ─── Gesture instruction toast already shown? ──────────────
   const gestureShownRef = useRef(false);
 
-  // Build query params based on viewType
   const getQueryParams = useCallback(() => {
     const base = {
       type: viewType === 'personal' ? 'owner' : 'collaborator',
@@ -2476,7 +2498,6 @@ const PersonalTasks = () => {
         return orderA - orderB;
       });
       setLocalTasks(sorted);
-      // Keep the open manage modal in sync with fresh server data
       setManageCollabTask(prev => prev ? sorted.find(t => t._id === prev._id) || prev : null);
     }
   }, [tasksData]);
@@ -2487,7 +2508,6 @@ const PersonalTasks = () => {
     });
   };
 
-  // ─── Selection handlers ──────────────────────────────────────
   const toggleSelection = (taskId) => {
     setSelectedIds(prev => {
       const newSet = new Set(prev);
@@ -2509,7 +2529,6 @@ const PersonalTasks = () => {
     setSelectionMode(false);
   };
 
-  // ─── Bulk action helpers ─────────────────────────────────────
   const bulkAction = async (actionFn, successMsg, errorMsg) => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
@@ -2668,7 +2687,6 @@ const PersonalTasks = () => {
     }
   };
 
-  // ─── Collaboration handler (BULK only now) ──────────────────
   const handleCollaborateInvite = async ({ email, role }) => {
     setCollaborateLoading(true);
     try {
@@ -2702,7 +2720,6 @@ const PersonalTasks = () => {
     }
   };
 
-  // ─── Manage collaborators handlers ───────────────────────────
   const handleOpenManageCollaborators = (task) => {
     setManageCollabTask(task);
     setShowManageCollabModal(true);
@@ -2740,8 +2757,6 @@ const PersonalTasks = () => {
     }
   };
 
-  // Inline invite from the Manage Collaborators modal.
-  // Returns `false` on failure so the modal can keep the form open.
   const handleInviteFromManage = async ({ email, role }) => {
     if (!manageCollabTask) return false;
     try {
@@ -2762,7 +2777,6 @@ const PersonalTasks = () => {
     }
   };
 
-  // ─── Handlers ──────────────────────────────────────────────────
   const handleCreateTask = async (payload) => {
     const tempId = `temp-${Date.now()}`;
     const newTask = {
@@ -2966,7 +2980,6 @@ const PersonalTasks = () => {
     }
   };
 
-  // Checklist handlers
   const handleAddChecklist = async (taskId, data) => {
     const prevTasks = [...localTasks];
     setLocalTasks(prev => prev.map(t => {
@@ -3062,7 +3075,6 @@ const PersonalTasks = () => {
     }
   };
 
-  // ─── Task list handlers ──────────────────────────────────────
   const handleTaskClick = (task) => {
     if (selectionMode) {
       toggleSelection(task._id);
@@ -3111,7 +3123,6 @@ const PersonalTasks = () => {
 
   const selectedTask = useMemo(() => localTasks.find(t => t._id === selectedTaskId), [localTasks, selectedTaskId]);
 
-  // ─── Filtering & sorting ──────────────────────────────────────
   const displayedTasks = useMemo(() => {
     let filtered = localTasks.filter(task => {
       if (filters.trash && viewType === 'personal') return task.isTrash === true;
@@ -3136,7 +3147,6 @@ const PersonalTasks = () => {
     return filtered;
   }, [localTasks, filters, viewType]);
 
-  // ─── Reorder tasks / move into folder ───────────────────────────
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 10 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
@@ -3179,7 +3189,6 @@ const PersonalTasks = () => {
     }
   };
 
-  // ─── Tabs ──────────────────────────────────────────────────────
   const handleTabClick = (folderId) => {
     if (selectionMode || viewType !== 'personal') return;
     setFilters(prev => ({ ...prev, folderId, archived: false, trash: false }));
@@ -3210,8 +3219,8 @@ const PersonalTasks = () => {
 
   if (tasksLoading || foldersLoading) {
     return (
-      <div className="min-h-screen bg-white dark:bg-[#0f0f12] flex flex-col md:flex-row">
-        <div className="hidden md:block md:w-72 md:flex-shrink-0"><GeneralSidebar /></div>
+      <div className="h-screen bg-white dark:bg-[#0f0f12] flex flex-col md:flex-row overflow-hidden">
+        <div className="hidden md:block md:w-72 md:flex-shrink-0 h-full overflow-hidden"><GeneralSidebar /></div>
         <div className="flex-1 flex items-center justify-center">
           <FaSpinner className="animate-spin text-teal-500 text-3xl" />
         </div>
@@ -3224,10 +3233,12 @@ const PersonalTasks = () => {
 
   return (
     <>
-      <div className="min-h-screen bg-white dark:bg-[#0f0f12] flex flex-col md:flex-row">
-        <div className="hidden md:block md:w-72 md:flex-shrink-0"><GeneralSidebar /></div>
+      <div className="h-screen bg-white dark:bg-[#0f0f12] flex flex-col md:flex-row overflow-hidden">
+        <div className="hidden md:flex md:w-72 md:flex-shrink-0 h-full overflow-hidden flex-col">
+          <GeneralSidebar />
+        </div>
 
-        <div className="flex-1 flex flex-col min-h-screen relative">
+        <div className="flex-1 flex flex-col min-h-0 h-full relative">
           {selectedTask ? (
             <TaskDetailView
               task={selectedTask}
@@ -3243,7 +3254,7 @@ const PersonalTasks = () => {
             />
           ) : (
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-              <header className="bg-white dark:bg-[#0f0f12] border-b border-gray-100 dark:border-gray-800 sticky top-0 z-10">
+              <header className="bg-white dark:bg-[#0f0f12] border-b border-gray-100 dark:border-gray-800 flex-shrink-0">
                 {selectionMode ? (
                   <BulkActionToolbar
                     selectedCount={selectedIds.size}
@@ -3349,7 +3360,7 @@ const PersonalTasks = () => {
                 )}
               </header>
 
-              <main className="flex-1 overflow-y-auto">
+              <main className="flex-1 overflow-y-auto min-h-0">
                 {pendingInvites.length > 0 && (
                   <div className="px-3 sm:px-6 pt-3 pb-1 space-y-2">
                     {pendingInvites.map((inv) => (
@@ -3501,7 +3512,6 @@ const PersonalTasks = () => {
         onMoveTask={handleMoveTaskToFolder}
       />
 
-      {/* Bulk invite still uses the standalone modal */}
       <CollaborateModal
         isOpen={showCollaborateModal}
         onClose={() => { setShowCollaborateModal(false); setCollaborateTarget(null); }}
@@ -3511,7 +3521,6 @@ const PersonalTasks = () => {
         isBulk={true}
       />
 
-      {/* Manage Collaborators — inline invite form, no nested modal */}
       <ManageCollaboratorsModal
         isOpen={showManageCollabModal}
         onClose={() => { setShowManageCollabModal(false); setManageCollabTask(null); }}
