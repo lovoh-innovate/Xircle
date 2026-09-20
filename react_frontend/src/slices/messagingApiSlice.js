@@ -229,7 +229,7 @@ export const messagingApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // ─── ✨ NEW: Message Editing ──────────────────────────────────────
+    // ─── Message Editing ──────────────────────────────────────────────
     updateMessage: builder.mutation({
       query: ({ messageId, content }) => ({
         url: `${MESSAGING_URL}/${messageId}`,
@@ -242,7 +242,7 @@ export const messagingApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // ─── ✨ NEW: Reactions ─────────────────────────────────────────────
+    // ─── Reactions ─────────────────────────────────────────────────────
     toggleReaction: builder.mutation({
       query: ({ messageId, emoji }) => ({
         url: `${MESSAGING_URL}/${messageId}/reactions`,
@@ -263,6 +263,19 @@ export const messagingApiSlice = apiSlice.injectEndpoints({
         { type: 'Message', id: messageId },
         'Reaction',
       ],
+    }),
+
+    // ─── ✨ NEW: Chat entity search (powers the "/" picker) ───────────
+    // Powers the slash-command picker in the chat input. Returns tasks,
+    // projects, notes, and clock-ins scoped to this chat's workspace.
+    //
+    // Ephemeral — no providesTags. Each `/` press fires a fresh query.
+    // The picker closes and the cache entry dies naturally.
+    searchChatEntities: builder.query({
+      query: ({ chatId, q = '', limit = 8 }) => ({
+        url: `${MESSAGING_URL}/chat/${chatId}/entities`,
+        params: { q, limit },
+      }),
     }),
 
     // ─── Chat Messages ──────────────────────────────────────────────────
@@ -423,10 +436,13 @@ export const {
   useStarMessageMutation,
   useUnstarMessageMutation,
 
-  // ✨ NEW: Message editing & reactions
+  // Message editing & reactions
   useUpdateMessageMutation,
   useToggleReactionMutation,
   useGetMessageReactionsQuery,
+
+  // ✨ NEW: Chat entity search
+  useSearchChatEntitiesQuery,
 
   // Core chat & messages
   useGetUserChatsQuery,

@@ -80,6 +80,54 @@ const formatLastMessageTime = (timestamp) => {
   return `${month}/${day}`;
 };
 
+// ─── Helper: extract a user id from various mention shapes ────────────
+// Handles: "id", { _id: "id" }, { user: "id" }, { user: { _id: "id" } }
+const extractMentionUserId = (entry) => {
+  if (!entry) return null;
+  if (typeof entry === 'string') return entry;
+  if (typeof entry === 'object') {
+    if (typeof entry._id === 'string') return entry._id;
+    if (entry._id && typeof entry._id === 'object' && typeof entry._id._id === 'string') {
+      return entry._id._id;
+    }
+    if (entry.user) {
+      if (typeof entry.user === 'string') return entry.user;
+      if (entry.user._id) return entry.user._id;
+    }
+  }
+  return null;
+};
+
+// ─── Helper: does this chat have an unread mention for me? ────────────
+const hasUnreadMention = (chat, userId) => {
+  if (!chat || !userId) return false;
+  const uid = String(userId);
+
+  // 1. Explicit backend-provided counts (any of these names will work)
+  const explicit =
+    chat.unreadMentions ??
+    chat.unreadMentionCount ??
+    chat.mentionCount ??
+    chat.mentionsCount;
+  if (typeof explicit === 'number' && explicit > 0) return true;
+
+  // 2. Fallback: look at lastMessage.mentions
+  const lm = chat.lastMessage;
+  if (!lm || lm.isDeleted) return false;
+
+  // Don't flag my own message
+  const senderId = lm.sender?._id || lm.sender;
+  if (senderId && String(senderId) === uid) return false;
+
+  // If there are no unread messages at all, don't flag
+  if (typeof chat.unreadCount === 'number' && chat.unreadCount <= 0) return false;
+
+  const mentions = lm.mentions || lm.mentionedUsers || [];
+  if (!Array.isArray(mentions) || mentions.length === 0) return false;
+
+  return mentions.some((m) => extractMentionUserId(m) === uid);
+};
+
 // ─── Confirm Modal ──────────────────────────────────────────────────────
 const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = 'Confirm', danger = false }) => {
   if (!isOpen) return null;
@@ -613,6 +661,9 @@ const YourWorkspaceChannels = () => {
               }
               const time = formatLastMessageTime(lastMessage?.createdAt || channel.lastMessageAt || channel.updatedAt);
 
+              // ── Unread mention indicator ─────────────────────────────
+              const mentionFlag = !isArchivedView && hasUnreadMention(channel, userInfo?._id);
+
               return (
                 <div
                   key={channel._id}
@@ -622,12 +673,25 @@ const YourWorkspaceChannels = () => {
                     to={`/workspace/${workspaceId}/chat/${channel._id}`}
                     className="flex items-center gap-3 flex-1 min-w-0"
                   >
-                    <div
-                      className="w-12 h-12 rounded-2xl flex items-center justify-center text-xl flex-shrink-0"
-                      style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
-                    >
-                      <FaUsers className="text-lg" />
+                    {/* Avatar with optional @ mention badge */}
+                    <div className="relative flex-shrink-0">
+                      <div
+                        className="w-12 h-12 rounded-2xl flex items-center justify-center text-xl"
+                        style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
+                      >
+                        <FaUsers className="text-lg" />
+                      </div>
+                      {mentionFlag && (
+                        <span
+                          className="absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-white text-[11px] font-bold leading-none ring-2 ring-white dark:ring-[#0f0f12] shadow-sm"
+                          style={{ backgroundColor: brandColor }}
+                          title="You were mentioned"
+                        >
+                          @
+                        </span>
+                      )}
                     </div>
+
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                         <span className="font-semibold text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
@@ -636,7 +700,15 @@ const YourWorkspaceChannels = () => {
                         <span className="text-xs text-gray-500 dark:text-gray-500 flex-shrink-0">{time}</span>
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-xs text-gray-500 dark:text-gray-400 truncate flex-1">{preview}</span>
+                        <span
+                          className={`text-xs truncate flex-1 ${
+                            mentionFlag
+                              ? 'text-teal-600 dark:text-[#0d9488] font-medium'
+                              : 'text-gray-500 dark:text-gray-400'
+                          }`}
+                        >
+                          {preview}
+                        </span>
                         {!isArchivedView && channel.unreadCount > 0 && (
                           <span
                             className="text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center flex-shrink-0"

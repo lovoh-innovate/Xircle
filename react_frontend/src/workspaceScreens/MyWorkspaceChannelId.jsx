@@ -1,5 +1,12 @@
 // src/workspaceScreens/MyWorkspaceChannelId.jsx
-import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+  useLayoutEffect,
+} from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useSelector } from "react-redux";
 import { useGetWorkspaceQuery } from "../slices/workspaceApiSlice";
@@ -27,6 +34,9 @@ import { useGetMembersQuery } from "../slices/teamApiSlice";
 import { useGetSavedStickersQuery, useSaveStickerMutation } from "../slices/stickerApiSlice";
 import MyWorkspaceSidebar from "../workspaceComponents/MyWorkspaceSidebar";
 import { useInitiateCallMutation } from "../slices/callApiSlice";
+import { useSlashMentions } from "../hooks/useSlashMentions";
+import SlashMentionPicker from "../components/SlashMentionPicker";
+import MessageReferences from "../components/MessageReferences";
 import {
   FaHashtag,
   FaArrowLeft,
@@ -65,6 +75,7 @@ import {
   FaSpinner,
   FaReply,
   FaFile,
+  FaUser,
   FaUsers,
   FaCamera,
   FaSmile,
@@ -77,7 +88,8 @@ import {
   FaLink,
   FaStickyNote,
   FaPlus,
-  FaMicrophoneAlt, // added for voice note icon
+  FaMicrophoneAlt,
+  FaAt,
 } from "react-icons/fa";
 import { toast } from "react-hot-toast";
 import { useSocket } from "../components/SocketContext.jsx";
@@ -109,6 +121,16 @@ const formatTime = (seconds) => {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, "0")}`;
+};
+
+// ─── Helper: pick the "handle" for a participant ─────────────────
+// Prefer username; fall back to first name (spaces removed) so the
+// text `@John ` can be extracted by the `@word` regex.
+const getMentionHandle = (user) => {
+  if (!user) return null;
+  if (user.username) return user.username;
+  if (user.name) return String(user.name).trim().split(/\s+/)[0];
+  return null;
 };
 
 const SEEN_TICK_COLOR = "#34B7F1";
@@ -150,7 +172,7 @@ const useMediaQuery = (query) => {
   return matches;
 };
 
-// ─── Link detection / preview helpers ──────────────────────────────
+// ─── Link + mention detection ──────────────────────────────────────
 const URL_REGEX = /(https?:\/\/[^\s]+)/g;
 
 const extractFirstUrl = (text) => {
@@ -161,29 +183,55 @@ const extractFirstUrl = (text) => {
 
 const isUrlPart = (part) => /^https?:\/\//.test(part);
 
-const LinkifiedText = ({ text, isOwn }) => {
+// Combined splitter: URL | @mention
+const LINK_MENTION_REGEX =
+  /((?:https?:\/\/[^\s]+)|(?:@[a-zA-Z0-9_]+))/g;
+
+const LinkifiedText = ({ text, isOwn, mentionNames }) => {
   if (!text) return null;
-  const parts = text.split(URL_REGEX);
+
+  const parts = text.split(LINK_MENTION_REGEX);
+
   return (
     <>
-      {parts.map((part, i) =>
-        isUrlPart(part) ? (
-          <a
-            key={i}
-            href={part}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className={`underline break-all ${
-              isOwn ? 'text-white' : 'text-teal-600 dark:text-teal-400'
-            }`}
-          >
-            {part}
-          </a>
-        ) : (
-          <React.Fragment key={i}>{part}</React.Fragment>
-        )
-      )}
+      {parts.map((part, i) => {
+        if (isUrlPart(part)) {
+          return (
+            <a
+              key={i}
+              href={part}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className={`underline break-all ${
+                isOwn ? "text-white" : "text-teal-600 dark:text-teal-400"
+              }`}
+            >
+              {part}
+            </a>
+          );
+        }
+        // @mention?
+        if (/^@[a-zA-Z0-9_]+$/.test(part)) {
+          const handle = part.slice(1).toLowerCase();
+          const isMention = mentionNames && mentionNames.has(handle);
+          if (isMention) {
+            return (
+              <span
+                key={i}
+                className={
+                  isOwn
+                    ? "bg-white/25 text-white font-semibold px-1 rounded"
+                    : "bg-teal-100 dark:bg-teal-900/50 text-teal-700 dark:text-teal-300 font-semibold px-1 rounded"
+                }
+              >
+                {part}
+              </span>
+            );
+          }
+        }
+        return <React.Fragment key={i}>{part}</React.Fragment>;
+      })}
     </>
   );
 };
@@ -1066,7 +1114,11 @@ const MessageActionModal = ({
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
-              {message.content ? message.content.substring(0, 60) : message.mediaName || "Media"}
+              {message.content
+                ? message.content.substring(0, 60)
+                : message.mediaName ||
+                  message.references?.[0]?.label ||
+                  "Media"}
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400">{new Date(message.createdAt).toLocaleString()}</p>
           </div>
@@ -1232,7 +1284,6 @@ const AudioPlayer = ({
   const waveformContainerRef = useRef(null);
   const isDraggingRef = useRef(false);
 
-  // Find index of this message in the sorted list
   const currentIndex = allMessages?.findIndex((m) => m._id === messageId) ?? -1;
 
   const findNextAudio = useCallback(() => {
@@ -1301,7 +1352,6 @@ const AudioPlayer = ({
     }
   };
 
-  // ─── FIX: speed cycles 1x → 1.5x → 2x (2x is the fastest) ────────
   const cycleSpeed = () => {
     setSpeed((prev) => {
       if (prev === 1) return 1.5;
@@ -1357,7 +1407,6 @@ const AudioPlayer = ({
 
   const progressPercent = duration ? (currentTime / duration) * 100 : 0;
 
-  // Profile picture with speed overlay
   const renderProfileWithIcon = () => (
     <div className="relative flex-shrink-0" style={{ pointerEvents: "none" }}>
       <div
@@ -1382,7 +1431,6 @@ const AudioPlayer = ({
           </div>
         )}
       </div>
-      {/* Voice note icon overlay - bottom-left */}
       <div className="absolute -bottom-0.5 -left-0.5 bg-teal-500 rounded-full p-0.5 border-2 border-white dark:border-[#0f0f12] shadow-sm pointer-events-none">
         <FaMicrophoneAlt className="text-[8px] sm:text-[10px] text-white" />
       </div>
@@ -1662,7 +1710,79 @@ const ReplyPreview = ({ replyTo, onCancel, brandColor, resolveSender }) => {
   );
 };
 
-// ─── Media Message Component (with fixed z-index and sticker loading) ──
+// ─── Mention Picker (the @ picker) ─────────────────────────────────
+const MentionPicker = ({ isOpen, suggestions, query, onSelect, brandColor }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="absolute bottom-full left-0 right-0 mb-2 z-40">
+      <div className="bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700/60 rounded-2xl shadow-2xl overflow-hidden max-h-[280px] flex flex-col">
+        <div className="px-3 pt-2 pb-1.5 text-[10px] uppercase tracking-widest text-gray-400 dark:text-gray-600 border-b border-gray-100 dark:border-gray-800/60 flex items-center gap-2">
+          <FaAt className="text-[9px]" />
+          {query ? `Mention someone matching "${query}"` : "Mention someone"}
+        </div>
+
+        <div className="flex-1 overflow-y-auto py-1">
+          {suggestions.length === 0 ? (
+            <div className="py-6 flex flex-col items-center justify-center text-gray-400 dark:text-gray-500">
+              <FaExclamationTriangle className="text-lg mb-1.5 opacity-40" />
+              <p className="text-xs">No members match</p>
+            </div>
+          ) : (
+            suggestions.map((user) => {
+              const handle = getMentionHandle(user) || "";
+              return (
+                <button
+                  key={user._id}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => onSelect(user)}
+                  className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-[#1e1e26] transition flex items-center gap-2.5"
+                >
+                  <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
+                    {user.profile ? (
+                      <img
+                        src={user.profile}
+                        alt={user.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div
+                        className="w-full h-full flex items-center justify-center text-white text-xs font-bold"
+                        style={{ backgroundColor: brandColor || "#0d9488" }}
+                      >
+                        {user.name?.charAt(0).toUpperCase() || "?"}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
+                      {user.name || "Unknown"}
+                    </p>
+                    {handle && (
+                      <p className="text-[11px] text-gray-500 dark:text-gray-500 truncate">
+                        @{handle}
+                      </p>
+                    )}
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        <div className="px-3 py-1.5 border-t border-gray-100 dark:border-gray-800/60 text-[10px] text-gray-400 dark:text-gray-600 flex items-center justify-between">
+          <span>Tap to tag · Esc to close</span>
+          <span>
+            {suggestions.length} result{suggestions.length === 1 ? "" : "s"}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Media Message Component ──
 const MediaMessage = ({
   message,
   isOwn,
@@ -1688,8 +1808,8 @@ const MediaMessage = ({
   resolveSender,
   onAudioEnd,
   onAudioStart,
+  mentionNames,
 }) => {
-  // ── Deleted state ──
   if (message.isDeleted) {
     return (
       <div className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : ""}`}>
@@ -1762,7 +1882,6 @@ const MediaMessage = ({
 
   const firstUrl = extractFirstUrl(message.content);
 
-  // ─── Desktop dropdown menu ──────────────────────────────────────
   const renderDesktopMenu = () => (
     <div
       className={`absolute top-full mt-1 z-[70] bg-white dark:bg-[#1e1e26] rounded-lg shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[170px] py-1 ${isOwn ? "right-0" : "left-0"}`}
@@ -1838,7 +1957,6 @@ const MediaMessage = ({
     </div>
   );
 
-  // Touch handlers for swipe reply
   const handleTouchStart = (e) => {
     if (!isMobile) return;
     const touch = e.touches[0];
@@ -2099,6 +2217,12 @@ const MediaMessage = ({
               )}
             </div>
 
+            {message.references && message.references.length > 0 && (
+              <div className="mt-1 w-full">
+                <MessageReferences references={message.references} isOwn={isOwn} />
+              </div>
+            )}
+
             {message.reactions && message.reactions.length > 0 && (
               <div className="mt-1">
                 <ReactionDisplay
@@ -2235,6 +2359,12 @@ const MediaMessage = ({
               )}
             </div>
 
+            {message.references && message.references.length > 0 && (
+              <div className="mt-1 w-full">
+                <MessageReferences references={message.references} isOwn={isOwn} />
+              </div>
+            )}
+
             {message.reactions && message.reactions.length > 0 && (
               <div className="mt-1">
                 <ReactionDisplay
@@ -2251,6 +2381,14 @@ const MediaMessage = ({
   }
 
   // ─── Text and other messages ──────────────────────────────────────
+  // A message with only tagged references (no text / reply / link / media)
+  // must NOT render an empty bubble — show just the reference chips.
+  const hasReferences =
+    Array.isArray(message.references) && message.references.length > 0;
+  const hasBubbleContent =
+    !!message.content || !!replyPreview || !!firstUrl || !!message.mediaUrl;
+  const referencesOnly = hasReferences && !hasBubbleContent;
+
   return (
     <div
       data-message-id={message._id}
@@ -2299,23 +2437,37 @@ const MediaMessage = ({
           {!isOwn && (
             <span className="text-xs font-medium text-gray-600 dark:text-gray-300 ml-1">{senderName}</span>
           )}
-          {/* Wrapper for bubble + hover buttons (no overflow-hidden) */}
           <div className="relative w-full">
-            <div
-              className={`relative px-4 py-2.5 rounded-2xl text-sm break-words w-full ${isOwn ? "text-white" : "bg-gray-100 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200"}`}
-              style={isOwn ? { backgroundColor: brandColor } : {}}
-            >
-              {replyPreview && (
-                <QuotedReplyBlock replyData={replyPreview} isOwn={isOwn} brandColor={brandColor} onJump={onJumpToMessage} />
-              )}
-              {message.content && (
-                <p className="mb-2 pr-5 whitespace-pre-wrap break-words">
-                  <LinkifiedText text={message.content} isOwn={isOwn} />
-                </p>
-              )}
-              {firstUrl && <LinkPreviewCard url={firstUrl} isOwn={isOwn} brandColor={brandColor} />}
-              {renderMediaContent()}
-            </div>
+            {referencesOnly ? (
+              <div
+                className={`flex ${isOwn ? "justify-end" : "justify-start"} [&>div]:mt-0`}
+              >
+                <MessageReferences
+                  references={message.references}
+                  isOwn={isOwn}
+                />
+              </div>
+            ) : (
+              <div
+                className={`relative px-4 py-2.5 rounded-2xl text-sm break-words w-full ${isOwn ? "text-white" : "bg-gray-100 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200"}`}
+                style={isOwn ? { backgroundColor: brandColor } : {}}
+              >
+                {replyPreview && (
+                  <QuotedReplyBlock replyData={replyPreview} isOwn={isOwn} brandColor={brandColor} onJump={onJumpToMessage} />
+                )}
+                {message.content && (
+                  <p className="mb-2 pr-5 whitespace-pre-wrap break-words">
+                    <LinkifiedText
+                      text={message.content}
+                      isOwn={isOwn}
+                      mentionNames={mentionNames}
+                    />
+                  </p>
+                )}
+                {firstUrl && <LinkPreviewCard url={firstUrl} isOwn={isOwn} brandColor={brandColor} />}
+                {renderMediaContent()}
+              </div>
+            )}
 
             {!isMobile && isHovering && (
               <>
@@ -2342,14 +2494,20 @@ const MediaMessage = ({
                     />
                   </div>
                 </div>
-                <div className="absolute top-1.5 right-1.5 z-[60]">
+                <div
+                  className={`absolute z-[60] ${referencesOnly ? "-top-2 right-0" : "top-1.5 right-1.5"}`}
+                >
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       setShowMenu(!showMenu);
                       setShowReactions(false);
                     }}
-                    className={`rounded-full p-1 transition ${isOwn ? "bg-black/10 hover:bg-black/20 text-white/90" : "bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 text-gray-500 dark:text-gray-300"}`}
+                    className={`rounded-full p-1 transition ${
+                      isOwn && !referencesOnly
+                        ? "bg-black/10 hover:bg-black/20 text-white/90"
+                        : "bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 text-gray-500 dark:text-gray-300"
+                    }`}
                   >
                     <FaChevronDown className="text-[10px]" />
                   </button>
@@ -2358,6 +2516,10 @@ const MediaMessage = ({
               </>
             )}
           </div>
+
+          {hasReferences && !referencesOnly && (
+            <MessageReferences references={message.references} isOwn={isOwn} />
+          )}
 
           {message.reactions && message.reactions.length > 0 && (
             <div className="mt-1">
@@ -2944,6 +3106,25 @@ const MyWorkspaceChannelId = () => {
   const emojiPickerRef = useRef(null);
   const isMobile = useMediaQuery("(max-width: 768px)");
 
+  // ─── @ Mention state ─────────────────────────────────────────────
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [showMentions, setShowMentions] = useState(false);
+  const [mentionSuggestions, setMentionSuggestions] = useState([]);
+  const [pendingMentions, setPendingMentions] = useState([]);
+  const [mentionNavIndex, setMentionNavIndex] = useState(0);
+
+  // ─── Voice preview play/pause ────────────────────────────────────
+  const [previewPlaying, setPreviewPlaying] = useState(false);
+  const previewAudioRef = useRef(null);
+
+  // ─── Slash mentions (task / project / note / clockin) ────────────
+  const slash = useSlashMentions({
+    chatId,
+    text: message,
+    setText: setMessage,
+    inputRef,
+  });
+
   // ─── Image editor states ──────────────────────────────────────────
   const [imageToEdit, setImageToEdit] = useState(null);
   const [imageEditorOpen, setImageEditorOpen] = useState(false);
@@ -3008,12 +3189,13 @@ const MyWorkspaceChannelId = () => {
     (m) => (m.user?._id || m.user) === userInfo?._id && m.role === 'Admin' && m.status === 'active'
   );
   const canManageWorkspace = isWorkspaceOwner || isWorkspaceAdmin;
+  const participants = useMemo(() => chat?.participants || [], [chat]);
 
   // ─── Group management mutations ──────────────────────────────────
   const [addParticipant] = useAddParticipantMutation();
   const [removeParticipant] = useRemoveParticipantMutation();
   const [makeAdmin] = useMakeGroupAdminMutation();
-  const [removeAdmin] = useRemoveGroupAdminMutation();
+  const [removeGroupAdmin] = useRemoveGroupAdminMutation();
   const [exitGroup] = useExitGroupChatMutation();
   const [deleteGroup] = useDeleteGroupChatMutation();
   const [archiveChat] = useArchiveChatMutation();
@@ -3117,6 +3299,32 @@ const MyWorkspaceChannelId = () => {
     return { ...senderField, name };
   }, []);
 
+  // ─── Username map: keyed by username or fallback first name ────────
+  const usernameMap = useMemo(() => {
+    const map = new Map();
+    participants.forEach((p) => {
+      const user = p.user || {};
+      const handle = getMentionHandle(user);
+      if (user._id && handle) {
+        map.set(handle.toLowerCase(), user._id);
+      }
+    });
+    return map;
+  }, [participants]);
+
+  // ─── Set of names to highlight in message text ─────────────────────
+  const mentionNames = useMemo(() => {
+    const s = new Set();
+    participants.forEach((p) => {
+      const user = p.user || {};
+      const handle = getMentionHandle(user);
+      if (handle) s.add(handle.toLowerCase());
+      if (user.username) s.add(user.username.toLowerCase());
+      if (user.name) s.add(user.name.toLowerCase());
+    });
+    return s;
+  }, [participants]);
+
   // ─── Duplicate detection helper ──────────────────────────────────
   const isRecentDuplicateMedia = useCallback(
     (signature) => {
@@ -3145,7 +3353,6 @@ const MyWorkspaceChannelId = () => {
         incomingList.forEach((incoming) => {
           const isOwn = incoming.sender?._id === userInfo?._id || incoming.sender === userInfo?._id;
 
-          // 1. Already exists by real _id?
           const existingIdx = next.findIndex((m) => m._id === incoming._id);
           if (existingIdx > -1) {
             if (!mutated) next = [...next];
@@ -3159,7 +3366,6 @@ const MyWorkspaceChannelId = () => {
               _delivered: true,
               _read: false,
             };
-            // Determine read status
             const otherIds = chat?.participants
               ?.map(p => p.user?._id || p.user)
               .filter(id => id !== userInfo?._id) || [];
@@ -3176,7 +3382,6 @@ const MyWorkspaceChannelId = () => {
             return;
           }
 
-          // 2. Try to replace a temporary message (ours)
           if (isOwn) {
             let tempIdx = -1;
             if (incoming.clientMsgId) {
@@ -3225,7 +3430,6 @@ const MyWorkspaceChannelId = () => {
             }
           }
 
-          // 3. New message (not temporary)
           const msg = {
             ...incoming,
             _sent: true,
@@ -3266,6 +3470,8 @@ const MyWorkspaceChannelId = () => {
     loadOlderGuardRef.current = false;
     setShowSearch(false);
     setShowDetailsSheet(false);
+    setShowMentions(false);
+    setMentionNavIndex(0);
   }, [chatId]);
 
   // ─── Load older messages (pagination) ────────────────────────────
@@ -3285,7 +3491,6 @@ const MyWorkspaceChannelId = () => {
     setMessagesPage((p) => p + 1);
   }, [hasMoreMessages, isLoadingMore, messagesFetching]);
 
-  // Restore scroll position after older messages are prepended
   useLayoutEffect(() => {
     if (scrollRestoreRef.current && messagesContainerRef.current) {
       const el = messagesContainerRef.current;
@@ -3299,7 +3504,6 @@ const MyWorkspaceChannelId = () => {
     }
   }, [localMessages]);
 
-  // Safety: unlock guard if fetch never resolves
   useEffect(() => {
     if (!isLoadingMore) return;
     const t = setTimeout(() => {
@@ -3404,7 +3608,6 @@ const MyWorkspaceChannelId = () => {
   }, [socket, isConnected, chatId, mergeMessagesIntoState]);
 
   // ─── Polling ──────────────────────────────────────────────────────
-  // Only poll on the latest page; older pages are fetched via pagination.
   useEffect(() => {
     if (!chatId) return;
     const interval = setInterval(() => {
@@ -3428,7 +3631,6 @@ const MyWorkspaceChannelId = () => {
     setIsAtBottom(atBottom);
     if (atBottom) setShowScrollDown(false);
 
-    // Trigger pagination when user scrolls near the top
     if (
       el.scrollTop < 80 &&
       hasMoreMessages &&
@@ -3460,6 +3662,65 @@ const MyWorkspaceChannelId = () => {
     }
   }, [message]);
 
+  // ─── Jump to message ──────────────────────────────────────────────
+  const handleJumpToMessage = useCallback((messageId) => {
+    if (!messageId) return;
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const target = container.querySelector(`[data-message-id="${messageId}"]`);
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    target.classList.add("ring-2", "ring-teal-400", "rounded-2xl");
+    setTimeout(() => {
+      target.classList.remove("ring-2", "ring-teal-400", "rounded-2xl");
+    }, 1200);
+  }, []);
+
+  // ── Messages that mention ME, sorted chronologically ─────────────
+ // ── Messages that mention ME and are UNREAD, sorted chronologically ──
+const messagesMentioningMe = useMemo(() => {
+  if (!localMessages?.length || !userInfo?._id) return [];
+  const myId = String(userInfo._id);
+  return localMessages
+    .filter((m) => {
+      if (m.isDeleted) return false;
+      // Skip messages I've already read
+      if (m._read) return false;
+      // Skip my own messages
+      const senderId = m.sender?._id || m.sender;
+      if (senderId && String(senderId) === myId) return false;
+      // Must contain my id in the mentions array
+      const arr = m.mentions;
+      if (!Array.isArray(arr) || arr.length === 0) return false;
+      return arr.some((x) => {
+        const id =
+          typeof x === "string"
+            ? x
+            : x?._id?.toString?.() ??
+              x?.user?._id?.toString?.() ??
+              x?.user ??
+              null;
+        return id && String(id) === myId;
+      });
+    })
+    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+}, [localMessages, userInfo?._id]);
+
+  // Keep the nav index in range as mentions change
+  useEffect(() => {
+    if (mentionNavIndex >= messagesMentioningMe.length) {
+      setMentionNavIndex(0);
+    }
+  }, [messagesMentioningMe.length, mentionNavIndex]);
+
+  const jumpToNextMention = () => {
+    if (messagesMentioningMe.length === 0) return;
+    const idx = mentionNavIndex % messagesMentioningMe.length;
+    const target = messagesMentioningMe[idx];
+    handleJumpToMessage(target._id);
+    setMentionNavIndex((idx + 1) % messagesMentioningMe.length);
+  };
+
   // ─── Emoji helpers ─────────────────────────────────────────────────
   const toggleEmoji = useCallback(() => {
     setShowEmojiPicker((prev) => {
@@ -3488,7 +3749,6 @@ const MyWorkspaceChannelId = () => {
       toast.error("Not connected");
       return;
     }
-    // Find the full sticker object from saved stickers
     const stickerObj = savedStickersData?.stickers?.find(s => s._id === stickerId);
     if (!stickerObj) {
       toast.error("Sticker not found");
@@ -3513,7 +3773,7 @@ const MyWorkspaceChannelId = () => {
       createdAt: new Date().toISOString(),
       messageType: "sticker",
       chat: chatId,
-      sticker: stickerObj, // full object
+      sticker: stickerObj,
       replyTo: replyToMessage ? { _id: replyToMessage._id } : null,
     };
     setLocalMessages((prev) => [...prev, optimisticMsg]);
@@ -3560,12 +3820,23 @@ const MyWorkspaceChannelId = () => {
   }, []);
 
   // ─── Mark message as read ──────────────────────────────────────────
-  const markMessageAsRead = useCallback((messageId) => {
-    if (!socket || !isConnected) return;
-    const msg = localMessages.find((m) => m._id === messageId);
-    if (!msg || msg._read || msg.sender?._id === userInfo?._id) return;
-    socket.emit("mark-read", { chatId, messageIds: [messageId] });
-  }, [socket, isConnected, chatId, localMessages, userInfo]);
+  // ─── Mark message as read ──────────────────────────────────────────
+const markMessageAsRead = useCallback((messageId) => {
+  if (!socket || !isConnected) return;
+  const msg = localMessages.find((m) => m._id === messageId);
+  if (!msg || msg._read) return;
+
+  // Don't mark my own messages
+  const senderId = msg.sender?._id || msg.sender;
+  if (senderId && String(senderId) === String(userInfo?._id)) return;
+
+  // Optimistic local update — the @ badge reacts instantly
+  setLocalMessages((prev) =>
+    prev.map((m) => (m._id === messageId ? { ...m, _read: true } : m))
+  );
+
+  socket.emit("mark-read", { chatId, messageIds: [messageId] });
+}, [socket, isConnected, chatId, localMessages, userInfo]);
 
   // ─── Intersection Observer for auto‑read ─────────────────────────
   useEffect(() => {
@@ -3861,6 +4132,12 @@ const MyWorkspaceChannelId = () => {
     formData.append('media', audioFile);
     formData.append('messageType', 'audio');
     formData.append('mediaDuration', recordingTime.toString());
+    if (pendingMentions.length > 0) {
+      formData.append('mentions', JSON.stringify(pendingMentions));
+    }
+    if (slash.pending.length > 0) {
+      formData.append('references', JSON.stringify(slash.pending));
+    }
     if (replyToMessage) {
       formData.append('replyToId', replyToMessage._id);
     }
@@ -3873,6 +4150,8 @@ const MyWorkspaceChannelId = () => {
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     formData.append('clientMsgId', tempId);
 
+    const refsToSend = [...slash.pending];
+    const mentionsToSend = [...pendingMentions];
     const optimisticMsg = {
       _id: tempId,
       _tempId: tempId,
@@ -3899,12 +4178,16 @@ const MyWorkspaceChannelId = () => {
       mediaSize: audioBlob.size,
       mediaDuration: recordingTime,
       mediaSignature: signature,
+      references: refsToSend,
+      mentions: mentionsToSend,
     };
     setLocalMessages(prev => [...prev, optimisticMsg]);
     setRecordingBlob(null);
     setShowRecordedPreview(false);
     setRecordingTime(0);
     setReplyToMessage(null);
+    setPendingMentions([]);
+    slash.clearPending();
 
     try {
       const res = await sendMessageApi({ chatId, data: formData }).unwrap();
@@ -3939,13 +4222,58 @@ const MyWorkspaceChannelId = () => {
     }
   };
 
-  // ─── Auto‑send after quick send ──────────────────────────────────
   useEffect(() => {
     if (quickSendRef.current && recordingBlob) {
       quickSendRef.current = false;
       sendAudioMessage(recordingBlob);
     }
   }, [recordingBlob]);
+
+  // ─── Voice preview play/pause ────────────────────────────────────
+  const resetPreviewAudio = useCallback(() => {
+    if (previewAudioRef.current) {
+      try {
+        previewAudioRef.current.pause();
+      } catch (_) {}
+      previewAudioRef.current = null;
+    }
+    setPreviewPlaying(false);
+  }, []);
+
+  const togglePreviewPlay = useCallback(() => {
+    if (!recordingBlob) return;
+    if (previewPlaying && previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      setPreviewPlaying(false);
+      return;
+    }
+    if (!previewAudioRef.current) {
+      const audio = new Audio(URL.createObjectURL(recordingBlob));
+      audio.onended = () => setPreviewPlaying(false);
+      audio.onerror = () => setPreviewPlaying(false);
+      previewAudioRef.current = audio;
+    }
+    previewAudioRef.current.play().then(() => {
+      setPreviewPlaying(true);
+    }).catch(() => {
+      setPreviewPlaying(false);
+    });
+  }, [recordingBlob, previewPlaying]);
+
+  useEffect(() => {
+    return () => {
+      if (previewAudioRef.current) {
+        try {
+          previewAudioRef.current.pause();
+        } catch (_) {}
+        previewAudioRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    resetPreviewAudio();
+  }, [recordingBlob, resetPreviewAudio]);
 
   // ─── File / image: Native plugins ────────────────────────────────
   const handleTakePhoto = useCallback(async () => {
@@ -4111,6 +4439,12 @@ const MyWorkspaceChannelId = () => {
     formData.append('media', file);
     const messageType = file.type.startsWith('image/') ? 'image' : 'file';
     formData.append('messageType', messageType);
+    if (pendingMentions.length > 0) {
+      formData.append('mentions', JSON.stringify(pendingMentions));
+    }
+    if (slash.pending.length > 0) {
+      formData.append('references', JSON.stringify(slash.pending));
+    }
     if (replyToMessage) {
       formData.append('replyToId', replyToMessage._id);
     }
@@ -4123,6 +4457,8 @@ const MyWorkspaceChannelId = () => {
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     formData.append('clientMsgId', tempId);
 
+    const refsToSend = [...slash.pending];
+    const mentionsToSend = [...pendingMentions];
     const optimisticMsg = {
       _id: tempId,
       _tempId: tempId,
@@ -4149,10 +4485,14 @@ const MyWorkspaceChannelId = () => {
       mediaSize: file.size,
       mediaDuration: null,
       mediaSignature: signature,
+      references: refsToSend,
+      mentions: mentionsToSend,
     };
     setLocalMessages(prev => [...prev, optimisticMsg]);
     setReplyToMessage(null);
     setPendingMedia(null);
+    setPendingMentions([]);
+    slash.clearPending();
 
     try {
       await sendMessageApi({ chatId, data: formData }).unwrap();
@@ -4169,10 +4509,8 @@ const MyWorkspaceChannelId = () => {
 
   // ─── Optimistic reaction handler ──────────────────────────────────
   const handleReaction = async (messageId, emoji) => {
-    // Save current state for rollback
     const previousState = [...localMessages];
-    
-    // Optimistic update - apply reaction immediately
+
     setLocalMessages((prev) =>
       prev.map((msg) => {
         if (msg._id === messageId) {
@@ -4181,7 +4519,6 @@ const MyWorkspaceChannelId = () => {
             (r) => r.user === userInfo?._id && r.emoji === emoji,
           );
           if (existing) {
-            // Remove reaction
             return {
               ...msg,
               reactions: reactions.filter(
@@ -4189,7 +4526,6 @@ const MyWorkspaceChannelId = () => {
               ),
             };
           } else {
-            // Add reaction
             return {
               ...msg,
               reactions: [...reactions, { user: userInfo?._id, emoji }],
@@ -4202,9 +4538,7 @@ const MyWorkspaceChannelId = () => {
 
     try {
       await toggleReaction({ messageId, emoji }).unwrap();
-      // Keep optimistic state on success; socket events will sync as well
     } catch (err) {
-      // Rollback on error
       setLocalMessages(previousState);
       toast.error("Failed to update reaction");
     }
@@ -4232,33 +4566,28 @@ const MyWorkspaceChannelId = () => {
       return;
     }
 
-    // Save current state for rollback
     const previousState = [...localMessages];
-    
-    // Optimistic update - apply edit immediately
+
     const updatedFields = {
       content: trimmed,
       edited: true,
       editedAt: new Date().toISOString(),
     };
-    
+
     setLocalMessages((prev) =>
       prev.map((m) =>
         m._id === editingMessageId ? { ...m, ...updatedFields } : m
       )
     );
-    
-    // Clear edit bar
+
     handleCancelEdit();
 
     try {
       await updateMessageApi({ messageId: editingMessageId, content: trimmed }).unwrap();
       toast.success("Message updated");
     } catch (err) {
-      // Rollback on error
       setLocalMessages(previousState);
       toast.error(err?.data?.message || "Failed to update");
-      // Re-open edit bar with old content
       const oldMsg = previousState.find((m) => m._id === editingMessageId);
       if (oldMsg) {
         setEditingMessageId(oldMsg._id);
@@ -4354,16 +4683,6 @@ const MyWorkspaceChannelId = () => {
     setActionModal({ isOpen: true, message: msg });
   };
 
-  const handleJumpToMessage = useCallback((messageId) => {
-    const container = messagesContainerRef.current;
-    if (!container) return;
-    const target = container.querySelector(`[data-message-id="${messageId}"]`);
-    if (!target) return;
-    target.scrollIntoView({ behavior: "smooth", block: "center" });
-    target.classList.add("ring-2", "ring-teal-400", "rounded-2xl");
-    setTimeout(() => target.classList.remove("ring-2", "ring-teal-400", "rounded-2xl"), 1200);
-  }, []);
-
   // ─── Group management handlers ──────────────────────────────────
   const handleAddMember = (chatId) => {
     setAddMemberModal({ isOpen: true, chatId });
@@ -4413,7 +4732,7 @@ const MyWorkspaceChannelId = () => {
       message: "Are you sure you want to remove admin rights from this user?",
       onConfirm: async () => {
         try {
-          await removeAdmin({ chatId, userId }).unwrap();
+          await removeGroupAdmin({ chatId, userId }).unwrap();
           toast.success("Admin rights removed");
           refetchChats();
         } catch (err) {
@@ -4518,7 +4837,94 @@ const MyWorkspaceChannelId = () => {
     }
   };
 
-  // ─── Optimistic text send ──────────────────────────────────────
+  // ─── Mention logic ────────────────────────────────────────────────
+  const extractMentionsFromText = useCallback((text) => {
+    const matches = text.match(/@([a-zA-Z0-9_]+)/g);
+    if (!matches) return [];
+    const ids = [];
+    const seen = new Set();
+    matches.forEach((m) => {
+      const username = m.slice(1).toLowerCase();
+      const userId = usernameMap.get(username);
+      if (userId && !seen.has(userId)) {
+        seen.add(userId);
+        ids.push(userId);
+      }
+    });
+    return ids;
+  }, [usernameMap]);
+
+  const handleMessageChange = (e) => {
+    // Delegate to slash hook first (it uses the same event)
+    slash.handleChange(e);
+
+    const value = e.target.value;
+    setMessage(value);
+    if (editingMessageId) setEditContent(value);
+
+    // Recompute pending mentions
+    const mentions = extractMentionsFromText(value);
+    setPendingMentions(mentions);
+
+    const cursorPos = e.target.selectionStart || 0;
+    const beforeCursor = value.slice(0, cursorPos);
+    const lastAt = beforeCursor.lastIndexOf("@");
+    if (lastAt !== -1) {
+      const afterAt = value.slice(lastAt + 1, cursorPos);
+      if (!afterAt.includes(" ") && afterAt.length <= 20) {
+        setMentionQuery(afterAt);
+        setShowMentions(true);
+        const queryLower = afterAt.toLowerCase();
+        const filtered = participants
+          .map((p) => p.user)
+          .filter((u) => u && u._id !== userInfo?._id)
+          .filter((u) => {
+            const name = (u.name || "").toLowerCase();
+            const username = (u.username || "").toLowerCase();
+            return name.includes(queryLower) || username.includes(queryLower);
+          });
+        setMentionSuggestions(filtered);
+        return;
+      }
+    }
+    setShowMentions(false);
+    setMentionQuery("");
+    setMentionSuggestions([]);
+  };
+
+  const handleSelectMention = (user) => {
+    const value = message;
+    const cursorPos = inputRef.current?.selectionStart || 0;
+    const beforeCursor = value.slice(0, cursorPos);
+    const lastAt = beforeCursor.lastIndexOf("@");
+    if (lastAt === -1) return;
+    const beforeMention = value.slice(0, lastAt);
+    const afterCursor = value.slice(cursorPos);
+    const handle = getMentionHandle(user);
+    if (!handle) return;
+    const mentionText = `@${handle} `;
+    const newValue = beforeMention + mentionText + afterCursor;
+    setMessage(newValue);
+    if (editingMessageId) setEditContent(newValue);
+    setShowMentions(false);
+    setMentionQuery("");
+    setMentionSuggestions([]);
+
+    // Recompute pending mentions from the new text
+    const mentions = extractMentionsFromText(newValue);
+    setPendingMentions(mentions);
+
+    setTimeout(() => {
+      if (inputRef.current) {
+        const newCursor = beforeMention.length + mentionText.length;
+        inputRef.current.selectionStart = newCursor;
+        inputRef.current.selectionEnd = newCursor;
+        inputRef.current.focus();
+      }
+    }, 0);
+  };
+
+  // ─── Optimistic text send (socket, with references + mentions) ───
   const handleSendMessage = (e) => {
     e.preventDefault();
     if (editingMessageId) {
@@ -4526,7 +4932,9 @@ const MyWorkspaceChannelId = () => {
       return;
     }
     const trimmed = message.trim();
-    if (!trimmed || !socket) return;
+    const hasRefs = slash.pending.length > 0;
+    if (!trimmed && !hasRefs) return;
+    if (!socket) return;
     if (isSendingRef.current) return;
 
     const now = Date.now();
@@ -4553,6 +4961,8 @@ const MyWorkspaceChannelId = () => {
     };
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const refsToSend = [...slash.pending];
+    const mentionsToSend = [...pendingMentions];
     const optimisticMsg = {
       _id: tempId,
       _tempId: tempId,
@@ -4567,6 +4977,8 @@ const MyWorkspaceChannelId = () => {
       createdAt: new Date().toISOString(),
       messageType: "text",
       chat: chatId,
+      mentions: mentionsToSend,
+      references: refsToSend,
       replyTo: replyToMessage
         ? {
             _id: replyToMessage._id,
@@ -4579,8 +4991,12 @@ const MyWorkspaceChannelId = () => {
     };
     setLocalMessages((prev) => [...prev, optimisticMsg]);
     setMessage("");
+    setPendingMentions([]);
     const replyToId = replyToMessage?._id || null;
     setReplyToMessage(null);
+    slash.clearPending();
+    setShowMentions(false);
+    setMentionSuggestions([]);
 
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
@@ -4593,9 +5009,10 @@ const MyWorkspaceChannelId = () => {
         chatId,
         content: trimmed,
         messageType: "text",
-        mentions: [],
+        mentions: mentionsToSend,
         replyToId,
         clientMsgId: tempId,
+        references: refsToSend,
       },
       (response) => {
         isSendingRef.current = false;
@@ -4682,6 +5099,7 @@ const MyWorkspaceChannelId = () => {
           senderName={sender?.name || "Unknown"}
           senderProfile={sender?.profile}
           brandColor={brandColor}
+          mentionNames={mentionNames}
           onImageClick={(payload) => setPreviewImage(payload)}
           onDelete={handleDeleteMessage}
           onArchive={handleArchiveMessage}
@@ -4789,7 +5207,6 @@ const MyWorkspaceChannelId = () => {
             </button>
           </div>
 
-          {/* Desktop search dropdown */}
           {!isMobile && (
             <ChatSearchModal
               isOpen={showSearch}
@@ -4814,7 +5231,6 @@ const MyWorkspaceChannelId = () => {
               paddingBottom: isMobile ? `${inputHeight + 60}px` : undefined,
             }}
           >
-            {/* Pagination trigger / indicator at the top */}
             {hasMoreMessages && !messagesLoading && (
               <div className="flex justify-center py-2">
                 {isLoadingMore || (messagesFetching && messagesPage > 1) ? (
@@ -4835,6 +5251,22 @@ const MyWorkspaceChannelId = () => {
             {renderMessagesWithDividers()}
             <div ref={messagesEndRef} />
           </div>
+
+          {/* @ mention navigation button — sits above the scroll-to-bottom */}
+          {messagesMentioningMe.length > 0 && (
+            <button
+              onClick={jumpToNextMention}
+              title={`You were mentioned in ${messagesMentioningMe.length} message${messagesMentioningMe.length === 1 ? "" : "s"}`}
+              className={`absolute right-4 z-30 h-10 min-w-[40px] px-2 rounded-full bg-white dark:bg-[#14141a] shadow-lg border border-teal-200 dark:border-teal-800/60 flex items-center justify-center gap-1 text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/20 transition-all ${
+                showScrollDown ? "bottom-[4.5rem]" : "bottom-4"
+              }`}
+            >
+              <FaAt className="text-sm" />
+              <span className="text-xs font-bold tabular-nums">
+                {messagesMentioningMe.length}
+              </span>
+            </button>
+          )}
 
           {showScrollDown && (
             <button
@@ -4864,6 +5296,23 @@ const MyWorkspaceChannelId = () => {
 
           {renderEditBar()}
 
+          {/* Pending references (chips above the input) */}
+          {slash.pending.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {slash.pending.map((r, i) => (
+                <button
+                  key={`${r.type}-${r.refId}-${i}`}
+                  type="button"
+                  onClick={() => slash.removePending(i)}
+                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-teal-50 dark:bg-teal-900/30 border border-teal-200/60 dark:border-teal-800/40 text-teal-700 dark:text-teal-300 text-[11px] font-medium hover:bg-teal-100 dark:hover:bg-teal-900/50 transition"
+                >
+                  <span className="truncate max-w-[140px]">{r.label}</span>
+                  <FaTimes className="text-[9px] opacity-70" />
+                </button>
+              ))}
+            </div>
+          )}
+
           {pendingMedia && (
             <MediaPreview
               mediaFile={pendingMedia}
@@ -4884,13 +5333,11 @@ const MyWorkspaceChannelId = () => {
               </div>
               <div className="flex gap-1">
                 <button
-                  onClick={() => {
-                    const audio = new Audio(URL.createObjectURL(recordingBlob));
-                    audio.play();
-                  }}
+                  onClick={togglePreviewPlay}
                   className="p-1 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white"
+                  aria-label={previewPlaying ? "Pause preview" : "Play preview"}
                 >
-                  <FaPlay className="text-xs" />
+                  {previewPlaying ? <FaPause className="text-xs" /> : <FaPlay className="text-xs" />}
                 </button>
                 <button
                   onClick={() => sendAudioMessage(recordingBlob)}
@@ -4900,7 +5347,12 @@ const MyWorkspaceChannelId = () => {
                   Send
                 </button>
                 <button
-                  onClick={() => { setRecordingBlob(null); setShowRecordedPreview(false); setRecordingTime(0); }}
+                  onClick={() => {
+                    resetPreviewAudio();
+                    setRecordingBlob(null);
+                    setShowRecordedPreview(false);
+                    setRecordingTime(0);
+                  }}
                   className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-white"
                 >
                   <FaTimes className="text-xs" />
@@ -4942,7 +5394,6 @@ const MyWorkspaceChannelId = () => {
 
           {/* ─── Input form ─── */}
           <form onSubmit={handleSendMessage} className="flex items-end gap-2 py-2">
-            {/* Emoji button */}
             <div className="relative flex-shrink-0 mb-1" ref={emojiPickerRef}>
               <button
                 type="button"
@@ -5039,16 +5490,52 @@ const MyWorkspaceChannelId = () => {
 
             {/* Input pill */}
             <div className="flex-1 min-w-0 relative flex items-end">
+              <SlashMentionPicker
+                open={slash.open && !showMentions}
+                results={slash.results}
+                query={slash.query}
+                activeTab={slash.activeTab}
+                setActiveTab={slash.setActiveTab}
+                isFetching={slash.isFetching}
+                onPick={slash.pickReference}
+                onClose={slash.close}
+              />
+              <MentionPicker
+                isOpen={showMentions && !slash.open}
+                suggestions={mentionSuggestions}
+                query={mentionQuery}
+                onSelect={handleSelectMention}
+                brandColor={brandColor}
+              />
               <textarea
                 ref={inputRef}
                 value={message}
-                onChange={(e) => {
-                  setMessage(e.target.value);
-                  if (editingMessageId) setEditContent(e.target.value);
-                }}
+                onChange={handleMessageChange}
                 onPaste={handlePaste}
                 onFocus={() => setShowEmojiPicker(false)}
+                onBlur={() => {
+                  // Small delay so click on picker registers first
+                  setTimeout(() => setShowMentions(false), 200);
+                }}
                 onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    if (showMentions) {
+                      setShowMentions(false);
+                      setMentionQuery("");
+                      setMentionSuggestions([]);
+                      return;
+                    }
+                    if (slash.open) {
+                      slash.close();
+                      return;
+                    }
+                  }
+                  if (e.key === "Enter" && showMentions && mentionSuggestions.length > 0) {
+                    // Select the first mention
+                    e.preventDefault();
+                    handleSelectMention(mentionSuggestions[0]);
+                    return;
+                  }
                   if (isMobile) return;
                   if (isSendingRef.current) return;
                   if (e.key === 'Enter' && !e.shiftKey) {
@@ -5056,7 +5543,11 @@ const MyWorkspaceChannelId = () => {
                     handleSendMessage(e);
                   }
                 }}
-                placeholder={editingMessageId ? "Edit message..." : "Message"}
+                placeholder={
+                  editingMessageId
+                    ? "Edit message..."
+                    : "Message… type / to tag a task, project, note, or clock-in"
+                }
                 rows={1}
                 className="w-full min-w-0 pl-4 pr-20 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-teal-500 dark:focus:ring-[#0d9488] resize-none max-h-32 overflow-y-auto"
                 style={{ minHeight: '42px', lineHeight: '1.5' }}
@@ -5082,7 +5573,7 @@ const MyWorkspaceChannelId = () => {
             </div>
 
             {/* Mic / Send button */}
-            {message.trim() || editingMessageId ? (
+            {message.trim() || editingMessageId || slash.pending.length > 0 ? (
               <button
                 type="submit"
                 disabled={!isConnected || isSending}
@@ -5212,7 +5703,7 @@ const MyWorkspaceChannelId = () => {
         </div>
       </div>
 
-      {/* Mobile: search overlay (full-screen) */}
+      {/* Mobile: search overlay */}
       {isMobile && (
         <ChatSearchModal
           isOpen={showSearch}
@@ -5306,7 +5797,6 @@ const MyWorkspaceChannelId = () => {
         brandColor={brandColor}
       />
 
-      {/* Image Editor Full‑Screen */}
       {imageEditorOpen && imageToEdit && (
         <ImageEditorScreen
           file={imageToEdit}

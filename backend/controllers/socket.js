@@ -1,8 +1,13 @@
 // socket.js
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
 import { Message, Chat } from '../models/messagingModel.js';
-import Sticker from '../models/stickerModel.js';  // ✨ import Sticker
+import Sticker from '../models/stickerModel.js';
+import Task from '../models/taskModel.js';
+import Project from '../models/projectModel.js';
+import WorkspaceNote from '../models/workspaceNoteModel.js';
+import ClockIn from '../models/clockInModel.js';
 import Call from '../models/call.js';
 import User from '../models/userModel.js';
 import Workspace from '../models/workspaceModel.js';
@@ -20,6 +25,116 @@ const socketCallRooms = new Map(); // socketId -> Set<roomId>
 const isSocketUserOnline = (userId) => {
   const room = io.sockets.adapter.rooms.get(`user:${userId}`);
   return !!room && room.size > 0;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REFERENCE SANITIZER — same shape as the one in messagingController.js
+// Validates tagged tasks/projects/notes/clock-ins against the workspace
+// before storing. Never trust anything from the socket payload.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const REFERENCE_TYPES = ['task', 'project', 'note', 'clockin'];
+
+const sanitizeReferences = async (rawRefs, workspaceId, userId) => {
+  if (!Array.isArray(rawRefs) || rawRefs.length === 0) return [];
+  if (!workspaceId) return [];
+
+  const cleaned = [];
+
+  for (const raw of rawRefs.slice(0, 10)) {
+    const { type, refId } = raw || {};
+    if (!REFERENCE_TYPES.includes(type)) continue;
+    if (!mongoose.Types.ObjectId.isValid(refId)) continue;
+
+    if (
+      cleaned.some(
+        (r) => r.type === type && r.refId.toString() === refId.toString()
+      )
+    ) {
+      continue;
+    }
+
+    let doc = null;
+    let label = '';
+    let sublabel = '';
+    let url = '';
+
+    try {
+      if (type === 'task') {
+        doc = await Task.findOne({
+          _id: refId,
+          workspace: workspaceId,
+          isDeleted: false,
+          isTrash: { $ne: true },
+        })
+          .populate({ path: 'project', select: 'name' })
+          .lean();
+        if (doc) {
+          label = doc.title;
+          sublabel = doc.project?.name || '';
+          url = doc.project?._id
+            ? `/workspace/${workspaceId}/project/${doc.project._id}/task/${doc._id}`
+            : null;
+        }
+      } else if (type === 'project') {
+        doc = await Project.findOne({
+          _id: refId,
+          workspace: workspaceId,
+          isTrash: { $ne: true },
+        }).lean();
+        if (doc) {
+          label = doc.name;
+          sublabel = doc.status || '';
+          url = `/workspace/${workspaceId}/project/${doc._id}`;
+        }
+      } else if (type === 'note') {
+        doc = await WorkspaceNote.findOne({
+          _id: refId,
+          workspace: workspaceId,
+        }).lean();
+        if (doc) {
+          label = doc.title;
+          sublabel = 'Note';
+          url = `/workspace/${workspaceId}/notes/${doc._id}`;
+        }
+      } else if (type === 'clockin') {
+        doc = await ClockIn.findOne({
+          _id: refId,
+          workspace: workspaceId,
+          user: userId,
+        }).lean();
+        if (doc) {
+          const t = new Date(doc.clockInTime);
+          label = `Clocked in at ${t.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+          })}`;
+          sublabel = t.toLocaleDateString('en-US', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+          });
+          url = `/workspace/${workspaceId}/clockin`;
+        }
+      }
+    } catch (err) {
+      console.error('sanitizeReferences lookup failed:', err.message);
+      continue;
+    }
+
+    if (!doc || !url) continue;
+
+    cleaned.push({
+      type,
+      refId: doc._id,
+      label: String(label).slice(0, 200),
+      sublabel: String(sublabel || '').slice(0, 120),
+      url,
+      workspaceId,
+    });
+  }
+
+  return cleaned;
 };
 
 export const initSocket = (server) => {
@@ -137,7 +252,7 @@ export const initSocket = (server) => {
       socket.leave(`chat:${chatId}`);
     });
 
-    // ── SEND MESSAGE (with sticker support) ──────────────────────────
+    // ── SEND MESSAGE (sticker + references supported) ──────────────
     socket.on('send-message', async (data, callback) => {
       try {
         const {
@@ -150,8 +265,9 @@ export const initSocket = (server) => {
           mediaName,
           mediaSize,
           mediaDuration,
-          stickerId,        // ✨ new
+          stickerId,
           clientMsgId,
+          references: rawReferences,   // 👈 NEW
         } = data;
 
         const chat = await Chat.findById(chatId);
@@ -162,7 +278,7 @@ export const initSocket = (server) => {
         );
         if (!isParticipant) return callback({ error: 'You are not a participant in this chat' });
 
-        // ─── Sticker handling ──────────────────────────────────────────
+        // ─── Sticker handling ──────────────────────────────────────
         let stickerRef = null;
         if (messageType === 'sticker') {
           if (!stickerId) {
@@ -175,12 +291,14 @@ export const initSocket = (server) => {
           stickerRef = stickerId;
         }
 
-        // ─── Media handling (only if not sticker) ─────────────────────
         let finalMessageType = messageType || 'text';
-        if (messageType !== 'sticker') {
-          // if mediaUrl is present, we treat it as media message; but if not, it's text
-          // we don't have a file upload in socket, so we rely on passed mediaUrl
-        }
+
+        // ─── References validation ────────────────────────────────
+        const sanitizedReferences = await sanitizeReferences(
+          rawReferences,
+          chat.workspace,
+          socket.userId
+        );
 
         const message = await Message.create({
           workspace: chat.workspace,
@@ -193,8 +311,9 @@ export const initSocket = (server) => {
           mediaSize: mediaSize || null,
           mediaDuration: mediaDuration || null,
           mentions: mentions || [],
+          references: sanitizedReferences,   // 👈 stored
           replyTo: replyToId || null,
-          sticker: stickerRef,   // ✨ set sticker reference
+          sticker: stickerRef,
           readBy: [{ user: socket.userId, readAt: new Date() }],
         });
 
@@ -206,7 +325,7 @@ export const initSocket = (server) => {
           .populate('sender', 'name email profile')
           .populate('mentions', 'name email profile')
           .populate('replyTo')
-          .populate('sticker', 'fileUrl thumbnailUrl type');   // ✨ populate sticker
+          .populate('sticker', 'fileUrl thumbnailUrl type');
 
         const responseMessage = populatedMessage.toObject
           ? populatedMessage.toObject()
@@ -221,7 +340,7 @@ export const initSocket = (server) => {
           userId: socket.userId,
         });
 
-        // ─── Chat list update ──────────────────────────────────────────
+        // ─── Chat list update ──────────────────────────────────────
         const lastMessagePreview = {
           _id: message._id,
           content: message.content,
@@ -237,7 +356,7 @@ export const initSocket = (server) => {
           });
         });
 
-        // ─── Notifications (delayed) ──────────────────────────────────
+        // ─── Notifications (delayed) ──────────────────────────────
         const senderName = socket.user.name || 'Someone';
         const chatType = chat.type;
         const chatName = chat.type === 'group' ? chat.name : senderName;
@@ -334,14 +453,7 @@ export const initSocket = (server) => {
     socket.on('toggle-reaction', async (data, callback) => { /* ... */ });
 
     // ─────────────────────────────────────────────────────────────
-    // ── Call signaling — THIS is what was missing/broken before ──
-    // Every one of these was previously an empty `{ /* ... */ }`
-    // stub, so join-call-room never actually joined the Socket.IO
-    // room, and call-offer / call-answer / ice-candidate were never
-    // relayed to the other participant. That's why calls would ring
-    // and "join" successfully (that part is plain REST + notifications)
-    // but no audio/video would ever connect — the WebRTC handshake
-    // packets had nowhere to go.
+    // ── Call signaling — unchanged
     // ─────────────────────────────────────────────────────────────
 
     socket.on('join-call-room', async (roomId) => {
@@ -351,8 +463,6 @@ export const initSocket = (server) => {
       const rooms = socketCallRooms.get(socket.id);
       if (rooms) rooms.add(roomId);
 
-      // Tell everyone already in the room that this user just joined,
-      // so they know to send this user a WebRTC offer.
       socket.to(`room:${roomId}`).emit('participant-joined', socket.userId);
     });
 
@@ -401,10 +511,6 @@ export const initSocket = (server) => {
     socket.on('disconnect', async () => {
       console.log(`❌ User disconnected: ${socket.userId} - ${socket.user.name}`);
 
-      // Make sure any call rooms this socket was in get notified that
-      // this participant is gone (covers dropped connections, app kill,
-      // browser refresh — cases where the client never gets to emit
-      // 'leave-call' explicitly).
       const rooms = socketCallRooms.get(socket.id);
       if (rooms && rooms.size > 0) {
         for (const roomId of rooms) {

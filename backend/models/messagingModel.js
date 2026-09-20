@@ -32,7 +32,7 @@ const messageSchema = new mongoose.Schema(
     },
     messageType: {
       type: String,
-      enum: ['text', 'image', 'video', 'audio', 'file', 'sticker'], // ✨ added 'sticker'
+      enum: ['text', 'image', 'video', 'audio', 'file', 'sticker'],
       default: 'text',
     },
     mediaUrl: {
@@ -57,12 +57,45 @@ const messageSchema = new mongoose.Schema(
         ref: 'User',
       },
     ],
+    // ✨ NEW: references — tagged tasks / projects / notes / clock-ins
+    // Denormalized on purpose so reads never need to populate.
+    // The workspace-scoped validation happens in messagingController.
+    references: [
+      {
+        type: {
+          type: String,
+          enum: ['task', 'project', 'note', 'clockin'],
+          required: true,
+        },
+        refId: {
+          type: mongoose.Schema.Types.ObjectId,
+          required: true,
+        },
+        label: {
+          type: String,
+          default: '',
+        },
+        sublabel: {
+          type: String,
+          default: '',
+        },
+        url: {
+          type: String,
+          default: '',
+        },
+        workspaceId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Workspace',
+          default: null,
+        },
+      },
+    ],
     replyTo: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Message',
       default: null,
     },
-    // ✨ NEW: sticker reference
+    // ✨ sticker reference
     sticker: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Sticker',
@@ -89,7 +122,6 @@ const messageSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
-    // ✨ reactions array (already present)
     reactions: [
       {
         user: {
@@ -139,8 +171,8 @@ messageSchema.index({ workspace: 1, createdAt: -1 });
 messageSchema.index({ sender: 1 });
 messageSchema.index({ archivedBy: 1 });
 messageSchema.index({ starredBy: 1 });
-// ✨ optional index for sticker queries
 messageSchema.index({ sticker: 1 });
+messageSchema.index({ 'references.refId': 1 });   // 👈 NEW — fast "find messages referencing X"
 
 const Message = mongoose.model('Message', messageSchema);
 

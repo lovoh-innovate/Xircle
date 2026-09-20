@@ -3,7 +3,11 @@ import mongoose from "mongoose";
 import { Message, Chat, TypingIndicator } from "../models/messagingModel.js";
 import Workspace from "../models/workspaceModel.js";
 import User from "../models/userModel.js";
-import Sticker from "../models/stickerModel.js"; // ✨ sticker model
+import Sticker from "../models/stickerModel.js";
+import Task from "../models/taskModel.js";                          // 👈 NEW
+import Project from "../models/projectModel.js";                    // 👈 NEW
+import WorkspaceNote from "../models/workspaceNoteModel.js";        // 👈 NEW
+import ClockIn from "../models/clockInModel.js";                    // 👈 NEW
 import { createAndSendNotification } from './notificationController.js';
 import { getIO } from './socket.js';
 
@@ -91,6 +95,112 @@ const notifyUsers = async (userIds, { title, body, data = {} } = {}) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// REFERENCE SANITIZER — validates tagged tasks/projects/notes/clock-ins
+// Never trust the client. Every ref is re-checked against the workspace.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const REFERENCE_TYPES = ['task', 'project', 'note', 'clockin'];
+
+const sanitizeReferences = async (rawRefs, workspaceId, userId) => {
+  if (!Array.isArray(rawRefs) || rawRefs.length === 0) return [];
+  if (!workspaceId) return []; // refs only make sense inside a workspace chat
+
+  const cleaned = [];
+
+  for (const raw of rawRefs.slice(0, 10)) {
+    const { type, refId } = raw || {};
+    if (!REFERENCE_TYPES.includes(type)) continue;
+    if (!mongoose.Types.ObjectId.isValid(refId)) continue;
+
+    // Dedupe by (type, refId)
+    if (cleaned.some((r) => r.type === type && r.refId.toString() === refId.toString())) {
+      continue;
+    }
+
+    let doc = null;
+    let label = '';
+    let sublabel = '';
+    let url = '';
+
+    try {
+      if (type === 'task') {
+        doc = await Task.findOne({
+          _id: refId,
+          workspace: workspaceId,
+          isDeleted: false,
+          isTrash: { $ne: true },
+        })
+          .populate({ path: 'project', select: 'name' })
+          .lean();
+        if (doc) {
+          label = doc.title;
+          sublabel = doc.project?.name || '';
+          url = doc.project?._id
+            ? `/workspace/${workspaceId}/project/${doc.project._id}/task/${doc._id}`
+            : null;
+        }
+      } else if (type === 'project') {
+        doc = await Project.findOne({
+          _id: refId,
+          workspace: workspaceId,
+          isTrash: { $ne: true },
+        }).lean();
+        if (doc) {
+          label = doc.name;
+          sublabel = doc.status || '';
+          url = `/workspace/${workspaceId}/project/${doc._id}`;
+        }
+      } else if (type === 'note') {
+        doc = await WorkspaceNote.findOne({
+          _id: refId,
+          workspace: workspaceId,
+        }).lean();
+        if (doc) {
+          label = doc.title;
+          sublabel = 'Note';
+          url = `/workspace/${workspaceId}/notes/${doc._id}`;
+        }
+      } else if (type === 'clockin') {
+        doc = await ClockIn.findOne({
+          _id: refId,
+          workspace: workspaceId,
+          user: userId, // you can only reference your own clock-in
+        }).lean();
+        if (doc) {
+          const t = new Date(doc.clockInTime);
+          label = `Clocked in at ${t.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+          })}`;
+          sublabel = t.toLocaleDateString('en-US', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+          });
+          url = `/workspace/${workspaceId}/clockin`;
+        }
+      }
+    } catch (err) {
+      console.error('sanitizeReferences lookup failed:', err.message);
+      continue;
+    }
+
+    if (!doc || !url) continue;
+
+    cleaned.push({
+      type,
+      refId: doc._id,
+      label: String(label).slice(0, 200),
+      sublabel: String(sublabel || '').slice(0, 120),
+      url,
+      workspaceId,
+    });
+  }
+
+  return cleaned;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // UPDATE ONLINE STATUS (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -118,6 +228,169 @@ export const updateOnlineStatus = async (req, res) => {
     res.status(200).json({ success: true });
   } catch (error) {
     console.error(`❌ updateOnlineStatus error:`, error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SEARCH CHAT ENTITIES — powers the "/" picker in the chat input
+// GET /api/messages/chat/:chatId/entities?q=...&limit=8
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const searchChatEntities = async (req, res) => {
+  console.log(`🔵 searchChatEntities called for chat ${req.params.chatId} by user ${req.user.id}`);
+  try {
+    const userId = req.user.id;
+    const { chatId } = req.params;
+    const { q = '', limit = 8 } = req.query;
+
+    const chat = await Chat.findById(chatId).select('participants workspace');
+    if (!chat) return res.status(404).json({ message: 'Chat not found.' });
+
+    const isParticipant = chat.participants.some(
+      (p) => p.user.toString() === userId
+    );
+    if (!isParticipant) {
+      return res.status(403).json({ message: 'Access denied.' });
+    }
+
+    // Non-workspace (public) chats have nothing to tag
+    if (!chat.workspace) {
+      return res.status(200).json({
+        success: true,
+        results: { tasks: [], projects: [], notes: [], clockins: [] },
+      });
+    }
+
+    const workspaceId = chat.workspace;
+    const workspace = await Workspace.findById(workspaceId).select('owner members');
+    if (!workspace) return res.status(404).json({ message: 'Workspace not found.' });
+
+    const isOwner = workspace.owner.toString() === userId;
+    const activeMember = workspace.members.find(
+      (m) => m.user.toString() === userId && m.status === 'active'
+    );
+    if (!isOwner && !activeMember) {
+      return res.status(403).json({ message: 'Not a workspace member.' });
+    }
+
+    const isAdmin =
+      isOwner || activeMember?.role?.toLowerCase() === 'admin';
+
+    const search = String(q).trim();
+    const regex = search
+      ? new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+      : null;
+    const cap = Math.min(parseInt(limit, 10) || 8, 15);
+
+    // ── Tasks ──────────────────────────────────────────────────
+    const taskQuery = {
+      workspace: workspaceId,
+      isDeleted: false,
+      isTrash: { $ne: true },
+    };
+    if (regex) taskQuery.title = regex;
+    const tasks = await Task.find(taskQuery)
+      .populate({ path: 'project', select: 'name' })
+      .select('title status priority project')
+      .sort({ updatedAt: -1 })
+      .limit(cap)
+      .lean();
+
+    // ── Projects ───────────────────────────────────────────────
+    const projectQuery = {
+      workspace: workspaceId,
+      isTrash: { $ne: true },
+    };
+    if (regex) projectQuery.name = regex;
+    const projects = await Project.find(projectQuery)
+      .select('name status progress')
+      .sort({ updatedAt: -1 })
+      .limit(cap)
+      .lean();
+
+    // ── Notes ──────────────────────────────────────────────────
+    const noteQuery = { workspace: workspaceId };
+    if (regex) noteQuery.title = regex;
+    const notes = await WorkspaceNote.find(noteQuery)
+      .select('title updatedAt')
+      .sort({ updatedAt: -1 })
+      .limit(cap)
+      .lean();
+
+    // ── Clock-ins ──────────────────────────────────────────────
+    // Staff sees their own. Admins/owner see everyone's.
+    const clockinQuery = {
+      workspace: workspaceId,
+      ...(isAdmin ? {} : { user: userId }),
+    };
+    const clockins = await ClockIn.find(clockinQuery)
+      .select('user clockInTime status')
+      .populate('user', 'name profile')
+      .sort({ clockInTime: -1 })
+      .limit(cap)
+      .lean();
+
+    res.status(200).json({
+      success: true,
+      workspaceId: workspaceId.toString(),
+      results: {
+        tasks: tasks.map((t) => ({
+          _id: t._id,
+          type: 'task',
+          label: t.title,
+          sublabel: t.project?.name || '',
+          projectId: t.project?._id || null,
+          status: t.status,
+          priority: t.priority,
+          url: t.project?._id
+            ? `/workspace/${workspaceId}/project/${t.project._id}/task/${t._id}`
+            : null,
+        })),
+        projects: projects.map((p) => ({
+          _id: p._id,
+          type: 'project',
+          label: p.name,
+          sublabel: p.status || '',
+          status: p.status,
+          progress: p.progress,
+          url: `/workspace/${workspaceId}/project/${p._id}`,
+        })),
+        notes: notes.map((n) => ({
+          _id: n._id,
+          type: 'note',
+          label: n.title,
+          sublabel: 'Note',
+          updatedAt: n.updatedAt,
+          url: `/workspace/${workspaceId}/notes/${n._id}`,
+        })),
+        clockins: clockins.map((c) => {
+          const t = new Date(c.clockInTime);
+          const isOther = c.user?._id?.toString() !== userId;
+          return {
+            _id: c._id,
+            type: 'clockin',
+            label: `Clocked in ${t.toLocaleTimeString('en-US', {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}`,
+            sublabel: isOther
+              ? `${c.user?.name || 'User'} · ${t.toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                })}`
+              : t.toLocaleDateString('en-US', {
+                  weekday: 'short',
+                  month: 'short',
+                  day: 'numeric',
+                }),
+            url: `/workspace/${workspaceId}/clockin`,
+          };
+        }),
+      },
+    });
+  } catch (error) {
+    console.error('❌ searchChatEntities error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -886,7 +1159,7 @@ export const getChatMessages = async (req, res) => {
         path: "replyTo",
         populate: { path: "sender", select: "name email profile username" },
       })
-      .populate("sticker", "fileUrl thumbnailUrl type") // ✨ populate sticker if present
+      .populate("sticker", "fileUrl thumbnailUrl type")
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit);
@@ -921,7 +1194,7 @@ export const getChatMessages = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SEND MESSAGE (UPDATED to support stickers)
+// SEND MESSAGE (archive-aware notifications + reference tags)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const sendMessage = async (req, res) => {
@@ -940,7 +1213,8 @@ export const sendMessage = async (req, res) => {
       mentions = [],
       replyToId,
       clientMsgId,
-      stickerId, // ✨ new field
+      stickerId,
+      references: rawReferences = [],   // 👈 NEW
     } = req.body;
 
     const isParticipant = await isChatParticipant(chatId, userId);
@@ -966,7 +1240,6 @@ export const sendMessage = async (req, res) => {
         return res.status(404).json({ message: "Sticker not found or deleted." });
       }
       stickerRef = sticker._id;
-      // Ignore any file upload for sticker
       if (req.file) {
         console.warn("⚠️ File upload ignored because messageType is 'sticker'.");
       }
@@ -1005,6 +1278,14 @@ export const sendMessage = async (req, res) => {
     const filteredMentions = validMentions.filter((m) => m !== null);
     console.log(`✅ Valid mentions: ${filteredMentions}`);
 
+    // ─── References validation (task / project / note / clockin) ─────
+    const sanitizedReferences = await sanitizeReferences(
+      rawReferences,
+      chat.workspace,
+      userId
+    );
+    console.log(`🔗 Valid references: ${sanitizedReferences.length}`);
+
     console.log(`📝 Creating message...`);
     const message = await Message.create({
       workspace: chat.workspace,
@@ -1017,8 +1298,9 @@ export const sendMessage = async (req, res) => {
       mediaSize,
       mediaDuration,
       mentions: filteredMentions,
+      references: sanitizedReferences,   // 👈 NEW
       replyTo: replyToId || null,
-      sticker: stickerRef, // ✨ store sticker reference
+      sticker: stickerRef,
       readBy: [{ user: userId, readAt: new Date() }],
       archivedBy: [],
       starredBy: [],
@@ -1037,7 +1319,7 @@ export const sendMessage = async (req, res) => {
         path: "replyTo",
         populate: { path: "sender", select: "name email profile username" },
       })
-      .populate("sticker", "fileUrl thumbnailUrl type"); // ✨ populate sticker
+      .populate("sticker", "fileUrl thumbnailUrl type");
 
     const responseMessage = populatedMessage.toObject
       ? populatedMessage.toObject()
@@ -1055,12 +1337,30 @@ export const sendMessage = async (req, res) => {
       console.log(`⚠️ Socket.io not available`);
     }
 
+    // ─────────────────────────────────────────────────────────────────
+    // NOTIFICATION LOGIC (archive-aware)
+    // ─────────────────────────────────────────────────────────────────
     const senderName = req.user.name || 'Someone';
+    const isGroup = chat.type === 'group';
+
+    // Users who archived this chat — they should NOT get the generic "new message" push
+    const archivedUserIds = (chat.archivedBy || []).map(id => id.toString());
+
+    // All participants except the sender
     const allParticipantIds = chat.participants
       .map(p => p.user.toString())
       .filter(id => id !== userId);
-    console.log(`👥 All participants (excluding sender):`, allParticipantIds);
 
+    // Resolve reply target (if any)
+    let repliedToUserId = null;
+    if (replyToId) {
+      const replyToMessage = await Message.findById(replyToId);
+      if (replyToMessage && replyToMessage.sender && replyToMessage.sender.toString() !== userId) {
+        repliedToUserId = replyToMessage.sender.toString();
+      }
+    }
+
+    // ─── Build message preview ────────────────────────────────────────
     let preview = content?.substring(0, 100) || '';
     if (finalMessageType === 'image') preview = '📷 Image';
     else if (finalMessageType === 'video') preview = '🎬 Video';
@@ -1073,39 +1373,63 @@ export const sendMessage = async (req, res) => {
     let chatName = chat.name || 'Chat';
     if (chat.type === 'direct') {
       const otherUser = chat.participants.find(p => p.user.toString() !== userId);
-      chatName = otherUser ? otherUser.user.name : 'Direct Chat';
+      chatName = otherUser && otherUser.user ? otherUser.user.name : 'Direct Chat';
     }
 
-    if (allParticipantIds.length > 0) {
-      console.log(`📤 Notifying ${allParticipantIds.length} participants for message ${message._id}`);
-      notifyUsers(allParticipantIds, {
-        title: `${chat.type === 'group' ? `📢 ${chatName}` : `💬 ${senderName}`}`,
+    // ─── 1) GENERIC "NEW MESSAGE" NOTIFICATION ────────────────────────
+    const mentionRecipients = filteredMentions.filter((id) => {
+      if (isGroup) return true;
+      return !archivedUserIds.includes(id);
+    });
+
+    const replyRecipients = [];
+    if (repliedToUserId) {
+      const replyArchived = archivedUserIds.includes(repliedToUserId);
+      const canNotifyReply = isGroup || !replyArchived;
+      const alreadyCovered =
+        mentionRecipients.includes(repliedToUserId) ||
+        (!replyArchived);
+      if (canNotifyReply && !alreadyCovered) {
+        replyRecipients.push(repliedToUserId);
+      }
+    }
+
+    const generalRecipients = allParticipantIds.filter((id) => {
+      if (archivedUserIds.includes(id)) return false;
+      if (mentionRecipients.includes(id)) return false;
+      if (replyRecipients.includes(id)) return false;
+      return true;
+    });
+
+    if (generalRecipients.length > 0) {
+      console.log(`📤 Sending NEW MESSAGE notifications to ${generalRecipients.length} participants`);
+      notifyUsers(generalRecipients, {
+        title: `${isGroup ? `📢 ${chatName}` : `💬 ${senderName}`}`,
         body: preview,
         data: buildChatNotificationData(chat, { messageId: message._id.toString() }),
       });
+    } else {
+      console.log(`🔇 No generic recipients (all archived / mentioned / replied)`);
     }
 
-    if (filteredMentions.length > 0) {
-      console.log(`📤 Notifying ${filteredMentions.length} mentioned users`);
-      notifyUsers(filteredMentions, {
-        title: `${senderName} mentioned you in ${chat.type === 'group' ? chatName : 'a chat'}`,
+    // ─── 2) MENTION NOTIFICATIONS ─────────────────────────────────────
+    if (mentionRecipients.length > 0) {
+      console.log(`📤 Sending MENTION notifications to ${mentionRecipients.length} users`);
+      notifyUsers(mentionRecipients, {
+        title: `${senderName} mentioned you in ${isGroup ? chatName : 'a chat'}`,
         body: `${senderName}: ${content?.substring(0, 100) || 'sent a message'}`,
         data: buildChatNotificationData(chat, { messageId: message._id.toString() }),
       });
     }
 
-    if (replyToId) {
-      const replyToMessage = await Message.findById(replyToId);
-      if (replyToMessage && replyToMessage.sender.toString() !== userId) {
-        const replyToUserId = replyToMessage.sender.toString();
-        if (!allParticipantIds.includes(replyToUserId) && !filteredMentions.includes(replyToUserId)) {
-          notifyUsers([replyToUserId], {
-            title: `${senderName} replied to your message`,
-            body: `${senderName}: ${content?.substring(0, 100) || 'sent a reply'}`,
-            data: buildChatNotificationData(chat, { messageId: message._id.toString() }),
-          });
-        }
-      }
+    // ─── 3) REPLY NOTIFICATIONS ───────────────────────────────────────
+    if (replyRecipients.length > 0) {
+      console.log(`📤 Sending REPLY notifications to ${replyRecipients.length} users`);
+      notifyUsers(replyRecipients, {
+        title: `${senderName} replied to your message`,
+        body: `${senderName}: ${content?.substring(0, 100) || 'sent a reply'}`,
+        data: buildChatNotificationData(chat, { messageId: message._id.toString() }),
+      });
     }
 
     console.log(`✅ sendMessage completed successfully`);
@@ -1904,7 +2228,7 @@ export const getPendingJoinRequests = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ✨ NEW: EDIT MESSAGE
+// EDIT MESSAGE (unchanged)
 // PUT /api/messages/:messageId
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1958,7 +2282,7 @@ export const updateMessage = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ✨ NEW: TOGGLE REACTION
+// TOGGLE REACTION (unchanged)
 // POST /api/messages/:messageId/reactions
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2028,7 +2352,7 @@ export const toggleReaction = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ✨ NEW: GET REACTIONS FOR A MESSAGE
+// GET REACTIONS FOR A MESSAGE (unchanged)
 // GET /api/messages/:messageId/reactions
 // ─────────────────────────────────────────────────────────────────────────────
 

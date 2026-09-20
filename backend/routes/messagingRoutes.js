@@ -1,3 +1,4 @@
+// routes/messagingRoutes.js
 import express from 'express';
 import {
   createGroupChat,
@@ -40,10 +41,12 @@ import {
   // Unified group update
   updateGroupChat,
   deletePublicGroup,
-  // ✨ NEW
+  // Message editing, reactions
   updateMessage,
   toggleReaction,
   getMessageReactions,
+  // ✨ NEW: chat entity search (powers the "/" picker)
+  searchChatEntities,
 } from '../controllers/messagingController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import upload from '../middleware/uploadMiddleware.js';
@@ -56,6 +59,13 @@ router.post('/group', protect, upload.single('avatar'), createGroupChat);
 router.post('/direct', protect, createDirectChat);
 router.get('/chats', protect, getUserChats);
 router.get('/search/users', protect, searchUsers);
+
+// ─── ✨ NEW: Chat entity search ───────────────────────────────────────
+// GET /api/messages/chat/:chatId/entities?q=...&limit=8
+// Returns tasks, projects, notes, and clock-ins scoped to the chat's
+// workspace. Powers the "/" slash-command picker in the input.
+// Must come BEFORE the catch-all '/:chatId' routes below.
+router.get('/chat/:chatId/entities', protect, searchChatEntities);
 
 // ─── Online status ────────────────────────────────────────────────────
 router.post('/online-status', protect, updateOnlineStatus);
@@ -90,10 +100,10 @@ router.get('/:chatId', protect, getChatMessages);
 router.post('/:chatId', protect, upload.single('media'), sendMessage);
 router.delete('/:messageId', protect, deleteMessage);
 
-// ─── ✨ NEW: Message editing and reactions ──────────────────────────
-router.put('/:messageId', protect, updateMessage);               // edit message
-router.post('/:messageId/reactions', protect, toggleReaction);   // toggle reaction
-router.get('/:messageId/reactions', protect, getMessageReactions); // get reactions
+// ─── Message editing and reactions ──────────────────────────────────
+router.put('/:messageId', protect, updateMessage);
+router.post('/:messageId/reactions', protect, toggleReaction);
+router.get('/:messageId/reactions', protect, getMessageReactions);
 
 // ─── Message archive/star ─────────────────────────────────────────────
 router.post('/:messageId/archive', protect, archiveMessage);
