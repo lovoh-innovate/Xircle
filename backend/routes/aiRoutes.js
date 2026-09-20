@@ -7,6 +7,7 @@ import {
   summarizeProjectAI,
   explainProjectAI,
   generateProjectDocsAI,
+  askXircleAI,                            // 👈 NEW
 } from '../controllers/aiController.js';
 import { protect } from '../middleware/authMiddleware.js'; // ← adjust to your actual auth middleware
 
@@ -33,5 +34,14 @@ router.post('/explain', protect, explainProjectAI);
 
 // Structured project documentation for PDF export.
 router.post('/document', protect, generateProjectDocsAI);
+
+// ── Ask Xircle ───────────────────────────────────────────────────────
+// The conversational lens. Reads the user's whole Xircle context
+// (Today + Projects + Chat + Workspace + Notes + Stats) and answers
+// natural-language questions about their own work.
+//
+// READ-ONLY. Does not create, update, or delete anything.
+// Body: { question: string, history?: [{ role: 'user'|'assistant', content: string }] }
+router.post('/ask', protect, askXircleAI);
 
 export default router;

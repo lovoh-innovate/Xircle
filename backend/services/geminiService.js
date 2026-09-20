@@ -381,3 +381,116 @@ ${JSON.stringify(taskDigest, null, 2)}
 
   return callGroq({ system: DOCS_SYSTEM, user });
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// 6. ASK XIRCLE — conversational Q&A over the user's own Xircle data
+// ─────────────────────────────────────────────────────────────────────
+//
+// This is the "lens" function. It reads the whole user context built by
+// xircleContextService.buildUserContext() and answers natural-language
+// questions about the user's work.
+//
+// It does NOT write anything. It does NOT invent numbers. It answers
+// only from the CONTEXT block.
+//
+// Returns: { answer: string, followUps: string[] }
+// ─────────────────────────────────────────────────────────────────────
+
+const ASK_SYSTEM = `
+You are the assistant inside Xircle, a simple team delivery app.
+
+Xircle is organized around four contexts:
+  Today      → the user's personal work
+  Projects   → the team's work
+  Chat       → conversations
+  Workspace  → the team
+
+You answer questions about the user's own work inside Xircle: what they've
+done, what's open, what's overdue, what's waiting on them, what's happening
+in their projects, their chats, their notes, and their stats.
+
+ABSOLUTE RULES:
+
+1. Answer ONLY from the CONTEXT JSON below. If something is not in the
+   context, say so plainly: "I don't have that in your Xircle data."
+   Never guess. Never invent tasks, people, projects, numbers, or dates.
+
+2. Numbers must be exact. If you say "3 overdue," there must be exactly
+   3 overdue items in the context. Count them.
+
+3. Use the user's real names — real task titles, real project names, real
+   people, real folder names, real chat names. Never generic placeholders.
+
+4. Be direct. No filler. Short answers unless the user asks for detail.
+   If they ask "what's overdue?", list them — don't write an essay.
+
+5. When listing items, one line each, formatted as:
+   Title — Project/Folder — due date or status
+
+6. Today's date and timezone are in the context. Use them when reasoning
+   about "today", "this week", "overdue", "coming up", "recently".
+
+7. If the user asks something outside Xircle work (general coding help,
+   life advice, world facts), politely redirect:
+   "I can only answer questions about your Xircle work."
+
+8. Never suggest new Xircle features. You are a lens on the user's work,
+   not a product manager.
+
+9. If you see a pattern the user should know about (overload, repeated
+   rejections, stalled projects, unanswered mentions), you may briefly
+   point it out — but only when the user asked about that area.
+
+OUTPUT FORMAT — return STRICT JSON only, no prose, no code fences:
+
+{
+  "answer": "string (your answer, using \\n for line breaks)",
+  "followUps": ["string (0-3 short follow-up questions the user might ask next)"]
+}
+
+The followUps should be short, natural, and directly useful — things like
+"Which project is furthest behind?" or "What's due tomorrow?". Never more
+than 3. Return an empty array if nothing useful comes to mind.
+`.trim();
+
+export async function askXircle({ context, question, history = [] }) {
+  // Keep the last few turns so follow-ups feel natural, but don't let the
+  // history balloon the prompt. The full context is the source of truth.
+  const recentHistory = Array.isArray(history) ? history.slice(-6) : [];
+
+  const historyBlock = recentHistory.length
+    ? `\nRECENT CONVERSATION (for context on follow-ups — the CONTEXT below is still the only source of truth):\n${recentHistory
+        .map((m) => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content}`)
+        .join('\n')}\n`
+    : '';
+
+  const user = `
+--- CONTEXT START ---
+${JSON.stringify(context)}
+--- CONTEXT END ---
+${historyBlock}
+USER QUESTION:
+${question}
+`.trim();
+
+  const result = await callGroq({
+    system: ASK_SYSTEM,
+    user,
+    jsonMode: true,      // we want { answer, followUps }
+    temperature: 0.3,    // low — this is a factual/grounded task
+  });
+
+  // Defensive shape check — never trust the model's output blindly.
+  const answer =
+    typeof result?.answer === 'string' && result.answer.trim()
+      ? result.answer.trim()
+      : "I couldn't find an answer in your Xircle data for that.";
+
+  const followUps = Array.isArray(result?.followUps)
+    ? result.followUps
+        .filter((f) => typeof f === 'string' && f.trim())
+        .slice(0, 3)
+    : [];
+
+  return { answer, followUps };
+}

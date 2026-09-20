@@ -53,7 +53,7 @@ const Welcome = () => {
   // Redirect authenticated users
   useEffect(() => {
     if (userInfo) {
-      navigate('/my-workspaces', { replace: true });
+      navigate('/today', { replace: true });
     }
   }, [userInfo, navigate]);
 

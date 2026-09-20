@@ -10,7 +10,9 @@ import {
   summarizeProject,
   explainContext,
   generateProjectDocs,
+  askXircle,                              // 👈 NEW
 } from '../services/geminiService.js';
+import { buildUserContext } from '../services/xircleContextService.js';   // 👈 NEW
 import { createAndSendNotification } from './notificationController.js';
 
 // ─────────────────────────────────────────────────────────────────────
@@ -112,7 +114,6 @@ const sanitizePlan = (rawPlan, validMemberIds) => {
 };
 
 // Fetch project + tasks + unique members, with full access check.
-// Used by review / summarize / explain / document.
 const loadProjectContext = async (projectId, userId) => {
   if (!mongoose.Types.ObjectId.isValid(projectId)) {
     throw Object.assign(new Error('Invalid projectId.'), { status: 400 });
@@ -603,5 +604,105 @@ export const generateProjectDocsAI = async (req, res) => {
   } catch (err) {
     console.error('❌ AI docs error:', err);
     res.status(err.status || 500).json({ success: false, message: err.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// POST /api/ai/ask
+// Body: { question: string, history?: [{ role: 'user'|'assistant', content: string }] }
+//
+// The conversational lens. Reads the user's whole Xircle context and
+// answers natural-language questions about their work.
+//
+// READ-ONLY. Does not create, update, or delete anything. Does not
+// send messages. Does not confirm tasks. It only answers.
+// ─────────────────────────────────────────────────────────────────────
+export const askXircleAI = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { question, history = [] } = req.body;
+
+    // ── 1. Validate input ────────────────────────────────────────
+    if (!question || typeof question !== 'string' || !question.trim()) {
+      return res.status(400).json({ success: false, message: 'question is required.' });
+    }
+    if (question.length > 2000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Question is too long (max 2000 chars).',
+      });
+    }
+    if (!Array.isArray(history)) {
+      return res.status(400).json({ success: false, message: 'history must be an array.' });
+    }
+    if (history.length > 20) {
+      return res.status(400).json({
+        success: false,
+        message: 'history is too long (max 20 turns).',
+      });
+    }
+
+    // Shape-check each history turn so nothing sneaks through
+    const cleanHistory = history
+      .filter(
+        (m) =>
+          m &&
+          typeof m === 'object' &&
+          (m.role === 'user' || m.role === 'assistant') &&
+          typeof m.content === 'string' &&
+          m.content.trim()
+      )
+      .slice(-10)
+      .map((m) => ({ role: m.role, content: m.content.slice(0, 2000) }));
+
+    // ── 2. Build the user's whole Xircle context ─────────────────
+    // This is the same data Today.jsx reads. Same four contexts.
+    // Same Lagos timezone. One source of truth.
+    let context;
+    try {
+      context = await buildUserContext(userId);
+    } catch (err) {
+      console.error('❌ buildUserContext failed:', err);
+      return res.status(err.status || 500).json({
+        success: false,
+        message: err.message || 'Failed to load your Xircle data.',
+      });
+    }
+
+    // ── 3. Ask the model ─────────────────────────────────────────
+    let result;
+    try {
+      result = await askXircle({
+        context,
+        question: question.trim(),
+        history: cleanHistory,
+      });
+    } catch (err) {
+      console.error('❌ askXircle failed:', err);
+      return res.status(502).json({
+        success: false,
+        message: 'The AI could not answer that right now. Please try again.',
+      });
+    }
+
+    // ── 4. Respond ───────────────────────────────────────────────
+    // contextCounts is a small summary — useful for debugging and
+    // for the frontend to show "based on N open tasks" style chips
+    // if it wants to. Nothing sensitive: just the numbers the
+    // Today screen already shows.
+    res.status(200).json({
+      success: true,
+      answer: result.answer,
+      followUps: result.followUps,
+      generatedAt: new Date(),
+      timezone: context.timezone,
+      contextCounts: context.counts,
+    });
+  } catch (err) {
+    console.error('❌ AI ask error:', err);
+    res.status(err.status || 500).json({
+      success: false,
+      message: err.message || 'AI query failed.',
+    });
   }
 };

@@ -5,9 +5,10 @@ import { useSelector } from "react-redux";
 import { useGetUserNotificationsQuery } from "../slices/notificationApiSlice";
 import { useCheckAppUpdateQuery } from "../slices/appApiSlice";
 import { useGetUserChatsQuery, messagingApiSlice } from "../slices/messagingApiSlice";
+import { useGetTodayQuery } from "../slices/todayApiSlice";
 import { useSocket } from "../components/SocketContext.jsx";
 import {
-  FiHome,
+  FiSun,
   FiUsers,
   FiCheckSquare,
   FiMenu,
@@ -19,6 +20,7 @@ import {
   FiAlertCircle,
   FiArrowUp,
   FiFile,
+  FiGrid,
 } from "react-icons/fi";
 import { FaTimes, FaExclamationTriangle } from "react-icons/fa";
 import { useDispatch } from "react-redux";
@@ -114,6 +116,16 @@ const GeneralBottombar = () => {
   );
   const unreadCount = notifData?.pagination?.total || 0;
 
+  // ── Today attention count ──
+  // Same data Today.jsx shows. Same query. RTK Query dedupes so there's
+  // no double fetch when you're actually on /today.
+  const { data: todayData } = useGetTodayQuery(undefined, {
+    pollingInterval: 60000,
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
+  });
+  const todayAttention = todayData?.totalAttention || 0;
+
   // ── Chat unread counts (general chats only) ──
   const {
     data: chatsData,
@@ -206,7 +218,14 @@ const GeneralBottombar = () => {
   }, [hasUpdate]);
 
   // ── Drawer items ──
+  // My Workspaces moved here — Today owns the "home" slot now,
+  // but workspaces still need a home in the nav.
   const drawerItems = [
+    {
+      to: "/my-workspaces",
+      icon: FiGrid,
+      label: "My Workspaces",
+    },
     {
       to: "/notes",
       icon: FiFile,
@@ -295,18 +314,26 @@ const GeneralBottombar = () => {
           )}
         </NavLink>
 
-        {/* Home */}
-        <NavLink to="/my-workspaces">
+        {/* Today — the front door */}
+        <NavLink to="/today">
           {({ isActive }) => (
             <div className="relative flex flex-col items-center justify-center text-xs font-medium transition-all duration-300">
-              <FiHome
-                className={`text-xl ${isActive ? "text-cyan-400" : "text-gray-400 hover:text-white"}`}
-                strokeWidth={1.75}
-              />
+              <div className="relative">
+                <FiSun
+                  className={`text-xl ${isActive ? "text-cyan-400" : "text-gray-400 hover:text-white"}`}
+                  strokeWidth={1.75}
+                />
+                {todayAttention > 0 && (
+                  <UnreadBadge
+                    count={todayAttention}
+                    className="absolute -top-1.5 -right-2"
+                  />
+                )}
+              </div>
               <span
                 className={`mt-0.5 text-[10px] tracking-wide ${isActive ? "text-cyan-400" : "text-gray-400"}`}
               >
-                Home
+                Today
               </span>
               {isActive && (
                 <span className="absolute -top-1 w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#06b6d4]" />

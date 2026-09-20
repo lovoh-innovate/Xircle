@@ -12,9 +12,11 @@ import {
   useGetUserChatsQuery,
   messagingApiSlice,
 } from '../slices/messagingApiSlice';
+import { useGetTodayQuery, todayApiSlice } from '../slices/todayApiSlice';
 import { useCheckAppUpdateQuery } from '../slices/appApiSlice';
 import { personalNoteApiSlice } from '../slices/personalNoteApiSlice';
 import {
+  FiSun,
   FiHome,
   FiCheckSquare,
   FiUsers,
@@ -76,6 +78,14 @@ const GeneralSidebar = () => {
   const isRequired = updateData?.isRequired || false;
   const updateBadgeColor = hasUpdate ? (isRequired ? 'bg-red-500' : 'bg-orange-400') : null;
 
+  // ── Today attention badge ──
+  // Same query the Today page and bottombar use. RTK Query dedupes.
+  const { data: todayData } = useGetTodayQuery(undefined, {
+    pollingInterval: 60000,
+    refetchOnFocus: true,
+  });
+  const todayAttention = todayData?.totalAttention || 0;
+
   const handleLogout = async () => {
     try {
       dispatch(logout());
@@ -104,6 +114,7 @@ const GeneralSidebar = () => {
   const prefetchAllTasks = personalTaskApiSlice.usePrefetch('getPersonalTasks');
   const prefetchAllChats = messagingApiSlice.usePrefetch('getUserChats');
   const prefetchAllNotes = personalNoteApiSlice.usePrefetch('getNotes');
+  const prefetchToday = todayApiSlice.usePrefetch('getToday');
 
   const recentChats = useMemo(() => {
     if (!chatsData?.chats) return [];
@@ -187,13 +198,15 @@ const GeneralSidebar = () => {
       <nav className="px-3 py-4 border-b border-white/10">
         <ul className="space-y-1">
           {[
-            { to: '/my-workspaces', icon: FiHome, label: 'Home' },
+            // Today is the front door.
+            { to: '/today', icon: FiSun, label: 'Today', onHover: prefetchToday, badge: todayAttention, primary: true },
+            { to: '/my-workspaces', icon: FiHome, label: 'Workspaces' },
             { to: '/personal-tasks', icon: FiCheckSquare, label: 'My Tasks', onHover: prefetchAllTasks },
-            { to: '/notes', icon: FiFile, label: 'Notes', onHover: prefetchAllNotes }, // ✅ NEW
+            { to: '/notes', icon: FiFile, label: 'Notes', onHover: prefetchAllNotes },
             { to: '/chat', icon: ChatIcon, label: 'Chat', onHover: prefetchAllChats },
             { to: '/channels', icon: FiUsers, label: 'Channels' },
             { to: '/app-versions', icon: FiPackage, label: 'App Versions' },
-          ].map(({ to, icon: Icon, label, onHover }) => (
+          ].map(({ to, icon: Icon, label, onHover, badge, primary }) => (
             <li key={to}>
               <NavLink
                 to={to}
@@ -201,7 +214,9 @@ const GeneralSidebar = () => {
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
                     isActive
-                      ? 'bg-white/10 text-cyan-300'
+                      ? primary
+                        ? 'bg-cyan-500/15 text-cyan-300'
+                        : 'bg-white/10 text-cyan-300'
                       : 'text-gray-400 hover:text-white hover:bg-white/5'
                   }`
                 }
@@ -216,9 +231,14 @@ const GeneralSidebar = () => {
                   )}
                 </div>
                 <span>{label}</span>
-                {({ isActive }) => isActive && (
-                  <span className="ml-auto w-1.5 h-1.5 rounded-full bg-cyan-400" />
+
+                {/* Today attention badge */}
+                {to === '/today' && badge > 0 && (
+                  <span className="ml-auto min-w-[18px] h-5 px-1.5 rounded-full bg-cyan-500 text-white text-[10px] font-bold flex items-center justify-center shadow-[0_0_8px_rgba(6,182,212,0.6)]">
+                    {badge > 99 ? '99+' : badge}
+                  </span>
                 )}
+
                 {to === '/app-versions' && hasUpdate && !updateLoading && (
                   <span
                     className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full ${updateBadgeColor} text-white`}

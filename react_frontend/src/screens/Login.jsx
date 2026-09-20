@@ -37,7 +37,7 @@ const Login = () => {
   const [resendOTP, { isLoading: isResendLoading }] = useResendOTPMutation();
 
   // Redirect to my-workspaces after login
-  const from = location.state?.from?.pathname || '/my-workspaces';
+  const from = location.state?.from?.pathname || '/today';
 
   useEffect(() => {
     if (userInfo) {

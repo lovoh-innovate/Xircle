@@ -23,7 +23,8 @@ import clockInRoutes from './routes/clockInRoutes.js';
 import personalNoteRoutes from "./routes/personalNoteRoutes.js";
 import workspaceNoteRoutes from "./routes/workspaceNoteRoutes.js";
 import stickerRoutes from './routes/stickerRoutes.js';
-import aiRoutes from './routes/aiRoutes.js';                       // 👈 NEW
+import aiRoutes from './routes/aiRoutes.js';
+import todayRoutes from './routes/todayRoutes.js';                 // 👈 NEW
 
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 import { initSocket } from "./controllers/socket.js";
@@ -33,10 +34,10 @@ import {
   startClockInScheduler,
   startAutoClockOutScheduler,
   sendMonthlyLeaderboardForAllWorkspaces,
-  // closeAllOpenRecordsFromPreviousDays,   // ❌ removed – now handled separately
 } from "./controllers/clockInController.js";
+import { sendDailyDigest } from "./controllers/todayController.js";   // 👈 NEW
 
-// 👇 New standalone cleanup script
+// 👇 Standalone cleanup script
 import {
   startClockOutPreviousDayScheduler,
   runClockOutPreviousDayForAllWorkspaces,
@@ -54,8 +55,8 @@ const PORT = process.env.PORT || 8000;
 const MONGO_URL = process.env.MONGO_URL;
 
 // ── Middleware ──
-app.use(express.json({ limit: '2mb' }));                            // 👈 bumped for AI payloads
-app.use(express.urlencoded({ extended: true, limit: '2mb' }));      // 👈 same
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(cookieParser());
 
 // ── CORS ──
@@ -90,6 +91,7 @@ app.get("/", (req, res) => {
 });
 
 // ── Routes ──
+app.use('/api/today', todayRoutes);                                 // 👈 NEW — the front door
 app.use("/api/users", userRoutes);
 app.use("/api/workspaces", workspaceRoutes);
 app.use("/api/team", teamRoutes);
@@ -102,9 +104,9 @@ app.use('/api/personal-tasks', personalTaskRoutes);
 app.use('/api/app', appRoutes);
 app.use('/api/clockin', clockInRoutes);
 app.use('/api/stickers', stickerRoutes);
-app.use('/api/ai', aiRoutes);                                       // 👈 NEW
+app.use('/api/ai', aiRoutes);
 
-//note routes
+// Note routes
 app.use("/api/personal-notes", personalNoteRoutes);
 app.use("/api/workspace-notes", workspaceNoteRoutes);
 
@@ -119,8 +121,7 @@ mongoose
     console.log("✅ Connected to MongoDB");
 
     // ─── 1. Startup cleanup: close all open records from previous days ──
-    // This runs once, immediately, so users can clock in today.
-    await runClockOutPreviousDayForAllWorkspaces();   // 👈 new cleanup
+    await runClockOutPreviousDayForAllWorkspaces();
 
     // ─── 2. Initialize Socket.io ──────────────────────────────────────
     const io = initSocket(server);
@@ -132,7 +133,7 @@ mongoose
       console.log(`✅ Socket.io ready for connections`);
     });
 
-    // ─── 4. Schedule task reminder cron job (every 15 minutes) ────
+    // ─── 4. Task reminder cron (every 15 minutes) ────────────────────
     cron.schedule('*/15 * * * *', async () => {
       console.log('⏰ Running task reminder cron job...');
       try {
@@ -148,19 +149,19 @@ mongoose
     });
     console.log('⏰ Reminder cron job scheduled (every 15 minutes).');
 
-    // ─── 5. Start clock‑in reminder scheduler ──────────────────────
+    // ─── 5. Clock-in reminder scheduler ──────────────────────────────
     startClockInScheduler();
-    console.log('⏰ Clock‑in reminder scheduler started.');
+    console.log('⏰ Clock-in reminder scheduler started.');
 
-    // ─── 6. Start auto clock‑out scheduler (at closing time only) ───
+    // ─── 6. Auto clock-out scheduler (at closing time only) ──────────
     startAutoClockOutScheduler();
-    console.log('⏰ Auto clock‑out scheduler started.');
+    console.log('⏰ Auto clock-out scheduler started.');
 
-    // ─── 7. Start previous‑day cleanup scheduler (10 min before clock‑in) ─
-    startClockOutPreviousDayScheduler();   // 👈 new scheduler
-    console.log('⏰ Previous‑day cleanup scheduler started.');
+    // ─── 7. Previous-day cleanup scheduler (10 min before clock-in) ──
+    startClockOutPreviousDayScheduler();
+    console.log('⏰ Previous-day cleanup scheduler started.');
 
-    // ─── 8. Schedule monthly leaderboard email (1st of month, 9 AM) ─
+    // ─── 8. Monthly leaderboard email (1st of month, 9 AM) ───────────
     cron.schedule('0 9 1 * *', async () => {
       console.log('📊 Running monthly leaderboard email job...');
       try {
@@ -171,6 +172,18 @@ mongoose
       }
     });
     console.log('📊 Monthly leaderboard email cron scheduled (1st of month at 09:00).');
+
+    // ─── 9. Daily Today digest (7:00 AM every day) ───────────────────
+    cron.schedule('0 7 * * *', async () => {
+      console.log('🌅 Running daily Today digest...');
+      try {
+        await sendDailyDigest();
+        console.log('✅ Daily digests sent.');
+      } catch (error) {
+        console.error('❌ Daily digest error:', error);
+      }
+    });
+    console.log('🌅 Daily Today digest cron scheduled (07:00).');
 
   })
   .catch((err) => {

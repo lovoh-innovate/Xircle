@@ -50,14 +50,16 @@ import Sticker from './screens/Sticker.jsx';
 
 import AllTasks from './screens/AllTasks.jsx';
 
+import Today from './screens/Today.jsx';                       // 👈 NEW — the front door
+
 // ─── MyWorkspace screens ─────────────────────────────────────────────
 import MyWorkspaceChannels from './workspaceScreens/MyWorkspaceChannels.jsx';
 import MyWorkspaceChatId from './workspaceScreens/MyWorkspaceChatId.jsx';
 import MyWorkspaceChannelId from './workspaceScreens/MyWorkspaceChannelId.jsx';
 import MyWorkspaceProjects from './workspaceScreens/MyWorkspaceProjects.jsx';
 import MyWorkspaceProjectId from './workspaceScreens/MyWorkspaceProjectId.jsx';
-import MyWorkspaceProjectTeam from './workspaceScreens/MyWorkspaceProjectTeam.jsx';   // NEW
-import MyWorkspaceTaskId from './workspaceScreens/MyWorkspaceTaskId.jsx';            // NEW
+import MyWorkspaceProjectTeam from './workspaceScreens/MyWorkspaceProjectTeam.jsx';
+import MyWorkspaceTaskId from './workspaceScreens/MyWorkspaceTaskId.jsx';
 import MyWorkspaceMembers from './workspaceScreens/MyWorkspaceMembers.jsx';
 import MyWorkspaceDMs from './workspaceScreens/MyWorkspaceDMs.jsx';
 import MyWorkspaceSettings from './workspaceScreens/MyWorkspaceSettings.jsx';
@@ -308,7 +310,6 @@ const buildCallDataFromPush = (data) => ({
 });
 
 // ── Route resolver from notification data ────────────────────────────
-// Updated to use workspaceType: 'owned' -> /workspace, 'my' -> /my-workspace
 const routeFromNotificationData = (data) => {
   // ── App Update Notifications ──────────────────────────────────────
   if (data.type === 'app_update' || data.type === 'APP_UPDATE' || data.notificationType === 'app_update') {
@@ -318,6 +319,11 @@ const routeFromNotificationData = (data) => {
 
   if (data.type === 'version_updated' || data.type === 'upload_confirmation' || data.type === 'version_deleted') {
     return '/app-versions';
+  }
+
+  // ── Today (daily digest) ──────────────────────────────────────────
+  if (data.notificationType === 'daily_digest' || data.screen === 'Today') {
+    return '/today';
   }
 
   // ── Call Notifications ────────────────────────────────────────────
@@ -339,7 +345,6 @@ const routeFromNotificationData = (data) => {
   }
 
   // ── Task Notifications ────────────────────────────────────────────
-  // Deep link: workspace → project → task
   if (data.taskId && data.projectId && data.workspaceId) {
     return `${workspacePrefix}/${data.workspaceId}/project/${data.projectId}/task/${data.taskId}`;
   }
@@ -546,6 +551,7 @@ const router = createBrowserRouter([
       {
         element: <PrivateRoute />,
         children: [
+          { path: 'today', element: <Today /> },                  // 👈 NEW — front door
           { path: 'settings', element: <Settings /> },
           { path: 'my-workspaces', element: <MyWorkspaces /> },
           { path: 'workspace/:workspaceId', element: <YourWorkspaceId /> },

@@ -74,6 +74,27 @@ export const aiApiSlice = apiSlice.injectEndpoints({
         body: data,
       }),
     }),
+
+    // ─── Ask Xircle — conversational lens over the user's own data ──
+    // body: { question: string, history?: [{ role: 'user'|'assistant', content: string }] }
+    // returns: {
+    //   success,
+    //   answer: string,
+    //   followUps: string[],
+    //   generatedAt,
+    //   timezone,
+    //   contextCounts: { openPersonalTasks, openProjectTasks, activeProjects, ... }
+    // }
+    //
+    // READ-ONLY. Does not change any server data, so no invalidatesTags.
+    // No providesTags either — this is a one-shot query, not cached state.
+    askXircle: builder.mutation({
+      query: (data) => ({
+        url: `${AI_URL}/ask`,
+        method: 'POST',
+        body: data,
+      }),
+    }),
   }),
 });
 
@@ -84,4 +105,5 @@ export const {
   useSummarizeProjectMutation,
   useExplainContextMutation,
   useGenerateProjectDocsMutation,
+  useAskXircleMutation,                    // 👈 NEW
 } = aiApiSlice;
