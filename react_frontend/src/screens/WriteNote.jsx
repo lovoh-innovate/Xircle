@@ -1,33 +1,26 @@
 // pages/WriteNote.jsx
 //
-// Editor: Tiptap (headless) — replaces CKEditor.
+// Editor: Tiptap (headless). AI features live in the same note slice —
+// personalNoteApiSlice — so this file only imports from one place.
 //
-// Install before using this file (versions match Tiptap v3, which is what
-// @tiptap/starter-kit@3.30.5 in this project already pulls in):
+// AI additions:
+//   • Highlight-to-ask pill over text selections (desktop + mobile)
+//   • Scripture lookup (Bible / Quran) with "show more" + "full chapter"
+//   • Non-scripture search results with definitions + external links
+//   • Manual Bible picker — pick a book from a custom dropdown, enter
+//     chapter + verse, get a 10-verse window with expand buttons
+//   • Proofread and Expand actions in the header
+//   • Preview-before-apply for proofread and expand — nothing saves until
+//     the user hits Apply.
 //
-//   npm install @tiptap/react @tiptap/core @tiptap/starter-kit \
-//     @tiptap/extension-subscript @tiptap/extension-superscript \
-//     @tiptap/extension-text-style @tiptap/extension-highlight @tiptap/extension-text-align \
-//     @tiptap/extension-image @tiptap/extension-table @tiptap/extensions
+// All AI endpoints are read-only server-side; the note is only touched
+// when the user accepts a suggestion and the normal autosave fires.
 //
-// Tiptap v3 restructured a few packages:
-//   - StarterKit now bundles Document, Paragraph, Text, Bold, Italic, Strike,
-//     Heading, BulletList, OrderedList, ListItem, ListKeymap, Underline, Link,
-//     History (renamed UndoRedo), Dropcursor and Gapcursor — none of those
-//     need separate packages or imports any more.
-//   - Table collapsed into one package with named exports (Table, TableRow,
-//     TableHeader, TableCell all from '@tiptap/extension-table').
-//   - Color and FontFamily are deprecated as standalone packages — they, plus
-//     FontSize and BackgroundColor, now live as named exports inside
-//     '@tiptap/extension-text-style' alongside TextStyle itself. Do NOT
-//     install '@tiptap/extension-color' or '@tiptap/extension-font-family'.
-//   - Placeholder moved into the new '@tiptap/extensions' bundle.
-// Every one of these packages now uses named exports, not a default export
-// — that mismatch is what threw the "does not provide an export named
-// 'default'" errors.
-//
-// No CSS file is imported anywhere in this file — every visual is Tailwind
-// utility classes, including the editable area and every dropdown panel.
+// The AI preview renders the suggested content as HTML (matching the
+// editor's own output) so users see what the note will actually look
+// like. Small inline fragments — change comparisons and added-section
+// chips — are stripped to plain text because HTML inside them would
+// break the compact list layout.
 
 import React, {
   useState,
@@ -35,6 +28,7 @@ import React, {
   useRef,
   useCallback,
   useLayoutEffect,
+  useMemo,
 } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 
@@ -57,7 +51,13 @@ import {
   useGetNotesQuery,
   useTogglePublicMutation,
   useLazyExportNotePDFQuery,
+  useLookupScriptureMutation,
+  useExpandScriptureMutation,
+  useSearchHighlightMutation,
+  useProofreadNoteMutation,
+  useCompleteNoteMutation,
 } from '../slices/personalNoteApiSlice';
+
 import toast from 'react-hot-toast';
 import {
   FaFillDrip,
@@ -100,6 +100,14 @@ import {
   FaEraser,
   FaChevronDown,
   FaTrash,
+  FaMagic,
+  FaBookOpen,
+  FaSearch,
+  FaCheckDouble,
+  FaExpandAlt,
+  FaExternalLinkAlt,
+  FaEllipsisV,
+  FaChevronRight,
 } from 'react-icons/fa';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -117,9 +125,36 @@ const getWordCount = (html) => {
 
 const getCharCount = (html) => stripHtml(html).length;
 
+// ─── BIBLE BOOKS ──────────────────────────────────────────────────────
+// Canonical 66-book ordering. Used by the manual Bible picker.
+const BIBLE_BOOKS = [
+  {
+    testament: 'Old Testament',
+    books: [
+      'Genesis', 'Exodus', 'Leviticus', 'Numbers', 'Deuteronomy',
+      'Joshua', 'Judges', 'Ruth', '1 Samuel', '2 Samuel',
+      '1 Kings', '2 Kings', '1 Chronicles', '2 Chronicles',
+      'Ezra', 'Nehemiah', 'Esther', 'Job', 'Psalms', 'Proverbs',
+      'Ecclesiastes', 'Song of Solomon', 'Isaiah', 'Jeremiah',
+      'Lamentations', 'Ezekiel', 'Daniel', 'Hosea', 'Joel', 'Amos',
+      'Obadiah', 'Jonah', 'Micah', 'Nahum', 'Habakkuk', 'Zephaniah',
+      'Haggai', 'Zechariah', 'Malachi',
+    ],
+  },
+  {
+    testament: 'New Testament',
+    books: [
+      'Matthew', 'Mark', 'Luke', 'John', 'Acts',
+      'Romans', '1 Corinthians', '2 Corinthians', 'Galatians', 'Ephesians',
+      'Philippians', 'Colossians', '1 Thessalonians', '2 Thessalonians',
+      '1 Timothy', '2 Timothy', 'Titus', 'Philemon', 'Hebrews', 'James',
+      '1 Peter', '2 Peter', '1 John', '2 John', '3 John', 'Jude',
+      'Revelation',
+    ],
+  },
+];
+
 // ─── CUSTOM TIPTAP EXTENSION: resizable image ──────────────────────
-// Adds a `width` attribute to the base Image node so an inserted image
-// can carry a size from the toolbar without any extra markup or CSS.
 const ResizableImage = Image.extend({
   addAttributes() {
     return {
@@ -193,14 +228,6 @@ const ToolbarDivider = () => (
   <span className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1 flex-shrink-0" />
 );
 
-// Anchored dropdown panel. Position is computed once, at the moment it
-// opens, from the trigger button's real screen position — no observers
-// watching the whole document, no DOM node shuffling. On mobile it opens
-// upward (toolbar lives at the bottom, above the keyboard); on desktop it
-// opens downward (toolbar lives at the top). Only one panel is ever open
-// at a time, and it only closes on an outside click, Escape, or picking
-// an option — nothing global is hijacked, so it can never eat a click
-// meant for something else (like a modal button).
 const ToolbarDropdown = ({
   id,
   openId,
@@ -322,11 +349,6 @@ const ColorSwatchGrid = ({ colors, onPick, activeColor, extra }) => (
 );
 
 // ─── EDITOR TOOLBAR ─────────────────────────────────────────────────
-// On mobile the toolbar is collapsed to a single line by default; the
-// overflowing buttons are clipped and hidden. A chevron button pinned at
-// the extreme right toggles the strip between single-line and full
-// wrapped (3-row) layout. On desktop nothing changes — everything renders
-// exactly as before.
 const EditorToolbar = ({ editor, isMobile }) => {
   const [openId, setOpenId] = useState(null);
   const [linkUrl, setLinkUrl] = useState('');
@@ -716,10 +738,6 @@ const EditorToolbar = ({ editor, isMobile }) => {
 };
 
 // ─── TIPTAP NOTE EDITOR ─────────────────────────────────────────────
-// Fully self-contained: owns the editor instance and both toolbar
-// placements (desktop docked above the content, mobile fixed above the
-// keyboard). The parent only ever sees plain HTML via onChange — no ref
-// juggling, no DOM node moving, no global listeners.
 const EDITOR_CONTENT_CLASSES =
   '[&_h1]:text-3xl [&_h2]:text-2xl [&_h3]:text-xl [&_h1]:font-bold [&_h2]:font-bold [&_h3]:font-semibold ' +
   '[&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:mt-1 [&_li]:mb-1 ' +
@@ -732,15 +750,19 @@ const EDITOR_CONTENT_CLASSES =
   '[&_.is-editor-empty:first-child::before]:float-left [&_.is-editor-empty:first-child::before]:h-0 ' +
   '[&_.is-editor-empty:first-child::before]:pointer-events-none';
 
-const NoteEditor = ({ initialContent, isMobile, keyboardOffset, onChange }) => {
+const NoteEditor = ({
+  initialContent,
+  isMobile,
+  keyboardOffset,
+  onChange,
+  onSelectionChange,
+  onEditorReady,
+}) => {
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
         link: { openOnClick: false, autolink: true, linkOnPaste: true },
-        // These node types were never exposed in the original toolbar —
-        // disabled so paste/markdown shortcuts can't create content the
-        // UI has no way to edit.
         code: false,
         codeBlock: false,
         blockquote: false,
@@ -770,7 +792,30 @@ const NoteEditor = ({ initialContent, isMobile, keyboardOffset, onChange }) => {
       },
     },
     onUpdate: ({ editor: e }) => onChange(e.getHTML()),
+    onSelectionUpdate: ({ editor: e }) => {
+      if (!onSelectionChange) return;
+      const { from, to, empty } = e.state.selection;
+      if (empty) return onSelectionChange(null);
+      const text = e.state.doc.textBetween(from, to, ' ').trim();
+      if (!text || text.length < 2) return onSelectionChange(null);
+
+      let rect = null;
+      try {
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+          const r = sel.getRangeAt(0).getBoundingClientRect();
+          rect = { top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width };
+        }
+      } catch {
+        rect = null;
+      }
+      onSelectionChange({ text, rect });
+    },
   });
+
+  useEffect(() => {
+    if (editor) onEditorReady?.(editor);
+  }, [editor, onEditorReady]);
 
   useEffect(() => () => editor?.destroy(), [editor]);
 
@@ -803,7 +848,7 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => {
   if (!isOpen) return null;
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl max-w-md w-full p-6 shadow-xl border border-gray-200 dark:border-gray-700">
@@ -898,10 +943,832 @@ const SaveStatus = ({ status, lastSaved }) => {
   );
 };
 
+// ═════════════════════════════════════════════════════════════════════
+// BIBLE PICKER (manual lookup)
+// ═════════════════════════════════════════════════════════════════════
+
+// Custom book dropdown — no native <select>. Searchable, grouped by
+// testament. The list floats over the modal body below the trigger.
+const BibleBookDropdown = ({ value, onChange, isMobile }) => {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const wrapperRef = useRef(null);
+  const searchRef = useRef(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      if (!wrapperRef.current?.contains(e.target)) setOpen(false);
+    };
+    const esc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('keydown', esc);
+    };
+  }, [open]);
+
+  // Focus search when opening
+  useEffect(() => {
+    if (open) {
+      const t = setTimeout(() => searchRef.current?.focus(), 40);
+      return () => clearTimeout(t);
+    }
+    setSearch('');
+  }, [open]);
+
+  const filteredGroups = useMemo(() => {
+    if (!search.trim()) return BIBLE_BOOKS;
+    const q = search.trim().toLowerCase();
+    return BIBLE_BOOKS
+      .map((g) => ({ ...g, books: g.books.filter((b) => b.toLowerCase().includes(q)) }))
+      .filter((g) => g.books.length > 0);
+  }, [search]);
+
+  const handlePick = (book) => {
+    onChange(book);
+    setOpen(false);
+  };
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`w-full flex items-center justify-between gap-2 px-3.5 py-3 rounded-xl border text-sm transition ${
+          open
+            ? 'border-teal-500 ring-2 ring-teal-500/20 bg-white dark:bg-[#0f0f12]'
+            : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-[#0f0f12] hover:border-gray-300 dark:hover:border-gray-600'
+        }`}
+      >
+        <span className={value ? 'text-gray-800 dark:text-white font-medium' : 'text-gray-400 dark:text-gray-500'}>
+          {value || 'Select book'}
+        </span>
+        <FaChevronDown
+          className={`text-xs text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+
+      {open && (
+        <div
+          className={`absolute left-0 right-0 top-full mt-2 z-30 bg-white dark:bg-[#1c1c1f] border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl overflow-hidden flex flex-col ${
+            isMobile ? 'max-h-[60vh]' : 'max-h-72'
+          }`}
+        >
+          <div className="p-2 border-b border-gray-100 dark:border-gray-800 flex-shrink-0">
+            <div className="relative">
+              <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none" />
+              <input
+                ref={searchRef}
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const first = filteredGroups[0]?.books[0];
+                    if (first) handlePick(first);
+                  }
+                }}
+                placeholder="Search books…"
+                className="w-full pl-8 pr-3 py-2 text-sm rounded-lg bg-gray-50 dark:bg-gray-900/60 border border-transparent focus:border-teal-500 outline-none text-gray-800 dark:text-white placeholder-gray-400"
+              />
+            </div>
+          </div>
+
+          <div className="overflow-y-auto flex-1 py-1">
+            {filteredGroups.length === 0 && (
+              <div className="px-4 py-6 text-center text-xs text-gray-400">
+                No books match "{search}"
+              </div>
+            )}
+            {filteredGroups.map((group) => (
+              <div key={group.testament}>
+                <div className="px-3.5 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                  {group.testament}
+                </div>
+                {group.books.map((b) => (
+                  <button
+                    key={b}
+                    type="button"
+                    onClick={() => handlePick(b)}
+                    className={`w-full flex items-center justify-between gap-2 px-3.5 py-2.5 text-sm text-left transition ${
+                      value === b
+                        ? 'bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-teal-400 font-medium'
+                        : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/60'
+                    }`}
+                  >
+                    <span>{b}</span>
+                    {value === b && <FaCheck className="text-teal-500 text-xs" />}
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Number input with a big tap target and a numeric keyboard on mobile.
+const NumberField = ({ label, value, onChange, min = 1, placeholder, autoFocus }) => {
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (autoFocus && inputRef.current) {
+      // slight delay so layout settles before focus
+      const t = setTimeout(() => inputRef.current?.focus(), 60);
+      return () => clearTimeout(t);
+    }
+  }, [autoFocus]);
+
+  const dec = () => onChange(Math.max(min, (Number(value) || min) - 1));
+  const inc = () => onChange((Number(value) || 0) + 1);
+
+  return (
+    <div className="min-w-0">
+      <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+        {label}
+      </label>
+      <div className="flex items-stretch rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#0f0f12] overflow-hidden focus-within:border-teal-500 focus-within:ring-2 focus-within:ring-teal-500/20 transition">
+        <button
+          type="button"
+          onClick={dec}
+          className="px-2.5 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition text-sm font-medium"
+          tabIndex={-1}
+        >
+          −
+        </button>
+        <input
+          ref={inputRef}
+          type="number"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          min={min}
+          value={value}
+          onChange={(e) => {
+            const v = e.target.value.replace(/[^0-9]/g, '');
+            onChange(v);
+          }}
+          placeholder={placeholder}
+          className="flex-1 min-w-0 w-full text-center text-base font-semibold text-gray-800 dark:text-white bg-transparent outline-none py-2.5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+        />
+        <button
+          type="button"
+          onClick={inc}
+          className="px-2.5 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition text-sm font-medium"
+          tabIndex={-1}
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// Full picker modal — bottom sheet on mobile, centered on desktop.
+const BiblePickerModal = ({ open, isMobile, onClose, onSubmit, busy }) => {
+  const [book, setBook] = useState('');
+  const [chapter, setChapter] = useState('');
+  const [verse, setVerse] = useState('1');
+
+  useEffect(() => {
+    if (open) {
+      // keep selections between opens — user is often looking up
+      // multiple passages from the same book in one session
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  const ready = Boolean(book && chapter && Number(chapter) > 0);
+
+  const handleSubmit = () => {
+    if (!ready) return;
+    onSubmit({
+      book,
+      chapter: Number(chapter),
+      verse: Number(verse) > 0 ? Number(verse) : 1,
+    });
+  };
+
+  return (
+    <div
+      className={`fixed inset-0 z-[78] flex ${
+        isMobile ? 'items-end' : 'items-center justify-center'
+      } bg-black/50 backdrop-blur-sm ${isMobile ? '' : 'p-4'}`}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        className={`bg-white dark:bg-[#1a1a1a] shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col overflow-visible ${
+          isMobile
+            ? 'w-full max-h-[90vh] rounded-t-2xl'
+            : 'w-full max-w-md max-h-[90vh] rounded-2xl'
+        }`}
+      >
+        {isMobile && (
+          <div className="pt-2 flex justify-center flex-shrink-0">
+            <div className="w-10 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
+          </div>
+        )}
+
+        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
+          <h3 className="text-sm sm:text-base font-semibold text-gray-800 dark:text-white flex items-center gap-2">
+            <FaBookOpen className="text-teal-500 text-sm" />
+            Bible passage
+          </h3>
+          <button
+            onClick={onClose}
+            className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+          >
+            <FaTimes className="text-sm" />
+          </button>
+        </div>
+
+        <div className="p-4 sm:p-5 space-y-4 overflow-y-auto">
+          <div>
+            <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+              Book
+            </label>
+            <BibleBookDropdown value={book} onChange={setBook} isMobile={isMobile} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <NumberField
+              label="Chapter"
+              value={chapter}
+              onChange={setChapter}
+              min={1}
+              placeholder="e.g. 3"
+              autoFocus={Boolean(book) && !chapter}
+            />
+            <NumberField
+              label="Start verse"
+              value={verse}
+              onChange={setVerse}
+              min={1}
+              placeholder="e.g. 2"
+            />
+          </div>
+
+          <p className="text-[11px] leading-relaxed text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/40 rounded-lg p-3">
+            You'll see <strong className="text-gray-700 dark:text-gray-200">10 verses</strong> starting
+            at your chosen verse. Use <strong className="text-gray-700 dark:text-gray-200">More verses</strong>{' '}
+            to extend the range, or <strong className="text-gray-700 dark:text-gray-200">Full chapter</strong>{' '}
+            to see everything.
+          </p>
+        </div>
+
+        <div className="flex gap-2 p-3 sm:p-4 border-t border-gray-200 dark:border-gray-800 flex-shrink-0">
+          <button
+            onClick={onClose}
+            disabled={busy}
+            className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={!ready || busy}
+            className="flex-1 py-2.5 bg-teal-600 text-white rounded-xl text-sm font-medium hover:bg-teal-700 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {busy ? <FaSpinner className="animate-spin text-xs" /> : <FaBookOpen className="text-xs" />}
+            Look up
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ═════════════════════════════════════════════════════════════════════
+// AI COMPONENTS
+// ═════════════════════════════════════════════════════════════════════
+
+const AiSelectionPill = ({ selection, isMobile, busy, onClick }) => {
+  if (!selection || busy) return null;
+
+  let style;
+  if (isMobile || !selection.rect) {
+    style = {
+      position: 'fixed',
+      left: '50%',
+      bottom: 'calc(80px + env(safe-area-inset-bottom, 0px))',
+      transform: 'translateX(-50%)',
+      zIndex: 45,
+    };
+  } else {
+    const r = selection.rect;
+    const pillH = 38;
+    const above = r.top > pillH + 12;
+    const top = above ? r.top - pillH - 8 : r.bottom + 8;
+    const pillW = 130;
+    let left = r.left + r.width / 2 - pillW / 2;
+    left = Math.max(8, Math.min(window.innerWidth - pillW - 8, left));
+    style = { position: 'fixed', top, left, zIndex: 45 };
+  }
+
+  return (
+    <div style={style}>
+      <button
+        type="button"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={onClick}
+        className="flex items-center gap-1.5 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-xs font-medium pl-2 pr-3 py-2 rounded-full shadow-lg shadow-black/20 hover:bg-gray-800 dark:hover:bg-white transition active:scale-95"
+      >
+        <FaMagic className="text-teal-400 dark:text-teal-600 text-xs" />
+        <span>Ask AI</span>
+      </button>
+    </div>
+  );
+};
+
+const ScriptureView = ({ data, onExpand, expanding }) => {
+  const isBible = data.type === 'bible';
+  return (
+    <div className="space-y-4">
+      <div>
+        <div className="flex items-start gap-2">
+          <FaBookOpen className="text-teal-500 text-sm mt-0.5 flex-shrink-0" />
+          <div className="min-w-0">
+            <h4 className="text-sm font-semibold text-gray-800 dark:text-white break-words">
+              {isBible ? data.reference : `${data.reference} — ${data.surahName}`}
+            </h4>
+            <p className="text-[11px] text-gray-500 dark:text-gray-400">
+              {isBible ? data.translation : data.edition}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-2 border-l-2 border-teal-200 dark:border-teal-900/60 pl-3">
+        {isBible
+          ? data.verses.map((v, i) => (
+              <p key={i} className="text-sm leading-relaxed text-gray-700 dark:text-gray-200">
+                <span className="text-[10px] text-teal-500 font-semibold mr-1.5 align-top">
+                  {v.chapter}:{v.verse}
+                </span>
+                {v.text}
+              </p>
+            ))
+          : data.verses.map((v, i) => (
+              <p key={i} className="text-sm leading-relaxed text-gray-700 dark:text-gray-200">
+                <span className="text-[10px] text-teal-500 font-semibold mr-1.5 align-top">
+                  {v.surah}:{v.ayah}
+                </span>
+                {v.text}
+              </p>
+            ))}
+      </div>
+
+      {data.expandOptions?.length > 0 && (
+        <div className="flex flex-wrap gap-2 pt-1">
+          {data.expandOptions.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              disabled={expanding}
+              onClick={() => onExpand(opt.id)}
+              className="text-xs px-3 py-1.5 rounded-full border border-teal-200 dark:border-teal-900/60 text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-900/20 hover:bg-teal-100 dark:hover:bg-teal-900/40 disabled:opacity-50 flex items-center gap-1.5 transition"
+            >
+              {expanding ? (
+                <FaSpinner className="animate-spin text-[10px]" />
+              ) : (
+                <FaExpandAlt className="text-[10px]" />
+              )}
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const SearchView = ({ data }) => (
+  <div className="space-y-5">
+    <div className="flex items-start gap-2">
+      <FaSearch className="text-teal-500 text-sm mt-0.5 flex-shrink-0" />
+      <div className="min-w-0">
+        <h4 className="text-sm font-semibold text-gray-800 dark:text-white break-words">
+          {data.query}
+        </h4>
+        {data.summary && (
+          <p className="text-sm leading-relaxed text-gray-700 dark:text-gray-200 mt-2">
+            {data.summary}
+          </p>
+        )}
+      </div>
+    </div>
+
+    {data.definitions?.length > 0 && (
+      <div className="space-y-2">
+        <h5 className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold">
+          Definitions
+        </h5>
+        <div className="space-y-1.5">
+          {data.definitions.map((d, i) => (
+            <div key={i} className="text-sm text-gray-700 dark:text-gray-200">
+              <span className="font-medium">{d.term}</span>
+              <span className="text-gray-500 dark:text-gray-400"> — {d.meaning}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
+
+    {data.relatedTopics?.length > 0 && (
+      <div className="space-y-2">
+        <h5 className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold">
+          Related
+        </h5>
+        <div className="flex flex-wrap gap-1.5">
+          {data.relatedTopics.map((t, i) => (
+            <span
+              key={i}
+              className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+            >
+              {t}
+            </span>
+          ))}
+        </div>
+      </div>
+    )}
+
+    {data.suggestedSearches?.length > 0 && (
+      <div className="space-y-2">
+        <h5 className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold">
+          Suggested searches
+        </h5>
+        <div className="flex flex-wrap gap-1.5">
+          {data.suggestedSearches.map((s, i) => (
+            <a
+              key={i}
+              href={`https://www.google.com/search?q=${encodeURIComponent(s.query)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs px-2 py-1 rounded-full bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-300 hover:bg-teal-100 dark:hover:bg-teal-900/40 transition"
+            >
+              {s.label}
+            </a>
+          ))}
+        </div>
+      </div>
+    )}
+
+    {data.searchLinks?.length > 0 && (
+      <div className="space-y-2">
+        <h5 className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold">
+          Open in
+        </h5>
+        <div className="flex flex-wrap gap-1.5">
+          {data.searchLinks.map((l, i) => (
+            <a
+              key={i}
+              href={l.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-1.5 transition"
+            >
+              {l.label} <FaExternalLinkAlt className="text-[9px] opacity-60" />
+            </a>
+          ))}
+        </div>
+      </div>
+    )}
+  </div>
+);
+
+const AiResultModal = ({ open, isMobile, onClose, loading, error, kind, data, onExpand, expanding }) => {
+  if (!open) return null;
+
+  return (
+    <div
+      className={`fixed inset-0 z-[75] flex ${
+        isMobile ? 'items-end' : 'items-center justify-center'
+      } bg-black/50 backdrop-blur-sm ${isMobile ? '' : 'p-4'}`}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        className={`bg-white dark:bg-[#1a1a1a] shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden ${
+          isMobile
+            ? 'w-full max-h-[90vh] rounded-t-2xl'
+            : 'w-full max-w-2xl max-h-[85vh] rounded-2xl'
+        }`}
+      >
+        {isMobile && (
+          <div className="pt-2 flex justify-center flex-shrink-0">
+            <div className="w-10 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
+          </div>
+        )}
+
+        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
+          <h3 className="text-sm sm:text-base font-semibold text-gray-800 dark:text-white flex items-center gap-2">
+            <FaMagic className="text-teal-500 text-xs" />
+            {kind === 'scripture' ? 'Scripture' : kind === 'search' ? 'Search' : 'AI'}
+          </h3>
+          <button
+            onClick={onClose}
+            className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+          >
+            <FaTimes className="text-sm" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5">
+          {loading && (
+            <div className="flex flex-col items-center justify-center py-12 gap-3">
+              <FaSpinner className="animate-spin text-teal-500 text-2xl" />
+              <p className="text-xs text-gray-500 dark:text-gray-400">Looking that up…</p>
+            </div>
+          )}
+
+          {!loading && error && (
+            <div className="flex flex-col items-center justify-center py-12 gap-2 text-center">
+              <p className="text-sm text-red-500">{error}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Try selecting a shorter phrase, or check the reference.
+              </p>
+            </div>
+          )}
+
+          {!loading && !error && kind === 'scripture' && data && (
+            <ScriptureView data={data} onExpand={onExpand} expanding={expanding} />
+          )}
+
+          {!loading && !error && kind === 'search' && data && <SearchView data={data} />}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── AI PREVIEW MODAL (proofread / complete) ────────────────────────
+const AiPreviewModal = ({ open, isMobile, kind, result, onClose, onApply, applying }) => {
+  if (!open || !result) return null;
+
+  const isProofread = kind === 'proofread';
+  const suggested = isProofread ? result.correctedContent : result.completedContent;
+  const changes = isProofread ? result.changes || [] : [];
+  const addedSections = !isProofread ? result.addedSections || [] : [];
+
+  return (
+    <div
+      className={`fixed inset-0 z-[75] flex ${
+        isMobile ? 'items-end' : 'items-center justify-center'
+      } bg-black/50 backdrop-blur-sm ${isMobile ? '' : 'p-4'}`}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        className={`bg-white dark:bg-[#1a1a1a] shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden ${
+          isMobile
+            ? 'w-full max-h-[92vh] rounded-t-2xl'
+            : 'w-full max-w-2xl max-h-[88vh] rounded-2xl'
+        }`}
+      >
+        {isMobile && (
+          <div className="pt-2 flex justify-center flex-shrink-0">
+            <div className="w-10 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
+          </div>
+        )}
+
+        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
+          <h3 className="text-sm sm:text-base font-semibold text-gray-800 dark:text-white flex items-center gap-2">
+            {isProofread ? (
+              <FaCheckDouble className="text-teal-500 text-xs" />
+            ) : (
+              <FaMagic className="text-teal-500 text-xs" />
+            )}
+            {isProofread ? 'Proofread suggestion' : 'Expanded version'}
+          </h3>
+          <button
+            onClick={onClose}
+            className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+          >
+            <FaTimes className="text-sm" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+          {isProofread && (
+            <div className="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/40 rounded-lg p-3">
+              {result.changeCount > 0
+                ? `${result.changeCount} fix${result.changeCount === 1 ? '' : 'es'} suggested.`
+                : 'No changes suggested.'}
+              {result.summary ? ` ${result.summary}` : ''}
+            </div>
+          )}
+          {!isProofread && result.rationale && (
+            <div className="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/40 rounded-lg p-3">
+              {result.rationale}
+            </div>
+          )}
+
+          {isProofread && changes.length > 0 && (
+            <div className="space-y-2">
+              <h5 className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold">
+                Changes
+              </h5>
+              <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                {changes.map((c, i) => (
+                  <div key={i} className="text-xs p-2 rounded-lg bg-gray-50 dark:bg-gray-900/40 break-words">
+                    <span className="text-gray-500 dark:text-gray-400 mr-1.5">[{c.type}]</span>
+                    <span className="line-through text-red-500/80">
+                      {stripHtml(c.original) || c.original}
+                    </span>
+                    <span className="mx-1.5 text-gray-400">→</span>
+                    <span className="text-teal-600 dark:text-teal-400">
+                      {stripHtml(c.corrected) || c.corrected}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!isProofread && addedSections.length > 0 && (
+            <div className="space-y-2">
+              <h5 className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold">
+                Added
+              </h5>
+              <div className="flex flex-wrap gap-1.5">
+                {addedSections.map((s, i) => (
+                  <span
+                    key={i}
+                    className="text-[11px] px-2 py-1 rounded-full bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-300"
+                  >
+                    {stripHtml(s.heading) || s.heading || s.type}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <h5 className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold">
+              Preview
+            </h5>
+            <div className="text-sm leading-relaxed text-gray-700 dark:text-gray-200 bg-white dark:bg-[#0f0f12] border border-gray-200 dark:border-gray-800 rounded-lg p-3 max-h-72 overflow-y-auto">
+              <div
+                className={
+                  'prose prose-sm max-w-none dark:prose-invert ' +
+                  '[&_h1]:text-2xl [&_h2]:text-xl [&_h3]:text-lg [&_h1]:font-bold [&_h2]:font-bold [&_h3]:font-semibold ' +
+                  '[&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-1 ' +
+                  '[&_p]:my-2 [&_a]:text-teal-600 [&_a]:underline ' +
+                  '[&_strong]:font-semibold [&_em]:italic [&_u]:underline ' +
+                  '[&_table]:border-collapse [&_table]:w-full [&_table]:my-3 ' +
+                  '[&_th]:border [&_th]:border-gray-300 [&_th]:dark:border-gray-600 [&_th]:p-2 ' +
+                  '[&_td]:border [&_td]:border-gray-300 [&_td]:dark:border-gray-600 [&_td]:p-2'
+                }
+                dangerouslySetInnerHTML={{ __html: suggested || '' }}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-2 p-3 sm:p-4 border-t border-gray-200 dark:border-gray-800 flex-shrink-0">
+          <button
+            onClick={onClose}
+            disabled={applying}
+            className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onApply}
+            disabled={applying}
+            className="flex-1 py-2.5 bg-teal-600 text-white rounded-xl text-sm font-medium hover:bg-teal-700 transition disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {applying ? <FaSpinner className="animate-spin text-xs" /> : <FaCheck className="text-xs" />}
+            Apply
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AiActionsMenu = ({ disabled, busy, onProofread, onComplete }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      if (!ref.current?.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div className="relative flex-shrink-0" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        disabled={disabled}
+        title="AI actions"
+        className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-teal-500 transition disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        {busy ? <FaSpinner className="text-sm animate-spin" /> : <FaMagic className="text-sm" />}
+      </button>
+      {open && (
+        <div
+          className="absolute right-0 top-full mt-1 z-50 bg-white dark:bg-[#1c1c1f] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl p-1.5 min-w-[200px]"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={() => { setOpen(false); onProofread(); }}
+            className="w-full flex items-start gap-2.5 px-2.5 py-2 rounded-lg text-left hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+          >
+            <FaCheckDouble className="text-teal-500 text-xs mt-0.5 flex-shrink-0" />
+            <div className="min-w-0">
+              <div className="text-xs font-medium text-gray-800 dark:text-white">Proofread</div>
+              <div className="text-[10px] text-gray-500 dark:text-gray-400">
+                Fix spelling, punctuation, grammar
+              </div>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => { setOpen(false); onComplete(); }}
+            className="w-full flex items-start gap-2.5 px-2.5 py-2 rounded-lg text-left hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+          >
+            <FaExpandAlt className="text-teal-500 text-xs mt-0.5 flex-shrink-0" />
+            <div className="min-w-0">
+              <div className="text-xs font-medium text-gray-800 dark:text-white">Expand</div>
+              <div className="text-[10px] text-gray-500 dark:text-gray-400">
+                Add explanation, depth, context
+              </div>
+            </div>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const SmallScreenActions = ({ isPublic, hasShareLink, onCopyShareLink, onExportPDF, onDelete }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (!ref.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div className="relative sm:hidden" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+        title="More actions"
+      >
+        <FaEllipsisV className="text-sm" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 bg-white dark:bg-[#1c1c1f] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl p-1.5 min-w-[180px]">
+          {isPublic && hasShareLink && (
+            <button
+              type="button"
+              onClick={() => { setOpen(false); onCopyShareLink(); }}
+              className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left hover:bg-gray-100 dark:hover:bg-gray-800 transition text-xs text-gray-700 dark:text-gray-300"
+            >
+              <FaCopy className="text-xs" /> Copy share link
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => { setOpen(false); onExportPDF(); }}
+            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left hover:bg-gray-100 dark:hover:bg-gray-800 transition text-xs text-gray-700 dark:text-gray-300"
+          >
+            <FaFilePdf className="text-xs" /> Export as PDF
+          </button>
+          <button
+            type="button"
+            onClick={() => { setOpen(false); onDelete(); }}
+            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left hover:bg-red-50 dark:hover:bg-red-900/20 transition text-xs text-red-600"
+          >
+            <FaTrashAlt className="text-xs" /> Delete note
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── MAIN COMPONENT ─────────────────────────────────────────────────
 const AUTOSAVE_DELAY = 900;
 const MOBILE_BREAKPOINT = 768;
 const MOBILE_TOOLBAR_BASE_GAP = 110;
+const MANUAL_VERSE_WINDOW = 10;   // verses shown per fetch
+const MANUAL_VERSE_STEP   = 10;   // added each "More verses" click
 
 const WriteNote = () => {
   const { id: noteId } = useParams();
@@ -926,6 +1793,15 @@ const WriteNote = () => {
   );
   const [keyboardOffset, setKeyboardOffset] = useState(0);
 
+  // ── AI state ─────────────────────────────────────────────────────
+  const [aiSelection, setAiSelection] = useState(null);   // { text, rect }
+  const [aiPanel, setAiPanel] = useState(null);           // { loading, error, kind, data, expanding, manualRef? }
+  const [aiPreview, setAiPreview] = useState(null);       // { kind, result }
+  const [aiBusy, setAiBusy] = useState(null);             // 'proofread' | 'complete'
+  const [aiApplying, setAiApplying] = useState(false);
+  const [showBiblePicker, setShowBiblePicker] = useState(false);
+
+  // ── Note hooks (CRUD + AI, same slice) ───────────────────────────
   const { data: noteData, isLoading: isFetching } = useGetNoteQuery(noteId, { skip: !noteId });
   const { data: notesData, isLoading: isNotesLoading } = useGetNotesQuery();
   const [createNote] = useCreateNoteMutation();
@@ -933,6 +1809,12 @@ const WriteNote = () => {
   const [deleteNote] = useDeleteNoteMutation();
   const [togglePublic] = useTogglePublicMutation();
   const [exportPDF] = useLazyExportNotePDFQuery();
+
+  const [lookupScripture] = useLookupScriptureMutation();
+  const [expandScripture] = useExpandScriptureMutation();
+  const [searchHighlight] = useSearchHighlightMutation();
+  const [proofreadNoteApi] = useProofreadNoteMutation();
+  const [completeNoteApi] = useCompleteNoteMutation();
 
   const notes = notesData?.notes || [];
 
@@ -943,6 +1825,7 @@ const WriteNote = () => {
   const sidebarRef = useRef(null);
   const dragRef = useRef(null);
   const isCreatingRef = useRef(false);
+  const editorRef = useRef(null);
 
   // Mobile detection
   useEffect(() => {
@@ -951,8 +1834,7 @@ const WriteNote = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Keyboard offset via visualViewport — still needed so the mobile
-  // toolbar tracks the on-screen keyboard instead of sitting under it.
+  // Keyboard offset via visualViewport
   useEffect(() => {
     if (!isMobile || typeof window === 'undefined' || !window.visualViewport) {
       setKeyboardOffset(0);
@@ -971,6 +1853,14 @@ const WriteNote = () => {
       vv.removeEventListener('scroll', updateOffset);
     };
   }, [isMobile]);
+
+  // Hide the selection pill when the user scrolls
+  useEffect(() => {
+    if (!aiSelection) return;
+    const clear = () => setAiSelection(null);
+    window.addEventListener('scroll', clear, true);
+    return () => window.removeEventListener('scroll', clear, true);
+  }, [aiSelection]);
 
   // Sidebar resizing
   const startResize = useCallback((e) => {
@@ -1020,6 +1910,10 @@ const WriteNote = () => {
   useEffect(() => {
     setIsEditing(Boolean(location.state?.justCreated));
     currentNoteIdRef.current = noteId || null;
+    setAiSelection(null);
+    setAiPanel(null);
+    setAiPreview(null);
+    setShowBiblePicker(false);
   }, [noteId]);
 
   // Load note data
@@ -1078,6 +1972,7 @@ const WriteNote = () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     persist();
     setIsEditing(false);
+    setAiSelection(null);
   };
 
   const handleDelete = async () => {
@@ -1143,6 +2038,245 @@ const WriteNote = () => {
     setContent(html);
     setWordCount(getWordCount(html));
     setCharCount(getCharCount(html));
+  };
+
+  // ── AI HANDLERS ────────────────────────────────────────────────
+
+  const handleSelectionChange = useCallback((info) => {
+    if (aiPanel || aiPreview) return;
+    setAiSelection(info);
+  }, [aiPanel, aiPreview]);
+
+  const handleEditorReady = useCallback((ed) => {
+    editorRef.current = ed;
+  }, []);
+
+  // ── Bible passage lookup ───────────────────────────────────────
+  // Builds a reference string like "Matthew 3:2-12" and pushes it
+  // through the same lookupScripture endpoint the highlight flow uses,
+  // so the response shape is identical.
+  const runBibleLookup = useCallback(async ({ book, chapter, verseStart, verseEnd }) => {
+    const refString =
+      verseEnd && verseEnd > verseStart
+        ? `${book} ${chapter}:${verseStart}-${verseEnd}`
+        : `${book} ${chapter}:${verseStart}`;
+
+    setAiPanel({ loading: true, kind: null, data: null, error: null, expanding: false });
+
+    try {
+      const { result } = await lookupScripture({ text: refString }).unwrap();
+
+      // Detect whether the returned range already spans to the end of
+      // the chapter — if so, we hide "more verses".
+      const lastVerse = result.verses?.[result.verses.length - 1]?.verse ?? verseEnd;
+      const hitChapterEnd = verseEnd != null && lastVerse < verseEnd;
+
+      const expandOptions = [];
+      if (!hitChapterEnd) {
+        expandOptions.push({ id: 'more_verses', label: 'Show more verses' });
+      }
+      expandOptions.push({
+        id: 'full_chapter',
+        label: `Show full ${book} ${chapter}`,
+      });
+
+      setAiPanel({
+        loading: false,
+        kind: 'scripture',
+        data: { ...result, expandOptions },
+        error: null,
+        expanding: false,
+        manualRef: {
+          book,
+          chapter,
+          verseStart,
+          verseEnd: lastVerse ?? verseEnd,
+        },
+      });
+    } catch (err) {
+      setAiPanel({
+        loading: false,
+        kind: null,
+        data: null,
+        error: err?.data?.message || 'Could not load that passage right now.',
+        expanding: false,
+      });
+    }
+  }, [lookupScripture]);
+
+  const handleBibleLookupSubmit = useCallback(({ book, chapter, verse }) => {
+    setShowBiblePicker(false);
+    const verseStart = verse;
+    const verseEnd = verse + MANUAL_VERSE_WINDOW;
+    runBibleLookup({ book, chapter, verseStart, verseEnd });
+  }, [runBibleLookup]);
+
+  const handleManualExpand = useCallback(async (mode) => {
+    if (!aiPanel?.manualRef) return;
+    const ref = aiPanel.manualRef;
+
+    let nextStart = ref.verseStart;
+    let nextEnd;
+    if (mode === 'full_chapter') {
+      nextStart = 1;
+      nextEnd = 999; // server clamps at end of chapter
+    } else {
+      nextEnd = (ref.verseEnd || ref.verseStart) + MANUAL_VERSE_STEP;
+    }
+
+    setAiPanel((p) => ({ ...p, expanding: true }));
+    try {
+      const refString =
+        mode === 'full_chapter'
+          ? `${ref.book} ${ref.chapter}`
+          : `${ref.book} ${ref.chapter}:${nextStart}-${nextEnd}`;
+
+      const { result } = await lookupScripture({ text: refString }).unwrap();
+
+      const lastVerse = result.verses?.[result.verses.length - 1]?.verse ?? nextEnd;
+      const hitChapterEnd = mode === 'full_chapter' ? true : lastVerse < nextEnd;
+
+      const expandOptions = [];
+      if (!hitChapterEnd) {
+        expandOptions.push({ id: 'more_verses', label: 'Show more verses' });
+      }
+      if (mode !== 'full_chapter') {
+        expandOptions.push({
+          id: 'full_chapter',
+          label: `Show full ${ref.book} ${ref.chapter}`,
+        });
+      }
+
+      setAiPanel({
+        loading: false,
+        kind: 'scripture',
+        data: { ...result, expandOptions },
+        error: null,
+        expanding: false,
+        manualRef: {
+          ...ref,
+          verseStart: nextStart,
+          verseEnd: lastVerse,
+        },
+      });
+    } catch (err) {
+      toast.error(err?.data?.message || 'Could not expand the passage.');
+      setAiPanel((p) => ({ ...p, expanding: false }));
+    }
+  }, [aiPanel, lookupScripture]);
+
+  // ── Highlight-to-ask flow ──────────────────────────────────────
+  const handleAskAiAboutSelection = async () => {
+    if (!aiSelection?.text) return;
+    const text = aiSelection.text;
+    setAiSelection(null);
+
+    try { editorRef.current?.commands.blur(); } catch { /* noop */ }
+
+    setAiPanel({ loading: true, kind: null, data: null, error: null, expanding: false });
+
+    try {
+      const { result } = await lookupScripture({
+        text,
+        noteId: currentNoteIdRef.current || undefined,
+      }).unwrap();
+
+      if (result.type === 'bible' || result.type === 'quran') {
+        setAiPanel({ loading: false, kind: 'scripture', data: result, error: null, expanding: false });
+        return;
+      }
+
+      const { result: searchResult } = await searchHighlight({
+        text,
+        noteId: currentNoteIdRef.current || undefined,
+      }).unwrap();
+
+      setAiPanel({ loading: false, kind: 'search', data: searchResult, error: null, expanding: false });
+    } catch (err) {
+      setAiPanel({
+        loading: false,
+        kind: null,
+        data: null,
+        error: err?.data?.message || 'Could not look that up right now.',
+        expanding: false,
+      });
+    }
+  };
+
+  // Expand handler used by ScriptureView — dispatches based on origin.
+  const handleExpandScripture = async (expandMode) => {
+    if (!aiPanel?.data) return;
+
+    // Manual picker → custom range expansion, client-driven.
+    if (aiPanel.manualRef) {
+      return handleManualExpand(expandMode);
+    }
+
+    // AI-detected → server-driven expansion.
+    const { type, parsed } = aiPanel.data;
+    setAiPanel((p) => ({ ...p, expanding: true }));
+    try {
+      const { result } = await expandScripture({ type, parsed, expand: expandMode }).unwrap();
+      setAiPanel({ loading: false, kind: 'scripture', data: result, error: null, expanding: false });
+    } catch (err) {
+      toast.error(err?.data?.message || 'Could not expand the passage.');
+      setAiPanel((p) => ({ ...p, expanding: false }));
+    }
+  };
+
+  const handleProofread = async () => {
+    if (!currentNoteIdRef.current) return;
+    setAiBusy('proofread');
+    try {
+      const { result } = await proofreadNoteApi({
+        noteId: currentNoteIdRef.current,
+      }).unwrap();
+      setAiPreview({ kind: 'proofread', result });
+    } catch (err) {
+      toast.error(err?.data?.message || 'Proofreading failed.');
+    } finally {
+      setAiBusy(null);
+    }
+  };
+
+  const handleComplete = async () => {
+    if (!currentNoteIdRef.current) return;
+    setAiBusy('complete');
+    try {
+      const { result } = await completeNoteApi({
+        noteId: currentNoteIdRef.current,
+        style: 'explanatory',
+      }).unwrap();
+      setAiPreview({ kind: 'complete', result });
+    } catch (err) {
+      toast.error(err?.data?.message || 'Expansion failed.');
+    } finally {
+      setAiBusy(null);
+    }
+  };
+
+  const handleApplyAiPreview = async () => {
+    if (!aiPreview || !editorRef.current) return;
+    setAiApplying(true);
+    try {
+      const newContent = aiPreview.kind === 'proofread'
+        ? aiPreview.result.correctedContent
+        : aiPreview.result.completedContent;
+
+      try {
+        editorRef.current.commands.setContent(newContent, { emitUpdate: true });
+      } catch {
+        editorRef.current.commands.setContent(newContent);
+      }
+      handleEditorChange(editorRef.current.getHTML());
+
+      setAiPreview(null);
+      toast.success(aiPreview.kind === 'proofread' ? 'Fixes applied' : 'Expansion applied');
+    } catch (err) {
+      toast.error('Failed to apply suggestion.');
+    } finally {
+      setAiApplying(false);
+    }
   };
 
   // Loading
@@ -1221,7 +2355,7 @@ const WriteNote = () => {
             <h1 className="text-lg sm:text-2xl font-bold text-gray-800 dark:text-white truncate">
               {title || 'Untitled Note'}
             </h1>
-            <span className="text-xs bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 px-2.5 py-0.5 rounded-full font-medium flex-shrink-0">
+            <span className="text-xs bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 px-2.5 py-0.5 rounded-full font-medium flex-shrink-0 hidden xs:inline">
               {isPublic ? 'Public' : 'Private'}
             </span>
           </div>
@@ -1234,13 +2368,33 @@ const WriteNote = () => {
         <SaveStatus status={isEditing ? saveStatus : 'idle'} lastSaved={lastSaved} />
 
         <div className="flex items-center gap-1 flex-shrink-0">
+          {/* Bible passage picker — always available, useful while
+              reading a note that already contains a reference too. */}
+          <button
+            type="button"
+            onClick={() => setShowBiblePicker(true)}
+            title="Look up a Bible passage"
+            className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-teal-500 transition"
+          >
+            <FaBookOpen className="text-sm" />
+          </button>
+
+          {isEditing && (
+            <AiActionsMenu
+              disabled={!isEditing}
+              busy={aiBusy}
+              onProofread={handleProofread}
+              onComplete={handleComplete}
+            />
+          )}
+
           {isEditing ? (
             <button
               onClick={handleDoneEditing}
               className="px-3 py-1.5 bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition flex items-center gap-1.5 text-xs sm:text-sm font-medium"
             >
               <FaCheck className="text-xs" />
-              Done
+              <span className="hidden xs:inline">Done</span>
             </button>
           ) : (
             <button
@@ -1248,7 +2402,7 @@ const WriteNote = () => {
               className="px-3 py-1.5 bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition flex items-center gap-1.5 text-xs sm:text-sm font-medium"
             >
               <FaEdit className="text-xs" />
-              Edit
+              <span className="hidden xs:inline">Edit</span>
             </button>
           )}
 
@@ -1261,28 +2415,40 @@ const WriteNote = () => {
           >
             {isPublic ? <FaUnlock className="text-sm" /> : <FaLock className="text-sm" />}
           </button>
+
           {isPublic && noteData?.note?.shareLink && (
             <button
               onClick={handleCopyShareLink}
-              className="p-2 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+              className="hidden sm:inline-flex p-2 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
               title="Copy share link"
             >
               <FaCopy className="text-sm" />
             </button>
           )}
+
           <button
             onClick={handleExportPDF}
-            className="p-2 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+            className="hidden sm:inline-flex p-2 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
             title="Export as PDF"
           >
             <FaFilePdf className="text-sm" />
           </button>
+
           <button
             onClick={() => setShowDeleteModal(true)}
-            className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition"
+            className="hidden sm:inline-flex p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition"
+            title="Delete note"
           >
             <FaTrashAlt className="text-sm" />
           </button>
+
+          <SmallScreenActions
+            isPublic={isPublic}
+            hasShareLink={Boolean(noteData?.note?.shareLink)}
+            onCopyShareLink={handleCopyShareLink}
+            onExportPDF={handleExportPDF}
+            onDelete={() => setShowDeleteModal(true)}
+          />
         </div>
       </div>
     </div>
@@ -1314,6 +2480,8 @@ const WriteNote = () => {
               isMobile={isMobile}
               keyboardOffset={keyboardOffset}
               onChange={handleEditorChange}
+              onSelectionChange={handleSelectionChange}
+              onEditorReady={handleEditorReady}
             />
           )}
         </div>
@@ -1336,6 +2504,44 @@ const WriteNote = () => {
         {renderHeader()}
         {renderEditor()}
       </div>
+
+      {/* ── AI surfaces ─────────────────────────────────────────── */}
+      <AiSelectionPill
+        selection={aiSelection}
+        isMobile={isMobile}
+        busy={Boolean(aiPanel?.loading)}
+        onClick={handleAskAiAboutSelection}
+      />
+
+      <BiblePickerModal
+        open={showBiblePicker}
+        isMobile={isMobile}
+        busy={Boolean(aiPanel?.loading)}
+        onClose={() => setShowBiblePicker(false)}
+        onSubmit={handleBibleLookupSubmit}
+      />
+
+      <AiResultModal
+        open={Boolean(aiPanel)}
+        isMobile={isMobile}
+        loading={Boolean(aiPanel?.loading)}
+        error={aiPanel?.error || null}
+        kind={aiPanel?.kind || null}
+        data={aiPanel?.data || null}
+        expanding={Boolean(aiPanel?.expanding)}
+        onExpand={handleExpandScripture}
+        onClose={() => setAiPanel(null)}
+      />
+
+      <AiPreviewModal
+        open={Boolean(aiPreview)}
+        isMobile={isMobile}
+        kind={aiPreview?.kind}
+        result={aiPreview?.result}
+        applying={aiApplying}
+        onApply={handleApplyAiPreview}
+        onClose={() => setAiPreview(null)}
+      />
 
       <ConfirmModal
         isOpen={showDeleteModal}

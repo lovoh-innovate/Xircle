@@ -494,3 +494,322 @@ ${question}
 
   return { answer, followUps };
 }
+
+// ═════════════════════════════════════════════════════════════════════
+// PERSONAL-NOTE AI
+// ═════════════════════════════════════════════════════════════════════
+//
+// The four functions below back controllers/noteAiController.js.
+//
+// They all follow the same contract as the six above:
+//   • take a plain object of already-validated inputs
+//   • return a plain object with the exact shape the controller expects
+//   • never write to the database
+//
+// Two of them (detectScripture, searchTopic) are used to drive external
+// API calls in the controller — they classify and parse, they do NOT
+// fabricate scripture text or fetch web content themselves.
+//
+// Two of them (proofreadNote, completeNote) return SUGGESTED content.
+// The controller passes those suggestions back to the client, which
+// then decides whether to persist them via the normal updateNote path.
+// ═════════════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────────────────
+// 7. DETECT SCRIPTURE — classify a highlighted string
+// ─────────────────────────────────────────────────────────────────────
+//
+// Returns one of:
+//   { type: 'bible',   bible:  { book, chapter, verseStart, verseEnd, rawReference }, confidence }
+//   { type: 'quran',   quran:  { surah, ayahStart, ayahEnd, rawReference },          confidence }
+//   { type: 'general', confidence }
+//
+// The model only CLASSIFIES and PARSES. It never fabricates verse text —
+// the controller pulls the actual scripture from bible-api.com / alquran.cloud.
+// ─────────────────────────────────────────────────────────────────────
+
+const SCRIPTURE_SYSTEM = `
+You classify highlighted text from a personal note. Decide whether it is:
+
+  A) a Bible reference or quote — e.g. "John 3:16", "For God so loved the world...",
+     "Genesis 1:1-5", "Psalm 23", "the Lord is my shepherd".
+  B) a Quran reference or quote — e.g. "2:255", "Surah Al-Baqarah 255",
+     "Ayat al-Kursi", "Allah — there is no deity except Him".
+  C) neither (ordinary text).
+
+STRICT RULES:
+- If it is scripture, extract a PARSED reference. Never quote the verse text back.
+- For Bible, always give: book (canonical English name), chapter, verseStart,
+  verseEnd (same as verseStart if single verse), and rawReference.
+- For Quran, give: surah (number), ayahStart, ayahEnd, rawReference.
+- If you are not confident, return type "general". Do not guess.
+- Return ONLY valid JSON. No prose, no code fences.
+
+Shape:
+
+{
+  "type": "bible" | "quran" | "general",
+  "confidence": 0.0-1.0,
+  "bible": { "book": "string", "chapter": number, "verseStart": number|null, "verseEnd": number|null, "rawReference": "string" },
+  "quran": { "surah": number, "ayahStart": number|null, "ayahEnd": number|null, "rawReference": "string" }
+}
+
+Only include the "bible" key when type is "bible", only "quran" when type is "quran".
+`;
+
+export async function detectScripture({ text }) {
+  const user = `Highlighted text:\n"""\n${text}\n"""`;
+  return callGroq({ system: SCRIPTURE_SYSTEM, user, temperature: 0.1 });
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 8. SEARCH TOPIC — plain-English context for a highlighted word/phrase
+// ─────────────────────────────────────────────────────────────────────
+const SEARCH_SYSTEM = `
+You are a concise, accurate explainer. The user has highlighted a word or
+phrase inside a personal note and wants to know more about it.
+
+Return STRICT JSON only, matching this shape exactly:
+
+{
+  "summary": "string (2-4 sentences, plain English, no filler)",
+  "definitions": [
+    { "term": "string", "meaning": "string (1 sentence)" }
+  ],
+  "relatedTopics": ["string (3-6 short phrases the user might want next)"],
+  "suggestedSearches": [
+    { "label": "string (short, clickable, < 40 chars)", "query": "string (the actual search query)" }
+  ]
+}
+
+Rules:
+- Ground the summary in what the word/phrase actually means. Do not invent facts.
+- If it is a technical term, define it plainly.
+- If it is a person or place, give one line of who/what and one line of significance.
+- If it is ambiguous, pick the most likely meaning given the surrounding note
+  context (provided separately) and mention the alternative briefly.
+- suggestedSearches must be 3-5 items. They should be things a curious reader
+  would actually click — not generic ("what is X", "history of X", "examples of X").
+`;
+
+export async function searchTopic({ text, context }) {
+  const user = `
+Highlighted word/phrase:
+"""${text}"""
+
+${context ? `Surrounding note context:\n"""${context}"""` : ''}
+`;
+  return callGroq({ system: SEARCH_SYSTEM, user, temperature: 0.4 });
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 9. PROOFREAD NOTE — spelling, punctuation, grammar, AND formatting
+// ─────────────────────────────────────────────────────────────────────
+//
+// Two responsibilities, in order:
+//   1. Mechanical fixes — spelling, punctuation, grammar, capitalization
+//   2. Structural formatting — paragraph breaks, bullet/numbered lists,
+//      headings, bold emphasis, centered titles, emphasis marks
+//
+// The author's WORDS are sacred. Their LAYOUT is fair game.
+//
+// The note comes in as Tiptap HTML. The corrected note must come back
+// as the same subset of HTML so setContent can parse it: <p>, <h1-3>,
+// <ul>, <ol>, <li>, <strong>, <em>, <u>, <s>, <a>, and
+// <p style="text-align: center">. No other tags. No classes. No CSS
+// beyond text-align.
+// ─────────────────────────────────────────────────────────────────────
+
+const PROOFREAD_SYSTEM = `
+You are an editor for personal notes. The note arrives as HTML (Tiptap
+output) and you return a corrected version in the SAME HTML dialect.
+
+You have TWO jobs, and BOTH are required:
+
+  A) MECHANICAL FIXES — spelling, punctuation, grammar, capitalization.
+  B) FORMATTING — structure the note so it reads cleanly and looks
+     intentional. This is not optional. If a note is a wall of text,
+     an unformatted list, or has no visual hierarchy, fix that too.
+
+═══════════════════════════════════════════════════════════════════
+WHAT TO FIX (A) — mechanical
+═══════════════════════════════════════════════════════════════════
+- Misspelled words
+- Missing or wrong punctuation (missing periods, stray commas,
+  apostrophes in contractions and possessives)
+- Grammar slips: subject-verb agreement, its/it's, your/you're,
+  their/there/they're, then/than, to/too/two
+- Capitalization at sentence starts and for proper nouns
+- Double spaces, stray whitespace, non-breaking space junk
+- Run-on sentences ONLY when a simple comma or period fixes them
+
+═══════════════════════════════════════════════════════════════════
+WHAT TO FIX (B) — formatting
+═══════════════════════════════════════════════════════════════════
+
+PARAGRAPHS
+- A single paragraph over ~5 sentences becomes 2-3 shorter paragraphs
+- Every distinct idea gets its own <p>
+- Don't merge paragraphs the author intentionally separated
+
+LISTS  ← do this aggressively when the content is clearly a list
+- Three or more items that are parallel in structure → <ul>
+- Items that are sequential steps or ranked → <ol>
+- Items separated by commas, dashes, or line breaks that read as a list
+  → convert to a real list
+- Existing <ul>/<ol> that are correct: leave alone
+- One item alone: leave as prose
+- Keep the items' words intact. Do not reword to fit a list pattern.
+
+HEADINGS
+- A short standalone line (< ~8 words) with no ending punctuation,
+  sitting above a block of related text, is a heading
+- Promote it to <h2> or <h3> based on depth (top-level → <h2>,
+  sub-section → <h3>)
+- Never invent headings. Only promote text that already exists.
+
+EMPHASIS (bold / italic / underline)
+- Bold key terms on first mention, section labels, and short phrases
+  the author clearly meant as labels ("Goal:", "Deadline:", a date,
+  a person's name in a bio, a project name)
+- Italicize foreign words, titles of works, and quoted inner thoughts
+- Underline only when the author already did, or for a headline label
+- Do NOT bold whole sentences. Do NOT bold ordinary prose.
+  Bold is for labels and single key terms, not decoration.
+- Never bold more than ~15% of the words in the note.
+
+ALIGNMENT
+- The note's main title (if the first line reads as a title — short,
+  no period, stands alone) gets style="text-align: center"
+- A standalone opening quote or dedication gets center alignment
+- Never center body paragraphs. Left-align body text always.
+
+TITLES vs HEADINGS
+- If the first line is clearly the note's title, wrap in <h1> and
+  center it
+- If there is no title line, do NOT invent one. Leave the first <p>
+  as-is.
+
+═══════════════════════════════════════════════════════════════════
+HARD RULES — what you must never do
+═══════════════════════════════════════════════════════════════════
+1. NEVER change the author's words except for the mechanical fixes
+   listed in section A. Reordering, substituting synonyms, rewriting
+   sentences for style — all forbidden.
+2. NEVER add content. No new sentences, no new facts, no summaries,
+   no conclusions. If the author didn't write it, it doesn't appear.
+3. NEVER delete content. Every word the author wrote survives into
+   the corrected version.
+4. NEVER change scripture references, code snippets, URLs, email
+   addresses, or literal quoted material.
+5. NEVER use any HTML tag outside this set:
+     <p>, <h1>, <h2>, <h3>, <ul>, <ol>, <li>,
+     <strong>, <em>, <u>, <s>, <a href="...">, <br>
+   NEVER use: <div>, <span>, <table>, <blockquote>, <code>, classes,
+   ids, inline CSS except text-align, or any attribute other than
+   href on <a> and style on <p>/<h1>/<h2>/<h3> (only for text-align).
+6. NEVER wrap the entire output in a container. Return sibling
+   block elements, exactly like Tiptap emits.
+7. If a fix would be debatable, skip it. Silent correctness beats
+   loud wrongness.
+
+═══════════════════════════════════════════════════════════════════
+OUTPUT
+═══════════════════════════════════════════════════════════════════
+Return STRICT JSON only, matching this shape exactly:
+
+{
+  "correctedContent": "string (full corrected note, Tiptap-compatible HTML)",
+  "summary": "string (1-2 sentences describing what was fixed overall)",
+  "changes": [
+    {
+      "type": "spelling" | "punctuation" | "grammar" | "capitalization"
+            | "structure" | "list" | "heading" | "emphasis" | "alignment",
+      "original": "string (see rules below)",
+      "corrected": "string (see rules below)",
+      "reason": "string (short, e.g. 'its → it\\'s (contraction)')"
+    }
+  ]
+}
+
+RULES FOR original / corrected FIELDS:
+- For spelling/punctuation/grammar/capitalization: put the exact text
+  fragment (plain text, no HTML tags) before and after the fix.
+- For structure/list/heading/emphasis/alignment: DO NOT paste HTML
+  fragments here. Instead describe the change in plain English:
+    original: "wall of text (14 sentences, one <p>)"
+    corrected: "split into 4 paragraphs"
+    reason: "Long unbroken block split for readability"
+  or:
+    original: "grocery list as a single comma-run"
+    corrected: "converted to a 6-item bullet list"
+    reason: "Parallel items grouped as a list"
+  The user reads these inline. HTML tags would clutter the display.
+
+Order the changes array in the order they appear in the note.
+If nothing needs fixing at all, return the original content and an
+empty changes array. Do not fabricate changes to look busy.
+`.trim();
+
+export async function proofreadNote({ title, content }) {
+  const user = `
+${title ? `Note title: ${title}\n` : ''}Note content (Tiptap HTML):
+"""
+${content}
+"""
+`;
+  return callGroq({ system: PROOFREAD_SYSTEM, user, temperature: 0.2 });
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 10. COMPLETE NOTE — add explanation, depth, and context
+// ─────────────────────────────────────────────────────────────────────
+const COMPLETE_SYSTEM = `
+You help someone develop a personal note into a richer version of itself.
+
+You will receive a note and a STYLE. You will return an EXPANDED version
+that keeps the author's original text intact (or lightly tightened) and
+adds useful new material around it.
+
+STYLES:
+- explanatory : define terms, add background, give a concrete example
+- concise     : sharpen and clarify, no new topics, tighter phrasing only
+- devotional   : reflective, warm, scripture-aware (Bible/Quran friendly)
+- academic    : precise, structured, cite-style reasoning, no fluff
+- journal     : first-person reflective, meandering is fine, feels human
+
+HARD RULES:
+- NEVER delete or contradict what the author wrote.
+- NEVER invent facts, quotes, dates, statistics, or scripture text.
+- If you reference scripture, reference the reference ("see John 3:16"),
+  do not quote it.
+- Keep the author's voice. If they wrote casually, stay casual.
+- Return the FULL note — original plus additions — not a diff.
+- Structure additions with clear headings or as natural continuations.
+
+Return STRICT JSON only:
+
+{
+  "completedContent": "string (the full expanded note)",
+  "rationale": "string (1-2 sentences explaining what you added and why)",
+  "addedSections": [
+    {
+      "type": "explanation" | "example" | "context" | "elaboration" | "reflection" | "application",
+      "heading": "string (empty if the addition is inline)",
+      "content": "string (the actual added text)"
+    }
+  ]
+}
+`;
+
+export async function completeNote({ title, content, style = 'explanatory' }) {
+  const user = `
+STYLE: ${style}
+
+${title ? `Note title: ${title}\n` : ''}Note content:
+"""
+${content}
+"""
+`;
+  return callGroq({ system: COMPLETE_SYSTEM, user, temperature: 0.6 });
+}

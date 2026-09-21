@@ -21,6 +21,7 @@ dependencies {
     implementation project(':capgo-capacitor-social-login')
     implementation project(':capacitor-google-sign-in')
     implementation project(':capacitor-voice-recorder')
+    implementation project(':capacitor-splash-screen')
 
 }
 

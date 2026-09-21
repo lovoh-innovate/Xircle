@@ -15,6 +15,7 @@ import {
   FaSpinner,
 } from 'react-icons/fa';
 import { motion } from 'framer-motion';
+import { SplashScreen } from '@capacitor/splash-screen';
 import { useGetAppVersionQuery, getAppDownloadUrl } from '../slices/appApiSlice';
 import { toast } from 'react-hot-toast';
 
@@ -24,6 +25,24 @@ const Welcome = () => {
   const token = userInfo?.token || null;
 
   const isCapacitor = !!window.Capacitor?.isNativePlatform?.();
+
+  // ─── Decide the route BEFORE painting Welcome's UI ──────────────
+  // If userInfo already exists, skip straight to /today and never
+  // reveal Welcome (or the native splash) at all. Otherwise, this is
+  // the moment we've committed to showing Welcome — hide the splash.
+  useEffect(() => {
+    if (userInfo) {
+      navigate('/today', { replace: true });
+    } else if (isCapacitor) {
+      SplashScreen.hide().catch(() => {});
+    }
+  }, [userInfo, navigate, isCapacitor]);
+
+  // While userInfo is present we're mid-redirect — render nothing so
+  // Welcome's markup never paints on that frame.
+  if (userInfo) {
+    return null;
+  }
 
   // ─── Fetch with a 60‑second cache lifetime ──────────────────────
   // This gives you a fast initial render (cached data) but still checks
@@ -49,13 +68,6 @@ const Welcome = () => {
   const [showModal, setShowModal] = useState(false);
   const [copied, setCopied] = useState(false);
   const hasDownloaded = useRef(false);
-
-  // Redirect authenticated users
-  useEffect(() => {
-    if (userInfo) {
-      navigate('/today', { replace: true });
-    }
-  }, [userInfo, navigate]);
 
   // ─── Modal handlers ──────────────────────────────────────────────
   const openDownloadModal = () => {

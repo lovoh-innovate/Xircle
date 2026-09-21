@@ -5,7 +5,11 @@ const NOTES_URL = '/personal-notes';
 
 export const personalNoteApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
-    // ─── Create a note ───────────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════
+    // CRUD
+    // ═══════════════════════════════════════════════════════════════════
+
+    // ─── Create a note ──────────────────────────────────────────────
     createNote: builder.mutation({
       query: (data) => {
         const isFormData = data instanceof FormData;
@@ -19,7 +23,7 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['PersonalNote'],
     }),
 
-    // ─── Get all user's notes ──────────────────────────────────────────
+    // ─── Get all user's notes ───────────────────────────────────────
     getNotes: builder.query({
       query: () => ({
         url: `${NOTES_URL}`,
@@ -27,7 +31,7 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       providesTags: ['PersonalNote'],
     }),
 
-    // ─── Get a single note by ID ──────────────────────────────────────
+    // ─── Get a single note by ID ────────────────────────────────────
     getNote: builder.query({
       query: (noteId) => ({
         url: `${NOTES_URL}/${noteId}`,
@@ -35,7 +39,7 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       providesTags: (result, error, noteId) => [{ type: 'PersonalNote', id: noteId }],
     }),
 
-    // ─── Update a note ──────────────────────────────────────────────────
+    // ─── Update a note ──────────────────────────────────────────────
     updateNote: builder.mutation({
       query: ({ noteId, data }) => {
         const isFormData = data instanceof FormData;
@@ -52,7 +56,7 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // ─── Delete a note ──────────────────────────────────────────────────
+    // ─── Delete a note ──────────────────────────────────────────────
     deleteNote: builder.mutation({
       query: (noteId) => ({
         url: `${NOTES_URL}/${noteId}`,
@@ -64,7 +68,7 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // ─── Toggle public status ──────────────────────────────────────────
+    // ─── Toggle public status ───────────────────────────────────────
     togglePublic: builder.mutation({
       query: ({ noteId, isPublic }) => ({
         url: `${NOTES_URL}/${noteId}/public`,
@@ -77,7 +81,7 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // ─── Get a public note by share link ──────────────────────────────
+    // ─── Get a public note by share link ────────────────────────────
     getNoteByShareLink: builder.query({
       query: (link) => ({
         url: `${NOTES_URL}/share/${link}`,
@@ -85,7 +89,10 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       providesTags: (result, error, link) => [{ type: 'PersonalNote', id: link }],
     }),
 
-    // ─── Collaborators ──────────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════
+    // Collaborators
+    // ═══════════════════════════════════════════════════════════════════
+
     addCollaborator: builder.mutation({
       query: ({ noteId, data }) => ({
         url: `${NOTES_URL}/${noteId}/collaborators`,
@@ -121,7 +128,10 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // ─── Export as PDF ──────────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════
+    // Export / Import
+    // ═══════════════════════════════════════════════════════════════════
+
     exportNotePDF: builder.query({
       query: (noteId) => ({
         url: `${NOTES_URL}/${noteId}/export-pdf`,
@@ -131,7 +141,6 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
-    // ─── Import file to create note ────────────────────────────────────
     importFileToNote: builder.mutation({
       query: (data) => {
         const formData = new FormData();
@@ -145,10 +154,83 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       },
       invalidatesTags: ['PersonalNote'],
     }),
+
+    // ═══════════════════════════════════════════════════════════════════
+    // AI
+    // ═══════════════════════════════════════════════════════════════════
+    //
+    // All five are mutations: user-triggered actions with payloads, not
+    // cache-keyed reads. None of them write to the DB — proofread and
+    // complete return SUGGESTED content. The client holds those in local
+    // state until the user hits Apply, at which point the normal
+    // useUpdateNoteMutation fires and its invalidation refreshes the note.
+    //
+    // No providesTags / invalidatesTags anywhere below. Nothing to cache.
+
+    // ─── Scripture lookup ───────────────────────────────────────────
+    // Highlight → server classifies Bible / Quran / general, and for
+    // scripture returns the actual passage text plus the expand buttons.
+    // Send { text, noteId? }.
+    lookupScripture: builder.mutation({
+      query: ({ text, noteId }) => ({
+        url: `${NOTES_URL}/ai/scripture`,
+        method: 'POST',
+        body: { text, noteId },
+      }),
+    }),
+
+    // ─── Scripture expand ───────────────────────────────────────────
+    // "Show more verses" / "Show full chapter" buttons. Stateless —
+    // client sends back the parsed reference it received from
+    // lookupScripture, along with the expand mode it wants.
+    // Send { type: 'bible'|'quran', parsed, expand }.
+    expandScripture: builder.mutation({
+      query: ({ type, parsed, expand }) => ({
+        url: `${NOTES_URL}/ai/scripture/expand`,
+        method: 'POST',
+        body: { type, parsed, expand },
+      }),
+    }),
+
+    // ─── Non-scripture search ───────────────────────────────────────
+    // Summary + definitions + related topics + ready-made search links.
+    // `context` is optional surrounding note text for disambiguation.
+    // Send { text, context?, noteId? }.
+    searchHighlight: builder.mutation({
+      query: ({ text, context, noteId }) => ({
+        url: `${NOTES_URL}/ai/search`,
+        method: 'POST',
+        body: { text, context, noteId },
+      }),
+    }),
+
+    // ─── Proofread ──────────────────────────────────────────────────
+    // Returns SUGGESTED corrected content — does NOT save.
+    // Send EITHER { noteId } OR { content, title? }.
+    proofreadNote: builder.mutation({
+      query: ({ noteId, content, title }) => ({
+        url: `${NOTES_URL}/ai/proofread`,
+        method: 'POST',
+        body: { noteId, content, title },
+      }),
+    }),
+
+    // ─── Complete / expand ──────────────────────────────────────────
+    // Returns SUGGESTED expanded content — does NOT save.
+    // style: 'explanatory' | 'concise' | 'devotional' | 'academic' | 'journal'
+    // Send { noteId, style? } OR { content, title?, style? }.
+    completeNote: builder.mutation({
+      query: ({ noteId, content, title, style }) => ({
+        url: `${NOTES_URL}/ai/complete`,
+        method: 'POST',
+        body: { noteId, content, title, style },
+      }),
+    }),
   }),
 });
 
 export const {
+  // CRUD
   useCreateNoteMutation,
   useGetNotesQuery,
   useLazyGetNotesQuery,
@@ -159,10 +241,21 @@ export const {
   useTogglePublicMutation,
   useGetNoteByShareLinkQuery,
   useLazyGetNoteByShareLinkQuery,
+
+  // Collaborators
   useAddCollaboratorMutation,
   useRemoveCollaboratorMutation,
   useUpdateCollaboratorPermissionMutation,
+
+  // Export / Import
   useExportNotePDFQuery,
   useLazyExportNotePDFQuery,
   useImportFileToNoteMutation,
+
+  // AI
+  useLookupScriptureMutation,
+  useExpandScriptureMutation,
+  useSearchHighlightMutation,
+  useProofreadNoteMutation,
+  useCompleteNoteMutation,
 } = personalNoteApiSlice;

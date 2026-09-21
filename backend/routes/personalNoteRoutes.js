@@ -14,6 +14,13 @@ import {
   exportNotePDF,
   importFileToNote,
 } from "../controllers/personalNoteController.js";
+import {
+  lookupScripture,
+  expandScripture,
+  searchHighlight,
+  proofreadNoteHandler,
+  completeNoteHandler,
+} from "../controllers/noteAiController.js";
 import { protect } from "../middleware/authMiddleware.js";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
@@ -50,7 +57,27 @@ router.get("/share/:link", getNoteByShareLink);
 // ── Protected routes ──────────────────────────────────────────────────────
 router.use(protect); // All following routes require authentication
 
-// CRUD
+// ── AI routes ─────────────────────────────────────────────────────────────
+// Must be declared BEFORE the /:id routes so path segments like "ai" are
+// never mistaken for a note id. All five are POST; none of them write to
+// the database — proofread and complete return suggestions only.
+
+// Highlight → detect Bible/Quran/general, fetch the passage text
+router.post("/ai/scripture", lookupScripture);
+
+// "Show more verses" / "Show full chapter" buttons
+router.post("/ai/scripture/expand", expandScripture);
+
+// Non-scripture highlight → summary, definitions, search links
+router.post("/ai/search", searchHighlight);
+
+// Spelling / punctuation / grammar / formatting fixes (suggestions only)
+router.post("/ai/proofread", proofreadNoteHandler);
+
+// Expand a note with explanation, examples, depth (suggestions only)
+router.post("/ai/complete", completeNoteHandler);
+
+// ── CRUD ──────────────────────────────────────────────────────────────────
 router.post("/", upload.array("attachments", 5), createNote); // max 5 attachments
 router.get("/", getNotes);
 router.get("/:id", getNote);
