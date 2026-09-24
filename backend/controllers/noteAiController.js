@@ -7,11 +7,11 @@
 //   3. Topic search        — highlight anything else → get context + search links
 //   4. Proofread           — spelling, punctuation, grammar, formatting fixes
 //   5. Complete / expand   — add explanation, depth, examples to a note
+//   6. Rewrite             — full rewrite: restructure, elaborate, reformat
 //
-// Every endpoint is READ-ONLY with respect to the note. Proofread and complete
-// return SUGGESTED content — the client decides whether to keep it via the
-// normal updateNote endpoint. That keeps the user in control and means nothing
-// is ever silently overwritten.
+// Every endpoint is READ-ONLY with respect to the note. Proofread, complete,
+// and rewrite return SUGGESTED content — the client decides whether to keep
+// it via the normal updateNote endpoint. Nothing is ever silently overwritten.
 
 import asyncHandler from 'express-async-handler';
 import mongoose from 'mongoose';
@@ -24,9 +24,50 @@ import {
 } from '../services/geminiService.js';
 
 // ─────────────────────────────────────────────────────────────────────
+// INLINE GROQ CLIENT  (for the new rewrite endpoint)
+// ─────────────────────────────────────────────────────────────────────
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+
+const stripCodeFences = (t) =>
+  t.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
+
+async function callGroqRaw({ system, user, temperature = 0.5, maxTokens = 8192 }) {
+  if (!GROQ_API_KEY) throw new Error('GROQ_API_KEY is not set.');
+  const response = await fetch(GROQ_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      response_format: { type: 'json_object' },
+      temperature,
+      max_tokens: maxTokens,
+    }),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`Groq API error (${response.status}): ${body.slice(0, 300)}`);
+  }
+  const data = await response.json();
+  const raw = data?.choices?.[0]?.message?.content;
+  if (!raw) throw new Error('Groq returned an empty response.');
+  try {
+    return JSON.parse(stripCodeFences(raw));
+  } catch {
+    throw new Error('Groq returned invalid JSON.');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Scripture source APIs — both free, no key required.
-//   Bible:  https://bible-api.com
-//   Quran:  https://api.alquran.cloud
 // ─────────────────────────────────────────────────────────────────────
 const BIBLE_API = 'https://bible-api.com';
 const QURAN_API = 'https://api.alquran.cloud/v1';
@@ -37,9 +78,6 @@ const MAX_HIGHLIGHT_CHARS = 800;
 // ─────────────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────────────
-
-// Load a note and confirm the caller can read it. Used only when a noteId
-// is supplied — the AI endpoints otherwise work on raw highlighted text.
 const loadReadableNote = async (noteId, userId) => {
   if (!mongoose.Types.ObjectId.isValid(noteId)) {
     throw Object.assign(new Error('Invalid noteId.'), { status: 400 });
@@ -48,17 +86,13 @@ const loadReadableNote = async (noteId, userId) => {
   if (!note) throw Object.assign(new Error('Note not found.'), { status: 404 });
 
   const isOwner = note.user.toString() === userId;
-  const isCollaborator = note.collaborators.some(
-    (c) => c.user.toString() === userId
-  );
+  const isCollaborator = note.collaborators.some((c) => c.user.toString() === userId);
   if (!isOwner && !isCollaborator && !note.isPublic) {
     throw Object.assign(new Error('Access denied.'), { status: 403 });
   }
   return note;
 };
 
-// Fetch a Bible passage from bible-api.com. Accepts a free-form reference
-// like "John 3:16" or "John 3" (whole chapter) or "John 3:16-21" (range).
 async function fetchBiblePassage(reference, translation = DEFAULT_BIBLE_TRANSLATION) {
   const url = `${BIBLE_API}/${encodeURIComponent(reference)}?translation=${translation}`;
   const res = await fetch(url);
@@ -81,15 +115,12 @@ async function fetchBiblePassage(reference, translation = DEFAULT_BIBLE_TRANSLAT
   };
 }
 
-// Fetch a Quran passage from alquran.cloud. Single ayah is one call; ranges
-// pull the whole surah once and slice it (the API has no native range endpoint).
 async function fetchQuranPassage(surah, ayahStart, ayahEnd, edition = DEFAULT_QURAN_EDITION) {
   if (!surah || !ayahStart) throw new Error('Invalid Quran reference.');
 
   const start = Math.max(1, ayahStart);
   const end = Math.max(start, ayahEnd || start);
 
-  // Single ayah
   if (start === end) {
     const res = await fetch(`${QURAN_API}/ayah/${surah}:${start}/${edition}`);
     if (!res.ok) throw new Error(`Quran API error (${res.status})`);
@@ -105,7 +136,6 @@ async function fetchQuranPassage(surah, ayahStart, ayahEnd, edition = DEFAULT_QU
     };
   }
 
-  // Range — pull surah once and slice
   const res = await fetch(`${QURAN_API}/surah/${surah}/${edition}`);
   if (!res.ok) throw new Error(`Quran API error (${res.status})`);
   const data = await res.json();
@@ -126,20 +156,9 @@ async function fetchQuranPassage(surah, ayahStart, ayahEnd, edition = DEFAULT_QU
   };
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// 1. LOOKUP SCRIPTURE
-// POST /api/personal-notes/ai/scripture
-//
-// Body: { text: string, noteId?: string }
-//
-// Detects whether the highlighted text is a Bible reference, a Quran
-// reference, or neither. If scripture, returns the actual passage text
-// and the flags the frontend uses to render "Show more verses" /
-// "Show full chapter" buttons.
-//
-// If neither, the client should call the /search endpoint instead — but
-// we return a helpful payload either way so a single round-trip works.
-// ─────────────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════
+// 1. LOOKUP SCRIPTURE (unchanged)
+// ═════════════════════════════════════════════════════════════════════
 export const lookupScripture = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -155,8 +174,6 @@ export const lookupScripture = async (req, res) => {
       });
     }
 
-    // Optional noteId → still enforce access so a stranger can't probe notes
-    // by proxying through AI endpoints.
     if (noteId) {
       try {
         await loadReadableNote(noteId, userId);
@@ -165,7 +182,6 @@ export const lookupScripture = async (req, res) => {
       }
     }
 
-    // ── 1. Ask the model what this highlight actually is ───────────
     let detection;
     try {
       detection = await detectScripture({ text: text.trim() });
@@ -177,7 +193,6 @@ export const lookupScripture = async (req, res) => {
       });
     }
 
-    // ── 2. Non-scripture → hand back search payload directly ───────
     if (!detection || detection.type === 'general') {
       return res.status(200).json({
         success: true,
@@ -185,26 +200,22 @@ export const lookupScripture = async (req, res) => {
           type: 'general',
           query: text.trim(),
           canExpand: false,
-          next: 'search', // hint for the client to call /search
+          next: 'search',
         },
       });
     }
 
-    // ── 3. Scripture → fetch the real text from the source API ─────
     try {
       if (detection.type === 'bible' && detection.bible) {
         const b = detection.bible;
-        // Prefer an explicit range if the model supplied one, else single verse
         const ref =
           b.verseStart && b.verseEnd && b.verseEnd > b.verseStart
             ? `${b.book} ${b.chapter}:${b.verseStart}-${b.verseEnd}`
             : b.verseStart
-            ? `${b.book} ${b.chapter}:${b.verseStart}`
-            : `${b.book} ${b.chapter}`;
+              ? `${b.book} ${b.chapter}:${b.verseStart}`
+              : `${b.book} ${b.chapter}`;
 
         const passage = await fetchBiblePassage(ref);
-
-        // Heuristics for what "expand" would look like
         const fullChapter = await fetchBiblePassage(`${b.book} ${b.chapter}`);
         const canShowMore = passage.verseCount < fullChapter.verseCount;
 
@@ -241,8 +252,6 @@ export const lookupScripture = async (req, res) => {
       if (detection.type === 'quran' && detection.quran) {
         const q = detection.quran;
         const passage = await fetchQuranPassage(q.surah, q.ayahStart, q.ayahEnd);
-
-        // Compare against the full surah to know if we can expand
         const fullSurah = await fetchQuranPassage(q.surah, 1, 999);
         const canShowMore = passage.verseCount < fullSurah.verseCount;
 
@@ -276,7 +285,6 @@ export const lookupScripture = async (req, res) => {
         });
       }
 
-      // Model said scripture but gave us nothing usable — treat as general.
       return res.status(200).json({
         success: true,
         result: {
@@ -302,26 +310,9 @@ export const lookupScripture = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// 2. EXPAND SCRIPTURE
-// POST /api/personal-notes/ai/scripture/expand
-//
-// Body:
-//   {
-//     type: 'bible',
-//     parsed: { book, chapter, verseStart, verseEnd },
-//     expand: 'more_verses' | 'full_chapter'
-//   }
-// OR
-//   {
-//     type: 'quran',
-//     parsed: { surah, ayahStart, ayahEnd },
-//     expand: 'more_verses' | 'full_surah'
-//   }
-//
-// Returns the enlarged passage. Stateless — the client sends the parsed
-// reference it got back from /scripture, so we never trust hidden state.
-// ─────────────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════
+// 2. EXPAND SCRIPTURE (unchanged)
+// ═════════════════════════════════════════════════════════════════════
 export const expandScripture = async (req, res) => {
   try {
     const { type, parsed = {}, expand } = req.body;
@@ -343,7 +334,6 @@ export const expandScripture = async (req, res) => {
       if (expand === 'full_chapter') {
         ref = `${book} ${chapter}`;
       } else if (expand === 'more_verses') {
-        // Extend the range by ~5 verses. bible-api clamps at end of chapter.
         const start = verseStart || 1;
         const end = Math.max(verseEnd || start, start) + 5;
         ref = `${book} ${chapter}:${start}-${end}`;
@@ -370,7 +360,6 @@ export const expandScripture = async (req, res) => {
       });
     }
 
-    // Quran
     const { surah, ayahStart, ayahEnd } = parsed;
     if (!surah) {
       return res.status(400).json({ success: false, message: 'Invalid Quran reference.' });
@@ -380,7 +369,7 @@ export const expandScripture = async (req, res) => {
     let end;
     if (expand === 'full_surah') {
       start = 1;
-      end = 999; // fetchQuranPassage clamps at the last ayah in the surah
+      end = 999;
     } else if (expand === 'more_verses') {
       start = ayahStart || 1;
       end = Math.max(ayahEnd || start, start) + 4;
@@ -415,16 +404,9 @@ export const expandScripture = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// 3. SEARCH A HIGHLIGHTED WORD / PHRASE
-// POST /api/personal-notes/ai/search
-//
-// Body: { text: string, context?: string, noteId?: string }
-//
-// Used when the highlight isn't scripture. Returns a short summary,
-// definitions, related topics, and ready-made search links (Google,
-// Wikipedia, etc.) the client can render as buttons.
-// ─────────────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════
+// 3. SEARCH (unchanged)
+// ═════════════════════════════════════════════════════════════════════
 export const searchHighlight = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -492,15 +474,9 @@ export const searchHighlight = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// 4. PROOFREAD A NOTE
-// POST /api/personal-notes/ai/proofread
-//
-// Body: { noteId } OR { content, title? }
-//
-// Returns SUGGESTED corrected content — does NOT save. The client shows a
-// diff/preview and calls updateNote if the user accepts.
-// ─────────────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════
+// 4. PROOFREAD (unchanged)
+// ═════════════════════════════════════════════════════════════════════
 export const proofreadNoteHandler = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -544,7 +520,6 @@ export const proofreadNoteHandler = async (req, res) => {
       });
     }
 
-    // Guard against the model returning junk
     const correctedContent =
       typeof result?.correctedContent === 'string' && result.correctedContent.trim()
         ? result.correctedContent
@@ -582,18 +557,9 @@ export const proofreadNoteHandler = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// 5. COMPLETE / EXPAND A NOTE
-// POST /api/personal-notes/ai/complete
-//
-// Body: { noteId, style? } OR { content, title?, style? }
-//
-//   style — 'explanatory' | 'concise' | 'devotional' | 'academic' | 'journal'
-//           (default: 'explanatory')
-//
-// Returns a longer version that adds explanation, examples, and context
-// while preserving the author's original text and voice. Does NOT save.
-// ─────────────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════
+// 5. COMPLETE / EXPAND (unchanged)
+// ═════════════════════════════════════════════════════════════════════
 export const completeNoteHandler = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -676,6 +642,207 @@ export const completeNoteHandler = async (req, res) => {
     res.status(err.status || 500).json({
       success: false,
       message: err.message || 'Note completion failed.',
+    });
+  }
+};
+
+// ═════════════════════════════════════════════════════════════════════
+// 6. REWRITE  (new)
+// ═════════════════════════════════════════════════════════════════════
+//
+// Unlike /complete (which only ADDS), /rewrite can restructure, retighten,
+// reorder, and reformat the whole note. The author's core meaning and any
+// facts they stated are preserved; everything else is fair game.
+//
+// Body:
+//   { noteId }  OR  { content, title }
+//   instructions?  free-form text like "make it more formal" or
+//                  "expand on paragraph 3"
+//   style?         explanatory | formal | casual | devotional | academic | journal
+//   length?        shorter | same | longer | much_longer
+//
+// Returns: { original, rewrittenContent, changed, summary, changes, style, length }
+// Does NOT save. Client calls updateNote if the user accepts.
+// ═════════════════════════════════════════════════════════════════════
+
+const REWRITE_SYSTEM = `
+You are a bold, careful editor. You rewrite personal notes for their author.
+The note arrives as Tiptap-compatible HTML and you return the rewritten note
+in the SAME HTML dialect.
+
+Unlike a proofread, this is a REWRITE. You are allowed — expected — to:
+  • Restructure the note so the flow is clear
+  • Break walls of text into paragraphs
+  • Turn comma-runs and line-runs into real bullet or numbered lists
+  • Promote short standalone lines above a block into headings (<h2> or <h3>)
+  • Bold key terms, section labels, and short phrases the author meant as labels
+  • Italicize foreign words, titles of works, and inner thoughts
+  • Tighten wordy sentences without changing their meaning
+  • Add transitions between ideas
+  • Elaborate where the author was thin — but only with what they implied
+
+If the user gave specific instructions (tone, length, focus, "expand on X"),
+follow them precisely.
+
+STYLE GUIDE (when a style is chosen):
+  explanatory : define terms, add background, concrete examples
+  formal      : professional tone, no contractions, structured
+  casual      : friendly, contractions ok, direct address
+  devotional  : reflective, warm, scripture-aware (never quote scripture)
+  academic    : precise, structured, reasoned, no fluff
+  journal     : first-person, reflective, personal, meandering ok
+
+LENGTH GUIDE:
+  shorter     : ~50-70% of original length
+  same        : roughly same length, better organized
+  longer      : ~130-180% of original, more depth
+  much_longer : ~200-300% of original, fully developed
+
+HARD RULES:
+1. Preserve the author's CORE MEANING and any facts they stated.
+2. Do NOT invent facts, quotes, dates, statistics, or scripture text.
+   If you reference scripture, reference the reference ("see John 3:16"),
+   never quote it.
+3. Keep the author's voice unless the style explicitly changes it.
+4. Return the FULL rewritten note — not a diff.
+5. Only use these HTML tags: <p>, <h1>, <h2>, <h3>, <ul>, <ol>, <li>,
+   <strong>, <em>, <u>, <s>, <a href="...">, <br>, and text-align on
+   <p>/<h1>/<h2>/<h3>. No classes, no ids, no other CSS, no other tags.
+6. NEVER wrap the entire output in a single container. Return sibling
+   block elements, exactly like Tiptap emits.
+7. If a change would be debatable, prefer the conservative choice.
+
+Return STRICT JSON only:
+{
+  "rewrittenContent": "string (full rewritten note, Tiptap-compatible HTML)",
+  "summary": "string (1-3 sentences on what you did overall)",
+  "changes": [
+    {
+      "type": "structure" | "list" | "heading" | "emphasis" | "style"
+            | "elaboration" | "tightening" | "tone" | "formatting",
+      "original": "string (plain English description, no HTML)",
+      "corrected": "string (plain English description, no HTML)",
+      "reason": "string (short, plain English)"
+    }
+  ]
+}
+
+Order the changes array in the order they appear in the note.
+If nothing meaningful changes, return the original content and an empty
+changes array. Do not fabricate changes to look busy.
+`.trim();
+
+export const rewriteNoteHandler = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const {
+      noteId,
+      content: inlineContent,
+      title: inlineTitle,
+      instructions = '',
+      style = 'explanatory',
+      length = 'same',
+    } = req.body;
+
+    const allowedStyles = ['explanatory', 'formal', 'casual', 'devotional', 'academic', 'journal'];
+    const allowedLengths = ['shorter', 'same', 'longer', 'much_longer'];
+    const chosenStyle = allowedStyles.includes(style) ? style : 'explanatory';
+    const chosenLength = allowedLengths.includes(length) ? length : 'same';
+
+    let title = inlineTitle || '';
+    let content = inlineContent || '';
+
+    if (noteId) {
+      let note;
+      try {
+        note = await loadReadableNote(noteId, userId);
+      } catch (err) {
+        return res.status(err.status || 500).json({ success: false, message: err.message });
+      }
+      title = note.title;
+      content = note.content;
+    }
+
+    if (!content || !content.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Nothing to rewrite — the note is empty.',
+      });
+    }
+    if (content.length > 20000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Note is too long to rewrite in one pass (max 20,000 chars).',
+      });
+    }
+    if (typeof instructions === 'string' && instructions.length > 1000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Instructions are too long (max 1000 chars).',
+      });
+    }
+
+    const user = `
+STYLE: ${chosenStyle}
+LENGTH: ${chosenLength}
+${instructions && instructions.trim() ? `\nUSER INSTRUCTIONS:\n${instructions.trim()}\n` : ''}
+${title ? `\nNote title: ${title}\n` : ''}Note content (Tiptap HTML):
+"""
+${content}
+"""
+`.trim();
+
+    let result;
+    try {
+      result = await callGroqRaw({
+        system: REWRITE_SYSTEM,
+        user,
+        temperature: 0.55,
+        maxTokens: 8192,
+      });
+    } catch (err) {
+      console.error('❌ rewriteNote failed:', err);
+      return res.status(502).json({
+        success: false,
+        message: 'The AI could not rewrite this note right now. Please try again.',
+      });
+    }
+
+    const rewrittenContent =
+      typeof result?.rewrittenContent === 'string' && result.rewrittenContent.trim()
+        ? result.rewrittenContent
+        : content;
+
+    const changes = Array.isArray(result?.changes)
+      ? result.changes
+          .filter((c) => c && typeof c === 'object')
+          .map((c) => ({
+            type: String(c.type || 'rewrite').slice(0, 40),
+            original: String(c.original || '').slice(0, 400),
+            corrected: String(c.corrected || '').slice(0, 400),
+            reason: String(c.reason || '').slice(0, 300),
+          }))
+          .slice(0, 200)
+      : [];
+
+    return res.status(200).json({
+      success: true,
+      result: {
+        original: content,
+        rewrittenContent,
+        changed: rewrittenContent !== content,
+        changeCount: changes.length,
+        changes,
+        summary: String(result?.summary || '').slice(0, 800),
+        style: chosenStyle,
+        length: chosenLength,
+      },
+    });
+  } catch (err) {
+    console.error('❌ noteAi rewriteNote error:', err);
+    res.status(err.status || 500).json({
+      success: false,
+      message: err.message || 'Note rewrite failed.',
     });
   }
 };

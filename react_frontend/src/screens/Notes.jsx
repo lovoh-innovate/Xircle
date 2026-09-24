@@ -1,5 +1,5 @@
 // pages/Notes.jsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -20,6 +20,8 @@ import {
   FaUserPlus,
   FaFile,
   FaTimes,
+  FaShareAlt,
+  FaLink,
 } from 'react-icons/fa';
 import { formatDistanceToNow } from 'date-fns';
 import GeneralSidebar from '../components/GeneralSidebar';
@@ -61,17 +63,71 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => {
 };
 
 // ─── Note Card ──────────────────────────────────────────────────────
-const NoteCard = ({ note, onClick, onDelete, onTogglePublic }) => {
+const NoteCard = ({ note, onClick, onDelete, onTogglePublic, onShareLink }) => {
   const [showMenu, setShowMenu] = useState(false);
-  const menuRef = useRef(null);
+  // menuPos is used when the menu is opened via right-click (desktop).
+  // When null, the menu renders as a dropdown under the ⋯ trigger.
+  const [menuPos, setMenuPos] = useState(null);
 
+  // The wrapper contains BOTH the trigger button and the menu, so an
+  // outside-click test can check the wrapper as a whole. Without this,
+  // clicking the ⋯ button would count as "outside" the menu and close
+  // it before the toggle fires — that was the bug.
+  const wrapperRef = useRef(null);
+
+  // Close menu: on outside click, Escape, or scroll.
   useEffect(() => {
-    const handler = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false);
+    if (!showMenu) return;
+
+    const handlePointerDown = (e) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        setShowMenu(false);
+        setMenuPos(null);
+      }
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
+    const handleKey = (e) => {
+      if (e.key === 'Escape') {
+        setShowMenu(false);
+        setMenuPos(null);
+      }
+    };
+    const handleScroll = () => {
+      setShowMenu(false);
+      setMenuPos(null);
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown);
+    document.addEventListener('keydown', handleKey);
+    window.addEventListener('scroll', handleScroll, true);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
+      document.removeEventListener('keydown', handleKey);
+      window.removeEventListener('scroll', handleScroll, true);
+    };
+  }, [showMenu]);
+
+  const toggleMenu = (e) => {
+    e.stopPropagation();
+    // Clicking ⋯ always opens as a dropdown, clearing any right-click pos.
+    setMenuPos(null);
+    setShowMenu((v) => !v);
+  };
+
+  const handleContextMenu = (e) => {
+    // Desktop only — enable right-click context menu.
+    e.preventDefault();
+    e.stopPropagation();
+    setMenuPos({ x: e.clientX, y: e.clientY });
+    setShowMenu(true);
+  };
+
+  const closeMenu = () => {
+    setShowMenu(false);
+    setMenuPos(null);
+  };
 
   const formatDate = (date) => formatDistanceToNow(new Date(date), { addSuffix: true });
 
@@ -83,10 +139,27 @@ const NoteCard = ({ note, onClick, onDelete, onTogglePublic }) => {
 
   const preview = stripHtml(note.content || '').slice(0, 120);
 
+  // Menu placement: if menuPos is set, clamp to viewport and use fixed.
+  // Otherwise render as an absolute dropdown anchored to the trigger.
+  const menuStyle = menuPos
+    ? {
+        position: 'fixed',
+        left: Math.min(menuPos.x, Math.max(0, window.innerWidth - 220)),
+        top: Math.min(menuPos.y, Math.max(0, window.innerHeight - 200)),
+        width: 200,
+        zIndex: 100,
+      }
+    : undefined;
+
+  const menuClassName = menuPos
+    ? 'bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl py-1'
+    : 'absolute right-0 top-full mt-1 w-52 bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg py-1 z-20';
+
   return (
     <div
       className="bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1e1e1e] transition cursor-pointer"
       onClick={onClick}
+      onContextMenu={handleContextMenu}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
@@ -99,7 +172,9 @@ const NoteCard = ({ note, onClick, onDelete, onTogglePublic }) => {
               </span>
             )}
           </div>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">{preview || 'Empty note'}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">
+            {preview || 'Empty note'}
+          </p>
           <div className="flex flex-wrap items-center gap-3 text-xs text-gray-400 dark:text-gray-500 mt-1">
             <span>Updated {formatDate(note.updatedAt)}</span>
             {note.attachments?.length > 0 && (
@@ -114,27 +189,55 @@ const NoteCard = ({ note, onClick, onDelete, onTogglePublic }) => {
             )}
           </div>
         </div>
-        <div className="flex-shrink-0 flex items-center gap-1 relative">
+
+        <div
+          ref={wrapperRef}
+          className="flex-shrink-0 flex items-center gap-1 relative"
+          onClick={(e) => e.stopPropagation()}
+        >
           <button
-            onClick={(e) => { e.stopPropagation(); setShowMenu((prev) => !prev); }}
-            className="p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+            type="button"
+            onClick={toggleMenu}
+            className={`p-1.5 rounded-lg transition ${
+              showMenu
+                ? 'text-teal-500 bg-teal-50 dark:bg-teal-900/20'
+                : 'text-gray-400 hover:text-teal-500 hover:bg-gray-100 dark:hover:bg-gray-800'
+            }`}
+            aria-label="Note options"
           >
             <FaEllipsisV className="text-sm" />
           </button>
+
           {showMenu && (
             <div
-              ref={menuRef}
-              className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg py-1 z-10"
+              style={menuStyle}
+              className={menuClassName}
+              onClick={(e) => e.stopPropagation()}
             >
+              {/* Share — only for public notes with a share link */}
+              {note.isPublic && note.shareLink && (
+                <button
+                  type="button"
+                  onClick={() => { onShareLink(note); closeMenu(); }}
+                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
+                >
+                  <FaShareAlt className="text-xs text-teal-500" />
+                  Share link
+                </button>
+              )}
+
               <button
-                onClick={(e) => { e.stopPropagation(); onTogglePublic(note._id, !note.isPublic); setShowMenu(false); }}
+                type="button"
+                onClick={() => { onTogglePublic(note._id, !note.isPublic); closeMenu(); }}
                 className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
               >
                 {note.isPublic ? <FaLock className="text-xs" /> : <FaUnlock className="text-xs" />}
                 {note.isPublic ? 'Make Private' : 'Make Public'}
               </button>
+
               <button
-                onClick={(e) => { e.stopPropagation(); onDelete(note); setShowMenu(false); }}
+                type="button"
+                onClick={() => { onDelete(note); closeMenu(); }}
                 className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
               >
                 <FaTrashAlt className="text-xs" /> Delete
@@ -153,7 +256,7 @@ const Notes = () => {
   const { userInfo } = useSelector((state) => state.auth);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isCreatingNote, setIsCreatingNote] = useState(false);
-  const isCreatingRef = useRef(false); // guards against double-fire on fast double-clicks/taps
+  const isCreatingRef = useRef(false);
 
   const { data: notesData, isLoading, refetch } = useGetNotesQuery();
   const [createNote] = useCreateNoteMutation();
@@ -189,6 +292,48 @@ const Notes = () => {
     }
   };
 
+  // Share / copy link. Uses the Web Share API when available (mobile),
+  // otherwise falls back to clipboard (desktop). Both paths use the same
+  // URL: `${origin}/share/${shareLink}`.
+  const handleShareLink = useCallback(async (note) => {
+    if (!note?.shareLink) {
+      toast.error('No share link available');
+      return;
+    }
+    const url = `${window.location.origin}/share/${note.shareLink}`;
+
+    // Try native share first (mobile + some desktop browsers).
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share({ title: note.title || 'Note', url });
+        return;
+      } catch (err) {
+        // User cancelled — no need to fall through to copy.
+        if (err?.name === 'AbortError') return;
+        // Any other failure — fall through to clipboard.
+      }
+    }
+
+    // Clipboard fallback.
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = url;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      toast.success('Share link copied');
+    } catch {
+      toast.error('Failed to copy link');
+    }
+  }, []);
+
   // Notes always open read-only first — the note's own "Enable Editing"
   // button (in WriteNote) is what flips it into edit mode.
   const openNote = (noteId) => navigate(`/notes/${noteId}`);
@@ -223,11 +368,19 @@ const Notes = () => {
 
   return (
     <>
-      <div className="min-h-screen bg-white dark:bg-[#0f0f12] flex flex-col md:flex-row">
+      {/*
+        Mobile layout notes:
+        - h-dvh keeps the wrapper pinned to the visible viewport so the
+          browser's URL-bar collapse doesn't cause overshoot.
+        - The scroll container gets generous bottom padding so the last
+          note card can clear the fixed GeneralBottombar instead of
+          hiding behind it.
+      */}
+      <div className="h-dvh bg-white dark:bg-[#0f0f12] flex flex-col md:flex-row overflow-hidden">
         <div className="hidden md:block md:w-72 md:flex-shrink-0"><GeneralSidebar /></div>
 
-        <div className="flex-1 flex flex-col min-h-screen relative">
-          <header className="bg-white dark:bg-[#0f0f12] border-b border-gray-100 dark:border-gray-800 sticky top-0 z-10">
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+          <header className="bg-white dark:bg-[#0f0f12] border-b border-gray-100 dark:border-gray-800 sticky top-0 z-10 flex-shrink-0">
             <div className="px-3 sm:px-6 h-12 flex items-center justify-between gap-2">
               <h1 className="text-sm font-semibold text-gray-800 dark:text-white flex items-center gap-2">
                 <FaFileAlt className="text-teal-500 text-sm" /> Personal Notes
@@ -246,7 +399,12 @@ const Notes = () => {
             </div>
           </header>
 
-          <main className="flex-1 overflow-y-auto">
+          <main
+            className="flex-1 min-h-0 overflow-y-auto"
+            style={{
+              paddingBottom: 'calc(7rem + env(safe-area-inset-bottom, 0px))',
+            }}
+          >
             {notes.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500 p-8">
                 <FaFileAlt className="text-4xl mb-2 opacity-30" />
@@ -254,7 +412,7 @@ const Notes = () => {
                 <p className="text-xs">Create your first note by tapping the + button.</p>
               </div>
             ) : (
-              <div>
+              <div className="md:pb-6">
                 {notes.map((note) => (
                   <NoteCard
                     key={note._id}
@@ -262,6 +420,7 @@ const Notes = () => {
                     onClick={() => openNote(note._id)}
                     onDelete={handleDelete}
                     onTogglePublic={handleTogglePublic}
+                    onShareLink={handleShareLink}
                   />
                 ))}
               </div>
@@ -272,11 +431,14 @@ const Notes = () => {
         </div>
       </div>
 
-      {/* Floating action button */}
+      {/* Floating action button — lifted above the bottom bar on mobile. */}
       <button
         onClick={handleCreateNote}
         disabled={isCreatingNote}
-        className="fixed right-4 sm:right-6 bottom-20 md:bottom-6 z-20 w-12 h-12 bg-teal-600 dark:bg-teal-500 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-teal-700 dark:hover:bg-teal-600 transition active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+        className="fixed right-4 sm:right-6 z-30 w-12 h-12 bg-teal-600 dark:bg-teal-500 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-teal-700 dark:hover:bg-teal-600 transition active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+        style={{
+          bottom: 'calc(5.5rem + env(safe-area-inset-bottom, 0px))',
+        }}
       >
         {isCreatingNote ? (
           <FaSpinner className="text-xl animate-spin" />
@@ -285,7 +447,6 @@ const Notes = () => {
         )}
       </button>
 
-      {/* ─── Inline Confirm Modal ───────────────────────────────────── */}
       <ConfirmModal
         isOpen={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}

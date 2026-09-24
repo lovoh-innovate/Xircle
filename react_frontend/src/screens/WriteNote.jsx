@@ -9,18 +9,23 @@
 //   • Non-scripture search results with definitions + external links
 //   • Manual Bible picker — pick a book from a custom dropdown, enter
 //     chapter + verse, get a 10-verse window with expand buttons
-//   • Proofread and Expand actions in the header
-//   • Preview-before-apply for proofread and expand — nothing saves until
-//     the user hits Apply.
+//   • Proofread, Expand, and Rewrite actions in the header
+//   • Preview-before-apply for proofread, expand, and rewrite — nothing
+//     saves until the user hits Apply.
 //
-// All AI endpoints are read-only server-side; the note is only touched
-// when the user accepts a suggestion and the normal autosave fires.
+// PDF EXPORT is 100% frontend. The note's Tiptap HTML is rendered into
+// a hidden A4-width container, rasterized with html2canvas-pro, and
+// paginated into a jsPDF document. No server round-trip. Works
+// identically in the browser and inside the Capacitor native app.
 //
-// The AI preview renders the suggested content as HTML (matching the
-// editor's own output) so users see what the note will actually look
-// like. Small inline fragments — change comparisons and added-section
-// chips — are stripped to plain text because HTML inside them would
-// break the compact list layout.
+// WHY html2canvas-pro: Tailwind v4 emits oklch() colors everywhere
+// (preflight, theme variables, shadows, gradients). The original
+// html2canvas (used by html2pdf.js) throws
+// "Attempting to parse an unsupported color function oklch". The
+// html2canvas-pro fork supports oklch/oklab/color-mix, so no CSS color
+// reset hacks are needed. Required deps:
+//     npm i html2canvas-pro jspdf
+// (html2pdf.js is no longer used and can be removed.)
 
 import React, {
   useState,
@@ -50,12 +55,12 @@ import {
   useDeleteNoteMutation,
   useGetNotesQuery,
   useTogglePublicMutation,
-  useLazyExportNotePDFQuery,
   useLookupScriptureMutation,
   useExpandScriptureMutation,
   useSearchHighlightMutation,
   useProofreadNoteMutation,
   useCompleteNoteMutation,
+  useRewriteNoteMutation,
 } from '../slices/personalNoteApiSlice';
 
 import toast from 'react-hot-toast';
@@ -108,8 +113,13 @@ import {
   FaExternalLinkAlt,
   FaEllipsisV,
   FaChevronRight,
+  FaFeather,
 } from 'react-icons/fa';
 import { formatDistanceToNow } from 'date-fns';
+
+// ─── Capacitor imports (used for native PDF export) ─────────────────
+import { Capacitor } from '@capacitor/core';
+import { Filesystem, Directory } from '@capacitor/filesystem';
 
 // ─── HELPERS ──────────────────────────────────────────────────────────
 const stripHtml = (html) => {
@@ -125,8 +135,263 @@ const getWordCount = (html) => {
 
 const getCharCount = (html) => stripHtml(html).length;
 
+// Blob → base64 (without the data: prefix). Needed for Capacitor's
+// Filesystem.writeFile which expects raw base64 data.
+const blobToBase64 = (blob) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result;
+      const base64 =
+        typeof result === 'string' ? (result.split(',')[1] || '') : '';
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+
+// ─── PDF EXPORT (frontend-only) ──────────────────────────────────────
+//
+// Renders the note's Tiptap HTML into a hidden container, rasterizes it
+// with html2canvas-pro (oklch-safe), then slices the canvas into A4
+// pages with jsPDF.
+//
+// Tailwind's preflight strips list bullets, heading sizes, sub/sup
+// alignment, etc. from every element, so the scoped stylesheet below
+// restores document-style typography for [data-pdf-root] only.
+const PDF_SCOPED_CSS = `
+  [data-pdf-root] {
+    background: #ffffff;
+    color: #111827;
+  }
+  [data-pdf-root] h1 {
+    font-size: 18pt;
+    font-weight: 700;
+    line-height: 1.3;
+    margin: 14pt 0 6pt 0;
+  }
+  [data-pdf-root] h2 {
+    font-size: 15pt;
+    font-weight: 700;
+    line-height: 1.3;
+    margin: 12pt 0 6pt 0;
+  }
+  [data-pdf-root] h3 {
+    font-size: 13pt;
+    font-weight: 600;
+    line-height: 1.3;
+    margin: 10pt 0 5pt 0;
+  }
+  [data-pdf-root] p {
+    margin: 6pt 0;
+  }
+  [data-pdf-root] ul {
+    list-style: disc outside;
+    padding-left: 20pt;
+    margin: 6pt 0;
+  }
+  [data-pdf-root] ol {
+    list-style: decimal outside;
+    padding-left: 20pt;
+    margin: 6pt 0;
+  }
+  [data-pdf-root] li {
+    margin: 2pt 0;
+  }
+  [data-pdf-root] li > p {
+    margin: 0;
+  }
+  [data-pdf-root] a {
+    color: #0d9488;
+    text-decoration: underline;
+  }
+  [data-pdf-root] strong,
+  [data-pdf-root] b {
+    font-weight: 700;
+  }
+  [data-pdf-root] em,
+  [data-pdf-root] i {
+    font-style: italic;
+  }
+  [data-pdf-root] u {
+    text-decoration: underline;
+  }
+  [data-pdf-root] s,
+  [data-pdf-root] del {
+    text-decoration: line-through;
+  }
+  [data-pdf-root] sub {
+    vertical-align: sub;
+    font-size: 75%;
+    line-height: 0;
+  }
+  [data-pdf-root] sup {
+    vertical-align: super;
+    font-size: 75%;
+    line-height: 0;
+  }
+  [data-pdf-root] img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    margin: 8pt auto;
+  }
+  [data-pdf-root] table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10pt 0;
+    font-size: 10pt;
+  }
+  [data-pdf-root] th,
+  [data-pdf-root] td {
+    border: 1px solid #d1d5db;
+    padding: 5pt 7pt;
+    vertical-align: top;
+    text-align: left;
+  }
+  [data-pdf-root] th {
+    background: #f3f4f6;
+    font-weight: 600;
+  }
+`;
+
+const generatePdfFromNote = async (title, contentHtml) => {
+  const [html2canvasMod, jspdfMod] = await Promise.all([
+    import('html2canvas-pro'),
+    import('jspdf'),
+  ]);
+  const html2canvas = html2canvasMod.default || html2canvasMod;
+  const JsPDF = jspdfMod.jsPDF || jspdfMod.default;
+
+  // Scoped stylesheet (removed again in `finally`).
+  const styleEl = document.createElement('style');
+  styleEl.setAttribute('data-pdf-style', 'true');
+  styleEl.textContent = PDF_SCOPED_CSS;
+  document.head.appendChild(styleEl);
+
+  // Hidden A4-width container — this is what gets rendered to canvas.
+  const container = document.createElement('div');
+  container.setAttribute('data-pdf-root', 'true');
+  container.style.position = 'fixed';
+  container.style.left = '-10000px';
+  container.style.top = '0';
+  container.style.width = '190mm'; // A4 width minus 10mm margins each side
+  container.style.padding = '0';
+  container.style.boxSizing = 'border-box';
+  container.style.background = '#ffffff';
+  container.style.color = '#111827';
+  container.style.fontFamily =
+    'Georgia, "Times New Roman", "Iowan Old Style", serif';
+  container.style.fontSize = '11pt';
+  container.style.lineHeight = '1.6';
+
+  // Title
+  const titleEl = document.createElement('h1');
+  titleEl.textContent = title || 'Untitled Note';
+  titleEl.style.fontSize = '22pt';
+  titleEl.style.fontWeight = '700';
+  titleEl.style.margin = '0 0 6pt 0';
+  titleEl.style.textAlign = 'center';
+  titleEl.style.color = '#111827';
+  container.appendChild(titleEl);
+
+  // Meta line
+  const meta = document.createElement('p');
+  meta.textContent = `Exported from Xircle · ${new Date().toLocaleString()}`;
+  meta.style.fontSize = '9pt';
+  meta.style.color = '#6b7280';
+  meta.style.textAlign = 'center';
+  meta.style.margin = '0 0 18pt 0';
+  container.appendChild(meta);
+
+  // Body — the note's own HTML
+  const body = document.createElement('div');
+  body.innerHTML = contentHtml || '';
+  container.appendChild(body);
+
+  document.body.appendChild(container);
+
+  try {
+    // Wait for any images inside the note to finish loading.
+    const imgs = Array.from(container.querySelectorAll('img'));
+    await Promise.all(
+      imgs.map(
+        (img) =>
+          new Promise((resolve) => {
+            if (img.complete) return resolve();
+            img.onload = () => resolve();
+            img.onerror = () => resolve();
+          })
+      )
+    );
+
+    const canvas = await html2canvas(container, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: '#ffffff',
+      logging: false,
+    });
+
+    // ── Paginate the canvas into A4 pages ──────────────────────────
+    const PAGE_W_MM = 210;
+    const PAGE_H_MM = 297;
+    const MARGIN_TOP = 12;
+    const MARGIN_BOTTOM = 14;
+    const MARGIN_SIDE = 10;
+    const contentW = PAGE_W_MM - MARGIN_SIDE * 2; // 190
+    const contentH = PAGE_H_MM - MARGIN_TOP - MARGIN_BOTTOM; // 271
+
+    const pxPerMm = canvas.width / contentW;
+    const pageHeightPx = Math.floor(contentH * pxPerMm);
+
+    const pdf = new JsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+
+    let offsetY = 0;
+    let pageIndex = 0;
+
+    while (offsetY < canvas.height) {
+      const sliceH = Math.min(pageHeightPx, canvas.height - offsetY);
+
+      const pageCanvas = document.createElement('canvas');
+      pageCanvas.width = canvas.width;
+      pageCanvas.height = sliceH;
+      const ctx = pageCanvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+      ctx.drawImage(
+        canvas,
+        0, offsetY, canvas.width, sliceH,
+        0, 0, canvas.width, sliceH
+      );
+
+      const imgData = pageCanvas.toDataURL('image/jpeg', 0.95);
+
+      if (pageIndex > 0) pdf.addPage();
+      pdf.addImage(
+        imgData,
+        'JPEG',
+        MARGIN_SIDE,
+        MARGIN_TOP,
+        contentW,
+        sliceH / pxPerMm
+      );
+
+      offsetY += sliceH;
+      pageIndex += 1;
+    }
+
+    return pdf.output('blob');
+  } finally {
+    if (container.parentNode) {
+      document.body.removeChild(container);
+    }
+    if (styleEl.parentNode) {
+      document.head.removeChild(styleEl);
+    }
+  }
+};
+
 // ─── BIBLE BOOKS ──────────────────────────────────────────────────────
-// Canonical 66-book ordering. Used by the manual Bible picker.
 const BIBLE_BOOKS = [
   {
     testament: 'Old Testament',
@@ -204,6 +469,23 @@ const HEADING_OPTIONS = [
   { label: 'Heading 1', level: 1 },
   { label: 'Heading 2', level: 2 },
   { label: 'Heading 3', level: 3 },
+];
+
+// ─── REWRITE OPTIONS ─────────────────────────────────────────────────
+const REWRITE_STYLES = [
+  { value: 'explanatory', label: 'Explanatory', hint: 'Define terms, add examples' },
+  { value: 'formal', label: 'Formal', hint: 'Professional tone' },
+  { value: 'casual', label: 'Casual', hint: 'Friendly and direct' },
+  { value: 'devotional', label: 'Devotional', hint: 'Reflective, warm' },
+  { value: 'academic', label: 'Academic', hint: 'Precise, structured' },
+  { value: 'journal', label: 'Journal', hint: 'First-person reflection' },
+];
+
+const REWRITE_LENGTHS = [
+  { value: 'shorter', label: 'Shorter', hint: '~50-70% of original' },
+  { value: 'same', label: 'Same', hint: 'Roughly same length' },
+  { value: 'longer', label: 'Longer', hint: '~130-180% of original' },
+  { value: 'much_longer', label: 'Much longer', hint: '~200-300% of original' },
 ];
 
 // ─── TOOLBAR PRIMITIVES ─────────────────────────────────────────────
@@ -947,15 +1229,12 @@ const SaveStatus = ({ status, lastSaved }) => {
 // BIBLE PICKER (manual lookup)
 // ═════════════════════════════════════════════════════════════════════
 
-// Custom book dropdown — no native <select>. Searchable, grouped by
-// testament. The list floats over the modal body below the trigger.
 const BibleBookDropdown = ({ value, onChange, isMobile }) => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const wrapperRef = useRef(null);
   const searchRef = useRef(null);
 
-  // Close on outside click
   useEffect(() => {
     if (!open) return;
     const handler = (e) => {
@@ -970,7 +1249,6 @@ const BibleBookDropdown = ({ value, onChange, isMobile }) => {
     };
   }, [open]);
 
-  // Focus search when opening
   useEffect(() => {
     if (open) {
       const t = setTimeout(() => searchRef.current?.focus(), 40);
@@ -1072,13 +1350,11 @@ const BibleBookDropdown = ({ value, onChange, isMobile }) => {
   );
 };
 
-// Number input with a big tap target and a numeric keyboard on mobile.
 const NumberField = ({ label, value, onChange, min = 1, placeholder, autoFocus }) => {
   const inputRef = useRef(null);
 
   useEffect(() => {
     if (autoFocus && inputRef.current) {
-      // slight delay so layout settles before focus
       const t = setTimeout(() => inputRef.current?.focus(), 60);
       return () => clearTimeout(t);
     }
@@ -1128,18 +1404,10 @@ const NumberField = ({ label, value, onChange, min = 1, placeholder, autoFocus }
   );
 };
 
-// Full picker modal — bottom sheet on mobile, centered on desktop.
 const BiblePickerModal = ({ open, isMobile, onClose, onSubmit, busy }) => {
   const [book, setBook] = useState('');
   const [chapter, setChapter] = useState('');
   const [verse, setVerse] = useState('1');
-
-  useEffect(() => {
-    if (open) {
-      // keep selections between opens — user is often looking up
-      // multiple passages from the same book in one session
-    }
-  }, [open]);
 
   if (!open) return null;
 
@@ -1505,14 +1773,36 @@ const AiResultModal = ({ open, isMobile, onClose, loading, error, kind, data, on
   );
 };
 
-// ─── AI PREVIEW MODAL (proofread / complete) ────────────────────────
+// ─── AI PREVIEW MODAL (proofread / complete / rewrite) ──────────────
 const AiPreviewModal = ({ open, isMobile, kind, result, onClose, onApply, applying }) => {
   if (!open || !result) return null;
 
   const isProofread = kind === 'proofread';
-  const suggested = isProofread ? result.correctedContent : result.completedContent;
-  const changes = isProofread ? result.changes || [] : [];
-  const addedSections = !isProofread ? result.addedSections || [] : [];
+  const isRewrite = kind === 'rewrite';
+  const isComplete = kind === 'complete';
+
+  const suggested = isProofread
+    ? result.correctedContent
+    : isRewrite
+      ? result.rewrittenContent
+      : result.completedContent;
+
+  const changes = (isProofread || isRewrite) ? (result.changes || []) : [];
+  const addedSections = isComplete ? (result.addedSections || []) : [];
+
+  const title = isProofread
+    ? 'Proofread suggestion'
+    : isRewrite
+      ? 'Rewritten version'
+      : 'Expanded version';
+
+  const headerIcon = isProofread ? (
+    <FaCheckDouble className="text-teal-500 text-xs" />
+  ) : isRewrite ? (
+    <FaFeather className="text-teal-500 text-xs" />
+  ) : (
+    <FaMagic className="text-teal-500 text-xs" />
+  );
 
   return (
     <div
@@ -1536,12 +1826,8 @@ const AiPreviewModal = ({ open, isMobile, kind, result, onClose, onApply, applyi
 
         <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
           <h3 className="text-sm sm:text-base font-semibold text-gray-800 dark:text-white flex items-center gap-2">
-            {isProofread ? (
-              <FaCheckDouble className="text-teal-500 text-xs" />
-            ) : (
-              <FaMagic className="text-teal-500 text-xs" />
-            )}
-            {isProofread ? 'Proofread suggestion' : 'Expanded version'}
+            {headerIcon}
+            {title}
           </h3>
           <button
             onClick={onClose}
@@ -1560,13 +1846,22 @@ const AiPreviewModal = ({ open, isMobile, kind, result, onClose, onApply, applyi
               {result.summary ? ` ${result.summary}` : ''}
             </div>
           )}
-          {!isProofread && result.rationale && (
+
+          {isRewrite && (
+            <div className="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/40 rounded-lg p-3">
+              {result.summary || 'Rewritten for clarity and flow.'}
+              {result.style ? ` Style: ${result.style}.` : ''}
+              {result.length ? ` Length: ${result.length.replace('_', ' ')}.` : ''}
+            </div>
+          )}
+
+          {isComplete && result.rationale && (
             <div className="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/40 rounded-lg p-3">
               {result.rationale}
             </div>
           )}
 
-          {isProofread && changes.length > 0 && (
+          {(isProofread || isRewrite) && changes.length > 0 && (
             <div className="space-y-2">
               <h5 className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold">
                 Changes
@@ -1588,7 +1883,7 @@ const AiPreviewModal = ({ open, isMobile, kind, result, onClose, onApply, applyi
             </div>
           )}
 
-          {!isProofread && addedSections.length > 0 && (
+          {isComplete && addedSections.length > 0 && (
             <div className="space-y-2">
               <h5 className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold">
                 Added
@@ -1650,7 +1945,170 @@ const AiPreviewModal = ({ open, isMobile, kind, result, onClose, onApply, applyi
   );
 };
 
-const AiActionsMenu = ({ disabled, busy, onProofread, onComplete }) => {
+// ─── REWRITE SETUP MODAL ────────────────────────────────────────────
+const RewriteSetupModal = ({ open, isMobile, onClose, onSubmit, busy }) => {
+  const [style, setStyle] = useState('explanatory');
+  const [length, setLength] = useState('same');
+  const [instructions, setInstructions] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setStyle('explanatory');
+      setLength('same');
+      setInstructions('');
+      setShowAdvanced(false);
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  const submit = () => {
+    onSubmit({ style, length, instructions: instructions.trim() });
+  };
+
+  return (
+    <div
+      className={`fixed inset-0 z-[78] flex ${
+        isMobile ? 'items-end' : 'items-center justify-center'
+      } bg-black/50 backdrop-blur-sm ${isMobile ? '' : 'p-4'}`}
+      onClick={(e) => e.target === e.currentTarget && !busy && onClose()}
+    >
+      <div
+        className={`bg-white dark:bg-[#1a1a1a] shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden ${
+          isMobile
+            ? 'w-full max-h-[92vh] rounded-t-2xl'
+            : 'w-full max-w-lg max-h-[90vh] rounded-2xl'
+        }`}
+      >
+        {isMobile && (
+          <div className="pt-2 flex justify-center flex-shrink-0">
+            <div className="w-10 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
+          </div>
+        )}
+
+        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
+          <div className="min-w-0">
+            <h3 className="text-sm sm:text-base font-semibold text-gray-800 dark:text-white flex items-center gap-2">
+              <FaFeather className="text-teal-500 text-xs" />
+              Rewrite note
+            </h3>
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+              Restructure, retighten and reformat the whole note
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            disabled={busy}
+            className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition disabled:opacity-40"
+          >
+            <FaTimes className="text-sm" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5">
+          {/* Style */}
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">
+              Style
+            </label>
+            <div className="grid grid-cols-2 gap-1.5">
+              {REWRITE_STYLES.map((s) => (
+                <button
+                  key={s.value}
+                  type="button"
+                  onClick={() => setStyle(s.value)}
+                  className={`text-left px-3 py-2 rounded-xl border transition ${
+                    style === s.value
+                      ? 'border-teal-500 bg-teal-50 dark:bg-teal-900/20'
+                      : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                  }`}
+                >
+                  <div className={`text-xs font-medium ${style === s.value ? 'text-teal-700 dark:text-teal-300' : 'text-gray-800 dark:text-gray-200'}`}>
+                    {s.label}
+                  </div>
+                  <div className="text-[10px] text-gray-500 dark:text-gray-500 truncate">
+                    {s.hint}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Length */}
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">
+              Length
+            </label>
+            <div className="grid grid-cols-2 gap-1.5">
+              {REWRITE_LENGTHS.map((l) => (
+                <button
+                  key={l.value}
+                  type="button"
+                  onClick={() => setLength(l.value)}
+                  className={`text-left px-3 py-2 rounded-xl border transition ${
+                    length === l.value
+                      ? 'border-teal-500 bg-teal-50 dark:bg-teal-900/20'
+                      : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                  }`}
+                >
+                  <div className={`text-xs font-medium ${length === l.value ? 'text-teal-700 dark:text-teal-300' : 'text-gray-800 dark:text-gray-200'}`}>
+                    {l.label}
+                  </div>
+                  <div className="text-[10px] text-gray-500 dark:text-gray-500 truncate">
+                    {l.hint}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Advanced — instructions */}
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowAdvanced((v) => !v)}
+              className="flex items-center gap-1.5 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:text-teal-600 dark:hover:text-teal-400 transition"
+            >
+              <FaChevronRight className={`text-[9px] transition-transform ${showAdvanced ? 'rotate-90' : ''}`} />
+              {showAdvanced ? 'Hide' : 'Add'} specific instructions (optional)
+            </button>
+            {showAdvanced && (
+              <textarea
+                value={instructions}
+                onChange={(e) => setInstructions(e.target.value)}
+                rows={3}
+                placeholder={`e.g. "Make it more formal", "Expand on the third paragraph", "Add a section on next steps"`}
+                className="mt-2 w-full px-3 py-2 bg-gray-50 dark:bg-[#0f0f12] border border-gray-200 dark:border-gray-700 rounded-xl text-sm text-gray-800 dark:text-white outline-none focus:border-teal-500 resize-none"
+                maxLength={1000}
+              />
+            )}
+          </div>
+        </div>
+
+        <div className="flex gap-2 p-3 sm:p-4 border-t border-gray-200 dark:border-gray-800 flex-shrink-0">
+          <button
+            onClick={onClose}
+            disabled={busy}
+            className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={submit}
+            disabled={busy}
+            className="flex-1 py-2.5 bg-teal-600 text-white rounded-xl text-sm font-medium hover:bg-teal-700 transition disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {busy ? <FaSpinner className="animate-spin text-xs" /> : <FaFeather className="text-xs" />}
+            Rewrite
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AiActionsMenu = ({ disabled, busy, onProofread, onComplete, onRewrite }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -1676,7 +2134,7 @@ const AiActionsMenu = ({ disabled, busy, onProofread, onComplete }) => {
       </button>
       {open && (
         <div
-          className="absolute right-0 top-full mt-1 z-50 bg-white dark:bg-[#1c1c1f] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl p-1.5 min-w-[200px]"
+          className="absolute right-0 top-full mt-1 z-50 bg-white dark:bg-[#1c1c1f] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl p-1.5 min-w-[220px]"
           onClick={(e) => e.stopPropagation()}
         >
           <button
@@ -1702,6 +2160,19 @@ const AiActionsMenu = ({ disabled, busy, onProofread, onComplete }) => {
               <div className="text-xs font-medium text-gray-800 dark:text-white">Expand</div>
               <div className="text-[10px] text-gray-500 dark:text-gray-400">
                 Add explanation, depth, context
+              </div>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => { setOpen(false); onRewrite(); }}
+            className="w-full flex items-start gap-2.5 px-2.5 py-2 rounded-lg text-left hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+          >
+            <FaFeather className="text-teal-500 text-xs mt-0.5 flex-shrink-0" />
+            <div className="min-w-0">
+              <div className="text-xs font-medium text-gray-800 dark:text-white">Rewrite</div>
+              <div className="text-[10px] text-gray-500 dark:text-gray-400">
+                Restructure and reformat the whole note
               </div>
             </div>
           </button>
@@ -1767,8 +2238,8 @@ const SmallScreenActions = ({ isPublic, hasShareLink, onCopyShareLink, onExportP
 const AUTOSAVE_DELAY = 900;
 const MOBILE_BREAKPOINT = 768;
 const MOBILE_TOOLBAR_BASE_GAP = 110;
-const MANUAL_VERSE_WINDOW = 10;   // verses shown per fetch
-const MANUAL_VERSE_STEP   = 10;   // added each "More verses" click
+const MANUAL_VERSE_WINDOW = 10;
+const MANUAL_VERSE_STEP   = 10;
 
 const WriteNote = () => {
   const { id: noteId } = useParams();
@@ -1794,12 +2265,13 @@ const WriteNote = () => {
   const [keyboardOffset, setKeyboardOffset] = useState(0);
 
   // ── AI state ─────────────────────────────────────────────────────
-  const [aiSelection, setAiSelection] = useState(null);   // { text, rect }
-  const [aiPanel, setAiPanel] = useState(null);           // { loading, error, kind, data, expanding, manualRef? }
-  const [aiPreview, setAiPreview] = useState(null);       // { kind, result }
-  const [aiBusy, setAiBusy] = useState(null);             // 'proofread' | 'complete'
+  const [aiSelection, setAiSelection] = useState(null);
+  const [aiPanel, setAiPanel] = useState(null);
+  const [aiPreview, setAiPreview] = useState(null);
+  const [aiBusy, setAiBusy] = useState(null);
   const [aiApplying, setAiApplying] = useState(false);
   const [showBiblePicker, setShowBiblePicker] = useState(false);
+  const [showRewriteSetup, setShowRewriteSetup] = useState(false);
 
   // ── Note hooks (CRUD + AI, same slice) ───────────────────────────
   const { data: noteData, isLoading: isFetching } = useGetNoteQuery(noteId, { skip: !noteId });
@@ -1808,13 +2280,13 @@ const WriteNote = () => {
   const [updateNote] = useUpdateNoteMutation();
   const [deleteNote] = useDeleteNoteMutation();
   const [togglePublic] = useTogglePublicMutation();
-  const [exportPDF] = useLazyExportNotePDFQuery();
 
   const [lookupScripture] = useLookupScriptureMutation();
   const [expandScripture] = useExpandScriptureMutation();
   const [searchHighlight] = useSearchHighlightMutation();
   const [proofreadNoteApi] = useProofreadNoteMutation();
   const [completeNoteApi] = useCompleteNoteMutation();
+  const [rewriteNoteApi] = useRewriteNoteMutation();
 
   const notes = notesData?.notes || [];
 
@@ -1827,14 +2299,12 @@ const WriteNote = () => {
   const isCreatingRef = useRef(false);
   const editorRef = useRef(null);
 
-  // Mobile detection
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Keyboard offset via visualViewport
   useEffect(() => {
     if (!isMobile || typeof window === 'undefined' || !window.visualViewport) {
       setKeyboardOffset(0);
@@ -1854,7 +2324,6 @@ const WriteNote = () => {
     };
   }, [isMobile]);
 
-  // Hide the selection pill when the user scrolls
   useEffect(() => {
     if (!aiSelection) return;
     const clear = () => setAiSelection(null);
@@ -1862,7 +2331,6 @@ const WriteNote = () => {
     return () => window.removeEventListener('scroll', clear, true);
   }, [aiSelection]);
 
-  // Sidebar resizing
   const startResize = useCallback((e) => {
     e.preventDefault();
     setIsResizing(true);
@@ -1890,7 +2358,6 @@ const WriteNote = () => {
     };
   }, [isResizing]);
 
-  // Create new note
   const handleCreateNote = useCallback(async () => {
     if (isCreatingRef.current) return;
     isCreatingRef.current = true;
@@ -1906,7 +2373,6 @@ const WriteNote = () => {
     }
   }, [createNote, navigate]);
 
-  // Route change
   useEffect(() => {
     setIsEditing(Boolean(location.state?.justCreated));
     currentNoteIdRef.current = noteId || null;
@@ -1914,9 +2380,9 @@ const WriteNote = () => {
     setAiPanel(null);
     setAiPreview(null);
     setShowBiblePicker(false);
+    setShowRewriteSetup(false);
   }, [noteId]);
 
-  // Load note data
   useEffect(() => {
     if (!noteId) return;
 
@@ -1936,7 +2402,6 @@ const WriteNote = () => {
     }
   }, [noteData, noteId]);
 
-  // Persist
   const persist = useCallback(async () => {
     if (!currentNoteIdRef.current) return;
     setSaveStatus('saving');
@@ -1951,7 +2416,6 @@ const WriteNote = () => {
     }
   }, [title, content, isPublic, updateNote]);
 
-  // Autosave
   useEffect(() => {
     if (suppressAutosaveRef.current) {
       suppressAutosaveRef.current = false;
@@ -1967,7 +2431,6 @@ const WriteNote = () => {
     return () => clearTimeout(debounceRef.current);
   }, [title, content, isPublic, isEditing, persist]);
 
-  // Handlers
   const handleDoneEditing = () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     persist();
@@ -2003,21 +2466,83 @@ const WriteNote = () => {
     }
   };
 
+  // ── PDF EXPORT ─────────────────────────────────────────────────
+  // Generates the PDF entirely on the client — no server round-trip.
+  // Web: triggers a normal download.
+  // Native (Capacitor): writes to Cache, then opens the share sheet
+  //   (if @capacitor/share is installed) so the user can save/send it.
   const handleExportPDF = async () => {
     if (!currentNoteIdRef.current) return;
+
+    // Pull the freshest HTML: from the editor if we're editing,
+    // from state otherwise.
+    const liveHtml =
+      (editorRef.current && isEditing && editorRef.current.getHTML?.()) ||
+      content ||
+      '';
+
+    const safeName =
+      (title || 'Untitled')
+        .replace(/[^a-z0-9\-_. ]/gi, '_')
+        .trim()
+        .slice(0, 80) || 'Note';
+
+    toast.loading('Generating PDF…', { id: 'pdf-export' });
+
     try {
-      const blob = await exportPDF(currentNoteIdRef.current).unwrap();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `Note-${title || 'Untitled'}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-      toast.success('PDF downloaded');
+      const blob = await generatePdfFromNote(title, liveHtml);
+      if (!blob) throw new Error('PDF generation returned no data');
+
+      // ── Web path ─────────────────────────────────────────────
+      if (!Capacitor.isNativePlatform()) {
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${safeName}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+        toast.success('PDF downloaded', { id: 'pdf-export' });
+        return;
+      }
+
+      // ── Native path ──────────────────────────────────────────
+      const base64 = await blobToBase64(blob);
+      if (!base64) throw new Error('Failed to read PDF data');
+
+      const fileName = `${safeName}-${Date.now()}.pdf`;
+      const writeResult = await Filesystem.writeFile({
+        path: fileName,
+        data: base64,
+        directory: Directory.Cache,
+      });
+
+      try {
+        const shareModule = await import('@capacitor/share').catch(() => null);
+        const Share = shareModule?.Share;
+        if (Share && typeof Share.share === 'function') {
+          await Share.share({
+            title: title || 'Note',
+            text: 'Your note PDF',
+            url: writeResult.uri,
+            dialogTitle: 'Share PDF',
+          });
+          toast.success('PDF ready', { id: 'pdf-export' });
+          return;
+        }
+      } catch (shareErr) {
+        const msg = String(shareErr?.message || '');
+        if (/cancel/i.test(msg)) {
+          toast.success('PDF ready', { id: 'pdf-export' });
+          return;
+        }
+      }
+
+      toast.success('PDF saved', { id: 'pdf-export' });
     } catch (err) {
-      toast.error('Failed to export PDF');
+      console.error('PDF export failed:', err);
+      toast.error('Failed to export PDF', { id: 'pdf-export' });
     }
   };
 
@@ -2051,10 +2576,6 @@ const WriteNote = () => {
     editorRef.current = ed;
   }, []);
 
-  // ── Bible passage lookup ───────────────────────────────────────
-  // Builds a reference string like "Matthew 3:2-12" and pushes it
-  // through the same lookupScripture endpoint the highlight flow uses,
-  // so the response shape is identical.
   const runBibleLookup = useCallback(async ({ book, chapter, verseStart, verseEnd }) => {
     const refString =
       verseEnd && verseEnd > verseStart
@@ -2066,8 +2587,6 @@ const WriteNote = () => {
     try {
       const { result } = await lookupScripture({ text: refString }).unwrap();
 
-      // Detect whether the returned range already spans to the end of
-      // the chapter — if so, we hide "more verses".
       const lastVerse = result.verses?.[result.verses.length - 1]?.verse ?? verseEnd;
       const hitChapterEnd = verseEnd != null && lastVerse < verseEnd;
 
@@ -2119,7 +2638,7 @@ const WriteNote = () => {
     let nextEnd;
     if (mode === 'full_chapter') {
       nextStart = 1;
-      nextEnd = 999; // server clamps at end of chapter
+      nextEnd = 999;
     } else {
       nextEnd = (ref.verseEnd || ref.verseStart) + MANUAL_VERSE_STEP;
     }
@@ -2165,7 +2684,6 @@ const WriteNote = () => {
     }
   }, [aiPanel, lookupScripture]);
 
-  // ── Highlight-to-ask flow ──────────────────────────────────────
   const handleAskAiAboutSelection = async () => {
     if (!aiSelection?.text) return;
     const text = aiSelection.text;
@@ -2203,16 +2721,13 @@ const WriteNote = () => {
     }
   };
 
-  // Expand handler used by ScriptureView — dispatches based on origin.
   const handleExpandScripture = async (expandMode) => {
     if (!aiPanel?.data) return;
 
-    // Manual picker → custom range expansion, client-driven.
     if (aiPanel.manualRef) {
       return handleManualExpand(expandMode);
     }
 
-    // AI-detected → server-driven expansion.
     const { type, parsed } = aiPanel.data;
     setAiPanel((p) => ({ ...p, expanding: true }));
     try {
@@ -2255,13 +2770,40 @@ const WriteNote = () => {
     }
   };
 
+  const handleOpenRewrite = () => {
+    if (!currentNoteIdRef.current) return;
+    setShowRewriteSetup(true);
+  };
+
+  const handleRewriteSubmit = async ({ style, length, instructions }) => {
+    if (!currentNoteIdRef.current) return;
+    setAiBusy('rewrite');
+    try {
+      const { result } = await rewriteNoteApi({
+        noteId: currentNoteIdRef.current,
+        style,
+        length,
+        instructions,
+      }).unwrap();
+      setShowRewriteSetup(false);
+      setAiPreview({ kind: 'rewrite', result });
+    } catch (err) {
+      toast.error(err?.data?.message || 'Rewrite failed.');
+    } finally {
+      setAiBusy(null);
+    }
+  };
+
   const handleApplyAiPreview = async () => {
     if (!aiPreview || !editorRef.current) return;
     setAiApplying(true);
     try {
-      const newContent = aiPreview.kind === 'proofread'
-        ? aiPreview.result.correctedContent
-        : aiPreview.result.completedContent;
+      const newContent =
+        aiPreview.kind === 'proofread'
+          ? aiPreview.result.correctedContent
+          : aiPreview.kind === 'rewrite'
+            ? aiPreview.result.rewrittenContent
+            : aiPreview.result.completedContent;
 
       try {
         editorRef.current.commands.setContent(newContent, { emitUpdate: true });
@@ -2270,8 +2812,16 @@ const WriteNote = () => {
       }
       handleEditorChange(editorRef.current.getHTML());
 
+      const appliedKind = aiPreview.kind;
       setAiPreview(null);
-      toast.success(aiPreview.kind === 'proofread' ? 'Fixes applied' : 'Expansion applied');
+
+      const successMsg =
+        appliedKind === 'proofread'
+          ? 'Fixes applied'
+          : appliedKind === 'rewrite'
+            ? 'Rewrite applied'
+            : 'Expansion applied';
+      toast.success(successMsg);
     } catch (err) {
       toast.error('Failed to apply suggestion.');
     } finally {
@@ -2279,7 +2829,6 @@ const WriteNote = () => {
     }
   };
 
-  // Loading
   if (isFetching || isNotesLoading || !noteId) {
     return (
       <div className="flex items-center justify-center h-screen bg-white dark:bg-[#0f0f12]">
@@ -2288,7 +2837,6 @@ const WriteNote = () => {
     );
   }
 
-  // ─── RENDER ────────────────────────────────────────────────────────
   const renderSidebar = () => (
     <div
       ref={sidebarRef}
@@ -2368,8 +2916,6 @@ const WriteNote = () => {
         <SaveStatus status={isEditing ? saveStatus : 'idle'} lastSaved={lastSaved} />
 
         <div className="flex items-center gap-1 flex-shrink-0">
-          {/* Bible passage picker — always available, useful while
-              reading a note that already contains a reference too. */}
           <button
             type="button"
             onClick={() => setShowBiblePicker(true)}
@@ -2385,6 +2931,7 @@ const WriteNote = () => {
               busy={aiBusy}
               onProofread={handleProofread}
               onComplete={handleComplete}
+              onRewrite={handleOpenRewrite}
             />
           )}
 
@@ -2519,6 +3066,14 @@ const WriteNote = () => {
         busy={Boolean(aiPanel?.loading)}
         onClose={() => setShowBiblePicker(false)}
         onSubmit={handleBibleLookupSubmit}
+      />
+
+      <RewriteSetupModal
+        open={showRewriteSetup}
+        isMobile={isMobile}
+        busy={aiBusy === 'rewrite'}
+        onClose={() => setShowRewriteSetup(false)}
+        onSubmit={handleRewriteSubmit}
       />
 
       <AiResultModal

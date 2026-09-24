@@ -363,7 +363,7 @@ const EMOJI_LIST = [
   "🌝", "🤭", "🌚",
 ];
 
-const REACTION_EMOJIS = ["😂", "😊", "😍", "😡", "😢"];
+const REACTION_EMOJIS = ["👍", "❤️", "😂", "😍", "😭"];
 
 // ─── Skeleton Message Component ─────────────────────────────────────
 const SkeletonMessage = ({ isOwn }) => {

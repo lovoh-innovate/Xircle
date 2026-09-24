@@ -194,7 +194,7 @@ const EMOJI_LIST = [
   "🌝", "🤭", "🌚",
 ];
 
-const REACTION_EMOJIS = ["😂", "😊", "😍", "😡", "😢"];
+const REACTION_EMOJIS = ["👍", "❤️", "😂", "😍", "😭"];
 
 // ─── Link + mention detection ──────────────────────────────────────
 const URL_REGEX = /(https?:\/\/[^\s]+)/g;

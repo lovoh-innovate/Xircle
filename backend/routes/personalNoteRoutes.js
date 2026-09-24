@@ -20,6 +20,7 @@ import {
   searchHighlight,
   proofreadNoteHandler,
   completeNoteHandler,
+  rewriteNoteHandler,                    // 👈 NEW
 } from "../controllers/noteAiController.js";
 import { protect } from "../middleware/authMiddleware.js";
 import multer from "multer";
@@ -59,8 +60,8 @@ router.use(protect); // All following routes require authentication
 
 // ── AI routes ─────────────────────────────────────────────────────────────
 // Must be declared BEFORE the /:id routes so path segments like "ai" are
-// never mistaken for a note id. All five are POST; none of them write to
-// the database — proofread and complete return suggestions only.
+// never mistaken for a note id. All six are POST; none of them write to
+// the database — proofread, complete, and rewrite return suggestions only.
 
 // Highlight → detect Bible/Quran/general, fetch the passage text
 router.post("/ai/scripture", lookupScripture);
@@ -76,6 +77,14 @@ router.post("/ai/proofread", proofreadNoteHandler);
 
 // Expand a note with explanation, examples, depth (suggestions only)
 router.post("/ai/complete", completeNoteHandler);
+
+// Full rewrite: restructure, elaborate, reformat, adjust tone/length.
+// Body: { noteId } OR { content, title }
+// Optional: instructions (string), style, length
+//   style:  explanatory | formal | casual | devotional | academic | journal
+//   length: shorter | same | longer | much_longer
+// Returns { original, rewrittenContent, changed, changeCount, changes, summary, style, length }
+router.post("/ai/rewrite", rewriteNoteHandler);                    // 👈 NEW
 
 // ── CRUD ──────────────────────────────────────────────────────────────────
 router.post("/", upload.array("attachments", 5), createNote); // max 5 attachments

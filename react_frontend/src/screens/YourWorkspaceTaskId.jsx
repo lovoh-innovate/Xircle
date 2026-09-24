@@ -8,6 +8,7 @@ import {
   FaAngleDown, FaFolder, FaFolderOpen, FaCalendarAlt, FaRegClock,
   FaRedo, FaClock, FaGripVertical, FaUser, FaFlag, FaFire, FaCamera,
   FaLink, FaPaperclip, FaExclamationTriangle, FaListUl, FaCommentDots,
+  FaMagic,
 } from 'react-icons/fa';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
 import { useGetProjectByIdQuery } from '../slices/projectApiSlice';
@@ -29,6 +30,10 @@ import {
   useReorderSubTasksMutation,
   useGetProjectFoldersQuery,
 } from '../slices/taskApiSlice';
+import {
+  useEditTaskWithAIMutation,
+  useApplyTaskEditsMutation,
+} from '../slices/aiApiSlice';
 import { useMediaPicker } from '../hooks/useMediaPicker';
 
 const fmtDateTime = (d) => (!d ? 'N/A' : new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }));
@@ -123,79 +128,361 @@ const ConfirmDialog = ({ isOpen, onClose, onConfirm, title, message, danger, con
   );
 };
 
+// ─── Reusable "Show more" toggle for optional form fields ─────────
+const ShowMoreToggle = ({ open, onToggle, label }) => (
+  <button
+    type="button"
+    onClick={onToggle}
+    className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-700/60 rounded-xl text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/40 transition"
+  >
+    <span className="font-medium">{label}</span>
+    <span className="flex items-center gap-1 text-gray-400">
+      <span className="text-[10px]">{open ? 'Hide' : 'Show more'}</span>
+      <FaAngleDown className={`text-[10px] transition-transform ${open ? 'rotate-180' : ''}`} />
+    </span>
+  </button>
+);
+
 // ─── Checklist modals ─────────────────────────────────────────────
+// Multi-item creation modal — starts with 1 empty row. The user adds
+// more rows on demand. Each row creates one sub-task on the backend
+// (one call per row, handled sequentially in the submit handler).
 const AddChecklistModal = ({ isOpen, onClose, onSubmit }) => {
-  const [title, setTitle] = useState(''); const [start, setStart] = useState(''); const [due, setDue] = useState(''); const [loading, setLoading] = useState(false);
+  const makeEmpty = () => ({ title: '', startDate: '', dueDate: '' });
+  const [items, setItems] = useState([makeEmpty()]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) setItems([makeEmpty()]);
+  }, [isOpen]);
+
   if (!isOpen) return null;
+
+  const addRow = () => setItems((prev) => [...prev, makeEmpty()]);
+  const removeRow = (i) => setItems((prev) => prev.filter((_, idx) => idx !== i));
+  const updateRow = (i, key, val) =>
+    setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, [key]: val } : it)));
+
+  const validItems = items.filter((it) => it.title.trim());
+
   const submit = async () => {
-    if (!title.trim()) return toast.error('Title required');
+    if (!validItems.length) return toast.error('Add at least one checklist item');
     setLoading(true);
-    try { await onSubmit({ title: title.trim(), startDate: start || null, dueDate: due || null }); setTitle(''); setStart(''); setDue(''); onClose(); }
-    catch (e) { toast.error(e?.data?.message || 'Failed'); } finally { setLoading(false); }
+    let ok = 0;
+    try {
+      for (const item of validItems) {
+        try {
+          await onSubmit({
+            title: item.title.trim(),
+            startDate: item.startDate || null,
+            dueDate: item.dueDate || null,
+          });
+          ok += 1;
+        } catch (e) {
+          console.error('Failed to add checklist item:', e);
+        }
+      }
+      if (ok === validItems.length) {
+        toast.success(`${ok} item${ok > 1 ? 's' : ''} added`);
+      } else if (ok > 0) {
+        toast.success(`${ok} of ${validItems.length} items added`);
+      } else {
+        toast.error('Failed to add items');
+      }
+      setItems([makeEmpty()]);
+      onClose();
+    } finally {
+      setLoading(false);
+    }
   };
+
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-[#14141a] rounded-2xl max-w-md w-full p-6 shadow-xl">
-        <div className="flex justify-between mb-4"><h3 className="text-lg font-bold text-gray-800 dark:text-gray-200">Add Checklist Item</h3><button onClick={onClose}><FaTimes className="text-gray-400" /></button></div>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Item title" className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 mb-2 outline-none" />
-        <input type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 mb-2 outline-none" />
-        <input type="datetime-local" value={due} onChange={(e) => setDue(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 mb-4 outline-none" />
-        <div className="flex gap-3"><button onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600">Cancel</button><button onClick={submit} disabled={loading} className="flex-1 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl text-sm font-medium">{loading ? 'Adding...' : 'Add'}</button></div>
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-2 sm:p-4">
+      <div className="bg-white dark:bg-[#14141a] rounded-2xl max-w-lg w-full shadow-xl max-h-[92vh] flex flex-col">
+        <div className="flex justify-between items-start px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 dark:border-gray-800/60 shrink-0">
+          <div>
+            <h3 className="text-base sm:text-lg font-bold text-gray-800 dark:text-gray-200">Add Checklist Items</h3>
+            <p className="text-[11px] sm:text-xs text-gray-500 dark:text-gray-500 mt-0.5">Leave a row blank to skip it</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 -mr-1 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-lg">
+            <FaTimes className="text-sm" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-3 sm:py-4 space-y-3">
+          {items.map((item, i) => (
+            <div
+              key={i}
+              className="bg-gray-50 dark:bg-[#0b0b10] rounded-xl border border-gray-200 dark:border-gray-800/60 p-3 space-y-2"
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide">
+                  Checklist {i + 1}
+                </span>
+                {items.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeRow(i)}
+                    className="ml-auto text-gray-400 hover:text-red-500 transition p-1"
+                    title="Remove this row"
+                  >
+                    <FaTimes className="text-xs" />
+                  </button>
+                )}
+              </div>
+              <input
+                value={item.title}
+                onChange={(e) => updateRow(i, 'title', e.target.value)}
+                placeholder={`Checklist ${i + 1}`}
+                className="w-full px-3 py-2 bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 outline-none focus:border-teal-500"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="datetime-local"
+                  value={item.startDate}
+                  onChange={(e) => updateRow(i, 'startDate', e.target.value)}
+                  className="w-full px-2 py-1.5 bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-lg text-[11px] sm:text-xs text-gray-800 dark:text-gray-200 outline-none"
+                />
+                <input
+                  type="datetime-local"
+                  value={item.dueDate}
+                  onChange={(e) => updateRow(i, 'dueDate', e.target.value)}
+                  className="w-full px-2 py-1.5 bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-lg text-[11px] sm:text-xs text-gray-800 dark:text-gray-200 outline-none"
+                />
+              </div>
+            </div>
+          ))}
+
+          <button
+            type="button"
+            onClick={addRow}
+            className="w-full py-2.5 border border-dashed border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-teal-600 dark:text-[#0d9488] font-medium flex items-center justify-center gap-1.5 hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 transition"
+          >
+            <FaPlus className="text-xs" /> Add another row
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 px-4 sm:px-6 py-3 sm:py-4 border-t border-gray-200 dark:border-gray-800/60 shrink-0">
+          <button onClick={onClose} className="py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">Cancel</button>
+          <button
+            onClick={submit}
+            disabled={loading || !validItems.length}
+            className="py-2.5 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl text-sm font-medium disabled:opacity-50 hover:opacity-90 transition"
+          >
+            {loading
+              ? 'Creating...'
+              : `Create${validItems.length > 1 ? ` ${validItems.length} items` : ''}`}
+          </button>
+        </div>
       </div>
     </div>
   );
 };
 
+// Mark checklist item done — optional form hidden by default
 const ChecklistDoneModal = ({ isOpen, onClose, onSubmit, canManage }) => {
-  const [notes, setNotes] = useState(''); const [linksText, setLinksText] = useState('');
+  const [notes, setNotes] = useState('');
+  const [linksText, setLinksText] = useState('');
   const { files, pickMedia, setFiles } = useMediaPicker();
   const [loading, setLoading] = useState(false);
+  const [showMore, setShowMore] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) setShowMore(false);
+  }, [isOpen]);
+
   if (!isOpen) return null;
+
   const submit = async () => {
     setLoading(true);
-    try { await onSubmit({ notes, links: linksText.split('\n').filter(Boolean), files }); setNotes(''); setLinksText(''); setFiles([]); onClose(); }
-    catch (e) { toast.error(e?.data?.message || 'Failed'); } finally { setLoading(false); }
+    try {
+      await onSubmit({ notes, links: linksText.split('\n').filter(Boolean), files });
+      setNotes('');
+      setLinksText('');
+      setFiles([]);
+      setShowMore(false);
+      onClose();
+    } catch (e) {
+      toast.error(e?.data?.message || 'Failed');
+    } finally {
+      setLoading(false);
+    }
   };
+
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-[#14141a] rounded-2xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between mb-4"><h3 className="text-lg font-bold text-gray-800 dark:text-gray-200">Mark Item Done</h3><button onClick={onClose}><FaTimes className="text-gray-400" /></button></div>
-        <textarea placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 mb-2 outline-none" />
-        <textarea placeholder="Links (one per line)" value={linksText} onChange={(e) => setLinksText(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 mb-2 outline-none" />
-        <button type="button" onClick={() => pickMedia({ multiple: true })} className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] rounded-xl text-sm text-gray-700 dark:text-gray-300 mb-2"><FaCamera className="text-xs" /> Choose Files</button>
-        {files.length > 0 && files.map((f, i) => <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5 mb-1"><span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span><button onClick={() => setFiles((p) => p.filter((_, idx) => idx !== i))} className="text-red-500"><FaTrashAlt className="text-xs" /></button></div>)}
-        <div className="flex gap-3 mt-2"><button onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600">Cancel</button><button onClick={submit} disabled={loading} className="flex-1 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl text-sm font-medium">{loading ? 'Saving...' : canManage ? 'Complete & Confirm' : 'Submit Done'}</button></div>
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-2 sm:p-4">
+      <div className="bg-white dark:bg-[#14141a] rounded-2xl max-w-md w-full shadow-xl max-h-[92vh] flex flex-col">
+        <div className="flex justify-between items-center px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 dark:border-gray-800/60 shrink-0">
+          <h3 className="text-base sm:text-lg font-bold text-gray-800 dark:text-gray-200">Mark Item Done</h3>
+          <button onClick={onClose} className="p-1.5 -mr-1 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-lg"><FaTimes className="text-sm" /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-3 sm:py-4 space-y-3">
+          <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">
+            Confirm you've finished this checklist item.
+          </p>
+
+          <ShowMoreToggle
+            open={showMore}
+            onToggle={() => setShowMore((v) => !v)}
+            label="Add notes, links or attachments (optional)"
+          />
+
+          {showMore && (
+            <div className="space-y-2">
+              <textarea
+                placeholder="Notes (optional)"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={2}
+                className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none"
+              />
+              <textarea
+                placeholder="Links (one per line)"
+                value={linksText}
+                onChange={(e) => setLinksText(e.target.value)}
+                rows={2}
+                className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => pickMedia({ multiple: true })}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] rounded-xl text-sm text-gray-700 dark:text-gray-300"
+              >
+                <FaCamera className="text-xs" /> Choose Files
+              </button>
+              {files.length > 0 && files.map((f, i) => (
+                <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5">
+                  <span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span>
+                  <button onClick={() => setFiles((p) => p.filter((_, idx) => idx !== i))} className="text-red-500">
+                    <FaTrashAlt className="text-xs" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 px-4 sm:px-6 py-3 sm:py-4 border-t border-gray-200 dark:border-gray-800/60 shrink-0">
+          <button onClick={onClose} className="py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">Cancel</button>
+          <button
+            onClick={submit}
+            disabled={loading}
+            className="py-2.5 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl text-sm font-medium hover:opacity-90 transition disabled:opacity-60"
+          >
+            {loading ? 'Saving...' : canManage ? 'Complete & Confirm' : 'Submit Done'}
+          </button>
+        </div>
       </div>
     </div>
   );
 };
 
 const ChecklistConfirmModal = ({ isOpen, onClose, subTask, onSubmit }) => {
-  const [feedback, setFeedback] = useState(''); const [loading, setLoading] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [showMore, setShowMore] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) setShowMore(false);
+  }, [isOpen]);
+
   if (!isOpen) return null;
-  const submit = async () => { setLoading(true); try { await onSubmit(feedback); setFeedback(''); onClose(); } catch (e) { toast.error(e?.data?.message || 'Failed'); } finally { setLoading(false); } };
+
+  const submit = async () => {
+    setLoading(true);
+    try {
+      await onSubmit(feedback);
+      setFeedback('');
+      setShowMore(false);
+      onClose();
+    } catch (e) {
+      toast.error(e?.data?.message || 'Failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-[#14141a] rounded-2xl max-w-md w-full p-6 shadow-xl">
-        <div className="flex justify-between mb-4"><h3 className="text-lg font-bold text-gray-800 dark:text-gray-200">Confirm Item</h3><button onClick={onClose}><FaTimes className="text-gray-400" /></button></div>
-        {subTask?.notes && <p className="text-xs text-gray-600 dark:text-gray-400 mb-2"><span className="font-medium">Notes:</span> {subTask.notes}</p>}
-        <textarea placeholder="Feedback (optional)" value={feedback} onChange={(e) => setFeedback(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 mb-4 outline-none" />
-        <div className="flex gap-3"><button onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600">Cancel</button><button onClick={submit} disabled={loading} className="flex-1 py-2 bg-green-600 text-white rounded-xl text-sm font-medium">{loading ? 'Confirming...' : 'Confirm'}</button></div>
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-2 sm:p-4">
+      <div className="bg-white dark:bg-[#14141a] rounded-2xl max-w-md w-full shadow-xl max-h-[92vh] flex flex-col">
+        <div className="flex justify-between items-center px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 dark:border-gray-800/60 shrink-0">
+          <h3 className="text-base sm:text-lg font-bold text-gray-800 dark:text-gray-200">Confirm Item</h3>
+          <button onClick={onClose} className="p-1.5 -mr-1 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-lg"><FaTimes className="text-sm" /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-3 sm:py-4 space-y-3">
+          {subTask?.notes && (
+            <p className="text-xs text-gray-600 dark:text-gray-400">
+              <span className="font-medium">Notes:</span> {subTask.notes}
+            </p>
+          )}
+
+          <ShowMoreToggle
+            open={showMore}
+            onToggle={() => setShowMore((v) => !v)}
+            label="Add feedback (optional)"
+          />
+
+          {showMore && (
+            <textarea
+              placeholder="Feedback (optional)"
+              value={feedback}
+              onChange={(e) => setFeedback(e.target.value)}
+              rows={2}
+              className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none"
+            />
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 px-4 sm:px-6 py-3 sm:py-4 border-t border-gray-200 dark:border-gray-800/60 shrink-0">
+          <button onClick={onClose} className="py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">Cancel</button>
+          <button onClick={submit} disabled={loading} className="py-2.5 bg-green-600 text-white rounded-xl text-sm font-medium hover:opacity-90 transition disabled:opacity-60">
+            {loading ? 'Confirming...' : 'Confirm'}
+          </button>
+        </div>
       </div>
     </div>
   );
 };
 
 const ReasonModal = ({ isOpen, onClose, onSubmit, title }) => {
-  const [reason, setReason] = useState(''); const [loading, setLoading] = useState(false);
+  const [reason, setReason] = useState('');
+  const [loading, setLoading] = useState(false);
   if (!isOpen) return null;
-  const submit = async () => { setLoading(true); try { await onSubmit(reason); setReason(''); onClose(); } catch (e) { toast.error(e?.data?.message || 'Failed'); } finally { setLoading(false); } };
+  const submit = async () => {
+    setLoading(true);
+    try {
+      await onSubmit(reason);
+      setReason('');
+      onClose();
+    } catch (e) {
+      toast.error(e?.data?.message || 'Failed');
+    } finally {
+      setLoading(false);
+    }
+  };
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-[#14141a] rounded-2xl max-w-md w-full p-6 shadow-xl">
-        <div className="flex justify-between mb-4"><h3 className="text-lg font-bold text-gray-800 dark:text-gray-200">{title}</h3><button onClick={onClose}><FaTimes className="text-gray-400" /></button></div>
-        <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (optional)" className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 mb-4 outline-none" />
-        <div className="flex gap-3"><button onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600">Cancel</button><button onClick={submit} disabled={loading} className="flex-1 py-2 bg-red-600 text-white rounded-xl text-sm font-medium">{loading ? 'Submitting...' : 'Confirm'}</button></div>
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-2 sm:p-4">
+      <div className="bg-white dark:bg-[#14141a] rounded-2xl max-w-md w-full shadow-xl max-h-[92vh] flex flex-col">
+        <div className="flex justify-between items-center px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 dark:border-gray-800/60 shrink-0">
+          <h3 className="text-base sm:text-lg font-bold text-gray-800 dark:text-gray-200">{title}</h3>
+          <button onClick={onClose} className="p-1.5 -mr-1 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-lg"><FaTimes className="text-sm" /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-3 sm:py-4">
+          <input
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Reason (optional)"
+            className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-2 px-4 sm:px-6 py-3 sm:py-4 border-t border-gray-200 dark:border-gray-800/60 shrink-0">
+          <button onClick={onClose} className="py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">Cancel</button>
+          <button onClick={submit} disabled={loading} className="py-2.5 bg-red-600 text-white rounded-xl text-sm font-medium hover:opacity-90 transition disabled:opacity-60">
+            {loading ? 'Submitting...' : 'Confirm'}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -203,72 +490,295 @@ const ReasonModal = ({ isOpen, onClose, onSubmit, title }) => {
 
 // ─── Task-level completion modals ───────────────────────────────
 const MarkCompleteModal = ({ isOpen, onClose, task, brandColor, onSubmit }) => {
-  const [notes, setNotes] = useState(''); const [linksText, setLinksText] = useState('');
-  const { files, pickMedia, setFiles } = useMediaPicker(); const [loading, setLoading] = useState(false);
+  const [notes, setNotes] = useState('');
+  const [linksText, setLinksText] = useState('');
+  const { files, pickMedia, setFiles } = useMediaPicker();
+  const [loading, setLoading] = useState(false);
+  const [showMore, setShowMore] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) setShowMore(false);
+  }, [isOpen]);
+
   if (!isOpen) return null;
+
   const submit = async () => {
     setLoading(true);
-    try { await onSubmit({ notes: notes.trim(), links: linksText.split('\n').map((l) => l.trim()).filter(Boolean), attachments: files }); onClose(); setNotes(''); setLinksText(''); setFiles([]); }
-    catch (e) { /* handled by caller */ } finally { setLoading(false); }
+    try {
+      await onSubmit({
+        notes: notes.trim(),
+        links: linksText.split('\n').map((l) => l.trim()).filter(Boolean),
+        attachments: files,
+      });
+      onClose();
+      setNotes('');
+      setLinksText('');
+      setFiles([]);
+      setShowMore(false);
+    } catch (e) {
+      // handled by caller
+    } finally {
+      setLoading(false);
+    }
   };
+
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-[#14141a] rounded-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto shadow-xl">
-        <div className="flex justify-between mb-4"><h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Mark Task Complete</h2><button onClick={onClose}><FaTimes className="text-gray-400" /></button></div>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">Confirm you have completed <span className="font-medium text-gray-800 dark:text-gray-200">"{task?.title}"</span>.</p>
-        <textarea placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 mb-2 outline-none" />
-        <textarea placeholder="Links (one per line, optional)" value={linksText} onChange={(e) => setLinksText(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 mb-2 outline-none" />
-        <button type="button" onClick={() => pickMedia({ multiple: true })} className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] rounded-xl text-sm text-gray-700 dark:text-gray-300 mb-2"><FaCamera className="text-xs" /> Choose Files</button>
-        {files.length > 0 && files.map((f, i) => <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5 mb-1"><span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span><button onClick={() => setFiles((p) => p.filter((_, idx) => idx !== i))} className="text-red-500"><FaTrashAlt className="text-xs" /></button></div>)}
-        <div className="flex gap-3 mt-2"><button onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600">Cancel</button><button onClick={submit} disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium" style={{ backgroundColor: brandColor }}>{loading ? 'Submitting...' : 'Complete'}</button></div>
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-2 sm:p-4">
+      <div className="bg-white dark:bg-[#14141a] rounded-2xl max-w-md w-full shadow-xl max-h-[92vh] flex flex-col">
+        <div className="flex justify-between items-center px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 dark:border-gray-800/60 shrink-0">
+          <h2 className="text-base sm:text-lg font-bold text-gray-800 dark:text-gray-200">Mark Task Complete</h2>
+          <button onClick={onClose} className="p-1.5 -mr-1 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-lg"><FaTimes className="text-sm" /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-3 sm:py-4 space-y-3">
+          <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">
+            Confirm you have completed{' '}
+            <span className="font-medium text-gray-800 dark:text-gray-200">"{task?.title}"</span>.
+          </p>
+
+          <ShowMoreToggle
+            open={showMore}
+            onToggle={() => setShowMore((v) => !v)}
+            label="Add notes, links or attachments (optional)"
+          />
+
+          {showMore && (
+            <div className="space-y-2">
+              <textarea
+                placeholder="Notes (optional)"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={3}
+                className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none"
+              />
+              <textarea
+                placeholder="Links (one per line, optional)"
+                value={linksText}
+                onChange={(e) => setLinksText(e.target.value)}
+                rows={2}
+                className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => pickMedia({ multiple: true })}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] rounded-xl text-sm text-gray-700 dark:text-gray-300"
+              >
+                <FaCamera className="text-xs" /> Choose Files
+              </button>
+              {files.length > 0 && files.map((f, i) => (
+                <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5">
+                  <span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span>
+                  <button onClick={() => setFiles((p) => p.filter((_, idx) => idx !== i))} className="text-red-500">
+                    <FaTrashAlt className="text-xs" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 px-4 sm:px-6 py-3 sm:py-4 border-t border-gray-200 dark:border-gray-800/60 shrink-0">
+          <button onClick={onClose} className="py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">Cancel</button>
+          <button
+            onClick={submit}
+            disabled={loading}
+            className="py-2.5 text-white rounded-xl text-sm font-medium hover:opacity-90 transition disabled:opacity-60"
+            style={{ backgroundColor: brandColor }}
+          >
+            {loading ? 'Submitting...' : 'Complete'}
+          </button>
+        </div>
       </div>
     </div>
   );
 };
 
 const ConfirmCompletionModal = ({ isOpen, onClose, task, brandColor, onSubmit, onReject }) => {
-  const [feedback, setFeedback] = useState(''); const [finalHours, setFinalHours] = useState(''); const [finalLinksText, setFinalLinksText] = useState('');
-  const { files, pickMedia, setFiles } = useMediaPicker(); const [loading, setLoading] = useState(false);
-  const [showReject, setShowReject] = useState(false); const [rejectReason, setRejectReason] = useState('');
+  const [feedback, setFeedback] = useState('');
+  const [finalHours, setFinalHours] = useState('');
+  const [finalLinksText, setFinalLinksText] = useState('');
+  const { files, pickMedia, setFiles } = useMediaPicker();
+  const [loading, setLoading] = useState(false);
+  const [showReject, setShowReject] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [showMore, setShowMore] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) setShowMore(false);
+  }, [isOpen]);
+
   if (!isOpen) return null;
-  const reset = () => { setFeedback(''); setFinalHours(''); setFinalLinksText(''); setFiles([]); setRejectReason(''); setShowReject(false); };
+
+  const reset = () => {
+    setFeedback('');
+    setFinalHours('');
+    setFinalLinksText('');
+    setFiles([]);
+    setRejectReason('');
+    setShowReject(false);
+    setShowMore(false);
+  };
+
   const submit = async () => {
     setLoading(true);
     try {
       const links = finalLinksText.split('\n').map((l) => l.trim()).filter(Boolean);
-      await onSubmit({ feedback: feedback.trim(), finalHours: finalHours ? parseFloat(finalHours) : undefined, finalLinks: links.length ? links : undefined, finalAttachments: files });
-      onClose(); reset();
-    } catch (e) { /* handled by caller */ } finally { setLoading(false); }
+      await onSubmit({
+        feedback: feedback.trim(),
+        finalHours: finalHours ? parseFloat(finalHours) : undefined,
+        finalLinks: links.length ? links : undefined,
+        finalAttachments: files,
+      });
+      onClose();
+      reset();
+    } catch (e) {
+      // handled by caller
+    } finally {
+      setLoading(false);
+    }
   };
+
   const reject = async () => {
     if (!rejectReason.trim()) return toast.error('Provide a reason');
     setLoading(true);
-    try { await onReject(task._id, rejectReason.trim()); onClose(); reset(); } catch (e) { /* handled */ } finally { setLoading(false); }
+    try {
+      await onReject(task._id, rejectReason.trim());
+      onClose();
+      reset();
+    } catch (e) {
+      // handled
+    } finally {
+      setLoading(false);
+    }
   };
+
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-[#14141a] rounded-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto shadow-xl">
-        <div className="flex justify-between mb-4"><h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Confirm or Reject Task</h2><button onClick={onClose}><FaTimes className="text-gray-400" /></button></div>
-        {task?.finalLinks?.length > 0 && <div className="mb-3 text-sm"><span className="font-medium text-gray-700 dark:text-gray-300">Submitted links:</span><ul className="list-disc pl-5 mt-1">{task.finalLinks.map((l, i) => <li key={i}><a href={l} target="_blank" rel="noreferrer" className="text-teal-600 underline break-all">{l}</a></li>)}</ul></div>}
-        {task?.finalAttachments?.length > 0 && <div className="mb-3 text-sm"><span className="font-medium text-gray-700 dark:text-gray-300">Submitted attachments:</span><ul className="list-disc pl-5 mt-1">{task.finalAttachments.map((a, i) => <li key={i}><a href={a.url} target="_blank" rel="noreferrer" className="text-teal-600 underline break-all">{a.name || 'file'}</a></li>)}</ul></div>}
-        <textarea placeholder="Feedback (optional)" value={feedback} onChange={(e) => setFeedback(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 mb-2 outline-none" />
-        <input type="number" step="0.5" placeholder="Actual hours (optional)" value={finalHours} onChange={(e) => setFinalHours(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 mb-2 outline-none" />
-        <textarea placeholder="Final links (one per line, optional)" value={finalLinksText} onChange={(e) => setFinalLinksText(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 mb-2 outline-none" />
-        <button type="button" onClick={() => pickMedia({ multiple: true })} className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] rounded-xl text-sm text-gray-700 dark:text-gray-300 mb-2"><FaCamera className="text-xs" /> Choose Files</button>
-        {files.length > 0 && files.map((f, i) => <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5 mb-1"><span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span><button onClick={() => setFiles((p) => p.filter((_, idx) => idx !== i))} className="text-red-500"><FaTrashAlt className="text-xs" /></button></div>)}
-        {showReject && <input value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="Reason for rejection *" className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-red-300 rounded-xl text-sm text-gray-800 dark:text-gray-200 mt-2 outline-none" />}
-        <div className="flex gap-3 mt-4">
-          <button onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600">Cancel</button>
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-2 sm:p-4">
+      <div className="bg-white dark:bg-[#14141a] rounded-2xl max-w-md w-full shadow-xl max-h-[92vh] flex flex-col">
+        <div className="flex justify-between items-center px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 dark:border-gray-800/60 shrink-0">
+          <h2 className="text-base sm:text-lg font-bold text-gray-800 dark:text-gray-200">Confirm or Reject Task</h2>
+          <button onClick={onClose} className="p-1.5 -mr-1 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-lg"><FaTimes className="text-sm" /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-3 sm:py-4 space-y-3">
+          {task?.finalLinks?.length > 0 && (
+            <div className="text-xs sm:text-sm">
+              <span className="font-medium text-gray-700 dark:text-gray-300">Submitted links:</span>
+              <ul className="list-disc pl-5 mt-1">
+                {task.finalLinks.map((l, i) => (
+                  <li key={i}>
+                    <a href={l} target="_blank" rel="noreferrer" className="text-teal-600 underline break-all">{l}</a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {task?.finalAttachments?.length > 0 && (
+            <div className="text-xs sm:text-sm">
+              <span className="font-medium text-gray-700 dark:text-gray-300">Submitted attachments:</span>
+              <ul className="list-disc pl-5 mt-1">
+                {task.finalAttachments.map((a, i) => (
+                  <li key={i}>
+                    <a href={a.url} target="_blank" rel="noreferrer" className="text-teal-600 underline break-all">{a.name || 'file'}</a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <ShowMoreToggle
+            open={showMore}
+            onToggle={() => setShowMore((v) => !v)}
+            label="Add feedback, hours or files (optional)"
+          />
+
+          {showMore && (
+            <div className="space-y-2">
+              <textarea
+                placeholder="Feedback (optional)"
+                value={feedback}
+                onChange={(e) => setFeedback(e.target.value)}
+                rows={2}
+                className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none"
+              />
+              <input
+                type="number"
+                step="0.5"
+                placeholder="Actual hours (optional)"
+                value={finalHours}
+                onChange={(e) => setFinalHours(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none"
+              />
+              <textarea
+                placeholder="Final links (one per line, optional)"
+                value={finalLinksText}
+                onChange={(e) => setFinalLinksText(e.target.value)}
+                rows={2}
+                className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => pickMedia({ multiple: true })}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] rounded-xl text-sm text-gray-700 dark:text-gray-300"
+              >
+                <FaCamera className="text-xs" /> Choose Files
+              </button>
+              {files.length > 0 && files.map((f, i) => (
+                <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5">
+                  <span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span>
+                  <button onClick={() => setFiles((p) => p.filter((_, idx) => idx !== i))} className="text-red-500">
+                    <FaTrashAlt className="text-xs" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {showReject && (
+            <input
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Reason for rejection *"
+              className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-red-300 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none"
+            />
+          )}
+        </div>
+
+        <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-gray-200 dark:border-gray-800/60 shrink-0">
           {!showReject ? (
-            <>
-              <button onClick={() => setShowReject(true)} className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-medium">Reject</button>
-              <button onClick={submit} disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium" style={{ backgroundColor: brandColor }}>{loading ? 'Confirming...' : 'Confirm'}</button>
-            </>
+            <div className="grid grid-cols-3 gap-2">
+              <button onClick={onClose} className="py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-xs sm:text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">Cancel</button>
+              <button
+                onClick={() => setShowReject(true)}
+                className="py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs sm:text-sm font-medium transition"
+              >
+                Reject
+              </button>
+              <button
+                onClick={submit}
+                disabled={loading}
+                className="py-2.5 text-white rounded-xl text-xs sm:text-sm font-medium hover:opacity-90 transition disabled:opacity-60"
+                style={{ backgroundColor: brandColor }}
+              >
+                {loading ? 'Confirming...' : 'Confirm'}
+              </button>
+            </div>
           ) : (
-            <>
-              <button onClick={() => setShowReject(false)} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600">Back</button>
-              <button onClick={reject} disabled={loading} className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-medium">{loading ? 'Rejecting...' : 'Confirm Rejection'}</button>
-            </>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setShowReject(false)}
+                className="py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition"
+              >
+                Back
+              </button>
+              <button
+                onClick={reject}
+                disabled={loading}
+                className="py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-medium transition disabled:opacity-60"
+              >
+                {loading ? 'Rejecting...' : 'Confirm Rejection'}
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -288,11 +798,21 @@ const AssignTaskModal = ({ isOpen, onClose, task, assignableMembers, brandColor,
     try { await onAssign(ids); onClose(); } catch (e) { toast.error(e?.data?.message || 'Failed'); } finally { setLoading(false); }
   };
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-[#14141a] rounded-2xl max-w-md w-full p-6 shadow-xl">
-        <div className="flex justify-between mb-4"><h2 className="text-lg font-bold text-gray-800 dark:text-gray-200"><FaUserPlus className="inline mr-1 text-teal-600" /> Assign Task</h2><button onClick={onClose}><FaTimes className="text-gray-400" /></button></div>
-        <MultiDropdown label="Assignees" options={opts} values={ids} onChange={setIds} placeholder="Select members..." />
-        <div className="flex gap-3 mt-4"><button onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600">Cancel</button><button onClick={submit} disabled={loading || !ids.length} className="flex-1 py-2 text-white rounded-xl text-sm font-medium" style={{ backgroundColor: brandColor }}>{loading ? 'Assigning...' : 'Assign'}</button></div>
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-2 sm:p-4">
+      <div className="bg-white dark:bg-[#14141a] rounded-2xl max-w-md w-full shadow-xl max-h-[92vh] flex flex-col">
+        <div className="flex justify-between items-center px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 dark:border-gray-800/60 shrink-0">
+          <h2 className="text-base sm:text-lg font-bold text-gray-800 dark:text-gray-200 flex items-center gap-1">
+            <FaUserPlus className="text-teal-600" /> Assign Task
+          </h2>
+          <button onClick={onClose} className="p-1.5 -mr-1 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-lg"><FaTimes className="text-sm" /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-3 sm:py-4">
+          <MultiDropdown label="Assignees" options={opts} values={ids} onChange={setIds} placeholder="Select members..." />
+        </div>
+        <div className="grid grid-cols-2 gap-2 px-4 sm:px-6 py-3 sm:py-4 border-t border-gray-200 dark:border-gray-800/60 shrink-0">
+          <button onClick={onClose} className="py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">Cancel</button>
+          <button onClick={submit} disabled={loading || !ids.length} className="py-2.5 text-white rounded-xl text-sm font-medium hover:opacity-90 transition disabled:opacity-60" style={{ backgroundColor: brandColor }}>{loading ? 'Assigning...' : 'Assign'}</button>
+        </div>
       </div>
     </div>
   );
@@ -350,39 +870,309 @@ const EditTaskModal = ({ isOpen, onClose, task, brandColor, assignableMembers, f
   };
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-[#14141a] rounded-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto shadow-xl">
-        <div className="flex justify-between mb-4"><h2 className="text-lg font-bold text-gray-800 dark:text-gray-200"><FaEdit className="inline mr-1 text-teal-600" /> Edit Task</h2><button onClick={onClose}><FaTimes className="text-gray-400" /></button></div>
-        <form onSubmit={submit} className="space-y-3">
-          <input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" required />
-          <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Description" className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
-          <Dropdown label="Status" options={statusOptions} value={status} onChange={setStatus} />
-          <MultiDropdown label="Assignees" options={assigneeOpts} values={assigneeIds} onChange={setAssigneeIds} placeholder="Select members..." />
-          <Dropdown label="Folder" options={folderOpts} value={folderId} onChange={setFolderId} />
-          <div className="grid grid-cols-2 gap-3">
-            <Dropdown label="Priority" options={priorityOptions} value={priority} onChange={setPriority} />
-            <div><label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Start</label><input type="datetime-local" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" /></div>
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-2 sm:p-4">
+      <div className="bg-white dark:bg-[#14141a] rounded-2xl max-w-md w-full shadow-xl max-h-[92vh] flex flex-col">
+        <div className="flex justify-between items-center px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 dark:border-gray-800/60 shrink-0">
+          <h2 className="text-base sm:text-lg font-bold text-gray-800 dark:text-gray-200 flex items-center gap-1">
+            <FaEdit className="text-teal-600" /> Edit Task
+          </h2>
+          <button onClick={onClose} className="p-1.5 -mr-1 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-lg"><FaTimes className="text-sm" /></button>
+        </div>
+
+        <form onSubmit={submit} className="flex-1 min-h-0 flex flex-col">
+          <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-3 sm:py-4 space-y-3">
+            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" required />
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Description" className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
+            <Dropdown label="Status" options={statusOptions} value={status} onChange={setStatus} />
+            <MultiDropdown label="Assignees" options={assigneeOpts} values={assigneeIds} onChange={setAssigneeIds} placeholder="Select members..." />
+            <Dropdown label="Folder" options={folderOpts} value={folderId} onChange={setFolderId} />
+            <div className="grid grid-cols-2 gap-3">
+              <Dropdown label="Priority" options={priorityOptions} value={priority} onChange={setPriority} />
+              <div><label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Start</label><input type="datetime-local" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" /></div>
+            </div>
+            <div><label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Due</label><input type="datetime-local" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Est. hours</label><input type="number" step="0.5" value={estimatedHours} onChange={(e) => setEstimatedHours(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" /></div>
+              <div><label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Buffer (min)</label><input type="number" min="0" value={bufferTime} onChange={(e) => setBufferTime(parseInt(e.target.value) || 0)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" /></div>
+            </div>
+            <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400"><input type="checkbox" checked={allowAssigneeEditSubtasks} onChange={(e) => setAllowAssigneeEditSubtasks(e.target.checked)} className="accent-teal-600" /> Allow assignee to edit checklist</label>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Recurrence</label>
+              <select value={recurrenceType} onChange={(e) => { setRecurrenceType(e.target.value); if (e.target.value !== 'weekly') setRecurrenceDays([]); }} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none"><option value="none">None</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select>
+            </div>
+            {recurrenceType === 'weekly' && <div className="flex flex-wrap gap-2">{weekDays.map((d, i) => <button key={i} type="button" onClick={() => setRecurrenceDays(recurrenceDays.includes(i) ? recurrenceDays.filter((x) => x !== i) : [...recurrenceDays, i].sort())} className={`px-3 py-1 rounded-full text-xs font-medium ${recurrenceDays.includes(i) ? 'bg-teal-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}`}>{d}</button>)}</div>}
+            {recurrenceType !== 'none' && <div><label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Recurrence end</label><input type="datetime-local" value={recurrenceEndDate} onChange={(e) => setRecurrenceEndDate(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" /></div>}
+            <div><label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaLink className="inline mr-1" />Links</label><textarea value={linksText} onChange={(e) => setLinksText(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" /></div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaPaperclip className="inline mr-1" />New attachments</label>
+              <button type="button" onClick={() => pickMedia({ multiple: true })} className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] rounded-xl text-sm text-gray-700 dark:text-gray-300"><FaCamera className="text-xs" /> Choose Files</button>
+              {files.length > 0 && files.map((f, i) => <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5 mt-1"><span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span><button type="button" onClick={() => setFiles((p) => p.filter((_, idx) => idx !== i))} className="text-red-500"><FaTrashAlt className="text-xs" /></button></div>)}
+            </div>
           </div>
-          <div><label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Due</label><input type="datetime-local" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" /></div>
-          <div className="grid grid-cols-2 gap-3">
-            <div><label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Est. hours</label><input type="number" step="0.5" value={estimatedHours} onChange={(e) => setEstimatedHours(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" /></div>
-            <div><label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Buffer (min)</label><input type="number" min="0" value={bufferTime} onChange={(e) => setBufferTime(parseInt(e.target.value) || 0)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" /></div>
+          <div className="grid grid-cols-2 gap-2 px-4 sm:px-6 py-3 sm:py-4 border-t border-gray-200 dark:border-gray-800/60 shrink-0">
+            <button type="button" onClick={onClose} className="py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">Cancel</button>
+            <button type="submit" disabled={loading} className="py-2.5 text-white rounded-xl text-sm font-medium hover:opacity-90 transition disabled:opacity-60" style={{ backgroundColor: brandColor }}>{loading ? 'Updating...' : 'Update Task'}</button>
           </div>
-          <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400"><input type="checkbox" checked={allowAssigneeEditSubtasks} onChange={(e) => setAllowAssigneeEditSubtasks(e.target.checked)} className="accent-teal-600" /> Allow assignee to edit checklist</label>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Recurrence</label>
-            <select value={recurrenceType} onChange={(e) => { setRecurrenceType(e.target.value); if (e.target.value !== 'weekly') setRecurrenceDays([]); }} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none"><option value="none">None</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select>
-          </div>
-          {recurrenceType === 'weekly' && <div className="flex flex-wrap gap-2">{weekDays.map((d, i) => <button key={i} type="button" onClick={() => setRecurrenceDays(recurrenceDays.includes(i) ? recurrenceDays.filter((x) => x !== i) : [...recurrenceDays, i].sort())} className={`px-3 py-1 rounded-full text-xs font-medium ${recurrenceDays.includes(i) ? 'bg-teal-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}`}>{d}</button>)}</div>}
-          {recurrenceType !== 'none' && <div><label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Recurrence end</label><input type="datetime-local" value={recurrenceEndDate} onChange={(e) => setRecurrenceEndDate(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" /></div>}
-          <div><label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaLink className="inline mr-1" />Links</label><textarea value={linksText} onChange={(e) => setLinksText(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" /></div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaPaperclip className="inline mr-1" />New attachments</label>
-            <button type="button" onClick={() => pickMedia({ multiple: true })} className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] rounded-xl text-sm text-gray-700 dark:text-gray-300"><FaCamera className="text-xs" /> Choose Files</button>
-            {files.length > 0 && files.map((f, i) => <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5 mt-1"><span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span><button type="button" onClick={() => setFiles((p) => p.filter((_, idx) => idx !== i))} className="text-red-500"><FaTrashAlt className="text-xs" /></button></div>)}
-          </div>
-          <div className="flex gap-3 pt-2"><button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600">Cancel</button><button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium" style={{ backgroundColor: brandColor }}>{loading ? 'Updating...' : 'Update Task'}</button></div>
         </form>
+      </div>
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════
+// AI Edit Task Modal — two views: prompt → preview
+// ═══════════════════════════════════════════════════════════════
+const AIEditTaskModal = ({ isOpen, onClose, task, brandColor, onApplied }) => {
+  const [view, setView] = useState('prompt');
+  const [prompt, setPrompt] = useState('');
+  const [preview, setPreview] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [editTaskWithAI] = useEditTaskWithAIMutation();
+  const [applyTaskEdits] = useApplyTaskEditsMutation();
+
+  useEffect(() => {
+    if (!isOpen) {
+      setView('prompt');
+      setPrompt('');
+      setPreview(null);
+      setLoading(false);
+      setApplying(false);
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const suggestions = [
+    'Reduce the checklist items',
+    'Add 2 more subtasks',
+    'Extend the deadline by 2 weeks',
+    'Make this high priority',
+    'Rewrite the description',
+    'Reassign to someone else',
+  ];
+
+  const askAI = async () => {
+    const p = prompt.trim();
+    if (!p) return toast.error('Describe what you want to change');
+    setLoading(true);
+    try {
+      const res = await editTaskWithAI({ taskId: task._id, prompt: p }).unwrap();
+      setPreview(res);
+      setView('preview');
+    } catch (err) {
+      toast.error(err?.data?.message || 'AI could not process that right now');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const applyChanges = async () => {
+    if (!preview?.proposed) return;
+    setApplying(true);
+    try {
+      await applyTaskEdits({ taskId: task._id, proposed: preview.proposed }).unwrap();
+      toast.success('Task updated');
+      onApplied?.();
+      onClose();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to apply changes');
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const currentSubs = preview?.current?.subTasks?.length ?? 0;
+  const proposedSubs = preview?.proposed?.subTasks?.length ?? 0;
+  const subDelta = proposedSubs - currentSubs;
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-2 sm:p-4">
+      <div className="bg-white dark:bg-[#14141a] rounded-2xl w-full max-w-lg shadow-xl max-h-[92vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 dark:border-gray-800/60 shrink-0">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-base sm:text-lg font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
+              <FaMagic className="text-teal-600 dark:text-[#0d9488]" />
+              <span>AI Edit</span>
+            </h2>
+            <p className="text-[11px] text-gray-500 dark:text-gray-500 mt-0.5 truncate">
+              {task?.title}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 -mr-1 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-lg shrink-0"
+          >
+            <FaTimes className="text-sm" />
+          </button>
+        </div>
+
+        {view === 'prompt' ? (
+          <>
+            <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-3 sm:py-4 space-y-3">
+              <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">
+                Tell the AI what to change. It will show you a preview first — nothing saves until you tap Apply.
+              </p>
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                rows={4}
+                placeholder={`e.g. "Reduce the checklist to the 2 most important items"`}
+                className="w-full px-3 py-2.5 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none focus:border-teal-500 resize-none"
+                maxLength={3000}
+              />
+              <div>
+                <div className="text-[11px] font-medium text-gray-500 dark:text-gray-500 mb-2">
+                  Quick ideas
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {suggestions.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setPrompt(s)}
+                      className="text-[11px] px-2.5 py-1 bg-gray-100 dark:bg-[#1a1a24] hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 text-gray-600 dark:text-gray-400 hover:text-teal-600 dark:hover:text-[#0d9488] rounded-full transition border border-gray-200 dark:border-gray-800/40"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 px-4 sm:px-6 py-3 sm:py-4 border-t border-gray-200 dark:border-gray-800/60 shrink-0">
+              <button
+                onClick={onClose}
+                className="py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={askAI}
+                disabled={loading || !prompt.trim()}
+                className="py-2.5 text-white rounded-xl text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2 transition hover:opacity-90"
+                style={{ backgroundColor: brandColor }}
+              >
+                {loading ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    <span>Thinking...</span>
+                  </>
+                ) : (
+                  <>
+                    <FaMagic className="text-xs" />
+                    <span>Preview</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-3 sm:py-4 space-y-3">
+              {preview?.summary && (
+                <div className="bg-teal-50 dark:bg-[#0d9488]/10 border border-teal-200 dark:border-[#0d9488]/30 rounded-xl p-3">
+                  <div className="text-[10px] font-semibold text-teal-700 dark:text-[#0d9488] uppercase tracking-wide mb-1">
+                    Summary
+                  </div>
+                  <p className="text-xs sm:text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap break-words">
+                    {preview.summary}
+                  </p>
+                </div>
+              )}
+
+              {Array.isArray(preview?.changes) && preview.changes.length > 0 && (
+                <div>
+                  <div className="text-[11px] font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-2">
+                    Changes ({preview.changes.length})
+                  </div>
+                  <div className="space-y-1.5">
+                    {preview.changes.map((c, i) => (
+                      <div
+                        key={i}
+                        className="bg-gray-50 dark:bg-[#0b0b10] rounded-xl px-3 py-2 border border-gray-200 dark:border-gray-800/60"
+                      >
+                        <div className="text-[11px] font-semibold text-gray-700 dark:text-gray-300 mb-1 break-words">
+                          {c.field}
+                        </div>
+                        <div className="text-[11px] space-y-0.5">
+                          {c.from && (
+                            <div className="text-red-600 dark:text-red-400 line-through break-words">
+                              {c.from}
+                            </div>
+                          )}
+                          {c.to && (
+                            <div className="text-green-600 dark:text-green-400 break-words">
+                              {c.to}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {currentSubs !== proposedSubs && (
+                <div className="flex items-center gap-2 text-xs bg-gray-50 dark:bg-[#0b0b10] rounded-xl px-3 py-2 border border-gray-200 dark:border-gray-800/60">
+                  <FaListUl className="text-teal-600 dark:text-[#0d9488] text-[10px] shrink-0" />
+                  <span className="text-gray-600 dark:text-gray-400 break-words">
+                    Checklist: {currentSubs} →{' '}
+                    <span className={subDelta > 0 ? 'text-green-600 dark:text-green-400 font-medium' : 'text-red-600 dark:text-red-400 font-medium'}>
+                      {proposedSubs}
+                    </span>
+                    {subDelta !== 0 && (
+                      <span className="ml-1 opacity-70">
+                        ({subDelta > 0 ? '+' : ''}{subDelta})
+                      </span>
+                    )}
+                  </span>
+                </div>
+              )}
+
+              {Array.isArray(preview?.warnings) && preview.warnings.length > 0 && (
+                <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/40 rounded-xl p-3">
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-1">
+                    <FaExclamationTriangle className="text-[10px]" />
+                    Notes
+                  </div>
+                  <ul className="text-xs text-amber-700 dark:text-amber-400 space-y-0.5 list-disc pl-4">
+                    {preview.warnings.map((w, i) => (
+                      <li key={i} className="break-words">{w}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-2 px-4 sm:px-6 py-3 sm:py-4 border-t border-gray-200 dark:border-gray-800/60 shrink-0">
+              <button
+                onClick={() => setView('prompt')}
+                disabled={applying}
+                className="py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition disabled:opacity-50"
+              >
+                Back
+              </button>
+              <button
+                onClick={applyChanges}
+                disabled={applying}
+                className="py-2.5 text-white rounded-xl text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2 transition hover:opacity-90"
+                style={{ backgroundColor: brandColor }}
+              >
+                {applying ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    <span>Applying...</span>
+                  </>
+                ) : (
+                  <>
+                    <FaCheck className="text-xs" />
+                    <span>Apply</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -550,6 +1340,7 @@ const YourWorkspaceTaskId = () => {
   const isAssignee = (task?.assignees || []).some((a) => (a._id || a)?.toString() === userInfo?._id?.toString());
   const isReadOnly = task?.isArchived || task?.isTrash || false;
   const hasAssignees = (task?.assignees || []).length > 0;
+  const canAIEdit = !isReadOnly && (canManage || (isAssignee && task?.allowAssigneeEditSubtasks));
 
   const assignableMembers = useMemo(() => {
     if (!project) return [];
@@ -565,6 +1356,7 @@ const YourWorkspaceTaskId = () => {
   const [showAssign, setShowAssign] = useState(false);
   const [showMarkComplete, setShowMarkComplete] = useState(false);
   const [showConfirmCompletion, setShowConfirmCompletion] = useState(false);
+  const [showAIEdit, setShowAIEdit] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [addSubOpen, setAddSubOpen] = useState(false);
   const [doneModal, setDoneModal] = useState({ isOpen: false, index: null });
@@ -578,7 +1370,13 @@ const YourWorkspaceTaskId = () => {
   const [draggedIdx, setDraggedIdx] = useState(null);
   const [dragOverIdx, setDragOverIdx] = useState(null);
 
+  // ─── Multi-select state for checklist ──────────────────────────
+  const [selectedSubIndices, setSelectedSubIndices] = useState(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
   useEffect(() => { if (task?.rejectedBy) setRejectionExpanded(true); }, [task?.rejectedBy]);
+
+  useEffect(() => { setSelectedSubIndices(new Set()); }, [task?._id]);
 
   useEffect(() => {
     if (!taskId || tErr) {
@@ -645,7 +1443,7 @@ const YourWorkspaceTaskId = () => {
 
   const handleAddSubtask = async (data) => {
     await addSubTask({ taskId: task._id, data }).unwrap();
-    toast.success('Checklist item added'); refetchTask();
+    refetchTask();
   };
 
   const submitDone = async ({ notes, links, files }) => {
@@ -668,6 +1466,38 @@ const YourWorkspaceTaskId = () => {
     try { await deleteSubTask({ taskId: task._id, subTaskIndex: deleteSubModal.index }).unwrap(); toast.success('Item deleted'); refetchTask(); }
     catch (e) { toast.error(e?.data?.message || 'Failed'); }
     setDeleteSubModal({ isOpen: false, index: null });
+  };
+
+  // ─── Multi-select helpers ──────────────────────────────────────
+  const toggleSubSelection = (idx) => {
+    setSelectedSubIndices((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
+      return next;
+    });
+  };
+
+  const clearSubSelection = () => setSelectedSubIndices(new Set());
+
+  const handleDeleteSelectedSubs = async () => {
+    if (selectedSubIndices.size === 0) return;
+    setBulkDeleting(true);
+    const indices = [...selectedSubIndices].sort((a, b) => b - a);
+    let ok = 0;
+    for (const idx of indices) {
+      try {
+        await deleteSubTask({ taskId: task._id, subTaskIndex: idx }).unwrap();
+        ok += 1;
+      } catch (e) {
+        // continue deleting others
+      }
+    }
+    clearSubSelection();
+    refetchTask();
+    setBulkDeleting(false);
+    if (ok === indices.length) toast.success(`${ok} item${ok > 1 ? 's' : ''} deleted`);
+    else if (ok > 0) toast.success(`${ok} of ${indices.length} items deleted`);
+    else toast.error('Failed to delete items');
   };
 
   const canReorderSub = (canManage || (isAssignee && task.allowAssigneeEditSubtasks)) && !isReadOnly;
@@ -697,6 +1527,8 @@ const YourWorkspaceTaskId = () => {
 
   const showMarkCompleteBtn = !isReadOnly && task.status === 'ready_for_completion' && (isAssignee || canManage);
   const showConfirmCompletionBtn = !isReadOnly && canManage && task.status === 'completed';
+
+  const canSelectSubs = ((isAssignee && task.allowAssigneeEditSubtasks) || canManage) && !isReadOnly && subTasks.length > 0;
 
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col overflow-hidden">
@@ -761,7 +1593,12 @@ const YourWorkspaceTaskId = () => {
               <FaEllipsisV className="text-sm" />
             </button>
             {showMenu && (
-              <div className="absolute right-0 top-10 bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-800/60 rounded-xl min-w-[180px] z-30 py-1 shadow-lg">
+              <div className="absolute right-0 top-10 bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-800/60 rounded-xl min-w-[190px] z-30 py-1 shadow-lg">
+                {canAIEdit && (
+                  <button onClick={() => { setShowMenu(false); setShowAIEdit(true); }} className="flex items-center gap-2 px-4 py-2 text-sm text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-500/10 w-full">
+                    <FaMagic className="text-xs" /> AI Edit
+                  </button>
+                )}
                 {canManage && !isReadOnly && <button onClick={() => { setShowMenu(false); handleReminder(); }} className="flex items-center gap-2 px-4 py-2 text-sm text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-500/10 w-full"><FaBell className="text-xs" /> Send Reminder</button>}
                 {!isReadOnly && <button onClick={() => { setShowMenu(false); setShowEdit(true); }} className="flex items-center gap-2 px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10 w-full"><FaEdit className="text-xs" /> Edit</button>}
                 {canManage && !hasAssignees && !isReadOnly && <button onClick={() => { setShowMenu(false); setShowAssign(true); }} className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 w-full"><FaUserPlus className="text-xs" /> Assign Task</button>}
@@ -829,17 +1666,51 @@ const YourWorkspaceTaskId = () => {
             </div>
 
             {/* Checklist header */}
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
               <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
                 <FaTasks className="text-teal-600 dark:text-[#0d9488]" /> Checklist
                 <span className="text-xs font-normal text-gray-500 dark:text-gray-500">({confirmedCount}/{subTasks.length})</span>
               </h3>
-              {!isReadOnly && ((isAssignee && task.allowAssigneeEditSubtasks) || canManage) && (
-                <button onClick={() => setAddSubOpen(true)} className="text-xs text-teal-600 dark:text-[#0d9488] font-medium flex items-center gap-1 hover:text-teal-700 dark:hover:text-[#14b8a6] transition px-2.5 py-1 rounded-lg hover:bg-teal-50 dark:hover:bg-[#0d9488]/10">
-                  <FaPlus className="text-xs" /> Add item
-                </button>
-              )}
+              <div className="flex items-center gap-1.5">
+                {canAIEdit && (
+                  <button
+                    onClick={() => setShowAIEdit(true)}
+                    className="text-xs text-purple-600 dark:text-purple-400 font-medium flex items-center gap-1 px-2.5 py-1 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-500/10 transition"
+                    title="AI Edit"
+                  >
+                    <FaMagic className="text-xs" /> AI
+                  </button>
+                )}
+                {!isReadOnly && ((isAssignee && task.allowAssigneeEditSubtasks) || canManage) && (
+                  <button onClick={() => setAddSubOpen(true)} className="text-xs text-teal-600 dark:text-[#0d9488] font-medium flex items-center gap-1 hover:text-teal-700 dark:hover:text-[#14b8a6] transition px-2.5 py-1 rounded-lg hover:bg-teal-50 dark:hover:bg-[#0d9488]/10">
+                    <FaPlus className="text-xs" /> Add items
+                  </button>
+                )}
+              </div>
             </div>
+
+            {/* Bulk selection action bar */}
+            {canSelectSubs && selectedSubIndices.size > 0 && (
+              <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl shadow-lg">
+                <span className="text-sm font-medium flex-1">
+                  {selectedSubIndices.size} selected
+                </span>
+                <button
+                  onClick={clearSubSelection}
+                  className="text-xs px-2.5 py-1 bg-white/20 hover:bg-white/30 rounded-lg transition"
+                >
+                  Clear
+                </button>
+                <button
+                  onClick={handleDeleteSelectedSubs}
+                  disabled={bulkDeleting}
+                  className="text-xs px-2.5 py-1 bg-red-500 hover:bg-red-600 disabled:opacity-60 rounded-lg flex items-center gap-1 transition"
+                >
+                  <FaTrashAlt className="text-[10px]" />
+                  {bulkDeleting ? 'Deleting...' : 'Delete'}
+                </button>
+              </div>
+            )}
 
             {subTasks.length === 0 ? (
               <div className="text-center py-14 bg-white dark:bg-[#14141a] rounded-2xl border border-dashed border-gray-300 dark:border-gray-800/60">
@@ -862,6 +1733,7 @@ const YourWorkspaceTaskId = () => {
                       ? 'text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/30'
                       : 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800/60';
                   const isOverdue = st.dueDate && new Date(st.dueDate) < new Date() && st.status !== 'confirmed';
+                  const isSelected = selectedSubIndices.has(idx);
                   return (
                     <div
                       key={idx}
@@ -874,11 +1746,28 @@ const YourWorkspaceTaskId = () => {
                       className={`group bg-white dark:bg-[#14141a] rounded-2xl border transition-all ${
                         isDragOver
                           ? 'border-teal-500 dark:border-[#0d9488] bg-teal-50/50 dark:bg-[#0d9488]/5'
-                          : 'border-gray-200/60 dark:border-gray-800/40 hover:border-gray-300 dark:hover:border-gray-700/60'
+                          : isSelected
+                            ? 'border-teal-400 dark:border-[#0d9488]/70 bg-teal-50/40 dark:bg-[#0d9488]/5'
+                            : 'border-gray-200/60 dark:border-gray-800/40 hover:border-gray-300 dark:hover:border-gray-700/60'
                       }`}
                     >
                       <div className="p-3 lg:p-4">
-                        <div className="flex items-start gap-3">
+                        <div className="flex items-start gap-2">
+                          {/* Selection checkbox */}
+                          {canSelectSubs && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); toggleSubSelection(idx); }}
+                              className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 mt-0.5 transition ${
+                                isSelected
+                                  ? 'bg-teal-500 border-teal-500'
+                                  : 'border-gray-300 dark:border-gray-600 hover:border-teal-400'
+                              }`}
+                              title="Select item"
+                            >
+                              {isSelected && <FaCheck className="text-white text-[8px]" />}
+                            </button>
+                          )}
                           {canReorderSub && (
                             <FaGripVertical className="text-gray-300 dark:text-gray-700 text-xs shrink-0 mt-1 cursor-grab" />
                           )}
@@ -1047,6 +1936,7 @@ const YourWorkspaceTaskId = () => {
       <ChecklistConfirmModal isOpen={confirmModal.isOpen} onClose={() => setConfirmModal({ isOpen: false, index: null })} subTask={confirmModal.index != null ? subTasks[confirmModal.index] : null} onSubmit={submitConfirmSub} />
       <ReasonModal isOpen={rejectModal.isOpen} onClose={() => setRejectModal({ isOpen: false, index: null })} onSubmit={submitRejectSub} title="Reject Item" />
       <ConfirmDialog isOpen={deleteSubModal.isOpen} onClose={() => setDeleteSubModal({ isOpen: false, index: null })} onConfirm={confirmDeleteSub} title="Delete Item" message="This cannot be undone." danger confirmText="Delete" />
+      <AIEditTaskModal isOpen={showAIEdit} onClose={() => setShowAIEdit(false)} task={task} brandColor={brandColor} onApplied={refetchTask} />
     </div>
   );
 };

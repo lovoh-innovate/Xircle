@@ -132,14 +132,14 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
     // Export / Import
     // ═══════════════════════════════════════════════════════════════════
 
-    exportNotePDF: builder.query({
-      query: (noteId) => ({
-        url: `${NOTES_URL}/${noteId}/export-pdf`,
-        method: 'GET',
-        responseHandler: (response) => response.blob(),
-        cache: false,
-      }),
-    }),
+   exportNotePDF: builder.query({
+  query: (noteId) => ({
+    url: `${NOTES_URL}/${noteId}/export-pdf`,
+    method: 'GET',
+    responseHandler: (response) => response.blob(),
+    cache: 'no-store',
+  }),
+}),
 
     importFileToNote: builder.mutation({
       query: (data) => {
@@ -159,11 +159,12 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
     // AI
     // ═══════════════════════════════════════════════════════════════════
     //
-    // All five are mutations: user-triggered actions with payloads, not
-    // cache-keyed reads. None of them write to the DB — proofread and
-    // complete return SUGGESTED content. The client holds those in local
-    // state until the user hits Apply, at which point the normal
-    // useUpdateNoteMutation fires and its invalidation refreshes the note.
+    // All six are mutations: user-triggered actions with payloads, not
+    // cache-keyed reads. None of them write to the DB — proofread,
+    // complete, and rewrite return SUGGESTED content. The client holds
+    // those in local state until the user hits Apply, at which point the
+    // normal useUpdateNoteMutation fires and its invalidation refreshes
+    // the note.
     //
     // No providesTags / invalidatesTags anywhere below. Nothing to cache.
 
@@ -226,6 +227,29 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
         body: { noteId, content, title, style },
       }),
     }),
+
+    // ─── Rewrite ────────────────────────────────────────────────────
+    // Full rewrite — restructure, elaborate, reformat, adjust tone/length.
+    // Unlike completeNote (which only ADDS), this can retighten, reorder,
+    // and reformat the whole note. Returns SUGGESTED content — does NOT save.
+    //
+    // Send EITHER { noteId } OR { content, title? }
+    // Optional:
+    //   instructions : free-form string, e.g. "make it more formal"
+    //   style        : 'explanatory' | 'formal' | 'casual'
+    //                | 'devotional' | 'academic' | 'journal'
+    //   length       : 'shorter' | 'same' | 'longer' | 'much_longer'
+    //
+    // Returns:
+    //   { original, rewrittenContent, changed, changeCount,
+    //     changes, summary, style, length }
+    rewriteNote: builder.mutation({
+      query: ({ noteId, content, title, instructions, style, length }) => ({
+        url: `${NOTES_URL}/ai/rewrite`,
+        method: 'POST',
+        body: { noteId, content, title, instructions, style, length },
+      }),
+    }),
   }),
 });
 
@@ -258,4 +282,5 @@ export const {
   useSearchHighlightMutation,
   useProofreadNoteMutation,
   useCompleteNoteMutation,
+  useRewriteNoteMutation,                  // 👈 NEW
 } = personalNoteApiSlice;

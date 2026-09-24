@@ -163,7 +163,10 @@ const EMOJI_LIST = [
   "🌝", "🤭", "🌚",
 ];
 
-const REACTION_EMOJIS = ["😂", "😊", "😍", "😡", "😢"];
+// ─── FIX #1: quick reaction emojis order ─────────────────────────────
+// Previously: ["😂", "😊", "😍", "😡", "😢"]
+// Now: 👍 ❤️ 😂 😍 😭
+const REACTION_EMOJIS = ["👍", "❤️", "😂", "😍", "😭"];
 
 // ─── Link detection / preview helpers ──────────────────────────────
 const URL_REGEX = /(https?:\/\/[^\s]+)/g;
@@ -3578,6 +3581,76 @@ const GeneralChannelId = () => {
   const [createDirectChat] = useCreatePublicDirectChatMutation();
   const [actionModal, setActionModal] = useState({ isOpen: false, message: null });
 
+  // ─── FIX #2: preview audio (play / pause before sending) ─────────
+  // Previously every click created a brand new `Audio` object and the icon
+  // was hardcoded to <FaPlay />, so it never switched to a pause button.
+  // We now keep a single persistent audio element + a playing flag.
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
+  const previewAudioRef = useRef(null);
+  const previewAudioUrlRef = useRef(null);
+
+  const stopPreviewAudio = useCallback((revokeUrl = true) => {
+    const audio = previewAudioRef.current;
+    if (audio) {
+      try {
+        audio.pause();
+        audio.currentTime = 0;
+      } catch (_) {}
+      previewAudioRef.current = null;
+    }
+    if (revokeUrl && previewAudioUrlRef.current) {
+      try {
+        URL.revokeObjectURL(previewAudioUrlRef.current);
+      } catch (_) {}
+      previewAudioUrlRef.current = null;
+    }
+    setIsPreviewPlaying(false);
+  }, []);
+
+  const togglePreviewAudio = useCallback(() => {
+    if (!recordingBlob) return;
+
+    // Currently playing -> pause
+    if (isPreviewPlaying && previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      setIsPreviewPlaying(false);
+      return;
+    }
+
+    // Lazily create the audio element (once per blob)
+    if (!previewAudioRef.current) {
+      const url = URL.createObjectURL(recordingBlob);
+      previewAudioUrlRef.current = url;
+      const audio = new Audio(url);
+      audio.onended = () => setIsPreviewPlaying(false);
+      audio.onpause = () => setIsPreviewPlaying(false);
+      audio.onplay = () => setIsPreviewPlaying(true);
+      previewAudioRef.current = audio;
+    }
+
+    previewAudioRef.current.play().catch(() => setIsPreviewPlaying(false));
+    setIsPreviewPlaying(true);
+  }, [recordingBlob, isPreviewPlaying]);
+
+  // Cleanup preview audio on unmount
+  useEffect(() => {
+    return () => {
+      const audio = previewAudioRef.current;
+      if (audio) {
+        try {
+          audio.pause();
+        } catch (_) {}
+        previewAudioRef.current = null;
+      }
+      if (previewAudioUrlRef.current) {
+        try {
+          URL.revokeObjectURL(previewAudioUrlRef.current);
+        } catch (_) {}
+        previewAudioUrlRef.current = null;
+      }
+    };
+  }, []);
+
   // ─── Close emoji picker on outside click (desktop) ────────────────
   useEffect(() => {
     if (!showEmojiPicker || isMobile) return;
@@ -4609,6 +4682,7 @@ const GeneralChannelId = () => {
       setRecordingPaused(false);
       setRecordingTime(0);
       setShowRecordedPreview(false);
+      stopPreviewAudio(true);
       quickSendRef.current = false;
       startTimer();
     } catch (err) {
@@ -4663,6 +4737,7 @@ const GeneralChannelId = () => {
     try {
       await VoiceRecorder.stopRecording();
     } catch (_) {}
+    stopPreviewAudio(true);
     setRecordingBlob(null);
     setShowRecordedPreview(false);
     setRecordingTime(0);
@@ -4703,6 +4778,7 @@ const GeneralChannelId = () => {
       setRecordingTime(0);
       setRecordingBlob(null);
       setShowRecordedPreview(false);
+      stopPreviewAudio(true);
       quickSendRef.current = false;
       startTimer();
     } catch (err) {
@@ -4745,6 +4821,7 @@ const GeneralChannelId = () => {
       cancelledRef.current = true;
       mediaRecorderRef.current.stop();
     }
+    stopPreviewAudio(true);
     setRecordingBlob(null);
     setShowRecordedPreview(false);
     setRecordingTime(0);
@@ -4811,6 +4888,7 @@ const GeneralChannelId = () => {
   const sendAudioMessage = async (audioBlob) => {
     if (!audioBlob) return;
     if (audioBlob.size < 800) {
+      stopPreviewAudio(true);
       setRecordingBlob(null);
       setShowRecordedPreview(false);
       setRecordingTime(0);
@@ -4878,6 +4956,7 @@ const GeneralChannelId = () => {
       mediaSignature: signature,
     };
     setLocalMessages((prev) => [...prev, optimisticMsg]);
+    stopPreviewAudio(true);
     setRecordingBlob(null);
     setShowRecordedPreview(false);
     setRecordingTime(0);
@@ -5326,16 +5405,17 @@ const GeneralChannelId = () => {
                       </span>
                     </div>
                     <div className="flex gap-1">
+                      {/* FIX #2: play/pause toggle now reflects real state */}
                       <button
-                        onClick={() => {
-                          const audio = new Audio(
-                            URL.createObjectURL(recordingBlob)
-                          );
-                          audio.play();
-                        }}
+                        onClick={togglePreviewAudio}
                         className="p-1 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white"
+                        aria-label={isPreviewPlaying ? "Pause voice note" : "Play voice note"}
                       >
-                        <FaPlay className="text-xs" />
+                        {isPreviewPlaying ? (
+                          <FaPause className="text-xs" />
+                        ) : (
+                          <FaPlay className="text-xs" />
+                        )}
                       </button>
                       <button
                         onClick={() => sendAudioMessage(recordingBlob)}
@@ -5346,6 +5426,7 @@ const GeneralChannelId = () => {
                       </button>
                       <button
                         onClick={() => {
+                          stopPreviewAudio(true);
                           setRecordingBlob(null);
                           setShowRecordedPreview(false);
                           setRecordingTime(0);

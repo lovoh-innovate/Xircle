@@ -45,6 +45,7 @@ import AppVersions from './screens/AppVersions.jsx';
 import AuthCallback from './screens/AuthCallback.jsx';
 import Notes from './screens/Notes.jsx';
 import WriteNote from './screens/WriteNote.jsx';
+import PublicNote from './screens/PublicNote.jsx';
 import AcceptTaskCollab from './screens/AcceptTaskCollab.jsx';
 import Sticker from './screens/Sticker.jsx';
 
@@ -599,6 +600,7 @@ const router = createBrowserRouter([
           { path: 'auth/google/callback', element: <AuthCallback /> },
           { path: 'notes', element: <Notes /> },
           { path: 'notes/:id', element: <WriteNote /> },
+          {path: 'share/:link', element: <PublicNote />},
           { path: 'accept-task-collab', element: <AcceptTaskCollab /> },
           { path: 'stickers', element: <Sticker /> },
 
