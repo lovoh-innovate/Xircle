@@ -16,6 +16,17 @@
 //
 //   The Extensions button in the header is ALWAYS visible so any user can
 //   go flip these on.
+//
+// TABLES:
+//   • Edit mode and view mode ("Done") share the exact same CSS + classes
+//     (.note-rich), so a table looks identical in both.
+//   • Table styling is stored as node attributes (CSS variables / data-attrs
+//     in the saved HTML): border color/style/width, body bg + text color,
+//     header bg + text color, striped rows, density, width %, alignment.
+//   • Per-cell background / text color / vertical align (cell, row, column).
+//   • Hover a table (or put the cursor in it) → "+" bar under it (add row),
+//     "+" bar beside it (add column), and "+" handles between rows/columns.
+//   • Floating table toolbar + full "Table settings" panel with presets.
 
 import React, {
   useState,
@@ -24,11 +35,15 @@ import React, {
   useCallback,
   useLayoutEffect,
   useMemo,
+  useReducer,
 } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 
 import { useEditor, EditorContent } from '@tiptap/react';
+import { Extension } from '@tiptap/core';
+import { Plugin, PluginKey, Selection, TextSelection } from '@tiptap/pm/state';
+import { CellSelection, selectionCell } from '@tiptap/pm/tables';
 import StarterKit from '@tiptap/starter-kit';
 import Subscript from '@tiptap/extension-subscript';
 import Superscript from '@tiptap/extension-superscript';
@@ -106,6 +121,9 @@ import {
   FaChevronRight,
   FaFeather,
   FaPuzzlePiece,
+  FaPaintBrush,
+  FaObjectGroup,
+  FaObjectUngroup,
 } from 'react-icons/fa';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -142,8 +160,133 @@ const blobToBase64 = (blob) =>
     reader.readAsDataURL(blob);
   });
 
+// ─── COLOR HELPERS ───────────────────────────────────────────────────
+const parseColor = (str) => {
+  if (!str || typeof str !== 'string') return null;
+  const s = str.trim();
+  let m = s.match(/^#([0-9a-f]{3})$/i);
+  if (m) {
+    const h = m[1];
+    return [
+      parseInt(h[0] + h[0], 16),
+      parseInt(h[1] + h[1], 16),
+      parseInt(h[2] + h[2], 16),
+    ];
+  }
+  m = s.match(/^#([0-9a-f]{6})$/i);
+  if (m) {
+    const h = m[1];
+    return [
+      parseInt(h.slice(0, 2), 16),
+      parseInt(h.slice(2, 4), 16),
+      parseInt(h.slice(4, 6), 16),
+    ];
+  }
+  m = s.match(/^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/i);
+  if (m) return [Number(m[1]), Number(m[2]), Number(m[3])];
+  return null;
+};
+
+const toHex = (str, fallback = '#ffffff') => {
+  const c = parseColor(str);
+  if (!c) return fallback;
+  return (
+    '#' +
+    c
+      .map((n) => Math.max(0, Math.min(255, n)).toString(16).padStart(2, '0'))
+      .join('')
+  );
+};
+
+// Pick a readable text color for a given background.
+const contrastText = (bg) => {
+  const c = parseColor(bg);
+  if (!c) return null;
+  const lum = (0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]) / 255;
+  return lum > 0.6 ? '#111827' : '#ffffff';
+};
+
+// ─── SHARED TABLE CSS (edit mode, view mode and PDF all use this) ────
+const buildTableCss = (S, { dark = true } = {}) => `
+${S} {
+  --tb-def-border: #d1d5db;
+  --tb-def-head-bg: #f3f4f6;
+  --tb-def-head-color: #111827;
+  --tb-def-stripe: rgba(0, 0, 0, 0.04);
+}
+${
+  dark
+    ? `.dark ${S} {
+  --tb-def-border: #3f3f46;
+  --tb-def-head-bg: #27272a;
+  --tb-def-head-color: #f4f4f5;
+  --tb-def-stripe: rgba(255, 255, 255, 0.05);
+}`
+    : ''
+}
+${S} .tableWrapper { overflow-x: auto; }
+${S} table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  max-width: 100%;
+  margin: 12px 0;
+  border: var(--tb-bw, 1px) var(--tb-bs, solid) var(--tb-border, var(--tb-def-border));
+  color: var(--tb-color, inherit);
+}
+${S} table[data-align="left"] { margin-left: 0; margin-right: auto; }
+${S} table[data-align="center"] { margin-left: auto; margin-right: auto; }
+${S} table[data-align="right"] { margin-left: auto; margin-right: 0; }
+${S} td,
+${S} th {
+  border: var(--tb-bw, 1px) var(--tb-bs, solid) var(--tb-border, var(--tb-def-border));
+  padding: 8px 10px;
+  vertical-align: top;
+  text-align: left;
+  position: relative;
+  box-sizing: border-box;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  background-color: var(--tb-bg, transparent);
+  color: var(--tb-color, inherit);
+}
+${S} th {
+  background-color: var(--tb-head-bg, var(--tb-def-head-bg));
+  color: var(--tb-head-color, var(--tb-def-head-color));
+  font-weight: 600;
+}
+${S} table[data-density="compact"] td,
+${S} table[data-density="compact"] th { padding: 4px 6px; }
+${S} table[data-density="roomy"] td,
+${S} table[data-density="roomy"] th { padding: 14px 16px; }
+${S} table[data-striped="true"] tbody tr:nth-child(even) td {
+  background-image: linear-gradient(
+    var(--tb-stripe, var(--tb-def-stripe)),
+    var(--tb-stripe, var(--tb-def-stripe))
+  );
+}
+${S} td p,
+${S} th p { margin: 4px 0; }
+${S} td > :first-child,
+${S} th > :first-child { margin-top: 0; }
+${S} td > :last-child,
+${S} th > :last-child { margin-bottom: 0; }
+${S} td ul, ${S} td ol, ${S} th ul, ${S} th ol { margin: 2px 0; }
+${S} .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(20, 184, 166, 0.22);
+  pointer-events: none;
+  z-index: 2;
+}
+`;
+
+const NOTE_RICH_CSS = buildTableCss('.note-rich');
+
 // ─── PDF EXPORT (frontend-only) ──────────────────────────────────────
-const PDF_SCOPED_CSS = `
+const PDF_SCOPED_CSS =
+  `
   [data-pdf-root] {
     background: #ffffff;
     color: #111827;
@@ -220,24 +363,7 @@ const PDF_SCOPED_CSS = `
     display: block;
     margin: 8pt auto;
   }
-  [data-pdf-root] table {
-    width: 100%;
-    border-collapse: collapse;
-    margin: 10pt 0;
-    font-size: 10pt;
-  }
-  [data-pdf-root] th,
-  [data-pdf-root] td {
-    border: 1px solid #d1d5db;
-    padding: 5pt 7pt;
-    vertical-align: top;
-    text-align: left;
-  }
-  [data-pdf-root] th {
-    background: #f3f4f6;
-    font-weight: 600;
-  }
-`;
+` + buildTableCss('[data-pdf-root]', { dark: false });
 
 const generatePdfFromNote = async (title, contentHtml) => {
   const [html2canvasMod, jspdfMod] = await Promise.all([
@@ -412,6 +538,270 @@ const ResizableImage = Image.extend({
     };
   },
 });
+
+// ─── CUSTOM TIPTAP EXTENSIONS: customizable table ───────────────────
+// A table style attribute stored as a CSS custom property on <table>.
+const tableVarAttr = (cssVar) => ({
+  default: null,
+  parseHTML: (el) => (el.style && el.style.getPropertyValue(cssVar)?.trim()) || null,
+});
+
+const CustomTable = Table.extend({
+  addAttributes() {
+    const withVar = (name, cssVar) => ({
+      ...tableVarAttr(cssVar),
+      renderHTML: (attrs) => (attrs[name] ? { style: `${cssVar}: ${attrs[name]};` } : {}),
+    });
+    return {
+      ...(this.parent?.() || {}),
+      tableWidth: {
+        default: '100%',
+        parseHTML: (el) => el.style?.width || '100%',
+        renderHTML: (attrs) => ({ style: `width: ${attrs.tableWidth || '100%'};` }),
+      },
+      tableAlign: {
+        default: 'left',
+        parseHTML: (el) => el.getAttribute('data-align') || 'left',
+        renderHTML: (attrs) => ({ 'data-align': attrs.tableAlign || 'left' }),
+      },
+      density: {
+        default: 'normal',
+        parseHTML: (el) => el.getAttribute('data-density') || 'normal',
+        renderHTML: (attrs) =>
+          attrs.density && attrs.density !== 'normal' ? { 'data-density': attrs.density } : {},
+      },
+      striped: {
+        default: false,
+        parseHTML: (el) => el.getAttribute('data-striped') === 'true',
+        renderHTML: (attrs) => (attrs.striped ? { 'data-striped': 'true' } : {}),
+      },
+      borderColor: withVar('borderColor', '--tb-border'),
+      borderStyle: withVar('borderStyle', '--tb-bs'),
+      borderWidth: withVar('borderWidth', '--tb-bw'),
+      cellBg: withVar('cellBg', '--tb-bg'),
+      textColor: withVar('textColor', '--tb-color'),
+      headerBg: withVar('headerBg', '--tb-head-bg'),
+      headerColor: withVar('headerColor', '--tb-head-color'),
+      stripeColor: withVar('stripeColor', '--tb-stripe'),
+    };
+  },
+});
+
+const cellExtraAttributes = () => ({
+  cellBg: {
+    default: null,
+    parseHTML: (el) => el.style?.backgroundColor || null,
+    renderHTML: (attrs) => (attrs.cellBg ? { style: `background-color: ${attrs.cellBg};` } : {}),
+  },
+  cellColor: {
+    default: null,
+    parseHTML: (el) => el.style?.color || null,
+    renderHTML: (attrs) => (attrs.cellColor ? { style: `color: ${attrs.cellColor};` } : {}),
+  },
+  cellVAlign: {
+    default: null,
+    parseHTML: (el) => el.style?.verticalAlign || null,
+    renderHTML: (attrs) => (attrs.cellVAlign ? { style: `vertical-align: ${attrs.cellVAlign};` } : {}),
+  },
+});
+
+const CustomTableCell = TableCell.extend({
+  addAttributes() {
+    return { ...(this.parent?.() || {}), ...cellExtraAttributes() };
+  },
+});
+
+const CustomTableHeader = TableHeader.extend({
+  addAttributes() {
+    return { ...(this.parent?.() || {}), ...cellExtraAttributes() };
+  },
+});
+
+// Keeps an empty paragraph after a table that is the last node, so the
+// user can always click / type below it.
+const EnsureTrailingParagraph = Extension.create({
+  name: 'ensureTrailingParagraph',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey('ensureTrailingParagraph'),
+        appendTransaction: (transactions, _oldState, newState) => {
+          if (!transactions.some((t) => t.docChanged)) return null;
+          const last = newState.doc.lastChild;
+          if (last && last.type.name === 'table') {
+            const paragraph = newState.schema.nodes.paragraph;
+            if (!paragraph) return null;
+            return newState.tr.insert(newState.doc.content.size, paragraph.create());
+          }
+          return null;
+        },
+      }),
+    ];
+  },
+});
+
+// ─── TABLE HELPERS ───────────────────────────────────────────────────
+const getTableInfo = (editor) => {
+  if (!editor || editor.isDestroyed) return null;
+  try {
+    const { $from } = editor.state.selection;
+    for (let d = $from.depth; d > 0; d--) {
+      const n = $from.node(d);
+      if (n.type.name === 'table') return { node: n, pos: $from.before(d) };
+    }
+  } catch {
+    /* noop */
+  }
+  return null;
+};
+
+const setTableAttrs = (editor, attrs) => {
+  const info = getTableInfo(editor);
+  if (!info) return;
+  const tr = editor.state.tr.setNodeMarkup(info.pos, undefined, {
+    ...info.node.attrs,
+    ...attrs,
+  });
+  editor.view.dispatch(tr);
+};
+
+const getCurrentCellAttrs = (editor) => {
+  try {
+    const $cell = selectionCell(editor.state);
+    return $cell?.nodeAfter?.attrs || {};
+  } catch {
+    return {};
+  }
+};
+
+// scope: 'cell' (current/selected cells) | 'row' | 'column'
+const applyCellAttrs = (editor, scope, attrs) => {
+  if (!editor || !getTableInfo(editor)) return;
+  const { state, view } = editor;
+  const original = state.selection.toJSON();
+  try {
+    if (scope === 'row' || scope === 'column') {
+      const $cell = selectionCell(state);
+      if (!$cell) return;
+      const sel =
+        scope === 'row'
+          ? CellSelection.rowSelection($cell)
+          : CellSelection.colSelection($cell);
+      view.dispatch(state.tr.setSelection(sel));
+    }
+    Object.entries(attrs).forEach(([key, value]) => {
+      editor.commands.setCellAttribute(key, value);
+    });
+  } finally {
+    if (scope !== 'cell') {
+      try {
+        view.dispatch(
+          editor.state.tr.setSelection(Selection.fromJSON(editor.state.doc, original))
+        );
+      } catch {
+        /* noop */
+      }
+    }
+  }
+};
+
+const selectCellDom = (editor, cell) => {
+  try {
+    const pos = editor.view.posAtDOM(cell, 0);
+    const $pos = editor.state.doc.resolve(pos);
+    editor.view.dispatch(editor.state.tr.setSelection(TextSelection.near($pos)));
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const getScrollParent = (el) => {
+  let p = el?.parentElement;
+  while (p) {
+    const oy = window.getComputedStyle(p).overflowY;
+    if (oy === 'auto' || oy === 'scroll') return p;
+    p = p.parentElement;
+  }
+  return null;
+};
+
+const TABLE_COLORS = [
+  '#ffffff', '#f3f4f6', '#fef08a', '#bbf7d0', '#bfdbfe', '#fbcfe8',
+  '#fed7aa', '#e9d5ff', '#111827', '#0d9488', '#1d4ed8', '#dc2626',
+];
+
+const TABLE_STYLE_RESET = {
+  borderColor: null,
+  borderStyle: null,
+  borderWidth: null,
+  cellBg: null,
+  textColor: null,
+  headerBg: null,
+  headerColor: null,
+  striped: false,
+  stripeColor: null,
+};
+
+const TABLE_PRESETS = [
+  { id: 'default', label: 'Default', attrs: {} },
+  {
+    id: 'teal',
+    label: 'Teal',
+    attrs: {
+      borderColor: '#99f6e4', headerBg: '#0d9488', headerColor: '#ffffff',
+      cellBg: '#ffffff', textColor: '#111827', striped: true, stripeColor: '#f0fdfa',
+    },
+  },
+  {
+    id: 'ocean',
+    label: 'Ocean',
+    attrs: {
+      borderColor: '#bfdbfe', headerBg: '#1d4ed8', headerColor: '#ffffff',
+      cellBg: '#ffffff', textColor: '#111827', striped: true, stripeColor: '#eff6ff',
+    },
+  },
+  {
+    id: 'night',
+    label: 'Night',
+    attrs: {
+      borderColor: '#3f3f46', headerBg: '#09090b', headerColor: '#fafafa',
+      cellBg: '#18181b', textColor: '#e4e4e7', striped: true, stripeColor: '#232326',
+    },
+  },
+  {
+    id: 'sunny',
+    label: 'Sunny',
+    attrs: {
+      borderColor: '#fcd34d', headerBg: '#f59e0b', headerColor: '#111827',
+      cellBg: '#fffbeb', textColor: '#451a03', striped: true, stripeColor: '#fef3c7',
+    },
+  },
+  {
+    id: 'rose',
+    label: 'Rose',
+    attrs: {
+      borderColor: '#fda4af', headerBg: '#e11d48', headerColor: '#ffffff',
+      cellBg: '#fff1f2', textColor: '#4c0519', striped: true, stripeColor: '#ffe4e6',
+    },
+  },
+  {
+    id: 'bold',
+    label: 'Bold grid',
+    attrs: {
+      borderColor: '#111827', borderWidth: '2px', headerBg: '#e5e7eb', headerColor: '#111827',
+      cellBg: '#ffffff', textColor: '#111827',
+    },
+  },
+  {
+    id: 'dashed',
+    label: 'Dashed',
+    attrs: {
+      borderColor: '#9ca3af', borderStyle: 'dashed', headerBg: '#fef9c3', headerColor: '#111827',
+      cellBg: '#ffffff', textColor: '#111827',
+    },
+  },
+];
 
 const FONT_FAMILIES = [
   { label: 'Default', value: null },
@@ -607,8 +997,770 @@ const ColorSwatchGrid = ({ colors, onPick, activeColor, extra }) => (
   </div>
 );
 
+// ─── TABLE SETTINGS UI ──────────────────────────────────────────────
+const SegButtons = ({ options, value, onChange }) => (
+  <div className="flex gap-1">
+    {options.map((o) => (
+      <button
+        key={o.value}
+        type="button"
+        title={o.title || o.label}
+        onClick={() => onChange(o.value)}
+        className={`flex-1 px-2 py-1.5 rounded-lg text-[11px] font-medium border transition flex items-center justify-center ${
+          value === o.value
+            ? 'border-teal-500 bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-300'
+            : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+        }`}
+      >
+        {o.icon || o.label}
+      </button>
+    ))}
+  </div>
+);
+
+const PanelField = ({ label, children }) => (
+  <div>
+    <div className="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">{label}</div>
+    {children}
+  </div>
+);
+
+const ColorRow = ({ label, value, onChange }) => (
+  <div>
+    <div className="flex items-center justify-between mb-1.5">
+      <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">{label}</span>
+      <button
+        type="button"
+        onClick={() => onChange(null)}
+        className="text-[10px] text-gray-400 hover:text-red-500 transition"
+      >
+        Reset
+      </button>
+    </div>
+    <div className="flex flex-wrap items-center gap-1.5">
+      {TABLE_COLORS.map((c) => (
+        <button
+          key={c}
+          type="button"
+          title={c}
+          onClick={() => onChange(c)}
+          className={`w-5 h-5 rounded-full border-2 transition ${
+            value && toHex(value, '') === c
+              ? 'border-teal-500 scale-110'
+              : 'border-gray-300 dark:border-gray-600'
+          }`}
+          style={{ backgroundColor: c }}
+        />
+      ))}
+      <label
+        title="Custom color"
+        className="relative w-5 h-5 rounded-full overflow-hidden border-2 border-dashed border-gray-400 dark:border-gray-500 cursor-pointer"
+        style={value ? { backgroundColor: toHex(value) } : undefined}
+      >
+        <input
+          type="color"
+          value={toHex(value)}
+          onChange={(e) => onChange(e.target.value)}
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+        />
+        {!value && (
+          <span className="absolute inset-0 flex items-center justify-center text-[10px] text-gray-500">
+            +
+          </span>
+        )}
+      </label>
+    </div>
+  </div>
+);
+
+const StructBtn = ({ label, onClick, disabled, danger, icon }) => (
+  <button
+    type="button"
+    disabled={disabled}
+    onClick={onClick}
+    className={`flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg border text-[11px] font-medium transition disabled:opacity-30 disabled:cursor-not-allowed ${
+      danger
+        ? 'border-red-200 dark:border-red-900/40 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20'
+        : 'border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+    }`}
+  >
+    {icon}
+    {label}
+  </button>
+);
+
+const TableSettingsPanel = ({ editor }) => {
+  const [tab, setTab] = useState('design');
+  const [scope, setScope] = useState('cell');
+
+  const info = getTableInfo(editor);
+  if (!info) {
+    return (
+      <p className="text-xs text-gray-500 dark:text-gray-400 text-center py-6">
+        Click inside a table to customize it.
+      </p>
+    );
+  }
+
+  const a = info.node.attrs;
+  const cellAttrs = getCurrentCellAttrs(editor);
+  const set = (attrs) => setTableAttrs(editor, attrs);
+  const widthPct = parseInt(a.tableWidth, 10) || 100;
+  const borderStyle = a.borderStyle || 'solid';
+  const borderWidth = parseInt(a.borderWidth, 10) || 1;
+
+  const run = (name) => () => editor.chain().focus()[name]().run();
+  const can = (name) => {
+    try {
+      return Boolean(editor.can()[name]());
+    } catch {
+      return false;
+    }
+  };
+
+  const tabs = [
+    { id: 'design', label: 'Design' },
+    { id: 'borders', label: 'Borders' },
+    { id: 'layout', label: 'Layout' },
+    { id: 'cells', label: 'Cells' },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-gray-800/70">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={`flex-1 py-1.5 rounded-lg text-[11px] font-semibold transition ${
+              tab === t.id
+                ? 'bg-white dark:bg-[#26262b] text-teal-600 dark:text-teal-400 shadow-sm'
+                : 'text-gray-500 dark:text-gray-400'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'design' && (
+        <div className="space-y-4">
+          <PanelField label="Presets">
+            <div className="grid grid-cols-4 gap-2">
+              {TABLE_PRESETS.map((p) => {
+                const border = p.attrs.borderColor || '#d1d5db';
+                const head = p.attrs.headerBg || '#e5e7eb';
+                const body = p.attrs.cellBg || '#ffffff';
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => set({ ...TABLE_STYLE_RESET, ...p.attrs })}
+                    className="group text-center"
+                    title={p.label}
+                  >
+                    <div
+                      className="rounded-md overflow-hidden group-hover:ring-2 ring-teal-500 transition"
+                      style={{ border: `1.5px ${p.attrs.borderStyle || 'solid'} ${border}` }}
+                    >
+                      <div style={{ height: 8, background: head }} />
+                      <div style={{ height: 6, background: body }} />
+                      <div
+                        style={{
+                          height: 6,
+                          background: p.attrs.striped ? p.attrs.stripeColor : body,
+                        }}
+                      />
+                    </div>
+                    <span className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 block truncate">
+                      {p.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </PanelField>
+
+          <ColorRow
+            label="Header background"
+            value={a.headerBg}
+            onChange={(v) => set({ headerBg: v, headerColor: v ? contrastText(v) : null })}
+          />
+          <ColorRow
+            label="Header text color"
+            value={a.headerColor}
+            onChange={(v) => set({ headerColor: v })}
+          />
+          <ColorRow
+            label="Body background"
+            value={a.cellBg}
+            onChange={(v) => set({ cellBg: v, textColor: v ? contrastText(v) : null })}
+          />
+          <ColorRow
+            label="Body text color"
+            value={a.textColor}
+            onChange={(v) => set({ textColor: v })}
+          />
+
+          <PanelField label="Striped rows">
+            <SegButtons
+              value={a.striped ? 'on' : 'off'}
+              onChange={(v) => set({ striped: v === 'on' })}
+              options={[
+                { value: 'off', label: 'Off' },
+                { value: 'on', label: 'On' },
+              ]}
+            />
+          </PanelField>
+          {a.striped && (
+            <ColorRow
+              label="Stripe color"
+              value={a.stripeColor}
+              onChange={(v) => set({ stripeColor: v })}
+            />
+          )}
+        </div>
+      )}
+
+      {tab === 'borders' && (
+        <div className="space-y-4">
+          <ColorRow
+            label="Border color"
+            value={a.borderColor}
+            onChange={(v) => set({ borderColor: v })}
+          />
+          <PanelField label="Border style">
+            <div className="grid grid-cols-3 gap-1">
+              {['solid', 'dashed', 'dotted', 'double', 'none'].map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() =>
+                    set({
+                      borderStyle: s === 'solid' ? null : s,
+                      ...(s === 'double' && borderWidth < 3 ? { borderWidth: '3px' } : {}),
+                    })
+                  }
+                  className={`px-2 py-1.5 rounded-lg text-[11px] font-medium border capitalize transition ${
+                    borderStyle === s
+                      ? 'border-teal-500 bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-300'
+                      : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </PanelField>
+          <PanelField label="Border thickness">
+            <SegButtons
+              value={borderWidth}
+              onChange={(v) => set({ borderWidth: v === 1 ? null : `${v}px` })}
+              options={[1, 2, 3, 4, 6].map((n) => ({ value: n, label: `${n}px` }))}
+            />
+          </PanelField>
+          <button
+            type="button"
+            onClick={() => set({ borderColor: null, borderStyle: null, borderWidth: null })}
+            className="w-full py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-[11px] text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+          >
+            Reset borders
+          </button>
+        </div>
+      )}
+
+      {tab === 'layout' && (
+        <div className="space-y-4">
+          <PanelField label={`Table width — ${widthPct}%`}>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => set({ tableWidth: `${Math.max(20, widthPct - 5)}%` })}
+                className="w-7 h-7 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 text-sm"
+                title="Smaller"
+              >
+                −
+              </button>
+              <input
+                type="range"
+                min={20}
+                max={100}
+                step={5}
+                value={widthPct}
+                onChange={(e) => set({ tableWidth: `${e.target.value}%` })}
+                className="flex-1 accent-teal-600"
+              />
+              <button
+                type="button"
+                onClick={() => set({ tableWidth: `${Math.min(100, widthPct + 5)}%` })}
+                className="w-7 h-7 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 text-sm"
+                title="Bigger"
+              >
+                +
+              </button>
+            </div>
+          </PanelField>
+
+          <PanelField label="Position">
+            <SegButtons
+              value={a.tableAlign || 'left'}
+              onChange={(v) => set({ tableAlign: v })}
+              options={[
+                { value: 'left', title: 'Left', icon: <FaAlignLeft className="text-xs" /> },
+                { value: 'center', title: 'Center', icon: <FaAlignCenter className="text-xs" /> },
+                { value: 'right', title: 'Right', icon: <FaAlignRight className="text-xs" /> },
+              ]}
+            />
+          </PanelField>
+
+          <PanelField label="Cell spacing">
+            <SegButtons
+              value={a.density || 'normal'}
+              onChange={(v) => set({ density: v })}
+              options={[
+                { value: 'compact', label: 'Compact' },
+                { value: 'normal', label: 'Normal' },
+                { value: 'roomy', label: 'Roomy' },
+              ]}
+            />
+          </PanelField>
+
+          <PanelField label="Rows & columns">
+            <div className="grid grid-cols-2 gap-1.5">
+              <StructBtn label="Row above" onClick={run('addRowBefore')} disabled={!can('addRowBefore')} />
+              <StructBtn label="Row below" onClick={run('addRowAfter')} disabled={!can('addRowAfter')} />
+              <StructBtn label="Column left" onClick={run('addColumnBefore')} disabled={!can('addColumnBefore')} />
+              <StructBtn label="Column right" onClick={run('addColumnAfter')} disabled={!can('addColumnAfter')} />
+              <StructBtn danger label="Delete row" onClick={run('deleteRow')} disabled={!can('deleteRow')} />
+              <StructBtn danger label="Delete column" onClick={run('deleteColumn')} disabled={!can('deleteColumn')} />
+              <StructBtn
+                label="Merge cells"
+                icon={<FaObjectGroup className="text-[10px]" />}
+                onClick={run('mergeCells')}
+                disabled={!can('mergeCells')}
+              />
+              <StructBtn
+                label="Split cell"
+                icon={<FaObjectUngroup className="text-[10px]" />}
+                onClick={run('splitCell')}
+                disabled={!can('splitCell')}
+              />
+              <StructBtn label="Header row" onClick={run('toggleHeaderRow')} disabled={!can('toggleHeaderRow')} />
+              <StructBtn label="Header column" onClick={run('toggleHeaderColumn')} disabled={!can('toggleHeaderColumn')} />
+            </div>
+            <button
+              type="button"
+              onClick={run('deleteTable')}
+              className="mt-1.5 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-red-200 dark:border-red-900/40 text-[11px] font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition"
+            >
+              <FaTrash className="text-[10px]" /> Delete table
+            </button>
+          </PanelField>
+        </div>
+      )}
+
+      {tab === 'cells' && (
+        <div className="space-y-4">
+          <PanelField label="Apply to">
+            <SegButtons
+              value={scope}
+              onChange={setScope}
+              options={[
+                { value: 'cell', label: 'Cell' },
+                { value: 'row', label: 'Whole row' },
+                { value: 'column', label: 'Whole column' },
+              ]}
+            />
+            <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1.5">
+              Tip: drag across several cells to style just those.
+            </p>
+          </PanelField>
+
+          <ColorRow
+            label="Cell background"
+            value={cellAttrs.cellBg}
+            onChange={(v) =>
+              applyCellAttrs(editor, scope, {
+                cellBg: v,
+                cellColor: v ? contrastText(v) : null,
+              })
+            }
+          />
+          <ColorRow
+            label="Cell text color"
+            value={cellAttrs.cellColor}
+            onChange={(v) => applyCellAttrs(editor, scope, { cellColor: v })}
+          />
+
+          <PanelField label="Vertical alignment">
+            <SegButtons
+              value={cellAttrs.cellVAlign || 'top'}
+              onChange={(v) =>
+                applyCellAttrs(editor, scope, { cellVAlign: v === 'top' ? null : v })
+              }
+              options={[
+                { value: 'top', label: 'Top' },
+                { value: 'middle', label: 'Middle' },
+                { value: 'bottom', label: 'Bottom' },
+              ]}
+            />
+          </PanelField>
+
+          <button
+            type="button"
+            onClick={() =>
+              applyCellAttrs(editor, scope, { cellBg: null, cellColor: null, cellVAlign: null })
+            }
+            className="w-full py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-[11px] text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+          >
+            Clear cell styling
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const TableSettingsSheet = ({ editor, isMobile, keyboardOffset, onClose }) => (
+  <div
+    data-table-ui
+    onMouseDown={(e) => {
+      const tag = e.target?.tagName;
+      if (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA') e.preventDefault();
+    }}
+    className={`fixed z-[65] bg-white dark:bg-[#1c1c1f] border border-gray-200 dark:border-gray-700 shadow-2xl flex flex-col ${
+      isMobile
+        ? 'left-0 right-0 rounded-t-2xl max-h-[46vh]'
+        : 'right-4 top-24 w-[310px] rounded-2xl max-h-[calc(100vh-8rem)]'
+    }`}
+    style={isMobile ? { bottom: keyboardOffset + 48 } : undefined}
+  >
+    <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
+      <h4 className="text-sm font-semibold text-gray-800 dark:text-white flex items-center gap-2">
+        <FaTable className="text-teal-500 text-xs" />
+        Table settings
+      </h4>
+      <button
+        type="button"
+        onClick={onClose}
+        className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-white rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+      >
+        <FaTimes className="text-sm" />
+      </button>
+    </div>
+    <div className="overflow-y-auto p-4">
+      <TableSettingsPanel editor={editor} />
+    </div>
+  </div>
+);
+
+// ─── TABLE OVERLAY (hover "+" bars, handles, floating toolbar) ──────
+const BarBtn = ({ onClick, title, active, danger, disabled, children }) => (
+  <button
+    type="button"
+    title={title}
+    disabled={disabled}
+    onMouseDown={(e) => e.preventDefault()}
+    onClick={onClick}
+    className={`flex-shrink-0 min-w-[28px] h-7 px-1.5 rounded-lg text-xs flex items-center justify-center gap-1 transition disabled:opacity-30 disabled:cursor-not-allowed ${
+      active
+        ? 'bg-teal-100 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400'
+        : danger
+          ? 'text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20'
+          : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+    }`}
+  >
+    {children}
+  </button>
+);
+
+const BarDivider = () => (
+  <span className="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-0.5 flex-shrink-0" />
+);
+
+const TableOverlay = ({
+  editor,
+  hoverCell,
+  isMobile,
+  keyboardOffset,
+  panelOpen,
+  onTogglePanel,
+  wrapperRef,
+}) => {
+  const [, force] = useReducer((x) => x + 1, 0);
+
+  useEffect(() => {
+    let raf = 0;
+    const handler = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => force());
+    };
+    window.addEventListener('scroll', handler, true);
+    window.addEventListener('resize', handler);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('scroll', handler, true);
+      window.removeEventListener('resize', handler);
+    };
+  }, []);
+
+  if (!editor || editor.isDestroyed) return null;
+
+  // Active cell (from the selection)
+  let activeCell = null;
+  const info = getTableInfo(editor);
+  if (info) {
+    try {
+      const $c = selectionCell(editor.state);
+      const dom = $c ? editor.view.nodeDOM($c.pos) : null;
+      if (dom && dom.nodeType === 1) activeCell = dom;
+    } catch {
+      activeCell = null;
+    }
+  }
+
+  let hover = null;
+  try {
+    if (hoverCell && hoverCell.isConnected && editor.view.dom.contains(hoverCell)) hover = hoverCell;
+  } catch {
+    hover = null;
+  }
+
+  const target = hover || activeCell;
+  if (!target) return null;
+  const table = target.closest('table');
+  if (!table) return null;
+
+  // Visible bounds (so overlays never float over toolbars / outside the scroller)
+  const wrapper = wrapperRef.current;
+  const tbEl = wrapper?.querySelector('[data-editor-toolbar]');
+  const tb = tbEl ? tbEl.getBoundingClientRect() : null;
+  const scroller = getScrollParent(wrapper);
+  const sr = scroller
+    ? scroller.getBoundingClientRect()
+    : { top: 0, bottom: window.innerHeight };
+  const minY = isMobile ? sr.top : Math.max(sr.top, tb ? tb.bottom : sr.top);
+  const maxY = isMobile ? Math.min(sr.bottom, tb ? tb.top : sr.bottom) : sr.bottom;
+
+  const tRect = table.getBoundingClientRect();
+  if (tRect.bottom < minY || tRect.top > maxY) return null;
+
+  const runOnCell = (cell, cmd) => {
+    if (!selectCellDom(editor, cell)) return;
+    editor.chain().focus()[cmd]().run();
+  };
+
+  const addRowEnd = () => {
+    const rows = table.rows;
+    const last = rows[rows.length - 1];
+    const cell = last?.cells[last.cells.length - 1];
+    if (cell) runOnCell(cell, 'addRowAfter');
+  };
+
+  const addColEnd = () => {
+    const first = table.rows[0];
+    const cell = first?.cells[first.cells.length - 1];
+    if (cell) runOnCell(cell, 'addColumnAfter');
+  };
+
+  // Bars
+  const rowBarTop = tRect.bottom + 3;
+  const showRowBar = rowBarTop >= minY && rowBarTop + 16 <= maxY;
+  const colBarLeft = Math.min(tRect.right + 3, window.innerWidth - 18);
+  const colBarTop = Math.max(tRect.top, minY);
+  const colBarHeight = Math.min(tRect.bottom, maxY) - colBarTop;
+  const showColBar = colBarHeight > 20;
+
+  // Between-row / between-column handles for the hovered cell
+  const row = target.parentElement;
+  const rowRect = row ? row.getBoundingClientRect() : null;
+  const cellRect = target.getBoundingClientRect();
+  const rowIdx = row ? Array.from(table.rows).indexOf(row) : -1;
+  const colIdx = target.cellIndex;
+
+  const rowHandles = [];
+  if (rowRect) {
+    if (rowIdx === 0) rowHandles.push({ y: rowRect.top, cmd: 'addRowBefore', title: 'Add row above' });
+    rowHandles.push({ y: rowRect.bottom, cmd: 'addRowAfter', title: 'Add row below' });
+  }
+  const colHandles = [];
+  if (colIdx === 0) colHandles.push({ x: cellRect.left, cmd: 'addColumnBefore', title: 'Add column left' });
+  colHandles.push({ x: cellRect.right, cmd: 'addColumnAfter', title: 'Add column right' });
+
+  const handleClass =
+    'fixed z-[15] w-5 h-5 rounded-full bg-teal-600 text-white shadow-md shadow-black/20 flex items-center justify-center hover:scale-110 active:scale-95 transition';
+
+  // Floating toolbar (only for the table that has the cursor)
+  let bar = null;
+  if (activeCell && info) {
+    const aTable = activeCell.closest('table');
+    const ar = aTable ? aTable.getBoundingClientRect() : null;
+    if (ar && !(ar.bottom < minY || ar.top > maxY)) {
+      let barTop = ar.top - 44;
+      if (barTop < minY + 4) barTop = ar.bottom + 24;
+      if (barTop > maxY - 44) barTop = Math.max(minY + 4, Math.min(ar.top + 6, maxY - 44));
+      const barLeft = Math.max(8, Math.min(ar.left, window.innerWidth - 340));
+      const widthPct = parseInt(info.node.attrs.tableWidth, 10) || 100;
+      const align = info.node.attrs.tableAlign || 'left';
+      const run = (name) => () => editor.chain().focus()[name]().run();
+      const canDo = (name) => {
+        try {
+          return Boolean(editor.can()[name]());
+        } catch {
+          return false;
+        }
+      };
+      bar = (
+        <div
+          data-table-ui
+          onMouseDown={(e) => e.preventDefault()}
+          className="fixed z-[16] flex items-center gap-0.5 p-1 overflow-x-auto bg-white dark:bg-[#1c1c1f] border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg"
+          style={{ top: barTop, left: barLeft, maxWidth: 'calc(100vw - 16px)' }}
+        >
+          <BarBtn title="Table settings" active={panelOpen} onClick={onTogglePanel}>
+            <FaPaintBrush className="text-[11px]" />
+            <span className="text-[11px] font-semibold">Style</span>
+          </BarBtn>
+          <BarDivider />
+          <BarBtn
+            title="Smaller table"
+            onClick={() => setTableAttrs(editor, { tableWidth: `${Math.max(20, widthPct - 10)}%` })}
+          >
+            <span className="text-[11px] font-semibold">W−</span>
+          </BarBtn>
+          <BarBtn
+            title="Bigger table"
+            onClick={() => setTableAttrs(editor, { tableWidth: `${Math.min(100, widthPct + 10)}%` })}
+          >
+            <span className="text-[11px] font-semibold">W+</span>
+          </BarBtn>
+          <BarDivider />
+          <BarBtn
+            title="Align table left"
+            active={align === 'left'}
+            onClick={() => setTableAttrs(editor, { tableAlign: 'left' })}
+          >
+            <FaAlignLeft className="text-[11px]" />
+          </BarBtn>
+          <BarBtn
+            title="Center table"
+            active={align === 'center'}
+            onClick={() => setTableAttrs(editor, { tableAlign: 'center' })}
+          >
+            <FaAlignCenter className="text-[11px]" />
+          </BarBtn>
+          <BarBtn
+            title="Align table right"
+            active={align === 'right'}
+            onClick={() => setTableAttrs(editor, { tableAlign: 'right' })}
+          >
+            <FaAlignRight className="text-[11px]" />
+          </BarBtn>
+          <BarDivider />
+          <BarBtn title="Merge cells" disabled={!canDo('mergeCells')} onClick={run('mergeCells')}>
+            <FaObjectGroup className="text-[11px]" />
+          </BarBtn>
+          <BarBtn title="Split cell" disabled={!canDo('splitCell')} onClick={run('splitCell')}>
+            <FaObjectUngroup className="text-[11px]" />
+          </BarBtn>
+          <BarDivider />
+          <BarBtn danger title="Delete row" onClick={run('deleteRow')}>
+            <span className="text-[11px] font-semibold">−Row</span>
+          </BarBtn>
+          <BarBtn danger title="Delete column" onClick={run('deleteColumn')}>
+            <span className="text-[11px] font-semibold">−Col</span>
+          </BarBtn>
+          <BarBtn danger title="Delete table" onClick={run('deleteTable')}>
+            <FaTrash className="text-[11px]" />
+          </BarBtn>
+        </div>
+      );
+    }
+  }
+
+  return (
+    <>
+      {showRowBar && (
+        <button
+          type="button"
+          data-table-ui
+          title="Add row"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={addRowEnd}
+          className="fixed z-[15] flex items-center justify-center gap-1 rounded-md border border-dashed border-teal-500/30 hover:border-teal-500 bg-teal-500/5 hover:bg-teal-500/15 text-teal-600 dark:text-teal-400 opacity-60 hover:opacity-100 transition"
+          style={{ left: tRect.left, width: tRect.width, top: rowBarTop, height: 16 }}
+        >
+          <FaPlus className="text-[8px]" />
+          <span className="text-[9px] font-semibold">Row</span>
+        </button>
+      )}
+
+      {showColBar && (
+        <button
+          type="button"
+          data-table-ui
+          title="Add column"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={addColEnd}
+          className="fixed z-[15] flex items-center justify-center rounded-md border border-dashed border-teal-500/30 hover:border-teal-500 bg-teal-500/5 hover:bg-teal-500/15 text-teal-600 dark:text-teal-400 opacity-60 hover:opacity-100 transition"
+          style={{ left: colBarLeft, top: colBarTop, width: 16, height: colBarHeight }}
+        >
+          <FaPlus className="text-[8px]" />
+        </button>
+      )}
+
+      {hover &&
+        rowHandles.map((h) =>
+          h.y >= minY && h.y <= maxY ? (
+            <button
+              key={h.cmd}
+              type="button"
+              data-table-ui
+              title={h.title}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => runOnCell(target, h.cmd)}
+              className={handleClass}
+              style={{ left: Math.max(2, tRect.left - 10), top: h.y - 10 }}
+            >
+              <FaPlus className="text-[8px]" />
+            </button>
+          ) : null
+        )}
+
+      {hover &&
+        tRect.top - 10 >= minY &&
+        colHandles.map((h) => (
+          <button
+            key={h.cmd}
+            type="button"
+            data-table-ui
+            title={h.title}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => runOnCell(target, h.cmd)}
+            className={handleClass}
+            style={{ left: h.x - 10, top: tRect.top - 10 }}
+          >
+            <FaPlus className="text-[8px]" />
+          </button>
+        ))}
+
+      {bar}
+
+      {panelOpen && (
+        <TableSettingsSheet
+          editor={editor}
+          isMobile={isMobile}
+          keyboardOffset={keyboardOffset}
+          onClose={onTogglePanel}
+        />
+      )}
+    </>
+  );
+};
+
 // ─── EDITOR TOOLBAR ─────────────────────────────────────────────────
-const EditorToolbar = ({ editor, isMobile }) => {
+const EditorToolbar = ({ editor, isMobile, onOpenTableSettings }) => {
   const [openId, setOpenId] = useState(null);
   const [linkUrl, setLinkUrl] = useState('');
   const [imageUrl, setImageUrl] = useState('');
@@ -662,6 +1814,7 @@ const EditorToolbar = ({ editor, isMobile }) => {
   };
 
   const collapsed = isMobile && !mobileExpanded;
+  const inTable = editor.isActive('table');
 
   return (
     <div className="flex items-stretch">
@@ -909,10 +2062,22 @@ const EditorToolbar = ({ editor, isMobile }) => {
 
         <ToolbarDropdown
           id="table" openId={openId} setOpenId={setOpenId} isMobile={isMobile}
-          icon={<FaTable className="text-xs" />} label="Insert table" width={200}
-          active={editor.isActive('table')}
+          icon={<FaTable className="text-xs" />} label="Table" width={210}
+          active={inTable}
         >
           <div className="space-y-2">
+            {inTable && (
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => { setOpenId(null); onOpenTableSettings?.(); }}
+                className="w-full flex items-center justify-center gap-1.5 text-xs py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700"
+              >
+                <FaPaintBrush className="text-[10px]" /> Customize table
+              </button>
+            )}
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 pt-1">
+              Insert new table
+            </div>
             <div className="flex items-center gap-2">
               <label className="text-xs text-gray-500 dark:text-gray-400 w-12">Rows</label>
               <input
@@ -936,7 +2101,7 @@ const EditorToolbar = ({ editor, isMobile }) => {
             >
               Insert table
             </button>
-            {editor.isActive('table') && (
+            {inTable && (
               <div className="pt-2 border-t border-gray-100 dark:border-gray-800 grid grid-cols-2 gap-1.5">
                 <button
                   onMouseDown={(e) => e.preventDefault()}
@@ -997,17 +2162,22 @@ const EditorToolbar = ({ editor, isMobile }) => {
 };
 
 // ─── TIPTAP NOTE EDITOR ─────────────────────────────────────────────
-const EDITOR_CONTENT_CLASSES =
+// Shared by edit mode AND view mode so both render identically.
+const RICH_TEXT_CLASSES =
   '[&_h1]:text-3xl [&_h2]:text-2xl [&_h3]:text-xl [&_h1]:font-bold [&_h2]:font-bold [&_h3]:font-semibold ' +
   '[&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:mt-1 [&_li]:mb-1 ' +
-  '[&_a]:text-teal-600 [&_a]:underline [&_img]:rounded-lg [&_img]:max-w-full ' +
-  '[&_table]:border-collapse [&_table]:w-full [&_table]:my-3 ' +
-  '[&_th]:border [&_th]:border-gray-300 [&_th]:dark:border-gray-600 [&_th]:p-2 [&_th]:bg-gray-50 [&_th]:dark:bg-gray-800 ' +
-  '[&_td]:border [&_td]:border-gray-300 [&_td]:dark:border-gray-600 [&_td]:p-2 [&_p]:my-2 ' +
-  '[&_.is-editor-empty:first-child::before]:text-gray-400 dark:[&_.is-editor-empty:first-child::before]:text-gray-500 ' +
+  '[&_a]:text-teal-600 [&_a]:underline [&_img]:rounded-lg [&_img]:max-w-full [&_p]:my-2';
+
+const EDITOR_CONTENT_CLASSES =
+  'note-rich ' +
+  RICH_TEXT_CLASSES +
+  ' [&_.is-editor-empty:first-child::before]:text-gray-400 dark:[&_.is-editor-empty:first-child::before]:text-gray-500 ' +
   '[&_.is-editor-empty:first-child::before]:content-[attr(data-placeholder)] ' +
   '[&_.is-editor-empty:first-child::before]:float-left [&_.is-editor-empty:first-child::before]:h-0 ' +
   '[&_.is-editor-empty:first-child::before]:pointer-events-none';
+
+const NOTE_BODY_CLASSES =
+  'text-gray-800 dark:text-gray-100 leading-relaxed ' + EDITOR_CONTENT_CLASSES;
 
 const NoteEditor = ({
   initialContent,
@@ -1017,7 +2187,13 @@ const NoteEditor = ({
   onSelectionChange,
   onEditorReady,
 }) => {
+  const [hoverCell, setHoverCell] = useState(null);
+  const [tablePanelOpen, setTablePanelOpen] = useState(false);
+  const hideTimerRef = useRef(null);
+  const wrapperRef = useRef(null);
+
   const editor = useEditor({
+    shouldRerenderOnTransaction: true,
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
@@ -1038,16 +2214,17 @@ const NoteEditor = ({
       Highlight.configure({ multicolor: true }),
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       ResizableImage,
-      Table.configure({ resizable: false }),
+      CustomTable.configure({ resizable: false }),
       TableRow,
-      TableHeader,
-      TableCell,
+      CustomTableHeader,
+      CustomTableCell,
+      EnsureTrailingParagraph,
       Placeholder.configure({ placeholder: 'Start writing your note...' }),
     ],
     content: initialContent || '',
     editorProps: {
       attributes: {
-        class: 'outline-none min-h-[300px] text-gray-800 dark:text-gray-100 leading-relaxed',
+        class: 'outline-none min-h-[300px]',
       },
     },
     onUpdate: ({ editor: e }) => onChange(e.getHTML()),
@@ -1078,26 +2255,95 @@ const NoteEditor = ({
 
   useEffect(() => () => editor?.destroy(), [editor]);
 
+  useEffect(() => () => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+  }, []);
+
+  // Close the settings panel once the cursor leaves every table.
+  useEffect(() => {
+    if (tablePanelOpen && editor && !editor.isDestroyed && !getTableInfo(editor)) {
+      setTablePanelOpen(false);
+    }
+  });
+
+  const clearHideTimer = () => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+  };
+
+  const scheduleHide = () => {
+    if (hideTimerRef.current) return;
+    hideTimerRef.current = setTimeout(() => {
+      hideTimerRef.current = null;
+      setHoverCell(null);
+    }, 350);
+  };
+
+  const handleMouseMove = (e) => {
+    const t = e.target;
+    if (!t || !t.closest) return;
+    if (t.closest('[data-table-ui]')) {
+      clearHideTimer();
+      return;
+    }
+    const cell = t.closest('td, th');
+    if (cell && cell.closest('.ProseMirror')) {
+      clearHideTimer();
+      setHoverCell((prev) => (prev === cell ? prev : cell));
+    } else {
+      scheduleHide();
+    }
+  };
+
   return (
-    <div className="ck-note-editor-wrapper">
+    <div
+      ref={wrapperRef}
+      className="ck-note-editor-wrapper"
+      onMouseMove={handleMouseMove}
+      onMouseLeave={scheduleHide}
+    >
       {!isMobile && (
-        <div className="border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#161619] sticky top-0 z-10 rounded-t-xl">
-          <EditorToolbar editor={editor} isMobile={false} />
+        <div
+          data-editor-toolbar
+          className="border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#161619] sticky top-0 z-10 rounded-t-xl"
+        >
+          <EditorToolbar
+            editor={editor}
+            isMobile={false}
+            onOpenTableSettings={() => setTablePanelOpen(true)}
+          />
         </div>
       )}
 
-      <div className={EDITOR_CONTENT_CLASSES}>
+      <div className={NOTE_BODY_CLASSES}>
         <EditorContent editor={editor} />
       </div>
 
       {isMobile && (
         <div
+          data-editor-toolbar
           className="fixed left-0 right-0 z-20 border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-[#161619]"
           style={{ bottom: keyboardOffset }}
         >
-          <EditorToolbar editor={editor} isMobile={true} />
+          <EditorToolbar
+            editor={editor}
+            isMobile={true}
+            onOpenTableSettings={() => setTablePanelOpen(true)}
+          />
         </div>
       )}
+
+      <TableOverlay
+        editor={editor}
+        hoverCell={hoverCell}
+        isMobile={isMobile}
+        keyboardOffset={keyboardOffset}
+        panelOpen={tablePanelOpen}
+        onTogglePanel={() => setTablePanelOpen((v) => !v)}
+        wrapperRef={wrapperRef}
+      />
     </div>
   );
 };
@@ -1884,14 +3130,9 @@ const AiPreviewModal = ({ open, isMobile, kind, result, onClose, onApply, applyi
             <div className="text-sm leading-relaxed text-gray-700 dark:text-gray-200 bg-white dark:bg-[#0f0f12] border border-gray-200 dark:border-gray-800 rounded-lg p-3 max-h-72 overflow-y-auto">
               <div
                 className={
-                  'prose prose-sm max-w-none dark:prose-invert ' +
-                  '[&_h1]:text-2xl [&_h2]:text-xl [&_h3]:text-lg [&_h1]:font-bold [&_h2]:font-bold [&_h3]:font-semibold ' +
-                  '[&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-1 ' +
-                  '[&_p]:my-2 [&_a]:text-teal-600 [&_a]:underline ' +
-                  '[&_strong]:font-semibold [&_em]:italic [&_u]:underline ' +
-                  '[&_table]:border-collapse [&_table]:w-full [&_table]:my-3 ' +
-                  '[&_th]:border [&_th]:border-gray-300 [&_th]:dark:border-gray-600 [&_th]:p-2 ' +
-                  '[&_td]:border [&_td]:border-gray-300 [&_td]:dark:border-gray-600 [&_td]:p-2'
+                  'note-rich max-w-none ' +
+                  RICH_TEXT_CLASSES +
+                  ' [&_h1]:text-2xl [&_h2]:text-xl [&_h3]:text-lg [&_strong]:font-semibold [&_em]:italic [&_u]:underline'
                 }
                 dangerouslySetInnerHTML={{ __html: suggested || '' }}
               />
@@ -3024,13 +4265,12 @@ const WriteNote = () => {
               : undefined
           }
         >
+          {/* View mode uses the exact same classes + CSS as the editor */}
           {!isEditing && (
-            <div className="prose prose-sm sm:prose-base dark:prose-invert max-w-none">
-              <div
-                className="[&_h1]:text-3xl [&_h2]:text-2xl [&_h3]:text-xl [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:mt-1 [&_li]:mb-1 [&_a]:text-teal-600 [&_a]:underline [&_img]:rounded-lg [&_img]:max-w-full [&_table]:border-collapse [&_table]:w-full [&_th]:border [&_th]:border-gray-300 [&_th]:p-2 [&_td]:border [&_td]:border-gray-300 [&_td]:p-2"
-                dangerouslySetInnerHTML={{ __html: content }}
-              />
-            </div>
+            <div
+              className={NOTE_BODY_CLASSES}
+              dangerouslySetInnerHTML={{ __html: content }}
+            />
           )}
           {isEditing && (
             <NoteEditor
@@ -3050,6 +4290,8 @@ const WriteNote = () => {
 
   return (
     <div className="h-screen w-full bg-white dark:bg-[#0f0f12] flex overflow-hidden">
+      <style>{NOTE_RICH_CSS}</style>
+
       <div className="hidden md:flex flex-shrink-0 h-full relative">
         {renderSidebar()}
         <div
