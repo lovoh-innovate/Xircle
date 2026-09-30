@@ -1,299 +1,454 @@
-  // src/workspaceScreens/YourWorkspaceId.jsx
-  import React, { useEffect, useState, useCallback, useRef, memo } from 'react';
-  import { useParams, useNavigate, Link } from 'react-router-dom';
-  import { useSelector } from 'react-redux';
-  import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
-  import { useGetWorkspaceProjectsQuery } from '../slices/projectApiSlice';
-  import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
-  import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
-  import { useWorkspacePresence } from '../services/useWorkspacePresence';
-  import {
-    useGetClockInSettingsQuery,
-    useGetUserClockInHistoryQuery,
-  } from '../slices/clockinApiSlice';
-  import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
-  import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
-  import {
-    FaUsers,
-    FaHashtag,
-    FaFolder,
-    FaCircle,
-    FaEye,
-    FaEyeSlash,
-    FaChartLine,
-    FaUserPlus,
-    FaCopy,
-    FaTasks,
-    FaCheckCircle,
-    FaClock,
-    FaSpinner,
-    FaArrowLeft,
-    FaCheck,
-    FaTimes,
-    FaExclamationTriangle,
-  } from 'react-icons/fa';
-  import {
-    AreaChart,
-    Area,
-    XAxis,
-    YAxis,
-    Tooltip,
-    ResponsiveContainer,
-  } from 'recharts';
-  import { toast } from 'react-hot-toast';
+// src/workspaceScreens/YourWorkspaceId.jsx
+import React, { useEffect, useState, useCallback, useRef, memo } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useSelector } from 'react-redux';
+import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
+import { useGetWorkspaceProjectsQuery } from '../slices/projectApiSlice';
+import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
+import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
+import { useWorkspacePresence } from '../services/useWorkspacePresence';
+import {
+  useGetClockInSettingsQuery,
+  useGetUserClockInHistoryQuery,
+} from '../slices/clockinApiSlice';
+import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
+import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
+import {
+  FaUsers,
+  FaHashtag,
+  FaFolder,
+  FaCircle,
+  FaEye,
+  FaEyeSlash,
+  FaChartLine,
+  FaUserPlus,
+  FaCopy,
+  FaTasks,
+  FaCheckCircle,
+  FaClock,
+  FaSpinner,
+  FaArrowLeft,
+  FaCheck,
+  FaTimes,
+  FaExclamationTriangle,
+} from 'react-icons/fa';
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts';
+import { toast } from 'react-hot-toast';
 
-  // ─── Format "HH:MM" (24h) into friendly 12-hour time ──────────────
-  const formatTime = (time24) => {
-    if (!time24) return '';
-    const [h, m] = time24.split(':').map(Number);
-    const period = h >= 12 ? 'PM' : 'AM';
-    const hour12 = h % 12 === 0 ? 12 : h % 12;
-    return `${hour12}:${String(m).padStart(2, '0')} ${period}`;
-  };
+// ─── Format "HH:MM" (24h) into friendly 12-hour time ──────────────
+const formatTime = (time24) => {
+  if (!time24) return '';
+  const [h, m] = time24.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, '0')} ${period}`;
+};
 
-  // ─── Helper component to fetch task count for a single project ──
-  const TaskCounter = memo(({ projectId, onCount, onLoading }) => {
-    const { data, isLoading } = useGetProjectTasksQuery({ projectId });
-    const mounted = useRef(true);
-    const lastCount = useRef(0);
-
-    useEffect(() => {
-      mounted.current = true;
-      return () => { mounted.current = false; };
-    }, []);
-
-    useEffect(() => {
-      if (data && mounted.current) {
-        const count = data.tasks.length;
-        if (count !== lastCount.current) {
-          lastCount.current = count;
-          onCount(projectId, count);
-        }
-      }
-      if (isLoading !== undefined && mounted.current) {
-        onLoading(projectId, isLoading);
-      }
-    }, [data, isLoading, projectId, onCount, onLoading]);
-
-    return null;
-  });
-
-  // ─── helper: pull a user id off either a populated user object or a raw id ──
-  const getMemberId = (member) => (member?.user?._id || member?.user)?.toString();
-
-  // ─── Clock‑in / out widget (now navigates to clock‑in page) ──────────
-  const ClockInWidget = ({ workspaceId, brandColor }) => {
-    const navigate = useNavigate();
-    const { data: settingsData, isLoading: settingsLoading } =
-      useGetClockInSettingsQuery(workspaceId);
-    const { data: historyData } =
-      useGetUserClockInHistoryQuery(
-        { workspaceId, page: 1, limit: 1 },
-        { skip: !settingsData?.settings?.clockInEnabled }
+// ─── Global styles: skeleton shimmer ───────────────────────────────
+const GlobalStyles = () => (
+  <style>{`
+    .skeleton {
+      position: relative;
+      overflow: hidden;
+      background-color: rgb(229 231 235); /* gray-200 */
+    }
+    .dark .skeleton {
+      background-color: rgba(255, 255, 255, 0.07);
+    }
+    .skeleton::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      transform: translateX(-100%);
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.55),
+        transparent
       );
+      animation: skeletonShimmer 1.5s ease-in-out infinite;
+    }
+    .dark .skeleton::after {
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.07),
+        transparent
+      );
+    }
+    @keyframes skeletonShimmer {
+      100% { transform: translateX(100%); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .skeleton::after { animation: none; }
+    }
+  `}</style>
+);
 
-    const isEnabled = settingsData?.settings?.clockInEnabled || false;
-    const today = new Date().toISOString().split('T')[0];
-    const latest = historyData?.history?.[0];
-    const isClockedIn =
-      latest &&
-      new Date(latest.clockInTime).toISOString().split('T')[0] === today &&
-      !latest.clockOutTime;
-    const clockInTime = isClockedIn
-      ? new Date(latest.clockInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      : null;
+// ─── Skeleton primitives ───────────────────────────────────────────
+const Skeleton = ({ className = '', style }) => (
+  <div className={`skeleton rounded-lg ${className}`} style={style} />
+);
 
-    if (!isEnabled) return null;
-    if (settingsLoading) return <FaSpinner className="animate-spin text-teal-500 text-sm" />;
+const MetricCardSkeleton = () => (
+  <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-4 flex flex-col items-start gap-2">
+    <div className="flex items-center justify-between w-full">
+      <Skeleton className="w-9 h-9 rounded-xl" />
+      <Skeleton className="h-3 w-4" />
+    </div>
+    <Skeleton className="h-6 w-14 mt-1" />
+    <Skeleton className="h-2.5 w-20" />
+  </div>
+);
 
-    const handleNavigate = () => {
-      navigate(`/workspace/${workspaceId}/clockin`);
-    };
+const QuickActionSkeleton = () => (
+  <div className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-xl bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60">
+    <Skeleton className="w-6 h-6 rounded-md" />
+    <Skeleton className="h-2.5 w-14" />
+  </div>
+);
 
-    return (
-      <div className="flex items-center gap-2 bg-gray-100 dark:bg-[#14141a] px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-800/60 text-xs">
-        <FaClock className="text-teal-600 dark:text-[#0d9488]" />
-        {isClockedIn ? (
-          <>
-            <span className="text-gray-700 dark:text-gray-300">
-              In at <span className="font-mono">{clockInTime}</span>
-            </span>
-            <button
-              onClick={handleNavigate}
-              className="flex items-center gap-1 px-2 py-0.5 bg-red-500/10 text-red-600 dark:text-red-400 rounded-full hover:bg-red-500/20 transition"
-            >
-              <FaTimes className="text-[10px]" />
-              <span className="hidden sm:inline">Out</span>
-            </button>
-          </>
-        ) : (
-          <button
-            onClick={handleNavigate}
-            className="flex items-center gap-1 px-2 py-0.5 bg-teal-500/10 rounded-full hover:bg-teal-500/20 transition"
-            style={{ color: brandColor }}
-          >
-            <FaCheck className="text-[10px]" />
-            <span className="hidden sm:inline">Clock In</span>
-          </button>
-        )}
+const ListRowSkeleton = () => (
+  <div className="flex items-center gap-3 px-4 sm:px-5 py-3 border-b border-gray-100 dark:border-gray-800/30 last:border-0">
+    <Skeleton className="w-9 h-9 rounded-xl flex-shrink-0" />
+    <div className="flex-1 min-w-0 space-y-2">
+      <Skeleton className="h-3.5 w-32 max-w-[60%]" />
+      <Skeleton className="h-2.5 w-24" />
+    </div>
+  </div>
+);
+
+// ─── Loading shell — sidebar & bottombar render normally (static) ──
+const WorkspaceLoadingShell = () => (
+  <div className="min-h-screen bg-gray-50 dark:bg-[#0b0b10] flex flex-col">
+    {/* Sidebar — static, no skeleton */}
+    <div className="hidden md:block md:w-[260px] md:min-h-screen md:flex-shrink-0 fixed top-0 left-0 z-20">
+      <YourWorkspaceSidebar />
+    </div>
+
+    <div className="flex-1 md:ml-[260px]">
+      {/* Mobile header skeleton */}
+      <div className="md:hidden fixed top-0 left-0 right-0 z-10 bg-white/80 dark:bg-[#0b0b10]/80 backdrop-blur-md px-4 pt-4 pb-2 border-b border-gray-200/60 dark:border-gray-800/40">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex-1 min-w-0 space-y-1.5">
+            <Skeleton className="h-2.5 w-20" />
+            <Skeleton className="h-4 w-32" />
+          </div>
+          <Skeleton className="w-8 h-8 rounded-full flex-shrink-0" />
+        </div>
       </div>
-    );
-  };
 
-  // ─── Clock‑in Schedule Banner with Countdown (shortened text) ──────
-  const ClockInBanner = ({ workspaceId, brandColor, userInfo }) => {
-    const { data: settingsData } = useGetClockInSettingsQuery(workspaceId);
-    const { data: historyData } = useGetUserClockInHistoryQuery(
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 md:pb-6 mt-16 md:mt-0">
+        {/* Mobile hero card skeleton */}
+        <div className="md:hidden mb-4">
+          <div className="bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-1.5 flex-1">
+                <Skeleton className="h-2.5 w-20" />
+                <Skeleton className="h-5 w-32" />
+              </div>
+              <Skeleton className="w-8 h-8 rounded-full" />
+            </div>
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-8 w-16" />
+            </div>
+            <Skeleton className="h-10 w-full rounded-xl" />
+          </div>
+        </div>
+
+        {/* Desktop hero bar skeleton */}
+        <div className="hidden md:flex items-center justify-between gap-3 mb-6">
+          <div className="flex items-center gap-3">
+            <Skeleton className="w-10 h-10 rounded-xl" />
+            <div className="space-y-1.5">
+              <Skeleton className="h-2.5 w-20" />
+              <Skeleton className="h-5 w-40" />
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-8 w-24 rounded-full" />
+            <Skeleton className="h-8 w-32 rounded-full" />
+            <Skeleton className="h-8 w-40 rounded-full" />
+          </div>
+        </div>
+
+        {/* Metrics grid */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
+          <MetricCardSkeleton />
+          <MetricCardSkeleton />
+          <div className="hidden md:block"><MetricCardSkeleton /></div>
+          <div className="hidden md:block"><MetricCardSkeleton /></div>
+        </div>
+
+        {/* Chart + quick actions */}
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
+          <div className="lg:col-span-3 bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-4 sm:p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="space-y-1.5">
+                <Skeleton className="h-2.5 w-32" />
+                <Skeleton className="h-5 w-40" />
+              </div>
+              <Skeleton className="h-3 w-16" />
+            </div>
+            <div className="h-28 sm:h-32 w-full flex items-end gap-2 pt-4">
+              {[40, 65, 50, 80, 55, 70, 45].map((h, i) => (
+                <Skeleton key={i} className="flex-1 rounded-md" style={{ height: `${h}%` }} />
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-1 gap-2">
+            <QuickActionSkeleton />
+            <QuickActionSkeleton />
+            <QuickActionSkeleton />
+          </div>
+        </div>
+
+        {/* Two-column: projects + members/about */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <div className="lg:col-span-2 bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden">
+            <div className="px-4 sm:px-5 py-3 flex items-center justify-between border-b border-gray-200/60 dark:border-gray-800/40">
+              <Skeleton className="h-3.5 w-32" />
+              <Skeleton className="h-3 w-16" />
+            </div>
+            {Array.from({ length: 5 }).map((_, i) => <ListRowSkeleton key={i} />)}
+          </div>
+
+          <div className="space-y-4">
+            <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden">
+              <div className="px-4 sm:px-5 py-3 flex items-center justify-between border-b border-gray-200/60 dark:border-gray-800/40">
+                <Skeleton className="h-3.5 w-24" />
+                <Skeleton className="h-3 w-14" />
+              </div>
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3 px-4 sm:px-5 py-2 border-b border-gray-100 dark:border-gray-800/30 last:border-0">
+                  <Skeleton className="w-7 h-7 rounded-xl flex-shrink-0" />
+                  <Skeleton className="h-3 flex-1 max-w-[120px]" />
+                  <Skeleton className="w-1.5 h-1.5 rounded-full flex-shrink-0" />
+                </div>
+              ))}
+            </div>
+
+            <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-4 space-y-3">
+              <Skeleton className="h-2.5 w-16" />
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-4/5" />
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    {/* Bottombar — static, no skeleton */}
+    <YourWorkspaceBottombar />
+  </div>
+);
+
+// ─── Helper component to fetch task count for a single project ──
+const TaskCounter = memo(({ projectId, onCount, onLoading }) => {
+  const { data, isLoading } = useGetProjectTasksQuery({ projectId });
+  const mounted = useRef(true);
+  const lastCount = useRef(0);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
+  useEffect(() => {
+    if (data && mounted.current) {
+      const count = data.tasks.length;
+      if (count !== lastCount.current) {
+        lastCount.current = count;
+        onCount(projectId, count);
+      }
+    }
+    if (isLoading !== undefined && mounted.current) {
+      onLoading(projectId, isLoading);
+    }
+  }, [data, isLoading, projectId, onCount, onLoading]);
+
+  return null;
+});
+
+// ─── helper: pull a user id off either a populated user object or a raw id ──
+const getMemberId = (member) => (member?.user?._id || member?.user)?.toString();
+
+// ─── Clock‑in / out widget (now navigates to clock‑in page) ──────────
+const ClockInWidget = ({ workspaceId, brandColor }) => {
+  const navigate = useNavigate();
+  const { data: settingsData, isLoading: settingsLoading } =
+    useGetClockInSettingsQuery(workspaceId);
+  const { data: historyData } =
+    useGetUserClockInHistoryQuery(
       { workspaceId, page: 1, limit: 1 },
       { skip: !settingsData?.settings?.clockInEnabled }
     );
 
-    const [countdown, setCountdown] = useState('');
-    const [isOverdue, setIsOverdue] = useState(false);
+  const isEnabled = settingsData?.settings?.clockInEnabled || false;
+  const today = new Date().toISOString().split('T')[0];
+  const latest = historyData?.history?.[0];
+  const isClockedIn =
+    latest &&
+    new Date(latest.clockInTime).toISOString().split('T')[0] === today &&
+    !latest.clockOutTime;
+  const clockInTime = isClockedIn
+    ? new Date(latest.clockInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : null;
 
-    const isEnabled = settingsData?.settings?.clockInEnabled || false;
-    const clockInStart = settingsData?.settings?.clockInStart || settingsData?.settings?.clockInTime || null;
-    const clockInEnd = settingsData?.settings?.clockInEnd || null;
-    const hasScheduledTime = clockInStart !== null;
-    const closingTime = settingsData?.settings?.closingTime || null;
+  if (!isEnabled) return null;
+  if (settingsLoading) return <FaSpinner className="animate-spin text-teal-500 text-sm" />;
 
-    // Check if user is clocked in today
-    const today = new Date().toISOString().split('T')[0];
-    const latest = historyData?.history?.[0];
-    const isClockedIn =
-      latest &&
-      new Date(latest.clockInTime).toISOString().split('T')[0] === today &&
-      !latest.clockOutTime;
+  const handleNavigate = () => {
+    navigate(`/workspace/${workspaceId}/clockin`);
+  };
 
-    // ─── Countdown timer ──────────────────────────────────────────────
-    useEffect(() => {
-      if (!isEnabled || !hasScheduledTime || isClockedIn) {
-        setCountdown('');
+  return (
+    <div className="flex items-center gap-2 bg-gray-100 dark:bg-[#14141a] px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-800/60 text-xs">
+      <FaClock className="text-teal-600 dark:text-[#0d9488]" />
+      {isClockedIn ? (
+        <>
+          <span className="text-gray-700 dark:text-gray-300">
+            In at <span className="font-mono">{clockInTime}</span>
+          </span>
+          <button
+            onClick={handleNavigate}
+            className="flex items-center gap-1 px-2 py-0.5 bg-red-500/10 text-red-600 dark:text-red-400 rounded-full hover:bg-red-500/20 transition"
+          >
+            <FaTimes className="text-[10px]" />
+            <span className="hidden sm:inline">Out</span>
+          </button>
+        </>
+      ) : (
+        <button
+          onClick={handleNavigate}
+          className="flex items-center gap-1 px-2 py-0.5 bg-teal-500/10 rounded-full hover:bg-teal-500/20 transition"
+          style={{ color: brandColor }}
+        >
+          <FaCheck className="text-[10px]" />
+          <span className="hidden sm:inline">Clock In</span>
+        </button>
+      )}
+    </div>
+  );
+};
+
+// ─── Clock‑in Schedule Banner with Countdown (shortened text) ──────
+const ClockInBanner = ({ workspaceId, brandColor, userInfo }) => {
+  const { data: settingsData } = useGetClockInSettingsQuery(workspaceId);
+  const { data: historyData } = useGetUserClockInHistoryQuery(
+    { workspaceId, page: 1, limit: 1 },
+    { skip: !settingsData?.settings?.clockInEnabled }
+  );
+
+  const [countdown, setCountdown] = useState('');
+  const [isOverdue, setIsOverdue] = useState(false);
+
+  const isEnabled = settingsData?.settings?.clockInEnabled || false;
+  const clockInStart = settingsData?.settings?.clockInStart || settingsData?.settings?.clockInTime || null;
+  const clockInEnd = settingsData?.settings?.clockInEnd || null;
+  const hasScheduledTime = clockInStart !== null;
+  const closingTime = settingsData?.settings?.closingTime || null;
+
+  // Check if user is clocked in today
+  const today = new Date().toISOString().split('T')[0];
+  const latest = historyData?.history?.[0];
+  const isClockedIn =
+    latest &&
+    new Date(latest.clockInTime).toISOString().split('T')[0] === today &&
+    !latest.clockOutTime;
+
+  // ─── Countdown timer ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!isEnabled || !hasScheduledTime || isClockedIn) {
+      setCountdown('');
+      return;
+    }
+
+    const updateCountdown = () => {
+      const now = new Date();
+      const [startHours, startMinutes] = clockInStart.split(':').map(Number);
+      const startDate = new Date(now);
+      startDate.setHours(startHours, startMinutes, 0, 0);
+
+      let diffMs = startDate - now;
+      let isLate = false;
+
+      if (diffMs < 0) {
+        isLate = true;
+        setIsOverdue(true);
+
+        if (clockInEnd) {
+          const [endHours, endMinutes] = clockInEnd.split(':').map(Number);
+          const endDate = new Date(now);
+          endDate.setHours(endHours, endMinutes, 0, 0);
+          if (now > endDate) {
+            setCountdown('⛔ Closed');
+            return;
+          }
+        }
+
+        const lateMinutes = Math.floor(Math.abs(diffMs) / 60000);
+        const lateSeconds = Math.floor((Math.abs(diffMs) % 60000) / 1000);
+        setCountdown(`-${String(lateMinutes).padStart(2, '0')}:${String(lateSeconds).padStart(2, '0')}`);
         return;
       }
 
-      const updateCountdown = () => {
-        const now = new Date();
-        const [startHours, startMinutes] = clockInStart.split(':').map(Number);
-        const startDate = new Date(now);
-        startDate.setHours(startHours, startMinutes, 0, 0);
+      setIsOverdue(false);
+      const minutes = Math.floor(diffMs / 60000);
+      const seconds = Math.floor((diffMs % 60000) / 1000);
+      setCountdown(`${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
+    };
 
-        let diffMs = startDate - now;
-        let isLate = false;
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [isEnabled, hasScheduledTime, clockInStart, clockInEnd, isClockedIn]);
 
-        if (diffMs < 0) {
-          isLate = true;
-          setIsOverdue(true);
+  if (!isEnabled) return null;
 
-          if (clockInEnd) {
-            const [endHours, endMinutes] = clockInEnd.split(':').map(Number);
-            const endDate = new Date(now);
-            endDate.setHours(endHours, endMinutes, 0, 0);
-            if (now > endDate) {
-              setCountdown('⛔ Closed');
-              return;
-            }
-          }
+  // No schedule set
+  if (!hasScheduledTime) {
+    return (
+      <div className="px-3 sm:px-6 py-2 border-t border-gray-200/60 dark:border-gray-800/30 flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm bg-yellow-50/50 dark:bg-yellow-900/10">
+        <span className="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
+          <FaExclamationTriangle className="text-yellow-500 text-[11px] sm:text-xs" />
+          No schedule set —{' '}
+          <Link
+            to={`/workspace/${workspaceId}/clockin`}
+            className="underline font-medium hover:opacity-80 transition"
+            style={{ color: brandColor }}
+          >
+            set it now
+          </Link>
+        </span>
+        <ClockInWidget workspaceId={workspaceId} brandColor={brandColor} />
+      </div>
+    );
+  }
 
-          const lateMinutes = Math.floor(Math.abs(diffMs) / 60000);
-          const lateSeconds = Math.floor((Math.abs(diffMs) % 60000) / 1000);
-          setCountdown(`-${String(lateMinutes).padStart(2, '0')}:${String(lateSeconds).padStart(2, '0')}`);
-          return;
-        }
-
-        setIsOverdue(false);
-        const minutes = Math.floor(diffMs / 60000);
-        const seconds = Math.floor((diffMs % 60000) / 1000);
-        setCountdown(`${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
-      };
-
-      updateCountdown();
-      const interval = setInterval(updateCountdown, 1000);
-      return () => clearInterval(interval);
-    }, [isEnabled, hasScheduledTime, clockInStart, clockInEnd, isClockedIn]);
-
-    if (!isEnabled) return null;
-
-    // No schedule set
-    if (!hasScheduledTime) {
-      return (
-        <div className="px-3 sm:px-6 py-2 border-t border-gray-200/60 dark:border-gray-800/30 flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm bg-yellow-50/50 dark:bg-yellow-900/10">
-          <span className="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
-            <FaExclamationTriangle className="text-yellow-500 text-[11px] sm:text-xs" />
-            No schedule set —{' '}
-            <Link
-              to={`/workspace/${workspaceId}/clockin`}
-              className="underline font-medium hover:opacity-80 transition"
-              style={{ color: brandColor }}
-            >
-              set it now
-            </Link>
-          </span>
-          <ClockInWidget workspaceId={workspaceId} brandColor={brandColor} />
-        </div>
-      );
-    }
-
-    // Clocked in – shortened
-    if (isClockedIn) {
-      const clockInTimeFormatted = latest
-        ? new Date(latest.clockInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        : '';
-      return (
-        <div
-          className="px-3 sm:px-6 py-2 border-t border-gray-200/60 dark:border-gray-800/30 flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm"
-          style={{ backgroundColor: `${brandColor}0d` }}
-        >
-          <span className="flex items-center gap-1.5 font-medium text-green-600 dark:text-green-400 whitespace-nowrap">
-            <FaCheck className="text-[11px] sm:text-xs" />
-            ✓ In {clockInTimeFormatted}
-            {closingTime && (
-              <span className="text-gray-600 dark:text-gray-400 font-normal whitespace-nowrap">
-                · Closes {formatTime(closingTime)}
-              </span>
-            )}
-          </span>
-          <ClockInWidget workspaceId={workspaceId} brandColor={brandColor} />
-        </div>
-      );
-    }
-
-    // Show countdown banner
-    const isLate = countdown.startsWith('-');
-    const windowClosed = countdown.includes('Closed');
-
+  // Clocked in – shortened
+  if (isClockedIn) {
+    const clockInTimeFormatted = latest
+      ? new Date(latest.clockInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : '';
     return (
       <div
-        className={`px-3 sm:px-6 py-2 border-t border-gray-200/60 dark:border-gray-800/30 flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm transition-colors ${
-          isLate && !windowClosed
-            ? 'bg-red-50/80 dark:bg-red-950/20 border-red-200 dark:border-red-800/30'
-            : isLate && windowClosed
-            ? 'bg-red-100 dark:bg-red-950/30 border-red-300 dark:border-red-800/50'
-            : 'bg-teal-50/50 dark:bg-teal-950/10'
-        }`}
+        className="px-3 sm:px-6 py-2 border-t border-gray-200/60 dark:border-gray-800/30 flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm"
+        style={{ backgroundColor: `${brandColor}0d` }}
       >
-        <span className="flex items-center gap-1.5 font-medium whitespace-nowrap" style={{ color: isLate ? '#dc2626' : brandColor }}>
-          <FaClock className="text-[11px] sm:text-xs" />
-          {windowClosed ? (
-            <>
-              ⛔ <span className="font-semibold text-red-700 dark:text-red-300">Closed</span>
-            </>
-          ) : isLate ? (
-            <>
-              <span className="text-red-700 dark:text-red-300">⏰ Late</span>
-              <span className="font-mono font-bold text-red-700 dark:text-red-300">{countdown}</span>
-            </>
-          ) : (
-            <>
-              In <span className="font-mono font-bold" style={{ color: brandColor }}>{countdown}</span>
-            </>
-          )}
-          {!windowClosed && (
-            <span className="text-gray-600 dark:text-gray-400 font-normal whitespace-nowrap">
-              · {formatTime(clockInStart)}{clockInEnd ? `–${formatTime(clockInEnd)}` : ''}
-            </span>
-          )}
-          {closingTime && !windowClosed && (
+        <span className="flex items-center gap-1.5 font-medium text-green-600 dark:text-green-400 whitespace-nowrap">
+          <FaCheck className="text-[11px] sm:text-xs" />
+          ✓ In {clockInTimeFormatted}
+          {closingTime && (
             <span className="text-gray-600 dark:text-gray-400 font-normal whitespace-nowrap">
               · Closes {formatTime(closingTime)}
             </span>
@@ -302,303 +457,348 @@
         <ClockInWidget workspaceId={workspaceId} brandColor={brandColor} />
       </div>
     );
-  };
+  }
 
-  // ─── main component ──────────────────────────────────────────────────
-  const YourWorkspaceId = () => {
-    const { workspaceId } = useParams();
-    const navigate = useNavigate();
-    const { userInfo } = useSelector((state) => state.auth);
-    const [hideStats, setHideStats] = useState(false);
-    const [copySuccess, setCopySuccess] = useState(false);
+  // Show countdown banner
+  const isLate = countdown.startsWith('-');
+  const windowClosed = countdown.includes('Closed');
 
-    const { data, isLoading, error } = useGetWorkspaceQuery(workspaceId);
-    const { data: projectsData, isLoading: projectsLoading } = useGetWorkspaceProjectsQuery({ workspaceId });
-    const { data: chatsData } = useGetUserChatsQuery(workspaceId);
-
-    // ── real-time online presence for this workspace, driven by sockets ──
-    const onlineUserIds = useWorkspacePresence(workspaceId);
-
-    // ── state for aggregating task counts ──────────────────────────
-    const [totalTasks, setTotalTasks] = useState(0);
-    const [taskCounts, setTaskCounts] = useState({});
-    const [loadingTasks, setLoadingTasks] = useState({});
-
-    const handleTaskCount = useCallback((projectId, count) => {
-      setTaskCounts(prev => {
-        if (prev[projectId] === count) return prev;
-        return { ...prev, [projectId]: count };
-      });
-    }, []);
-
-    const handleTaskLoading = useCallback((projectId, loading) => {
-      setLoadingTasks(prev => {
-        if (prev[projectId] === loading) return prev;
-        return { ...prev, [projectId]: loading };
-      });
-    }, []);
-
-    useEffect(() => {
-      const sum = Object.values(taskCounts).reduce((a, b) => a + b, 0);
-      setTotalTasks(sum);
-    }, [taskCounts]);
-
-    const isTasksLoading = projectsData?.projects?.some(p => loadingTasks[p._id] !== false) ?? false;
-
-    useEffect(() => {
-      if (error) navigate('/my-workspaces');
-    }, [error, navigate]);
-
-    const copyInviteCode = () => {
-      if (workspace?.inviteCode) {
-        navigator.clipboard.writeText(workspace.inviteCode);
-        setCopySuccess(true);
-        setTimeout(() => setCopySuccess(false), 2000);
-      }
-    };
-
-    if (isLoading) {
-      return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
-          <div className="text-center">
-            <div
-              className="w-8 h-8 border-[3px] border-t-transparent rounded-full animate-spin mx-auto"
-              style={{ borderColor: '#0d9488', borderTopColor: 'transparent' }}
-            />
-            <p className="mt-3 text-gray-500 dark:text-gray-500 text-sm">Loading workspace...</p>
-          </div>
-        </div>
-      );
-    }
-
-    const workspace = data?.workspace;
-    const chats = chatsData?.chats || [];
-    const projects = projectsData?.projects || [];
-    if (!workspace) return null;
-
-    // ── membership status ("active" member) vs. real-time online status ──
-    const activeMembers = workspace.members?.filter((m) => m.status === 'active') || [];
-    const isMemberOnline = (member) => onlineUserIds.has(getMemberId(member));
-    const onlineCount = activeMembers.filter(isMemberOnline).length;
-    const onlineMembers = activeMembers.filter(isMemberOnline);
-
-    const channelCount = chats.filter((c) => c.type === 'group').length || 0;
-    const brandColor = workspace.color || '#0d9488';
-
-    const avgProgress = projects.length > 0 
-      ? Math.round(projects.reduce((sum, p) => sum + (p.progress || 0), 0) / projects.length) 
-      : 0;
-
-    // ─── prepare chart data ──────────────────────────────────────────
-    const chartProjects = [...projects]
-      .sort((a, b) => {
-        if (a.createdAt && b.createdAt) {
-          return new Date(a.createdAt) - new Date(b.createdAt);
-        }
-        return 0;
-      })
-      .slice(0, 10)
-      .map((p) => ({
-        name: p.name.length > 10 ? p.name.slice(0, 10) + '…' : p.name,
-        progress: p.progress || 0,
-      }));
-
-    // ─── metric card ──────────────────────────────────────────────────
-    const MetricCard = ({ icon: Icon, label, value, to, badge, badgeColor }) => (
-      <Link
-        to={to}
-        className="group relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-4 flex flex-col items-start gap-1 hover:border-teal-500 dark:hover:border-transparent hover:shadow-[0_0_20px_rgba(13,148,136,0.2)] dark:hover:shadow-[0_0_20px_rgba(13,148,136,0.2)] transition-all duration-300 overflow-hidden"
-      >
-        <div className="absolute inset-0 bg-gradient-to-br from-teal-500/0 via-teal-500/0 to-transparent dark:group-hover:from-[#0d9488]/10 dark:group-hover:via-[#0d9488]/5 group-hover:from-teal-500/10 group-hover:via-teal-500/5 transition-all duration-500" />
-        {badge && (
-          <span
-            className={`absolute -top-1 right-2 text-[9px] font-bold px-2 py-0.5 rounded-full text-white ${badgeColor} shadow-[0_0_10px_rgba(34,197,94,0.4)]`}
-          >
-            {badge}
+  return (
+    <div
+      className={`px-3 sm:px-6 py-2 border-t border-gray-200/60 dark:border-gray-800/30 flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm transition-colors ${
+        isLate && !windowClosed
+          ? 'bg-red-50/80 dark:bg-red-950/20 border-red-200 dark:border-red-800/30'
+          : isLate && windowClosed
+          ? 'bg-red-100 dark:bg-red-950/30 border-red-300 dark:border-red-800/50'
+          : 'bg-teal-50/50 dark:bg-teal-950/10'
+      }`}
+    >
+      <span className="flex items-center gap-1.5 font-medium whitespace-nowrap" style={{ color: isLate ? '#dc2626' : brandColor }}>
+        <FaClock className="text-[11px] sm:text-xs" />
+        {windowClosed ? (
+          <>
+            ⛔ <span className="font-semibold text-red-700 dark:text-red-300">Closed</span>
+          </>
+        ) : isLate ? (
+          <>
+            <span className="text-red-700 dark:text-red-300">⏰ Late</span>
+            <span className="font-mono font-bold text-red-700 dark:text-red-300">{countdown}</span>
+          </>
+        ) : (
+          <>
+            In <span className="font-mono font-bold" style={{ color: brandColor }}>{countdown}</span>
+          </>
+        )}
+        {!windowClosed && (
+          <span className="text-gray-600 dark:text-gray-400 font-normal whitespace-nowrap">
+            · {formatTime(clockInStart)}{clockInEnd ? `–${formatTime(clockInEnd)}` : ''}
           </span>
         )}
-        <div className="flex items-center justify-between w-full">
-          <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center bg-teal-50 dark:bg-[#0d9488]/10 text-teal-600 dark:text-[#0d9488] group-hover:scale-110 transition-transform"
-            style={{ color: brandColor, backgroundColor: `${brandColor}15` }}
-          >
-            <Icon className="text-sm" />
-          </div>
-          <span className="text-xs font-mono text-gray-400 dark:text-gray-600 group-hover:text-gray-600 dark:group-hover:text-gray-400 transition">
-            {hideStats ? '••••' : '→'}
+        {closingTime && !windowClosed && (
+          <span className="text-gray-600 dark:text-gray-400 font-normal whitespace-nowrap">
+            · Closes {formatTime(closingTime)}
           </span>
-        </div>
-        <p className="text-lg font-bold text-gray-800 dark:text-gray-100 tracking-tight mt-1">
-          {hideStats ? '••••' : value}
-        </p>
-        <p className="text-[11px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">{label}</p>
-      </Link>
+        )}
+      </span>
+      <ClockInWidget workspaceId={workspaceId} brandColor={brandColor} />
+    </div>
+  );
+};
+
+// ─── main component ──────────────────────────────────────────────────
+const YourWorkspaceId = () => {
+  const { workspaceId } = useParams();
+  const navigate = useNavigate();
+  const { userInfo } = useSelector((state) => state.auth);
+  const [hideStats, setHideStats] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
+
+  const { data, isLoading, error } = useGetWorkspaceQuery(workspaceId);
+  const { data: projectsData, isLoading: projectsLoading } = useGetWorkspaceProjectsQuery({ workspaceId });
+  const { data: chatsData } = useGetUserChatsQuery(workspaceId);
+
+  // ── real-time online presence for this workspace, driven by sockets ──
+  const onlineUserIds = useWorkspacePresence(workspaceId);
+
+  // ── state for aggregating task counts ──────────────────────────
+  const [totalTasks, setTotalTasks] = useState(0);
+  const [taskCounts, setTaskCounts] = useState({});
+  const [loadingTasks, setLoadingTasks] = useState({});
+
+  const handleTaskCount = useCallback((projectId, count) => {
+    setTaskCounts(prev => {
+      if (prev[projectId] === count) return prev;
+      return { ...prev, [projectId]: count };
+    });
+  }, []);
+
+  const handleTaskLoading = useCallback((projectId, loading) => {
+    setLoadingTasks(prev => {
+      if (prev[projectId] === loading) return prev;
+      return { ...prev, [projectId]: loading };
+    });
+  }, []);
+
+  useEffect(() => {
+    const sum = Object.values(taskCounts).reduce((a, b) => a + b, 0);
+    setTotalTasks(sum);
+  }, [taskCounts]);
+
+  const isTasksLoading = projectsData?.projects?.some(p => loadingTasks[p._id] !== false) ?? false;
+
+  useEffect(() => {
+    if (error) navigate('/my-workspaces');
+  }, [error, navigate]);
+
+  const copyInviteCode = () => {
+    if (workspace?.inviteCode) {
+      navigator.clipboard.writeText(workspace.inviteCode);
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    }
+  };
+
+  // ── Loading state — sidebar & bottombar stay live, only content shimmers ──
+  if (isLoading) {
+    return (
+      <>
+        <GlobalStyles />
+        <WorkspaceLoadingShell />
+      </>
     );
+  }
 
-    // ─── quick action button ──────────────────────────────────────────
-    const QuickAction = ({ icon: Icon, label, to, onClick }) => {
-      const content = (
-        <div className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-xl bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 hover:border-teal-500 dark:hover:border-[#0d9488]/40 hover:shadow-[0_0_15px_rgba(13,148,136,0.15)] dark:hover:shadow-[0_0_15px_rgba(13,148,136,0.15)] transition-all duration-300 group">
-          <div className="text-gray-400 dark:text-gray-400 group-hover:text-teal-600 dark:group-hover:text-[#0d9488] transition-colors text-lg">
-            <Icon />
-          </div>
-          <span className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider group-hover:text-gray-700 dark:group-hover:text-gray-300 transition">
-            {label}
-          </span>
-        </div>
-      );
-      if (to) return <Link to={to}>{content}</Link>;
-      return <button onClick={onClick} className="w-full">{content}</button>;
-    };
+  const workspace = data?.workspace;
+  const chats = chatsData?.chats || [];
+  const projects = projectsData?.projects || [];
+  if (!workspace) return null;
 
-    // ─── Hero Card (mobile) ───────────────────────────────────────────
-    const HeroCard = () => (
-      <div className="relative bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl p-5 mb-4">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3 min-w-0">
-            <button
-              onClick={() => navigate('/my-workspaces')}
-              className="flex flex-col items-start hover:opacity-80 transition-opacity min-w-0 flex-1"
-            >
-              <span className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1.5">
-                <FaArrowLeft className="text-[8px]" />
-                Workspace
-              </span>
-              <h1 className="text-lg font-bold leading-tight truncate w-full text-gray-800 dark:text-gray-100">
-                {workspace.name}
-              </h1>
-            </button>
-          </div>
-          <button
-            onClick={() => setHideStats((v) => !v)}
-            className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition flex-shrink-0"
-          >
-            {hideStats ? <FaEyeSlash className="text-xs" /> : <FaEye className="text-xs" />}
-          </button>
-        </div>
+  // ── membership status ("active" member) vs. real-time online status ──
+  const activeMembers = workspace.members?.filter((m) => m.status === 'active') || [];
+  const isMemberOnline = (member) => onlineUserIds.has(getMemberId(member));
+  const onlineCount = activeMembers.filter(isMemberOnline).length;
+  const onlineMembers = activeMembers.filter(isMemberOnline);
 
-        <div className="flex items-end justify-between mb-4">
-          <div>
-            <button
-              onClick={() => setHideStats((v) => !v)}
-              className="flex items-center gap-2 text-gray-500 dark:text-gray-500 text-xs mb-1.5 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
-            >
-              <FaUsers className="text-[10px]" />
-              Active members
-            </button>
-            <p className="text-3xl font-bold tracking-tight text-gray-800 dark:text-gray-100">
-              {hideStats ? '••••' : activeMembers.length}
-            </p>
-          </div>
-          <div className="text-right">
-            <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2 justify-end">
-              <FaCircle className="text-[6px] text-green-500 dark:text-green-400" />
-              {onlineCount} online now
-            </span>
-          </div>
-        </div>
+  const channelCount = chats.filter((c) => c.type === 'group').length || 0;
+  const brandColor = workspace.color || '#0d9488';
 
-        <div className="flex items-center justify-between bg-gray-100 dark:bg-gray-800/30 rounded-xl px-4 py-2.5 border border-gray-200 dark:border-gray-800/40">
-          <span className="text-xs text-gray-500 dark:text-gray-400">Invite code</span>
-          <span className="text-xs font-mono tracking-wider text-gray-800 dark:text-gray-300 flex items-center gap-2">
-            {hideStats ? '••••••••' : workspace.inviteCode || '—'}
-            {!hideStats && (
-              <button
-                onClick={copyInviteCode}
-                className="text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] transition-colors"
-                title="Copy invite code"
-              >
-                <FaCopy className="text-xs" />
-              </button>
-            )}
-          </span>
-          {copySuccess && (
-            <span className="text-[10px] text-green-500 dark:text-green-400 animate-pulse">Copied!</span>
-          )}
+  const avgProgress = projects.length > 0
+    ? Math.round(projects.reduce((sum, p) => sum + (p.progress || 0), 0) / projects.length)
+    : 0;
+
+  // ─── prepare chart data ──────────────────────────────────────────
+  const chartProjects = [...projects]
+    .sort((a, b) => {
+      if (a.createdAt && b.createdAt) {
+        return new Date(a.createdAt) - new Date(b.createdAt);
+      }
+      return 0;
+    })
+    .slice(0, 10)
+    .map((p) => ({
+      name: p.name.length > 10 ? p.name.slice(0, 10) + '…' : p.name,
+      progress: p.progress || 0,
+    }));
+
+  // ─── metric card ──────────────────────────────────────────────────
+  const MetricCard = ({ icon: Icon, label, value, to, badge, badgeColor }) => (
+    <Link
+      to={to}
+      className="group relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-4 flex flex-col items-start gap-1 hover:border-teal-500 dark:hover:border-transparent hover:shadow-[0_0_20px_rgba(13,148,136,0.2)] dark:hover:shadow-[0_0_20px_rgba(13,148,136,0.2)] transition-all duration-300 overflow-hidden"
+    >
+      <div className="absolute inset-0 bg-gradient-to-br from-teal-500/0 via-teal-500/0 to-transparent dark:group-hover:from-[#0d9488]/10 dark:group-hover:via-[#0d9488]/5 group-hover:from-teal-500/10 group-hover:via-teal-500/5 transition-all duration-500" />
+      {badge && (
+        <span
+          className={`absolute -top-1 right-2 text-[9px] font-bold px-2 py-0.5 rounded-full text-white ${badgeColor} shadow-[0_0_10px_rgba(34,197,94,0.4)]`}
+        >
+          {badge}
+        </span>
+      )}
+      <div className="flex items-center justify-between w-full">
+        <div
+          className="w-9 h-9 rounded-xl flex items-center justify-center bg-teal-50 dark:bg-[#0d9488]/10 text-teal-600 dark:text-[#0d9488] group-hover:scale-110 transition-transform"
+          style={{ color: brandColor, backgroundColor: `${brandColor}15` }}
+        >
+          <Icon className="text-sm" />
         </div>
+        <span className="text-xs font-mono text-gray-400 dark:text-gray-600 group-hover:text-gray-600 dark:group-hover:text-gray-400 transition">
+          {hideStats ? '••••' : '→'}
+        </span>
+      </div>
+      <p className="text-lg font-bold text-gray-800 dark:text-gray-100 tracking-tight mt-1">
+        {hideStats ? '••••' : value}
+      </p>
+      <p className="text-[11px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">{label}</p>
+    </Link>
+  );
+
+  // ─── quick action button ──────────────────────────────────────────
+  const QuickAction = ({ icon: Icon, label, to, onClick }) => {
+    const content = (
+      <div className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-xl bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 hover:border-teal-500 dark:hover:border-[#0d9488]/40 hover:shadow-[0_0_15px_rgba(13,148,136,0.15)] dark:hover:shadow-[0_0_15px_rgba(13,148,136,0.15)] transition-all duration-300 group">
+        <div className="text-gray-400 dark:text-gray-400 group-hover:text-teal-600 dark:group-hover:text-[#0d9488] transition-colors text-lg">
+          <Icon />
+        </div>
+        <span className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider group-hover:text-gray-700 dark:group-hover:text-gray-300 transition">
+          {label}
+        </span>
       </div>
     );
+    if (to) return <Link to={to}>{content}</Link>;
+    return <button onClick={onClick} className="w-full">{content}</button>;
+  };
 
-    // ─── Project Item (always fetches tasks) ──────────────────────────
-    const ProjectItem = ({ project }) => {
-      const progress = project.progress || 0;
-      const statusColor = {
-        planning: 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700/40',
-        'in-progress': 'text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-700/40',
-        completed: 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700/40',
-        archived: 'text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700/40',
-      }[project.status] || 'text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700/40';
-      const statusLabel = {
-        planning: 'Planning',
-        'in-progress': 'In Progress',
-        completed: 'Completed',
-        archived: 'Archived',
-      }[project.status] || 'Planning';
-
-      const { data: taskData, isLoading: taskLoading } = useGetProjectTasksQuery(
-        { projectId: project._id }
-      );
-      const tasks = taskData?.tasks || [];
-      const totalTasks = tasks.length;
-      const completedTasks = tasks.filter(
-        (t) => t.status === 'completed' || t.status === 'confirmed_completed'
-      ).length;
-
-      return (
-        <Link
-          to={`/workspace/${workspaceId}/project/${project._id}`}
-          className="flex items-center gap-3 px-4 sm:px-5 py-3 hover:bg-teal-50 dark:hover:bg-[#0d9488]/5 transition group border-b border-gray-100 dark:border-gray-800/30 last:border-0"
-        >
-          <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ backgroundColor: `${brandColor}15` }}
+  // ─── Hero Card (mobile) ───────────────────────────────────────────
+  const HeroCard = () => (
+    <div className="relative bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl p-5 mb-4">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            onClick={() => navigate('/my-workspaces')}
+            className="flex flex-col items-start hover:opacity-80 transition-opacity min-w-0 flex-1"
           >
-            <FaFolder className="text-xs" style={{ color: brandColor }} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
-                {project.name}
-              </p>
-              <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border flex-shrink-0 ${statusColor}`}>
-                {statusLabel}
-              </span>
-            </div>
-            <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500 dark:text-gray-500">
-              {taskLoading ? (
-                <span className="flex items-center gap-1">
-                  <FaSpinner className="animate-spin text-[10px] text-teal-600 dark:text-[#0d9488]" />
-                  Loading tasks...
-                </span>
-              ) : (
-                <>
-                  <span className="flex items-center gap-1">
-                    <FaTasks className="text-[10px]" />
-                    {totalTasks} tasks
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <FaCheckCircle className="text-[10px] text-green-500 dark:text-green-400" />
-                    {completedTasks} done
-                  </span>
-                  <span className="flex-1">
-                    <div className="w-full h-1 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all duration-500"
-                        style={{ width: `${progress}%`, backgroundColor: brandColor }}
-                      />
-                    </div>
-                  </span>
-                  <span className="font-mono text-[10px] text-gray-400 dark:text-gray-400">{progress}%</span>
-                </>
-              )}
-            </div>
-          </div>
-        </Link>
-      );
-    };
+            <span className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1.5">
+              <FaArrowLeft className="text-[8px]" />
+              Workspace
+            </span>
+            <h1 className="text-lg font-bold leading-tight truncate w-full text-gray-800 dark:text-gray-100">
+              {workspace.name}
+            </h1>
+          </button>
+        </div>
+        <button
+          onClick={() => setHideStats((v) => !v)}
+          className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition flex-shrink-0"
+        >
+          {hideStats ? <FaEyeSlash className="text-xs" /> : <FaEye className="text-xs" />}
+        </button>
+      </div>
 
-    // ─── main render ─────────────────────────────────────────────────────
+      <div className="flex items-end justify-between mb-4">
+        <div>
+          <button
+            onClick={() => setHideStats((v) => !v)}
+            className="flex items-center gap-2 text-gray-500 dark:text-gray-500 text-xs mb-1.5 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+          >
+            <FaUsers className="text-[10px]" />
+            Active members
+          </button>
+          <p className="text-3xl font-bold tracking-tight text-gray-800 dark:text-gray-100">
+            {hideStats ? '••••' : activeMembers.length}
+          </p>
+        </div>
+        <div className="text-right">
+          <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2 justify-end">
+            <FaCircle className="text-[6px] text-green-500 dark:text-green-400" />
+            {onlineCount} online now
+          </span>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between bg-gray-100 dark:bg-gray-800/30 rounded-xl px-4 py-2.5 border border-gray-200 dark:border-gray-800/40">
+        <span className="text-xs text-gray-500 dark:text-gray-400">Invite code</span>
+        <span className="text-xs font-mono tracking-wider text-gray-800 dark:text-gray-300 flex items-center gap-2">
+          {hideStats ? '••••••••' : workspace.inviteCode || '—'}
+          {!hideStats && (
+            <button
+              onClick={copyInviteCode}
+              className="text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] transition-colors"
+              title="Copy invite code"
+            >
+              <FaCopy className="text-xs" />
+            </button>
+          )}
+        </span>
+        {copySuccess && (
+          <span className="text-[10px] text-green-500 dark:text-green-400 animate-pulse">Copied!</span>
+        )}
+      </div>
+    </div>
+  );
+
+  // ─── Project Item (always fetches tasks) ──────────────────────────
+  const ProjectItem = ({ project }) => {
+    const progress = project.progress || 0;
+    const statusColor = {
+      planning: 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700/40',
+      'in-progress': 'text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-700/40',
+      completed: 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700/40',
+      archived: 'text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700/40',
+    }[project.status] || 'text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700/40';
+    const statusLabel = {
+      planning: 'Planning',
+      'in-progress': 'In Progress',
+      completed: 'Completed',
+      archived: 'Archived',
+    }[project.status] || 'Planning';
+
+    const { data: taskData, isLoading: taskLoading } = useGetProjectTasksQuery(
+      { projectId: project._id }
+    );
+    const tasks = taskData?.tasks || [];
+    const totalTasks = tasks.length;
+    const completedTasks = tasks.filter(
+      (t) => t.status === 'completed' || t.status === 'confirmed_completed'
+    ).length;
+
     return (
+      <Link
+        to={`/workspace/${workspaceId}/project/${project._id}`}
+        className="flex items-center gap-3 px-4 sm:px-5 py-3 hover:bg-teal-50 dark:hover:bg-[#0d9488]/5 transition group border-b border-gray-100 dark:border-gray-800/30 last:border-0"
+      >
+        <div
+          className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+          style={{ backgroundColor: `${brandColor}15` }}
+        >
+          <FaFolder className="text-xs" style={{ color: brandColor }} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
+              {project.name}
+            </p>
+            <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border flex-shrink-0 ${statusColor}`}>
+              {statusLabel}
+            </span>
+          </div>
+          <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500 dark:text-gray-500">
+            {taskLoading ? (
+              <span className="flex items-center gap-1">
+                <FaSpinner className="animate-spin text-[10px] text-teal-600 dark:text-[#0d9488]" />
+                Loading tasks...
+              </span>
+            ) : (
+              <>
+                <span className="flex items-center gap-1">
+                  <FaTasks className="text-[10px]" />
+                  {totalTasks} tasks
+                </span>
+                <span className="flex items-center gap-1">
+                  <FaCheckCircle className="text-[10px] text-green-500 dark:text-green-400" />
+                  {completedTasks} done
+                </span>
+                <span className="flex-1">
+                  <div className="w-full h-1 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{ width: `${progress}%`, backgroundColor: brandColor }}
+                    />
+                  </div>
+                </span>
+                <span className="font-mono text-[10px] text-gray-400 dark:text-gray-400">{progress}%</span>
+              </>
+            )}
+          </div>
+        </div>
+      </Link>
+    );
+  };
+
+  // ─── main render ─────────────────────────────────────────────────────
+  return (
+    <>
+      <GlobalStyles />
+
       <div className="min-h-screen bg-gray-50 dark:bg-[#0b0b10] flex flex-col">
         {/* desktop sidebar */}
         <div className="hidden md:block md:w-[260px] md:min-h-screen md:flex-shrink-0 fixed top-0 left-0 z-20">
@@ -872,9 +1072,11 @@
                 </div>
                 <div className="divide-y divide-gray-100 dark:divide-gray-800/30">
                   {projectsLoading ? (
-                    <div className="px-4 py-8 text-center text-xs text-gray-500 dark:text-gray-500">
-                      Loading projects...
-                    </div>
+                    <>
+                      <ListRowSkeleton />
+                      <ListRowSkeleton />
+                      <ListRowSkeleton />
+                    </>
                   ) : projects.length === 0 ? (
                     <div className="px-4 py-8 text-center text-xs text-gray-500 dark:text-gray-500">
                       No projects yet. Create your first project!
@@ -1017,7 +1219,8 @@
         {/* bottom bar */}
         <YourWorkspaceBottombar workspace={workspace} />
       </div>
-    );
-  };
+    </>
+  );
+};
 
-  export default YourWorkspaceId;
+export default YourWorkspaceId;

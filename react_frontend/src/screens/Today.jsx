@@ -129,6 +129,220 @@ const accentMap = {
 };
 
 // ─────────────────────────────────────────────────────────────────
+// GLOBAL STYLES — scrollbar + skeleton shimmer
+// ─────────────────────────────────────────────────────────────────
+
+const GlobalStyles = () => (
+  <style>{`
+    .scrollbar-hide {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    .scrollbar-hide::-webkit-scrollbar {
+      display: none;
+    }
+
+    /* ── Skeleton shimmer ───────────────────────────────────────── */
+    .skeleton {
+      position: relative;
+      overflow: hidden;
+      background-color: rgb(229 231 235); /* gray-200 */
+    }
+    .dark .skeleton {
+      background-color: rgba(255, 255, 255, 0.07);
+    }
+    .skeleton::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      transform: translateX(-100%);
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.55),
+        transparent
+      );
+      animation: skeletonShimmer 1.5s ease-in-out infinite;
+    }
+    .dark .skeleton::after {
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.07),
+        transparent
+      );
+    }
+    @keyframes skeletonShimmer {
+      100% {
+        transform: translateX(100%);
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .skeleton::after {
+        animation: none;
+      }
+    }
+  `}</style>
+);
+
+// ─────────────────────────────────────────────────────────────────
+// SKELETON PRIMITIVES
+// ─────────────────────────────────────────────────────────────────
+
+const Skeleton = ({ className = '' }) => (
+  <div className={`skeleton rounded-lg ${className}`} />
+);
+
+const SectionCardSkeleton = ({ rows = 3, accentWidth = 'w-24' }) => (
+  <section className="bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl overflow-hidden">
+    {/* Header */}
+    <header className="px-4 lg:px-5 py-3 flex items-center gap-2.5 border-b border-gray-100 dark:border-gray-800/40">
+      <Skeleton className="w-7 h-7 rounded-lg flex-shrink-0" />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <Skeleton className={`h-3.5 ${accentWidth}`} />
+        <Skeleton className="h-2.5 w-32" />
+      </div>
+      <Skeleton className="h-4 w-6 rounded-full" />
+    </header>
+
+    {/* Rows */}
+    <div>
+      {Array.from({ length: rows }).map((_, i) => (
+        <div
+          key={i}
+          className="px-4 lg:px-5 py-3 flex items-start gap-3 border-b border-gray-100 dark:border-gray-800/30 last:border-0"
+        >
+          <div className="flex-1 min-w-0 space-y-2">
+            <Skeleton className="h-3.5 w-4/5" />
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-3 w-16 rounded-full" />
+              <Skeleton className="h-2.5 w-14" />
+              <Skeleton className="h-2.5 w-10" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  </section>
+);
+
+const StatTileSkeleton = () => (
+  <div className="flex flex-col items-center text-center gap-1 py-1">
+    <Skeleton className="w-9 h-9 rounded-xl" />
+    <Skeleton className="h-5 w-6" />
+    <Skeleton className="h-2 w-12" />
+  </div>
+);
+
+const StatTileDesktopSkeleton = () => (
+  <div className="bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl p-4 flex items-center gap-3.5">
+    <Skeleton className="w-11 h-11 rounded-xl flex-shrink-0" />
+    <div className="min-w-0 space-y-1.5">
+      <Skeleton className="h-6 w-8" />
+      <Skeleton className="h-2.5 w-14" />
+    </div>
+  </div>
+);
+
+const AskXircleSkeleton = () => (
+  <div className="mb-5">
+    <div className="w-full bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl px-4 lg:px-5 py-3.5 flex items-center gap-3">
+      <Skeleton className="w-9 h-9 rounded-full flex-shrink-0" />
+      <div className="flex-1 min-w-0 space-y-1.5">
+        <Skeleton className="h-3.5 w-56 max-w-full" />
+        <Skeleton className="hidden lg:block h-2.5 w-72 max-w-full" />
+      </div>
+    </div>
+  </div>
+);
+
+const ChartToggleSkeleton = () => (
+  <div className="w-full bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl px-4 lg:px-5 py-3 flex items-center justify-between">
+    <div className="flex items-center gap-2">
+      <Skeleton className="h-3.5 w-3.5 rounded-full" />
+      <Skeleton className="h-3.5 w-24" />
+    </div>
+    <Skeleton className="h-3 w-3 rounded-full" />
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────────────
+// FULL PAGE SKELETON — sidebar & bottombar render normally (static)
+// ─────────────────────────────────────────────────────────────────
+
+const TodaySkeleton = () => (
+  <div className="min-h-screen bg-white dark:bg-[#0f0f12] flex flex-col md:flex-row">
+    {/* Sidebar (desktop) — static, no skeleton */}
+    <div className="hidden md:block md:w-72 md:flex-shrink-0">
+      <GeneralSidebar />
+    </div>
+
+    <div className="flex-1 flex flex-col min-h-screen min-w-0">
+      {/* Top bar */}
+      <header className="sticky top-0 z-30 bg-white/85 dark:bg-[#0f0f12]/85 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/60">
+        <div className="w-full max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <Skeleton className="w-9 h-9 rounded-xl flex-shrink-0" />
+            <div className="min-w-0 space-y-1.5">
+              <Skeleton className="h-4 w-16" />
+              <Skeleton className="h-2.5 w-32" />
+            </div>
+          </div>
+          <Skeleton className="w-8 h-8 rounded-full flex-shrink-0" />
+        </div>
+      </header>
+
+      <main className="flex-1 w-full max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 pt-4 lg:pt-6 pb-24 md:pb-12">
+        {/* Greeting */}
+        <div className="mb-4 lg:mb-5 space-y-2">
+          <Skeleton className="h-7 lg:h-9 w-56 lg:w-72" />
+          <Skeleton className="h-4 w-64 max-w-full" />
+        </div>
+
+        {/* Mobile stats — single card with 4 tiles */}
+        <div className="md:hidden mb-4 bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl px-2 py-3">
+          <div className="grid grid-cols-4 gap-1">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <StatTileSkeleton key={i} />
+            ))}
+          </div>
+        </div>
+
+        {/* Desktop stats — 4 separate cards */}
+        <div className="hidden md:grid md:grid-cols-4 md:gap-4 mb-5">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <StatTileDesktopSkeleton key={i} />
+          ))}
+        </div>
+
+        {/* Chart toggle */}
+        <div className="mb-5">
+          <ChartToggleSkeleton />
+        </div>
+
+        {/* Ask Xircle */}
+        <AskXircleSkeleton />
+
+        {/* Content grid */}
+        <div className="grid gap-4 lg:gap-5 lg:grid-cols-5">
+          <div className="space-y-4 lg:space-y-5 lg:col-span-3">
+            <SectionCardSkeleton rows={3} accentWidth="w-24" />
+            <SectionCardSkeleton rows={2} accentWidth="w-24" />
+          </div>
+          <div className="space-y-4 lg:space-y-5 lg:col-span-2">
+            <SectionCardSkeleton rows={2} accentWidth="w-28" />
+            <SectionCardSkeleton rows={2} accentWidth="w-24" />
+          </div>
+        </div>
+      </main>
+
+      {/* Bottombar — static, no skeleton */}
+      <GeneralBottombar />
+    </div>
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────────────
 // WORKSPACE CHIP
 // ─────────────────────────────────────────────────────────────────
 
@@ -706,342 +920,348 @@ const Today = () => {
     { key: 'mentions', label: 'Mentions', value: mentionTotal, accent: 'indigo', icon: FaComments, hex: accentMap.indigo.hex },
   ];
 
-  // ── Loading ──
+  // ── Loading — sidebar & bottombar stay live, only content shimmers ──
   if (isLoading && !data) {
     return (
-      <div className="min-h-screen bg-white dark:bg-[#0f0f12] flex flex-col md:flex-row">
-        <div className="hidden md:block md:w-72 md:flex-shrink-0">
-          <GeneralSidebar />
-        </div>
-        <div className="flex-1 flex items-center justify-center">
-          <FaSpinner className="animate-spin text-teal-500 text-3xl" />
-        </div>
-      </div>
+      <>
+        <GlobalStyles />
+        <TodaySkeleton />
+      </>
     );
   }
 
   if (isError) {
     return (
-      <div className="min-h-screen bg-white dark:bg-[#0f0f12] flex flex-col md:flex-row">
-        <div className="hidden md:block md:w-72 md:flex-shrink-0">
-          <GeneralSidebar />
-        </div>
-        <div className="flex-1 flex items-center justify-center p-6">
-          <div className="text-center max-w-sm">
-            <FaExclamationCircle className="text-red-500 text-3xl mx-auto mb-3" />
-            <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
-              {error?.data?.message || 'Could not load your Today.'}
-            </p>
-            <button
-              onClick={refetch}
-              className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm rounded-xl transition"
-            >
-              Try again
-            </button>
+      <>
+        <GlobalStyles />
+        <div className="min-h-screen bg-white dark:bg-[#0f0f12] flex flex-col md:flex-row">
+          <div className="hidden md:block md:w-72 md:flex-shrink-0">
+            <GeneralSidebar />
+          </div>
+          <div className="flex-1 flex flex-col min-h-screen min-w-0">
+            <div className="flex-1 flex items-center justify-center p-6">
+              <div className="text-center max-w-sm">
+                <FaExclamationCircle className="text-red-500 text-3xl mx-auto mb-3" />
+                <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
+                  {error?.data?.message || 'Could not load your Today.'}
+                </p>
+                <button
+                  onClick={refetch}
+                  className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm rounded-xl transition"
+                >
+                  Try again
+                </button>
+              </div>
+            </div>
+            <GeneralBottombar />
           </div>
         </div>
-      </div>
+      </>
     );
   }
 
   // ── Render ──
   return (
-    <div className="min-h-screen bg-white dark:bg-[#0f0f12] flex flex-col md:flex-row">
-      <div className="hidden md:block md:w-72 md:flex-shrink-0">
-        <GeneralSidebar />
-      </div>
+    <>
+      <GlobalStyles />
 
-      <div className="flex-1 flex flex-col min-h-screen min-w-0">
-        {/* ═══ FIXED TOP BAR ═══ */}
-        <header className="sticky top-0 z-30 bg-white/85 dark:bg-[#0f0f12]/85 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/60">
-          <div className="w-full max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <span className="w-9 h-9 rounded-xl bg-teal-50 dark:bg-[#0d9488]/15 border border-teal-200/60 dark:border-[#0d9488]/25 flex items-center justify-center flex-shrink-0">
-                <FaSun className="text-teal-600 dark:text-[#0d9488] text-sm" />
-              </span>
-              <div className="min-w-0">
-                <h1 className="text-sm lg:text-base font-bold text-gray-900 dark:text-white leading-tight truncate">
-                  Today
-                </h1>
-                <p className="text-[10px] lg:text-[11px] text-gray-500 dark:text-gray-500 leading-tight truncate">
-                  {todayLabel()}
-                </p>
+      <div className="min-h-screen bg-white dark:bg-[#0f0f12] flex flex-col md:flex-row">
+        <div className="hidden md:block md:w-72 md:flex-shrink-0">
+          <GeneralSidebar />
+        </div>
+
+        <div className="flex-1 flex flex-col min-h-screen min-w-0">
+          {/* ═══ FIXED TOP BAR ═══ */}
+          <header className="sticky top-0 z-30 bg-white/85 dark:bg-[#0f0f12]/85 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/60">
+            <div className="w-full max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="w-9 h-9 rounded-xl bg-teal-50 dark:bg-[#0d9488]/15 border border-teal-200/60 dark:border-[#0d9488]/25 flex items-center justify-center flex-shrink-0">
+                  <FaSun className="text-teal-600 dark:text-[#0d9488] text-sm" />
+                </span>
+                <div className="min-w-0">
+                  <h1 className="text-sm lg:text-base font-bold text-gray-900 dark:text-white leading-tight truncate">
+                    Today
+                  </h1>
+                  <p className="text-[10px] lg:text-[11px] text-gray-500 dark:text-gray-500 leading-tight truncate">
+                    {todayLabel()}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5 flex-shrink-0">
+                {isFetching && !isLoading && (
+                  <FaSpinner className="animate-spin text-gray-400 text-xs" />
+                )}
+                {userInfo?.profile ? (
+                  <img
+                    src={userInfo.profile}
+                    alt=""
+                    className="w-8 h-8 rounded-full object-cover border border-gray-200 dark:border-gray-700/60"
+                  />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-teal-500 flex items-center justify-center text-white text-xs font-bold">
+                    {(firstName || '?').charAt(0).toUpperCase()}
+                  </div>
+                )}
+              </div>
+            </div>
+          </header>
+
+          {/* ═══ MAIN ═══ */}
+          <main className="flex-1 w-full max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 pt-4 lg:pt-6 pb-24 md:pb-12">
+
+            {/* Greeting */}
+            <div className="mb-4 lg:mb-5">
+              <h2 className="text-xl lg:text-3xl font-bold text-gray-900 dark:text-white tracking-tight">
+                {getGreeting()}
+                {firstName && (
+                  <>
+                    , <span className="text-teal-600 dark:text-[#0d9488]">{firstName}</span>
+                  </>
+                )}
+              </h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                {hasAnything ? (
+                  <>
+                    <span className="font-semibold text-gray-700 dark:text-gray-200">{attention}</span>{' '}
+                    {attention === 1 ? 'thing needs' : 'things need'} your attention
+                  </>
+                ) : (
+                  <>You're all caught up. Nothing needs you right now.</>
+                )}
+              </p>
+            </div>
+
+            {/* ═══ STATS ═══ */}
+            {/* Mobile — single card with 4 tiles inside */}
+            <div className="md:hidden mb-4 bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl px-2 py-3">
+              <div className="grid grid-cols-4 gap-1">
+                {statsData.map((s) => (
+                  <StatTile key={s.key} {...s} />
+                ))}
               </div>
             </div>
 
-            <div className="flex items-center gap-2.5 flex-shrink-0">
-              {isFetching && !isLoading && (
-                <FaSpinner className="animate-spin text-gray-400 text-xs" />
+            {/* Desktop — 4 separate cards */}
+            <div className="hidden md:grid md:grid-cols-4 md:gap-4 mb-5">
+              {statsData.map((s) => (
+                <StatTileDesktop key={s.key} {...s} />
+              ))}
+            </div>
+
+            {/* ═══ CHART — optional on both mobile and desktop ═══ */}
+            <div className="mb-5">
+              <ChartToggle
+                stats={statsData}
+                brandColor={accentMap.teal.hex}
+                isOpen={showChart}
+                onToggle={() => setShowChart((v) => !v)}
+              />
+            </div>
+
+            {/* Ask Xircle */}
+            <AskXircle />
+
+            {/* ═══ CONTENT GRID ═══ */}
+            <div
+              className={`grid gap-4 lg:gap-5 ${
+                hasWorkColumn && hasAwarenessColumn ? 'lg:grid-cols-5' : 'lg:grid-cols-1'
+              }`}
+            >
+              {hasWorkColumn && (
+                <div
+                  className={`space-y-4 lg:space-y-5 ${
+                    hasWorkColumn && hasAwarenessColumn ? 'lg:col-span-3' : ''
+                  }`}
+                >
+                  {(myWork.overdue.length > 0 || myWork.dueToday.length > 0) && (
+                    <SectionCard
+                      icon={FaTasks}
+                      title="My Work"
+                      subtitle="Your personal tasks"
+                      accent="teal"
+                      count={myWork.overdue.length + myWork.dueToday.length}
+                      action={
+                        <Link
+                          to="/personal-tasks"
+                          className="text-[10px] font-medium uppercase tracking-wider text-teal-600 dark:text-[#0d9488] hover:underline"
+                        >
+                          Open
+                        </Link>
+                      }
+                    >
+                      {myWork.overdue.length > 0 && (
+                        <>
+                          <SubGroupLabel label="Overdue" accent="red" />
+                          {myWork.overdue.map((t) => (
+                            <TaskRow key={t.id} task={t} onOpen={openPersonalTask} isOverdue />
+                          ))}
+                        </>
+                      )}
+                      {myWork.dueToday.length > 0 && (
+                        <>
+                          <SubGroupLabel label="Due Today" accent="teal" />
+                          {myWork.dueToday.map((t) => (
+                            <TaskRow key={t.id} task={t} onOpen={openPersonalTask} />
+                          ))}
+                        </>
+                      )}
+                    </SectionCard>
+                  )}
+
+                  {(teamWork.overdue.length > 0 || teamWork.dueToday.length > 0) && (
+                    <SectionCard
+                      icon={FaFolderOpen}
+                      title="Team Work"
+                      subtitle="Assigned to you across your workspaces"
+                      accent="teal"
+                      count={teamWork.overdue.length + teamWork.dueToday.length}
+                    >
+                      {teamWork.overdue.length > 0 && (
+                        <>
+                          <SubGroupLabel label="Overdue" accent="red" />
+                          {teamWork.overdue.map((t) => {
+                            const n = normProjectTask(t);
+                            return (
+                              <TaskRow
+                                key={n.id}
+                                task={n}
+                                onOpen={() => openProjectTask(n)}
+                                isOverdue
+                              />
+                            );
+                          })}
+                        </>
+                      )}
+                      {teamWork.dueToday.length > 0 && (
+                        <>
+                          <SubGroupLabel label="Due Today" accent="teal" />
+                          {teamWork.dueToday.map((t) => {
+                            const n = normProjectTask(t);
+                            return (
+                              <TaskRow
+                                key={n.id}
+                                task={n}
+                                onOpen={() => openProjectTask(n)}
+                              />
+                            );
+                          })}
+                        </>
+                      )}
+                    </SectionCard>
+                  )}
+
+                  {(awaiting.taskConfirmations.length > 0 || awaiting.subtaskReviews.length > 0) && (
+                    <SectionCard
+                      icon={FaCheckDouble}
+                      title="Awaiting You"
+                      subtitle="Blocked on your review"
+                      accent="amber"
+                      count={awaiting.taskConfirmations.length + awaiting.subtaskReviews.length}
+                    >
+                      {awaiting.taskConfirmations.map((item) => (
+                        <ConfirmRow key={item.id} item={item} onOpen={() => openConfirm(item)} />
+                      ))}
+                      {awaiting.subtaskReviews.map((item) => (
+                        <ConfirmRow
+                          key={item.taskId}
+                          item={item}
+                          onOpen={() => openConfirm(item)}
+                        />
+                      ))}
+                    </SectionCard>
+                  )}
+                </div>
               )}
-              {userInfo?.profile ? (
-                <img
-                  src={userInfo.profile}
-                  alt=""
-                  className="w-8 h-8 rounded-full object-cover border border-gray-200 dark:border-gray-700/60"
-                />
-              ) : (
-                <div className="w-8 h-8 rounded-full bg-teal-500 flex items-center justify-center text-white text-xs font-bold">
-                  {(firstName || '?').charAt(0).toUpperCase()}
+
+              {hasAwarenessColumn && (
+                <div
+                  className={`space-y-4 lg:space-y-5 ${
+                    hasWorkColumn && hasAwarenessColumn ? 'lg:col-span-2' : ''
+                  }`}
+                >
+                  {convos.unreadChats.length > 0 && (
+                    <SectionCard
+                      icon={FaComments}
+                      title="Conversations"
+                      subtitle="Unread messages and mentions"
+                      accent="indigo"
+                      count={convos.unreadChats.length}
+                    >
+                      {convos.unreadChats.map((c) => (
+                        <ChatRow key={c.chatId} chat={c} onOpen={() => openChat(c)} />
+                      ))}
+                    </SectionCard>
+                  )}
+
+                  {(pulse.pendingJoinRequests.length > 0 || pulse.recentProjects.length > 0) && (
+                    <SectionCard
+                      icon={FaUsers}
+                      title="Team Pulse"
+                      subtitle="Recent activity in your workspaces"
+                      accent="purple"
+                      count={
+                        pulse.pendingJoinRequests.reduce((s, w) => s + w.count, 0) +
+                        pulse.recentProjects.length
+                      }
+                    >
+                      {pulse.pendingJoinRequests.map((p) => (
+                        <button
+                          key={p.workspaceId}
+                          onClick={() => openJoinRequests(p)}
+                          className="w-full text-left px-4 lg:px-5 py-3 hover:bg-gray-50 dark:hover:bg-[#0d9488]/5 transition flex items-center gap-3 border-b border-gray-100 dark:border-gray-800/30 last:border-0 group"
+                        >
+                          <div className="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center flex-shrink-0">
+                            <FaUserPlus className="text-purple-600 dark:text-purple-400 text-xs" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-gray-800 dark:text-gray-100 truncate">
+                              {p.count} join request{p.count > 1 ? 's' : ''}
+                            </p>
+                            <p className="text-[11px] text-gray-500 dark:text-gray-500 truncate">
+                              {p.workspaceName}
+                            </p>
+                          </div>
+                          <FaArrowRight className="text-[10px] text-gray-300 dark:text-gray-600 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </button>
+                      ))}
+                      {pulse.recentProjects.map((p) => (
+                        <div
+                          key={p._id}
+                          className="px-4 lg:px-5 py-3 border-b border-gray-100 dark:border-gray-800/30 last:border-0"
+                        >
+                          <p className="text-sm text-gray-700 dark:text-gray-300 truncate">
+                            {p.name}
+                          </p>
+                          <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                            new project · {formatRelative(p.createdAt)}
+                          </p>
+                        </div>
+                      ))}
+                    </SectionCard>
+                  )}
                 </div>
               )}
             </div>
-          </div>
-        </header>
 
-        {/* ═══ MAIN ═══ */}
-        <main className="flex-1 w-full max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 pt-4 lg:pt-6 pb-24 md:pb-12">
-
-          {/* Greeting */}
-          <div className="mb-4 lg:mb-5">
-            <h2 className="text-xl lg:text-3xl font-bold text-gray-900 dark:text-white tracking-tight">
-              {getGreeting()}
-              {firstName && (
-                <>
-                  , <span className="text-teal-600 dark:text-[#0d9488]">{firstName}</span>
-                </>
-              )}
-            </h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              {hasAnything ? (
-                <>
-                  <span className="font-semibold text-gray-700 dark:text-gray-200">{attention}</span>{' '}
-                  {attention === 1 ? 'thing needs' : 'things need'} your attention
-                </>
-              ) : (
-                <>You're all caught up. Nothing needs you right now.</>
-              )}
-            </p>
-          </div>
-
-          {/* ═══ STATS ═══ */}
-          {/* Mobile — single card with 4 tiles inside */}
-          <div className="md:hidden mb-4 bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl px-2 py-3">
-            <div className="grid grid-cols-4 gap-1">
-              {statsData.map((s) => (
-                <StatTile key={s.key} {...s} />
-              ))}
-            </div>
-          </div>
-
-          {/* Desktop — 4 separate cards */}
-          <div className="hidden md:grid md:grid-cols-4 md:gap-4 mb-5">
-            {statsData.map((s) => (
-              <StatTileDesktop key={s.key} {...s} />
-            ))}
-          </div>
-
-          {/* ═══ CHART — optional on both mobile and desktop ═══ */}
-          <div className="mb-5">
-            <ChartToggle
-              stats={statsData}
-              brandColor={accentMap.teal.hex}
-              isOpen={showChart}
-              onToggle={() => setShowChart((v) => !v)}
-            />
-          </div>
-
-          {/* Ask Xircle */}
-          <AskXircle />
-
-          {/* ═══ CONTENT GRID ═══ */}
-          <div
-            className={`grid gap-4 lg:gap-5 ${
-              hasWorkColumn && hasAwarenessColumn ? 'lg:grid-cols-5' : 'lg:grid-cols-1'
-            }`}
-          >
-            {hasWorkColumn && (
-              <div
-                className={`space-y-4 lg:space-y-5 ${
-                  hasWorkColumn && hasAwarenessColumn ? 'lg:col-span-3' : ''
-                }`}
-              >
-                {(myWork.overdue.length > 0 || myWork.dueToday.length > 0) && (
-                  <SectionCard
-                    icon={FaTasks}
-                    title="My Work"
-                    subtitle="Your personal tasks"
-                    accent="teal"
-                    count={myWork.overdue.length + myWork.dueToday.length}
-                    action={
-                      <Link
-                        to="/personal-tasks"
-                        className="text-[10px] font-medium uppercase tracking-wider text-teal-600 dark:text-[#0d9488] hover:underline"
-                      >
-                        Open
-                      </Link>
-                    }
-                  >
-                    {myWork.overdue.length > 0 && (
-                      <>
-                        <SubGroupLabel label="Overdue" accent="red" />
-                        {myWork.overdue.map((t) => (
-                          <TaskRow key={t.id} task={t} onOpen={openPersonalTask} isOverdue />
-                        ))}
-                      </>
-                    )}
-                    {myWork.dueToday.length > 0 && (
-                      <>
-                        <SubGroupLabel label="Due Today" accent="teal" />
-                        {myWork.dueToday.map((t) => (
-                          <TaskRow key={t.id} task={t} onOpen={openPersonalTask} />
-                        ))}
-                      </>
-                    )}
-                  </SectionCard>
-                )}
-
-                {(teamWork.overdue.length > 0 || teamWork.dueToday.length > 0) && (
-                  <SectionCard
-                    icon={FaFolderOpen}
-                    title="Team Work"
-                    subtitle="Assigned to you across your workspaces"
-                    accent="teal"
-                    count={teamWork.overdue.length + teamWork.dueToday.length}
-                  >
-                    {teamWork.overdue.length > 0 && (
-                      <>
-                        <SubGroupLabel label="Overdue" accent="red" />
-                        {teamWork.overdue.map((t) => {
-                          const n = normProjectTask(t);
-                          return (
-                            <TaskRow
-                              key={n.id}
-                              task={n}
-                              onOpen={() => openProjectTask(n)}
-                              isOverdue
-                            />
-                          );
-                        })}
-                      </>
-                    )}
-                    {teamWork.dueToday.length > 0 && (
-                      <>
-                        <SubGroupLabel label="Due Today" accent="teal" />
-                        {teamWork.dueToday.map((t) => {
-                          const n = normProjectTask(t);
-                          return (
-                            <TaskRow
-                              key={n.id}
-                              task={n}
-                              onOpen={() => openProjectTask(n)}
-                            />
-                          );
-                        })}
-                      </>
-                    )}
-                  </SectionCard>
-                )}
-
-                {(awaiting.taskConfirmations.length > 0 || awaiting.subtaskReviews.length > 0) && (
-                  <SectionCard
-                    icon={FaCheckDouble}
-                    title="Awaiting You"
-                    subtitle="Blocked on your review"
-                    accent="amber"
-                    count={awaiting.taskConfirmations.length + awaiting.subtaskReviews.length}
-                  >
-                    {awaiting.taskConfirmations.map((item) => (
-                      <ConfirmRow key={item.id} item={item} onOpen={() => openConfirm(item)} />
-                    ))}
-                    {awaiting.subtaskReviews.map((item) => (
-                      <ConfirmRow
-                        key={item.taskId}
-                        item={item}
-                        onOpen={() => openConfirm(item)}
-                      />
-                    ))}
-                  </SectionCard>
-                )}
+            {/* Empty state */}
+            {!hasAnything && (
+              <div className="flex flex-col items-center justify-center py-16 lg:py-24 text-gray-400 dark:text-gray-500">
+                <FaCheckCircle className="text-4xl lg:text-5xl mb-3 text-teal-500/60" />
+                <p className="text-sm lg:text-base font-medium text-gray-500 dark:text-gray-400">
+                  Nothing needs you right now
+                </p>
+                <p className="text-xs lg:text-sm mt-1">
+                  Come back when something shows up.
+                </p>
               </div>
             )}
+          </main>
 
-            {hasAwarenessColumn && (
-              <div
-                className={`space-y-4 lg:space-y-5 ${
-                  hasWorkColumn && hasAwarenessColumn ? 'lg:col-span-2' : ''
-                }`}
-              >
-                {convos.unreadChats.length > 0 && (
-                  <SectionCard
-                    icon={FaComments}
-                    title="Conversations"
-                    subtitle="Unread messages and mentions"
-                    accent="indigo"
-                    count={convos.unreadChats.length}
-                  >
-                    {convos.unreadChats.map((c) => (
-                      <ChatRow key={c.chatId} chat={c} onOpen={() => openChat(c)} />
-                    ))}
-                  </SectionCard>
-                )}
-
-                {(pulse.pendingJoinRequests.length > 0 || pulse.recentProjects.length > 0) && (
-                  <SectionCard
-                    icon={FaUsers}
-                    title="Team Pulse"
-                    subtitle="Recent activity in your workspaces"
-                    accent="purple"
-                    count={
-                      pulse.pendingJoinRequests.reduce((s, w) => s + w.count, 0) +
-                      pulse.recentProjects.length
-                    }
-                  >
-                    {pulse.pendingJoinRequests.map((p) => (
-                      <button
-                        key={p.workspaceId}
-                        onClick={() => openJoinRequests(p)}
-                        className="w-full text-left px-4 lg:px-5 py-3 hover:bg-gray-50 dark:hover:bg-[#0d9488]/5 transition flex items-center gap-3 border-b border-gray-100 dark:border-gray-800/30 last:border-0 group"
-                      >
-                        <div className="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center flex-shrink-0">
-                          <FaUserPlus className="text-purple-600 dark:text-purple-400 text-xs" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-gray-800 dark:text-gray-100 truncate">
-                            {p.count} join request{p.count > 1 ? 's' : ''}
-                          </p>
-                          <p className="text-[11px] text-gray-500 dark:text-gray-500 truncate">
-                            {p.workspaceName}
-                          </p>
-                        </div>
-                        <FaArrowRight className="text-[10px] text-gray-300 dark:text-gray-600 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </button>
-                    ))}
-                    {pulse.recentProjects.map((p) => (
-                      <div
-                        key={p._id}
-                        className="px-4 lg:px-5 py-3 border-b border-gray-100 dark:border-gray-800/30 last:border-0"
-                      >
-                        <p className="text-sm text-gray-700 dark:text-gray-300 truncate">
-                          {p.name}
-                        </p>
-                        <p className="text-[11px] text-gray-400 dark:text-gray-500">
-                          new project · {formatRelative(p.createdAt)}
-                        </p>
-                      </div>
-                    ))}
-                  </SectionCard>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Empty state */}
-          {!hasAnything && (
-            <div className="flex flex-col items-center justify-center py-16 lg:py-24 text-gray-400 dark:text-gray-500">
-              <FaCheckCircle className="text-4xl lg:text-5xl mb-3 text-teal-500/60" />
-              <p className="text-sm lg:text-base font-medium text-gray-500 dark:text-gray-400">
-                Nothing needs you right now
-              </p>
-              <p className="text-xs lg:text-sm mt-1">
-                Come back when something shows up.
-              </p>
-            </div>
-          )}
-        </main>
-
-        <GeneralBottombar />
+          <GeneralBottombar />
+        </div>
       </div>
-    </div>
+    </>
   );
 };
 

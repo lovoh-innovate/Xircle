@@ -67,6 +67,228 @@ const statusOptions = [
   { value: 'confirmed_completed', label: 'Confirmed' }, { value: 'cancelled', label: 'Cancelled' },
 ];
 
+// ─── Global Styles (skeleton shimmer) ───────────────────────────
+const GlobalStyles = () => (
+  <style>{`
+    .skeleton {
+      position: relative;
+      overflow: hidden;
+      background-color: rgb(229 231 235); /* gray-200 */
+    }
+    .dark .skeleton {
+      background-color: rgba(255, 255, 255, 0.07);
+    }
+    .skeleton::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      transform: translateX(-100%);
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.55),
+        transparent
+      );
+      animation: skeletonShimmer 1.5s ease-in-out infinite;
+    }
+    .dark .skeleton::after {
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.07),
+        transparent
+      );
+    }
+    @keyframes skeletonShimmer {
+      100% {
+        transform: translateX(100%);
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .skeleton::after {
+        animation: none;
+      }
+    }
+  `}</style>
+);
+
+// ─── Skeleton primitives ────────────────────────────────────────
+const Skeleton = ({ className = '' }) => (
+  <div className={`skeleton rounded-lg ${className}`} />
+);
+
+const TaskSummarySkeleton = () => (
+  <div className="space-y-4">
+    {/* Meta grid */}
+    <div className="grid grid-cols-2 gap-3">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className="space-y-1.5">
+          <Skeleton className="h-2.5 w-14" />
+          <Skeleton className="h-3.5 w-24" />
+        </div>
+      ))}
+    </div>
+
+    {/* Assignees */}
+    <div>
+      <Skeleton className="h-2.5 w-16 mb-2" />
+      <div className="flex flex-wrap gap-1.5">
+        <Skeleton className="h-6 w-24 rounded-full" />
+        <Skeleton className="h-6 w-20 rounded-full" />
+        <Skeleton className="h-6 w-28 rounded-full" />
+      </div>
+    </div>
+
+    {/* Description */}
+    <div>
+      <Skeleton className="h-2.5 w-20 mb-1.5" />
+      <div className="space-y-1.5">
+        <Skeleton className="h-3 w-full" />
+        <Skeleton className="h-3 w-5/6" />
+        <Skeleton className="h-3 w-2/3" />
+      </div>
+    </div>
+
+    {/* Links */}
+    <div>
+      <Skeleton className="h-2.5 w-12 mb-1.5" />
+      <div className="space-y-1.5">
+        <Skeleton className="h-3 w-4/5" />
+        <Skeleton className="h-3 w-3/5" />
+      </div>
+    </div>
+
+    {/* Submission block */}
+    <div className="rounded-2xl border border-gray-200 dark:border-gray-800/60 overflow-hidden">
+      <div className="px-3 py-2.5 flex items-center justify-between">
+        <Skeleton className="h-3 w-32" />
+        <Skeleton className="h-3 w-3 rounded-full" />
+      </div>
+    </div>
+  </div>
+);
+
+const ChecklistItemSkeleton = () => (
+  <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/40 p-3 lg:p-4">
+    <div className="flex items-start gap-2">
+      <Skeleton className="w-4 h-4 rounded flex-shrink-0 mt-0.5" />
+      <Skeleton className="w-3 h-3 flex-shrink-0 mt-1" />
+      <div className="flex-1 min-w-0 space-y-2">
+        <div className="flex items-start gap-2 flex-wrap">
+          <Skeleton className="h-3.5 flex-1 max-w-[70%]" />
+          <Skeleton className="h-5 w-16 rounded-full" />
+        </div>
+        <Skeleton className="h-2.5 w-3/5" />
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-2.5 w-24" />
+        </div>
+      </div>
+      <div className="flex items-center gap-0.5 shrink-0">
+        <Skeleton className="w-6 h-6 rounded-lg" />
+        <Skeleton className="w-6 h-6 rounded-lg" />
+      </div>
+    </div>
+  </div>
+);
+
+const ActivityItemSkeleton = () => (
+  <div className="text-xs bg-gray-50 dark:bg-[#1a1a24] p-3 rounded-xl border border-gray-200 dark:border-gray-800/40 space-y-2">
+    <div className="flex items-center gap-2">
+      <Skeleton className="w-5 h-5 rounded-full flex-shrink-0" />
+      <Skeleton className="h-3 w-24" />
+    </div>
+    <Skeleton className="h-2.5 w-3/4" />
+    <Skeleton className="h-2 w-20" />
+  </div>
+);
+
+// ─── Full page skeleton ─────────────────────────────────────────
+const TaskSkeleton = () => (
+  <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col overflow-hidden">
+    {/* Header */}
+    <header className="shrink-0 bg-white/90 dark:bg-[#14141a]/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/60 z-20">
+      <div className="px-3 lg:px-6 py-2.5 lg:py-3 flex items-center gap-2 lg:gap-3">
+        <Skeleton className="w-7 h-7 rounded-lg flex-shrink-0" />
+        <Skeleton className="w-9 h-9 lg:w-10 lg:h-10 rounded-xl flex-shrink-0" />
+        <div className="flex-1 min-w-0 space-y-1.5">
+          <Skeleton className="h-4 w-48 max-w-[60%]" />
+          <div className="flex items-center gap-1.5">
+            <Skeleton className="h-5 w-16 rounded-full" />
+            <Skeleton className="h-5 w-14 rounded-full" />
+            <Skeleton className="h-2.5 w-12" />
+          </div>
+        </div>
+        <div className="hidden lg:flex items-center gap-2 shrink-0">
+          <Skeleton className="h-9 w-40 rounded-lg" />
+        </div>
+        <Skeleton className="w-8 h-8 rounded-lg flex-shrink-0" />
+      </div>
+      <div className="w-full h-0.5 bg-gray-200/60 dark:bg-gray-800/40" />
+    </header>
+
+    {/* Body */}
+    <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden lg:grid lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)_320px]">
+      {/* LEFT: Task summary */}
+      <aside className="hidden lg:block lg:h-full lg:overflow-y-auto bg-white dark:bg-[#14141a] border-r border-gray-200/60 dark:border-gray-800/60">
+        <div className="p-5">
+          <Skeleton className="h-3 w-24 mb-4" />
+          <TaskSummarySkeleton />
+        </div>
+      </aside>
+
+      {/* MIDDLE: Checklist */}
+      <main className="lg:h-full lg:overflow-y-auto">
+        <div className="p-3 lg:p-6 space-y-4 lg:space-y-5">
+          {/* Mobile: collapsible details */}
+          <div className="lg:hidden">
+            <div className="w-full flex items-center justify-between bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/40 px-3 py-2.5">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-3 w-3 rounded-full" />
+            </div>
+          </div>
+
+          {/* Checklist header */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-4 w-4 rounded-full" />
+              <Skeleton className="h-4 w-20" />
+              <Skeleton className="h-3 w-8" />
+            </div>
+            <Skeleton className="h-7 w-24 rounded-lg" />
+          </div>
+
+          {/* Checklist items */}
+          <div className="space-y-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <ChecklistItemSkeleton key={i} />
+            ))}
+          </div>
+        </div>
+      </main>
+
+      {/* RIGHT: Activity feed */}
+      <aside className="hidden xl:flex xl:flex-col xl:h-full xl:overflow-y-auto bg-white dark:bg-[#14141a] border-l border-gray-200/60 dark:border-gray-800/60">
+        <div className="p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Skeleton className="h-3 w-3 rounded-full" />
+            <Skeleton className="h-3 w-20" />
+          </div>
+          <div className="space-y-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <ActivityItemSkeleton key={i} />
+            ))}
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    {/* Mobile bottom action bar */}
+    <div className="shrink-0 lg:hidden border-t border-gray-200/60 dark:border-gray-800/60 bg-white/95 dark:bg-[#14141a]/95 backdrop-blur-xl px-3 py-2.5 z-20">
+      <Skeleton className="w-full h-10 rounded-xl" />
+    </div>
+  </div>
+);
+
 const Dropdown = ({ label, options, value, onChange, placeholder }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -144,9 +366,6 @@ const ShowMoreToggle = ({ open, onToggle, label }) => (
 );
 
 // ─── Checklist modals ─────────────────────────────────────────────
-// Multi-item creation modal — starts with 1 empty row. The user adds
-// more rows on demand. Each row creates one sub-task on the backend
-// (one call per row, handled sequentially in the submit handler).
 const AddChecklistModal = ({ isOpen, onClose, onSubmit }) => {
   const makeEmpty = () => ({ title: '', startDate: '', dueDate: '' });
   const [items, setItems] = useState([makeEmpty()]);
@@ -279,7 +498,6 @@ const AddChecklistModal = ({ isOpen, onClose, onSubmit }) => {
   );
 };
 
-// Mark checklist item done — optional form hidden by default
 const ChecklistDoneModal = ({ isOpen, onClose, onSubmit, canManage }) => {
   const [notes, setNotes] = useState('');
   const [linksText, setLinksText] = useState('');
@@ -989,7 +1207,6 @@ const AIEditTaskModal = ({ isOpen, onClose, task, brandColor, onApplied }) => {
   return (
     <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-2 sm:p-4">
       <div className="bg-white dark:bg-[#14141a] rounded-2xl w-full max-w-lg shadow-xl max-h-[92vh] flex flex-col">
-        {/* Header */}
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200 dark:border-gray-800/60 shrink-0">
           <div className="min-w-0 flex-1">
             <h2 className="text-base sm:text-lg font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
@@ -1392,7 +1609,12 @@ const YourWorkspaceTaskId = () => {
     );
   }
   if (pLoad || tLoad || !task || !project || !workspace) {
-    return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]"><div className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin" style={{ borderTopColor: brandColor }} /></div>;
+    return (
+      <>
+        <GlobalStyles />
+        <TaskSkeleton />
+      </>
+    );
   }
 
   const backToProject = () => navigate(`/workspace/${workspaceId}/project/${projectId}`);
@@ -1531,413 +1753,417 @@ const YourWorkspaceTaskId = () => {
   const canSelectSubs = ((isAssignee && task.allowAssigneeEditSubtasks) || canManage) && !isReadOnly && subTasks.length > 0;
 
   return (
-    <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col overflow-hidden">
-      {/* ─── Header ─────────────────────────────────────── */}
-      <header className="shrink-0 bg-white/90 dark:bg-[#14141a]/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/60 z-20">
-        <div className="px-3 lg:px-6 py-2.5 lg:py-3 flex items-center gap-2 lg:gap-3">
-          <button onClick={backToProject} className="p-1.5 -ml-1 text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition shrink-0">
-            <FaArrowLeft className="text-sm" />
-          </button>
-          <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm shrink-0" style={{ backgroundColor: brandColor }}>
-            {task.title.charAt(0).toUpperCase()}
-          </div>
-          <div className="flex-1 min-w-0">
-            <h2 className="text-sm lg:text-base font-semibold text-gray-800 dark:text-gray-100 leading-tight truncate">{task.title}</h2>
-            <div className="flex items-center gap-1.5 text-[11px] flex-wrap mt-0.5 text-gray-500 dark:text-gray-400">
-              <StatusPill status={task.status} />
-              <span className="hidden sm:inline"><PriorityPill priority={task.priority} /></span>
-              <span className="font-mono">{confirmedCount}/{subTasks.length} done</span>
-              {task.dueDate && (
-                <>
-                  <span className="hidden sm:inline">·</span>
-                  <span className={`${isOverdueTask ? 'text-red-500 font-medium' : ''} flex items-center gap-0.5`}>
-                    <FaCalendarAlt className="text-[9px]" /> {fmtDate(task.dueDate)}
-                  </span>
-                </>
-              )}
-              {hasRecurrence && (
-                <>
-                  <span className="hidden sm:inline">·</span>
-                  <span className="text-teal-600 dark:text-[#0d9488] flex items-center gap-0.5">
-                    <FaRedo className="text-[9px]" /> {task.recurrenceType === 'daily' ? 'Daily' : 'Weekly'}
-                  </span>
-                </>
-              )}
+    <>
+      <GlobalStyles />
+
+      <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col overflow-hidden">
+        {/* ─── Header ─────────────────────────────────────── */}
+        <header className="shrink-0 bg-white/90 dark:bg-[#14141a]/90 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/60 z-20">
+          <div className="px-3 lg:px-6 py-2.5 lg:py-3 flex items-center gap-2 lg:gap-3">
+            <button onClick={backToProject} className="p-1.5 -ml-1 text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition shrink-0">
+              <FaArrowLeft className="text-sm" />
+            </button>
+            <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm shrink-0" style={{ backgroundColor: brandColor }}>
+              {task.title.charAt(0).toUpperCase()}
             </div>
-          </div>
-
-          {/* Action button — desktop only (lg+) */}
-          {showMarkCompleteBtn && (
-            <button
-              onClick={() => setShowMarkComplete(true)}
-              className="hidden lg:flex shrink-0 px-3.5 py-2 text-white rounded-lg text-sm font-medium items-center gap-1.5 hover:opacity-90 transition"
-              style={{ backgroundColor: brandColor }}
-            >
-              <FaCheckDouble className="text-xs" />
-              {canManage ? 'Mark as Complete & Confirm' : 'Mark as Complete'}
-            </button>
-          )}
-          {showConfirmCompletionBtn && (
-            <button
-              onClick={() => setShowConfirmCompletion(true)}
-              className="hidden lg:flex shrink-0 px-3.5 py-2 text-white rounded-lg text-sm font-medium items-center gap-1.5 hover:opacity-90 transition"
-              style={{ backgroundColor: brandColor }}
-            >
-              <FaCheckCircle className="text-xs" />
-              Confirm Completion
-            </button>
-          )}
-
-          <div className="relative shrink-0">
-            <button onClick={() => setShowMenu(!showMenu)} className="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition">
-              <FaEllipsisV className="text-sm" />
-            </button>
-            {showMenu && (
-              <div className="absolute right-0 top-10 bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-800/60 rounded-xl min-w-[190px] z-30 py-1 shadow-lg">
-                {canAIEdit && (
-                  <button onClick={() => { setShowMenu(false); setShowAIEdit(true); }} className="flex items-center gap-2 px-4 py-2 text-sm text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-500/10 w-full">
-                    <FaMagic className="text-xs" /> AI Edit
-                  </button>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-sm lg:text-base font-semibold text-gray-800 dark:text-gray-100 leading-tight truncate">{task.title}</h2>
+              <div className="flex items-center gap-1.5 text-[11px] flex-wrap mt-0.5 text-gray-500 dark:text-gray-400">
+                <StatusPill status={task.status} />
+                <span className="hidden sm:inline"><PriorityPill priority={task.priority} /></span>
+                <span className="font-mono">{confirmedCount}/{subTasks.length} done</span>
+                {task.dueDate && (
+                  <>
+                    <span className="hidden sm:inline">·</span>
+                    <span className={`${isOverdueTask ? 'text-red-500 font-medium' : ''} flex items-center gap-0.5`}>
+                      <FaCalendarAlt className="text-[9px]" /> {fmtDate(task.dueDate)}
+                    </span>
+                  </>
                 )}
-                {canManage && !isReadOnly && <button onClick={() => { setShowMenu(false); handleReminder(); }} className="flex items-center gap-2 px-4 py-2 text-sm text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-500/10 w-full"><FaBell className="text-xs" /> Send Reminder</button>}
-                {!isReadOnly && <button onClick={() => { setShowMenu(false); setShowEdit(true); }} className="flex items-center gap-2 px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10 w-full"><FaEdit className="text-xs" /> Edit</button>}
-                {canManage && !hasAssignees && !isReadOnly && <button onClick={() => { setShowMenu(false); setShowAssign(true); }} className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 w-full"><FaUserPlus className="text-xs" /> Assign Task</button>}
-                {canManage && !isReadOnly && <button onClick={() => { setShowMenu(false); setDeleteConfirm(true); }} className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 w-full"><FaTrashAlt className="text-xs" /> Delete</button>}
+                {hasRecurrence && (
+                  <>
+                    <span className="hidden sm:inline">·</span>
+                    <span className="text-teal-600 dark:text-[#0d9488] flex items-center gap-0.5">
+                      <FaRedo className="text-[9px]" /> {task.recurrenceType === 'daily' ? 'Daily' : 'Weekly'}
+                    </span>
+                  </>
+                )}
               </div>
-            )}
-          </div>
-        </div>
+            </div>
 
-        {/* Slim progress bar under header */}
-        <div className="w-full h-0.5 bg-gray-200/60 dark:bg-gray-800/40">
-          <div className="h-full transition-all duration-500" style={{ width: `${progress}%`, backgroundColor: brandColor }} />
-        </div>
-      </header>
-
-      {/* ─── Body ─────────────────────────────────────────── */}
-      <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden lg:grid lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)_320px]">
-
-        {/* LEFT: Task summary (desktop) */}
-        <aside className="hidden lg:block lg:h-full lg:overflow-y-auto bg-white dark:bg-[#14141a] border-r border-gray-200/60 dark:border-gray-800/60">
-          <div className="p-5">
-            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-4">Task Details</h3>
-            <TaskSummary
-              task={task}
-              brandColor={brandColor}
-              submissionExpanded={submissionExpanded}
-              setSubmissionExpanded={setSubmissionExpanded}
-              rejectionExpanded={rejectionExpanded}
-              setRejectionExpanded={setRejectionExpanded}
-              hasSubmissionData={hasSubmissionData}
-              showRejection={showRejection}
-              isOverdueTask={isOverdueTask}
-            />
-          </div>
-        </aside>
-
-        {/* MIDDLE: Checklist */}
-        <main className="lg:h-full lg:overflow-y-auto">
-          <div className="p-3 lg:p-6 space-y-4 lg:space-y-5">
-
-            {/* Mobile: collapsible task details */}
-            <div className="lg:hidden">
+            {/* Action button — desktop only (lg+) */}
+            {showMarkCompleteBtn && (
               <button
-                onClick={() => setMobileDetailsOpen(!mobileDetailsOpen)}
-                className="w-full flex items-center justify-between bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/40 px-3 py-2.5 text-xs font-medium text-gray-700 dark:text-gray-300"
+                onClick={() => setShowMarkComplete(true)}
+                className="hidden lg:flex shrink-0 px-3.5 py-2 text-white rounded-lg text-sm font-medium items-center gap-1.5 hover:opacity-90 transition"
+                style={{ backgroundColor: brandColor }}
               >
-                <span className="flex items-center gap-2"><FaListUl className="text-teal-600 dark:text-[#0d9488] text-[11px]" /> Task details</span>
-                <FaAngleDown className={`text-gray-400 text-[10px] transition-transform ${mobileDetailsOpen ? 'rotate-180' : ''}`} />
+                <FaCheckDouble className="text-xs" />
+                {canManage ? 'Mark as Complete & Confirm' : 'Mark as Complete'}
               </button>
-              {mobileDetailsOpen && (
-                <div className="mt-2 bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/40 p-3">
-                  <TaskSummary
-                    task={task}
-                    brandColor={brandColor}
-                    submissionExpanded={submissionExpanded}
-                    setSubmissionExpanded={setSubmissionExpanded}
-                    rejectionExpanded={rejectionExpanded}
-                    setRejectionExpanded={setRejectionExpanded}
-                    hasSubmissionData={hasSubmissionData}
-                    showRejection={showRejection}
-                    isOverdueTask={isOverdueTask}
-                  />
+            )}
+            {showConfirmCompletionBtn && (
+              <button
+                onClick={() => setShowConfirmCompletion(true)}
+                className="hidden lg:flex shrink-0 px-3.5 py-2 text-white rounded-lg text-sm font-medium items-center gap-1.5 hover:opacity-90 transition"
+                style={{ backgroundColor: brandColor }}
+              >
+                <FaCheckCircle className="text-xs" />
+                Confirm Completion
+              </button>
+            )}
+
+            <div className="relative shrink-0">
+              <button onClick={() => setShowMenu(!showMenu)} className="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition">
+                <FaEllipsisV className="text-sm" />
+              </button>
+              {showMenu && (
+                <div className="absolute right-0 top-10 bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-800/60 rounded-xl min-w-[190px] z-30 py-1 shadow-lg">
+                  {canAIEdit && (
+                    <button onClick={() => { setShowMenu(false); setShowAIEdit(true); }} className="flex items-center gap-2 px-4 py-2 text-sm text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-500/10 w-full">
+                      <FaMagic className="text-xs" /> AI Edit
+                    </button>
+                  )}
+                  {canManage && !isReadOnly && <button onClick={() => { setShowMenu(false); handleReminder(); }} className="flex items-center gap-2 px-4 py-2 text-sm text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-500/10 w-full"><FaBell className="text-xs" /> Send Reminder</button>}
+                  {!isReadOnly && <button onClick={() => { setShowMenu(false); setShowEdit(true); }} className="flex items-center gap-2 px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10 w-full"><FaEdit className="text-xs" /> Edit</button>}
+                  {canManage && !hasAssignees && !isReadOnly && <button onClick={() => { setShowMenu(false); setShowAssign(true); }} className="flex items-center gap-2 px-4 py-2 text-sm text-teal-600 hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 w-full"><FaUserPlus className="text-xs" /> Assign Task</button>}
+                  {canManage && !isReadOnly && <button onClick={() => { setShowMenu(false); setDeleteConfirm(true); }} className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 w-full"><FaTrashAlt className="text-xs" /> Delete</button>}
                 </div>
               )}
             </div>
+          </div>
 
-            {/* Checklist header */}
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
-                <FaTasks className="text-teal-600 dark:text-[#0d9488]" /> Checklist
-                <span className="text-xs font-normal text-gray-500 dark:text-gray-500">({confirmedCount}/{subTasks.length})</span>
-              </h3>
-              <div className="flex items-center gap-1.5">
-                {canAIEdit && (
-                  <button
-                    onClick={() => setShowAIEdit(true)}
-                    className="text-xs text-purple-600 dark:text-purple-400 font-medium flex items-center gap-1 px-2.5 py-1 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-500/10 transition"
-                    title="AI Edit"
-                  >
-                    <FaMagic className="text-xs" /> AI
-                  </button>
-                )}
-                {!isReadOnly && ((isAssignee && task.allowAssigneeEditSubtasks) || canManage) && (
-                  <button onClick={() => setAddSubOpen(true)} className="text-xs text-teal-600 dark:text-[#0d9488] font-medium flex items-center gap-1 hover:text-teal-700 dark:hover:text-[#14b8a6] transition px-2.5 py-1 rounded-lg hover:bg-teal-50 dark:hover:bg-[#0d9488]/10">
-                    <FaPlus className="text-xs" /> Add items
-                  </button>
-                )}
-              </div>
+          {/* Slim progress bar under header */}
+          <div className="w-full h-0.5 bg-gray-200/60 dark:bg-gray-800/40">
+            <div className="h-full transition-all duration-500" style={{ width: `${progress}%`, backgroundColor: brandColor }} />
+          </div>
+        </header>
+
+        {/* ─── Body ─────────────────────────────────────────── */}
+        <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden lg:grid lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)_320px]">
+
+          {/* LEFT: Task summary (desktop) */}
+          <aside className="hidden lg:block lg:h-full lg:overflow-y-auto bg-white dark:bg-[#14141a] border-r border-gray-200/60 dark:border-gray-800/60">
+            <div className="p-5">
+              <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-4">Task Details</h3>
+              <TaskSummary
+                task={task}
+                brandColor={brandColor}
+                submissionExpanded={submissionExpanded}
+                setSubmissionExpanded={setSubmissionExpanded}
+                rejectionExpanded={rejectionExpanded}
+                setRejectionExpanded={setRejectionExpanded}
+                hasSubmissionData={hasSubmissionData}
+                showRejection={showRejection}
+                isOverdueTask={isOverdueTask}
+              />
             </div>
+          </aside>
 
-            {/* Bulk selection action bar */}
-            {canSelectSubs && selectedSubIndices.size > 0 && (
-              <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl shadow-lg">
-                <span className="text-sm font-medium flex-1">
-                  {selectedSubIndices.size} selected
-                </span>
-                <button
-                  onClick={clearSubSelection}
-                  className="text-xs px-2.5 py-1 bg-white/20 hover:bg-white/30 rounded-lg transition"
-                >
-                  Clear
-                </button>
-                <button
-                  onClick={handleDeleteSelectedSubs}
-                  disabled={bulkDeleting}
-                  className="text-xs px-2.5 py-1 bg-red-500 hover:bg-red-600 disabled:opacity-60 rounded-lg flex items-center gap-1 transition"
-                >
-                  <FaTrashAlt className="text-[10px]" />
-                  {bulkDeleting ? 'Deleting...' : 'Delete'}
-                </button>
-              </div>
-            )}
+          {/* MIDDLE: Checklist */}
+          <main className="lg:h-full lg:overflow-y-auto">
+            <div className="p-3 lg:p-6 space-y-4 lg:space-y-5">
 
-            {subTasks.length === 0 ? (
-              <div className="text-center py-14 bg-white dark:bg-[#14141a] rounded-2xl border border-dashed border-gray-300 dark:border-gray-800/60">
-                <FaListUl className="text-3xl mx-auto text-gray-300 dark:text-gray-700 mb-2" />
-                <p className="text-sm text-gray-500 dark:text-gray-500">No checklist items yet</p>
-                <p className="text-xs text-gray-400 dark:text-gray-600 mt-1">Break this task down into smaller pieces</p>
+              {/* Mobile: collapsible task details */}
+              <div className="lg:hidden">
+                <button
+                  onClick={() => setMobileDetailsOpen(!mobileDetailsOpen)}
+                  className="w-full flex items-center justify-between bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/40 px-3 py-2.5 text-xs font-medium text-gray-700 dark:text-gray-300"
+                >
+                  <span className="flex items-center gap-2"><FaListUl className="text-teal-600 dark:text-[#0d9488] text-[11px]" /> Task details</span>
+                  <FaAngleDown className={`text-gray-400 text-[10px] transition-transform ${mobileDetailsOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {mobileDetailsOpen && (
+                  <div className="mt-2 bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/40 p-3">
+                    <TaskSummary
+                      task={task}
+                      brandColor={brandColor}
+                      submissionExpanded={submissionExpanded}
+                      setSubmissionExpanded={setSubmissionExpanded}
+                      rejectionExpanded={rejectionExpanded}
+                      setRejectionExpanded={setRejectionExpanded}
+                      hasSubmissionData={hasSubmissionData}
+                      showRejection={showRejection}
+                      isOverdueTask={isOverdueTask}
+                    />
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="space-y-2">
-                {subTasks.map((st, idx) => {
-                  const showMarkDone = (isAssignee || canManage) && st.status === 'pending';
-                  const showConfirmReject = canManage && st.status === 'done';
-                  const canDeleteThis = ((isAssignee && st.status !== 'confirmed') || canManage) && canReorderSub;
-                  const isDragOver = dragOverIdx === idx;
-                  const hasDetails = st.notes || st.links?.length || st.attachments?.length || st.feedback || st.rejectedBy;
-                  const stStatus = st.status === 'confirmed' ? 'Confirmed' : st.status === 'done' ? 'Done' : 'Pending';
-                  const stStatusColor = st.status === 'confirmed'
-                    ? 'text-green-700 dark:text-green-300 bg-green-100 dark:bg-green-900/30'
-                    : st.status === 'done'
-                      ? 'text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/30'
-                      : 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800/60';
-                  const isOverdue = st.dueDate && new Date(st.dueDate) < new Date() && st.status !== 'confirmed';
-                  const isSelected = selectedSubIndices.has(idx);
-                  return (
-                    <div
-                      key={idx}
-                      draggable={canReorderSub}
-                      onDragStart={(e) => onSubDragStart(e, idx)}
-                      onDragEnd={() => { setDraggedIdx(null); setDragOverIdx(null); }}
-                      onDragOver={(e) => { e.preventDefault(); if (draggedIdx !== null && draggedIdx !== idx) setDragOverIdx(idx); }}
-                      onDragLeave={() => setDragOverIdx(null)}
-                      onDrop={(e) => onSubDrop(e, idx)}
-                      className={`group bg-white dark:bg-[#14141a] rounded-2xl border transition-all ${
-                        isDragOver
-                          ? 'border-teal-500 dark:border-[#0d9488] bg-teal-50/50 dark:bg-[#0d9488]/5'
-                          : isSelected
-                            ? 'border-teal-400 dark:border-[#0d9488]/70 bg-teal-50/40 dark:bg-[#0d9488]/5'
-                            : 'border-gray-200/60 dark:border-gray-800/40 hover:border-gray-300 dark:hover:border-gray-700/60'
-                      }`}
+
+              {/* Checklist header */}
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                  <FaTasks className="text-teal-600 dark:text-[#0d9488]" /> Checklist
+                  <span className="text-xs font-normal text-gray-500 dark:text-gray-500">({confirmedCount}/{subTasks.length})</span>
+                </h3>
+                <div className="flex items-center gap-1.5">
+                  {canAIEdit && (
+                    <button
+                      onClick={() => setShowAIEdit(true)}
+                      className="text-xs text-purple-600 dark:text-purple-400 font-medium flex items-center gap-1 px-2.5 py-1 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-500/10 transition"
+                      title="AI Edit"
                     >
-                      <div className="p-3 lg:p-4">
-                        <div className="flex items-start gap-2">
-                          {/* Selection checkbox */}
-                          {canSelectSubs && (
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); toggleSubSelection(idx); }}
-                              className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 mt-0.5 transition ${
-                                isSelected
-                                  ? 'bg-teal-500 border-teal-500'
-                                  : 'border-gray-300 dark:border-gray-600 hover:border-teal-400'
-                              }`}
-                              title="Select item"
-                            >
-                              {isSelected && <FaCheck className="text-white text-[8px]" />}
-                            </button>
-                          )}
-                          {canReorderSub && (
-                            <FaGripVertical className="text-gray-300 dark:text-gray-700 text-xs shrink-0 mt-1 cursor-grab" />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-start gap-2 flex-wrap mb-1">
-                              <span className="text-sm font-medium text-gray-800 dark:text-gray-200 break-words flex-1 min-w-0">
-                                {st.title}
-                              </span>
-                              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${stStatusColor}`}>
-                                {stStatus}
-                              </span>
-                            </div>
-                            {st.description && (
-                              <p className="text-xs text-gray-500 dark:text-gray-500 break-words whitespace-pre-wrap mb-1.5 leading-relaxed">
-                                {st.description}
-                              </p>
-                            )}
-                            <div className="flex items-center gap-3 flex-wrap text-[11px] text-gray-500 dark:text-gray-500">
-                              {st.dueDate && (
-                                <span className={`flex items-center gap-1 ${isOverdue ? 'text-red-500 dark:text-red-400' : ''}`}>
-                                  <FaRegClock className="text-[10px]" /> {fmtDateTime(st.dueDate)}
-                                </span>
-                              )}
-                              {isOverdue && <span className="text-red-500 dark:text-red-400 font-medium">Overdue</span>}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-0.5 shrink-0">
-                            {showMarkDone && (
-                              <button onClick={() => setDoneModal({ isOpen: true, index: idx })} title="Mark done" className="p-1.5 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg transition">
-                                <FaCheck className="text-xs" />
-                              </button>
-                            )}
-                            {showConfirmReject && (
-                              <>
-                                <button onClick={() => setConfirmModal({ isOpen: true, index: idx })} title="Confirm" className="p-1.5 text-green-500 hover:bg-green-50 dark:hover:bg-green-500/10 rounded-lg transition">
-                                  <FaCheckDouble className="text-xs" />
-                                </button>
-                                <button onClick={() => setRejectModal({ isOpen: true, index: idx })} title="Reject" className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition">
-                                  <FaTimes className="text-xs" />
-                                </button>
-                              </>
-                            )}
-                            {hasDetails && (
-                              <button onClick={() => setExpandedSub(expandedSub === idx ? null : idx)} className="p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition">
-                                <FaAngleDown className={`text-xs transition-transform ${expandedSub === idx ? 'rotate-180' : ''}`} />
-                              </button>
-                            )}
-                            {canDeleteThis && (
-                              <button onClick={() => setDeleteSubModal({ isOpen: true, index: idx })} title="Delete" className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition">
-                                <FaTrashAlt className="text-xs" />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        {expandedSub === idx && hasDetails && (
-                          <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800/40 text-xs space-y-1.5">
-                            {st.notes && <div className="break-words text-gray-600 dark:text-gray-400"><span className="font-medium text-gray-700 dark:text-gray-300">Notes: </span>{st.notes}</div>}
-                            {st.links?.length > 0 && (
-                              <div>
-                                <span className="font-medium text-gray-700 dark:text-gray-300">Links:</span>
-                                {st.links.map((l, i) => <a key={i} href={l} target="_blank" rel="noreferrer" className="block text-teal-600 dark:text-[#0d9488] underline break-all mt-0.5">{l}</a>)}
-                              </div>
-                            )}
-                            {st.attachments?.length > 0 && (
-                              <div>
-                                <span className="font-medium text-gray-700 dark:text-gray-300">Attachments:</span>
-                                {st.attachments.map((a, i) => <a key={i} href={a.url} target="_blank" rel="noreferrer" className="block text-teal-600 dark:text-[#0d9488] underline break-all mt-0.5">{a.name || 'file'}</a>)}
-                              </div>
-                            )}
-                            {st.feedback && <div className="break-words text-gray-600 dark:text-gray-400"><span className="font-medium text-gray-700 dark:text-gray-300">Confirm feedback: </span>{st.feedback}</div>}
-                            {st.rejectedBy && <div className="break-words text-gray-600 dark:text-gray-400"><span className="font-medium text-gray-700 dark:text-gray-300">Rejected by: </span>{st.rejectedBy.name || 'Unknown'} on {fmtDateTime(st.rejectedAt)}</div>}
-                            {st.rejectionReason && <div className="break-words text-gray-600 dark:text-gray-400"><span className="font-medium text-gray-700 dark:text-gray-300">Reason: </span>{st.rejectionReason}</div>}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+                      <FaMagic className="text-xs" /> AI
+                    </button>
+                  )}
+                  {!isReadOnly && ((isAssignee && task.allowAssigneeEditSubtasks) || canManage) && (
+                    <button onClick={() => setAddSubOpen(true)} className="text-xs text-teal-600 dark:text-[#0d9488] font-medium flex items-center gap-1 hover:text-teal-700 dark:hover:text-[#14b8a6] transition px-2.5 py-1 rounded-lg hover:bg-teal-50 dark:hover:bg-[#0d9488]/10">
+                      <FaPlus className="text-xs" /> Add items
+                    </button>
+                  )}
+                </div>
               </div>
-            )}
 
-            {/* Mobile-only: activity at bottom of single scroll */}
-            {feedbackData?.feedback?.length > 0 && (
-              <div className="xl:hidden">
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Activity</h3>
+              {/* Bulk selection action bar */}
+              {canSelectSubs && selectedSubIndices.size > 0 && (
+                <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl shadow-lg">
+                  <span className="text-sm font-medium flex-1">
+                    {selectedSubIndices.size} selected
+                  </span>
+                  <button
+                    onClick={clearSubSelection}
+                    className="text-xs px-2.5 py-1 bg-white/20 hover:bg-white/30 rounded-lg transition"
+                  >
+                    Clear
+                  </button>
+                  <button
+                    onClick={handleDeleteSelectedSubs}
+                    disabled={bulkDeleting}
+                    className="text-xs px-2.5 py-1 bg-red-500 hover:bg-red-600 disabled:opacity-60 rounded-lg flex items-center gap-1 transition"
+                  >
+                    <FaTrashAlt className="text-[10px]" />
+                    {bulkDeleting ? 'Deleting...' : 'Delete'}
+                  </button>
+                </div>
+              )}
+
+              {subTasks.length === 0 ? (
+                <div className="text-center py-14 bg-white dark:bg-[#14141a] rounded-2xl border border-dashed border-gray-300 dark:border-gray-800/60">
+                  <FaListUl className="text-3xl mx-auto text-gray-300 dark:text-gray-700 mb-2" />
+                  <p className="text-sm text-gray-500 dark:text-gray-500">No checklist items yet</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-600 mt-1">Break this task down into smaller pieces</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {subTasks.map((st, idx) => {
+                    const showMarkDone = (isAssignee || canManage) && st.status === 'pending';
+                    const showConfirmReject = canManage && st.status === 'done';
+                    const canDeleteThis = ((isAssignee && st.status !== 'confirmed') || canManage) && canReorderSub;
+                    const isDragOver = dragOverIdx === idx;
+                    const hasDetails = st.notes || st.links?.length || st.attachments?.length || st.feedback || st.rejectedBy;
+                    const stStatus = st.status === 'confirmed' ? 'Confirmed' : st.status === 'done' ? 'Done' : 'Pending';
+                    const stStatusColor = st.status === 'confirmed'
+                      ? 'text-green-700 dark:text-green-300 bg-green-100 dark:bg-green-900/30'
+                      : st.status === 'done'
+                        ? 'text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/30'
+                        : 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800/60';
+                    const isOverdue = st.dueDate && new Date(st.dueDate) < new Date() && st.status !== 'confirmed';
+                    const isSelected = selectedSubIndices.has(idx);
+                    return (
+                      <div
+                        key={idx}
+                        draggable={canReorderSub}
+                        onDragStart={(e) => onSubDragStart(e, idx)}
+                        onDragEnd={() => { setDraggedIdx(null); setDragOverIdx(null); }}
+                        onDragOver={(e) => { e.preventDefault(); if (draggedIdx !== null && draggedIdx !== idx) setDragOverIdx(idx); }}
+                        onDragLeave={() => setDragOverIdx(null)}
+                        onDrop={(e) => onSubDrop(e, idx)}
+                        className={`group bg-white dark:bg-[#14141a] rounded-2xl border transition-all ${
+                          isDragOver
+                            ? 'border-teal-500 dark:border-[#0d9488] bg-teal-50/50 dark:bg-[#0d9488]/5'
+                            : isSelected
+                              ? 'border-teal-400 dark:border-[#0d9488]/70 bg-teal-50/40 dark:bg-[#0d9488]/5'
+                              : 'border-gray-200/60 dark:border-gray-800/40 hover:border-gray-300 dark:hover:border-gray-700/60'
+                        }`}
+                      >
+                        <div className="p-3 lg:p-4">
+                          <div className="flex items-start gap-2">
+                            {/* Selection checkbox */}
+                            {canSelectSubs && (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); toggleSubSelection(idx); }}
+                                className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 mt-0.5 transition ${
+                                  isSelected
+                                    ? 'bg-teal-500 border-teal-500'
+                                    : 'border-gray-300 dark:border-gray-600 hover:border-teal-400'
+                                }`}
+                                title="Select item"
+                              >
+                                {isSelected && <FaCheck className="text-white text-[8px]" />}
+                              </button>
+                            )}
+                            {canReorderSub && (
+                              <FaGripVertical className="text-gray-300 dark:text-gray-700 text-xs shrink-0 mt-1 cursor-grab" />
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start gap-2 flex-wrap mb-1">
+                                <span className="text-sm font-medium text-gray-800 dark:text-gray-200 break-words flex-1 min-w-0">
+                                  {st.title}
+                                </span>
+                                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${stStatusColor}`}>
+                                  {stStatus}
+                                </span>
+                              </div>
+                              {st.description && (
+                                <p className="text-xs text-gray-500 dark:text-gray-500 break-words whitespace-pre-wrap mb-1.5 leading-relaxed">
+                                  {st.description}
+                                </p>
+                              )}
+                              <div className="flex items-center gap-3 flex-wrap text-[11px] text-gray-500 dark:text-gray-500">
+                                {st.dueDate && (
+                                  <span className={`flex items-center gap-1 ${isOverdue ? 'text-red-500 dark:text-red-400' : ''}`}>
+                                    <FaRegClock className="text-[10px]" /> {fmtDateTime(st.dueDate)}
+                                  </span>
+                                )}
+                                {isOverdue && <span className="text-red-500 dark:text-red-400 font-medium">Overdue</span>}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              {showMarkDone && (
+                                <button onClick={() => setDoneModal({ isOpen: true, index: idx })} title="Mark done" className="p-1.5 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg transition">
+                                  <FaCheck className="text-xs" />
+                                </button>
+                              )}
+                              {showConfirmReject && (
+                                <>
+                                  <button onClick={() => setConfirmModal({ isOpen: true, index: idx })} title="Confirm" className="p-1.5 text-green-500 hover:bg-green-50 dark:hover:bg-green-500/10 rounded-lg transition">
+                                    <FaCheckDouble className="text-xs" />
+                                  </button>
+                                  <button onClick={() => setRejectModal({ isOpen: true, index: idx })} title="Reject" className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition">
+                                    <FaTimes className="text-xs" />
+                                  </button>
+                                </>
+                              )}
+                              {hasDetails && (
+                                <button onClick={() => setExpandedSub(expandedSub === idx ? null : idx)} className="p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition">
+                                  <FaAngleDown className={`text-xs transition-transform ${expandedSub === idx ? 'rotate-180' : ''}`} />
+                                </button>
+                              )}
+                              {canDeleteThis && (
+                                <button onClick={() => setDeleteSubModal({ isOpen: true, index: idx })} title="Delete" className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition">
+                                  <FaTrashAlt className="text-xs" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {expandedSub === idx && hasDetails && (
+                            <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800/40 text-xs space-y-1.5">
+                              {st.notes && <div className="break-words text-gray-600 dark:text-gray-400"><span className="font-medium text-gray-700 dark:text-gray-300">Notes: </span>{st.notes}</div>}
+                              {st.links?.length > 0 && (
+                                <div>
+                                  <span className="font-medium text-gray-700 dark:text-gray-300">Links:</span>
+                                  {st.links.map((l, i) => <a key={i} href={l} target="_blank" rel="noreferrer" className="block text-teal-600 dark:text-[#0d9488] underline break-all mt-0.5">{l}</a>)}
+                                </div>
+                              )}
+                              {st.attachments?.length > 0 && (
+                                <div>
+                                  <span className="font-medium text-gray-700 dark:text-gray-300">Attachments:</span>
+                                  {st.attachments.map((a, i) => <a key={i} href={a.url} target="_blank" rel="noreferrer" className="block text-teal-600 dark:text-[#0d9488] underline break-all mt-0.5">{a.name || 'file'}</a>)}
+                                </div>
+                              )}
+                              {st.feedback && <div className="break-words text-gray-600 dark:text-gray-400"><span className="font-medium text-gray-700 dark:text-gray-300">Confirm feedback: </span>{st.feedback}</div>}
+                              {st.rejectedBy && <div className="break-words text-gray-600 dark:text-gray-400"><span className="font-medium text-gray-700 dark:text-gray-300">Rejected by: </span>{st.rejectedBy.name || 'Unknown'} on {fmtDateTime(st.rejectedAt)}</div>}
+                              {st.rejectionReason && <div className="break-words text-gray-600 dark:text-gray-400"><span className="font-medium text-gray-700 dark:text-gray-300">Reason: </span>{st.rejectionReason}</div>}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Mobile-only: activity at bottom of single scroll */}
+              {feedbackData?.feedback?.length > 0 && (
+                <div className="xl:hidden">
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Activity</h3>
+                  <div className="space-y-2">
+                    {feedbackData.feedback.map((f) => (
+                      <div key={f._id} className="text-xs bg-white dark:bg-[#14141a] p-3 rounded-xl border border-gray-200 dark:border-gray-800/40">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">{f.user?.name || 'Someone'}</span>
+                        <span className="text-gray-500 dark:text-gray-500"> — {f.type?.replace('_', ' ')}</span>
+                        <span className="text-gray-400"> · {fmtDateTime(f.createdAt)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </main>
+
+          {/* RIGHT (xl+): Activity feed */}
+          <aside className="hidden xl:flex xl:flex-col xl:h-full xl:overflow-y-auto bg-white dark:bg-[#14141a] border-l border-gray-200/60 dark:border-gray-800/60">
+            <div className="p-5">
+              <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-4 flex items-center gap-2">
+                <FaCommentDots className="text-teal-600 dark:text-[#0d9488]" /> Activity
+              </h3>
+              {feedbackData?.feedback?.length > 0 ? (
                 <div className="space-y-2">
                   {feedbackData.feedback.map((f) => (
-                    <div key={f._id} className="text-xs bg-white dark:bg-[#14141a] p-3 rounded-xl border border-gray-200 dark:border-gray-800/40">
-                      <span className="font-medium text-gray-700 dark:text-gray-300">{f.user?.name || 'Someone'}</span>
-                      <span className="text-gray-500 dark:text-gray-500"> — {f.type?.replace('_', ' ')}</span>
-                      <span className="text-gray-400"> · {fmtDateTime(f.createdAt)}</span>
+                    <div key={f._id} className="text-xs bg-gray-50 dark:bg-[#1a1a24] p-3 rounded-xl border border-gray-200 dark:border-gray-800/40">
+                      <div className="flex items-center gap-2 mb-1">
+                        <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold overflow-hidden shrink-0" style={{ backgroundColor: brandColor }}>
+                          {f.user?.profile ? <img src={f.user.profile} className="w-full h-full object-cover" alt="" /> : (f.user?.name || '?').charAt(0).toUpperCase()}
+                        </div>
+                        <span className="font-medium text-gray-700 dark:text-gray-300 break-words">{f.user?.name || 'Someone'}</span>
+                      </div>
+                      <p className="text-gray-500 dark:text-gray-500 break-words">{f.type?.replace('_', ' ')}</p>
+                      <p className="text-gray-400 dark:text-gray-600 text-[10px] mt-1">{fmtDateTime(f.createdAt)}</p>
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
-          </div>
-        </main>
-
-        {/* RIGHT (xl+): Activity feed */}
-        <aside className="hidden xl:flex xl:flex-col xl:h-full xl:overflow-y-auto bg-white dark:bg-[#14141a] border-l border-gray-200/60 dark:border-gray-800/60">
-          <div className="p-5">
-            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-4 flex items-center gap-2">
-              <FaCommentDots className="text-teal-600 dark:text-[#0d9488]" /> Activity
-            </h3>
-            {feedbackData?.feedback?.length > 0 ? (
-              <div className="space-y-2">
-                {feedbackData.feedback.map((f) => (
-                  <div key={f._id} className="text-xs bg-gray-50 dark:bg-[#1a1a24] p-3 rounded-xl border border-gray-200 dark:border-gray-800/40">
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold overflow-hidden shrink-0" style={{ backgroundColor: brandColor }}>
-                        {f.user?.profile ? <img src={f.user.profile} className="w-full h-full object-cover" alt="" /> : (f.user?.name || '?').charAt(0).toUpperCase()}
-                      </div>
-                      <span className="font-medium text-gray-700 dark:text-gray-300 break-words">{f.user?.name || 'Someone'}</span>
-                    </div>
-                    <p className="text-gray-500 dark:text-gray-500 break-words">{f.type?.replace('_', ' ')}</p>
-                    <p className="text-gray-400 dark:text-gray-600 text-[10px] mt-1">{fmtDateTime(f.createdAt)}</p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-10">
-                <FaCommentDots className="text-2xl mx-auto text-gray-300 dark:text-gray-700 mb-2" />
-                <p className="text-xs text-gray-500 dark:text-gray-500">No activity yet</p>
-              </div>
-            )}
-          </div>
-        </aside>
-      </div>
-
-      {/* ─── Mobile bottom action bar (full width button) ─────── */}
-      {(showMarkCompleteBtn || showConfirmCompletionBtn) && (
-        <div className="shrink-0 lg:hidden border-t border-gray-200/60 dark:border-gray-800/60 bg-white/95 dark:bg-[#14141a]/95 backdrop-blur-xl px-3 py-2.5 z-20">
-          {showMarkCompleteBtn && (
-            <button
-              onClick={() => setShowMarkComplete(true)}
-              className="w-full py-2.5 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 transition"
-              style={{ backgroundColor: brandColor }}
-            >
-              <FaCheckDouble className="text-sm" />
-              {canManage ? 'Mark as Complete & Confirm' : 'Mark as Complete'}
-            </button>
-          )}
-          {showConfirmCompletionBtn && (
-            <button
-              onClick={() => setShowConfirmCompletion(true)}
-              className="w-full py-2.5 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 transition"
-              style={{ backgroundColor: brandColor }}
-            >
-              <FaCheckCircle className="text-sm" />
-              Confirm Completion
-            </button>
-          )}
+              ) : (
+                <div className="text-center py-10">
+                  <FaCommentDots className="text-2xl mx-auto text-gray-300 dark:text-gray-700 mb-2" />
+                  <p className="text-xs text-gray-500 dark:text-gray-500">No activity yet</p>
+                </div>
+              )}
+            </div>
+          </aside>
         </div>
-      )}
 
-      {/* Modals */}
-      <EditTaskModal isOpen={showEdit} onClose={() => setShowEdit(false)} task={task} brandColor={brandColor} assignableMembers={assignableMembers} folders={foldersData?.folders || []} onSuccess={refetchTask} />
-      <AssignTaskModal isOpen={showAssign} onClose={() => setShowAssign(false)} task={task} assignableMembers={assignableMembers} brandColor={brandColor} onAssign={handleAssign} />
-      <MarkCompleteModal isOpen={showMarkComplete} onClose={() => setShowMarkComplete(false)} task={task} brandColor={brandColor} onSubmit={handleMarkComplete} />
-      <ConfirmCompletionModal isOpen={showConfirmCompletion} onClose={() => setShowConfirmCompletion(false)} task={task} brandColor={brandColor} onSubmit={handleConfirmCompletion} onReject={handleRejectTask} />
-      <ConfirmDialog isOpen={deleteConfirm} onClose={() => setDeleteConfirm(false)} onConfirm={handleDelete} title="Delete Task" message={`Delete "${task.title}"? This cannot be undone.`} danger confirmText="Delete" />
-      <AddChecklistModal isOpen={addSubOpen} onClose={() => setAddSubOpen(false)} onSubmit={handleAddSubtask} />
-      <ChecklistDoneModal isOpen={doneModal.isOpen} onClose={() => setDoneModal({ isOpen: false, index: null })} canManage={canManage} onSubmit={submitDone} />
-      <ChecklistConfirmModal isOpen={confirmModal.isOpen} onClose={() => setConfirmModal({ isOpen: false, index: null })} subTask={confirmModal.index != null ? subTasks[confirmModal.index] : null} onSubmit={submitConfirmSub} />
-      <ReasonModal isOpen={rejectModal.isOpen} onClose={() => setRejectModal({ isOpen: false, index: null })} onSubmit={submitRejectSub} title="Reject Item" />
-      <ConfirmDialog isOpen={deleteSubModal.isOpen} onClose={() => setDeleteSubModal({ isOpen: false, index: null })} onConfirm={confirmDeleteSub} title="Delete Item" message="This cannot be undone." danger confirmText="Delete" />
-      <AIEditTaskModal isOpen={showAIEdit} onClose={() => setShowAIEdit(false)} task={task} brandColor={brandColor} onApplied={refetchTask} />
-    </div>
+        {/* ─── Mobile bottom action bar (full width button) ─────── */}
+        {(showMarkCompleteBtn || showConfirmCompletionBtn) && (
+          <div className="shrink-0 lg:hidden border-t border-gray-200/60 dark:border-gray-800/60 bg-white/95 dark:bg-[#14141a]/95 backdrop-blur-xl px-3 py-2.5 z-20">
+            {showMarkCompleteBtn && (
+              <button
+                onClick={() => setShowMarkComplete(true)}
+                className="w-full py-2.5 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 transition"
+                style={{ backgroundColor: brandColor }}
+              >
+                <FaCheckDouble className="text-sm" />
+                {canManage ? 'Mark as Complete & Confirm' : 'Mark as Complete'}
+              </button>
+            )}
+            {showConfirmCompletionBtn && (
+              <button
+                onClick={() => setShowConfirmCompletion(true)}
+                className="w-full py-2.5 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 transition"
+                style={{ backgroundColor: brandColor }}
+              >
+                <FaCheckCircle className="text-sm" />
+                Confirm Completion
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Modals */}
+        <EditTaskModal isOpen={showEdit} onClose={() => setShowEdit(false)} task={task} brandColor={brandColor} assignableMembers={assignableMembers} folders={foldersData?.folders || []} onSuccess={refetchTask} />
+        <AssignTaskModal isOpen={showAssign} onClose={() => setShowAssign(false)} task={task} assignableMembers={assignableMembers} brandColor={brandColor} onAssign={handleAssign} />
+        <MarkCompleteModal isOpen={showMarkComplete} onClose={() => setShowMarkComplete(false)} task={task} brandColor={brandColor} onSubmit={handleMarkComplete} />
+        <ConfirmCompletionModal isOpen={showConfirmCompletion} onClose={() => setShowConfirmCompletion(false)} task={task} brandColor={brandColor} onSubmit={handleConfirmCompletion} onReject={handleRejectTask} />
+        <ConfirmDialog isOpen={deleteConfirm} onClose={() => setDeleteConfirm(false)} onConfirm={handleDelete} title="Delete Task" message={`Delete "${task.title}"? This cannot be undone.`} danger confirmText="Delete" />
+        <AddChecklistModal isOpen={addSubOpen} onClose={() => setAddSubOpen(false)} onSubmit={handleAddSubtask} />
+        <ChecklistDoneModal isOpen={doneModal.isOpen} onClose={() => setDoneModal({ isOpen: false, index: null })} canManage={canManage} onSubmit={submitDone} />
+        <ChecklistConfirmModal isOpen={confirmModal.isOpen} onClose={() => setConfirmModal({ isOpen: false, index: null })} subTask={confirmModal.index != null ? subTasks[confirmModal.index] : null} onSubmit={submitConfirmSub} />
+        <ReasonModal isOpen={rejectModal.isOpen} onClose={() => setRejectModal({ isOpen: false, index: null })} onSubmit={submitRejectSub} title="Reject Item" />
+        <ConfirmDialog isOpen={deleteSubModal.isOpen} onClose={() => setDeleteSubModal({ isOpen: false, index: null })} onConfirm={confirmDeleteSub} title="Delete Item" message="This cannot be undone." danger confirmText="Delete" />
+        <AIEditTaskModal isOpen={showAIEdit} onClose={() => setShowAIEdit(false)} task={task} brandColor={brandColor} onApplied={refetchTask} />
+      </div>
+    </>
   );
 };
 

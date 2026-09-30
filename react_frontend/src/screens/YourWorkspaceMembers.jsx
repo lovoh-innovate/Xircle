@@ -30,7 +30,109 @@ import {
   FaComment,
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
-import useWorkspacePresence from '../services/useWorkspacePresence'; // 👈 import the hook
+import useWorkspacePresence from '../services/useWorkspacePresence';
+
+// ─── Global styles: skeleton shimmer ───────────────────────────────
+const GlobalStyles = () => (
+  <style>{`
+    .skeleton {
+      position: relative;
+      overflow: hidden;
+      background-color: rgb(229 231 235); /* gray-200 */
+    }
+    .dark .skeleton {
+      background-color: rgba(255, 255, 255, 0.07);
+    }
+    .skeleton::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      transform: translateX(-100%);
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.55),
+        transparent
+      );
+      animation: skeletonShimmer 1.5s ease-in-out infinite;
+    }
+    .dark .skeleton::after {
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.07),
+        transparent
+      );
+    }
+    @keyframes skeletonShimmer {
+      100% { transform: translateX(100%); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .skeleton::after { animation: none; }
+    }
+  `}</style>
+);
+
+// ─── Skeleton primitives ───────────────────────────────────────────
+const Skeleton = ({ className = '', style }) => (
+  <div className={`skeleton rounded-lg ${className}`} style={style} />
+);
+
+const MemberRowSkeleton = () => (
+  <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-800/30 last:border-0">
+    <Skeleton className="w-10 h-10 rounded-xl flex-shrink-0" />
+    <div className="flex-1 min-w-0 space-y-2">
+      <div className="flex items-center gap-2">
+        <Skeleton className="h-3.5 w-28 max-w-[50%]" />
+        <Skeleton className="h-4 w-12 rounded-full" />
+        <Skeleton className="h-4 w-14 rounded-full" />
+      </div>
+      <Skeleton className="h-2.5 w-40 max-w-[70%]" />
+    </div>
+    <Skeleton className="w-6 h-6 rounded-lg flex-shrink-0" />
+  </div>
+);
+
+// ─── Loading shell — sidebar & bottombar render normally (static) ──
+const MembersLoadingShell = () => (
+  <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
+    {/* Sidebar — static, no skeleton */}
+    <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
+      <YourWorkspaceSidebar />
+    </div>
+
+    <div className="flex-1 flex flex-col h-full overflow-hidden">
+      {/* Header skeleton */}
+      <header className="sticky top-0 z-10 bg-white/95 dark:bg-[#0f0f12]/95 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
+        <div className="flex items-center justify-between px-3 sm:px-4 h-12 sm:h-14">
+          <div className="flex items-center gap-2 min-w-0">
+            <Skeleton className="w-7 h-7 rounded-lg lg:hidden" />
+            <Skeleton className="h-5 w-24" />
+            <Skeleton className="h-5 w-10 rounded-full" />
+          </div>
+          <div className="flex items-center gap-1 sm:gap-2">
+            <Skeleton className="w-8 h-8 rounded-xl" />
+            <Skeleton className="h-6 w-14 rounded-full" />
+          </div>
+        </div>
+        <div className="flex gap-4 px-3 sm:px-4 border-t border-gray-200/60 dark:border-gray-800/30">
+          <Skeleton className="h-4 w-20 my-2" />
+          <Skeleton className="h-4 w-20 my-2" />
+        </div>
+      </header>
+
+      {/* Member list skeleton */}
+      <div className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12] divide-y divide-gray-100 dark:divide-gray-800/30">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <MemberRowSkeleton key={i} />
+        ))}
+      </div>
+    </div>
+
+    {/* Bottombar — static, no skeleton */}
+    <YourWorkspaceBottombar />
+  </div>
+);
 
 // ─── useMediaQuery hook ──────────────────────────────────────────────
 const useMediaQuery = (query) => {
@@ -264,7 +366,6 @@ const SearchMembersModal = ({ isOpen, onClose, members, brandColor }) => {
           <div className="space-y-1.5">
             {filtered.map((member) => {
               const user = member.user || member;
-              // Note: we don't have online status in search modal, keep as is.
               return (
                 <div
                   key={user._id}
@@ -281,7 +382,6 @@ const SearchMembersModal = ({ isOpen, onClose, members, brandColor }) => {
                         {getInitials(user.name)}
                       </div>
                     )}
-                    {/* No presence dot in search modal */}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-gray-800 dark:text-gray-200 truncate">
@@ -498,7 +598,7 @@ const MemberItem = React.memo(({
   onEditRole,
   isMobile,
   onMemberClick,
-  isOnline, // 👈 new prop
+  isOnline,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
@@ -844,18 +944,13 @@ const YourWorkspaceMembers = () => {
     setActionSheetOpen(true);
   };
 
-  // ─── Loading state ──────────────────────────────────────────────────
+  // ─── Loading state — sidebar & bottombar stay live, only content shimmers ──
   if (workspaceLoading || pendingLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
-        <div className="text-center">
-          <div
-            className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin mx-auto"
-            style={{ borderColor: brandColor, borderTopColor: 'transparent' }}
-          />
-          <p className="mt-3 text-gray-500 dark:text-gray-500 text-sm">Loading members...</p>
-        </div>
-      </div>
+      <>
+        <GlobalStyles />
+        <MembersLoadingShell />
+      </>
     );
   }
 
@@ -912,7 +1007,7 @@ const YourWorkspaceMembers = () => {
           onEditRole={handleEditRole}
           isMobile={isMobile}
           onMemberClick={handleMemberClick}
-          isOnline={isOnline} // 👈 pass it down
+          isOnline={isOnline}
         />
       );
     });
@@ -920,142 +1015,146 @@ const YourWorkspaceMembers = () => {
 
   // ─── Render ──────────────────────────────────────────────────────────
   return (
-    <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
-      <SearchMembersModal
-        isOpen={searchOpen}
-        onClose={() => setSearchOpen(false)}
-        members={activeMembers}
-        brandColor={brandColor}
-      />
+    <>
+      <GlobalStyles />
 
-      <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
-        <YourWorkspaceSidebar workspace={workspace} chats={[]} />
-      </div>
+      <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
+        <SearchMembersModal
+          isOpen={searchOpen}
+          onClose={() => setSearchOpen(false)}
+          members={activeMembers}
+          brandColor={brandColor}
+        />
 
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
-        <header className="sticky top-0 z-10 bg-white/95 dark:bg-[#0f0f12]/95 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
-          <div className="flex items-center justify-between px-3 sm:px-4 h-12 sm:h-14">
-            <div className="flex items-center gap-2 min-w-0">
-              <button
-                onClick={() => navigate(`/workspace/${workspaceId}`)}
-                className="p-1.5 lg:hidden text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
-              >
-                <FaArrowLeft className="text-sm" />
-              </button>
-              <h1 className="text-base sm:text-lg font-semibold text-gray-800 dark:text-gray-100 truncate">
-                Members
-              </h1>
-              <span className="text-xs font-normal text-gray-500 dark:text-gray-500 bg-gray-100 dark:bg-[#1a1a24] px-1.5 py-0.5 rounded-full border border-gray-200 dark:border-gray-800/40 flex-shrink-0">
-                {activeMembers.length}
-              </span>
-            </div>
-            <div className="flex items-center gap-1 sm:gap-2">
-              <button
-                onClick={() => setSearchOpen(true)}
-                className="p-2 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
-              >
-                <FaSearch className="text-sm" />
-              </button>
-              {canManagePending && pendingRequests.length > 0 && (
+        <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
+          <YourWorkspaceSidebar workspace={workspace} chats={[]} />
+        </div>
+
+        <div className="flex-1 flex flex-col h-full overflow-hidden">
+          <header className="sticky top-0 z-10 bg-white/95 dark:bg-[#0f0f12]/95 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
+            <div className="flex items-center justify-between px-3 sm:px-4 h-12 sm:h-14">
+              <div className="flex items-center gap-2 min-w-0">
                 <button
-                  onClick={() => setActiveTab('pending')}
-                  className="text-xs text-white font-medium px-2 py-1 rounded-full flex items-center gap-1"
-                  style={{ backgroundColor: brandColor }}
+                  onClick={() => navigate(`/workspace/${workspaceId}`)}
+                  className="p-1.5 lg:hidden text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
                 >
-                  <FaUserPlus className="text-[10px]" /> {pendingRequests.length}
+                  <FaArrowLeft className="text-sm" />
                 </button>
-              )}
+                <h1 className="text-base sm:text-lg font-semibold text-gray-800 dark:text-gray-100 truncate">
+                  Members
+                </h1>
+                <span className="text-xs font-normal text-gray-500 dark:text-gray-500 bg-gray-100 dark:bg-[#1a1a24] px-1.5 py-0.5 rounded-full border border-gray-200 dark:border-gray-800/40 flex-shrink-0">
+                  {activeMembers.length}
+                </span>
+              </div>
+              <div className="flex items-center gap-1 sm:gap-2">
+                <button
+                  onClick={() => setSearchOpen(true)}
+                  className="p-2 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
+                >
+                  <FaSearch className="text-sm" />
+                </button>
+                {canManagePending && pendingRequests.length > 0 && (
+                  <button
+                    onClick={() => setActiveTab('pending')}
+                    className="text-xs text-white font-medium px-2 py-1 rounded-full flex items-center gap-1"
+                    style={{ backgroundColor: brandColor }}
+                  >
+                    <FaUserPlus className="text-[10px]" /> {pendingRequests.length}
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
 
-          <div className="flex gap-4 px-3 sm:px-4 border-t border-gray-200/60 dark:border-gray-800/30">
-            <button
-              onClick={() => setActiveTab('active')}
-              className={`pb-2 text-xs sm:text-sm font-medium transition ${
-                activeTab === 'active'
-                  ? 'border-b-2 border-teal-600 dark:border-[#0d9488] text-teal-600 dark:text-[#0d9488]'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-              }`}
-            >
-              Active ({activeMembers.length})
-            </button>
-            {canManagePending && (
+            <div className="flex gap-4 px-3 sm:px-4 border-t border-gray-200/60 dark:border-gray-800/30">
               <button
-                onClick={() => setActiveTab('pending')}
+                onClick={() => setActiveTab('active')}
                 className={`pb-2 text-xs sm:text-sm font-medium transition ${
-                  activeTab === 'pending'
+                  activeTab === 'active'
                     ? 'border-b-2 border-teal-600 dark:border-[#0d9488] text-teal-600 dark:text-[#0d9488]'
                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
                 }`}
               >
-                Pending ({pendingRequests.length})
+                Active ({activeMembers.length})
               </button>
-            )}
+              {canManagePending && (
+                <button
+                  onClick={() => setActiveTab('pending')}
+                  className={`pb-2 text-xs sm:text-sm font-medium transition ${
+                    activeTab === 'pending'
+                      ? 'border-b-2 border-teal-600 dark:border-[#0d9488] text-teal-600 dark:text-[#0d9488]'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                  }`}
+                >
+                  Pending ({pendingRequests.length})
+                </button>
+              )}
+            </div>
+          </header>
+
+          <div className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12] divide-y divide-gray-100 dark:divide-gray-800/30">
+            {activeTab === 'active' && renderMemberList(activeMembers, 'active')}
+            {activeTab === 'pending' && canManagePending && renderMemberList(pendingRequests, 'pending')}
           </div>
-        </header>
-
-        <div className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12] divide-y divide-gray-100 dark:divide-gray-800/30">
-          {activeTab === 'active' && renderMemberList(activeMembers, 'active')}
-          {activeTab === 'pending' && canManagePending && renderMemberList(pendingRequests, 'pending')}
         </div>
+
+        <YourWorkspaceBottombar workspace={workspace} />
+
+        <MemberActionSheet
+          isOpen={actionSheetOpen}
+          onClose={() => {
+            setActionSheetOpen(false);
+            setSelectedMember(null);
+          }}
+          member={selectedMember}
+          canManage={isOwner || isAdmin}
+          isOwner={isOwner}
+          isAdmin={isAdmin}
+          onMakeAdmin={handleMakeAdmin}
+          onRemoveAdmin={handleRemoveAdmin}
+          onRemoveMember={handleRemoveMember}
+          onDirectMessage={handleDirectMessage}
+          onEditRole={handleEditRole}
+          brandColor={brandColor}
+        />
+
+        <UpdateMemberModal
+          isOpen={showUpdateModal}
+          onClose={() => {
+            setShowUpdateModal(false);
+            setSelectedMember(null);
+          }}
+          member={selectedMember}
+          brandColor={brandColor}
+          onSuccess={() => {
+            setShowUpdateModal(false);
+            setSelectedMember(null);
+          }}
+        />
+
+        <ApproveMemberModal
+          isOpen={showApproveModal}
+          onClose={() => {
+            setShowApproveModal(false);
+            setApproveMemberId(null);
+          }}
+          memberId={approveMemberId}
+          workspaceId={workspaceId}
+          brandColor={brandColor}
+          onSuccess={handleApproveSuccess}
+        />
+
+        <ConfirmModal
+          isOpen={confirmModal.isOpen}
+          onConfirm={confirmModal.onConfirm || (() => {})}
+          onCancel={() => setConfirmModal({ isOpen: false })}
+          title={confirmModal.title}
+          message={confirmModal.message}
+          confirmLabel={confirmModal.confirmLabel || 'Confirm'}
+          confirmColor="bg-red-600 hover:bg-red-700"
+        />
       </div>
-
-      <YourWorkspaceBottombar workspace={workspace} />
-
-      <MemberActionSheet
-        isOpen={actionSheetOpen}
-        onClose={() => {
-          setActionSheetOpen(false);
-          setSelectedMember(null);
-        }}
-        member={selectedMember}
-        canManage={isOwner || isAdmin}
-        isOwner={isOwner}
-        isAdmin={isAdmin}
-        onMakeAdmin={handleMakeAdmin}
-        onRemoveAdmin={handleRemoveAdmin}
-        onRemoveMember={handleRemoveMember}
-        onDirectMessage={handleDirectMessage}
-        onEditRole={handleEditRole}
-        brandColor={brandColor}
-      />
-
-      <UpdateMemberModal
-        isOpen={showUpdateModal}
-        onClose={() => {
-          setShowUpdateModal(false);
-          setSelectedMember(null);
-        }}
-        member={selectedMember}
-        brandColor={brandColor}
-        onSuccess={() => {
-          setShowUpdateModal(false);
-          setSelectedMember(null);
-        }}
-      />
-
-      <ApproveMemberModal
-        isOpen={showApproveModal}
-        onClose={() => {
-          setShowApproveModal(false);
-          setApproveMemberId(null);
-        }}
-        memberId={approveMemberId}
-        workspaceId={workspaceId}
-        brandColor={brandColor}
-        onSuccess={handleApproveSuccess}
-      />
-
-      <ConfirmModal
-        isOpen={confirmModal.isOpen}
-        onConfirm={confirmModal.onConfirm || (() => {})}
-        onCancel={() => setConfirmModal({ isOpen: false })}
-        title={confirmModal.title}
-        message={confirmModal.message}
-        confirmLabel={confirmModal.confirmLabel || 'Confirm'}
-        confirmColor="bg-red-600 hover:bg-red-700"
-      />
-    </div>
+    </>
   );
 };
 

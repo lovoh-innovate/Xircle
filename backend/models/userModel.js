@@ -113,7 +113,7 @@ const userSchema = new mongoose.Schema(
     resetPasswordOTP: { type: String },
     resetPasswordExpires: { type: Date },
 
-    // ── New fields for email verification ──────────────────────
+    // ── Email verification ─────────────────────────────────────
     verificationOTP: { type: String },
     verificationOTPExpires: { type: Date },
 
@@ -123,13 +123,20 @@ const userSchema = new mongoose.Schema(
       type: notificationPreferencesSchema,
       default: () => ({}),
     },
+
+    // ── Feature toggles ────────────────────────────────────────
+    // AI is generally useful → default ON.
+    // Scripture modules are opt‑in → default OFF so a Muslim user
+    // never sees Bible UI and a Christian user never sees Quran UI
+    // unless they explicitly enable it from settings.
+    isAiEnabled:    { type: Boolean, default: true  },
+    isBibleEnabled: { type: Boolean, default: false },
+    isQuranEnabled: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
 
 // ── TTL index to auto‑delete unverified accounts ──────────────
-// Deletes documents where isVerified = false after 10 minutes (600 seconds)
-// Adjust `expireAfterSeconds` to your desired delay.
 userSchema.index(
   { createdAt: 1 },
   {

@@ -30,6 +30,171 @@ import JoinedWorkspaces from '../components/JoinedWorkspaces';
 import GeneralSidebar from '../components/GeneralSidebar';
 import GeneralBottombar from '../components/GeneralBottombar';
 
+// ─── Global Styles (scrollbar + skeleton shimmer) ───────────────────
+const GlobalStyles = () => (
+  <style>{`
+    .scrollbar-hide {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    .scrollbar-hide::-webkit-scrollbar {
+      display: none;
+    }
+
+    /* ── Skeleton shimmer ───────────────────────────────────────── */
+    .skeleton {
+      position: relative;
+      overflow: hidden;
+      background-color: rgb(229 231 235); /* gray-200 */
+    }
+    .dark .skeleton {
+      background-color: rgba(255, 255, 255, 0.07);
+    }
+    .skeleton::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      transform: translateX(-100%);
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.55),
+        transparent
+      );
+      animation: skeletonShimmer 1.5s ease-in-out infinite;
+    }
+    .dark .skeleton::after {
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.07),
+        transparent
+      );
+    }
+    @keyframes skeletonShimmer {
+      100% {
+        transform: translateX(100%);
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .skeleton::after {
+        animation: none;
+      }
+    }
+  `}</style>
+);
+
+// ─── Skeleton Primitives ────────────────────────────────────────────
+const Skeleton = ({ className = '' }) => (
+  <div className={`skeleton rounded-lg ${className}`} />
+);
+
+const WorkspaceRowSkeleton = () => (
+  <div className="flex items-center gap-3 px-3 sm:px-4 min-h-[60px]">
+    <Skeleton className="w-10 h-10 rounded-full flex-shrink-0" />
+    <div className="flex-1 min-w-0 space-y-2">
+      <Skeleton className="h-3.5 w-28 sm:w-40" />
+      <Skeleton className="h-2.5 w-20 sm:w-32" />
+    </div>
+    <Skeleton className="h-3 w-3 rounded-full flex-shrink-0" />
+  </div>
+);
+
+const WorkspaceListSkeleton = ({ rows = 3 }) => (
+  <div className="divide-y divide-gray-100 dark:divide-white/[0.06]">
+    {Array.from({ length: rows }).map((_, i) => (
+      <WorkspaceRowSkeleton key={i} />
+    ))}
+  </div>
+);
+
+const QuickStatsSkeleton = () => (
+  <div className="grid grid-cols-3 gap-3 mb-6">
+    {Array.from({ length: 3 }).map((_, i) => (
+      <div
+        key={i}
+        className="bg-white dark:bg-[#161619] rounded-2xl p-4 text-center border border-gray-100 dark:border-gray-800"
+      >
+        <Skeleton className="h-7 w-10 mx-auto mb-2" />
+        <Skeleton className="h-2.5 w-12 mx-auto" />
+      </div>
+    ))}
+  </div>
+);
+
+const ColumnHeaderSkeleton = () => (
+  <div className="flex items-center gap-2 mb-3">
+    <Skeleton className="h-4 w-4 rounded-full" />
+    <Skeleton className="h-4 w-16" />
+    <Skeleton className="ml-auto h-3.5 w-5" />
+  </div>
+);
+
+// ─── Full Page Skeleton ─────────────────────────────────────────────
+const MyWorkspacesSkeleton = () => (
+  <div className="min-h-screen bg-gray-50 dark:bg-[#0b0b10] flex flex-col md:flex-row">
+    {/* Sidebar placeholder (desktop) */}
+    <div className="hidden md:block md:w-72 md:flex-shrink-0 border-r border-gray-100 dark:border-gray-800/60 p-4 space-y-4">
+      <Skeleton className="h-9 w-36 rounded-xl" />
+      <div className="space-y-2 pt-4">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="flex items-center gap-3 px-2 py-2">
+            <Skeleton className="h-8 w-8 rounded-lg flex-shrink-0" />
+            <Skeleton className="h-3.5 flex-1 max-w-[110px]" />
+          </div>
+        ))}
+      </div>
+    </div>
+
+    <div className="flex-1 flex flex-col min-h-screen relative">
+      {/* Header */}
+      <header className="bg-white dark:bg-[#0f0f12] border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10 px-4 sm:px-6 h-14 flex items-center justify-between">
+        <Skeleton className="h-5 w-28" />
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-8 w-20 rounded-xl" />
+          <Skeleton className="h-8 w-24 rounded-xl" />
+        </div>
+      </header>
+
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-4 pb-24 md:pb-6 flex flex-col">
+        <QuickStatsSkeleton />
+
+        {/* Desktop: two equal columns */}
+        <div className="hidden md:flex md:flex-row md:items-stretch md:gap-6 flex-1">
+          <div className="flex-1 flex flex-col min-h-0">
+            <ColumnHeaderSkeleton />
+            <div className="flex-1 bg-white dark:bg-[#161619] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
+              <WorkspaceListSkeleton rows={4} />
+            </div>
+          </div>
+
+          <div className="flex-1 flex flex-col min-h-0">
+            <ColumnHeaderSkeleton />
+            <div className="flex-1 bg-white dark:bg-[#161619] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
+              <WorkspaceListSkeleton rows={4} />
+            </div>
+          </div>
+        </div>
+
+        {/* Mobile: tabs */}
+        <div className="md:hidden">
+          <div className="flex bg-gray-100 dark:bg-[#1c1c20] rounded-xl p-1 mb-4">
+            <Skeleton className="flex-1 h-9 rounded-lg mr-1" />
+            <Skeleton className="flex-1 h-9 rounded-lg ml-1" />
+          </div>
+
+          <div className="bg-white dark:bg-[#161619] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
+            <WorkspaceListSkeleton rows={5} />
+          </div>
+        </div>
+      </main>
+
+      {/* FAB placeholder */}
+      <Skeleton className="fixed right-4 sm:right-6 bottom-20 md:bottom-6 z-20 w-14 h-14 rounded-full" />
+    </div>
+  </div>
+);
+
 // ─── Bottom Sheet ──────────────────────────────────────────────────
 const BottomSheet = ({ isOpen, onClose, children }) => {
   const [visible, setVisible] = useState(false);
@@ -566,28 +731,19 @@ const MyWorkspaces = () => {
     );
   };
 
+  // ─── Initial load: skeleton ──────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white dark:bg-[#0b0b10]">
-        <div className="text-center">
-          <div className="w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="mt-3 text-gray-500 dark:text-gray-400 text-sm">Loading...</p>
-        </div>
-      </div>
+      <>
+        <GlobalStyles />
+        <MyWorkspacesSkeleton />
+      </>
     );
   }
 
   return (
     <>
-      <style>{`
-        .scrollbar-hide {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
-        }
-        .scrollbar-hide::-webkit-scrollbar {
-          display: none;
-        }
-      `}</style>
+      <GlobalStyles />
 
       <div className="min-h-screen bg-gray-50 dark:bg-[#0b0b10] flex flex-col md:flex-row">
         <div className="hidden md:block md:w-72 md:flex-shrink-0">

@@ -142,15 +142,19 @@ const YourWorkspaceBottombar = ({ workspace }) => {
     }
   };
 
+  // ─── Bottom navigation items ──
+  // Projects moved here from the drawer — sits right after Channels.
   const navItems = [
     { id: 'home', label: 'Home', icon: FiHome, path: `/workspace/${workspaceId}`, activeCheck: 'home' },
     { id: 'dms', label: 'Messages', icon: FiMessageCircle, path: `/workspace/${workspaceId}/dms`, activeCheck: '/dms' },
     { id: 'channels', label: 'Channels', icon: FiUsers, path: `/workspace/${workspaceId}/channels`, activeCheck: '/channels' },
+    { id: 'projects', label: 'Projects', icon: FiFolder, path: `/workspace/${workspaceId}/projects`, activeCheck: '/projects' },
     { id: 'members', label: 'Members', icon: FiUser, path: `/workspace/${workspaceId}/members`, activeCheck: '/members' },
   ];
 
+  // ─── Menu items ──────────────────────────────────────────────────────
+  // Projects removed — it now lives on the bottom bar.
   const menuItems = [
-    { id: 'projects', label: 'Projects', icon: FiFolder, path: `/workspace/${workspaceId}/projects` },
     { id: 'clockin', label: 'Clock‑in', icon: FiClock, path: `/workspace/${workspaceId}/clockin` },
     { id: 'profile', label: 'Profile', icon: FiUser, path: '/profile' },
     { id: 'logout', label: 'Logout', icon: FiLogOut, action: handleLogout },
@@ -160,7 +164,7 @@ const YourWorkspaceBottombar = ({ workspace }) => {
     <>
       {/* ─── Bottom Bar (mobile only) ──────────────────────────────── */}
       <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/90 dark:bg-[#0f0f12]/90 backdrop-blur-xl border-t border-gray-200/60 dark:border-gray-800/60 md:hidden shadow-lg">
-        <div className="flex items-center justify-around h-16 px-2 max-w-lg mx-auto">
+        <div className="flex items-center justify-around h-16 px-1 max-w-lg mx-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = isActive(item.activeCheck);
@@ -172,7 +176,7 @@ const YourWorkspaceBottombar = ({ workspace }) => {
               <Link
                 key={item.id}
                 to={item.path}
-                className="relative flex flex-col items-center justify-center gap-0.5 px-3 py-1 rounded-full transition-all group"
+                className="relative flex flex-col items-center justify-center gap-0.5 px-2 py-1 rounded-full transition-all group flex-1"
               >
                 <div className="relative">
                   <Icon
@@ -212,10 +216,15 @@ const YourWorkspaceBottombar = ({ workspace }) => {
           {/* Menu button */}
           <button
             onClick={() => setMenuOpen(true)}
-            className="relative flex flex-col items-center justify-center gap-0.5 px-3 py-1 rounded-full transition-all group"
+            className="relative flex flex-col items-center justify-center gap-0.5 px-2 py-1 rounded-full transition-all group flex-1"
           >
-            <FiMenu className="w-5 h-5 text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300 group-hover:scale-105 transition" strokeWidth={2} />
-            <span className="text-[10px] font-medium text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300 transition">Menu</span>
+            <FiMenu
+              className="w-5 h-5 text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300 group-hover:scale-105 transition"
+              strokeWidth={2}
+            />
+            <span className="text-[10px] font-medium text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300 transition">
+              Menu
+            </span>
           </button>
         </div>
       </div>
@@ -239,7 +248,11 @@ const YourWorkspaceBottombar = ({ workspace }) => {
         <div className="px-5 py-5 flex items-center justify-between border-b border-gray-200/60 dark:border-gray-800/60">
           <div className="flex items-center gap-3">
             {workspace?.logo ? (
-              <img src={workspace.logo} alt={workspace.name} className="w-9 h-9 rounded-xl object-cover border border-gray-200 dark:border-gray-700/60" />
+              <img
+                src={workspace.logo}
+                alt={workspace.name}
+                className="w-9 h-9 rounded-xl object-cover border border-gray-200 dark:border-gray-700/60"
+              />
             ) : (
               <div
                 className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-sm"
@@ -249,30 +262,46 @@ const YourWorkspaceBottombar = ({ workspace }) => {
               </div>
             )}
             <div>
-              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{workspace?.name || 'Workspace'}</p>
+              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                {workspace?.name || 'Workspace'}
+              </p>
               <p className="text-xs text-gray-500 dark:text-gray-500">Member</p>
             </div>
           </div>
-          <button onClick={() => setMenuOpen(false)} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-full text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition">
+          <button
+            onClick={() => setMenuOpen(false)}
+            className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-full text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
+          >
             <FiX className="text-lg" strokeWidth={2} />
           </button>
         </div>
 
         {/* Menu Items */}
-        <div className="py-2 px-3 overflow-y-auto" style={{ maxHeight: 'calc(100% - 160px)' }}>
+        <div
+          className="py-2 px-3 overflow-y-auto"
+          style={{ maxHeight: 'calc(100% - 160px)' }}
+        >
           {menuItems.map((item) => {
             const Icon = item.icon;
             if (item.action) {
               return (
                 <button
                   key={item.id}
-                  onClick={() => { setMenuOpen(false); item.action(); }}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    item.action();
+                  }}
                   className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800/30 transition w-full"
                 >
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${brandColor}20` }}>
+                  <div
+                    className="w-9 h-9 rounded-xl flex items-center justify-center"
+                    style={{ backgroundColor: `${brandColor}20` }}
+                  >
                     <Icon className="w-5 h-5" style={{ color: brandColor }} strokeWidth={2} />
                   </div>
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition">{item.label}</span>
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition">
+                    {item.label}
+                  </span>
                 </button>
               );
             }
@@ -283,10 +312,15 @@ const YourWorkspaceBottombar = ({ workspace }) => {
                 onClick={() => setMenuOpen(false)}
                 className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
               >
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${brandColor}20` }}>
+                <div
+                  className="w-9 h-9 rounded-xl flex items-center justify-center"
+                  style={{ backgroundColor: `${brandColor}20` }}
+                >
                   <Icon className="w-5 h-5" style={{ color: brandColor }} strokeWidth={2} />
                 </div>
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition">{item.label}</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition">
+                  {item.label}
+                </span>
               </Link>
             );
           })}

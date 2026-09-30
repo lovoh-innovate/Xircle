@@ -36,7 +36,27 @@ const createUserObject = (data) => {
     acceptedTerms: data.acceptedTerms || false,
     ownedWorkspaces: data.ownedWorkspaces || [],
     joinedWorkspaces: data.joinedWorkspaces || [],
+    // ── feature toggles ──────────────────────────────────────────────
+    isAiEnabled: data.isAiEnabled ?? true,
+    isBibleEnabled: data.isBibleEnabled ?? false,
+    isQuranEnabled: data.isQuranEnabled ?? false,
   };
+};
+
+// Coerce anything the client sends into a real boolean.
+// Accepts true/false, "true"/"false", 1/0, "1"/"0".
+// Returns undefined if the value is missing or unusable — callers
+// use that to mean "don't touch this field".
+const toBool = (v) => {
+  if (v === undefined || v === null || v === "") return undefined;
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v === 1 ? true : v === 0 ? false : undefined;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (s === "true" || s === "1") return true;
+    if (s === "false" || s === "0") return false;
+  }
+  return undefined;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -104,24 +124,27 @@ const googleAuth = asyncHandler(async (req, res) => {
       .toLowerCase()
       .replace(/\s+/g, "")
       .replace(/[^a-z0-9_]/g, "") || "user";
-    
+
     const username = await generateUniqueUsername(baseUsername);
 
-    user = await User.create({
-      googleId,
-      name: name || "",
-      username,
-      email,
-      phone: "",
-      profile: picture || "",
-      password: `google-auth-${googleId}`,
-      isVerified: true,
-      authMethod: "google",
-      role: "user",
-      acceptedTerms: true,
-      ownedWorkspaces: [],
-      joinedWorkspaces: [],
-    });
+    user = await User.create(
+      createUserObject({
+        googleId,
+        name: name || "",
+        username,
+        email,
+        phone: "",
+        profile: picture || "",
+        password: `google-auth-${googleId}`,
+        isVerified: true,
+        authMethod: "google",
+        role: "user",
+        acceptedTerms: true,
+        ownedWorkspaces: [],
+        joinedWorkspaces: [],
+        // defaults: AI on, Bible off, Quran off
+      })
+    );
   }
 
   // ── LOGIN ─────────────────────────────────────────────────────────────────
@@ -151,7 +174,11 @@ const googleAuth = asyncHandler(async (req, res) => {
     profile: user.profile,
     authMethod: user.authMethod,
     role: user.role,
-    createdAt: user.createdAt, // ✅ added
+    createdAt: user.createdAt,
+    // ── feature toggles ──
+    isAiEnabled: user.isAiEnabled ?? true,
+    isBibleEnabled: user.isBibleEnabled ?? false,
+    isQuranEnabled: user.isQuranEnabled ?? false,
     token,
   });
 });
@@ -191,19 +218,22 @@ const registerUser = asyncHandler(async (req, res) => {
 
   let user;
   try {
-    user = await User.create({
-      name: name.trim(),
-      username,
-      email: email.toLowerCase().trim(),
-      phone: phone.trim(),
-      password,
-      isVerified: false,
-      authMethod: 'local',
-      role: 'user',
-      acceptedTerms: true,
-      resetPasswordOTP: otp,
-      resetPasswordExpires: otpExpires,
-    });
+    user = await User.create(
+      createUserObject({
+        name: name.trim(),
+        username,
+        email: email.toLowerCase().trim(),
+        phone: phone.trim(),
+        password,
+        isVerified: false,
+        authMethod: 'local',
+        role: 'user',
+        acceptedTerms: true,
+        resetPasswordOTP: otp,
+        resetPasswordExpires: otpExpires,
+        // defaults: AI on, Bible off, Quran off
+      })
+    );
     console.log(`✅ User created: ${user._id}`);
   } catch (createError) {
     console.error('❌ User creation failed:', createError.message);
@@ -229,7 +259,6 @@ const registerUser = asyncHandler(async (req, res) => {
     message: 'User registered. Please verify your email with the OTP sent.',
     userId: user._id,
     email: user.email,
-    // No createdAt here – not needed for this response
   });
 });
 
@@ -286,7 +315,11 @@ const verifyEmail = asyncHandler(async (req, res) => {
     profile: user.profile,
     authMethod: user.authMethod,
     role: user.role,
-    createdAt: user.createdAt, // ✅ added
+    createdAt: user.createdAt,
+    // ── feature toggles ──
+    isAiEnabled: user.isAiEnabled ?? true,
+    isBibleEnabled: user.isBibleEnabled ?? false,
+    isQuranEnabled: user.isQuranEnabled ?? false,
     token,
   });
 });
@@ -389,7 +422,11 @@ const loginUser = asyncHandler(async (req, res) => {
       profile: user.profile,
       authMethod: user.authMethod,
       role: user.role,
-      createdAt: user.createdAt, // ✅ added
+      createdAt: user.createdAt,
+      // ── feature toggles ──
+      isAiEnabled: user.isAiEnabled ?? true,
+      isBibleEnabled: user.isBibleEnabled ?? false,
+      isQuranEnabled: user.isQuranEnabled ?? false,
       token,
     });
   } catch (error) {
@@ -540,6 +577,11 @@ const changePassword = asyncHandler(async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // UPDATE PROFILE
 // PUT /api/users/profile
+//
+// Body may include any of:
+//   name, phone, profile (file)
+//   isAiEnabled, isBibleEnabled, isQuranEnabled  ← booleans (opt-in toggles)
+// Fields not sent are left untouched.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const updateProfile = asyncHandler(async (req, res) => {
@@ -550,12 +592,29 @@ const updateProfile = asyncHandler(async (req, res) => {
     throw new Error("User not found");
   }
 
-  const { name, phone } = req.body;
+  const {
+    name,
+    phone,
+    isAiEnabled,
+    isBibleEnabled,
+    isQuranEnabled,
+  } = req.body;
+
   const profilePicture = req.file?.path;
 
   if (name) user.name = name.trim();
   if (phone) user.phone = phone.trim();
   if (profilePicture) user.profile = profilePicture;
+
+  // ── feature toggles ──────────────────────────────────────────────
+  // Only touch a field if the client actually sent a usable value.
+  const ai = toBool(isAiEnabled);
+  const bible = toBool(isBibleEnabled);
+  const quran = toBool(isQuranEnabled);
+
+  if (ai !== undefined) user.isAiEnabled = ai;
+  if (bible !== undefined) user.isBibleEnabled = bible;
+  if (quran !== undefined) user.isQuranEnabled = quran;
 
   const updatedUser = await user.save();
 
@@ -568,7 +627,11 @@ const updateProfile = asyncHandler(async (req, res) => {
     profile: updatedUser.profile,
     authMethod: updatedUser.authMethod,
     role: updatedUser.role,
-    createdAt: updatedUser.createdAt, // ✅ added
+    createdAt: updatedUser.createdAt,
+    // ── feature toggles ──
+    isAiEnabled: updatedUser.isAiEnabled ?? true,
+    isBibleEnabled: updatedUser.isBibleEnabled ?? false,
+    isQuranEnabled: updatedUser.isQuranEnabled ?? false,
   });
 });
 
@@ -592,12 +655,12 @@ const getUsers = asyncHandler(async (req, res) => {
 const getUserById = asyncHandler(async (req, res) => {
   const user = await User.findById(req.params.id)
     .select("-password -resetPasswordOTP -resetPasswordExpires");
-  
+
   if (!user) {
     res.status(404);
     throw new Error("User not found");
   }
-  
+
   res.status(200).json(user);
 });
 

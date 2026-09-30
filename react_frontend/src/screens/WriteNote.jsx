@@ -3,29 +3,19 @@
 // Editor: Tiptap (headless). AI features live in the same note slice —
 // personalNoteApiSlice — so this file only imports from one place.
 //
-// AI additions:
-//   • Highlight-to-ask pill over text selections (desktop + mobile)
-//   • Scripture lookup (Bible / Quran) with "show more" + "full chapter"
-//   • Non-scripture search results with definitions + external links
-//   • Manual Bible picker — pick a book from a custom dropdown, enter
-//     chapter + verse, get a 10-verse window with expand buttons
-//   • Proofread, Expand, and Rewrite actions in the header
-//   • Preview-before-apply for proofread, expand, and rewrite — nothing
-//     saves until the user hits Apply.
+// FEATURE GATING:
+//   The Bible picker, the AI actions menu, and the highlight-to-ask pill
+//   are all hidden unless the user has enabled them from /extensions:
+//       user.isAiEnabled     → proofread / expand / rewrite / search
+//       user.isBibleEnabled  → Bible picker + Bible scripture lookups
+//       user.isQuranEnabled  → Quran scripture lookups (via selection pill)
 //
-// PDF EXPORT is 100% frontend. The note's Tiptap HTML is rendered into
-// a hidden A4-width container, rasterized with html2canvas-pro, and
-// paginated into a jsPDF document. No server round-trip. Works
-// identically in the browser and inside the Capacitor native app.
+//   The Ask-AI pill only appears if at least one of the three is on. When
+//   it runs, scripture detection is filtered so a user with only Quran
+//   enabled never sees a Bible verse pop up, and vice versa.
 //
-// WHY html2canvas-pro: Tailwind v4 emits oklch() colors everywhere
-// (preflight, theme variables, shadows, gradients). The original
-// html2canvas (used by html2pdf.js) throws
-// "Attempting to parse an unsupported color function oklch". The
-// html2canvas-pro fork supports oklch/oklab/color-mix, so no CSS color
-// reset hacks are needed. Required deps:
-//     npm i html2canvas-pro jspdf
-// (html2pdf.js is no longer used and can be removed.)
+//   The Extensions button in the header is ALWAYS visible so any user can
+//   go flip these on.
 
 import React, {
   useState,
@@ -36,6 +26,7 @@ import React, {
   useMemo,
 } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useSelector } from 'react-redux';
 
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -114,6 +105,7 @@ import {
   FaEllipsisV,
   FaChevronRight,
   FaFeather,
+  FaPuzzlePiece,
 } from 'react-icons/fa';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -151,14 +143,6 @@ const blobToBase64 = (blob) =>
   });
 
 // ─── PDF EXPORT (frontend-only) ──────────────────────────────────────
-//
-// Renders the note's Tiptap HTML into a hidden container, rasterizes it
-// with html2canvas-pro (oklch-safe), then slices the canvas into A4
-// pages with jsPDF.
-//
-// Tailwind's preflight strips list bullets, heading sizes, sub/sup
-// alignment, etc. from every element, so the scoped stylesheet below
-// restores document-style typography for [data-pdf-root] only.
 const PDF_SCOPED_CSS = `
   [data-pdf-root] {
     background: #ffffff;
@@ -263,19 +247,17 @@ const generatePdfFromNote = async (title, contentHtml) => {
   const html2canvas = html2canvasMod.default || html2canvasMod;
   const JsPDF = jspdfMod.jsPDF || jspdfMod.default;
 
-  // Scoped stylesheet (removed again in `finally`).
   const styleEl = document.createElement('style');
   styleEl.setAttribute('data-pdf-style', 'true');
   styleEl.textContent = PDF_SCOPED_CSS;
   document.head.appendChild(styleEl);
 
-  // Hidden A4-width container — this is what gets rendered to canvas.
   const container = document.createElement('div');
   container.setAttribute('data-pdf-root', 'true');
   container.style.position = 'fixed';
   container.style.left = '-10000px';
   container.style.top = '0';
-  container.style.width = '190mm'; // A4 width minus 10mm margins each side
+  container.style.width = '190mm';
   container.style.padding = '0';
   container.style.boxSizing = 'border-box';
   container.style.background = '#ffffff';
@@ -285,7 +267,6 @@ const generatePdfFromNote = async (title, contentHtml) => {
   container.style.fontSize = '11pt';
   container.style.lineHeight = '1.6';
 
-  // Title
   const titleEl = document.createElement('h1');
   titleEl.textContent = title || 'Untitled Note';
   titleEl.style.fontSize = '22pt';
@@ -295,7 +276,6 @@ const generatePdfFromNote = async (title, contentHtml) => {
   titleEl.style.color = '#111827';
   container.appendChild(titleEl);
 
-  // Meta line
   const meta = document.createElement('p');
   meta.textContent = `Exported from Xircle · ${new Date().toLocaleString()}`;
   meta.style.fontSize = '9pt';
@@ -304,7 +284,6 @@ const generatePdfFromNote = async (title, contentHtml) => {
   meta.style.margin = '0 0 18pt 0';
   container.appendChild(meta);
 
-  // Body — the note's own HTML
   const body = document.createElement('div');
   body.innerHTML = contentHtml || '';
   container.appendChild(body);
@@ -312,7 +291,6 @@ const generatePdfFromNote = async (title, contentHtml) => {
   document.body.appendChild(container);
 
   try {
-    // Wait for any images inside the note to finish loading.
     const imgs = Array.from(container.querySelectorAll('img'));
     await Promise.all(
       imgs.map(
@@ -332,14 +310,13 @@ const generatePdfFromNote = async (title, contentHtml) => {
       logging: false,
     });
 
-    // ── Paginate the canvas into A4 pages ──────────────────────────
     const PAGE_W_MM = 210;
     const PAGE_H_MM = 297;
     const MARGIN_TOP = 12;
     const MARGIN_BOTTOM = 14;
     const MARGIN_SIDE = 10;
-    const contentW = PAGE_W_MM - MARGIN_SIDE * 2; // 190
-    const contentH = PAGE_H_MM - MARGIN_TOP - MARGIN_BOTTOM; // 271
+    const contentW = PAGE_W_MM - MARGIN_SIDE * 2;
+    const contentH = PAGE_H_MM - MARGIN_TOP - MARGIN_BOTTOM;
 
     const pxPerMm = canvas.width / contentW;
     const pageHeightPx = Math.floor(contentH * pxPerMm);
@@ -1773,7 +1750,6 @@ const AiResultModal = ({ open, isMobile, onClose, loading, error, kind, data, on
   );
 };
 
-// ─── AI PREVIEW MODAL (proofread / complete / rewrite) ──────────────
 const AiPreviewModal = ({ open, isMobile, kind, result, onClose, onApply, applying }) => {
   if (!open || !result) return null;
 
@@ -2007,7 +1983,6 @@ const RewriteSetupModal = ({ open, isMobile, onClose, onSubmit, busy }) => {
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5">
-          {/* Style */}
           <div>
             <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">
               Style
@@ -2035,7 +2010,6 @@ const RewriteSetupModal = ({ open, isMobile, onClose, onSubmit, busy }) => {
             </div>
           </div>
 
-          {/* Length */}
           <div>
             <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">
               Length
@@ -2063,7 +2037,6 @@ const RewriteSetupModal = ({ open, isMobile, onClose, onSubmit, busy }) => {
             </div>
           </div>
 
-          {/* Advanced — instructions */}
           <div>
             <button
               type="button"
@@ -2245,6 +2218,17 @@ const WriteNote = () => {
   const { id: noteId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+
+  // ── Feature flags from the auth store ───────────────────────────
+  // Adjust to match your slice name. Standard shape is:
+  //   state.auth.userInfo = { _id, name, isAiEnabled, isBibleEnabled, ... }
+  const user = useSelector((state) => state.auth?.userInfo);
+
+  const canUseAi = Boolean(user?.isAiEnabled);
+  const canUseBible = Boolean(user?.isBibleEnabled);
+  const canUseQuran = Boolean(user?.isQuranEnabled);
+  const canUseScripture = canUseBible || canUseQuran;
+  const canUseAskAi = canUseAi || canUseScripture;
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -2467,15 +2451,9 @@ const WriteNote = () => {
   };
 
   // ── PDF EXPORT ─────────────────────────────────────────────────
-  // Generates the PDF entirely on the client — no server round-trip.
-  // Web: triggers a normal download.
-  // Native (Capacitor): writes to Cache, then opens the share sheet
-  //   (if @capacitor/share is installed) so the user can save/send it.
   const handleExportPDF = async () => {
     if (!currentNoteIdRef.current) return;
 
-    // Pull the freshest HTML: from the editor if we're editing,
-    // from state otherwise.
     const liveHtml =
       (editorRef.current && isEditing && editorRef.current.getHTML?.()) ||
       content ||
@@ -2493,7 +2471,6 @@ const WriteNote = () => {
       const blob = await generatePdfFromNote(title, liveHtml);
       if (!blob) throw new Error('PDF generation returned no data');
 
-      // ── Web path ─────────────────────────────────────────────
       if (!Capacitor.isNativePlatform()) {
         const url = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -2507,7 +2484,6 @@ const WriteNote = () => {
         return;
       }
 
-      // ── Native path ──────────────────────────────────────────
       const base64 = await blobToBase64(blob);
       if (!base64) throw new Error('Failed to read PDF data');
 
@@ -2568,9 +2544,10 @@ const WriteNote = () => {
   // ── AI HANDLERS ────────────────────────────────────────────────
 
   const handleSelectionChange = useCallback((info) => {
+    if (!canUseAskAi) return;
     if (aiPanel || aiPreview) return;
     setAiSelection(info);
-  }, [aiPanel, aiPreview]);
+  }, [aiPanel, aiPreview, canUseAskAi]);
 
   const handleEditorReady = useCallback((ed) => {
     editorRef.current = ed;
@@ -2624,11 +2601,12 @@ const WriteNote = () => {
   }, [lookupScripture]);
 
   const handleBibleLookupSubmit = useCallback(({ book, chapter, verse }) => {
+    if (!canUseBible) return;
     setShowBiblePicker(false);
     const verseStart = verse;
     const verseEnd = verse + MANUAL_VERSE_WINDOW;
     runBibleLookup({ book, chapter, verseStart, verseEnd });
-  }, [runBibleLookup]);
+  }, [runBibleLookup, canUseBible]);
 
   const handleManualExpand = useCallback(async (mode) => {
     if (!aiPanel?.manualRef) return;
@@ -2685,7 +2663,7 @@ const WriteNote = () => {
   }, [aiPanel, lookupScripture]);
 
   const handleAskAiAboutSelection = async () => {
-    if (!aiSelection?.text) return;
+    if (!aiSelection?.text || !canUseAskAi) return;
     const text = aiSelection.text;
     setAiSelection(null);
 
@@ -2694,22 +2672,42 @@ const WriteNote = () => {
     setAiPanel({ loading: true, kind: null, data: null, error: null, expanding: false });
 
     try {
-      const { result } = await lookupScripture({
-        text,
-        noteId: currentNoteIdRef.current || undefined,
-      }).unwrap();
+      // Try scripture first, but only if the user has enabled at least one.
+      if (canUseScripture) {
+        const { result } = await lookupScripture({
+          text,
+          noteId: currentNoteIdRef.current || undefined,
+        }).unwrap();
 
-      if (result.type === 'bible' || result.type === 'quran') {
-        setAiPanel({ loading: false, kind: 'scripture', data: result, error: null, expanding: false });
+        // Filter scripture by what the user is allowed to see.
+        const isBibleResult = result.type === 'bible';
+        const isQuranResult = result.type === 'quran';
+
+        if ((isBibleResult && canUseBible) || (isQuranResult && canUseQuran)) {
+          setAiPanel({ loading: false, kind: 'scripture', data: result, error: null, expanding: false });
+          return;
+        }
+        // Otherwise fall through to search (if the user has AI search on).
+      }
+
+      if (canUseAi) {
+        const { result: searchResult } = await searchHighlight({
+          text,
+          noteId: currentNoteIdRef.current || undefined,
+        }).unwrap();
+
+        setAiPanel({ loading: false, kind: 'search', data: searchResult, error: null, expanding: false });
         return;
       }
 
-      const { result: searchResult } = await searchHighlight({
-        text,
-        noteId: currentNoteIdRef.current || undefined,
-      }).unwrap();
-
-      setAiPanel({ loading: false, kind: 'search', data: searchResult, error: null, expanding: false });
+      // Nothing matched the enabled features.
+      setAiPanel({
+        loading: false,
+        kind: null,
+        data: null,
+        error: 'This feature isn\'t enabled for your account. Open Extensions to turn it on.',
+        expanding: false,
+      });
     } catch (err) {
       setAiPanel({
         loading: false,
@@ -2740,7 +2738,7 @@ const WriteNote = () => {
   };
 
   const handleProofread = async () => {
-    if (!currentNoteIdRef.current) return;
+    if (!currentNoteIdRef.current || !canUseAi) return;
     setAiBusy('proofread');
     try {
       const { result } = await proofreadNoteApi({
@@ -2755,7 +2753,7 @@ const WriteNote = () => {
   };
 
   const handleComplete = async () => {
-    if (!currentNoteIdRef.current) return;
+    if (!currentNoteIdRef.current || !canUseAi) return;
     setAiBusy('complete');
     try {
       const { result } = await completeNoteApi({
@@ -2771,12 +2769,12 @@ const WriteNote = () => {
   };
 
   const handleOpenRewrite = () => {
-    if (!currentNoteIdRef.current) return;
+    if (!currentNoteIdRef.current || !canUseAi) return;
     setShowRewriteSetup(true);
   };
 
   const handleRewriteSubmit = async ({ style, length, instructions }) => {
-    if (!currentNoteIdRef.current) return;
+    if (!currentNoteIdRef.current || !canUseAi) return;
     setAiBusy('rewrite');
     try {
       const { result } = await rewriteNoteApi({
@@ -2916,16 +2914,30 @@ const WriteNote = () => {
         <SaveStatus status={isEditing ? saveStatus : 'idle'} lastSaved={lastSaved} />
 
         <div className="flex items-center gap-1 flex-shrink-0">
+          {/* Extensions button — always visible so anyone can enable features */}
           <button
             type="button"
-            onClick={() => setShowBiblePicker(true)}
-            title="Look up a Bible passage"
+            onClick={() => navigate('/extensions')}
+            title="Extensions"
             className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-teal-500 transition"
           >
-            <FaBookOpen className="text-sm" />
+            <FaPuzzlePiece className="text-sm" />
           </button>
 
-          {isEditing && (
+          {/* Bible picker — only if the user turned it on */}
+          {canUseBible && (
+            <button
+              type="button"
+              onClick={() => setShowBiblePicker(true)}
+              title="Look up a Bible passage"
+              className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-teal-500 transition"
+            >
+              <FaBookOpen className="text-sm" />
+            </button>
+          )}
+
+          {/* AI actions (proofread / expand / rewrite) — only if AI is on */}
+          {isEditing && canUseAi && (
             <AiActionsMenu
               disabled={!isEditing}
               busy={aiBusy}
@@ -3052,29 +3064,36 @@ const WriteNote = () => {
         {renderEditor()}
       </div>
 
-      {/* ── AI surfaces ─────────────────────────────────────────── */}
-      <AiSelectionPill
-        selection={aiSelection}
-        isMobile={isMobile}
-        busy={Boolean(aiPanel?.loading)}
-        onClick={handleAskAiAboutSelection}
-      />
+      {/* ── AI surfaces (gated) ─────────────────────────────────── */}
 
-      <BiblePickerModal
-        open={showBiblePicker}
-        isMobile={isMobile}
-        busy={Boolean(aiPanel?.loading)}
-        onClose={() => setShowBiblePicker(false)}
-        onSubmit={handleBibleLookupSubmit}
-      />
+      {canUseAskAi && (
+        <AiSelectionPill
+          selection={aiSelection}
+          isMobile={isMobile}
+          busy={Boolean(aiPanel?.loading)}
+          onClick={handleAskAiAboutSelection}
+        />
+      )}
 
-      <RewriteSetupModal
-        open={showRewriteSetup}
-        isMobile={isMobile}
-        busy={aiBusy === 'rewrite'}
-        onClose={() => setShowRewriteSetup(false)}
-        onSubmit={handleRewriteSubmit}
-      />
+      {canUseBible && (
+        <BiblePickerModal
+          open={showBiblePicker}
+          isMobile={isMobile}
+          busy={Boolean(aiPanel?.loading)}
+          onClose={() => setShowBiblePicker(false)}
+          onSubmit={handleBibleLookupSubmit}
+        />
+      )}
+
+      {canUseAi && (
+        <RewriteSetupModal
+          open={showRewriteSetup}
+          isMobile={isMobile}
+          busy={aiBusy === 'rewrite'}
+          onClose={() => setShowRewriteSetup(false)}
+          onSubmit={handleRewriteSubmit}
+        />
+      )}
 
       <AiResultModal
         open={Boolean(aiPanel)}

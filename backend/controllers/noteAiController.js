@@ -12,10 +12,18 @@
 // Every endpoint is READ-ONLY with respect to the note. Proofread, complete,
 // and rewrite return SUGGESTED content — the client decides whether to keep
 // it via the normal updateNote endpoint. Nothing is ever silently overwritten.
+//
+// Scripture lookup is served FROM THE LOCAL DB first (models/bibleModel,
+// models/quranModel). Only if the passage isn't stored yet do we fall back to
+// the external bible-api.com / alquran.cloud. The background seeder
+// (services/scriptureSeeder) walks the whole Bible + Quran once and stops.
 
 import asyncHandler from 'express-async-handler';
 import mongoose from 'mongoose';
 import PersonalNote from '../models/personalNoteModel.js';
+import BibleChapter from '../models/bibleModel.js';
+import QuranSurah from '../models/quranModel.js';
+import { bootstrapScriptureSeeder } from '../services/scriptureSeeder.js';
 import {
   detectScripture,
   searchTopic,
@@ -23,8 +31,13 @@ import {
   completeNote as aiCompleteNote,
 } from '../services/geminiService.js';
 
+// Kick off the one-time background seeding the first time this controller
+// is loaded. Idempotent — safe to call on every boot. See scriptureSeeder.js
+// for env flags (DISABLE_SCRIPTURE_SEEDING, BIBLE_TRANSLATION, QURAN_EDITION).
+bootstrapScriptureSeeder();
+
 // ─────────────────────────────────────────────────────────────────────
-// INLINE GROQ CLIENT  (for the new rewrite endpoint)
+// INLINE GROQ CLIENT  (for the rewrite endpoint)
 // ─────────────────────────────────────────────────────────────────────
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
@@ -67,7 +80,8 @@ async function callGroqRaw({ system, user, temperature = 0.5, maxTokens = 8192 }
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Scripture source APIs — both free, no key required.
+// Scripture source APIs — fallback only. Used when the passage isn't
+// in the local DB yet (i.e. the background seeder hasn't reached it).
 // ─────────────────────────────────────────────────────────────────────
 const BIBLE_API = 'https://bible-api.com';
 const QURAN_API = 'https://api.alquran.cloud/v1';
@@ -93,7 +107,61 @@ const loadReadableNote = async (noteId, userId) => {
   return note;
 };
 
-async function fetchBiblePassage(reference, translation = DEFAULT_BIBLE_TRANSLATION) {
+// Parse "John 3:16", "1 John 3:16-18", "Song of Solomon 1", "Psalms 23".
+// Returns null if the shape doesn't look like a bible reference.
+function parseBibleRef(reference) {
+  if (!reference || typeof reference !== 'string') return null;
+  const m = reference.trim().match(/^(.+?)\s+(\d+)(?::(\d+)(?:-(\d+))?)?$/);
+  if (!m) return null;
+  const book = m[1].trim();
+  const chapter = parseInt(m[2], 10);
+  const verseStart = m[3] ? parseInt(m[3], 10) : null;
+  const verseEnd = m[4] ? parseInt(m[4], 10) : verseStart;
+  if (!book || !Number.isFinite(chapter)) return null;
+  return { book, chapter, verseStart, verseEnd };
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// BIBLE: local-DB lookup, then external fallback
+// ─────────────────────────────────────────────────────────────────────
+async function getBiblePassageFromDB(reference, translation) {
+  const parsed = parseBibleRef(reference);
+  if (!parsed) return null;
+
+  const { book, chapter, verseStart, verseEnd } = parsed;
+  const doc = await BibleChapter.findOne({ translation, book, chapter }).lean();
+  if (!doc) return null;
+
+  let verses = doc.verses || [];
+  if (verseStart) {
+    const end = verseEnd || verseStart;
+    verses = verses.filter((v) => v.verse >= verseStart && v.verse <= end);
+  }
+  if (!verses.length) return null;
+
+  const ref =
+    verseStart && verseEnd && verseEnd > verseStart
+      ? `${doc.book} ${doc.chapter}:${verseStart}-${verseEnd}`
+      : verseStart
+        ? `${doc.book} ${doc.chapter}:${verseStart}`
+        : `${doc.book} ${doc.chapter}`;
+
+  return {
+    reference: ref,
+    translation: doc.translationName || translation.toUpperCase(),
+    verses: verses.map((v) => ({
+      book: doc.book,
+      chapter: doc.chapter,
+      verse: v.verse,
+      text: v.text,
+    })),
+    text: verses.map((v) => v.text).join(' ').trim(),
+    verseCount: verses.length,
+    _source: 'db',
+  };
+}
+
+async function fetchBiblePassageFromAPI(reference, translation) {
   const url = `${BIBLE_API}/${encodeURIComponent(reference)}?translation=${translation}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Bible API error (${res.status})`);
@@ -112,10 +180,60 @@ async function fetchBiblePassage(reference, translation = DEFAULT_BIBLE_TRANSLAT
     verses,
     text: (data.text || '').trim(),
     verseCount: verses.length,
+    _source: 'api',
   };
 }
 
-async function fetchQuranPassage(surah, ayahStart, ayahEnd, edition = DEFAULT_QURAN_EDITION) {
+async function fetchBiblePassage(reference, translation = DEFAULT_BIBLE_TRANSLATION) {
+  // 1) local DB first
+  try {
+    const fromDB = await getBiblePassageFromDB(reference, translation);
+    if (fromDB) return fromDB;
+  } catch (err) {
+    console.warn('⚠️  Bible DB lookup failed, falling back to API:', err.message);
+  }
+  // 2) external API fallback
+  return fetchBiblePassageFromAPI(reference, translation);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// QURAN: local-DB lookup, then external fallback
+// ─────────────────────────────────────────────────────────────────────
+async function getQuranPassageFromDB(surah, ayahStart, ayahEnd, edition) {
+  if (!surah || !ayahStart) return null;
+
+  const start = Math.max(1, ayahStart);
+  const end = Math.max(start, ayahEnd || start);
+
+  const doc = await QuranSurah.findOne({ edition, surahNumber: surah }).lean();
+  if (!doc) return null;
+
+  const sliced = (doc.ayahs || []).filter(
+    (a) => a.ayah >= start && a.ayah <= end
+  );
+  if (!sliced.length) return null;
+
+  return {
+    reference: start === end ? `${surah}:${start}` : `${surah}:${start}-${end}`,
+    surahName: `${doc.englishName} (${doc.name})`,
+    surahNumber: doc.surahNumber,
+    edition: doc.editionName || edition,
+    verses: sliced.map((a) => ({
+      surah: doc.surahNumber,
+      ayah: a.ayah,
+      text: a.text,
+    })),
+    verseCount: sliced.length,
+    _source: 'db',
+  };
+}
+
+async function fetchQuranPassageFromAPI(
+  surah,
+  ayahStart,
+  ayahEnd,
+  edition = DEFAULT_QURAN_EDITION
+) {
   if (!surah || !ayahStart) throw new Error('Invalid Quran reference.');
 
   const start = Math.max(1, ayahStart);
@@ -133,6 +251,7 @@ async function fetchQuranPassage(surah, ayahStart, ayahEnd, edition = DEFAULT_QU
       edition: a.edition?.englishName || edition,
       verses: [{ surah: a.surah.number, ayah: a.numberInSurah, text: a.text }],
       verseCount: 1,
+      _source: 'api',
     };
   }
 
@@ -140,7 +259,9 @@ async function fetchQuranPassage(surah, ayahStart, ayahEnd, edition = DEFAULT_QU
   if (!res.ok) throw new Error(`Quran API error (${res.status})`);
   const data = await res.json();
   const all = data.data.ayahs || [];
-  const sliced = all.filter((a) => a.numberInSurah >= start && a.numberInSurah <= end);
+  const sliced = all.filter(
+    (a) => a.numberInSurah >= start && a.numberInSurah <= end
+  );
 
   return {
     reference: `${surah}:${start}-${end}`,
@@ -153,11 +274,29 @@ async function fetchQuranPassage(surah, ayahStart, ayahEnd, edition = DEFAULT_QU
       text: a.text,
     })),
     verseCount: sliced.length,
+    _source: 'api',
   };
 }
 
+async function fetchQuranPassage(
+  surah,
+  ayahStart,
+  ayahEnd,
+  edition = DEFAULT_QURAN_EDITION
+) {
+  // 1) local DB first
+  try {
+    const fromDB = await getQuranPassageFromDB(surah, ayahStart, ayahEnd, edition);
+    if (fromDB) return fromDB;
+  } catch (err) {
+    console.warn('⚠️  Quran DB lookup failed, falling back to API:', err.message);
+  }
+  // 2) external API fallback
+  return fetchQuranPassageFromAPI(surah, ayahStart, ayahEnd, edition);
+}
+
 // ═════════════════════════════════════════════════════════════════════
-// 1. LOOKUP SCRIPTURE (unchanged)
+// 1. LOOKUP SCRIPTURE
 // ═════════════════════════════════════════════════════════════════════
 export const lookupScripture = async (req, res) => {
   try {
@@ -311,7 +450,7 @@ export const lookupScripture = async (req, res) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════
-// 2. EXPAND SCRIPTURE (unchanged)
+// 2. EXPAND SCRIPTURE
 // ═════════════════════════════════════════════════════════════════════
 export const expandScripture = async (req, res) => {
   try {
@@ -405,7 +544,7 @@ export const expandScripture = async (req, res) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════
-// 3. SEARCH (unchanged)
+// 3. SEARCH
 // ═════════════════════════════════════════════════════════════════════
 export const searchHighlight = async (req, res) => {
   try {
@@ -475,7 +614,7 @@ export const searchHighlight = async (req, res) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════
-// 4. PROOFREAD (unchanged)
+// 4. PROOFREAD
 // ═════════════════════════════════════════════════════════════════════
 export const proofreadNoteHandler = async (req, res) => {
   try {
@@ -558,7 +697,7 @@ export const proofreadNoteHandler = async (req, res) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════
-// 5. COMPLETE / EXPAND (unchanged)
+// 5. COMPLETE / EXPAND
 // ═════════════════════════════════════════════════════════════════════
 export const completeNoteHandler = async (req, res) => {
   try {
@@ -647,7 +786,7 @@ export const completeNoteHandler = async (req, res) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════
-// 6. REWRITE  (new)
+// 6. REWRITE
 // ═════════════════════════════════════════════════════════════════════
 //
 // Unlike /complete (which only ADDS), /rewrite can restructure, retighten,

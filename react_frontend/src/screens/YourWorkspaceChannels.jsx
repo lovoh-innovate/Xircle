@@ -81,7 +81,6 @@ const formatLastMessageTime = (timestamp) => {
 };
 
 // ─── Helper: extract a user id from various mention shapes ────────────
-// Handles: "id", { _id: "id" }, { user: "id" }, { user: { _id: "id" } }
 const extractMentionUserId = (entry) => {
   if (!entry) return null;
   if (typeof entry === 'string') return entry;
@@ -103,7 +102,6 @@ const hasUnreadMention = (chat, userId) => {
   if (!chat || !userId) return false;
   const uid = String(userId);
 
-  // 1. Explicit backend-provided counts (any of these names will work)
   const explicit =
     chat.unreadMentions ??
     chat.unreadMentionCount ??
@@ -111,15 +109,12 @@ const hasUnreadMention = (chat, userId) => {
     chat.mentionsCount;
   if (typeof explicit === 'number' && explicit > 0) return true;
 
-  // 2. Fallback: look at lastMessage.mentions
   const lm = chat.lastMessage;
   if (!lm || lm.isDeleted) return false;
 
-  // Don't flag my own message
   const senderId = lm.sender?._id || lm.sender;
   if (senderId && String(senderId) === uid) return false;
 
-  // If there are no unread messages at all, don't flag
   if (typeof chat.unreadCount === 'number' && chat.unreadCount <= 0) return false;
 
   const mentions = lm.mentions || lm.mentionedUsers || [];
@@ -127,6 +122,122 @@ const hasUnreadMention = (chat, userId) => {
 
   return mentions.some((m) => extractMentionUserId(m) === uid);
 };
+
+// ─── Global styles: skeleton shimmer ───────────────────────────────
+const GlobalStyles = () => (
+  <style>{`
+    .skeleton {
+      position: relative;
+      overflow: hidden;
+      background-color: rgb(229 231 235); /* gray-200 */
+    }
+    .dark .skeleton {
+      background-color: rgba(255, 255, 255, 0.07);
+    }
+    .skeleton::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      transform: translateX(-100%);
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.55),
+        transparent
+      );
+      animation: skeletonShimmer 1.5s ease-in-out infinite;
+    }
+    .dark .skeleton::after {
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.07),
+        transparent
+      );
+    }
+    @keyframes skeletonShimmer {
+      100% { transform: translateX(100%); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .skeleton::after { animation: none; }
+    }
+  `}</style>
+);
+
+// ─── Skeleton primitives ───────────────────────────────────────────
+const Skeleton = ({ className = '', style }) => (
+  <div className={`skeleton rounded-lg ${className}`} style={style} />
+);
+
+const ChannelRowSkeleton = () => (
+  <div className="flex items-center gap-3 px-4 py-3">
+    <Skeleton className="w-12 h-12 rounded-2xl flex-shrink-0" />
+    <div className="flex-1 min-w-0 space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <Skeleton className="h-3.5 w-32 max-w-[60%]" />
+        <Skeleton className="h-2.5 w-8 flex-shrink-0" />
+      </div>
+      <div className="flex items-center gap-2">
+        <Skeleton className="h-2.5 flex-1 max-w-[70%]" />
+        <Skeleton className="h-4 w-5 rounded-full flex-shrink-0" />
+      </div>
+    </div>
+    <Skeleton className="w-6 h-6 rounded-lg flex-shrink-0" />
+  </div>
+);
+
+// ─── Loading shell — sidebar & bottombar render normally (static) ──
+const ChannelsLoadingShell = () => (
+  <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
+    {/* Sidebar — static, no skeleton */}
+    <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
+      <YourWorkspaceSidebar />
+    </div>
+
+    <div className="flex-1 flex flex-col h-full overflow-hidden">
+      {/* Header skeleton */}
+      <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
+        <div className="flex items-center justify-between px-4 h-14">
+          <div className="flex items-center gap-3">
+            <Skeleton className="w-6 h-6 rounded-lg lg:hidden" />
+            <Skeleton className="h-5 w-24" />
+            <Skeleton className="h-5 w-8 rounded-full" />
+          </div>
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-8 w-16 rounded-xl" />
+            <Skeleton className="w-8 h-8 rounded-xl" />
+          </div>
+        </div>
+        <div className="flex border-b border-gray-200/60 dark:border-gray-800/30 px-4 gap-1">
+          <Skeleton className="h-4 w-20 my-2 mx-3" />
+          <Skeleton className="h-4 w-20 my-2 mx-3" />
+        </div>
+      </header>
+
+      {/* Channel list skeleton */}
+      <div className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12] divide-y divide-gray-100 dark:divide-gray-800/30">
+        {Array.from({ length: 7 }).map((_, i) => (
+          <ChannelRowSkeleton key={i} />
+        ))}
+      </div>
+
+      {/* Stats bar skeleton */}
+      <div className="border-t border-gray-200/60 dark:border-gray-800/40 px-4 py-3 bg-white dark:bg-[#0f0f12] flex-shrink-0">
+        <div className="grid grid-cols-3 gap-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="text-center space-y-1.5">
+              <Skeleton className="h-4 w-8 mx-auto" />
+              <Skeleton className="h-2.5 w-14 mx-auto" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+
+    {/* Bottombar — static, no skeleton */}
+    <YourWorkspaceBottombar />
+  </div>
+);
 
 // ─── Confirm Modal ──────────────────────────────────────────────────────
 const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = 'Confirm', danger = false }) => {
@@ -544,17 +655,13 @@ const YourWorkspaceChannels = () => {
     return null;
   }
 
+  // ── Loading state — sidebar & bottombar stay live, only content shimmers ──
   if (workspaceLoading || chatsLoading || (activeTab === 'archived' && archivedLoading)) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
-        <div className="text-center">
-          <div
-            className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin mx-auto"
-            style={{ borderColor: workspaceData?.workspace?.color || '#0d9488', borderTopColor: 'transparent' }}
-          />
-          <p className="mt-3 text-gray-500 dark:text-gray-500 text-sm">Loading channels...</p>
-        </div>
-      </div>
+      <>
+        <GlobalStyles />
+        <ChannelsLoadingShell />
+      </>
     );
   }
 
@@ -579,209 +686,210 @@ const YourWorkspaceChannels = () => {
   const onlineCount = activeMembers.filter(m => m.status === 'active').length || 0;
 
   return (
-    <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
-      <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
-        <YourWorkspaceSidebar workspace={workspace} chats={chats} />
-      </div>
+    <>
+      <GlobalStyles />
 
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
-        <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
-          <div className="flex items-center justify-between px-4 h-14">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => navigate(`/workspace/${workspaceId}`)}
-                className="p-1 lg:hidden text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
-              >
-                <FaArrowLeft />
-              </button>
-              <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Channels</h1>
-              <span className="text-xs font-normal text-gray-500 dark:text-gray-500 bg-gray-100 dark:bg-[#1a1a24] px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-800/40">
-                {allChannels.length}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              {canManage && (
+      <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
+        <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
+          <YourWorkspaceSidebar workspace={workspace} chats={chats} />
+        </div>
+
+        <div className="flex-1 flex flex-col h-full overflow-hidden">
+          <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
+            <div className="flex items-center justify-between px-4 h-14">
+              <div className="flex items-center gap-3">
                 <button
-                  onClick={() => setCreateModalOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white rounded-xl transition hover:opacity-80"
-                  style={{ backgroundColor: brandColor }}
+                  onClick={() => navigate(`/workspace/${workspaceId}`)}
+                  className="p-1 lg:hidden text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
                 >
-                  <FaPlus className="text-xs" /> New
+                  <FaArrowLeft />
                 </button>
-              )}
+                <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Channels</h1>
+                <span className="text-xs font-normal text-gray-500 dark:text-gray-500 bg-gray-100 dark:bg-[#1a1a24] px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-800/40">
+                  {allChannels.length}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                {canManage && (
+                  <button
+                    onClick={() => setCreateModalOpen(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white rounded-xl transition hover:opacity-80"
+                    style={{ backgroundColor: brandColor }}
+                  >
+                    <FaPlus className="text-xs" /> New
+                  </button>
+                )}
+                <button
+                  onClick={() => setSearchOpen(true)}
+                  className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
+                >
+                  <FaSearch className="text-sm" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex border-b border-gray-200/60 dark:border-gray-800/30 px-4">
               <button
-                onClick={() => setSearchOpen(true)}
-                className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
+                onClick={() => setActiveTab('channels')}
+                className={`py-2 px-3 text-sm font-medium transition ${
+                  activeTab === 'channels'
+                    ? 'border-b-2 border-teal-600 dark:border-[#0d9488] text-teal-600 dark:text-[#0d9488]'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                }`}
               >
-                <FaSearch className="text-sm" />
+                Channels
+              </button>
+              <button
+                onClick={() => setActiveTab('archived')}
+                className={`py-2 px-3 text-sm font-medium transition ${
+                  activeTab === 'archived'
+                    ? 'border-b-2 border-teal-600 dark:border-[#0d9488] text-teal-600 dark:text-[#0d9488]'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                }`}
+              >
+                Archived
               </button>
             </div>
-          </div>
+          </header>
 
-          <div className="flex border-b border-gray-200/60 dark:border-gray-800/30 px-4">
-            <button
-              onClick={() => setActiveTab('channels')}
-              className={`py-2 px-3 text-sm font-medium transition ${
-                activeTab === 'channels'
-                  ? 'border-b-2 border-teal-600 dark:border-[#0d9488] text-teal-600 dark:text-[#0d9488]'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-              }`}
-            >
-              Channels
-            </button>
-            <button
-              onClick={() => setActiveTab('archived')}
-              className={`py-2 px-3 text-sm font-medium transition ${
-                activeTab === 'archived'
-                  ? 'border-b-2 border-teal-600 dark:border-[#0d9488] text-teal-600 dark:text-[#0d9488]'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-              }`}
-            >
-              Archived
-            </button>
-          </div>
-        </header>
+          <div className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12] divide-y divide-gray-100 dark:divide-gray-800/30">
+            {displayChannels.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 text-gray-400 dark:text-gray-500">
+                <FaUsers className="text-4xl mb-2 opacity-30" />
+                <p className="text-sm">{isArchivedView ? 'No archived channels' : 'No channels yet'}</p>
+              </div>
+            ) : (
+              displayChannels.map(channel => {
+                const lastMessage = channel.lastMessage;
+                let preview = getLastMessagePreview(lastMessage, userInfo?._id);
+                const senderId = lastMessage?.sender?._id || lastMessage?.sender;
+                if (senderId && senderId !== userInfo?._id && lastMessage) {
+                  const fullName = lastMessage.sender?.name || 'Someone';
+                  const firstName = getFirstName(fullName);
+                  preview = `${firstName}: ${preview}`;
+                }
+                const time = formatLastMessageTime(lastMessage?.createdAt || channel.lastMessageAt || channel.updatedAt);
 
-        <div className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12] divide-y divide-gray-100 dark:divide-gray-800/30">
-          {displayChannels.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-gray-400 dark:text-gray-500">
-              <FaUsers className="text-4xl mb-2 opacity-30" />
-              <p className="text-sm">{isArchivedView ? 'No archived channels' : 'No channels yet'}</p>
-            </div>
-          ) : (
-            displayChannels.map(channel => {
-              const lastMessage = channel.lastMessage;
-              let preview = getLastMessagePreview(lastMessage, userInfo?._id);
-              const senderId = lastMessage?.sender?._id || lastMessage?.sender;
-              // If the sender is not the current user, prepend the sender's first name
-              if (senderId && senderId !== userInfo?._id && lastMessage) {
-                const fullName = lastMessage.sender?.name || 'Someone';
-                const firstName = getFirstName(fullName);
-                preview = `${firstName}: ${preview}`;
-              }
-              const time = formatLastMessageTime(lastMessage?.createdAt || channel.lastMessageAt || channel.updatedAt);
+                const mentionFlag = !isArchivedView && hasUnreadMention(channel, userInfo?._id);
 
-              // ── Unread mention indicator ─────────────────────────────
-              const mentionFlag = !isArchivedView && hasUnreadMention(channel, userInfo?._id);
-
-              return (
-                <div
-                  key={channel._id}
-                  className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition group"
-                >
-                  <Link
-                    to={`/workspace/${workspaceId}/chat/${channel._id}`}
-                    className="flex items-center gap-3 flex-1 min-w-0"
+                return (
+                  <div
+                    key={channel._id}
+                    className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition group"
                   >
-                    {/* Avatar with optional @ mention badge */}
-                    <div className="relative flex-shrink-0">
-                      <div
-                        className="w-12 h-12 rounded-2xl flex items-center justify-center text-xl"
-                        style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
-                      >
-                        <FaUsers className="text-lg" />
-                      </div>
-                      {mentionFlag && (
-                        <span
-                          className="absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-white text-[11px] font-bold leading-none ring-2 ring-white dark:ring-[#0f0f12] shadow-sm"
-                          style={{ backgroundColor: brandColor }}
-                          title="You were mentioned"
+                    <Link
+                      to={`/workspace/${workspaceId}/chat/${channel._id}`}
+                      className="flex items-center gap-3 flex-1 min-w-0"
+                    >
+                      <div className="relative flex-shrink-0">
+                        <div
+                          className="w-12 h-12 rounded-2xl flex items-center justify-center text-xl"
+                          style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
                         >
-                          @
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
-                          {channel.name}
-                        </span>
-                        <span className="text-xs text-gray-500 dark:text-gray-500 flex-shrink-0">{time}</span>
-                      </div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span
-                          className={`text-xs truncate flex-1 ${
-                            mentionFlag
-                              ? 'text-teal-600 dark:text-[#0d9488] font-medium'
-                              : 'text-gray-500 dark:text-gray-400'
-                          }`}
-                        >
-                          {preview}
-                        </span>
-                        {!isArchivedView && channel.unreadCount > 0 && (
+                          <FaUsers className="text-lg" />
+                        </div>
+                        {mentionFlag && (
                           <span
-                            className="text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center flex-shrink-0"
+                            className="absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-white text-[11px] font-bold leading-none ring-2 ring-white dark:ring-[#0f0f12] shadow-sm"
                             style={{ backgroundColor: brandColor }}
+                            title="You were mentioned"
                           >
-                            {channel.unreadCount}
+                            @
                           </span>
                         )}
                       </div>
-                    </div>
-                  </Link>
-                  <ChannelMenu
-                    chat={channel}
-                    userInfo={userInfo}
-                    canManage={canManage}
-                    onArchive={handleArchive}
-                    onUnarchive={handleUnarchive}
-                    onExit={handleExit}
-                    onDelete={handleDelete}
-                    isArchived={isArchivedView}
-                  />
-                </div>
-              );
-            })
-          )}
-        </div>
 
-        <div className="border-t border-gray-200/60 dark:border-gray-800/40 px-4 py-3 bg-white dark:bg-[#0f0f12] flex-shrink-0">
-          <div className="grid grid-cols-3 gap-2">
-            <div className="text-center">
-              <p className="text-sm font-bold text-gray-800 dark:text-gray-100">{allChannels.length}</p>
-              <p className="text-[10px] text-gray-500 dark:text-gray-500">Channels</p>
-            </div>
-            <div className="text-center">
-              <p className="text-sm font-bold text-gray-800 dark:text-gray-100">{activeMembers.length}</p>
-              <p className="text-[10px] text-gray-500 dark:text-gray-500">Members</p>
-            </div>
-            <div className="text-center">
-              <p className="text-sm font-bold text-gray-800 dark:text-gray-100">{onlineCount}</p>
-              <p className="text-[10px] text-gray-500 dark:text-gray-500">Online</p>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
+                            {channel.name}
+                          </span>
+                          <span className="text-xs text-gray-500 dark:text-gray-500 flex-shrink-0">{time}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span
+                            className={`text-xs truncate flex-1 ${
+                              mentionFlag
+                                ? 'text-teal-600 dark:text-[#0d9488] font-medium'
+                                : 'text-gray-500 dark:text-gray-400'
+                            }`}
+                          >
+                            {preview}
+                          </span>
+                          {!isArchivedView && channel.unreadCount > 0 && (
+                            <span
+                              className="text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center flex-shrink-0"
+                              style={{ backgroundColor: brandColor }}
+                            >
+                              {channel.unreadCount}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </Link>
+                    <ChannelMenu
+                      chat={channel}
+                      userInfo={userInfo}
+                      canManage={canManage}
+                      onArchive={handleArchive}
+                      onUnarchive={handleUnarchive}
+                      onExit={handleExit}
+                      onDelete={handleDelete}
+                      isArchived={isArchivedView}
+                    />
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div className="border-t border-gray-200/60 dark:border-gray-800/40 px-4 py-3 bg-white dark:bg-[#0f0f12] flex-shrink-0">
+            <div className="grid grid-cols-3 gap-2">
+              <div className="text-center">
+                <p className="text-sm font-bold text-gray-800 dark:text-gray-100">{allChannels.length}</p>
+                <p className="text-[10px] text-gray-500 dark:text-gray-500">Channels</p>
+              </div>
+              <div className="text-center">
+                <p className="text-sm font-bold text-gray-800 dark:text-gray-100">{activeMembers.length}</p>
+                <p className="text-[10px] text-gray-500 dark:text-gray-500">Members</p>
+              </div>
+              <div className="text-center">
+                <p className="text-sm font-bold text-gray-800 dark:text-gray-100">{onlineCount}</p>
+                <p className="text-[10px] text-gray-500 dark:text-gray-500">Online</p>
+              </div>
             </div>
           </div>
         </div>
+
+        <YourWorkspaceBottombar workspace={workspace} />
+
+        <SearchChannelsModal
+          isOpen={searchOpen}
+          onClose={() => setSearchOpen(false)}
+          channels={allChannels}
+          brandColor={brandColor}
+          workspaceId={workspaceId}
+        />
+
+        <CreateChannelModal
+          isOpen={createModalOpen}
+          onClose={() => setCreateModalOpen(false)}
+          workspaceId={workspaceId}
+          brandColor={brandColor}
+          workspaceMembers={workspace.members || []}
+          onSuccess={refreshAll}
+        />
+
+        <ConfirmModal
+          isOpen={confirmModal.isOpen}
+          onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })}
+          onConfirm={confirmModal.onConfirm}
+          title={confirmModal.title}
+          message={confirmModal.message}
+          danger={confirmModal.danger}
+        />
       </div>
-
-      <YourWorkspaceBottombar workspace={workspace} />
-
-      <SearchChannelsModal
-        isOpen={searchOpen}
-        onClose={() => setSearchOpen(false)}
-        channels={allChannels}
-        brandColor={brandColor}
-        workspaceId={workspaceId}
-      />
-
-      <CreateChannelModal
-        isOpen={createModalOpen}
-        onClose={() => setCreateModalOpen(false)}
-        workspaceId={workspaceId}
-        brandColor={brandColor}
-        workspaceMembers={workspace.members || []}
-        onSuccess={refreshAll}
-      />
-
-      <ConfirmModal
-        isOpen={confirmModal.isOpen}
-        onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })}
-        onConfirm={confirmModal.onConfirm}
-        title={confirmModal.title}
-        message={confirmModal.message}
-        danger={confirmModal.danger}
-      />
-    </div>
+    </>
   );
 };
 

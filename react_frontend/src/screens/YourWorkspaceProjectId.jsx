@@ -39,6 +39,8 @@ import {
   useReviewProjectMutation,
   useSummarizeProjectMutation,
   useGenerateProjectDocsMutation,
+  useEditProjectWithAIMutation,
+  useApplyProjectEditsMutation,
 } from '../slices/aiApiSlice';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
 import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
@@ -78,6 +80,173 @@ const priorityOptions = [
   { value: 'high', label: 'High', icon: <FaFire className="text-red-400" /> },
   { value: 'urgent', label: 'Urgent', icon: <FaFire className="text-red-500" /> },
 ];
+
+// ─── Global Styles (scrollbar + skeleton shimmer) ───────────────
+const GlobalStyles = () => (
+  <style>{`
+    .scrollbar-hide {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    .scrollbar-hide::-webkit-scrollbar {
+      display: none;
+    }
+
+    /* ── Skeleton shimmer ───────────────────────────────────────── */
+    .skeleton {
+      position: relative;
+      overflow: hidden;
+      background-color: rgb(229 231 235); /* gray-200 */
+    }
+    .dark .skeleton {
+      background-color: rgba(255, 255, 255, 0.07);
+    }
+    .skeleton::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      transform: translateX(-100%);
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.55),
+        transparent
+      );
+      animation: skeletonShimmer 1.5s ease-in-out infinite;
+    }
+    .dark .skeleton::after {
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.07),
+        transparent
+      );
+    }
+    @keyframes skeletonShimmer {
+      100% {
+        transform: translateX(100%);
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .skeleton::after {
+        animation: none;
+      }
+    }
+  `}</style>
+);
+
+// ─── Skeleton Primitives ────────────────────────────────────────
+const Skeleton = ({ className = '' }) => (
+  <div className={`skeleton rounded-lg ${className}`} />
+);
+
+const TaskCardSkeleton = () => (
+  <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/40 p-4">
+    {/* Top row: avatar + title + menu + status pill */}
+    <div className="flex items-start justify-between gap-2">
+      <div className="flex items-center gap-2 min-w-0 flex-1">
+        <Skeleton className="w-8 h-8 rounded-xl flex-shrink-0" />
+        <Skeleton className="h-3.5 w-32 max-w-[60%]" />
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
+        <Skeleton className="w-5 h-5 rounded-md" />
+        <Skeleton className="h-5 w-16 rounded-full" />
+      </div>
+    </div>
+
+    {/* Priority + meta row */}
+    <div className="mt-2 flex items-center gap-2">
+      <Skeleton className="h-5 w-14 rounded-full" />
+      <Skeleton className="h-2.5 w-12" />
+    </div>
+
+    {/* Assignees + due row */}
+    <div className="mt-3 flex items-center justify-between gap-2">
+      <div className="flex items-center gap-1.5 min-w-0">
+        <div className="flex -space-x-1.5">
+          <Skeleton className="w-5 h-5 rounded-full" />
+          <Skeleton className="w-5 h-5 rounded-full" />
+          <Skeleton className="w-5 h-5 rounded-full" />
+        </div>
+        <Skeleton className="h-2.5 w-20" />
+      </div>
+      <Skeleton className="h-2.5 w-16" />
+    </div>
+
+    {/* Progress bar */}
+    <div className="mt-2 flex items-center gap-2">
+      <Skeleton className="flex-1 h-1.5 rounded-full" />
+      <Skeleton className="h-2.5 w-8" />
+    </div>
+  </div>
+);
+
+const FolderChipSkeleton = ({ width = 'w-16' }) => (
+  <Skeleton className={`h-6 ${width} rounded-full flex-shrink-0`} />
+);
+
+// ─── Full Page Skeleton ─────────────────────────────────────────
+const ProjectSkeleton = ({ brandColor = '#0d9488' }) => (
+  <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
+    {/* Sidebar (desktop) */}
+    <div className="hidden lg:block lg:w-64 lg:h-full shrink-0 border-r border-gray-100 dark:border-gray-800/60 p-4 space-y-4">
+      <Skeleton className="h-9 w-36 rounded-xl" />
+      <div className="space-y-2 pt-4">
+        {Array.from({ length: 7 }).map((_, i) => (
+          <div key={i} className="flex items-center gap-3 px-2 py-2">
+            <Skeleton className="h-8 w-8 rounded-lg flex-shrink-0" />
+            <Skeleton className="h-3.5 flex-1 max-w-[110px]" />
+          </div>
+        ))}
+      </div>
+    </div>
+
+    <div className="flex-1 flex flex-col h-full overflow-hidden">
+      {/* Header */}
+      <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 shrink-0">
+        <div className="flex items-center justify-between px-3 md:px-4 h-14 lg:h-16">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <Skeleton className="w-8 h-8 md:w-10 md:h-10 rounded-xl flex-shrink-0" />
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <Skeleton className="h-4 w-40 max-w-[60%]" />
+              <Skeleton className="h-2.5 w-24" />
+            </div>
+          </div>
+          <div className="flex items-center gap-1 md:gap-2 shrink-0">
+            <Skeleton className="w-8 h-8 rounded-xl" />
+            <Skeleton className="w-8 h-8 rounded-xl" />
+            <Skeleton className="w-8 h-8 rounded-xl" />
+            <Skeleton className="w-8 h-8 rounded-xl" />
+          </div>
+        </div>
+      </header>
+
+      {/* Folders bar */}
+      <div className="border-b border-gray-200/60 dark:border-gray-800/30 px-3 py-2 bg-gray-50 dark:bg-[#14141a]/60 shrink-0">
+        <div className="flex items-center justify-between mb-1">
+          <Skeleton className="h-2.5 w-14" />
+          <Skeleton className="h-3 w-10" />
+        </div>
+        <div className="flex flex-nowrap overflow-x-auto gap-1.5 pb-1 scrollbar-hide">
+          <FolderChipSkeleton width="w-12" />
+          <FolderChipSkeleton width="w-20" />
+          <FolderChipSkeleton width="w-16" />
+          <FolderChipSkeleton width="w-24" />
+          <FolderChipSkeleton width="w-14" />
+        </div>
+      </div>
+
+      {/* Task grid */}
+      <div className="flex-1 overflow-y-auto p-3 md:p-4 pb-24 md:pb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <TaskCardSkeleton key={i} />
+          ))}
+        </div>
+      </div>
+    </div>
+  </div>
+);
 
 // ─── tiny dropdowns ─────────────────────────────────────────────
 const Dropdown = ({ label, options, value, onChange, placeholder, brandColor }) => {
@@ -887,9 +1056,9 @@ const downloadDocsPDF = (doc) => {
 };
 
 // ══════════════════════════════════════════════════════════════
-// AI — Menu, Plan editor, Review, Summary, Docs
+// AI — Menu, Plan editor, Review, Summary, Docs, Project Edit
 // ══════════════════════════════════════════════════════════════
-const AIMenu = ({ isOpen, onClose, canManage, brandColor, onPlan, onSummary, onReview, onDocs }) => {
+const AIMenu = ({ isOpen, onClose, canManage, brandColor, onPlan, onSummary, onReview, onDocs, onEdit }) => {
   if (!isOpen) return null;
   const Item = ({ icon, label, sub, onClick, disabled }) => (
     <button
@@ -919,6 +1088,7 @@ const AIMenu = ({ isOpen, onClose, canManage, brandColor, onPlan, onSummary, onR
           </div>
           <div className="space-y-1">
             <Item icon={<FaRobot className="text-sm" />} label="Plan a new project" sub="Describe it in plain English — get a full plan" onClick={onPlan} disabled={!canManage} />
+            <Item icon={<FaEdit className="text-sm" />} label="Edit this project with AI" sub="Add, remove, or reassign tasks — describe the change" onClick={onEdit} disabled={!canManage} />
             <Item icon={<FaLightbulb className="text-sm" />} label="Summarize this project" sub="Headline, highlights, risks, next steps" onClick={onSummary} />
             <Item icon={<FaHeartbeat className="text-sm" />} label="Review this project" sub="Audit workload, deadlines, and blockers" onClick={onReview} disabled={!canManage} />
             <Item icon={<FaFileAlt className="text-sm" />} label="Generate documentation" sub="Formal project doc, downloadable as PDF" onClick={onDocs} />
@@ -1538,6 +1708,264 @@ const AIDocsModal = ({ isOpen, onClose, projectId, brandColor }) => {
 };
 
 // ══════════════════════════════════════════════════════════════
+// AI — Project edit (propose → review → apply)
+// ══════════════════════════════════════════════════════════════
+const AIProjectEditModal = ({ isOpen, onClose, projectId, brandColor, onApplied }) => {
+  const [stage, setStage] = useState('prompt');
+  const [prompt, setPrompt] = useState('');
+  const [preview, setPreview] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [editProjectWithAI] = useEditProjectWithAIMutation();
+  const [applyProjectEdits] = useApplyProjectEditsMutation();
+
+  useEffect(() => {
+    if (!isOpen) {
+      setStage('prompt');
+      setPrompt('');
+      setPreview(null);
+      setBusy(false);
+    }
+  }, [isOpen]);
+
+  // Visual diff computed from current vs proposed task lists.
+  const diff = useMemo(() => {
+    if (!preview) return null;
+    const currentById = new Map((preview.current?.tasks || []).map((t) => [t._id, t]));
+    const added = [], updated = [], deleted = [];
+    (preview.proposed?.tasks || []).forEach((t) => {
+      if (t._deleted === true) {
+        const c = currentById.get(t._id);
+        if (c) deleted.push(c);
+        return;
+      }
+      if (t._id && currentById.has(t._id)) {
+        updated.push({ before: currentById.get(t._id), after: t });
+      } else if (!t._id) {
+        added.push(t);
+      }
+    });
+    return { added, updated, deleted };
+  }, [preview]);
+
+  const handlePreview = async () => {
+    if (!prompt.trim()) return toast.error('Describe what you want to change');
+    setBusy(true);
+    try {
+      const res = await editProjectWithAI({ projectId, prompt: prompt.trim() }).unwrap();
+      setPreview(res);
+      setStage('preview');
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to preview changes');
+    } finally { setBusy(false); }
+  };
+
+  const handleApply = async () => {
+    if (!preview) return;
+    setBusy(true);
+    try {
+      const res = await applyProjectEdits({
+        projectId,
+        proposed: {
+          project: preview.proposed.project,
+          tasks: preview.proposed.tasks,
+        },
+      }).unwrap();
+      toast.success(
+        `Applied · +${res.created || 0} added · ~${res.updated || 0} updated · −${res.deleted || 0} removed`
+      );
+      onApplied?.();
+      onClose();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to apply changes');
+    } finally { setBusy(false); }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[75] flex items-end md:items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-3xl md:rounded-2xl w-full md:max-w-3xl shadow-2xl flex flex-col max-h-[95dvh] md:max-h-[92vh]">
+        <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-gray-200/60 dark:border-gray-800/60">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+              <FaMagic className="text-teal-600 dark:text-[#0d9488]" />
+              {stage === 'prompt' ? 'Edit project with AI' : 'Review changes'}
+            </h2>
+            <p className="text-xs text-gray-500 dark:text-gray-500 mt-0.5">
+              {stage === 'prompt'
+                ? 'Add, remove, reassign, re-date — describe it in plain English'
+                : 'Nothing is saved yet — review before applying'}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-white rounded-lg transition">
+            <FaTimes />
+          </button>
+        </div>
+
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
+          {stage === 'prompt' && (
+            <div className="space-y-3">
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                rows={6}
+                placeholder={`e.g. Add a "Design QA" task assigned to Sarah due next Friday, remove the "Legacy cleanup" task, and move two of Mercy's tasks to James.`}
+                className="w-full px-4 py-3 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-2xl text-sm text-gray-800 dark:text-gray-200 outline-none focus:border-teal-500 dark:focus:border-[#0d9488] resize-none"
+              />
+              <p className="text-[11px] text-gray-500 dark:text-gray-500 leading-relaxed">
+                Supported: add tasks · delete tasks · reassign work · change priorities · shift deadlines · add team members · expand or trim checklists · rewrite descriptions.
+              </p>
+            </div>
+          )}
+
+          {stage === 'preview' && preview && (
+            <div className="space-y-4">
+              {preview.summary && (
+                <div className="bg-teal-50/60 dark:bg-[#0d9488]/10 border border-teal-200/60 dark:border-[#0d9488]/20 rounded-xl p-3">
+                  <p className="text-[10px] font-semibold text-teal-700 dark:text-[#0d9488] uppercase tracking-wide mb-1">Summary</p>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 break-words whitespace-pre-wrap">{preview.summary}</p>
+                </div>
+              )}
+
+              {preview.warnings?.length > 0 && (
+                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 rounded-xl p-3 flex gap-2">
+                  <FaExclamationTriangle className="text-amber-600 dark:text-amber-400 text-sm mt-0.5 shrink-0" />
+                  <div className="text-xs text-amber-800 dark:text-amber-300 space-y-0.5">
+                    {preview.warnings.map((w, i) => <div key={i}>{w}</div>)}
+                  </div>
+                </div>
+              )}
+
+              {diff && (
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-green-50 dark:bg-green-900/20 border border-green-200/60 dark:border-green-700/40 rounded-xl p-3 text-center">
+                    <p className="text-lg font-bold text-green-600 dark:text-green-400">+{diff.added.length}</p>
+                    <p className="text-[10px] text-green-700 dark:text-green-300 uppercase font-semibold tracking-wide">Added</p>
+                  </div>
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200/60 dark:border-blue-700/40 rounded-xl p-3 text-center">
+                    <p className="text-lg font-bold text-blue-600 dark:text-blue-400">~{diff.updated.length}</p>
+                    <p className="text-[10px] text-blue-700 dark:text-blue-300 uppercase font-semibold tracking-wide">Updated</p>
+                  </div>
+                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200/60 dark:border-red-700/40 rounded-xl p-3 text-center">
+                    <p className="text-lg font-bold text-red-600 dark:text-red-400">−{diff.deleted.length}</p>
+                    <p className="text-[10px] text-red-700 dark:text-red-300 uppercase font-semibold tracking-wide">Removed</p>
+                  </div>
+                </div>
+              )}
+
+              {diff?.added.length > 0 && (
+                <section>
+                  <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-2">New tasks</h4>
+                  <div className="space-y-1.5">
+                    {diff.added.map((t, i) => (
+                      <div key={i} className="flex items-start gap-2 bg-green-50/60 dark:bg-green-900/10 border border-green-200/40 dark:border-green-700/30 rounded-xl px-3 py-2">
+                        <FaPlus className="text-green-600 dark:text-green-400 text-[10px] mt-1.5 shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{t.title}</p>
+                          {t.assignees?.length > 0 && (
+                            <p className="text-[11px] text-gray-500 dark:text-gray-500 truncate">→ {t.assignees.map((a) => a.name).join(', ')}</p>
+                          )}
+                        </div>
+                        <PriorityPill priority={t.priority} />
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {diff?.deleted.length > 0 && (
+                <section>
+                  <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-2">Removed tasks</h4>
+                  <div className="space-y-1.5">
+                    {diff.deleted.map((t, i) => (
+                      <div key={i} className="flex items-start gap-2 bg-red-50/60 dark:bg-red-900/10 border border-red-200/40 dark:border-red-700/30 rounded-xl px-3 py-2">
+                        <FaTrashAlt className="text-red-500 text-[10px] mt-1.5 shrink-0" />
+                        <p className="text-sm text-gray-700 dark:text-gray-400 line-through truncate flex-1">{t.title}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {diff?.updated.length > 0 && (
+                <section>
+                  <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-2">Updated tasks</h4>
+                  <div className="space-y-1.5">
+                    {diff.updated.map((u, i) => (
+                      <div key={i} className="flex items-start gap-2 bg-blue-50/60 dark:bg-blue-900/10 border border-blue-200/40 dark:border-blue-700/30 rounded-xl px-3 py-2">
+                        <FaEdit className="text-blue-500 text-[10px] mt-1.5 shrink-0" />
+                        <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate flex-1">{u.after.title}</p>
+                        <PriorityPill priority={u.after.priority} />
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {preview.changes?.length > 0 && (
+                <section>
+                  <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-2">
+                    All changes ({preview.changes.length})
+                  </h4>
+                  <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
+                    {preview.changes.map((c, i) => (
+                      <div key={i} className="flex items-start gap-2 text-xs bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-2">
+                        <span className="font-semibold text-gray-700 dark:text-gray-300 shrink-0">{c.field}:</span>
+                        <span className="text-gray-500 dark:text-gray-500 truncate flex-1 min-w-0">{c.from || '—'}</span>
+                        <span className="text-gray-400 shrink-0">→</span>
+                        <span className="text-gray-700 dark:text-gray-300 truncate flex-1 min-w-0">{c.to || '—'}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {diff && diff.added.length === 0 && diff.updated.length === 0 && diff.deleted.length === 0 && (
+                <p className="text-sm text-gray-500 dark:text-gray-500 text-center py-6">
+                  No task-level changes detected. The AI may have only updated project fields.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="shrink-0 flex gap-2 px-5 py-3 border-t border-gray-200/60 dark:border-gray-800/60">
+          {stage === 'prompt' ? (
+            <>
+              <button onClick={onClose} className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">
+                Cancel
+              </button>
+              <button
+                onClick={handlePreview}
+                disabled={busy || !prompt.trim()}
+                className="flex-1 py-2.5 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 transition disabled:opacity-50"
+                style={{ backgroundColor: brandColor }}
+              >
+                {busy ? <><FaSpinner className="animate-spin text-xs" /> Thinking…</> : <><FaMagic className="text-xs" /> Preview changes</>}
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => setStage('prompt')} className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">
+                Back
+              </button>
+              <button
+                onClick={handleApply}
+                disabled={busy}
+                className="flex-1 py-2.5 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 transition disabled:opacity-50"
+                style={{ backgroundColor: brandColor }}
+              >
+                {busy ? <><FaSpinner className="animate-spin text-xs" /> Applying…</> : <><FaCheck className="text-xs" /> Apply changes</>}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ══════════════════════════════════════════════════════════════
 // MAIN SCREEN
 // ══════════════════════════════════════════════════════════════
 const YourWorkspaceProjectId = () => {
@@ -1586,6 +2014,7 @@ const YourWorkspaceProjectId = () => {
   const [aiSummaryOpen, setAiSummaryOpen] = useState(false);
   const [aiReviewOpen, setAiReviewOpen] = useState(false);
   const [aiDocsOpen, setAiDocsOpen] = useState(false);
+  const [aiEditOpen, setAiEditOpen] = useState(false);
 
   const [draggedTaskId, setDraggedTaskId] = useState(null);
   const [dragOverTaskId, setDragOverTaskId] = useState(null);
@@ -1763,174 +2192,191 @@ const YourWorkspaceProjectId = () => {
     );
   }
   if (wLoad || pLoad || tLoad || foldersLoading) {
-    return <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]"><div className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin" style={{ borderTopColor: brandColor }} /></div>;
+    return (
+      <>
+        <GlobalStyles />
+        <ProjectSkeleton brandColor={brandColor} />
+      </>
+    );
   }
   if (!workspace || !project) return null;
 
   return (
-    <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
-      <div className="hidden lg:block lg:w-64 lg:h-full shrink-0">
-        <YourWorkspaceSidebar workspace={workspace} chats={[]} />
-      </div>
+    <>
+      <GlobalStyles />
 
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
-        <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 shrink-0">
-          <div className="flex items-center justify-between px-3 md:px-4 h-14 lg:h-16">
-            <div className="flex items-center gap-2 min-w-0">
-              <button onClick={() => navigate(`/workspace/${workspaceId}/projects`)} className="p-1 lg:hidden text-gray-500 dark:text-gray-400"><FaArrowLeft className="text-sm" /></button>
-              {project.coverImage ? <img src={project.coverImage} className="w-8 h-8 md:w-10 md:h-10 rounded-xl object-cover" alt="" /> : (
-                <div className="w-8 h-8 md:w-10 md:h-10 rounded-xl flex items-center justify-center text-white" style={{ backgroundColor: brandColor }}><FaFolder /></div>
-              )}
-              <div className="min-w-0">
-                <h1 className="text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 truncate max-w-[140px] md:max-w-xs flex items-center gap-1">
-                  {project.name}
-                  {isArchivedForMe && <span className="text-[10px] font-normal text-gray-400 bg-gray-100 dark:bg-gray-800/40 px-1.5 py-0.5 rounded-full">Archived</span>}
-                  {isTrash && <span className="text-[10px] font-normal text-red-400 bg-red-50 dark:bg-red-900/20 px-1.5 py-0.5 rounded-full">Trash</span>}
-                </h1>
-                <button onClick={() => navigate(`/workspace/${workspaceId}/project/${projectId}/team`)} className="flex items-center gap-1 text-[10px] md:text-xs text-gray-500 dark:text-gray-400 hover:text-teal-600 dark:hover:text-[#0d9488] transition">
-                  <FaUsers className="text-[9px]" /> Team <FaChevronRight className="text-[8px]" />
-                  <span className="w-0.5 h-0.5 bg-gray-300 dark:bg-gray-600 rounded-full ml-1" /> {project.progress || 0}% done
-                </button>
-              </div>
-            </div>
-            <div className="flex items-center gap-1 md:gap-2">
-              <button onClick={() => setSearchOpen(true)} className="p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl"><FaSearch className="text-xs md:text-sm" /></button>
-              {!isTrash && !isArchivedForMe && (
-                <button onClick={() => setAiMenuOpen(true)} className="p-1.5 text-teal-600 dark:text-[#0d9488] hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 rounded-xl" title="AI Assistant">
-                  <FaMagic className="text-xs md:text-sm" />
-                </button>
-              )}
-              {!isTrash && !isArchivedForMe && <button onClick={() => setShowCreateTask(true)} className="p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl"><FaPlus className="text-xs md:text-sm" /></button>}
-              <button onClick={() => setMenuOpen(true)} className="p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl"><FaEllipsisV className="text-xs md:text-sm" /></button>
-            </div>
-          </div>
-        </header>
-
-        <div className="border-b border-gray-200/60 dark:border-gray-800/30 px-3 py-2 bg-gray-50 dark:bg-[#14141a]/60 shrink-0">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] md:text-xs font-medium text-gray-500 uppercase">Folders</span>
-            {canManage && !isTrash && !isArchivedForMe && (
-              <button onClick={() => { setEditingFolder(null); setShowFolderForm(true); }} className="text-[10px] md:text-xs text-teal-600 dark:text-[#0d9488] font-medium flex items-center gap-1"><FaPlus className="text-[8px]" /> New</button>
-            )}
-          </div>
-          <div className="flex flex-nowrap overflow-x-auto gap-1.5 pb-1 scrollbar-hide">
-            <button onClick={() => setSelectedFolderId(null)} className={`text-[10px] md:text-xs px-2 py-1 rounded-full border whitespace-nowrap ${!selectedFolderId ? 'bg-teal-600 dark:bg-[#0d9488] text-white border-teal-600' : 'bg-gray-100 dark:bg-[#1e1e26] border-gray-300 dark:border-gray-700/60 text-gray-700 dark:text-gray-300'}`}>All</button>
-            {folders.map((f) => (
-              <div key={f._id} className="relative flex items-center shrink-0">
-                <button
-                  onClick={() => setSelectedFolderId(selectedFolderId === f._id ? null : f._id)}
-                  onTouchStart={() => handleTouchStart(f._id)} onTouchEnd={clearTouch} onTouchMove={clearTouch}
-                  className={`text-[10px] md:text-xs px-2 py-1 rounded-full border flex items-center gap-1 whitespace-nowrap ${selectedFolderId === f._id ? 'bg-teal-600 dark:bg-[#0d9488] text-white border-teal-600' : 'bg-gray-100 dark:bg-[#1e1e26] border-gray-300 dark:border-gray-700/60 text-gray-700 dark:text-gray-300'}`}
-                >
-                  <FaFolder className="text-[8px]" /><span className="truncate max-w-[60px] md:max-w-[100px]">{f.name}</span>
-                </button>
-                {canManage && !isTrash && !isArchivedForMe && (
-                  <div className="hidden md:flex items-center gap-0.5 ml-0.5">
-                    <button onClick={() => { setEditingFolder(f); setShowFolderForm(true); }} className="p-0.5 text-gray-400 hover:text-blue-500"><FaEdit className="text-[8px]" /></button>
-                    <button onClick={() => { setReadOnlyFolder(f); setShowReadOnly(true); }} className="p-0.5 text-gray-400 hover:text-teal-500"><FaUserLock className="text-[8px]" /></button>
-                    <button onClick={() => handleDeleteFolder(f)} className="p-0.5 text-gray-400 hover:text-red-500"><FaTrashAlt className="text-[8px]" /></button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-          {folderMenuOpen && canManage && !isTrash && !isArchivedForMe && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setFolderMenuOpen(null)}>
-              <div className="bg-white dark:bg-[#14141a] rounded-2xl max-w-sm w-full p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
-                <button onClick={() => { const f = folders.find((x) => x._id === folderMenuOpen); setFolderMenuOpen(null); setEditingFolder(f); setShowFolderForm(true); }} className="flex items-center gap-3 w-full px-4 py-3 bg-gray-50 dark:bg-[#1a1a24] rounded-xl mb-2"><FaEdit className="text-blue-500" /> Edit Folder</button>
-                <button onClick={() => { const f = folders.find((x) => x._id === folderMenuOpen); setFolderMenuOpen(null); setReadOnlyFolder(f); setShowReadOnly(true); }} className="flex items-center gap-3 w-full px-4 py-3 bg-gray-50 dark:bg-[#1a1a24] rounded-xl mb-2"><FaUserLock className="text-teal-500" /> Read‑Only Users</button>
-                <button onClick={() => { const f = folders.find((x) => x._id === folderMenuOpen); setFolderMenuOpen(null); if (f) handleDeleteFolder(f); }} className="flex items-center gap-3 w-full px-4 py-3 bg-red-50 dark:bg-red-900/20 rounded-xl text-red-600 dark:text-red-400 mb-2"><FaTrashAlt className="text-xs" /> Delete Folder</button>
-                <button onClick={() => setFolderMenuOpen(null)} className="w-full py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600">Cancel</button>
-              </div>
-            </div>
-          )}
+      <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
+        <div className="hidden lg:block lg:w-64 lg:h-full shrink-0">
+          <YourWorkspaceSidebar workspace={workspace} chats={[]} />
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3 md:p-4 pb-24 md:pb-4">
-          {tasks.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-gray-400"><FaTasks className="text-3xl md:text-4xl mb-2 opacity-30" /><p className="text-xs md:text-sm">No tasks {selectedFolderId ? 'in this folder' : 'yet'}</p></div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-              {tasks.map((task) => (
-                <TaskCard
-                  key={task._id} task={task} brandColor={brandColor}
-                  onClick={() => navigate(`/workspace/${workspaceId}/project/${projectId}/task/${task._id}`)}
-                  draggable={canReorderTasks} onDragStart={onTaskDragStart} onDragEnd={onTaskDragEnd}
-                  onDragOver={onTaskDragOver} onDragLeave={() => setDragOverTaskId(null)} onDrop={onTaskDrop}
-                  dragOver={dragOverTaskId === task._id}
-                  onCopy={(t) => setMoveCopy({ isOpen: true, task: t, mode: 'copy' })}
-                  onMove={(t) => setMoveCopy({ isOpen: true, task: t, mode: 'move' })}
-                />
+        <div className="flex-1 flex flex-col h-full overflow-hidden">
+          <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 shrink-0">
+            <div className="flex items-center justify-between px-3 md:px-4 h-14 lg:h-16">
+              <div className="flex items-center gap-2 min-w-0">
+                <button onClick={() => navigate(`/workspace/${workspaceId}/projects`)} className="p-1 lg:hidden text-gray-500 dark:text-gray-400"><FaArrowLeft className="text-sm" /></button>
+                {project.coverImage ? <img src={project.coverImage} className="w-8 h-8 md:w-10 md:h-10 rounded-xl object-cover" alt="" /> : (
+                  <div className="w-8 h-8 md:w-10 md:h-10 rounded-xl flex items-center justify-center text-white" style={{ backgroundColor: brandColor }}><FaFolder /></div>
+                )}
+                <div className="min-w-0">
+                  <h1 className="text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 truncate max-w-[140px] md:max-w-xs flex items-center gap-1">
+                    {project.name}
+                    {isArchivedForMe && <span className="text-[10px] font-normal text-gray-400 bg-gray-100 dark:bg-gray-800/40 px-1.5 py-0.5 rounded-full">Archived</span>}
+                    {isTrash && <span className="text-[10px] font-normal text-red-400 bg-red-50 dark:bg-red-900/20 px-1.5 py-0.5 rounded-full">Trash</span>}
+                  </h1>
+                  <button onClick={() => navigate(`/workspace/${workspaceId}/project/${projectId}/team`)} className="flex items-center gap-1 text-[10px] md:text-xs text-gray-500 dark:text-gray-400 hover:text-teal-600 dark:hover:text-[#0d9488] transition">
+                    <FaUsers className="text-[9px]" /> Team <FaChevronRight className="text-[8px]" />
+                    <span className="w-0.5 h-0.5 bg-gray-300 dark:bg-gray-600 rounded-full ml-1" /> {project.progress || 0}% done
+                  </button>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 md:gap-2">
+                <button onClick={() => setSearchOpen(true)} className="p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl"><FaSearch className="text-xs md:text-sm" /></button>
+                {!isTrash && !isArchivedForMe && (
+                  <button onClick={() => setAiMenuOpen(true)} className="p-1.5 text-teal-600 dark:text-[#0d9488] hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 rounded-xl" title="AI Assistant">
+                    <FaMagic className="text-xs md:text-sm" />
+                  </button>
+                )}
+                {!isTrash && !isArchivedForMe && <button onClick={() => setShowCreateTask(true)} className="p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl"><FaPlus className="text-xs md:text-sm" /></button>}
+                <button onClick={() => setMenuOpen(true)} className="p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl"><FaEllipsisV className="text-xs md:text-sm" /></button>
+              </div>
+            </div>
+          </header>
+
+          <div className="border-b border-gray-200/60 dark:border-gray-800/30 px-3 py-2 bg-gray-50 dark:bg-[#14141a]/60 shrink-0">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] md:text-xs font-medium text-gray-500 uppercase">Folders</span>
+              {canManage && !isTrash && !isArchivedForMe && (
+                <button onClick={() => { setEditingFolder(null); setShowFolderForm(true); }} className="text-[10px] md:text-xs text-teal-600 dark:text-[#0d9488] font-medium flex items-center gap-1"><FaPlus className="text-[8px]" /> New</button>
+              )}
+            </div>
+            <div className="flex flex-nowrap overflow-x-auto gap-1.5 pb-1 scrollbar-hide">
+              <button onClick={() => setSelectedFolderId(null)} className={`text-[10px] md:text-xs px-2 py-1 rounded-full border whitespace-nowrap ${!selectedFolderId ? 'bg-teal-600 dark:bg-[#0d9488] text-white border-teal-600' : 'bg-gray-100 dark:bg-[#1e1e26] border-gray-300 dark:border-gray-700/60 text-gray-700 dark:text-gray-300'}`}>All</button>
+              {folders.map((f) => (
+                <div key={f._id} className="relative flex items-center shrink-0">
+                  <button
+                    onClick={() => setSelectedFolderId(selectedFolderId === f._id ? null : f._id)}
+                    onTouchStart={() => handleTouchStart(f._id)} onTouchEnd={clearTouch} onTouchMove={clearTouch}
+                    className={`text-[10px] md:text-xs px-2 py-1 rounded-full border flex items-center gap-1 whitespace-nowrap ${selectedFolderId === f._id ? 'bg-teal-600 dark:bg-[#0d9488] text-white border-teal-600' : 'bg-gray-100 dark:bg-[#1e1e26] border-gray-300 dark:border-gray-700/60 text-gray-700 dark:text-gray-300'}`}
+                  >
+                    <FaFolder className="text-[8px]" /><span className="truncate max-w-[60px] md:max-w-[100px]">{f.name}</span>
+                  </button>
+                  {canManage && !isTrash && !isArchivedForMe && (
+                    <div className="hidden md:flex items-center gap-0.5 ml-0.5">
+                      <button onClick={() => { setEditingFolder(f); setShowFolderForm(true); }} className="p-0.5 text-gray-400 hover:text-blue-500"><FaEdit className="text-[8px]" /></button>
+                      <button onClick={() => { setReadOnlyFolder(f); setShowReadOnly(true); }} className="p-0.5 text-gray-400 hover:text-teal-500"><FaUserLock className="text-[8px]" /></button>
+                      <button onClick={() => handleDeleteFolder(f)} className="p-0.5 text-gray-400 hover:text-red-500"><FaTrashAlt className="text-[8px]" /></button>
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
-          )}
-        </div>
-      </div>
+            {folderMenuOpen && canManage && !isTrash && !isArchivedForMe && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setFolderMenuOpen(null)}>
+                <div className="bg-white dark:bg-[#14141a] rounded-2xl max-w-sm w-full p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+                  <button onClick={() => { const f = folders.find((x) => x._id === folderMenuOpen); setFolderMenuOpen(null); setEditingFolder(f); setShowFolderForm(true); }} className="flex items-center gap-3 w-full px-4 py-3 bg-gray-50 dark:bg-[#1a1a24] rounded-xl mb-2"><FaEdit className="text-blue-500" /> Edit Folder</button>
+                  <button onClick={() => { const f = folders.find((x) => x._id === folderMenuOpen); setFolderMenuOpen(null); setReadOnlyFolder(f); setShowReadOnly(true); }} className="flex items-center gap-3 w-full px-4 py-3 bg-gray-50 dark:bg-[#1a1a24] rounded-xl mb-2"><FaUserLock className="text-teal-500" /> Read‑Only Users</button>
+                  <button onClick={() => { const f = folders.find((x) => x._id === folderMenuOpen); setFolderMenuOpen(null); if (f) handleDeleteFolder(f); }} className="flex items-center gap-3 w-full px-4 py-3 bg-red-50 dark:bg-red-900/20 rounded-xl text-red-600 dark:text-red-400 mb-2"><FaTrashAlt className="text-xs" /> Delete Folder</button>
+                  <button onClick={() => setFolderMenuOpen(null)} className="w-full py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600">Cancel</button>
+                </div>
+              </div>
+            )}
+          </div>
 
-      <YourWorkspaceBottombar workspace={workspace} />
-
-      {/* Modals */}
-      <SearchOverlay isOpen={searchOpen} onClose={() => setSearchOpen(false)} tasks={tasks} brandColor={brandColor} onSelect={(id) => navigate(`/workspace/${workspaceId}/project/${projectId}/task/${id}`)} />
-      <CreateTaskModal isOpen={showCreateTask} onClose={() => setShowCreateTask(false)} projectId={projectId} brandColor={brandColor} assignableMembers={assignableMembers} folders={folders} onSubmit={handleCreateTask} />
-      <FolderFormModal isOpen={showFolderForm} onClose={() => { setShowFolderForm(false); setEditingFolder(null); }} onSuccess={refetchFolders} folder={editingFolder} brandColor={brandColor} projectId={projectId} />
-      <FolderReadOnlyModal isOpen={showReadOnly} onClose={() => { setShowReadOnly(false); setReadOnlyFolder(null); }} folder={readOnlyFolder} project={project} brandColor={brandColor} onSuccess={refetchFolders} />
-      <FolderSelectModal isOpen={moveCopy.isOpen} onClose={() => setMoveCopy({ isOpen: false, task: null, mode: 'move' })} folders={folders} onSelect={handleMoveCopyConfirm} title={moveCopy.mode === 'copy' ? 'Copy task to folder' : 'Move task to folder'} />
-      <ConfirmDialog isOpen={confirmDialog.isOpen} onClose={() => setConfirmDialog({ isOpen: false })} onConfirm={confirmDialog.onConfirm} title={confirmDialog.title} message={confirmDialog.message} danger={confirmDialog.danger} />
-      <DeleteTaskDialog isOpen={deleteTaskDialog.isOpen} onClose={() => setDeleteTaskDialog({ isOpen: false })} onConfirm={deleteTaskDialog.onConfirm} taskName={deleteTaskDialog.taskName} />
-
-      {/* AI */}
-      <AIMenu
-        isOpen={aiMenuOpen}
-        onClose={() => setAiMenuOpen(false)}
-        canManage={canManage}
-        brandColor={brandColor}
-        onPlan={() => setAiPlanOpen(true)}
-        onSummary={() => setAiSummaryOpen(true)}
-        onReview={() => setAiReviewOpen(true)}
-        onDocs={() => setAiDocsOpen(true)}
-      />
-      <AIPlanModal
-        isOpen={aiPlanOpen}
-        onClose={() => setAiPlanOpen(false)}
-        workspaceId={workspaceId}
-        workspaceMembers={workspaceMembers}
-        brandColor={brandColor}
-        onExecuted={(proj) => { refreshAll(); if (proj?._id) navigate(`/workspace/${workspaceId}/project/${proj._id}`); }}
-      />
-      <AISummaryModal isOpen={aiSummaryOpen} onClose={() => setAiSummaryOpen(false)} projectId={projectId} brandColor={brandColor} />
-      <AIReviewModal isOpen={aiReviewOpen} onClose={() => setAiReviewOpen(false)} projectId={projectId} brandColor={brandColor} />
-      <AIDocsModal isOpen={aiDocsOpen} onClose={() => setAiDocsOpen(false)} projectId={projectId} brandColor={brandColor} />
-
-      {menuOpen && (
-        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setMenuOpen(false)}>
-          <div className="bg-white dark:bg-[#14141a] rounded-t-2xl md:rounded-2xl w-full md:max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 truncate pr-4">{project.name}</h3>
-              <button onClick={() => setMenuOpen(false)} className="p-1.5 text-gray-500"><FaTimes /></button>
-            </div>
-            <div className="space-y-1">
-              {isTrash ? (
-                canManage && (
-                  <>
-                    <button onClick={handleRestore} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[#0d9488] hover:bg-[#0d9488]/10"><FaTrashRestore /> Restore</button>
-                    <button onClick={handlePermanentDelete} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-red-600 hover:bg-red-500/10"><FaTrashAlt /> Delete Permanently</button>
-                  </>
-                )
-              ) : (
-                <>
-                  {isArchivedForMe ? (
-                    <button onClick={handleUnarchive} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[#0d9488] hover:bg-[#0d9488]/10"><FaUndo /> Unarchive</button>
-                  ) : (
-                    <button onClick={handleArchive} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30"><FaArchive /> Archive for me</button>
-                  )}
-                  {canManage && <button onClick={handleTrash} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-yellow-600 hover:bg-yellow-500/10"><FaTrashAlt /> Move to Trash</button>}
-                </>
-              )}
-            </div>
+          <div className="flex-1 overflow-y-auto p-3 md:p-4 pb-24 md:pb-4">
+            {tasks.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-gray-400"><FaTasks className="text-3xl md:text-4xl mb-2 opacity-30" /><p className="text-xs md:text-sm">No tasks {selectedFolderId ? 'in this folder' : 'yet'}</p></div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                {tasks.map((task) => (
+                  <TaskCard
+                    key={task._id} task={task} brandColor={brandColor}
+                    onClick={() => navigate(`/workspace/${workspaceId}/project/${projectId}/task/${task._id}`)}
+                    draggable={canReorderTasks} onDragStart={onTaskDragStart} onDragEnd={onTaskDragEnd}
+                    onDragOver={onTaskDragOver} onDragLeave={() => setDragOverTaskId(null)} onDrop={onTaskDrop}
+                    dragOver={dragOverTaskId === task._id}
+                    onCopy={(t) => setMoveCopy({ isOpen: true, task: t, mode: 'copy' })}
+                    onMove={(t) => setMoveCopy({ isOpen: true, task: t, mode: 'move' })}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </div>
-      )}
-    </div>
+
+        <YourWorkspaceBottombar workspace={workspace} />
+
+        {/* Modals */}
+        <SearchOverlay isOpen={searchOpen} onClose={() => setSearchOpen(false)} tasks={tasks} brandColor={brandColor} onSelect={(id) => navigate(`/workspace/${workspaceId}/project/${projectId}/task/${id}`)} />
+        <CreateTaskModal isOpen={showCreateTask} onClose={() => setShowCreateTask(false)} projectId={projectId} brandColor={brandColor} assignableMembers={assignableMembers} folders={folders} onSubmit={handleCreateTask} />
+        <FolderFormModal isOpen={showFolderForm} onClose={() => { setShowFolderForm(false); setEditingFolder(null); }} onSuccess={refetchFolders} folder={editingFolder} brandColor={brandColor} projectId={projectId} />
+        <FolderReadOnlyModal isOpen={showReadOnly} onClose={() => { setShowReadOnly(false); setReadOnlyFolder(null); }} folder={readOnlyFolder} project={project} brandColor={brandColor} onSuccess={refetchFolders} />
+        <FolderSelectModal isOpen={moveCopy.isOpen} onClose={() => setMoveCopy({ isOpen: false, task: null, mode: 'move' })} folders={folders} onSelect={handleMoveCopyConfirm} title={moveCopy.mode === 'copy' ? 'Copy task to folder' : 'Move task to folder'} />
+        <ConfirmDialog isOpen={confirmDialog.isOpen} onClose={() => setConfirmDialog({ isOpen: false })} onConfirm={confirmDialog.onConfirm} title={confirmDialog.title} message={confirmDialog.message} danger={confirmDialog.danger} />
+        <DeleteTaskDialog isOpen={deleteTaskDialog.isOpen} onClose={() => setDeleteTaskDialog({ isOpen: false })} onConfirm={deleteTaskDialog.onConfirm} taskName={deleteTaskDialog.taskName} />
+
+        {/* AI */}
+        <AIMenu
+          isOpen={aiMenuOpen}
+          onClose={() => setAiMenuOpen(false)}
+          canManage={canManage}
+          brandColor={brandColor}
+          onPlan={() => setAiPlanOpen(true)}
+          onSummary={() => setAiSummaryOpen(true)}
+          onReview={() => setAiReviewOpen(true)}
+          onDocs={() => setAiDocsOpen(true)}
+          onEdit={() => setAiEditOpen(true)}
+        />
+        <AIPlanModal
+          isOpen={aiPlanOpen}
+          onClose={() => setAiPlanOpen(false)}
+          workspaceId={workspaceId}
+          workspaceMembers={workspaceMembers}
+          brandColor={brandColor}
+          onExecuted={(proj) => { refreshAll(); if (proj?._id) navigate(`/workspace/${workspaceId}/project/${proj._id}`); }}
+        />
+        <AISummaryModal isOpen={aiSummaryOpen} onClose={() => setAiSummaryOpen(false)} projectId={projectId} brandColor={brandColor} />
+        <AIReviewModal isOpen={aiReviewOpen} onClose={() => setAiReviewOpen(false)} projectId={projectId} brandColor={brandColor} />
+        <AIDocsModal isOpen={aiDocsOpen} onClose={() => setAiDocsOpen(false)} projectId={projectId} brandColor={brandColor} />
+        <AIProjectEditModal
+          isOpen={aiEditOpen}
+          onClose={() => setAiEditOpen(false)}
+          projectId={projectId}
+          brandColor={brandColor}
+          onApplied={() => { refreshAll(); }}
+        />
+
+        {menuOpen && (
+          <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setMenuOpen(false)}>
+            <div className="bg-white dark:bg-[#14141a] rounded-t-2xl md:rounded-2xl w-full md:max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 truncate pr-4">{project.name}</h3>
+                <button onClick={() => setMenuOpen(false)} className="p-1.5 text-gray-500"><FaTimes /></button>
+              </div>
+              <div className="space-y-1">
+                {isTrash ? (
+                  canManage && (
+                    <>
+                      <button onClick={handleRestore} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[#0d9488] hover:bg-[#0d9488]/10"><FaTrashRestore /> Restore</button>
+                      <button onClick={handlePermanentDelete} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-red-600 hover:bg-red-500/10"><FaTrashAlt /> Delete Permanently</button>
+                    </>
+                  )
+                ) : (
+                  <>
+                    {isArchivedForMe ? (
+                      <button onClick={handleUnarchive} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[#0d9488] hover:bg-[#0d9488]/10"><FaUndo /> Unarchive</button>
+                    ) : (
+                      <button onClick={handleArchive} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30"><FaArchive /> Archive for me</button>
+                    )}
+                    {canManage && <button onClick={handleTrash} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-yellow-600 hover:bg-yellow-500/10"><FaTrashAlt /> Move to Trash</button>}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </>
   );
 };
 

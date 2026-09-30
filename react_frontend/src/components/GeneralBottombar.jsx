@@ -117,8 +117,6 @@ const GeneralBottombar = () => {
   const unreadCount = notifData?.pagination?.total || 0;
 
   // ── Today attention count ──
-  // Same data Today.jsx shows. Same query. RTK Query dedupes so there's
-  // no double fetch when you're actually on /today.
   const { data: todayData } = useGetTodayQuery(undefined, {
     pollingInterval: 60000,
     refetchOnFocus: true,
@@ -146,7 +144,6 @@ const GeneralBottombar = () => {
     const handleChatListUpdate = ({ chatId, unreadCount }) => {
       if (!chatId) return;
 
-      // Patch the cache
       dispatch(
         messagingApiSlice.util.updateQueryData(
           'getUserChats',
@@ -161,7 +158,6 @@ const GeneralBottombar = () => {
         )
       );
 
-      // Quiet refetch after delay
       if (refetchTimeoutRef.current) clearTimeout(refetchTimeoutRef.current);
       refetchTimeoutRef.current = setTimeout(() => {
         refetchChats();
@@ -218,14 +214,9 @@ const GeneralBottombar = () => {
   }, [hasUpdate]);
 
   // ── Drawer items ──
-  // My Workspaces moved here — Today owns the "home" slot now,
-  // but workspaces still need a home in the nav.
+  // My Workspaces moved to the bottombar, so the drawer now holds
+  // secondary items only.
   const drawerItems = [
-    {
-      to: "/my-workspaces",
-      icon: FiGrid,
-      label: "My Workspaces",
-    },
     {
       to: "/notes",
       icon: FiFile,
@@ -250,6 +241,30 @@ const GeneralBottombar = () => {
       : []),
   ];
 
+  // ── Shared tab renderer ──
+  // Same styling for all six tabs so the layout stays clean.
+  const TabItem = ({ to, icon: Icon, label, badge, isActive }) => (
+    <div className="relative flex flex-col items-center justify-center text-xs font-medium transition-all duration-300">
+      <div className="relative">
+        <Icon
+          className={`text-xl ${isActive ? "text-cyan-400" : "text-gray-400 hover:text-white"}`}
+          strokeWidth={1.75}
+        />
+        {badge > 0 && (
+          <UnreadBadge count={badge} className="absolute -top-1.5 -right-2" />
+        )}
+      </div>
+      <span
+        className={`mt-0.5 text-[10px] tracking-wide ${isActive ? "text-cyan-400" : "text-gray-400"}`}
+      >
+        {label}
+      </span>
+      {isActive && (
+        <span className="absolute -top-1 w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#06b6d4]" />
+      )}
+    </div>
+  );
+
   return (
     <>
       {/* ─── Bottom Bar ────────────────────────────────────────────── */}
@@ -257,108 +272,40 @@ const GeneralBottombar = () => {
         className="md:hidden fixed bottom-0 left-0 right-0 
                    bg-[#0f0f12]/80 backdrop-blur-2xl 
                    border-t border-white/10 
-                   flex items-center justify-around h-16 px-2 z-50"
+                   flex items-center justify-around h-16 px-1 z-50"
       >
+        {/* Workspaces */}
+        <NavLink to="/my-workspaces">
+          {({ isActive }) => (
+            <TabItem to="/my-workspaces" icon={FiGrid} label="Spaces" isActive={isActive} />
+          )}
+        </NavLink>
+
         {/* Chat (DMs) */}
         <NavLink to="/chat">
           {({ isActive }) => (
-            <div className="relative flex flex-col items-center justify-center text-xs font-medium transition-all duration-300">
-              <div className="relative">
-                <ChatIcon
-                  className={`text-xl ${isActive ? "text-cyan-400" : "text-gray-400 hover:text-white"}`}
-                />
-                {unreadGeneralDMs > 0 && (
-                  <UnreadBadge
-                    count={unreadGeneralDMs}
-                    className="absolute -top-1.5 -right-2"
-                  />
-                )}
-              </div>
-              <span
-                className={`mt-0.5 text-[10px] tracking-wide ${isActive ? "text-cyan-400" : "text-gray-400"}`}
-              >
-                Chat
-              </span>
-              {isActive && (
-                <span className="absolute -top-1 w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#06b6d4]" />
-              )}
-            </div>
+            <TabItem to="/chat" icon={ChatIcon} label="Chat" badge={unreadGeneralDMs} isActive={isActive} />
           )}
         </NavLink>
 
         {/* Channels */}
         <NavLink to="/channels">
           {({ isActive }) => (
-            <div className="relative flex flex-col items-center justify-center text-xs font-medium transition-all duration-300">
-              <div className="relative">
-                <FiUsers
-                  className={`text-xl ${isActive ? "text-cyan-400" : "text-gray-400 hover:text-white"}`}
-                  strokeWidth={1.75}
-                />
-                {unreadGeneralChannels > 0 && (
-                  <UnreadBadge
-                    count={unreadGeneralChannels}
-                    className="absolute -top-1.5 -right-2"
-                  />
-                )}
-              </div>
-              <span
-                className={`mt-0.5 text-[10px] tracking-wide ${isActive ? "text-cyan-400" : "text-gray-400"}`}
-              >
-                Channels
-              </span>
-              {isActive && (
-                <span className="absolute -top-1 w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#06b6d4]" />
-              )}
-            </div>
+            <TabItem to="/channels" icon={FiUsers} label="Channels" badge={unreadGeneralChannels} isActive={isActive} />
           )}
         </NavLink>
 
-        {/* Today — the front door */}
+        {/* Today */}
         <NavLink to="/today">
           {({ isActive }) => (
-            <div className="relative flex flex-col items-center justify-center text-xs font-medium transition-all duration-300">
-              <div className="relative">
-                <FiSun
-                  className={`text-xl ${isActive ? "text-cyan-400" : "text-gray-400 hover:text-white"}`}
-                  strokeWidth={1.75}
-                />
-                {todayAttention > 0 && (
-                  <UnreadBadge
-                    count={todayAttention}
-                    className="absolute -top-1.5 -right-2"
-                  />
-                )}
-              </div>
-              <span
-                className={`mt-0.5 text-[10px] tracking-wide ${isActive ? "text-cyan-400" : "text-gray-400"}`}
-              >
-                Today
-              </span>
-              {isActive && (
-                <span className="absolute -top-1 w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#06b6d4]" />
-              )}
-            </div>
+            <TabItem to="/today" icon={FiSun} label="Today" badge={todayAttention} isActive={isActive} />
           )}
         </NavLink>
 
         {/* Tasks */}
         <NavLink to="/personal-tasks">
           {({ isActive }) => (
-            <div className="relative flex flex-col items-center justify-center text-xs font-medium transition-all duration-300">
-              <FiCheckSquare
-                className={`text-xl ${isActive ? "text-cyan-400" : "text-gray-400 hover:text-white"}`}
-                strokeWidth={1.75}
-              />
-              <span
-                className={`mt-0.5 text-[10px] tracking-wide ${isActive ? "text-cyan-400" : "text-gray-400"}`}
-              >
-                Tasks
-              </span>
-              {isActive && (
-                <span className="absolute -top-1 w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#06b6d4]" />
-              )}
-            </div>
+            <TabItem to="/personal-tasks" icon={FiCheckSquare} label="Tasks" isActive={isActive} />
           )}
         </NavLink>
 
@@ -368,13 +315,13 @@ const GeneralBottombar = () => {
           className="relative flex flex-col items-center justify-center text-xs font-medium transition-all duration-300"
         >
           <div className="relative">
-            <FiMenu 
+            <FiMenu
               className={`text-xl transition-all duration-300 ${
                 hasUpdate ? 'text-cyan-400' : 'text-gray-400 hover:text-white'
-              }`} 
-              strokeWidth={1.75} 
+              }`}
+              strokeWidth={1.75}
             />
-            
+
             {/* Update indicator dot with pulse */}
             {hasUpdate && !updateLoading && (
               <>
@@ -398,7 +345,7 @@ const GeneralBottombar = () => {
 
             {/* Arrow up indicator */}
             {hasUpdate && !updateLoading && (
-              <FiArrowUp 
+              <FiArrowUp
                 className={`absolute -top-4 -right-2 text-[10px] ${
                   isRequired ? "text-red-400" : "text-orange-400"
                 } transition-all duration-500 ${
@@ -415,7 +362,7 @@ const GeneralBottombar = () => {
               />
             )}
           </div>
-          
+
           <span className={`mt-0.5 text-[10px] tracking-wide flex items-center gap-1 ${
             hasUpdate ? 'text-cyan-400' : 'text-gray-400'
           }`}>
@@ -551,8 +498,8 @@ const GeneralBottombar = () => {
               {/* Update notification banner at bottom of drawer */}
               {hasUpdate && !updateLoading && (
                 <div className={`mt-4 p-3 rounded-xl ${
-                  isRequired 
-                    ? 'bg-red-500/10 border border-red-500/30' 
+                  isRequired
+                    ? 'bg-red-500/10 border border-red-500/30'
                     : 'bg-orange-400/10 border border-orange-400/30'
                 }`}>
                   <div className="flex items-start gap-2">

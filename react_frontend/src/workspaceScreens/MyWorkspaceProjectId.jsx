@@ -9,7 +9,7 @@ import {
   FaCopy, FaUndo, FaGripVertical, FaChevronRight, FaSpinner,
   FaMagic, FaRobot, FaFileAlt, FaHeartbeat, FaLightbulb, FaDownload,
   FaExclamationCircle, FaCheckCircle, FaExclamationTriangle, FaCheck,
-  FaAngleDown,
+  FaAngleDown, FaEdit,
 } from 'react-icons/fa';
 import { jsPDF } from 'jspdf';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
@@ -35,6 +35,8 @@ import {
   useReviewProjectMutation,
   useSummarizeProjectMutation,
   useGenerateProjectDocsMutation,
+  useEditProjectWithAIMutation,
+  useApplyProjectEditsMutation,
 } from '../slices/aiApiSlice';
 import MyWorkspaceSidebar from '../workspaceComponents/MyWorkspaceSidebar';
 import MyWorkspaceBottombar from '../workspaceComponents/MyWorkspaceBottombar';
@@ -58,6 +60,18 @@ const useMediaQuery = (query) => {
     return () => media.removeEventListener('change', listener);
   }, [query]);
   return matches;
+};
+
+// ─── Priority pill (used by project-edit modal diff) ─────────────
+const PRIORITY_MAP = {
+  low: { label: 'Low', c: 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700/40' },
+  medium: { label: 'Medium', c: 'text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-700/40' },
+  high: { label: 'High', c: 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-700/40' },
+  urgent: { label: 'Urgent', c: 'text-red-700 dark:text-red-500 bg-red-100 dark:bg-red-900/30 border-red-300 dark:border-red-700/50' },
+};
+const PriorityPill = ({ priority }) => {
+  const p = PRIORITY_MAP[priority] || PRIORITY_MAP.medium;
+  return <span className={`text-[10px] font-medium px-2.5 py-0.5 rounded-full border ${p.c}`}>{p.label}</span>;
 };
 
 // ─── Search overlay ──────────────────────────────────────────────
@@ -354,7 +368,7 @@ const downloadDocsPDF = (doc) => {
 // ══════════════════════════════════════════════════════════════
 // AI Menu / Modals
 // ══════════════════════════════════════════════════════════════
-const AIMenu = ({ isOpen, onClose, canManage, brandColor, onPlan, onSummary, onReview, onDocs }) => {
+const AIMenu = ({ isOpen, onClose, canManage, brandColor, onPlan, onSummary, onReview, onDocs, onEdit }) => {
   if (!isOpen) return null;
   const Item = ({ icon, label, sub, onClick, disabled }) => (
     <button onClick={() => { if (!disabled) { onClick(); onClose(); } }} disabled={disabled}
@@ -378,6 +392,7 @@ const AIMenu = ({ isOpen, onClose, canManage, brandColor, onPlan, onSummary, onR
           </div>
           <div className="space-y-1">
             <Item icon={<FaRobot className="text-sm" />} label="Plan a new project" sub="Describe it in plain English — get a full plan" onClick={onPlan} disabled={!canManage} />
+            <Item icon={<FaEdit className="text-sm" />} label="Edit this project with AI" sub="Add, remove, or reassign tasks — describe the change" onClick={onEdit} disabled={!canManage} />
             <Item icon={<FaLightbulb className="text-sm" />} label="Summarize this project" sub="Headline, highlights, risks, next steps" onClick={onSummary} />
             <Item icon={<FaHeartbeat className="text-sm" />} label="Review this project" sub="Audit workload, deadlines, and blockers" onClick={onReview} disabled={!canManage} />
             <Item icon={<FaFileAlt className="text-sm" />} label="Generate documentation" sub="Formal project doc, downloadable as PDF" onClick={onDocs} />
@@ -988,6 +1003,264 @@ const AIDocsModal = ({ isOpen, onClose, projectId, brandColor }) => {
   );
 };
 
+// ══════════════════════════════════════════════════════════════
+// AI — Project edit (propose → review → apply)
+// ══════════════════════════════════════════════════════════════
+const AIProjectEditModal = ({ isOpen, onClose, projectId, brandColor, onApplied }) => {
+  const [stage, setStage] = useState('prompt');
+  const [prompt, setPrompt] = useState('');
+  const [preview, setPreview] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [editProjectWithAI] = useEditProjectWithAIMutation();
+  const [applyProjectEdits] = useApplyProjectEditsMutation();
+
+  useEffect(() => {
+    if (!isOpen) {
+      setStage('prompt');
+      setPrompt('');
+      setPreview(null);
+      setBusy(false);
+    }
+  }, [isOpen]);
+
+  // Visual diff computed from current vs proposed task lists.
+  const diff = useMemo(() => {
+    if (!preview) return null;
+    const currentById = new Map((preview.current?.tasks || []).map((t) => [t._id, t]));
+    const added = [], updated = [], deleted = [];
+    (preview.proposed?.tasks || []).forEach((t) => {
+      if (t._deleted === true) {
+        const c = currentById.get(t._id);
+        if (c) deleted.push(c);
+        return;
+      }
+      if (t._id && currentById.has(t._id)) {
+        updated.push({ before: currentById.get(t._id), after: t });
+      } else if (!t._id) {
+        added.push(t);
+      }
+    });
+    return { added, updated, deleted };
+  }, [preview]);
+
+  const handlePreview = async () => {
+    if (!prompt.trim()) return toast.error('Describe what you want to change');
+    setBusy(true);
+    try {
+      const res = await editProjectWithAI({ projectId, prompt: prompt.trim() }).unwrap();
+      setPreview(res);
+      setStage('preview');
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to preview changes');
+    } finally { setBusy(false); }
+  };
+
+  const handleApply = async () => {
+    if (!preview) return;
+    setBusy(true);
+    try {
+      const res = await applyProjectEdits({
+        projectId,
+        proposed: {
+          project: preview.proposed.project,
+          tasks: preview.proposed.tasks,
+        },
+      }).unwrap();
+      toast.success(
+        `Applied · +${res.created || 0} added · ~${res.updated || 0} updated · −${res.deleted || 0} removed`
+      );
+      onApplied?.();
+      onClose();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to apply changes');
+    } finally { setBusy(false); }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[75] flex items-end md:items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-3xl md:rounded-2xl w-full md:max-w-3xl shadow-2xl flex flex-col max-h-[95dvh] md:max-h-[92vh]">
+        <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-gray-200/60 dark:border-gray-800/60">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+              <FaMagic className="text-[#0d9488]" />
+              {stage === 'prompt' ? 'Edit project with AI' : 'Review changes'}
+            </h2>
+            <p className="text-xs text-gray-500 dark:text-gray-500 mt-0.5">
+              {stage === 'prompt'
+                ? 'Add, remove, reassign, re-date — describe it in plain English'
+                : 'Nothing is saved yet — review before applying'}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-white rounded-lg transition">
+            <FaTimes />
+          </button>
+        </div>
+
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
+          {stage === 'prompt' && (
+            <div className="space-y-3">
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                rows={6}
+                placeholder={`e.g. Add a "Design QA" task assigned to Sarah due next Friday, remove the "Legacy cleanup" task, and move two of Mercy's tasks to James.`}
+                className="w-full px-4 py-3 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-2xl text-sm text-gray-800 dark:text-gray-200 outline-none focus:border-[#0d9488] resize-none"
+              />
+              <p className="text-[11px] text-gray-500 dark:text-gray-500 leading-relaxed">
+                Supported: add tasks · delete tasks · reassign work · change priorities · shift deadlines · add team members · expand or trim checklists · rewrite descriptions.
+              </p>
+            </div>
+          )}
+
+          {stage === 'preview' && preview && (
+            <div className="space-y-4">
+              {preview.summary && (
+                <div className="bg-teal-50/60 dark:bg-[#0d9488]/10 border border-teal-200/60 dark:border-[#0d9488]/20 rounded-xl p-3">
+                  <p className="text-[10px] font-semibold text-teal-700 dark:text-[#0d9488] uppercase tracking-wide mb-1">Summary</p>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 break-words whitespace-pre-wrap">{preview.summary}</p>
+                </div>
+              )}
+
+              {preview.warnings?.length > 0 && (
+                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 rounded-xl p-3 flex gap-2">
+                  <FaExclamationTriangle className="text-amber-600 dark:text-amber-400 text-sm mt-0.5 shrink-0" />
+                  <div className="text-xs text-amber-800 dark:text-amber-300 space-y-0.5">
+                    {preview.warnings.map((w, i) => <div key={i}>{w}</div>)}
+                  </div>
+                </div>
+              )}
+
+              {diff && (
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-green-50 dark:bg-green-900/20 border border-green-200/60 dark:border-green-700/40 rounded-xl p-3 text-center">
+                    <p className="text-lg font-bold text-green-600 dark:text-green-400">+{diff.added.length}</p>
+                    <p className="text-[10px] text-green-700 dark:text-green-300 uppercase font-semibold tracking-wide">Added</p>
+                  </div>
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200/60 dark:border-blue-700/40 rounded-xl p-3 text-center">
+                    <p className="text-lg font-bold text-blue-600 dark:text-blue-400">~{diff.updated.length}</p>
+                    <p className="text-[10px] text-blue-700 dark:text-blue-300 uppercase font-semibold tracking-wide">Updated</p>
+                  </div>
+                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200/60 dark:border-red-700/40 rounded-xl p-3 text-center">
+                    <p className="text-lg font-bold text-red-600 dark:text-red-400">−{diff.deleted.length}</p>
+                    <p className="text-[10px] text-red-700 dark:text-red-300 uppercase font-semibold tracking-wide">Removed</p>
+                  </div>
+                </div>
+              )}
+
+              {diff?.added.length > 0 && (
+                <section>
+                  <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-2">New tasks</h4>
+                  <div className="space-y-1.5">
+                    {diff.added.map((t, i) => (
+                      <div key={i} className="flex items-start gap-2 bg-green-50/60 dark:bg-green-900/10 border border-green-200/40 dark:border-green-700/30 rounded-xl px-3 py-2">
+                        <FaPlus className="text-green-600 dark:text-green-400 text-[10px] mt-1.5 shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{t.title}</p>
+                          {t.assignees?.length > 0 && (
+                            <p className="text-[11px] text-gray-500 dark:text-gray-500 truncate">→ {t.assignees.map((a) => a.name).join(', ')}</p>
+                          )}
+                        </div>
+                        <PriorityPill priority={t.priority} />
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {diff?.deleted.length > 0 && (
+                <section>
+                  <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-2">Removed tasks</h4>
+                  <div className="space-y-1.5">
+                    {diff.deleted.map((t, i) => (
+                      <div key={i} className="flex items-start gap-2 bg-red-50/60 dark:bg-red-900/10 border border-red-200/40 dark:border-red-700/30 rounded-xl px-3 py-2">
+                        <FaTrashAlt className="text-red-500 text-[10px] mt-1.5 shrink-0" />
+                        <p className="text-sm text-gray-700 dark:text-gray-400 line-through truncate flex-1">{t.title}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {diff?.updated.length > 0 && (
+                <section>
+                  <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-2">Updated tasks</h4>
+                  <div className="space-y-1.5">
+                    {diff.updated.map((u, i) => (
+                      <div key={i} className="flex items-start gap-2 bg-blue-50/60 dark:bg-blue-900/10 border border-blue-200/40 dark:border-blue-700/30 rounded-xl px-3 py-2">
+                        <FaEdit className="text-blue-500 text-[10px] mt-1.5 shrink-0" />
+                        <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate flex-1">{u.after.title}</p>
+                        <PriorityPill priority={u.after.priority} />
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {preview.changes?.length > 0 && (
+                <section>
+                  <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-2">
+                    All changes ({preview.changes.length})
+                  </h4>
+                  <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
+                    {preview.changes.map((c, i) => (
+                      <div key={i} className="flex items-start gap-2 text-xs bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-2">
+                        <span className="font-semibold text-gray-700 dark:text-gray-300 shrink-0">{c.field}:</span>
+                        <span className="text-gray-500 dark:text-gray-500 truncate flex-1 min-w-0">{c.from || '—'}</span>
+                        <span className="text-gray-400 shrink-0">→</span>
+                        <span className="text-gray-700 dark:text-gray-300 truncate flex-1 min-w-0">{c.to || '—'}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {diff && diff.added.length === 0 && diff.updated.length === 0 && diff.deleted.length === 0 && (
+                <p className="text-sm text-gray-500 dark:text-gray-500 text-center py-6">
+                  No task-level changes detected. The AI may have only updated project fields.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="shrink-0 flex gap-2 px-5 py-3 border-t border-gray-200/60 dark:border-gray-800/60">
+          {stage === 'prompt' ? (
+            <>
+              <button onClick={onClose} className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">
+                Cancel
+              </button>
+              <button
+                onClick={handlePreview}
+                disabled={busy || !prompt.trim()}
+                className="flex-1 py-2.5 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 transition disabled:opacity-50"
+                style={{ backgroundColor: brandColor }}
+              >
+                {busy ? <><FaSpinner className="animate-spin text-xs" /> Thinking…</> : <><FaMagic className="text-xs" /> Preview changes</>}
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => setStage('prompt')} className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">
+                Back
+              </button>
+              <button
+                onClick={handleApply}
+                disabled={busy}
+                className="flex-1 py-2.5 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 transition disabled:opacity-50"
+                style={{ backgroundColor: brandColor }}
+              >
+                {busy ? <><FaSpinner className="animate-spin text-xs" /> Applying…</> : <><FaCheck className="text-xs" /> Apply changes</>}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Screen ─────────────────────────────────────────────────────
 const MyWorkspaceProjectId = () => {
   const { workspaceId, projectId } = useParams();
@@ -1047,6 +1320,7 @@ const MyWorkspaceProjectId = () => {
   const [aiSummaryOpen, setAiSummaryOpen] = useState(false);
   const [aiReviewOpen, setAiReviewOpen] = useState(false);
   const [aiDocsOpen, setAiDocsOpen] = useState(false);
+  const [aiEditOpen, setAiEditOpen] = useState(false);
 
   const workspace = wData?.workspace;
   const project = pData?.project;
@@ -1496,6 +1770,7 @@ const MyWorkspaceProjectId = () => {
         onSummary={() => setAiSummaryOpen(true)}
         onReview={() => setAiReviewOpen(true)}
         onDocs={() => setAiDocsOpen(true)}
+        onEdit={() => setAiEditOpen(true)}
       />
       <AIPlanModal
         isOpen={aiPlanOpen}
@@ -1508,6 +1783,13 @@ const MyWorkspaceProjectId = () => {
       <AISummaryModal isOpen={aiSummaryOpen} onClose={() => setAiSummaryOpen(false)} projectId={projectId} brandColor={brandColor} />
       <AIReviewModal isOpen={aiReviewOpen} onClose={() => setAiReviewOpen(false)} projectId={projectId} brandColor={brandColor} />
       <AIDocsModal isOpen={aiDocsOpen} onClose={() => setAiDocsOpen(false)} projectId={projectId} brandColor={brandColor} />
+      <AIProjectEditModal
+        isOpen={aiEditOpen}
+        onClose={() => setAiEditOpen(false)}
+        projectId={projectId}
+        brandColor={brandColor}
+        onApplied={() => { refreshAll(); }}
+      />
     </div>
   );
 };
