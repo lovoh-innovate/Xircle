@@ -1,5 +1,12 @@
 // src/components/GeneralSidebar.jsx
-import React, { useMemo } from 'react';
+import React, {
+  useMemo,
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+} from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
 import { logout } from '../slices/authSlice';
@@ -30,10 +37,27 @@ import {
   FaUserCircle,
   FaCog,
   FaSignOutAlt,
-  FaExclamationTriangle,
 } from 'react-icons/fa';
 
 const LOGO = '/logo.jpeg';
+
+// ─── Sidebar width constraints ────────────────────────────────────
+const MIN_WIDTH = 200;
+const MAX_WIDTH = 480;
+const DEFAULT_WIDTH = 288;
+const STORAGE_KEY = 'xircle.sidebarWidth';
+const CSS_VAR = '--sidebar-width';
+
+const clampWidth = (w) => Math.min(Math.max(w, MIN_WIDTH), MAX_WIDTH);
+
+const readSavedWidth = () => {
+  try {
+    const saved = parseInt(localStorage.getItem(STORAGE_KEY), 10);
+    return Number.isFinite(saved) ? clampWidth(saved) : DEFAULT_WIDTH;
+  } catch {
+    return DEFAULT_WIDTH;
+  }
+};
 
 // ─── Custom WhatsApp‑style Chat Icon ──────────────────────────────
 const ChatIcon = ({ className }) => (
@@ -57,7 +81,152 @@ const GeneralSidebar = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const { userInfo } = useSelector((state) => state.auth);
-  const isAdmin = userInfo?.role === 'admin' || userInfo?.role === 'super_admin';
+  const isAdmin =
+    userInfo?.role === 'admin' || userInfo?.role === 'super_admin';
+
+  // ── Resizable sidebar state ─────────────────────────────────────
+  const asideRef = useRef(null);
+  const handleRef = useRef(null);
+
+  const [sidebarWidth, setSidebarWidth] = useState(readSavedWidth);
+  const [isResizing, setIsResizing] = useState(false);
+
+  // Live drag bookkeeping (refs → no re-renders during drag)
+  const isResizingRef = useRef(false);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(sidebarWidth);
+  const pendingWidthRef = useRef(null);
+  const rafRef = useRef(null);
+
+  // ── Apply width instantly to the DOM (no React re-render) ────────
+  // This is the core of the "smooth 1:1 with cursor" behaviour.
+  const applyWidth = useCallback((w) => {
+    const px = `${w}px`;
+    document.documentElement.style.setProperty(CSS_VAR, px);
+    if (asideRef.current) asideRef.current.style.width = px;
+    if (handleRef.current) handleRef.current.style.left = `${w - 5}px`;
+  }, []);
+
+  // Set the initial width before paint (avoids a flash at default size)
+  useLayoutEffect(() => {
+    applyWidth(sidebarWidth);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist on commit (only when not actively dragging)
+  useEffect(() => {
+    if (isResizing) return;
+    try {
+      localStorage.setItem(STORAGE_KEY, String(sidebarWidth));
+    } catch {
+      /* ignore */
+    }
+  }, [sidebarWidth, isResizing]);
+
+  // ── Drag handlers ────────────────────────────────────────────────
+  const handleResizeStart = useCallback((e) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    isResizingRef.current = true;
+    setIsResizing(true);
+
+    // Anchor using the *live* rendered width so grab point is exact
+    const liveWidth =
+      asideRef.current?.getBoundingClientRect().width ?? sidebarWidth;
+    startWidthRef.current = liveWidth;
+    startXRef.current = e.clientX;
+    pendingWidthRef.current = liveWidth;
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.body.style.touchAction = 'none';
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    const onMove = (e) => {
+      if (!isResizingRef.current) return;
+
+      // 1:1 mapping: new width = width at grab time + cursor delta
+      const next = clampWidth(
+        startWidthRef.current + (e.clientX - startXRef.current)
+      );
+      pendingWidthRef.current = next;
+
+      // Coalesce all pointer events in this frame into a single paint.
+      // This is what makes it match the cursor exactly — no lag, no jitter.
+      if (rafRef.current == null) {
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null;
+          if (pendingWidthRef.current != null) {
+            applyWidth(pendingWidthRef.current);
+          }
+        });
+      }
+    };
+
+    const onEnd = () => {
+      if (!isResizingRef.current) return;
+      isResizingRef.current = false;
+      setIsResizing(false);
+
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      document.body.style.touchAction = '';
+
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+
+      // Commit the final width to React state (triggers save + any
+      // consumers that listen to state rather than the CSS var).
+      if (pendingWidthRef.current != null) {
+        const finalWidth = pendingWidthRef.current;
+        pendingWidthRef.current = null;
+        setSidebarWidth(finalWidth);
+      }
+    };
+
+    window.addEventListener('pointermove', onMove, { passive: true });
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onEnd);
+    window.addEventListener('blur', onEnd);
+
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onEnd);
+      window.removeEventListener('pointercancel', onEnd);
+      window.removeEventListener('blur', onEnd);
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    };
+  }, [applyWidth]);
+
+  // Double-click / keyboard reset & nudge
+  const resetWidth = useCallback(() => {
+    setSidebarWidth(DEFAULT_WIDTH);
+    applyWidth(DEFAULT_WIDTH);
+  }, [applyWidth]);
+
+  const handleHandleKeyDown = useCallback(
+    (e) => {
+      const step = e.shiftKey ? 40 : 10;
+      let next = null;
+      if (e.key === 'ArrowLeft') next = clampWidth(sidebarWidth - step);
+      else if (e.key === 'ArrowRight') next = clampWidth(sidebarWidth + step);
+      else if (e.key === 'Home' || e.key === 'Enter') {
+        e.preventDefault();
+        resetWidth();
+        return;
+      }
+      if (next != null) {
+        e.preventDefault();
+        setSidebarWidth(next);
+        applyWidth(next);
+      }
+    },
+    [sidebarWidth, applyWidth, resetWidth]
+  );
 
   // ── App update check for ALL users ──
   const token = userInfo?.token;
@@ -68,18 +237,18 @@ const GeneralSidebar = () => {
       currentVersion: currentVersion || undefined,
       token,
     },
-    {
-      skip: !token,
-      refetchOnMountOrArgChange: true,
-    }
+    { skip: !token, refetchOnMountOrArgChange: true }
   );
 
   const hasUpdate = updateData?.hasUpdate || false;
   const isRequired = updateData?.isRequired || false;
-  const updateBadgeColor = hasUpdate ? (isRequired ? 'bg-red-500' : 'bg-orange-400') : null;
+  const updateBadgeColor = hasUpdate
+    ? isRequired
+      ? 'bg-red-500'
+      : 'bg-orange-400'
+    : null;
 
   // ── Today attention badge ──
-  // Same query the Today page and bottombar use. RTK Query dedupes.
   const { data: todayData } = useGetTodayQuery(undefined, {
     pollingInterval: 60000,
     refetchOnFocus: true,
@@ -99,10 +268,8 @@ const GeneralSidebar = () => {
     }
   };
 
-  const { data: personalTasksData, isLoading: tasksLoading } = useGetPersonalTasksQuery({
-    status: 'pending',
-    limit: 3,
-  });
+  const { data: personalTasksData, isLoading: tasksLoading } =
+    useGetPersonalTasksQuery({ status: 'pending', limit: 3 });
   const personalTasks = personalTasksData?.tasks || [];
   const pendingCount = personalTasksData?.count || 0;
 
@@ -142,7 +309,7 @@ const GeneralSidebar = () => {
     }
     const dedupedDirect = Array.from(directMap.values());
 
-    let combined = [...dedupedDirect, ...groupChats];
+    const combined = [...dedupedDirect, ...groupChats];
     combined.sort(
       (a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt)
     );
@@ -187,241 +354,292 @@ const GeneralSidebar = () => {
   };
 
   return (
-    <aside className="fixed top-0 left-0 w-72 h-full bg-[#0f0f12]/90 backdrop-blur-xl border-r border-white/10 shadow-xl flex flex-col overflow-y-auto z-40">
-      {/* ─── Logo ───────────────────────────────────── */}
-      <div className="flex items-center gap-3 px-4 py-4 border-b border-white/10 sticky top-0 bg-inherit z-10">
-        <img src={LOGO} alt="Xircle" className="h-8 w-8 object-contain rounded-lg" />
-        <span className="text-xl font-bold text-white tracking-tight">Xircle</span>
-      </div>
+    <>
+      <aside
+        ref={asideRef}
+        style={{ width: `var(${CSS_VAR}, ${DEFAULT_WIDTH}px)` }}
+        className={`fixed top-0 left-0 h-full bg-[#0f0f12]/90 backdrop-blur-xl border-r border-white/10 shadow-xl flex flex-col overflow-y-auto z-40 ${
+          isResizing ? 'select-none pointer-events-auto' : ''
+        }`}
+      >
+        {/* ─── Logo ───────────────────────────────────── */}
+        <div className="flex items-center gap-3 px-4 py-4 border-b border-white/10 sticky top-0 bg-inherit z-10">
+          <img src={LOGO} alt="Xircle" className="h-8 w-8 object-contain rounded-lg" />
+          <span className="text-xl font-bold text-white tracking-tight">Xircle</span>
+        </div>
 
-      {/* ─── Navigation ─────────────────────────────── */}
-      <nav className="px-3 py-4 border-b border-white/10">
-        <ul className="space-y-1">
-          {[
-            // Today is the front door.
-            { to: '/today', icon: FiSun, label: 'Today', onHover: prefetchToday, badge: todayAttention, primary: true },
-            { to: '/my-workspaces', icon: FiHome, label: 'Workspaces' },
-            { to: '/personal-tasks', icon: FiCheckSquare, label: 'My Tasks', onHover: prefetchAllTasks },
-            { to: '/notes', icon: FiFile, label: 'Notes', onHover: prefetchAllNotes },
-            { to: '/chat', icon: ChatIcon, label: 'Chat', onHover: prefetchAllChats },
-            { to: '/channels', icon: FiUsers, label: 'Channels' },
-            { to: '/app-versions', icon: FiPackage, label: 'App Versions' },
-          ].map(({ to, icon: Icon, label, onHover, badge, primary }) => (
-            <li key={to}>
-              <NavLink
-                to={to}
-                onMouseEnter={onHover}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
-                    isActive
-                      ? primary
-                        ? 'bg-cyan-500/15 text-cyan-300'
-                        : 'bg-white/10 text-cyan-300'
-                      : 'text-gray-400 hover:text-white hover:bg-white/5'
-                  }`
-                }
-              >
-                <div className="relative">
-                  <Icon className="text-lg w-6 text-center" />
+        {/* ─── Navigation ─────────────────────────────── */}
+        <nav className="px-3 py-4 border-b border-white/10">
+          <ul className="space-y-1">
+            {[
+              { to: '/today', icon: FiSun, label: 'Today', onHover: prefetchToday, badge: todayAttention, primary: true },
+              { to: '/my-workspaces', icon: FiHome, label: 'Workspaces' },
+              { to: '/personal-tasks', icon: FiCheckSquare, label: 'My Tasks', onHover: prefetchAllTasks },
+              { to: '/notes', icon: FiFile, label: 'Notes', onHover: prefetchAllNotes },
+              { to: '/chat', icon: ChatIcon, label: 'Chat', onHover: prefetchAllChats },
+              { to: '/channels', icon: FiUsers, label: 'Channels' },
+              { to: '/app-versions', icon: FiPackage, label: 'App Versions' },
+            ].map(({ to, icon: Icon, label, onHover, badge, primary }) => (
+              <li key={to}>
+                <NavLink
+                  to={to}
+                  onMouseEnter={onHover}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                      isActive
+                        ? primary
+                          ? 'bg-cyan-500/15 text-cyan-300'
+                          : 'bg-white/10 text-cyan-300'
+                        : 'text-gray-400 hover:text-white hover:bg-white/5'
+                    }`
+                  }
+                >
+                  <div className="relative">
+                    <Icon className="text-lg w-6 text-center" />
+                    {to === '/app-versions' && hasUpdate && !updateLoading && (
+                      <span
+                        className={`absolute -top-1 -right-2 w-2.5 h-2.5 rounded-full ${updateBadgeColor} shadow-[0_0_8px_currentColor]`}
+                        style={{ color: isRequired ? '#ef4444' : '#fb923c' }}
+                      />
+                    )}
+                  </div>
+                  <span>{label}</span>
+
+                  {to === '/today' && badge > 0 && (
+                    <span className="ml-auto min-w-[18px] h-5 px-1.5 rounded-full bg-cyan-500 text-white text-[10px] font-bold flex items-center justify-center shadow-[0_0_8px_rgba(6,182,212,0.6)]">
+                      {badge > 99 ? '99+' : badge}
+                    </span>
+                  )}
+
                   {to === '/app-versions' && hasUpdate && !updateLoading && (
                     <span
-                      className={`absolute -top-1 -right-2 w-2.5 h-2.5 rounded-full ${updateBadgeColor} shadow-[0_0_8px_currentColor]`}
-                      style={{ color: isRequired ? '#ef4444' : '#fb923c' }}
-                    />
+                      className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full ${updateBadgeColor} text-white`}
+                    >
+                      {isRequired ? 'Required' : 'New'}
+                    </span>
                   )}
-                </div>
-                <span>{label}</span>
-
-                {/* Today attention badge */}
-                {to === '/today' && badge > 0 && (
-                  <span className="ml-auto min-w-[18px] h-5 px-1.5 rounded-full bg-cyan-500 text-white text-[10px] font-bold flex items-center justify-center shadow-[0_0_8px_rgba(6,182,212,0.6)]">
-                    {badge > 99 ? '99+' : badge}
-                  </span>
-                )}
-
-                {to === '/app-versions' && hasUpdate && !updateLoading && (
-                  <span
-                    className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full ${updateBadgeColor} text-white`}
-                  >
-                    {isRequired ? 'Required' : 'New'}
-                  </span>
-                )}
-              </NavLink>
-            </li>
-          ))}
-
-          {/* ─── Admin: Upload App ────────────────── */}
-          {isAdmin && (
-            <li>
-              <NavLink
-                to="/admin/upload"
-                className={({ isActive }) =>
-                  `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
-                    isActive
-                      ? 'bg-white/10 text-cyan-300'
-                      : 'text-gray-400 hover:text-white hover:bg-white/5'
-                  }`
-                }
-              >
-                <FiUpload className="text-lg w-6 text-center" />
-                <span>Upload App</span>
-                {({ isActive }) => isActive && (
-                  <span className="ml-auto w-1.5 h-1.5 rounded-full bg-cyan-400" />
-                )}
-              </NavLink>
-            </li>
-          )}
-        </ul>
-      </nav>
-
-      {/* ─── Tasks Overview ────────────────────────── */}
-      <div className="px-4 py-3 border-b border-white/10">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-            Tasks Overview
-          </h3>
-          <span className="text-xs text-cyan-400">{pendingCount} pending</span>
-        </div>
-        {tasksLoading ? (
-          <div className="flex justify-center py-2">
-            <div className="w-4 h-4 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
-          </div>
-        ) : personalTasks.length === 0 ? (
-          <p className="text-xs text-gray-500">No pending tasks 🎉</p>
-        ) : (
-          <ul className="space-y-1.5">
-            {personalTasks.map((task) => (
-              <li key={task._id} className="flex items-center gap-2 text-sm text-gray-300">
-                {task.priority === 'urgent' ? (
-                  <FaExclamationCircle className="text-red-400 text-xs" />
-                ) : task.priority === 'high' ? (
-                  <FaExclamationCircle className="text-orange-400 text-xs" />
-                ) : (
-                  <FaClock className="text-gray-500 text-xs" />
-                )}
-                <span className="truncate flex-1">{task.title}</span>
-                {task.dueDate && (
-                  <span className="text-xs text-gray-400">{timeAgo(task.dueDate)}</span>
-                )}
+                </NavLink>
               </li>
             ))}
-          </ul>
-        )}
-      </div>
 
-      {/* ─── Recent Messages ────────────────────────── */}
-      <div className="px-4 py-3 border-b border-white/10 flex-1 overflow-y-auto">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-            Recent Messages
-          </h3>
-          <NavLink to="/chat" className="text-xs text-cyan-400 hover:underline">
-            View all
-          </NavLink>
-        </div>
-        {chatsLoading ? (
-          <div className="flex justify-center py-2">
-            <div className="w-4 h-4 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+            {isAdmin && (
+              <li>
+                <NavLink
+                  to="/admin/upload"
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                      isActive
+                        ? 'bg-white/10 text-cyan-300'
+                        : 'text-gray-400 hover:text-white hover:bg-white/5'
+                    }`
+                  }
+                >
+                  <FiUpload className="text-lg w-6 text-center" />
+                  <span>Upload App</span>
+                  {({ isActive }) =>
+                    isActive && (
+                      <span className="ml-auto w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                    )
+                  }
+                </NavLink>
+              </li>
+            )}
+          </ul>
+        </nav>
+
+        {/* ─── Tasks Overview ────────────────────────── */}
+        <div className="px-4 py-3 border-b border-white/10">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+              Tasks Overview
+            </h3>
+            <span className="text-xs text-cyan-400">{pendingCount} pending</span>
           </div>
-        ) : recentChats.length === 0 ? (
-          <p className="text-xs text-gray-500">No public chats yet</p>
-        ) : (
-          <ul className="space-y-2">
-            {recentChats.map((chat) => {
-              const { name, avatar, unreadCount } = getChatDisplay(chat);
-              const chatPath = chat.type === 'direct' ? `/chats/${chat._id}` : `/channels/${chat._id}`;
-              return (
-                <li key={chat._id}>
-                  <NavLink
-                    to={chatPath}
-                    className="block p-2 rounded-lg hover:bg-white/5 transition-colors"
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="relative w-7 h-7 flex-shrink-0">
-                        {avatar ? (
-                          <img
-                            src={avatar}
-                            alt={name}
-                            className="w-full h-full rounded-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full rounded-full bg-gradient-to-br from-cyan-400/30 to-purple-400/30 flex items-center justify-center text-xs font-bold text-white">
-                            {name.charAt(0).toUpperCase()}
-                          </div>
-                        )}
-                        {unreadCount > 0 && (
-                          <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                            {unreadCount > 9 ? '9+' : unreadCount}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium text-gray-200 truncate">
-                            {name}
-                          </span>
-                          <span className="text-xs text-gray-400">
-                            {timeAgo(chat.lastMessageAt)}
-                          </span>
-                        </div>
-                        <p className="text-xs text-gray-400 truncate">
-                          {getLastMessagePreview(chat)}
-                        </p>
-                      </div>
-                    </div>
-                  </NavLink>
+          {tasksLoading ? (
+            <div className="flex justify-center py-2">
+              <div className="w-4 h-4 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : personalTasks.length === 0 ? (
+            <p className="text-xs text-gray-500">No pending tasks 🎉</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {personalTasks.map((task) => (
+                <li key={task._id} className="flex items-center gap-2 text-sm text-gray-300">
+                  {task.priority === 'urgent' ? (
+                    <FaExclamationCircle className="text-red-400 text-xs" />
+                  ) : task.priority === 'high' ? (
+                    <FaExclamationCircle className="text-orange-400 text-xs" />
+                  ) : (
+                    <FaClock className="text-gray-500 text-xs" />
+                  )}
+                  <span className="truncate flex-1">{task.title}</span>
+                  {task.dueDate && (
+                    <span className="text-xs text-gray-400">{timeAgo(task.dueDate)}</span>
+                  )}
                 </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
+              ))}
+            </ul>
+          )}
+        </div>
 
-      {/* ─── User Profile ────────────────────────────── */}
-      <div className="border-t border-white/10 p-4 sticky bottom-0 bg-inherit">
-        <div className="flex items-center gap-3">
-          <div
-            onClick={() => navigate('/profile')}
-            className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer hover:bg-white/5 rounded-lg p-1 transition-colors"
-          >
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-cyan-400 to-purple-500 p-[2px] flex-shrink-0">
-              <div className="w-full h-full rounded-full bg-[#0f0f12] flex items-center justify-center overflow-hidden">
-                {userInfo?.profile ? (
-                  <img src={userInfo.profile} alt={userInfo.name} className="w-full h-full object-cover" />
-                ) : (
-                  <FaUserCircle className="w-7 h-7 text-gray-400" />
-                )}
+        {/* ─── Recent Messages ────────────────────────── */}
+        <div className="px-4 py-3 border-b border-white/10 flex-1 overflow-y-auto">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+              Recent Messages
+            </h3>
+            <NavLink to="/chat" className="text-xs text-cyan-400 hover:underline">
+              View all
+            </NavLink>
+          </div>
+          {chatsLoading ? (
+            <div className="flex justify-center py-2">
+              <div className="w-4 h-4 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : recentChats.length === 0 ? (
+            <p className="text-xs text-gray-500">No public chats yet</p>
+          ) : (
+            <ul className="space-y-2">
+              {recentChats.map((chat) => {
+                const { name, avatar, unreadCount } = getChatDisplay(chat);
+                const chatPath =
+                  chat.type === 'direct'
+                    ? `/chats/${chat._id}`
+                    : `/channels/${chat._id}`;
+                return (
+                  <li key={chat._id}>
+                    <NavLink
+                      to={chatPath}
+                      className="block p-2 rounded-lg hover:bg-white/5 transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="relative w-7 h-7 flex-shrink-0">
+                          {avatar ? (
+                            <img
+                              src={avatar}
+                              alt={name}
+                              className="w-full h-full rounded-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full rounded-full bg-gradient-to-br from-cyan-400/30 to-purple-400/30 flex items-center justify-center text-xs font-bold text-white">
+                              {name.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          {unreadCount > 0 && (
+                            <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                              {unreadCount > 9 ? '9+' : unreadCount}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-gray-200 truncate">
+                              {name}
+                            </span>
+                            <span className="text-xs text-gray-400">
+                              {timeAgo(chat.lastMessageAt)}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-400 truncate">
+                            {getLastMessagePreview(chat)}
+                          </p>
+                        </div>
+                      </div>
+                    </NavLink>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
+        {/* ─── User Profile ────────────────────────────── */}
+        <div className="border-t border-white/10 p-4 sticky bottom-0 bg-inherit">
+          <div className="flex items-center gap-3">
+            <div
+              onClick={() => navigate('/profile')}
+              className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer hover:bg-white/5 rounded-lg p-1 transition-colors"
+            >
+              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-cyan-400 to-purple-500 p-[2px] flex-shrink-0">
+                <div className="w-full h-full rounded-full bg-[#0f0f12] flex items-center justify-center overflow-hidden">
+                  {userInfo?.profile ? (
+                    <img
+                      src={userInfo.profile}
+                      alt={userInfo.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <FaUserCircle className="w-7 h-7 text-gray-400" />
+                  )}
+                </div>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-200 truncate">
+                  {userInfo?.name || 'User'}
+                </p>
+                <p className="text-xs text-gray-400 truncate">
+                  {userInfo?.email || ''}
+                </p>
               </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-200 truncate">
-                {userInfo?.name || 'User'}
-              </p>
-              <p className="text-xs text-gray-400 truncate">
-                {userInfo?.email || ''}
-              </p>
+
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <button
+                onClick={() => navigate('/profile')}
+                className="p-2 text-gray-400 hover:text-cyan-400 hover:bg-white/5 rounded-xl transition-colors"
+                title="Settings"
+              >
+                <FaCog className="text-lg" />
+              </button>
+              <button
+                onClick={handleLogout}
+                className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-colors"
+                title="Logout"
+              >
+                <FaSignOutAlt className="text-lg" />
+              </button>
             </div>
           </div>
+        </div>
+      </aside>
 
-          <div className="flex items-center gap-1 flex-shrink-0">
-            <button
-              onClick={() => navigate('/profile')}
-              className="p-2 text-gray-400 hover:text-cyan-400 hover:bg-white/5 rounded-xl transition-colors"
-              title="Settings"
-            >
-              <FaCog className="text-lg" />
-            </button>
-            <button
-              onClick={handleLogout}
-              className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-colors"
-              title="Logout"
-            >
-              <FaSignOutAlt className="text-lg" />
-            </button>
-          </div>
+      {/* ─── Resize Handle ────────────────────────────── */}
+      <div
+        ref={handleRef}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize sidebar"
+        aria-valuenow={sidebarWidth}
+        aria-valuemin={MIN_WIDTH}
+        aria-valuemax={MAX_WIDTH}
+        tabIndex={0}
+        onPointerDown={handleResizeStart}
+        onDoubleClick={resetWidth}
+        onKeyDown={handleHandleKeyDown}
+        title="Drag to resize • Double-click to reset"
+        className="fixed top-0 h-full z-50 cursor-col-resize group outline-none touch-none"
+        style={{ left: sidebarWidth - 5, width: 10 }}
+      >
+        <div
+          className={`absolute inset-y-0 left-1/2 -translate-x-1/2 transition-[width,background-color] duration-100 ${
+            isResizing
+              ? 'w-[2px] bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.9)]'
+              : 'w-px bg-white/10 group-hover:w-[2px] group-hover:bg-cyan-400/70 group-focus-visible:w-[2px] group-focus-visible:bg-cyan-400'
+          }`}
+        />
+        <div
+          className={`absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 flex flex-col gap-[3px] transition-opacity duration-100 ${
+            isResizing
+              ? 'opacity-100'
+              : 'opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100'
+          }`}
+        >
+          <span className="block w-[3px] h-[3px] rounded-full bg-cyan-400" />
+          <span className="block w-[3px] h-[3px] rounded-full bg-cyan-400" />
+          <span className="block w-[3px] h-[3px] rounded-full bg-cyan-400" />
         </div>
       </div>
-    </aside>
+    </>
   );
 };
 
