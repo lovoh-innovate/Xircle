@@ -24,6 +24,7 @@
     "express-async-handler": "^1.2.0",
     "firebase-admin": "^14.2.0",
     "google-auth-library": "^10.6.2",
+    "googleapis": "^183.0.0",
     "http": "^0.0.1-security",
     "jsonwebtoken": "^9.0.3",
     "mammoth": "^1.12.2",

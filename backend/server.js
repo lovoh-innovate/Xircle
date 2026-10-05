@@ -25,6 +25,7 @@ import workspaceNoteRoutes from "./routes/workspaceNoteRoutes.js";
 import stickerRoutes from './routes/stickerRoutes.js';
 import aiRoutes from './routes/aiRoutes.js';
 import todayRoutes from './routes/todayRoutes.js';                 // 👈 NEW
+import googleCalendarRoutes from './routes/googleCalendarRoutes.js';
 
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
 import { initSocket } from "./controllers/socket.js";
@@ -105,6 +106,7 @@ app.use('/api/app', appRoutes);
 app.use('/api/clockin', clockInRoutes);
 app.use('/api/stickers', stickerRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/google-calendar', googleCalendarRoutes);
 
 // Note routes
 app.use("/api/personal-notes", personalNoteRoutes);

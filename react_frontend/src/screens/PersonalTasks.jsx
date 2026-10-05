@@ -25,6 +25,10 @@ import {
   useUpdateCollaboratorRoleMutation,
   useRemoveCollaboratorMutation,
 } from '../slices/personalTaskApiSlice';
+import {
+  useGetGoogleCalendarStatusQuery,
+  getGoogleCalendarConnectUrl,
+} from '../slices/googleCalendarApiSlice';
 import toast from 'react-hot-toast';
 import {
   FaPlus,
@@ -56,6 +60,7 @@ import {
   FaUserPlus,
   FaEnvelopeOpen,
   FaUserCog,
+  FaGoogle,
 } from 'react-icons/fa';
 import { motion } from 'framer-motion';
 import GeneralSidebar from '../components/GeneralSidebar';
@@ -648,6 +653,7 @@ const TaskActionModal = ({
   onPermanentDelete,
   onSelect,
   onManageCollaborators,
+  onToggleGoogleSync,
 }) => {
   if (!isOpen || !task) return null;
   const isTrash = task.isTrash;
@@ -655,6 +661,7 @@ const TaskActionModal = ({
   const isCompleted = task.status === 'completed';
   const isReminder = isReminderTask(task);
   const collaboratorsCount = task.collaborators?.length || 0;
+  const googleSynced = !!task.syncToGoogleCalendar;
 
   if (isTrash) {
     return (
@@ -708,6 +715,50 @@ const TaskActionModal = ({
             </span>
           )}
         </div>
+
+        {/* Google Calendar toggle — only for non-reminders, non-archived, non-trash */}
+        {!isArchived && !isReminder && onToggleGoogleSync && (
+          <button
+            onClick={() => { onToggleGoogleSync(task); onClose(); }}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border transition text-left ${
+              googleSynced
+                ? 'border-blue-400 dark:border-blue-600 bg-blue-50/60 dark:bg-blue-900/15'
+                : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-[#2a2a2a]'
+            }`}
+          >
+            <span
+              className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition ${
+                googleSynced ? 'bg-blue-500 text-white' : 'bg-gray-100 dark:bg-[#2a2a2a] text-gray-400'
+              }`}
+            >
+              <FaGoogle className="text-[11px]" />
+            </span>
+            <span className="flex-1 min-w-0">
+              <span
+                className={`block text-sm font-medium leading-tight ${
+                  googleSynced ? 'text-blue-700 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                {googleSynced ? 'On Google Calendar' : 'Add to Google Calendar'}
+              </span>
+              <span className="block text-[11px] text-gray-400 dark:text-gray-500 leading-tight truncate">
+                {googleSynced ? 'Tap to remove from your calendar' : 'Tap to add this task to your calendar'}
+              </span>
+            </span>
+            <span
+              className={`relative w-9 h-5 rounded-full flex-shrink-0 transition ${
+                googleSynced ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${
+                  googleSynced ? 'translate-x-4' : 'translate-x-0'
+                }`}
+              />
+            </span>
+          </button>
+        )}
+
         <div className="grid grid-cols-2 gap-2">
           <button
             onClick={() => { onEdit(); onClose(); }}
@@ -1069,7 +1120,6 @@ const ChecklistItem = ({
     }
   };
 
-  // Desktop right-click → open action modal
   const handleContextMenu = (e) => {
     e.preventDefault();
     if (selectionMode) return;
@@ -1144,7 +1194,6 @@ const ChecklistItem = ({
               )}
             </span>
             <div className="flex items-center flex-shrink-0 -mr-1">
-              {/* Mobile: visible edit button */}
               <button
                 onClick={(e) => { e.stopPropagation(); onEdit(index); }}
                 className="checklist-edit-btn flex md:hidden p-1.5 text-gray-400 hover:text-teal-500 active:text-teal-600 rounded-lg transition"
@@ -1152,7 +1201,6 @@ const ChecklistItem = ({
               >
                 <FaEdit className="text-sm" />
               </button>
-              {/* Desktop: 3-dot more button */}
               <button
                 onClick={(e) => { e.stopPropagation(); onOpenModal(index); }}
                 className="checklist-more-btn hidden md:flex p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
@@ -1294,6 +1342,8 @@ const TaskDetailView = ({
   onDelete,
   onReorderChecklist,
   onEditChecklist,
+  googleConnected,
+  onToggleGoogleSync,
 }) => {
   const [newChecklistTitle, setNewChecklistTitle] = useState('');
   const [isAddingChecklist, setIsAddingChecklist] = useState(false);
@@ -1310,6 +1360,7 @@ const TaskDetailView = ({
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const isReminder = isReminderTask(task);
   const isTouch = useIsTouchDevice();
+  const googleSynced = !!task.syncToGoogleCalendar;
 
   const toggleChecklistSelection = (index) => {
     setSelectedChecklistIndices(prev => {
@@ -1505,6 +1556,11 @@ const TaskDetailView = ({
                 <FaUsers className="text-[9px]" /> {task.collaborators.length}
               </span>
             )}
+            {googleSynced && (
+              <span className="flex items-center gap-1 text-blue-500 dark:text-blue-400">
+                <FaGoogle className="text-[9px]" /> Synced
+              </span>
+            )}
             {isReminder && (
               <span className="flex items-center gap-0.5 text-teal-600 dark:text-teal-400">
                 <FaBell className="text-[9px]" /> Reminder · {task.recurrenceType === 'daily' ? 'Everyday' : 'Weekly'}
@@ -1513,6 +1569,19 @@ const TaskDetailView = ({
           </div>
         </div>
         <div className="flex gap-0.5 hidden md:flex flex-shrink-0">
+          {!isReminder && !task.isArchived && onToggleGoogleSync && (
+            <button
+              onClick={() => onToggleGoogleSync(task)}
+              className={`p-1.5 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 ${
+                googleSynced
+                  ? 'text-blue-500 hover:text-blue-600'
+                  : 'text-gray-400 hover:text-blue-500'
+              }`}
+              title={googleSynced ? 'Remove from Google Calendar' : 'Add to Google Calendar'}
+            >
+              <FaGoogle className="text-sm" />
+            </button>
+          )}
           {task.isArchived ? (
             <button
               onClick={() => onRestore(task._id)}
@@ -1670,6 +1739,7 @@ const TaskCard = React.memo(({
   const checklistCount = task.subtasks?.length || 0;
   const doneCount = task.subtasks?.filter(st => st.done).length || 0;
   const collaboratorsCount = task.collaborators?.length || 0;
+  const googleSynced = !!task.syncToGoogleCalendar;
 
   const longPressTimer = useRef(null);
   const handleTouchStart = (e) => {
@@ -1722,7 +1792,6 @@ const TaskCard = React.memo(({
     }
   };
 
-  // Desktop right-click → open action modal (skip when selecting)
   const handleContextMenu = (e) => {
     e.preventDefault();
     if (selectionMode) return;
@@ -1787,6 +1856,12 @@ const TaskCard = React.memo(({
             }`}>
               {task.title}
             </span>
+            {googleSynced && !isTrash && (
+              <FaGoogle
+                className="text-[10px] text-blue-500 dark:text-blue-400 flex-shrink-0 mt-1"
+                title="Synced to Google Calendar"
+              />
+            )}
             {isOverdue && <FaExclamationCircle className="text-xs text-red-500 flex-shrink-0 mt-0.5" />}
           </div>
           <div className="flex flex-wrap items-center gap-1 sm:gap-3 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
@@ -2002,8 +2077,78 @@ const FolderModal = ({ isOpen, onClose, folders, onSave, onDelete, isLoading }) 
   );
 };
 
+// ─── Google Calendar Sync Toggle ──────────────────────────────
+const GoogleSyncToggle = ({ isReminder, isArchived, checked, onChange, googleConnected, onConnectClick }) => {
+  // Reminders and archived tasks don't need a calendar event toggle.
+  if (isReminder || isArchived) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (!googleConnected) {
+          onConnectClick?.();
+          return;
+        }
+        onChange(!checked);
+      }}
+      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border transition text-left ${
+        checked && googleConnected
+          ? 'border-blue-400 dark:border-blue-600 bg-blue-50/60 dark:bg-blue-900/15'
+          : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-[#2a2a2a]'
+      } ${!googleConnected ? 'opacity-90' : ''}`}
+      aria-pressed={checked && googleConnected}
+    >
+      <span
+        className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition ${
+          checked && googleConnected ? 'bg-blue-500 text-white' : 'bg-gray-100 dark:bg-[#2a2a2a] text-gray-400'
+        }`}
+      >
+        <FaGoogle className="text-[11px]" />
+      </span>
+      <span className="flex-1 min-w-0">
+        <span
+          className={`block text-sm font-medium leading-tight ${
+            checked && googleConnected ? 'text-blue-700 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300'
+          }`}
+        >
+          {googleConnected
+            ? (checked ? 'On Google Calendar' : 'Add to Google Calendar')
+            : 'Connect Google Calendar'}
+        </span>
+        <span className="block text-[11px] text-gray-400 dark:text-gray-500 leading-tight truncate">
+          {googleConnected
+            ? (checked ? 'This task will sync to your calendar' : 'Optional — keeps it in-app only')
+            : 'Tap to connect your Google account first'}
+        </span>
+      </span>
+      <span
+        className={`relative w-9 h-5 rounded-full flex-shrink-0 transition ${
+          checked && googleConnected ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${
+            checked && googleConnected ? 'translate-x-4' : 'translate-x-0'
+          }`}
+        />
+      </span>
+    </button>
+  );
+};
+
 // ─── Task Form ──────────────────────────────────────────────────
-const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, presetReminder = false }) => {
+const TaskForm = ({
+  task,
+  folders,
+  onSave,
+  onCancel,
+  isEditing,
+  isLoading,
+  presetReminder = false,
+  googleConnected,
+  onConnectGoogle,
+}) => {
   const taskIsReminder = isReminderTask(task);
 
   const [title, setTitle] = useState(task?.title || '');
@@ -2019,6 +2164,9 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
   const [recurrenceEndDate, setRecurrenceEndDate] = useState(
     task?.recurrenceEndDate ? new Date(task.recurrenceEndDate).toISOString().slice(0, 16) : ''
   );
+
+  // Google Calendar opt-in — defaults to whatever the task already has.
+  const [syncToGoogleCalendar, setSyncToGoogleCalendar] = useState(!!task?.syncToGoogleCalendar);
 
   const [showDetails, setShowDetails] = useState(isEditing);
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -2063,6 +2211,8 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
       recurrenceType: isReminder ? frequency : 'none',
       recurrenceDays: isReminder && frequency === 'weekly' ? recurrenceDays : [],
       recurrenceEndDate: isReminder ? (recurrenceEndDate || null) : null,
+      // Reminders never sync to Google Calendar — the toggle is hidden for them.
+      syncToGoogleCalendar: isReminder ? false : syncToGoogleCalendar,
     });
   };
 
@@ -2204,6 +2354,15 @@ const TaskForm = ({ task, folders, onSave, onCancel, isEditing, isLoading, prese
           </div>
         </div>
       )}
+
+      {/* ─── Google Calendar sync toggle (hidden for reminders) ─── */}
+      <GoogleSyncToggle
+        isReminder={isReminder}
+        checked={syncToGoogleCalendar}
+        onChange={setSyncToGoogleCalendar}
+        googleConnected={googleConnected}
+        onConnectClick={onConnectGoogle}
+      />
 
       <button
         type="button"
@@ -2427,6 +2586,20 @@ const PersonalTasks = () => {
   });
   const [acceptInvitation, { isLoading: isAcceptingInvite }] = useAcceptInvitationWithTokenMutation();
   const pendingInvites = pendingInvitesData?.invitations || [];
+
+  // ─── Google Calendar connection status ─────────────────────────
+  const { data: googleStatus } = useGetGoogleCalendarStatusQuery();
+  const googleConnected = !!googleStatus?.enabled;
+
+ const token = userInfo?.token;
+
+const handleConnectGoogle = useCallback(() => {
+  if (!token) {
+    toast.error('You must be logged in to connect Google Calendar.');
+    return;
+  }
+  window.location.href = getGoogleCalendarConnectUrl(token);
+}, [token]);
 
   const [viewType, setViewType] = useState('personal');
 
@@ -2790,6 +2963,7 @@ const PersonalTasks = () => {
       recurrenceType: payload.recurrenceType,
       recurrenceDays: payload.recurrenceDays,
       recurrenceEndDate: payload.recurrenceEndDate,
+      syncToGoogleCalendar: !!payload.syncToGoogleCalendar,
       status: 'pending',
       isArchived: false,
       subtasks: [],
@@ -2951,6 +3125,37 @@ const PersonalTasks = () => {
     } catch (err) {
       setLocalTasks(prevTasks);
       toast.error(err?.data?.message || 'Failed to move task');
+    }
+  };
+
+  // ─── Google Calendar per-task toggle ───────────────────────────
+  const handleToggleGoogleSync = async (task) => {
+    if (!googleConnected) {
+      handleConnectGoogle();
+      return;
+    }
+    if (isReminderTask(task)) {
+      toast.error('Reminders never sync to Google Calendar.');
+      return;
+    }
+    const next = !task.syncToGoogleCalendar;
+    const prevTasks = [...localTasks];
+    setLocalTasks(prev =>
+      prev.map(t => (t._id === task._id ? { ...t, syncToGoogleCalendar: next } : t))
+    );
+    setManageCollabTask(prev =>
+      prev && prev._id === task._id ? { ...prev, syncToGoogleCalendar: next } : prev
+    );
+    try {
+      await updateTask({
+        taskId: task._id,
+        data: { syncToGoogleCalendar: next },
+      }).unwrap();
+      toast.success(next ? 'Added to Google Calendar' : 'Removed from Google Calendar');
+      refetchTasks();
+    } catch (err) {
+      setLocalTasks(prevTasks);
+      toast.error(err?.data?.message || 'Failed to update Google Calendar sync');
     }
   };
 
@@ -3251,6 +3456,8 @@ const PersonalTasks = () => {
               onDelete={handleDelete}
               onReorderChecklist={handleReorderChecklist}
               onEditChecklist={handleEditChecklist}
+              googleConnected={googleConnected}
+              onToggleGoogleSync={handleToggleGoogleSync}
             />
           ) : (
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -3301,6 +3508,16 @@ const PersonalTasks = () => {
                       </h1>
                       {viewType === 'personal' && (
                         <div className="flex items-center gap-1">
+                          {/* Connect Google Calendar quick link — only when not connected */}
+                          {!googleConnected && (
+                            <button
+                              onClick={handleConnectGoogle}
+                              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800/60 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition"
+                              title="Connect Google Calendar"
+                            >
+                              <FaGoogle className="text-[10px]" /> Connect Calendar
+                            </button>
+                          )}
                           <button
                             onClick={() => setShowFolderModal(true)}
                             className="p-1.5 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
@@ -3452,6 +3669,8 @@ const PersonalTasks = () => {
           isEditing={!!editingTask}
           isLoading={isCreating || isUpdating}
           presetReminder={false}
+          googleConnected={googleConnected}
+          onConnectGoogle={handleConnectGoogle}
         />
       </BottomSheet>
 
@@ -3502,6 +3721,7 @@ const PersonalTasks = () => {
         onPermanentDelete={handlePermanentDelete}
         onSelect={handleSelectFromModal}
         onManageCollaborators={handleOpenManageCollaborators}
+        onToggleGoogleSync={handleToggleGoogleSync}
       />
 
       <MoveTaskModal

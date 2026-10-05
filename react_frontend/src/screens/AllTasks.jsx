@@ -24,8 +24,10 @@ import {
   FaCircle,
   FaTag,
   FaUser,
+  FaUserCheck,
+  FaList,
 } from 'react-icons/fa';
-import toast from 'react-hot-toast'; // ✅ switched to react-hot-toast
+import toast from 'react-hot-toast';
 
 // ─── Correct imports ──
 import MyWorkspaceSidebar from '../workspaceComponents/MyWorkspaceSidebar';
@@ -345,7 +347,6 @@ const ProjectSection = React.memo(({
       toast.success('Tasks reordered');
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to reorder tasks');
-      // Revert
       const result = await refetch();
       if (result.data?.tasks) {
         setLocalTasks(result.data.tasks);
@@ -405,7 +406,7 @@ const ProjectSection = React.memo(({
           <FaFolder className="text-teal-600 dark:text-[#0d9488] text-sm" />
           <span className="font-medium text-gray-800 dark:text-gray-200">{project.name}</span>
           <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-200 dark:bg-gray-800/60 px-2 py-0.5 rounded-full">
-            {totalTasks} tasks
+            {hasDisplayedTasks ? `${displayedTasks.length}/${totalTasks} tasks` : `${totalTasks} tasks`}
           </span>
           {canManageProject && (
             <span className="text-xs text-teal-600 dark:text-[#0d9488] flex items-center gap-1 ml-2">
@@ -488,17 +489,70 @@ const AllTasks = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedProjects, setExpandedProjects] = useState({});
 
+  // ── View mode: 'all' | 'mine' ──
+  // Managers (owner / workspace admin / project manager) can switch.
+  // Regular members are locked to 'mine'.
+  const [viewMode, setViewMode] = useState('all');
+
   const [allTasksMap, setAllTasksMap] = useState({});
   const handleTasksLoaded = useCallback((projectId, tasks) => {
     setAllTasksMap(prev => ({ ...prev, [projectId]: tasks }));
   }, []);
 
-  const isOwner = workspace?.owner?._id === userInfo?._id || workspace?.owner === userInfo?._id;
-  const isProjectManager = useCallback((project) =>
-    project.projectManagers?.some(pm => (pm._id || pm)?.toString() === userInfo?._id),
+  // ── Permission checks ──
+  // Owner (from workspace.owner)
+  const isOwner =
+    workspace?.owner?._id === userInfo?._id ||
+    workspace?.owner === userInfo?._id;
+
+  // Workspace Admin (from workspace.members[].role === 'Admin')
+  // Mirrors backend `isAdmin()` in workspaceController.js so client
+  // and server agree on who is a manager.
+  const isWorkspaceAdmin = useMemo(() => {
+    const uid = userInfo?._id?.toString();
+    if (!uid || !workspace?.members?.length) return false;
+    return workspace.members.some((m) => {
+      const memberId = (m.user?._id || m.user)?.toString();
+      return memberId === uid && m.role === 'Admin' && m.status === 'active';
+    });
+  }, [workspace, userInfo]);
+
+  // Project Manager (from project.projectManagers[])
+  const isProjectManager = useCallback(
+    (project) =>
+      project.projectManagers?.some(
+        (pm) => (pm._id || pm)?.toString() === userInfo?._id
+      ),
     [userInfo]
   );
-  const canManageProject = useCallback((project) => isOwner || isProjectManager(project), [isOwner, isProjectManager]);
+
+  // Can this user drag/reorder tasks in the given project?
+  const canManageProject = useCallback(
+    (project) => isOwner || isWorkspaceAdmin || isProjectManager(project),
+    [isOwner, isWorkspaceAdmin, isProjectManager]
+  );
+
+  const isAnyProjectManager = useMemo(
+    () => projects.some((p) => isProjectManager(p)),
+    [projects, isProjectManager]
+  );
+
+  // Manager = owner OR workspace admin OR manager on at least one project
+  const isManager = isOwner || isWorkspaceAdmin || isAnyProjectManager;
+
+  // Non-managers can only ever see their own tasks.
+  useEffect(() => {
+    if (!isManager && viewMode !== 'mine') setViewMode('mine');
+  }, [isManager, viewMode]);
+
+  // Effective filters: in "mine" mode we inject the current user as the
+  // assignee so ProjectSection only shows their tasks.
+  const effectiveFilters = useMemo(() => {
+    if (viewMode === 'mine') {
+      return { ...filters, assignee: userInfo?._id || '__none__' };
+    }
+    return filters;
+  }, [filters, viewMode, userInfo]);
 
   const allTasks = useMemo(() => {
     const flat = [];
@@ -514,6 +568,32 @@ const AllTasks = () => {
     });
     return flat;
   }, [projects, allTasksMap]);
+
+  const myTaskCount = useMemo(() => {
+    const uid = userInfo?._id?.toString();
+    if (!uid) return 0;
+    return allTasks.filter(t => {
+      const aid = (t.assignee?._id || t.assignee)?.toString();
+      return aid === uid;
+    }).length;
+  }, [allTasks, userInfo]);
+
+  // In "mine" mode, hide projects that have zero tasks for this user.
+  // If a project's tasks haven't loaded yet, keep it visible so its
+  // query can run and we can decide afterwards.
+  const visibleProjects = useMemo(() => {
+    if (viewMode === 'all') return projects;
+    const uid = userInfo?._id?.toString();
+    if (!uid) return [];
+    return projects.filter(project => {
+      const tasks = allTasksMap[project._id];
+      if (!tasks) return true; // not loaded yet — render so the query fires
+      return tasks.some(t => {
+        const aid = (t.assignee?._id || t.assignee)?.toString();
+        return aid === uid;
+      });
+    });
+  }, [projects, allTasksMap, viewMode, userInfo]);
 
   const toggleProject = useCallback((projectId) => {
     setExpandedProjects(prev => ({
@@ -572,6 +652,9 @@ const AllTasks = () => {
     return <div className="p-8 text-center text-gray-500">Workspace not found.</div>;
   }
 
+  const hasAnyVisibleProject = visibleProjects.length > 0;
+  const isEmptyForMe = viewMode === 'mine' && myTaskCount === 0;
+
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
       {/* ─── Sidebar ─── */}
@@ -582,21 +665,53 @@ const AllTasks = () => {
       {/* ─── Main Content ─── */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800/40 flex-shrink-0 px-4 py-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
               <h1 className="text-lg font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
-                <FaTasks className="text-teal-600 dark:text-[#0d9488]" /> All Tasks
+                <FaTasks className="text-teal-600 dark:text-[#0d9488]" />
+                {viewMode === 'mine' ? 'My Tasks' : 'All Tasks'}
               </h1>
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                {allTasks.length} tasks across {projects.length} projects
+                {viewMode === 'mine'
+                  ? `${myTaskCount} task${myTaskCount === 1 ? '' : 's'} assigned to you`
+                  : `${allTasks.length} tasks across ${projects.length} projects`}
               </p>
             </div>
-            <button
-              onClick={() => navigate(`/${routePrefix}/${workspaceId}/projects`)}
-              className="px-3 py-1.5 text-sm bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl hover:bg-teal-700 dark:hover:bg-[#0f9e96] transition"
-            >
-              Go to Projects
-            </button>
+
+            <div className="flex items-center gap-2">
+              {/* View toggle — only shown to owner / workspace admin / project managers */}
+              {isManager && (
+                <div className="inline-flex items-center bg-gray-100 dark:bg-[#1a1a24] rounded-xl p-1 border border-gray-200 dark:border-gray-800/60">
+                  <button
+                    onClick={() => setViewMode('all')}
+                    className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-lg transition ${
+                      viewMode === 'all'
+                        ? 'bg-white dark:bg-[#2a2a34] text-teal-600 dark:text-[#0d9488] shadow-sm'
+                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                    }`}
+                  >
+                    <FaList className="text-[10px]" /> All Tasks
+                  </button>
+                  <button
+                    onClick={() => setViewMode('mine')}
+                    className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-lg transition ${
+                      viewMode === 'mine'
+                        ? 'bg-white dark:bg-[#2a2a34] text-teal-600 dark:text-[#0d9488] shadow-sm'
+                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                    }`}
+                  >
+                    <FaUserCheck className="text-[10px]" /> My Tasks
+                  </button>
+                </div>
+              )}
+
+              <button
+                onClick={() => navigate(`/${routePrefix}/${workspaceId}/projects`)}
+                className="px-3 py-1.5 text-sm bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl hover:bg-teal-700 dark:hover:bg-[#0f9e96] transition"
+              >
+                Go to Projects
+              </button>
+            </div>
           </div>
 
           {/* ── Filters ── */}
@@ -631,14 +746,17 @@ const AllTasks = () => {
               onChange={(val) => setFilters(prev => ({ ...prev, priority: val }))}
               brandColor={brandColor}
             />
-            <CustomDropdown
-              label="Assignee"
-              options={assigneeOptions}
-              value={filters.assignee}
-              onChange={(val) => setFilters(prev => ({ ...prev, assignee: val }))}
-              brandColor={brandColor}
-            />
-            {(filters.status || filters.priority || filters.assignee || searchQuery) && (
+            {/* Assignee filter is meaningless in "mine" mode — hidden. */}
+            {viewMode === 'all' && (
+              <CustomDropdown
+                label="Assignee"
+                options={assigneeOptions}
+                value={filters.assignee}
+                onChange={(val) => setFilters(prev => ({ ...prev, assignee: val }))}
+                brandColor={brandColor}
+              />
+            )}
+            {(filters.status || filters.priority || (viewMode === 'all' && filters.assignee) || searchQuery) && (
               <button
                 onClick={() => {
                   setFilters({ status: '', priority: '', assignee: '' });
@@ -659,9 +777,17 @@ const AllTasks = () => {
               <p className="text-lg font-medium text-gray-700 dark:text-gray-300">No projects yet</p>
               <p className="text-sm mt-1 text-gray-500 dark:text-gray-400">Create a project to get started.</p>
             </div>
+          ) : !hasAnyVisibleProject && isEmptyForMe ? (
+            <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-500">
+              <FaUserCheck className="text-5xl mb-4 opacity-30" />
+              <p className="text-lg font-medium text-gray-700 dark:text-gray-300">No tasks assigned to you</p>
+              <p className="text-sm mt-1 text-gray-500 dark:text-gray-400">
+                You don't have any tasks in this workspace yet.
+              </p>
+            </div>
           ) : (
             <div className="space-y-6">
-              {projects.map(project => {
+              {visibleProjects.map(project => {
                 const isExpanded = expandedProjects[project._id] !== false;
                 const canManage = canManageProject(project);
 
@@ -681,7 +807,7 @@ const AllTasks = () => {
                     onToggle={toggleProject}
                     onTasksLoaded={handleTasksLoaded}
                     routePrefix={routePrefix}
-                    filters={filters}
+                    filters={effectiveFilters}
                     searchQuery={searchQuery}
                   />
                 );

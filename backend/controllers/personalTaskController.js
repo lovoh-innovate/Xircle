@@ -5,6 +5,11 @@ import User from '../models/userModel.js';
 import { createAndSendNotification } from './notificationController.js';
 import { sendCollaborationInvitationEmail } from '../utils/sendCollabEmail.js';
 import crypto from 'crypto';
+import {
+  createCalendarEvent,
+  updateCalendarEvent,
+  deleteCalendarEvent,
+} from '../services/googleCalendarService.js';
 
 // ─────────────────────────────────────────────────────────────────────
 // HELPERS (internal)
@@ -35,6 +40,42 @@ const notifyTaskCollaborators = async (task, message, data = {}) => {
   }
   for (const uid of userIds) {
     await notifyUser(uid, { title: 'Task Update', body: message, data: { ...data, taskId: task._id } });
+  }
+};
+
+/**
+ * Mirror a personal task to the OWNER's Google Calendar.
+ * Only the owner's calendar is touched — collaborators never get events
+ * pushed automatically. Failures are swallowed so Google outages can
+ * never block task operations.
+ */
+const syncTaskToGoogle = async (task, action = 'create') => {
+  if (!task.syncToGoogleCalendar) return;
+  const ownerId = task.user?.toString();
+  if (!ownerId) return;
+
+  try {
+    if (action === 'create') {
+      const eventId = await createCalendarEvent(ownerId, task);
+      if (eventId) {
+        task.googleEventId = eventId;
+        await task.save();
+      }
+    } else if (action === 'update' && task.googleEventId) {
+      await updateCalendarEvent(ownerId, task.googleEventId, task);
+    } else if (action === 'delete') {
+      if (task.googleEventId) {
+        await deleteCalendarEvent(ownerId, task.googleEventId);
+      }
+      // Clear the id even if Google delete failed — the local record
+      // should never point at a stale event.
+      if (task.googleEventId) {
+        task.googleEventId = null;
+        await task.save();
+      }
+    }
+  } catch (err) {
+    console.error('syncTaskToGoogle failed:', err.message);
   }
 };
 
@@ -106,6 +147,7 @@ const updatePersonalTaskStatus = async (taskId) => {
   if (total === 0) return;
 
   const doneCount = task.subtasks.filter(st => st.done).length;
+  const prevStatus = task.status;
   if (doneCount === total) {
     task.status = 'completed';
     task.completedAt = new Date();
@@ -117,6 +159,12 @@ const updatePersonalTaskStatus = async (taskId) => {
     task.completedAt = null;
   }
   await task.save();
+
+  // Reflect the auto-updated status on Google Calendar, but only if
+  // something actually changed (avoids pointless API chatter).
+  if (prevStatus !== task.status) {
+    await syncTaskToGoogle(task, 'update');
+  }
 };
 
 const canWrite = (task, userId) => {
@@ -245,7 +293,17 @@ export const createPersonalTask = async (req, res) => {
       order: 0,
       collaborators: [],
       completedBy: null,
+      syncToGoogleCalendar:
+        req.body.syncToGoogleCalendar === 'true' ||
+        req.body.syncToGoogleCalendar === true,
+      googleEventId: null,
     });
+
+    // Push to the owner's Google Calendar if they opted in for this task.
+    // Silent no-op if the user hasn't connected their calendar.
+    if (task.syncToGoogleCalendar) {
+      await syncTaskToGoogle(task, 'create');
+    }
 
     res.status(201).json({ success: true, task });
   } catch (error) {
@@ -269,20 +327,12 @@ export const getPersonalTasks = async (req, res) => {
     if (type === 'owner') {
       query.user = userId;
 
-      // ✅ Personal tab "All" shows ONLY tasks with zero collaborators.
-      //    BUT when a specific folder is selected we DO NOT hide collaborated
-      //    tasks — otherwise a task that lives in a folder vanishes the moment
-      //    you invite someone. Keeping it visible in the folder satisfies the
-      //    "still in the folder" requirement.
       const filteringByFolder = !!folderId;
       if (!isTrash && !isArchived && !filteringByFolder) {
         query['collaborators.0'] = { $exists: false };
       }
       delete query.$or;
     } else if (type === 'collaborator') {
-      // Collab tab shows:
-      //   (a) tasks where I'm an ACCEPTED collaborator, OR
-      //   (b) tasks I own that have at least one collaborator (pending or accepted)
       query.$or = [
         { 'collaborators.user': userId, 'collaborators.accepted': true },
         { user: userId, 'collaborators.0': { $exists: true } },
@@ -380,6 +430,26 @@ export const updatePersonalTask = async (req, res) => {
       task.recurrenceEndDate = recurrenceData.recurrenceEndDate;
     }
 
+    // Owner-only: toggle Google Calendar sync per task
+    if (task.user.toString() === userId && req.body.syncToGoogleCalendar !== undefined) {
+      const wantsSync =
+        req.body.syncToGoogleCalendar === 'true' ||
+        req.body.syncToGoogleCalendar === true;
+      const wasSync = task.syncToGoogleCalendar;
+
+      task.syncToGoogleCalendar = wantsSync;
+
+      if (wantsSync && !wasSync) {
+        // Just enabled — push the event now.
+        await task.save();
+        await syncTaskToGoogle(task, 'create');
+      } else if (!wantsSync && wasSync) {
+        // Just disabled — remove the event.
+        await task.save();
+        await syncTaskToGoogle(task, 'delete');
+      }
+    }
+
     if (status !== undefined) {
       const oldStatus = task.status;
       if (status === 'completed' && task.recurrenceType !== 'none') {
@@ -411,6 +481,9 @@ export const updatePersonalTask = async (req, res) => {
 
     await task.save();
 
+    // Mirror every field change to Google Calendar (silent if not synced).
+    await syncTaskToGoogle(task, 'update');
+
     const populated = await PersonalTask.findById(task._id)
       .populate('folder', 'name color')
       .populate('collaborators.user', 'name email')
@@ -431,6 +504,7 @@ export const archivePersonalTask = async (req, res) => {
     task.isArchived = true;
     task.archivedAt = new Date();
     await task.save();
+    // Keep the Google event — archiving just hides it from the app.
     res.status(200).json({ success: true, message: 'Task archived.' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -441,10 +515,19 @@ export const restorePersonalTask = async (req, res) => {
   try {
     const task = await PersonalTask.findOne({ _id: req.params.taskId, user: req.user.id });
     if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
+
+    const wasTrashed = task.isTrash;
+
     task.isArchived = false;
     task.isTrash = false;
     task.trashedAt = null;
     await task.save();
+
+    // Coming back from trash — if the event was deleted, recreate it.
+    if (wasTrashed && task.syncToGoogleCalendar && !task.googleEventId) {
+      await syncTaskToGoogle(task, 'create');
+    }
+
     res.status(200).json({ success: true, message: 'Task restored.' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -455,9 +538,14 @@ export const deletePersonalTask = async (req, res) => {
   try {
     const task = await PersonalTask.findOne({ _id: req.params.taskId, user: req.user.id });
     if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
+
     task.isTrash = true;
     task.trashedAt = new Date();
     await task.save();
+
+    // Remove from Google Calendar — trash means "gone from my calendar too".
+    await syncTaskToGoogle(task, 'delete');
+
     res.status(200).json({ success: true, message: 'Task moved to trash (auto‑delete in 30 days).' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -471,6 +559,12 @@ export const permanentlyDeletePersonalTask = async (req, res) => {
     if (!task.isTrash) {
       return res.status(400).json({ success: false, message: 'Task must be in trash before permanent deletion.' });
     }
+
+    // Safety net: if the event somehow still exists, remove it now.
+    if (task.syncToGoogleCalendar && task.googleEventId) {
+      await syncTaskToGoogle(task, 'delete');
+    }
+
     await PersonalTask.findByIdAndDelete(task._id);
     res.status(200).json({ success: true, message: 'Task permanently deleted.' });
   } catch (error) {

@@ -6,6 +6,11 @@ import Folder from '../models/folderModel.js';
 import Feedback from '../models/feedbackModel.js';
 import { v2 as cloudinary } from 'cloudinary';
 import { createAndSendNotification } from './notificationController.js';
+import {
+  createCalendarEvent,
+  updateCalendarEvent,
+  deleteCalendarEvent,
+} from '../services/googleCalendarService.js';
 
 // ─────────────────────────────────────────────────────────────────────
 // HELPERS
@@ -141,6 +146,40 @@ const extractAssigneeIds = (body) => {
   return [...new Set(raw.map(String).filter(Boolean))];
 };
 
+// ─── Google Calendar sync ─────────────────────────────────────────
+
+/**
+ * Mirror a project task onto its CREATOR's Google Calendar.
+ * Only synced tasks (syncToGoogleCalendar === true) are pushed, and
+ * only when the creator has connected their Google account. All errors
+ * are swallowed so a Google outage can never break task operations.
+ */
+const syncTaskToGoogle = async (task, action = 'create') => {
+  if (!task.syncToGoogleCalendar) return;
+  const ownerId = task.createdBy?.toString();
+  if (!ownerId) return;
+
+  try {
+    if (action === 'create') {
+      const eventId = await createCalendarEvent(ownerId, task);
+      if (eventId) {
+        task.googleEventId = eventId;
+        await task.save();
+      }
+    } else if (action === 'update' && task.googleEventId) {
+      await updateCalendarEvent(ownerId, task.googleEventId, task);
+    } else if (action === 'delete') {
+      if (task.googleEventId) {
+        await deleteCalendarEvent(ownerId, task.googleEventId);
+        task.googleEventId = null;
+        await task.save();
+      }
+    }
+  } catch (err) {
+    console.error('syncTaskToGoogle failed:', err.message);
+  }
+};
+
 // ─── Recurrence helpers ──────────────────────────────────────────
 
 const calculateNextDueDate = (item, fromDate = null) => {
@@ -201,6 +240,9 @@ const parseRecurrence = (body) => {
  * If the task recurs, clone it into a fresh `pending` occurrence.
  * Mutates `task.recurrenceType` to 'none' when the chain ends.
  * Returns the new task or null.
+ *
+ * If the original was synced to Google Calendar, the new occurrence
+ * is pushed to Google as a NEW event (it has its own event id).
  */
 const spawnNextTaskOccurrence = async (task) => {
   if (!task.recurrenceType || task.recurrenceType === 'none') return null;
@@ -226,6 +268,7 @@ const spawnNextTaskOccurrence = async (task) => {
   data.completionNotes = null;
   data.completionFeedback = null;
   data.reminderSent = false;
+  data.googleEventId = null; // fresh event for the new occurrence
   data.subTasks = (data.subTasks || []).map((st) => ({
     ...st,
     status: 'pending',
@@ -240,7 +283,14 @@ const spawnNextTaskOccurrence = async (task) => {
     reminderSent: false,
   }));
 
-  return Task.create(data);
+  const newTask = await Task.create(data);
+
+  // Push the new occurrence to Google too, if the original was synced.
+  if (newTask.syncToGoogleCalendar) {
+    await syncTaskToGoogle(newTask, 'create');
+  }
+
+  return newTask;
 };
 
 /**
@@ -316,8 +366,6 @@ const updateTaskProgress = async (taskId, { preserveStatus = false } = {}) => {
     if (isTerminal) {
       task.progress = 100;
     } else if (!preserveStatus) {
-      // No subtasks → assignment alone makes it ready. This is the whole
-      // point: assign once, work it, click done.
       task.progress = 0;
       task.status = (task.assignees?.length || 0) > 0 ? 'ready_for_completion' : 'pending';
     }
@@ -444,6 +492,11 @@ export const createTask = async (req, res) => {
     const hasAssignees = assigneeIds.length > 0;
     const initialStatus = hasAssignees ? 'ready_for_completion' : 'pending';
 
+    // Read the per-task Google Calendar opt-in from the request body.
+    const wantsGoogleSync =
+      req.body.syncToGoogleCalendar === 'true' ||
+      req.body.syncToGoogleCalendar === true;
+
     const task = await Task.create({
       project: projectId,
       workspace: project.workspace,
@@ -472,7 +525,14 @@ export const createTask = async (req, res) => {
       recurrenceType: recurrenceData.recurrenceType,
       recurrenceDays: recurrenceData.recurrenceDays,
       recurrenceEndDate: recurrenceData.recurrenceEndDate,
+      syncToGoogleCalendar: wantsGoogleSync,
+      googleEventId: null,
     });
+
+    // Push to the creator's Google Calendar if they opted in.
+    if (task.syncToGoogleCalendar) {
+      await syncTaskToGoogle(task, 'create');
+    }
 
     const recipients = assigneeIds.filter((id) => id !== userId);
     if (recipients.length > 0) {
@@ -592,6 +652,25 @@ export const updateTask = async (req, res) => {
         }
       }
 
+      // ─── Google Calendar opt-in toggle (manager-only) ────
+      if (req.body.syncToGoogleCalendar !== undefined) {
+        const wantsSync =
+          req.body.syncToGoogleCalendar === 'true' ||
+          req.body.syncToGoogleCalendar === true;
+        const wasSync = task.syncToGoogleCalendar;
+        task.syncToGoogleCalendar = wantsSync;
+
+        if (wantsSync && !wasSync) {
+          // Just enabled — push the event now.
+          await task.save();
+          await syncTaskToGoogle(task, 'create');
+        } else if (!wantsSync && wasSync) {
+          // Just disabled — remove the event.
+          await task.save();
+          await syncTaskToGoogle(task, 'delete');
+        }
+      }
+
       // ─── Assignees update ────────────────────────────────
       if (req.body.assigneeIds !== undefined || req.body.assigneeId !== undefined) {
         const newIds = extractAssigneeIds(req.body);
@@ -607,7 +686,6 @@ export const updateTask = async (req, res) => {
         const added = newIds.filter((id) => !oldIds.includes(id));
         task.assignees = newIds;
 
-        // Newly assigned → notify them (don't spam existing ones).
         const toNotify = added.filter((id) => id !== userId);
         if (toNotify.length > 0) {
           notifyUsers(toNotify, {
@@ -640,6 +718,10 @@ export const updateTask = async (req, res) => {
 
     await task.save();
     await updateTaskProgress(task._id, { preserveStatus: statusExplicitlySet });
+
+    // Reflect any changes (title, dates, status) on Google Calendar.
+    const freshTask = await Task.findById(task._id);
+    await syncTaskToGoogle(freshTask, 'update');
 
     const updated = await Task.findById(taskId)
       .populate('assignees', 'name email profile')
@@ -687,6 +769,10 @@ export const assignTask = async (req, res) => {
 
     await task.save();
     await updateTaskProgress(task._id);
+
+    // Assignment changes can flip status → keep Google in sync.
+    const freshTask = await Task.findById(task._id);
+    await syncTaskToGoogle(freshTask, 'update');
 
     const toNotify = added.filter((id) => id !== userId);
     if (toNotify.length > 0) {
@@ -768,6 +854,9 @@ export const addSubTask = async (req, res) => {
 
     await task.save();
     await updateTaskProgress(task._id);
+
+    const freshTask = await Task.findById(task._id);
+    await syncTaskToGoogle(freshTask, 'update');
 
     if (isManager && (task.assignees || []).length > 0) {
       const targets = task.assignees.map((a) => a.toString()).filter((id) => id !== userId);
@@ -851,6 +940,9 @@ export const updateSubTask = async (req, res) => {
     await task.save();
     await updateTaskProgress(task._id);
 
+    const freshTask = await Task.findById(task._id);
+    await syncTaskToGoogle(freshTask, 'update');
+
     const updated = await Task.findById(taskId)
       .populate('assignees', 'name email profile')
       .populate('createdBy', 'name email profile');
@@ -918,7 +1010,6 @@ export const markSubTaskDone = async (req, res) => {
     if (uploadedAttachments.length > 0) subTask.attachments = uploadedAttachments;
 
     if (isManager) {
-      // Manager click = auto-confirm.
       subTask.status = 'confirmed';
       subTask.confirmedBy = userId;
       subTask.confirmedAt = now;
@@ -929,6 +1020,9 @@ export const markSubTaskDone = async (req, res) => {
 
     await task.save();
     await updateTaskProgress(task._id);
+
+    const freshTask = await Task.findById(task._id);
+    await syncTaskToGoogle(freshTask, 'update');
 
     const assigneeIds = (task.assignees || []).map((a) => a.toString());
 
@@ -1018,6 +1112,9 @@ export const confirmSubTask = async (req, res) => {
     await task.save();
     await updateTaskProgress(task._id);
 
+    const freshTask = await Task.findById(task._id);
+    await syncTaskToGoogle(freshTask, 'update');
+
     const assigneeIds = (task.assignees || []).map((a) => a.toString());
     const targets = assigneeIds.filter((id) => id !== userId);
     if (targets.length > 0) {
@@ -1084,6 +1181,9 @@ export const rejectSubTask = async (req, res) => {
     await task.save();
     await updateTaskProgress(task._id);
 
+    const freshTask = await Task.findById(task._id);
+    await syncTaskToGoogle(freshTask, 'update');
+
     const assigneeIds = (task.assignees || []).map((a) => a.toString());
     const targets = assigneeIds.filter((id) => id !== userId);
     if (targets.length > 0) {
@@ -1144,6 +1244,9 @@ export const deleteSubTask = async (req, res) => {
     await task.save();
     await updateTaskProgress(task._id);
 
+    const freshTask = await Task.findById(task._id);
+    await syncTaskToGoogle(freshTask, 'update');
+
     const updated = await Task.findById(taskId)
       .populate('assignees', 'name email profile')
       .populate('createdBy', 'name email profile');
@@ -1193,7 +1296,6 @@ export const markTaskCompleted = async (req, res) => {
       });
     }
 
-    // ── Save submission data ──────────────────────────────
     const parsedLinks = parseArrayField(links);
     let uploadedFiles = [];
     if (req.files?.completionAttachments) {
@@ -1231,12 +1333,14 @@ export const markTaskCompleted = async (req, res) => {
     let spawned = null;
     if (isManager) {
       spawned = await spawnNextTaskOccurrence(task);
-      if (spawned) await task.save(); // persist any recurrenceType reset
+      if (spawned) await task.save();
     }
 
     await updateProjectProgress(task.project);
 
-    // ── Notifications ─────────────────────────────────────
+    // Reflect the new status on Google Calendar.
+    await syncTaskToGoogle(task, 'update');
+
     const assigneeIds = (task.assignees || []).map((a) => a.toString());
 
     if (isManager) {
@@ -1345,6 +1449,9 @@ export const confirmTaskCompletion = async (req, res) => {
 
     await updateProjectProgress(task.project);
 
+    // Reflect the confirmed-complete status on Google Calendar.
+    await syncTaskToGoogle(task, 'update');
+
     const assigneeIds = (task.assignees || []).map((a) => a.toString());
     const targets = assigneeIds.filter((id) => id !== userId);
     if (targets.length > 0) {
@@ -1408,6 +1515,9 @@ export const rejectTask = async (req, res) => {
     task.completedAt = null;
 
     await task.save();
+
+    // Status moved back → update Google Calendar.
+    await syncTaskToGoogle(task, 'update');
 
     const assigneeIds = (task.assignees || []).map((a) => a.toString());
     const targets = assigneeIds.filter((id) => id !== userId);
@@ -1570,6 +1680,9 @@ export const deleteTask = async (req, res) => {
     task.isArchived = false;
     await task.save();
 
+    // Trash = remove from Google Calendar too.
+    await syncTaskToGoogle(task, 'delete');
+
     res.status(200).json({ success: true, message: 'Task moved to trash (auto‑delete in 30 days).' });
   } catch (error) {
     console.error('❌ Delete task error:', error);
@@ -1596,6 +1709,7 @@ export const archiveTask = async (req, res) => {
     task.isTrash = false;
     await task.save();
 
+    // Archives stay on Google Calendar — the task is still "real", just hidden.
     res.status(200).json({ success: true, message: 'Task archived' });
   } catch (error) {
     console.error('❌ Archive task error:', error);
@@ -1617,10 +1731,17 @@ export const restoreTask = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Not authorized.' });
     }
 
+    const wasTrashed = task.isTrash;
+
     task.isArchived = false;
     task.isTrash = false;
     task.trashedAt = null;
     await task.save();
+
+    // Coming back from trash → recreate the Google event if it was deleted.
+    if (wasTrashed && task.syncToGoogleCalendar && !task.googleEventId) {
+      await syncTaskToGoogle(task, 'create');
+    }
 
     res.status(200).json({ success: true, message: 'Task restored' });
   } catch (error) {
@@ -1641,6 +1762,12 @@ export const permanentlyDeleteTask = async (req, res) => {
     const workspace = await Workspace.findById(project.workspace);
     if (!canManageTasks(workspace, project, userId)) {
       return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    // Safety net: if the event still exists (e.g. task was hard-deleted
+    // from trash before ever being trashed properly), remove it now.
+    if (task.syncToGoogleCalendar && task.googleEventId) {
+      await syncTaskToGoogle(task, 'delete');
     }
 
     await Feedback.deleteMany({ task: taskId });
@@ -2043,9 +2170,15 @@ export const copyTask = async (req, res) => {
     taskData.title = `${taskData.title} (copy)`;
     taskData.status = (taskData.assignees?.length || 0) > 0 ? 'ready_for_completion' : 'pending';
     taskData.progress = 0;
+    taskData.googleEventId = null; // copy gets its own Google event
     taskData.subTasks = taskData.subTasks.map((st) => ({ ...st, status: 'pending' }));
 
     const newTask = await Task.create(taskData);
+
+    // If the original was synced, push a fresh event for the copy.
+    if (newTask.syncToGoogleCalendar) {
+      await syncTaskToGoogle(newTask, 'create');
+    }
 
     const populated = await Task.findById(newTask._id)
       .populate('assignees', 'name email profile')
@@ -2111,6 +2244,7 @@ export const reorderTasks = async (req, res) => {
     }));
     await Task.bulkWrite(updates);
 
+    // No Google sync — order is an in-app concept only.
     res.status(200).json({ success: true, message: 'Tasks reordered' });
   } catch (error) {
     console.error('Reorder tasks error:', error);
@@ -2284,6 +2418,11 @@ export const permanentlyDeleteTrashedTasks = async () => {
 
   const trashedTasks = await Task.find({ isTrash: true, trashedAt: { $lte: thirtyDaysAgo } });
   for (const task of trashedTasks) {
+    // Safety-net Google cleanup before the DB record disappears.
+    if (task.syncToGoogleCalendar && task.googleEventId) {
+      await syncTaskToGoogle(task, 'delete');
+    }
+
     await Feedback.deleteMany({ task: task._id });
     for (const att of task.attachments || []) {
       if (att.publicId) cloudinary.uploader.destroy(att.publicId).catch(() => {});
