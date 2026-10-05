@@ -10,23 +10,27 @@
 //       user.isBibleEnabled  → Bible picker + Bible scripture lookups
 //       user.isQuranEnabled  → Quran scripture lookups (via selection pill)
 //
-//   The Ask-AI pill only appears if at least one of the three is on. When
-//   it runs, scripture detection is filtered so a user with only Quran
-//   enabled never sees a Bible verse pop up, and vice versa.
-//
 //   The Extensions button in the header is ALWAYS visible so any user can
 //   go flip these on.
 //
 // TABLES:
-//   • Edit mode and view mode ("Done") share the exact same CSS + classes
-//     (.note-rich), so a table looks identical in both.
-//   • Table styling is stored as node attributes (CSS variables / data-attrs
-//     in the saved HTML): border color/style/width, body bg + text color,
-//     header bg + text color, striped rows, density, width %, alignment.
-//   • Per-cell background / text color / vertical align (cell, row, column).
-//   • Hover a table (or put the cursor in it) → "+" bar under it (add row),
-//     "+" bar beside it (add column), and "+" handles between rows/columns.
-//   • Floating table toolbar + full "Table settings" panel with presets.
+//   • Columns are resizable by dragging the borders (Tiptap native).
+//   • Rows are resizable by dragging the grip on the left of any row.
+//   • Edit and view modes share the exact same CSS + classes.
+//
+// CALLOUTS:
+//   • A block container with a rounded box, tinted bg, colored accent bar,
+//     and an emoji icon in the corner (Slack / Notion style).
+//   • Wrap any block (or selection of blocks) via the 💡 toolbar dropdown.
+//   • Customizable icon, background, accent bar, and text color.
+//   • Round-trips through save/load as <div data-callout …>.
+//   • Backspace at start of empty callout unwraps it.
+//   • Mod-Enter exits a callout.
+//
+// EDIT == VIEW PARITY:
+//   All spacing/rhythm lives in NOTE_RICH_CSS. Edit and view modes mount
+//   the exact same `.note-content` element so both share every rule.
+//   No Tailwind arbitrary selectors are used for spacing.
 
 import React, {
   useState,
@@ -41,7 +45,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 
 import { useEditor, EditorContent } from '@tiptap/react';
-import { Extension } from '@tiptap/core';
+import { Extension, Node, mergeAttributes } from '@tiptap/core';
 import { Plugin, PluginKey, Selection, TextSelection } from '@tiptap/pm/state';
 import { CellSelection, selectionCell } from '@tiptap/pm/tables';
 import StarterKit from '@tiptap/starter-kit';
@@ -71,63 +75,18 @@ import {
 
 import toast from 'react-hot-toast';
 import {
-  FaFillDrip,
-  FaArrowLeft,
-  FaSpinner,
-  FaTrashAlt,
-  FaTimes,
-  FaEdit,
-  FaCheck,
-  FaCloudUploadAlt,
-  FaFileAlt,
-  FaUserPlus,
-  FaFile,
-  FaPlus,
-  FaLock,
-  FaUnlock,
-  FaFilePdf,
-  FaCopy,
-  FaBold,
-  FaItalic,
-  FaUnderline,
-  FaStrikethrough,
-  FaSubscript,
-  FaSuperscript,
-  FaListUl,
-  FaListOl,
-  FaLink,
-  FaUnlink,
-  FaImage,
-  FaTable,
-  FaUndo,
-  FaRedo,
-  FaPalette,
-  FaHighlighter,
-  FaAlignLeft,
-  FaAlignCenter,
-  FaAlignRight,
-  FaAlignJustify,
-  FaHeading,
-  FaEraser,
-  FaChevronDown,
-  FaTrash,
-  FaMagic,
-  FaBookOpen,
-  FaSearch,
-  FaCheckDouble,
-  FaExpandAlt,
-  FaExternalLinkAlt,
-  FaEllipsisV,
-  FaChevronRight,
-  FaFeather,
-  FaPuzzlePiece,
-  FaPaintBrush,
-  FaObjectGroup,
-  FaObjectUngroup,
+  FaFillDrip, FaArrowLeft, FaSpinner, FaTrashAlt, FaTimes, FaEdit, FaCheck,
+  FaCloudUploadAlt, FaFileAlt, FaUserPlus, FaFile, FaPlus, FaLock, FaUnlock,
+  FaFilePdf, FaCopy, FaBold, FaItalic, FaUnderline, FaStrikethrough,
+  FaSubscript, FaSuperscript, FaListUl, FaListOl, FaLink, FaUnlink, FaImage,
+  FaTable, FaUndo, FaRedo, FaPalette, FaHighlighter, FaAlignLeft, FaAlignCenter,
+  FaAlignRight, FaAlignJustify, FaHeading, FaEraser, FaChevronDown, FaTrash,
+  FaMagic, FaBookOpen, FaSearch, FaCheckDouble, FaExpandAlt, FaExternalLinkAlt,
+  FaEllipsisV, FaChevronRight, FaFeather, FaPuzzlePiece, FaPaintBrush,
+  FaObjectGroup, FaObjectUngroup, FaRegLightbulb, FaGripLines,
 } from 'react-icons/fa';
 import { formatDistanceToNow } from 'date-fns';
 
-// ─── Capacitor imports (used for native PDF export) ─────────────────
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 
@@ -145,15 +104,12 @@ const getWordCount = (html) => {
 
 const getCharCount = (html) => stripHtml(html).length;
 
-// Blob → base64 (without the data: prefix). Needed for Capacitor's
-// Filesystem.writeFile which expects raw base64 data.
 const blobToBase64 = (blob) =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onloadend = () => {
       const result = reader.result;
-      const base64 =
-        typeof result === 'string' ? (result.split(',')[1] || '') : '';
+      const base64 = typeof result === 'string' ? (result.split(',')[1] || '') : '';
       resolve(base64);
     };
     reader.onerror = reject;
@@ -167,20 +123,12 @@ const parseColor = (str) => {
   let m = s.match(/^#([0-9a-f]{3})$/i);
   if (m) {
     const h = m[1];
-    return [
-      parseInt(h[0] + h[0], 16),
-      parseInt(h[1] + h[1], 16),
-      parseInt(h[2] + h[2], 16),
-    ];
+    return [parseInt(h[0] + h[0], 16), parseInt(h[1] + h[1], 16), parseInt(h[2] + h[2], 16)];
   }
   m = s.match(/^#([0-9a-f]{6})$/i);
   if (m) {
     const h = m[1];
-    return [
-      parseInt(h.slice(0, 2), 16),
-      parseInt(h.slice(2, 4), 16),
-      parseInt(h.slice(4, 6), 16),
-    ];
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
   }
   m = s.match(/^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/i);
   if (m) return [Number(m[1]), Number(m[2]), Number(m[3])];
@@ -190,15 +138,9 @@ const parseColor = (str) => {
 const toHex = (str, fallback = '#ffffff') => {
   const c = parseColor(str);
   if (!c) return fallback;
-  return (
-    '#' +
-    c
-      .map((n) => Math.max(0, Math.min(255, n)).toString(16).padStart(2, '0'))
-      .join('')
-  );
+  return '#' + c.map((n) => Math.max(0, Math.min(255, n)).toString(16).padStart(2, '0')).join('');
 };
 
-// Pick a readable text color for a given background.
 const contrastText = (bg) => {
   const c = parseColor(bg);
   if (!c) return null;
@@ -206,7 +148,7 @@ const contrastText = (bg) => {
   return lum > 0.6 ? '#111827' : '#ffffff';
 };
 
-// ─── SHARED TABLE CSS (edit mode, view mode and PDF all use this) ────
+// ─── SHARED TABLE + CALLOUT CSS ──────────────────────────────────────
 const buildTableCss = (S, { dark = true } = {}) => `
 ${S} {
   --tb-def-border: #d1d5db;
@@ -228,7 +170,6 @@ ${S} .tableWrapper { overflow-x: auto; }
 ${S} table {
   border-collapse: collapse;
   table-layout: fixed;
-  width: 100%;
   max-width: 100%;
   margin: 12px 0;
   border: var(--tb-bw, 1px) var(--tb-bs, solid) var(--tb-border, var(--tb-def-border));
@@ -280,90 +221,168 @@ ${S} .selectedCell::after {
   pointer-events: none;
   z-index: 2;
 }
+${S} .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: -2px;
+  width: 4px;
+  z-index: 20;
+  background-color: #14b8a6;
+  pointer-events: none;
+}
+${S} .resize-cursor { cursor: col-resize; }
 `;
 
-const NOTE_RICH_CSS = buildTableCss('.note-rich');
+const buildCalloutCss = (S, { dark = true } = {}) => `
+${S} {
+  --callout-def-bg: #f0fdfa;
+  --callout-def-border: #14b8a6;
+  --callout-def-text: #0f172a;
+}
+${
+  dark
+    ? `.dark ${S} {
+  --callout-def-bg: #042f2e;
+  --callout-def-border: #14b8a6;
+  --callout-def-text: #d1faf5;
+}`
+    : ''
+}
+${S} [data-callout] {
+  position: relative;
+  margin: 14px 0;
+  padding: 12px 16px 12px 48px;
+  border-radius: 8px;
+  background-color: var(--callout-bg, var(--callout-def-bg));
+  border-left: 4px solid var(--callout-border, var(--callout-def-border));
+  color: var(--callout-color, var(--callout-def-text));
+  transition: box-shadow 120ms ease;
+}
+${S} [data-callout]::before {
+  content: attr(data-icon);
+  position: absolute;
+  left: 14px;
+  top: 12px;
+  font-size: 18px;
+  line-height: 1.2;
+  pointer-events: none;
+  user-select: none;
+}
+${S} [data-callout] > :first-child { margin-top: 0; }
+${S} [data-callout] > :last-child { margin-bottom: 0; }
+${S} [data-callout] p { margin: 0.35rem 0; }
+${S} [data-callout] p:first-child { margin-top: 0; }
+${S} [data-callout] p:last-child { margin-bottom: 0; }
+${S} [data-callout].ProseMirror-selectednode {
+  outline: 2px solid #14b8a6;
+  outline-offset: 2px;
+}
+${S} [data-callout].is-empty-hint::after {
+  content: 'Empty callout — type here…';
+  color: rgba(20, 184, 166, 0.55);
+  pointer-events: none;
+  position: absolute;
+  left: 48px;
+  top: 12px;
+}
+`;
 
-// ─── PDF EXPORT (frontend-only) ──────────────────────────────────────
+// ─── SHARED NOTE CONTENT CSS (identical for edit + view + PDF) ──────
+const NOTE_RICH_CSS = `
+.note-rich { line-height: 1.6; }
+
+.note-rich .note-content {
+  outline: none;
+  white-space: normal;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+  color: inherit;
+}
+
+.note-rich .note-content p {
+  margin: 0.5rem 0;
+  line-height: 1.6;
+}
+.note-rich .note-content > p:first-child { margin-top: 0; }
+.note-rich .note-content > p:last-child  { margin-bottom: 0; }
+.note-rich .note-content p:empty::after {
+  content: '\\200B';
+  display: inline;
+}
+
+.note-rich .note-content ul,
+.note-rich .note-content ol {
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+.note-rich .note-content ul { list-style: disc; }
+.note-rich .note-content ol { list-style: decimal; }
+.note-rich .note-content li {
+  margin: 0.125rem 0;
+  line-height: 1.6;
+}
+.note-rich .note-content li > p,
+.note-rich .note-content li > p:first-child,
+.note-rich .note-content li > p:last-child {
+  margin: 0;
+}
+
+.note-rich .note-content h1 {
+  font-size: 1.875rem; font-weight: 700; line-height: 1.3;
+  margin: 1.25rem 0 0.5rem;
+}
+.note-rich .note-content h2 {
+  font-size: 1.5rem; font-weight: 700; line-height: 1.3;
+  margin: 1rem 0 0.5rem;
+}
+.note-rich .note-content h3 {
+  font-size: 1.25rem; font-weight: 600; line-height: 1.3;
+  margin: 0.875rem 0 0.5rem;
+}
+.note-rich .note-content h1:first-child,
+.note-rich .note-content h2:first-child,
+.note-rich .note-content h3:first-child { margin-top: 0; }
+
+.note-rich .note-content a {
+  color: #0d9488;
+  text-decoration: underline;
+}
+.note-rich .note-content img {
+  max-width: 100%;
+  border-radius: 0.5rem;
+}
+
+.note-rich .ProseMirror {
+  white-space: normal;
+  min-height: 220px;
+}
+` + buildTableCss('.note-rich') + buildCalloutCss('.note-rich');
+
+// ─── PDF EXPORT ──────────────────────────────────────────────────────
 const PDF_SCOPED_CSS =
   `
-  [data-pdf-root] {
-    background: #ffffff;
-    color: #111827;
-  }
-  [data-pdf-root] h1 {
-    font-size: 18pt;
-    font-weight: 700;
-    line-height: 1.3;
-    margin: 14pt 0 6pt 0;
-  }
-  [data-pdf-root] h2 {
-    font-size: 15pt;
-    font-weight: 700;
-    line-height: 1.3;
-    margin: 12pt 0 6pt 0;
-  }
-  [data-pdf-root] h3 {
-    font-size: 13pt;
-    font-weight: 600;
-    line-height: 1.3;
-    margin: 10pt 0 5pt 0;
-  }
-  [data-pdf-root] p {
-    margin: 6pt 0;
-  }
-  [data-pdf-root] ul {
-    list-style: disc outside;
-    padding-left: 20pt;
-    margin: 6pt 0;
-  }
-  [data-pdf-root] ol {
-    list-style: decimal outside;
-    padding-left: 20pt;
-    margin: 6pt 0;
-  }
-  [data-pdf-root] li {
-    margin: 2pt 0;
-  }
-  [data-pdf-root] li > p {
-    margin: 0;
-  }
-  [data-pdf-root] a {
-    color: #0d9488;
-    text-decoration: underline;
-  }
-  [data-pdf-root] strong,
-  [data-pdf-root] b {
-    font-weight: 700;
-  }
-  [data-pdf-root] em,
-  [data-pdf-root] i {
-    font-style: italic;
-  }
-  [data-pdf-root] u {
-    text-decoration: underline;
-  }
-  [data-pdf-root] s,
-  [data-pdf-root] del {
-    text-decoration: line-through;
-  }
-  [data-pdf-root] sub {
-    vertical-align: sub;
-    font-size: 75%;
-    line-height: 0;
-  }
-  [data-pdf-root] sup {
-    vertical-align: super;
-    font-size: 75%;
-    line-height: 0;
-  }
-  [data-pdf-root] img {
-    max-width: 100%;
-    height: auto;
-    display: block;
-    margin: 8pt auto;
-  }
-` + buildTableCss('[data-pdf-root]', { dark: false });
+  [data-pdf-root] { background: #ffffff; color: #111827; }
+  [data-pdf-root] h1 { font-size: 18pt; font-weight: 700; line-height: 1.3; margin: 14pt 0 6pt 0; }
+  [data-pdf-root] h2 { font-size: 15pt; font-weight: 700; line-height: 1.3; margin: 12pt 0 6pt 0; }
+  [data-pdf-root] h3 { font-size: 13pt; font-weight: 600; line-height: 1.3; margin: 10pt 0 5pt 0; }
+  [data-pdf-root] p { margin: 6pt 0; }
+  [data-pdf-root] ul { list-style: disc outside; padding-left: 20pt; margin: 6pt 0; }
+  [data-pdf-root] ol { list-style: decimal outside; padding-left: 20pt; margin: 6pt 0; }
+  [data-pdf-root] li { margin: 2pt 0; }
+  [data-pdf-root] li > p { margin: 0; }
+  [data-pdf-root] a { color: #0d9488; text-decoration: underline; }
+  [data-pdf-root] strong, [data-pdf-root] b { font-weight: 700; }
+  [data-pdf-root] em, [data-pdf-root] i { font-style: italic; }
+  [data-pdf-root] u { text-decoration: underline; }
+  [data-pdf-root] s, [data-pdf-root] del { text-decoration: line-through; }
+  [data-pdf-root] sub { vertical-align: sub; font-size: 75%; line-height: 0; }
+  [data-pdf-root] sup { vertical-align: super; font-size: 75%; line-height: 0; }
+  [data-pdf-root] img { max-width: 100%; height: auto; display: block; margin: 8pt auto; }
+` +
+  buildTableCss('[data-pdf-root]', { dark: false }) +
+  buildCalloutCss('[data-pdf-root]', { dark: false });
 
 const generatePdfFromNote = async (title, contentHtml) => {
   const [html2canvasMod, jspdfMod] = await Promise.all([
@@ -380,34 +399,28 @@ const generatePdfFromNote = async (title, contentHtml) => {
 
   const container = document.createElement('div');
   container.setAttribute('data-pdf-root', 'true');
-  container.style.position = 'fixed';
-  container.style.left = '-10000px';
-  container.style.top = '0';
-  container.style.width = '190mm';
-  container.style.padding = '0';
-  container.style.boxSizing = 'border-box';
-  container.style.background = '#ffffff';
-  container.style.color = '#111827';
-  container.style.fontFamily =
-    'Georgia, "Times New Roman", "Iowan Old Style", serif';
-  container.style.fontSize = '11pt';
-  container.style.lineHeight = '1.6';
+  Object.assign(container.style, {
+    position: 'fixed', left: '-10000px', top: '0',
+    width: '190mm', padding: '0', boxSizing: 'border-box',
+    background: '#ffffff', color: '#111827',
+    fontFamily: 'Georgia, "Times New Roman", "Iowan Old Style", serif',
+    fontSize: '11pt', lineHeight: '1.6',
+  });
 
   const titleEl = document.createElement('h1');
   titleEl.textContent = title || 'Untitled Note';
-  titleEl.style.fontSize = '22pt';
-  titleEl.style.fontWeight = '700';
-  titleEl.style.margin = '0 0 6pt 0';
-  titleEl.style.textAlign = 'center';
-  titleEl.style.color = '#111827';
+  Object.assign(titleEl.style, {
+    fontSize: '22pt', fontWeight: '700', margin: '0 0 6pt 0',
+    textAlign: 'center', color: '#111827',
+  });
   container.appendChild(titleEl);
 
   const meta = document.createElement('p');
   meta.textContent = `Exported from Xircle · ${new Date().toLocaleString()}`;
-  meta.style.fontSize = '9pt';
-  meta.style.color = '#6b7280';
-  meta.style.textAlign = 'center';
-  meta.style.margin = '0 0 18pt 0';
+  Object.assign(meta.style, {
+    fontSize: '9pt', color: '#6b7280',
+    textAlign: 'center', margin: '0 0 18pt 0',
+  });
   container.appendChild(meta);
 
   const body = document.createElement('div');
@@ -418,66 +431,39 @@ const generatePdfFromNote = async (title, contentHtml) => {
 
   try {
     const imgs = Array.from(container.querySelectorAll('img'));
-    await Promise.all(
-      imgs.map(
-        (img) =>
-          new Promise((resolve) => {
-            if (img.complete) return resolve();
-            img.onload = () => resolve();
-            img.onerror = () => resolve();
-          })
-      )
-    );
+    await Promise.all(imgs.map((img) => new Promise((resolve) => {
+      if (img.complete) return resolve();
+      img.onload = () => resolve();
+      img.onerror = () => resolve();
+    })));
 
     const canvas = await html2canvas(container, {
-      scale: 2,
-      useCORS: true,
-      backgroundColor: '#ffffff',
-      logging: false,
+      scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false,
     });
 
-    const PAGE_W_MM = 210;
-    const PAGE_H_MM = 297;
-    const MARGIN_TOP = 12;
-    const MARGIN_BOTTOM = 14;
-    const MARGIN_SIDE = 10;
+    const PAGE_W_MM = 210, PAGE_H_MM = 297;
+    const MARGIN_TOP = 12, MARGIN_BOTTOM = 14, MARGIN_SIDE = 10;
     const contentW = PAGE_W_MM - MARGIN_SIDE * 2;
     const contentH = PAGE_H_MM - MARGIN_TOP - MARGIN_BOTTOM;
-
     const pxPerMm = canvas.width / contentW;
     const pageHeightPx = Math.floor(contentH * pxPerMm);
 
     const pdf = new JsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
 
-    let offsetY = 0;
-    let pageIndex = 0;
-
+    let offsetY = 0, pageIndex = 0;
     while (offsetY < canvas.height) {
       const sliceH = Math.min(pageHeightPx, canvas.height - offsetY);
-
       const pageCanvas = document.createElement('canvas');
       pageCanvas.width = canvas.width;
       pageCanvas.height = sliceH;
       const ctx = pageCanvas.getContext('2d');
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
-      ctx.drawImage(
-        canvas,
-        0, offsetY, canvas.width, sliceH,
-        0, 0, canvas.width, sliceH
-      );
+      ctx.drawImage(canvas, 0, offsetY, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
 
       const imgData = pageCanvas.toDataURL('image/jpeg', 0.95);
-
       if (pageIndex > 0) pdf.addPage();
-      pdf.addImage(
-        imgData,
-        'JPEG',
-        MARGIN_SIDE,
-        MARGIN_TOP,
-        contentW,
-        sliceH / pxPerMm
-      );
+      pdf.addImage(imgData, 'JPEG', MARGIN_SIDE, MARGIN_TOP, contentW, sliceH / pxPerMm);
 
       offsetY += sliceH;
       pageIndex += 1;
@@ -485,12 +471,8 @@ const generatePdfFromNote = async (title, contentHtml) => {
 
     return pdf.output('blob');
   } finally {
-    if (container.parentNode) {
-      document.body.removeChild(container);
-    }
-    if (styleEl.parentNode) {
-      document.head.removeChild(styleEl);
-    }
+    if (container.parentNode) document.body.removeChild(container);
+    if (styleEl.parentNode) document.head.removeChild(styleEl);
   }
 };
 
@@ -522,7 +504,7 @@ const BIBLE_BOOKS = [
   },
 ];
 
-// ─── CUSTOM TIPTAP EXTENSION: resizable image ──────────────────────
+// ─── TIPTAP EXTENSIONS ──────────────────────────────────────────────
 const ResizableImage = Image.extend({
   addAttributes() {
     return {
@@ -539,8 +521,6 @@ const ResizableImage = Image.extend({
   },
 });
 
-// ─── CUSTOM TIPTAP EXTENSIONS: customizable table ───────────────────
-// A table style attribute stored as a CSS custom property on <table>.
 const tableVarAttr = (cssVar) => ({
   default: null,
   parseHTML: (el) => (el.style && el.style.getPropertyValue(cssVar)?.trim()) || null,
@@ -587,6 +567,20 @@ const CustomTable = Table.extend({
   },
 });
 
+const CustomTableRow = TableRow.extend({
+  addAttributes() {
+    return {
+      ...(this.parent?.() || {}),
+      rowHeight: {
+        default: null,
+        parseHTML: (el) => el.style?.height || null,
+        renderHTML: (attrs) =>
+          attrs.rowHeight ? { style: `height: ${attrs.rowHeight};` } : {},
+      },
+    };
+  },
+});
+
 const cellExtraAttributes = () => ({
   cellBg: {
     default: null,
@@ -617,8 +611,132 @@ const CustomTableHeader = TableHeader.extend({
   },
 });
 
-// Keeps an empty paragraph after a table that is the last node, so the
-// user can always click / type below it.
+// ─── CALLOUT NODE ───────────────────────────────────────────────────
+// Block container with rounded box, tinted bg, colored accent bar, and
+// an emoji icon. Persists as <div data-callout …>.
+const Callout = Node.create({
+  name: 'callout',
+  group: 'block',
+  content: 'block+',
+  defining: true,
+  isolating: true,
+
+  addAttributes() {
+    return {
+      bgColor: {
+        default: null,
+        parseHTML: (el) => {
+          const v = el.style?.getPropertyValue('--callout-bg')?.trim();
+          return v || null;
+        },
+        renderHTML: (attrs) =>
+          attrs.bgColor ? { style: `--callout-bg: ${attrs.bgColor};` } : {},
+      },
+      borderColor: {
+        default: null,
+        parseHTML: (el) => {
+          const v = el.style?.getPropertyValue('--callout-border')?.trim();
+          return v || null;
+        },
+        renderHTML: (attrs) =>
+          attrs.borderColor ? { style: `--callout-border: ${attrs.borderColor};` } : {},
+      },
+      textColor: {
+        default: null,
+        parseHTML: (el) => {
+          const v = el.style?.getPropertyValue('--callout-color')?.trim();
+          return v || null;
+        },
+        renderHTML: (attrs) =>
+          attrs.textColor ? { style: `--callout-color: ${attrs.textColor};` } : {},
+      },
+      icon: {
+        default: '💡',
+        parseHTML: (el) => el.getAttribute('data-icon') || '💡',
+        renderHTML: (attrs) => ({ 'data-icon': attrs.icon || '💡' }),
+      },
+    };
+  },
+
+  parseHTML() {
+    return [{ tag: 'div[data-callout]' }];
+  },
+
+  renderHTML({ HTMLAttributes }) {
+    return ['div', mergeAttributes(HTMLAttributes, { 'data-callout': 'true' }), 0];
+  },
+
+  addCommands() {
+    return {
+      setCallout:
+        (attrs = {}) =>
+        ({ commands }) =>
+          commands.wrapIn(this.name, attrs),
+      toggleCallout:
+        (attrs = {}) =>
+        ({ commands }) =>
+          commands.toggleWrap(this.name, attrs),
+      unsetCallout:
+        () =>
+        ({ commands }) =>
+          commands.lift(this.name),
+      updateCallout:
+        (attrs) =>
+        ({ commands }) =>
+          commands.updateAttributes(this.name, attrs),
+    };
+  },
+
+  addKeyboardShortcuts() {
+    return {
+      'Mod-Alt-c': () => this.editor.commands.toggleCallout(),
+      // Exit a callout at the end of its last block.
+      'Mod-Enter': () => {
+        if (!this.editor.isActive(this.name)) return false;
+        return this.editor
+          .chain()
+          .command(({ tr, state, dispatch }) => {
+            const { $from } = state.selection;
+            let calloutDepth = -1;
+            for (let d = $from.depth; d > 0; d--) {
+              if ($from.node(d).type.name === this.name) { calloutDepth = d; break; }
+            }
+            if (calloutDepth === -1) return false;
+            const calloutPos = $from.after(calloutDepth);
+            const paragraph = state.schema.nodes.paragraph.create();
+            if (dispatch) tr.insert(calloutPos, paragraph);
+            return true;
+          })
+          .run();
+      },
+      // Backspace at the very start of the first empty paragraph unwraps.
+      Backspace: () => {
+        if (!this.editor.isActive(this.name)) return false;
+        const { state } = this.editor;
+        const { $from, empty } = state.selection;
+        if (!empty) return false;
+
+        let calloutDepth = -1;
+        for (let d = $from.depth; d > 0; d--) {
+          if ($from.node(d).type.name === this.name) { calloutDepth = d; break; }
+        }
+        if (calloutDepth === -1) return false;
+
+        const calloutStart = $from.before(calloutDepth) + 1;
+        if ($from.pos !== calloutStart + 1) return false;
+
+        const calloutNode = $from.node(calloutDepth);
+        // If the only child is an empty paragraph, unwrap.
+        if (calloutNode.childCount === 1 && calloutNode.firstChild.content.size === 0) {
+          return this.editor.commands.unsetCallout();
+        }
+        return false;
+      },
+    };
+  },
+});
+
+// Ensures there's always an editable paragraph below a trailing table/callout.
 const EnsureTrailingParagraph = Extension.create({
   name: 'ensureTrailingParagraph',
   addProseMirrorPlugins() {
@@ -628,7 +746,7 @@ const EnsureTrailingParagraph = Extension.create({
         appendTransaction: (transactions, _oldState, newState) => {
           if (!transactions.some((t) => t.docChanged)) return null;
           const last = newState.doc.lastChild;
-          if (last && last.type.name === 'table') {
+          if (last && (last.type.name === 'table' || last.type.name === 'callout')) {
             const paragraph = newState.schema.nodes.paragraph;
             if (!paragraph) return null;
             return newState.tr.insert(newState.doc.content.size, paragraph.create());
@@ -649,9 +767,7 @@ const getTableInfo = (editor) => {
       const n = $from.node(d);
       if (n.type.name === 'table') return { node: n, pos: $from.before(d) };
     }
-  } catch {
-    /* noop */
-  }
+  } catch { /* noop */ }
   return null;
 };
 
@@ -659,8 +775,7 @@ const setTableAttrs = (editor, attrs) => {
   const info = getTableInfo(editor);
   if (!info) return;
   const tr = editor.state.tr.setNodeMarkup(info.pos, undefined, {
-    ...info.node.attrs,
-    ...attrs,
+    ...info.node.attrs, ...attrs,
   });
   editor.view.dispatch(tr);
 };
@@ -669,12 +784,9 @@ const getCurrentCellAttrs = (editor) => {
   try {
     const $cell = selectionCell(editor.state);
     return $cell?.nodeAfter?.attrs || {};
-  } catch {
-    return {};
-  }
+  } catch { return {}; }
 };
 
-// scope: 'cell' (current/selected cells) | 'row' | 'column'
 const applyCellAttrs = (editor, scope, attrs) => {
   if (!editor || !getTableInfo(editor)) return;
   const { state, view } = editor;
@@ -698,9 +810,7 @@ const applyCellAttrs = (editor, scope, attrs) => {
         view.dispatch(
           editor.state.tr.setSelection(Selection.fromJSON(editor.state.doc, original))
         );
-      } catch {
-        /* noop */
-      }
+      } catch { /* noop */ }
     }
   }
 };
@@ -711,9 +821,7 @@ const selectCellDom = (editor, cell) => {
     const $pos = editor.state.doc.resolve(pos);
     editor.view.dispatch(editor.state.tr.setSelection(TextSelection.near($pos)));
     return true;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 };
 
 const getScrollParent = (el) => {
@@ -726,81 +834,50 @@ const getScrollParent = (el) => {
   return null;
 };
 
+// ─── CONSTANTS ──────────────────────────────────────────────────────
 const TABLE_COLORS = [
   '#ffffff', '#f3f4f6', '#fef08a', '#bbf7d0', '#bfdbfe', '#fbcfe8',
   '#fed7aa', '#e9d5ff', '#111827', '#0d9488', '#1d4ed8', '#dc2626',
 ];
 
 const TABLE_STYLE_RESET = {
-  borderColor: null,
-  borderStyle: null,
-  borderWidth: null,
-  cellBg: null,
-  textColor: null,
-  headerBg: null,
-  headerColor: null,
-  striped: false,
-  stripeColor: null,
+  borderColor: null, borderStyle: null, borderWidth: null,
+  cellBg: null, textColor: null, headerBg: null, headerColor: null,
+  striped: false, stripeColor: null,
 };
 
 const TABLE_PRESETS = [
   { id: 'default', label: 'Default', attrs: {} },
-  {
-    id: 'teal',
-    label: 'Teal',
-    attrs: {
-      borderColor: '#99f6e4', headerBg: '#0d9488', headerColor: '#ffffff',
-      cellBg: '#ffffff', textColor: '#111827', striped: true, stripeColor: '#f0fdfa',
-    },
-  },
-  {
-    id: 'ocean',
-    label: 'Ocean',
-    attrs: {
-      borderColor: '#bfdbfe', headerBg: '#1d4ed8', headerColor: '#ffffff',
-      cellBg: '#ffffff', textColor: '#111827', striped: true, stripeColor: '#eff6ff',
-    },
-  },
-  {
-    id: 'night',
-    label: 'Night',
-    attrs: {
-      borderColor: '#3f3f46', headerBg: '#09090b', headerColor: '#fafafa',
-      cellBg: '#18181b', textColor: '#e4e4e7', striped: true, stripeColor: '#232326',
-    },
-  },
-  {
-    id: 'sunny',
-    label: 'Sunny',
-    attrs: {
-      borderColor: '#fcd34d', headerBg: '#f59e0b', headerColor: '#111827',
-      cellBg: '#fffbeb', textColor: '#451a03', striped: true, stripeColor: '#fef3c7',
-    },
-  },
-  {
-    id: 'rose',
-    label: 'Rose',
-    attrs: {
-      borderColor: '#fda4af', headerBg: '#e11d48', headerColor: '#ffffff',
-      cellBg: '#fff1f2', textColor: '#4c0519', striped: true, stripeColor: '#ffe4e6',
-    },
-  },
-  {
-    id: 'bold',
-    label: 'Bold grid',
-    attrs: {
-      borderColor: '#111827', borderWidth: '2px', headerBg: '#e5e7eb', headerColor: '#111827',
-      cellBg: '#ffffff', textColor: '#111827',
-    },
-  },
-  {
-    id: 'dashed',
-    label: 'Dashed',
-    attrs: {
-      borderColor: '#9ca3af', borderStyle: 'dashed', headerBg: '#fef9c3', headerColor: '#111827',
-      cellBg: '#ffffff', textColor: '#111827',
-    },
-  },
+  { id: 'teal', label: 'Teal', attrs: { borderColor: '#99f6e4', headerBg: '#0d9488', headerColor: '#ffffff', cellBg: '#ffffff', textColor: '#111827', striped: true, stripeColor: '#f0fdfa' } },
+  { id: 'ocean', label: 'Ocean', attrs: { borderColor: '#bfdbfe', headerBg: '#1d4ed8', headerColor: '#ffffff', cellBg: '#ffffff', textColor: '#111827', striped: true, stripeColor: '#eff6ff' } },
+  { id: 'night', label: 'Night', attrs: { borderColor: '#3f3f46', headerBg: '#09090b', headerColor: '#fafafa', cellBg: '#18181b', textColor: '#e4e4e7', striped: true, stripeColor: '#232326' } },
+  { id: 'sunny', label: 'Sunny', attrs: { borderColor: '#fcd34d', headerBg: '#f59e0b', headerColor: '#111827', cellBg: '#fffbeb', textColor: '#451a03', striped: true, stripeColor: '#fef3c7' } },
+  { id: 'rose', label: 'Rose', attrs: { borderColor: '#fda4af', headerBg: '#e11d48', headerColor: '#ffffff', cellBg: '#fff1f2', textColor: '#4c0519', striped: true, stripeColor: '#ffe4e6' } },
+  { id: 'bold', label: 'Bold grid', attrs: { borderColor: '#111827', borderWidth: '2px', headerBg: '#e5e7eb', headerColor: '#111827', cellBg: '#ffffff', textColor: '#111827' } },
+  { id: 'dashed', label: 'Dashed', attrs: { borderColor: '#9ca3af', borderStyle: 'dashed', headerBg: '#fef9c3', headerColor: '#111827', cellBg: '#ffffff', textColor: '#111827' } },
+];
+
+const CALLOUT_BG_COLORS = [
+  '#f0fdfa', '#eff6ff', '#fffbeb', '#fef2f2', '#f0fdf4',
+  '#faf5ff', '#f5f3ff', '#fdf4ff', '#f9fafb', '#111827',
+];
+const CALLOUT_BORDER_COLORS = [
+  '#14b8a6', '#3b82f6', '#f59e0b', '#ef4444', '#22c55e',
+  '#a855f7', '#8b5cf6', '#ec4899', '#6b7280', '#0f172a',
+];
+const CALLOUT_TEXT_COLORS = [
+  '#0f172a', '#1e293b', '#111827', '#0d9488', '#1d4ed8',
+  '#dc2626', '#b45309', '#7c3aed', '#db2777', '#ffffff',
+];
+const CALLOUT_ICONS = ['💡', 'ℹ️', '⚠️', '✅', '❌', '📝', '🔥', '⭐', '🎯', '📌', '❓', '🚀'];
+
+const CALLOUT_PRESETS = [
+  { id: 'idea',    label: 'Idea',    icon: '💡', bgColor: '#f0fdfa', borderColor: '#14b8a6', textColor: '#0f172a' },
+  { id: 'info',    label: 'Info',    icon: 'ℹ️', bgColor: '#eff6ff', borderColor: '#3b82f6', textColor: '#0f172a' },
+  { id: 'warning', label: 'Warning', icon: '⚠️', bgColor: '#fffbeb', borderColor: '#f59e0b', textColor: '#451a03' },
+  { id: 'success', label: 'Success', icon: '✅', bgColor: '#f0fdf4', borderColor: '#22c55e', textColor: '#052e16' },
+  { id: 'danger',  label: 'Danger',  icon: '❌', bgColor: '#fef2f2', borderColor: '#ef4444', textColor: '#450a0a' },
+  { id: 'note',    label: 'Note',    icon: '📝', bgColor: '#f9fafb', borderColor: '#6b7280', textColor: '#111827' },
 ];
 
 const FONT_FAMILIES = [
@@ -815,12 +892,9 @@ const FONT_FAMILIES = [
 
 const FONT_SIZES = [
   { label: 'Default', value: null },
-  { label: '12', value: '12px' },
-  { label: '14', value: '14px' },
-  { label: '16', value: '16px' },
-  { label: '18', value: '18px' },
-  { label: '24', value: '24px' },
-  { label: '32', value: '32px' },
+  { label: '12', value: '12px' }, { label: '14', value: '14px' },
+  { label: '16', value: '16px' }, { label: '18', value: '18px' },
+  { label: '24', value: '24px' }, { label: '32', value: '32px' },
   { label: '48', value: '48px' },
 ];
 
@@ -828,7 +902,6 @@ const TEXT_COLORS = [
   '#111827', '#ef4444', '#f59e0b', '#eab308', '#22c55e',
   '#14b8a6', '#0ea5e9', '#6366f1', '#a855f7', '#ec4899',
 ];
-
 const HIGHLIGHT_COLORS = ['#fef08a', '#bbf7d0', '#bfdbfe', '#fbcfe8', '#fed7aa', '#e9d5ff'];
 
 const HEADING_OPTIONS = [
@@ -838,7 +911,6 @@ const HEADING_OPTIONS = [
   { label: 'Heading 3', level: 3 },
 ];
 
-// ─── REWRITE OPTIONS ─────────────────────────────────────────────────
 const REWRITE_STYLES = [
   { value: 'explanatory', label: 'Explanatory', hint: 'Define terms, add examples' },
   { value: 'formal', label: 'Formal', hint: 'Professional tone' },
@@ -877,17 +949,7 @@ const ToolbarDivider = () => (
   <span className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1 flex-shrink-0" />
 );
 
-const ToolbarDropdown = ({
-  id,
-  openId,
-  setOpenId,
-  isMobile,
-  icon,
-  label,
-  active,
-  width = 220,
-  children,
-}) => {
+const ToolbarDropdown = ({ id, openId, setOpenId, isMobile, icon, label, active, width = 220, children }) => {
   const triggerRef = useRef(null);
   const panelRef = useRef(null);
   const [style, setStyle] = useState(null);
@@ -898,9 +960,7 @@ const ToolbarDropdown = ({
     const rect = triggerRef.current.getBoundingClientRect();
     const margin = 8;
     let left = rect.left;
-    if (left + width > window.innerWidth - margin) {
-      left = window.innerWidth - margin - width;
-    }
+    if (left + width > window.innerWidth - margin) left = window.innerWidth - margin - width;
     if (left < margin) left = margin;
 
     const next = { position: 'fixed', left, width, zIndex: 70 };
@@ -920,9 +980,7 @@ const ToolbarDropdown = ({
       if (panelRef.current?.contains(e.target) || triggerRef.current?.contains(e.target)) return;
       setOpenId(null);
     };
-    const handleKey = (e) => {
-      if (e.key === 'Escape') setOpenId(null);
-    };
+    const handleKey = (e) => { if (e.key === 'Escape') setOpenId(null); };
     document.addEventListener('mousedown', handlePointerDown);
     document.addEventListener('keydown', handleKey);
     return () => {
@@ -1025,7 +1083,7 @@ const PanelField = ({ label, children }) => (
   </div>
 );
 
-const ColorRow = ({ label, value, onChange }) => (
+const ColorRow = ({ label, value, onChange, palette = TABLE_COLORS }) => (
   <div>
     <div className="flex items-center justify-between mb-1.5">
       <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">{label}</span>
@@ -1038,7 +1096,7 @@ const ColorRow = ({ label, value, onChange }) => (
       </button>
     </div>
     <div className="flex flex-wrap items-center gap-1.5">
-      {TABLE_COLORS.map((c) => (
+      {palette.map((c) => (
         <button
           key={c}
           type="button"
@@ -1110,13 +1168,7 @@ const TableSettingsPanel = ({ editor }) => {
   const borderWidth = parseInt(a.borderWidth, 10) || 1;
 
   const run = (name) => () => editor.chain().focus()[name]().run();
-  const can = (name) => {
-    try {
-      return Boolean(editor.can()[name]());
-    } catch {
-      return false;
-    }
-  };
+  const can = (name) => { try { return Boolean(editor.can()[name]()); } catch { return false; } };
 
   const tabs = [
     { id: 'design', label: 'Design' },
@@ -1357,6 +1409,11 @@ const TableSettingsPanel = ({ editor }) => {
               <FaTrash className="text-[10px]" /> Delete table
             </button>
           </PanelField>
+
+          <p className="text-[10px] text-gray-400 dark:text-gray-500">
+            Tip: drag the border between two columns to resize a column. Drag
+            the grip on the left of a row to change its height.
+          </p>
         </div>
       )}
 
@@ -1455,7 +1512,7 @@ const TableSettingsSheet = ({ editor, isMobile, keyboardOffset, onClose }) => (
   </div>
 );
 
-// ─── TABLE OVERLAY (hover "+" bars, handles, floating toolbar) ──────
+// ─── TABLE OVERLAY ──────────────────────────────────────────────────
 const BarBtn = ({ onClick, title, active, danger, disabled, children }) => (
   <button
     type="button"
@@ -1480,15 +1537,11 @@ const BarDivider = () => (
 );
 
 const TableOverlay = ({
-  editor,
-  hoverCell,
-  isMobile,
-  keyboardOffset,
-  panelOpen,
-  onTogglePanel,
-  wrapperRef,
+  editor, hoverCell, isMobile, keyboardOffset, panelOpen, onTogglePanel, wrapperRef,
 }) => {
   const [, force] = useReducer((x) => x + 1, 0);
+  const [rowDrag, setRowDrag] = useState(null);
+  const rowDragRef = useRef(null);
 
   useEffect(() => {
     let raf = 0;
@@ -1505,9 +1558,60 @@ const TableOverlay = ({
     };
   }, []);
 
+  const beginRowDrag = (rowEl, e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = rowEl.getBoundingClientRect();
+    const state = { rowEl, startY: e.clientY, startHeight: rect.height };
+    rowDragRef.current = state;
+    setRowDrag(state);
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+  };
+
+  useEffect(() => {
+    if (!rowDrag) return;
+    const onMove = (e) => {
+      const delta = e.clientY - rowDrag.startY;
+      const newH = Math.max(28, rowDrag.startHeight + delta);
+      rowDrag.rowEl.style.height = `${newH}px`;
+    };
+    const onUp = () => {
+      const finalH = rowDrag.rowEl.style.height;
+      const rowEl = rowDrag.rowEl;
+      rowEl.style.height = '';
+      try {
+        const pos = editor.view.posAtDOM(rowEl, 0);
+        const $pos = editor.state.doc.resolve(pos);
+        for (let d = $pos.depth; d > 0; d--) {
+          const n = $pos.node(d);
+          if (n.type.name === 'tableRow') {
+            const rowPos = $pos.before(d);
+            editor.view.dispatch(
+              editor.state.tr.setNodeMarkup(rowPos, undefined, {
+                ...n.attrs,
+                rowHeight: finalH || null,
+              })
+            );
+            break;
+          }
+        }
+      } catch { /* noop */ }
+      rowDragRef.current = null;
+      setRowDrag(null);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+  }, [rowDrag, editor]);
+
   if (!editor || editor.isDestroyed) return null;
 
-  // Active cell (from the selection)
   let activeCell = null;
   const info = getTableInfo(editor);
   if (info) {
@@ -1515,31 +1619,24 @@ const TableOverlay = ({
       const $c = selectionCell(editor.state);
       const dom = $c ? editor.view.nodeDOM($c.pos) : null;
       if (dom && dom.nodeType === 1) activeCell = dom;
-    } catch {
-      activeCell = null;
-    }
+    } catch { activeCell = null; }
   }
 
   let hover = null;
   try {
     if (hoverCell && hoverCell.isConnected && editor.view.dom.contains(hoverCell)) hover = hoverCell;
-  } catch {
-    hover = null;
-  }
+  } catch { hover = null; }
 
   const target = hover || activeCell;
   if (!target) return null;
   const table = target.closest('table');
   if (!table) return null;
 
-  // Visible bounds (so overlays never float over toolbars / outside the scroller)
   const wrapper = wrapperRef.current;
   const tbEl = wrapper?.querySelector('[data-editor-toolbar]');
   const tb = tbEl ? tbEl.getBoundingClientRect() : null;
   const scroller = getScrollParent(wrapper);
-  const sr = scroller
-    ? scroller.getBoundingClientRect()
-    : { top: 0, bottom: window.innerHeight };
+  const sr = scroller ? scroller.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
   const minY = isMobile ? sr.top : Math.max(sr.top, tb ? tb.bottom : sr.top);
   const maxY = isMobile ? Math.min(sr.bottom, tb ? tb.top : sr.bottom) : sr.bottom;
 
@@ -1564,7 +1661,6 @@ const TableOverlay = ({
     if (cell) runOnCell(cell, 'addColumnAfter');
   };
 
-  // Bars
   const rowBarTop = tRect.bottom + 3;
   const showRowBar = rowBarTop >= minY && rowBarTop + 16 <= maxY;
   const colBarLeft = Math.min(tRect.right + 3, window.innerWidth - 18);
@@ -1572,7 +1668,6 @@ const TableOverlay = ({
   const colBarHeight = Math.min(tRect.bottom, maxY) - colBarTop;
   const showColBar = colBarHeight > 20;
 
-  // Between-row / between-column handles for the hovered cell
   const row = target.parentElement;
   const rowRect = row ? row.getBoundingClientRect() : null;
   const cellRect = target.getBoundingClientRect();
@@ -1591,7 +1686,6 @@ const TableOverlay = ({
   const handleClass =
     'fixed z-[15] w-5 h-5 rounded-full bg-teal-600 text-white shadow-md shadow-black/20 flex items-center justify-center hover:scale-110 active:scale-95 transition';
 
-  // Floating toolbar (only for the table that has the cursor)
   let bar = null;
   if (activeCell && info) {
     const aTable = activeCell.closest('table');
@@ -1604,13 +1698,7 @@ const TableOverlay = ({
       const widthPct = parseInt(info.node.attrs.tableWidth, 10) || 100;
       const align = info.node.attrs.tableAlign || 'left';
       const run = (name) => () => editor.chain().focus()[name]().run();
-      const canDo = (name) => {
-        try {
-          return Boolean(editor.can()[name]());
-        } catch {
-          return false;
-        }
-      };
+      const canDo = (name) => { try { return Boolean(editor.can()[name]()); } catch { return false; } };
       bar = (
         <div
           data-table-ui
@@ -1623,38 +1711,20 @@ const TableOverlay = ({
             <span className="text-[11px] font-semibold">Style</span>
           </BarBtn>
           <BarDivider />
-          <BarBtn
-            title="Smaller table"
-            onClick={() => setTableAttrs(editor, { tableWidth: `${Math.max(20, widthPct - 10)}%` })}
-          >
+          <BarBtn title="Smaller table" onClick={() => setTableAttrs(editor, { tableWidth: `${Math.max(20, widthPct - 10)}%` })}>
             <span className="text-[11px] font-semibold">W−</span>
           </BarBtn>
-          <BarBtn
-            title="Bigger table"
-            onClick={() => setTableAttrs(editor, { tableWidth: `${Math.min(100, widthPct + 10)}%` })}
-          >
+          <BarBtn title="Bigger table" onClick={() => setTableAttrs(editor, { tableWidth: `${Math.min(100, widthPct + 10)}%` })}>
             <span className="text-[11px] font-semibold">W+</span>
           </BarBtn>
           <BarDivider />
-          <BarBtn
-            title="Align table left"
-            active={align === 'left'}
-            onClick={() => setTableAttrs(editor, { tableAlign: 'left' })}
-          >
+          <BarBtn title="Align table left" active={align === 'left'} onClick={() => setTableAttrs(editor, { tableAlign: 'left' })}>
             <FaAlignLeft className="text-[11px]" />
           </BarBtn>
-          <BarBtn
-            title="Center table"
-            active={align === 'center'}
-            onClick={() => setTableAttrs(editor, { tableAlign: 'center' })}
-          >
+          <BarBtn title="Center table" active={align === 'center'} onClick={() => setTableAttrs(editor, { tableAlign: 'center' })}>
             <FaAlignCenter className="text-[11px]" />
           </BarBtn>
-          <BarBtn
-            title="Align table right"
-            active={align === 'right'}
-            onClick={() => setTableAttrs(editor, { tableAlign: 'right' })}
-          >
+          <BarBtn title="Align table right" active={align === 'right'} onClick={() => setTableAttrs(editor, { tableAlign: 'right' })}>
             <FaAlignRight className="text-[11px]" />
           </BarBtn>
           <BarDivider />
@@ -1745,6 +1815,21 @@ const TableOverlay = ({
           </button>
         ))}
 
+      {hover && rowRect && rowRect.bottom >= minY && rowRect.top <= maxY && (
+        <div
+          data-table-ui
+          title="Drag to resize row"
+          onMouseDown={(e) => beginRowDrag(row, e)}
+          className="fixed z-[15] w-3 h-6 rounded-md bg-teal-600/80 hover:bg-teal-600 text-white shadow-md flex items-center justify-center cursor-row-resize"
+          style={{
+            left: Math.max(2, tRect.left - 22),
+            top: rowRect.top + rowRect.height / 2 - 12,
+          }}
+        >
+          <FaGripLines className="text-[8px]" />
+        </div>
+      )}
+
       {bar}
 
       {panelOpen && (
@@ -1770,9 +1855,7 @@ const EditorToolbar = ({ editor, isMobile, onOpenTableSettings }) => {
   const [mobileExpanded, setMobileExpanded] = useState(false);
 
   useEffect(() => {
-    if (openId === 'link') {
-      setLinkUrl(editor?.getAttributes('link')?.href || '');
-    }
+    if (openId === 'link') setLinkUrl(editor?.getAttributes('link')?.href || '');
   }, [openId, editor]);
 
   if (!editor) return null;
@@ -1794,9 +1877,7 @@ const EditorToolbar = ({ editor, isMobile, onOpenTableSettings }) => {
 
   const applyImage = () => {
     if (!imageUrl.trim()) return;
-    editor
-      .chain()
-      .focus()
+    editor.chain().focus()
       .setImage({ src: imageUrl.trim(), width: imageWidth ? `${imageWidth}px` : null })
       .run();
     setImageUrl('');
@@ -1805,12 +1886,36 @@ const EditorToolbar = ({ editor, isMobile, onOpenTableSettings }) => {
   };
 
   const applyTable = () => {
-    editor
-      .chain()
-      .focus()
+    editor.chain().focus()
       .insertTable({ rows: Math.max(1, tableRows), cols: Math.max(1, tableCols), withHeaderRow: true })
       .run();
     setOpenId(null);
+  };
+
+  // ── Callout ─────────────────────────────────────────────────────
+  const inCallout = editor.isActive('callout');
+  const calloutAttrs = editor.getAttributes('callout');
+
+  const wrapInCallout = (preset = {}) => {
+    const attrs = {
+      bgColor: preset.bgColor ?? null,
+      borderColor: preset.borderColor ?? null,
+      textColor: preset.textColor ?? null,
+      icon: preset.icon ?? '💡',
+    };
+    if (inCallout) {
+      editor.chain().focus().updateCallout(attrs).run();
+    } else {
+      editor.chain().focus().setCallout(attrs).run();
+    }
+  };
+
+  const removeCallout = () => {
+    if (inCallout) editor.chain().focus().unsetCallout().run();
+  };
+
+  const updateCalloutAttr = (attrs) => {
+    if (inCallout) editor.chain().focus().updateCallout(attrs).run();
   };
 
   const collapsed = isMobile && !mobileExpanded;
@@ -1964,6 +2069,99 @@ const EditorToolbar = ({ editor, isMobile, onOpenTableSettings }) => {
               </DropdownItem>
             }
           />
+        </ToolbarDropdown>
+
+        {/* ── CALLOUT ─────────────────────────────────────────────── */}
+        <ToolbarDropdown
+          id="callout" openId={openId} setOpenId={setOpenId} isMobile={isMobile}
+          icon={<FaRegLightbulb className="text-xs" />} label="Callout" width={272}
+          active={inCallout}
+        >
+          <div className="space-y-3">
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                if (inCallout) removeCallout();
+                else wrapInCallout();
+                setOpenId(null);
+              }}
+              className={`w-full py-2 rounded-lg text-xs font-medium transition ${
+                inCallout
+                  ? 'bg-red-50 dark:bg-red-900/20 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30'
+                  : 'bg-teal-600 text-white hover:bg-teal-700'
+              }`}
+            >
+              {inCallout ? 'Remove callout' : 'Wrap in callout'}
+            </button>
+
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1.5">
+                Presets
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {CALLOUT_PRESETS.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => { wrapInCallout(p); setOpenId(null); }}
+                    className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-teal-500 transition"
+                    style={{ backgroundColor: p.bgColor }}
+                  >
+                    <span className="text-base leading-none">{p.icon}</span>
+                    <span className="text-[10px] text-gray-700">{p.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {inCallout && (
+              <>
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1.5">
+                    Icon
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {CALLOUT_ICONS.map((ic) => (
+                      <button
+                        key={ic}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => updateCalloutAttr({ icon: ic })}
+                        className={`w-7 h-7 rounded-lg flex items-center justify-center text-base transition ${
+                          calloutAttrs.icon === ic
+                            ? 'bg-teal-100 dark:bg-teal-900/30 ring-2 ring-teal-500'
+                            : 'hover:bg-gray-100 dark:hover:bg-gray-800'
+                        }`}
+                      >
+                        {ic}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <ColorRow
+                  label="Background"
+                  palette={CALLOUT_BG_COLORS}
+                  value={calloutAttrs.bgColor}
+                  onChange={(v) => updateCalloutAttr({ bgColor: v })}
+                />
+                <ColorRow
+                  label="Accent bar"
+                  palette={CALLOUT_BORDER_COLORS}
+                  value={calloutAttrs.borderColor}
+                  onChange={(v) => updateCalloutAttr({ borderColor: v })}
+                />
+                <ColorRow
+                  label="Text color"
+                  palette={CALLOUT_TEXT_COLORS}
+                  value={calloutAttrs.textColor}
+                  onChange={(v) => updateCalloutAttr({ textColor: v })}
+                />
+              </>
+            )}
+          </div>
         </ToolbarDropdown>
 
         <ToolbarDivider />
@@ -2162,30 +2360,11 @@ const EditorToolbar = ({ editor, isMobile, onOpenTableSettings }) => {
 };
 
 // ─── TIPTAP NOTE EDITOR ─────────────────────────────────────────────
-// Shared by edit mode AND view mode so both render identically.
-const RICH_TEXT_CLASSES =
-  '[&_h1]:text-3xl [&_h2]:text-2xl [&_h3]:text-xl [&_h1]:font-bold [&_h2]:font-bold [&_h3]:font-semibold ' +
-  '[&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:mt-1 [&_li]:mb-1 ' +
-  '[&_a]:text-teal-600 [&_a]:underline [&_img]:rounded-lg [&_img]:max-w-full [&_p]:my-2';
-
-const EDITOR_CONTENT_CLASSES =
-  'note-rich ' +
-  RICH_TEXT_CLASSES +
-  ' [&_.is-editor-empty:first-child::before]:text-gray-400 dark:[&_.is-editor-empty:first-child::before]:text-gray-500 ' +
-  '[&_.is-editor-empty:first-child::before]:content-[attr(data-placeholder)] ' +
-  '[&_.is-editor-empty:first-child::before]:float-left [&_.is-editor-empty:first-child::before]:h-0 ' +
-  '[&_.is-editor-empty:first-child::before]:pointer-events-none';
-
-const NOTE_BODY_CLASSES =
-  'text-gray-800 dark:text-gray-100 leading-relaxed ' + EDITOR_CONTENT_CLASSES;
+const EDITOR_CONTENT_CLASSES = 'note-content outline-none';
+const NOTE_BODY_CLASSES = 'note-rich text-gray-800 dark:text-gray-100';
 
 const NoteEditor = ({
-  initialContent,
-  isMobile,
-  keyboardOffset,
-  onChange,
-  onSelectionChange,
-  onEditorReady,
+  initialContent, isMobile, keyboardOffset, onChange, onSelectionChange, onEditorReady,
 }) => {
   const [hoverCell, setHoverCell] = useState(null);
   const [tablePanelOpen, setTablePanelOpen] = useState(false);
@@ -2198,24 +2377,17 @@ const NoteEditor = ({
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
         link: { openOnClick: false, autolink: true, linkOnPaste: true },
-        code: false,
-        codeBlock: false,
-        blockquote: false,
-        horizontalRule: false,
-        hardBreak: false,
+        code: false, codeBlock: false, blockquote: false,
+        horizontalRule: false, hardBreak: false,
       }),
-      Subscript,
-      Superscript,
-      TextStyle,
-      Color,
-      FontFamily,
-      FontSize,
-      BackgroundColor,
+      Subscript, Superscript,
+      TextStyle, Color, FontFamily, FontSize, BackgroundColor,
       Highlight.configure({ multicolor: true }),
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       ResizableImage,
-      CustomTable.configure({ resizable: false }),
-      TableRow,
+      Callout,
+      CustomTable.configure({ resizable: true, lastColumnResizable: true }),
+      CustomTableRow,
       CustomTableHeader,
       CustomTableCell,
       EnsureTrailingParagraph,
@@ -2223,9 +2395,7 @@ const NoteEditor = ({
     ],
     content: initialContent || '',
     editorProps: {
-      attributes: {
-        class: 'outline-none min-h-[300px]',
-      },
+      attributes: { class: EDITOR_CONTENT_CLASSES },
     },
     onUpdate: ({ editor: e }) => onChange(e.getHTML()),
     onSelectionUpdate: ({ editor: e }) => {
@@ -2242,9 +2412,7 @@ const NoteEditor = ({
           const r = sel.getRangeAt(0).getBoundingClientRect();
           rect = { top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width };
         }
-      } catch {
-        rect = null;
-      }
+      } catch { rect = null; }
       onSelectionChange({ text, rect });
     },
   });
@@ -2259,7 +2427,6 @@ const NoteEditor = ({
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
   }, []);
 
-  // Close the settings panel once the cursor leaves every table.
   useEffect(() => {
     if (tablePanelOpen && editor && !editor.isDestroyed && !getTableInfo(editor)) {
       setTablePanelOpen(false);
@@ -2284,10 +2451,7 @@ const NoteEditor = ({
   const handleMouseMove = (e) => {
     const t = e.target;
     if (!t || !t.closest) return;
-    if (t.closest('[data-table-ui]')) {
-      clearHideTimer();
-      return;
-    }
+    if (t.closest('[data-table-ui]')) { clearHideTimer(); return; }
     const cell = t.closest('td, th');
     if (cell && cell.closest('.ProseMirror')) {
       clearHideTimer();
@@ -2347,6 +2511,16 @@ const NoteEditor = ({
     </div>
   );
 };
+
+// ─── VIEW-MODE RENDER ──────────────────────────────────────────────
+const NoteViewer = ({ content }) => (
+  <div className={NOTE_BODY_CLASSES}>
+    <div
+      className="note-content"
+      dangerouslySetInnerHTML={{ __html: content || '' }}
+    />
+  </div>
+);
 
 // ─── CONFIRM MODAL ──────────────────────────────────────────────────
 const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => {
@@ -2449,9 +2623,8 @@ const SaveStatus = ({ status, lastSaved }) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════
-// BIBLE PICKER (manual lookup)
+// BIBLE PICKER
 // ═════════════════════════════════════════════════════════════════════
-
 const BibleBookDropdown = ({ value, onChange, isMobile }) => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -2460,9 +2633,7 @@ const BibleBookDropdown = ({ value, onChange, isMobile }) => {
 
   useEffect(() => {
     if (!open) return;
-    const handler = (e) => {
-      if (!wrapperRef.current?.contains(e.target)) setOpen(false);
-    };
+    const handler = (e) => { if (!wrapperRef.current?.contains(e.target)) setOpen(false); };
     const esc = (e) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('mousedown', handler);
     document.addEventListener('keydown', esc);
@@ -2488,10 +2659,7 @@ const BibleBookDropdown = ({ value, onChange, isMobile }) => {
       .filter((g) => g.books.length > 0);
   }, [search]);
 
-  const handlePick = (book) => {
-    onChange(book);
-    setOpen(false);
-  };
+  const handlePick = (book) => { onChange(book); setOpen(false); };
 
   return (
     <div ref={wrapperRef} className="relative">
@@ -2507,9 +2675,7 @@ const BibleBookDropdown = ({ value, onChange, isMobile }) => {
         <span className={value ? 'text-gray-800 dark:text-white font-medium' : 'text-gray-400 dark:text-gray-500'}>
           {value || 'Select book'}
         </span>
-        <FaChevronDown
-          className={`text-xs text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`}
-        />
+        <FaChevronDown className={`text-xs text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
@@ -2607,10 +2773,7 @@ const NumberField = ({ label, value, onChange, min = 1, placeholder, autoFocus }
           pattern="[0-9]*"
           min={min}
           value={value}
-          onChange={(e) => {
-            const v = e.target.value.replace(/[^0-9]/g, '');
-            onChange(v);
-          }}
+          onChange={(e) => onChange(e.target.value.replace(/[^0-9]/g, ''))}
           placeholder={placeholder}
           className="flex-1 min-w-0 w-full text-center text-base font-semibold text-gray-800 dark:text-white bg-transparent outline-none py-2.5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
         />
@@ -2654,9 +2817,7 @@ const BiblePickerModal = ({ open, isMobile, onClose, onSubmit, busy }) => {
     >
       <div
         className={`bg-white dark:bg-[#1a1a1a] shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col overflow-visible ${
-          isMobile
-            ? 'w-full max-h-[90vh] rounded-t-2xl'
-            : 'w-full max-w-md max-h-[90vh] rounded-2xl'
+          isMobile ? 'w-full max-h-[90vh] rounded-t-2xl' : 'w-full max-w-md max-h-[90vh] rounded-2xl'
         }`}
       >
         {isMobile && (
@@ -2737,28 +2898,25 @@ const BiblePickerModal = ({ open, isMobile, onClose, onSubmit, busy }) => {
 // ═════════════════════════════════════════════════════════════════════
 // AI COMPONENTS
 // ═════════════════════════════════════════════════════════════════════
-
 const AiSelectionPill = ({ selection, isMobile, busy, onClick }) => {
   if (!selection || busy) return null;
 
   let style;
   if (isMobile || !selection.rect) {
     style = {
-      position: 'fixed',
-      left: '50%',
+      position: 'fixed', left: '50%',
       bottom: 'calc(80px + env(safe-area-inset-bottom, 0px))',
-      transform: 'translateX(-50%)',
-      zIndex: 45,
+      transform: 'translateX(-50%)', zIndex: 45, pointerEvents: 'auto',
     };
   } else {
     const r = selection.rect;
     const pillH = 38;
     const above = r.top > pillH + 12;
-    const top = above ? r.top - pillH - 8 : r.bottom + 8;
+    const top = above ? r.top - pillH - 4 : r.bottom + 4;
     const pillW = 130;
     let left = r.left + r.width / 2 - pillW / 2;
     left = Math.max(8, Math.min(window.innerWidth - pillW - 8, left));
-    style = { position: 'fixed', top, left, zIndex: 45 };
+    style = { position: 'fixed', top, left, zIndex: 45, pointerEvents: 'auto' };
   }
 
   return (
@@ -2877,10 +3035,7 @@ const SearchView = ({ data }) => (
         </h5>
         <div className="flex flex-wrap gap-1.5">
           {data.relatedTopics.map((t, i) => (
-            <span
-              key={i}
-              className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
-            >
+            <span key={i} className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
               {t}
             </span>
           ))}
@@ -2944,9 +3099,7 @@ const AiResultModal = ({ open, isMobile, onClose, loading, error, kind, data, on
     >
       <div
         className={`bg-white dark:bg-[#1a1a1a] shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden ${
-          isMobile
-            ? 'w-full max-h-[90vh] rounded-t-2xl'
-            : 'w-full max-w-2xl max-h-[85vh] rounded-2xl'
+          isMobile ? 'w-full max-h-[90vh] rounded-t-2xl' : 'w-full max-w-2xl max-h-[85vh] rounded-2xl'
         }`}
       >
         {isMobile && (
@@ -3012,11 +3165,7 @@ const AiPreviewModal = ({ open, isMobile, kind, result, onClose, onApply, applyi
   const changes = (isProofread || isRewrite) ? (result.changes || []) : [];
   const addedSections = isComplete ? (result.addedSections || []) : [];
 
-  const title = isProofread
-    ? 'Proofread suggestion'
-    : isRewrite
-      ? 'Rewritten version'
-      : 'Expanded version';
+  const title = isProofread ? 'Proofread suggestion' : isRewrite ? 'Rewritten version' : 'Expanded version';
 
   const headerIcon = isProofread ? (
     <FaCheckDouble className="text-teal-500 text-xs" />
@@ -3035,9 +3184,7 @@ const AiPreviewModal = ({ open, isMobile, kind, result, onClose, onApply, applyi
     >
       <div
         className={`bg-white dark:bg-[#1a1a1a] shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden ${
-          isMobile
-            ? 'w-full max-h-[92vh] rounded-t-2xl'
-            : 'w-full max-w-2xl max-h-[88vh] rounded-2xl'
+          isMobile ? 'w-full max-h-[92vh] rounded-t-2xl' : 'w-full max-w-2xl max-h-[88vh] rounded-2xl'
         }`}
       >
         {isMobile && (
@@ -3129,12 +3276,8 @@ const AiPreviewModal = ({ open, isMobile, kind, result, onClose, onApply, applyi
             </h5>
             <div className="text-sm leading-relaxed text-gray-700 dark:text-gray-200 bg-white dark:bg-[#0f0f12] border border-gray-200 dark:border-gray-800 rounded-lg p-3 max-h-72 overflow-y-auto">
               <div
-                className={
-                  'note-rich max-w-none ' +
-                  RICH_TEXT_CLASSES +
-                  ' [&_h1]:text-2xl [&_h2]:text-xl [&_h3]:text-lg [&_strong]:font-semibold [&_em]:italic [&_u]:underline'
-                }
-                dangerouslySetInnerHTML={{ __html: suggested || '' }}
+                className="note-rich"
+                dangerouslySetInnerHTML={{ __html: `<div class="note-content">${suggested || ''}</div>` }}
               />
             </div>
           </div>
@@ -3180,9 +3323,7 @@ const RewriteSetupModal = ({ open, isMobile, onClose, onSubmit, busy }) => {
 
   if (!open) return null;
 
-  const submit = () => {
-    onSubmit({ style, length, instructions: instructions.trim() });
-  };
+  const submit = () => onSubmit({ style, length, instructions: instructions.trim() });
 
   return (
     <div
@@ -3193,9 +3334,7 @@ const RewriteSetupModal = ({ open, isMobile, onClose, onSubmit, busy }) => {
     >
       <div
         className={`bg-white dark:bg-[#1a1a1a] shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden ${
-          isMobile
-            ? 'w-full max-h-[92vh] rounded-t-2xl'
-            : 'w-full max-w-lg max-h-[90vh] rounded-2xl'
+          isMobile ? 'w-full max-h-[92vh] rounded-t-2xl' : 'w-full max-w-lg max-h-[90vh] rounded-2xl'
         }`}
       >
         {isMobile && (
@@ -3243,9 +3382,7 @@ const RewriteSetupModal = ({ open, isMobile, onClose, onSubmit, busy }) => {
                   <div className={`text-xs font-medium ${style === s.value ? 'text-teal-700 dark:text-teal-300' : 'text-gray-800 dark:text-gray-200'}`}>
                     {s.label}
                   </div>
-                  <div className="text-[10px] text-gray-500 dark:text-gray-500 truncate">
-                    {s.hint}
-                  </div>
+                  <div className="text-[10px] text-gray-500 dark:text-gray-500 truncate">{s.hint}</div>
                 </button>
               ))}
             </div>
@@ -3270,9 +3407,7 @@ const RewriteSetupModal = ({ open, isMobile, onClose, onSubmit, busy }) => {
                   <div className={`text-xs font-medium ${length === l.value ? 'text-teal-700 dark:text-teal-300' : 'text-gray-800 dark:text-gray-200'}`}>
                     {l.label}
                   </div>
-                  <div className="text-[10px] text-gray-500 dark:text-gray-500 truncate">
-                    {l.hint}
-                  </div>
+                  <div className="text-[10px] text-gray-500 dark:text-gray-500 truncate">{l.hint}</div>
                 </button>
               ))}
             </div>
@@ -3328,9 +3463,7 @@ const AiActionsMenu = ({ disabled, busy, onProofread, onComplete, onRewrite }) =
 
   useEffect(() => {
     if (!open) return;
-    const handler = (e) => {
-      if (!ref.current?.contains(e.target)) setOpen(false);
-    };
+    const handler = (e) => { if (!ref.current?.contains(e.target)) setOpen(false); };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
@@ -3460,9 +3593,6 @@ const WriteNote = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // ── Feature flags from the auth store ───────────────────────────
-  // Adjust to match your slice name. Standard shape is:
-  //   state.auth.userInfo = { _id, name, isAiEnabled, isBibleEnabled, ... }
   const user = useSelector((state) => state.auth?.userInfo);
 
   const canUseAi = Boolean(user?.isAiEnabled);
@@ -3489,7 +3619,6 @@ const WriteNote = () => {
   );
   const [keyboardOffset, setKeyboardOffset] = useState(0);
 
-  // ── AI state ─────────────────────────────────────────────────────
   const [aiSelection, setAiSelection] = useState(null);
   const [aiPanel, setAiPanel] = useState(null);
   const [aiPreview, setAiPreview] = useState(null);
@@ -3498,7 +3627,6 @@ const WriteNote = () => {
   const [showBiblePicker, setShowBiblePicker] = useState(false);
   const [showRewriteSetup, setShowRewriteSetup] = useState(false);
 
-  // ── Note hooks (CRUD + AI, same slice) ───────────────────────────
   const { data: noteData, isLoading: isFetching } = useGetNoteQuery(noteId, { skip: !noteId });
   const { data: notesData, isLoading: isNotesLoading } = useGetNotesQuery();
   const [createNote] = useCreateNoteMutation();
@@ -3565,9 +3693,7 @@ const WriteNote = () => {
     const onMouseMove = (e) => {
       if (!isResizing) return;
       const newWidth = e.clientX - sidebarRef.current.getBoundingClientRect().left;
-      if (newWidth > 150 && newWidth < 500) {
-        setSidebarWidth(newWidth);
-      }
+      if (newWidth > 150 && newWidth < 500) setSidebarWidth(newWidth);
     };
     const onMouseUp = () => setIsResizing(false);
     if (isResizing) {
@@ -3649,9 +3775,7 @@ const WriteNote = () => {
     if (!isEditing) return;
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      persist();
-    }, AUTOSAVE_DELAY);
+    debounceRef.current = setTimeout(() => { persist(); }, AUTOSAVE_DELAY);
 
     return () => clearTimeout(debounceRef.current);
   }, [title, content, isPublic, isEditing, persist]);
@@ -3691,20 +3815,14 @@ const WriteNote = () => {
     }
   };
 
-  // ── PDF EXPORT ─────────────────────────────────────────────────
   const handleExportPDF = async () => {
     if (!currentNoteIdRef.current) return;
 
     const liveHtml =
-      (editorRef.current && isEditing && editorRef.current.getHTML?.()) ||
-      content ||
-      '';
+      (editorRef.current && isEditing && editorRef.current.getHTML?.()) || content || '';
 
     const safeName =
-      (title || 'Untitled')
-        .replace(/[^a-z0-9\-_. ]/gi, '_')
-        .trim()
-        .slice(0, 80) || 'Note';
+      (title || 'Untitled').replace(/[^a-z0-9\-_. ]/gi, '_').trim().slice(0, 80) || 'Note';
 
     toast.loading('Generating PDF…', { id: 'pdf-export' });
 
@@ -3730,9 +3848,7 @@ const WriteNote = () => {
 
       const fileName = `${safeName}-${Date.now()}.pdf`;
       const writeResult = await Filesystem.writeFile({
-        path: fileName,
-        data: base64,
-        directory: Directory.Cache,
+        path: fileName, data: base64, directory: Directory.Cache,
       });
 
       try {
@@ -3767,9 +3883,9 @@ const WriteNote = () => {
     const shareLink = noteData?.note?.shareLink;
     if (shareLink) {
       const url = `${window.location.origin}/share/${shareLink}`;
-      navigator.clipboard?.writeText(url).then(() => {
-        toast.success('Share link copied to clipboard');
-      }).catch(() => toast.error('Failed to copy link'));
+      navigator.clipboard?.writeText(url)
+        .then(() => toast.success('Share link copied to clipboard'))
+        .catch(() => toast.error('Failed to copy link'));
     } else {
       toast.error('No share link available');
     }
@@ -3782,17 +3898,13 @@ const WriteNote = () => {
     setCharCount(getCharCount(html));
   };
 
-  // ── AI HANDLERS ────────────────────────────────────────────────
-
   const handleSelectionChange = useCallback((info) => {
     if (!canUseAskAi) return;
     if (aiPanel || aiPreview) return;
     setAiSelection(info);
   }, [aiPanel, aiPreview, canUseAskAi]);
 
-  const handleEditorReady = useCallback((ed) => {
-    editorRef.current = ed;
-  }, []);
+  const handleEditorReady = useCallback((ed) => { editorRef.current = ed; }, []);
 
   const runBibleLookup = useCallback(async ({ book, chapter, verseStart, verseEnd }) => {
     const refString =
@@ -3804,37 +3916,22 @@ const WriteNote = () => {
 
     try {
       const { result } = await lookupScripture({ text: refString }).unwrap();
-
       const lastVerse = result.verses?.[result.verses.length - 1]?.verse ?? verseEnd;
       const hitChapterEnd = verseEnd != null && lastVerse < verseEnd;
 
       const expandOptions = [];
-      if (!hitChapterEnd) {
-        expandOptions.push({ id: 'more_verses', label: 'Show more verses' });
-      }
-      expandOptions.push({
-        id: 'full_chapter',
-        label: `Show full ${book} ${chapter}`,
-      });
+      if (!hitChapterEnd) expandOptions.push({ id: 'more_verses', label: 'Show more verses' });
+      expandOptions.push({ id: 'full_chapter', label: `Show full ${book} ${chapter}` });
 
       setAiPanel({
-        loading: false,
-        kind: 'scripture',
+        loading: false, kind: 'scripture',
         data: { ...result, expandOptions },
-        error: null,
-        expanding: false,
-        manualRef: {
-          book,
-          chapter,
-          verseStart,
-          verseEnd: lastVerse ?? verseEnd,
-        },
+        error: null, expanding: false,
+        manualRef: { book, chapter, verseStart, verseEnd: lastVerse ?? verseEnd },
       });
     } catch (err) {
       setAiPanel({
-        loading: false,
-        kind: null,
-        data: null,
+        loading: false, kind: null, data: null,
         error: err?.data?.message || 'Could not load that passage right now.',
         expanding: false,
       });
@@ -3844,9 +3941,7 @@ const WriteNote = () => {
   const handleBibleLookupSubmit = useCallback(({ book, chapter, verse }) => {
     if (!canUseBible) return;
     setShowBiblePicker(false);
-    const verseStart = verse;
-    const verseEnd = verse + MANUAL_VERSE_WINDOW;
-    runBibleLookup({ book, chapter, verseStart, verseEnd });
+    runBibleLookup({ book, chapter, verseStart: verse, verseEnd: verse + MANUAL_VERSE_WINDOW });
   }, [runBibleLookup, canUseBible]);
 
   const handleManualExpand = useCallback(async (mode) => {
@@ -3855,12 +3950,8 @@ const WriteNote = () => {
 
     let nextStart = ref.verseStart;
     let nextEnd;
-    if (mode === 'full_chapter') {
-      nextStart = 1;
-      nextEnd = 999;
-    } else {
-      nextEnd = (ref.verseEnd || ref.verseStart) + MANUAL_VERSE_STEP;
-    }
+    if (mode === 'full_chapter') { nextStart = 1; nextEnd = 999; }
+    else { nextEnd = (ref.verseEnd || ref.verseStart) + MANUAL_VERSE_STEP; }
 
     setAiPanel((p) => ({ ...p, expanding: true }));
     try {
@@ -3870,32 +3961,20 @@ const WriteNote = () => {
           : `${ref.book} ${ref.chapter}:${nextStart}-${nextEnd}`;
 
       const { result } = await lookupScripture({ text: refString }).unwrap();
-
       const lastVerse = result.verses?.[result.verses.length - 1]?.verse ?? nextEnd;
       const hitChapterEnd = mode === 'full_chapter' ? true : lastVerse < nextEnd;
 
       const expandOptions = [];
-      if (!hitChapterEnd) {
-        expandOptions.push({ id: 'more_verses', label: 'Show more verses' });
-      }
+      if (!hitChapterEnd) expandOptions.push({ id: 'more_verses', label: 'Show more verses' });
       if (mode !== 'full_chapter') {
-        expandOptions.push({
-          id: 'full_chapter',
-          label: `Show full ${ref.book} ${ref.chapter}`,
-        });
+        expandOptions.push({ id: 'full_chapter', label: `Show full ${ref.book} ${ref.chapter}` });
       }
 
       setAiPanel({
-        loading: false,
-        kind: 'scripture',
+        loading: false, kind: 'scripture',
         data: { ...result, expandOptions },
-        error: null,
-        expanding: false,
-        manualRef: {
-          ...ref,
-          verseStart: nextStart,
-          verseEnd: lastVerse,
-        },
+        error: null, expanding: false,
+        manualRef: { ...ref, verseStart: nextStart, verseEnd: lastVerse },
       });
     } catch (err) {
       toast.error(err?.data?.message || 'Could not expand the passage.');
@@ -3913,14 +3992,11 @@ const WriteNote = () => {
     setAiPanel({ loading: true, kind: null, data: null, error: null, expanding: false });
 
     try {
-      // Try scripture first, but only if the user has enabled at least one.
       if (canUseScripture) {
         const { result } = await lookupScripture({
-          text,
-          noteId: currentNoteIdRef.current || undefined,
+          text, noteId: currentNoteIdRef.current || undefined,
         }).unwrap();
 
-        // Filter scripture by what the user is allowed to see.
         const isBibleResult = result.type === 'bible';
         const isQuranResult = result.type === 'quran';
 
@@ -3928,32 +4004,25 @@ const WriteNote = () => {
           setAiPanel({ loading: false, kind: 'scripture', data: result, error: null, expanding: false });
           return;
         }
-        // Otherwise fall through to search (if the user has AI search on).
       }
 
       if (canUseAi) {
         const { result: searchResult } = await searchHighlight({
-          text,
-          noteId: currentNoteIdRef.current || undefined,
+          text, noteId: currentNoteIdRef.current || undefined,
         }).unwrap();
 
         setAiPanel({ loading: false, kind: 'search', data: searchResult, error: null, expanding: false });
         return;
       }
 
-      // Nothing matched the enabled features.
       setAiPanel({
-        loading: false,
-        kind: null,
-        data: null,
+        loading: false, kind: null, data: null,
         error: 'This feature isn\'t enabled for your account. Open Extensions to turn it on.',
         expanding: false,
       });
     } catch (err) {
       setAiPanel({
-        loading: false,
-        kind: null,
-        data: null,
+        loading: false, kind: null, data: null,
         error: err?.data?.message || 'Could not look that up right now.',
         expanding: false,
       });
@@ -3962,10 +4031,7 @@ const WriteNote = () => {
 
   const handleExpandScripture = async (expandMode) => {
     if (!aiPanel?.data) return;
-
-    if (aiPanel.manualRef) {
-      return handleManualExpand(expandMode);
-    }
+    if (aiPanel.manualRef) return handleManualExpand(expandMode);
 
     const { type, parsed } = aiPanel.data;
     setAiPanel((p) => ({ ...p, expanding: true }));
@@ -3982,9 +4048,7 @@ const WriteNote = () => {
     if (!currentNoteIdRef.current || !canUseAi) return;
     setAiBusy('proofread');
     try {
-      const { result } = await proofreadNoteApi({
-        noteId: currentNoteIdRef.current,
-      }).unwrap();
+      const { result } = await proofreadNoteApi({ noteId: currentNoteIdRef.current }).unwrap();
       setAiPreview({ kind: 'proofread', result });
     } catch (err) {
       toast.error(err?.data?.message || 'Proofreading failed.');
@@ -3998,8 +4062,7 @@ const WriteNote = () => {
     setAiBusy('complete');
     try {
       const { result } = await completeNoteApi({
-        noteId: currentNoteIdRef.current,
-        style: 'explanatory',
+        noteId: currentNoteIdRef.current, style: 'explanatory',
       }).unwrap();
       setAiPreview({ kind: 'complete', result });
     } catch (err) {
@@ -4019,10 +4082,7 @@ const WriteNote = () => {
     setAiBusy('rewrite');
     try {
       const { result } = await rewriteNoteApi({
-        noteId: currentNoteIdRef.current,
-        style,
-        length,
-        instructions,
+        noteId: currentNoteIdRef.current, style, length, instructions,
       }).unwrap();
       setShowRewriteSetup(false);
       setAiPreview({ kind: 'rewrite', result });
@@ -4038,10 +4098,8 @@ const WriteNote = () => {
     setAiApplying(true);
     try {
       const newContent =
-        aiPreview.kind === 'proofread'
-          ? aiPreview.result.correctedContent
-          : aiPreview.kind === 'rewrite'
-            ? aiPreview.result.rewrittenContent
+        aiPreview.kind === 'proofread' ? aiPreview.result.correctedContent
+          : aiPreview.kind === 'rewrite' ? aiPreview.result.rewrittenContent
             : aiPreview.result.completedContent;
 
       try {
@@ -4054,13 +4112,11 @@ const WriteNote = () => {
       const appliedKind = aiPreview.kind;
       setAiPreview(null);
 
-      const successMsg =
-        appliedKind === 'proofread'
-          ? 'Fixes applied'
-          : appliedKind === 'rewrite'
-            ? 'Rewrite applied'
-            : 'Expansion applied';
-      toast.success(successMsg);
+      toast.success(
+        appliedKind === 'proofread' ? 'Fixes applied'
+          : appliedKind === 'rewrite' ? 'Rewrite applied'
+            : 'Expansion applied'
+      );
     } catch (err) {
       toast.error('Failed to apply suggestion.');
     } finally {
@@ -4083,19 +4139,24 @@ const WriteNote = () => {
       style={{ width: sidebarWidth }}
     >
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
-        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
-          <FaFileAlt className="text-teal-500" /> Notes
-        </h2>
+        <div className="flex items-center gap-1 min-w-0">
+          <button
+            onClick={() => navigate(-1)}
+            className="p-1.5 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 flex-shrink-0"
+            title="Go back"
+          >
+            <FaArrowLeft className="text-sm" />
+          </button>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2 truncate">
+            <FaFileAlt className="text-teal-500 flex-shrink-0" /> Notes
+          </h2>
+        </div>
         <button
           onClick={handleCreateNote}
           disabled={isCreatingNote}
-          className="p-1.5 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="p-1.5 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
         >
-          {isCreatingNote ? (
-            <FaSpinner className="text-sm animate-spin" />
-          ) : (
-            <FaPlus className="text-sm" />
-          )}
+          {isCreatingNote ? <FaSpinner className="text-sm animate-spin" /> : <FaPlus className="text-sm" />}
         </button>
       </div>
       <div className="flex-1 overflow-y-auto">
@@ -4155,7 +4216,6 @@ const WriteNote = () => {
         <SaveStatus status={isEditing ? saveStatus : 'idle'} lastSaved={lastSaved} />
 
         <div className="flex items-center gap-1 flex-shrink-0">
-          {/* Extensions button — always visible so anyone can enable features */}
           <button
             type="button"
             onClick={() => navigate('/extensions')}
@@ -4165,7 +4225,6 @@ const WriteNote = () => {
             <FaPuzzlePiece className="text-sm" />
           </button>
 
-          {/* Bible picker — only if the user turned it on */}
           {canUseBible && (
             <button
               type="button"
@@ -4177,7 +4236,6 @@ const WriteNote = () => {
             </button>
           )}
 
-          {/* AI actions (proofread / expand / rewrite) — only if AI is on */}
           {isEditing && canUseAi && (
             <AiActionsMenu
               disabled={!isEditing}
@@ -4209,7 +4267,9 @@ const WriteNote = () => {
           <button
             onClick={handleTogglePublic}
             className={`p-2 rounded-lg transition ${
-              isPublic ? 'text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20' : 'text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+              isPublic
+                ? 'text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20'
+                : 'text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
             }`}
             title={isPublic ? 'Make private' : 'Make public'}
           >
@@ -4265,13 +4325,7 @@ const WriteNote = () => {
               : undefined
           }
         >
-          {/* View mode uses the exact same classes + CSS as the editor */}
-          {!isEditing && (
-            <div
-              className={NOTE_BODY_CLASSES}
-              dangerouslySetInnerHTML={{ __html: content }}
-            />
-          )}
+          {!isEditing && <NoteViewer content={content} />}
           {isEditing && (
             <NoteEditor
               key={editorKey}
@@ -4305,8 +4359,6 @@ const WriteNote = () => {
         {renderHeader()}
         {renderEditor()}
       </div>
-
-      {/* ── AI surfaces (gated) ─────────────────────────────────── */}
 
       {canUseAskAi && (
         <AiSelectionPill
