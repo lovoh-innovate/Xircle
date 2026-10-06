@@ -113,6 +113,16 @@ const userSchema = new mongoose.Schema(
     resetPasswordOTP: { type: String },
     resetPasswordExpires: { type: Date },
 
+    // ── Google Calendar Integration ────────────────────────────
+    googleCalendar: {
+      enabled: { type: Boolean, default: false },
+      accessToken: { type: String, select: false },  // Prevents leaking in normal API responses
+      refreshToken: { type: String, select: false }, // Prevents leaking in normal API responses
+      expiryDate: { type: Date, select: false },     // Prevents leaking in normal API responses
+      calendarId: { type: String, default: 'primary' },
+      connectedAt: { type: Date, default: null },
+    },
+
     // ── Email verification ─────────────────────────────────────
     verificationOTP: { type: String },
     verificationOTPExpires: { type: Date },
