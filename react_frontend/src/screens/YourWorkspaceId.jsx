@@ -800,13 +800,13 @@ const YourWorkspaceId = () => {
       <GlobalStyles />
 
       <div className="min-h-screen bg-gray-50 dark:bg-[#0b0b10] flex flex-col">
-        {/* desktop sidebar */}
-        <div className="hidden md:block md:w-[260px] md:min-h-screen md:flex-shrink-0 fixed top-0 left-0 z-20">
-          <YourWorkspaceSidebar workspace={workspace} chats={chats} />
-        </div>
+      {/* desktop sidebar */}
+<div className="hidden md:block md:min-h-screen fixed top-0 left-0 z-20 workspace-shell-sidebar">
+  <YourWorkspaceSidebar workspace={workspace} chats={chats} />
+</div>
 
         {/* main content */}
-        <div className="flex-1 md:ml-[260px]">
+        <div className="flex-1 md:ml-[260px] workspace-shell-main">
           {/* mobile header - removed ClockInWidget */}
           <div className="md:hidden fixed top-0 left-0 right-0 z-10 bg-white/80 dark:bg-[#0b0b10]/80 backdrop-blur-md px-4 pt-4 pb-2 border-b border-gray-200/60 dark:border-gray-800/40">
             <div className="flex items-center justify-between">

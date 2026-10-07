@@ -5810,14 +5810,14 @@ const messagesMentioningMe = useMemo(() => {
         />
       )}
 
-      <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
+      <div className="hidden md:block md:min-h-screen fixed top-0 left-0 z-20 workspace-shell-sidebar">
         <YourWorkspaceSidebar
           workspace={workspace}
           chats={chatsData?.chats || []}
         />
       </div>
 
-      <div className="flex-1 flex flex-col bg-white dark:bg-[#0f0f12] h-full overflow-hidden">
+      <div className="flex-1 flex flex-col bg-white dark:bg-[#0f0f12] h-full overflow-hidden workspace-shell-main" >
         {/* ─── Header ─── */}
         <header
           className="fixed lg:sticky top-0 left-0 right-0 lg:left-auto lg:right-auto z-20 border-b border-gray-200/60 dark:border-gray-800/60 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl text-gray-800 dark:text-white flex-shrink-0 relative"

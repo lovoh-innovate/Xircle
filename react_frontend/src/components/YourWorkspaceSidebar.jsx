@@ -1,5 +1,12 @@
 // src/components/YourWorkspaceSidebar.jsx
-import React, { useState, useMemo } from 'react';
+import React, {
+  useState,
+  useMemo,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+} from 'react';
 import { Link, useParams, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import {
@@ -67,6 +74,24 @@ const belongsToWorkspace = (chat, workspaceId) => {
   return chat.scope === 'workspace' && String(chatWorkspaceId) === String(workspaceId);
 };
 
+// ─── Sidebar width constraints (shared with GeneralSidebar) ────────
+const MIN_WIDTH = 200;
+const MAX_WIDTH = 480;
+const DEFAULT_WIDTH = 288;
+const STORAGE_KEY = 'xircle.sidebarWidth';
+const CSS_VAR = '--sidebar-width';
+
+const clampWidth = (w) => Math.min(Math.max(w, MIN_WIDTH), MAX_WIDTH);
+
+const readSavedWidth = () => {
+  try {
+    const saved = parseInt(localStorage.getItem(STORAGE_KEY), 10);
+    return Number.isFinite(saved) ? clampWidth(saved) : DEFAULT_WIDTH;
+  } catch {
+    return DEFAULT_WIDTH;
+  }
+};
+
 const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   const { workspaceId } = useParams();
   const location = useLocation();
@@ -121,6 +146,157 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
       .toUpperCase();
   };
 
+  // ─── Resizable sidebar state ───────────────────────────────────
+  const asideRef = useRef(null);
+  const handleRef = useRef(null);
+
+  const [sidebarWidth, setSidebarWidth] = useState(readSavedWidth);
+  const [isResizing, setIsResizing] = useState(false);
+
+  const isResizingRef = useRef(false);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(sidebarWidth);
+  const pendingWidthRef = useRef(null);
+  const rafRef = useRef(null);
+
+  // Apply width instantly to the DOM (no React re-render → smooth 1:1)
+  const applyWidth = useCallback((w) => {
+    const px = `${w}px`;
+    document.documentElement.style.setProperty(CSS_VAR, px);
+    if (asideRef.current) asideRef.current.style.width = px;
+    if (handleRef.current) handleRef.current.style.left = `${w - 5}px`;
+  }, []);
+
+  // Set initial width before paint
+  useLayoutEffect(() => {
+    if (!isCollapsed) applyWidth(sidebarWidth);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist on commit (skip while dragging)
+  useEffect(() => {
+    if (isResizing) return;
+    try {
+      localStorage.setItem(STORAGE_KEY, String(sidebarWidth));
+    } catch {
+      /* ignore */
+    }
+  }, [sidebarWidth, isResizing]);
+
+  // React to collapse toggle
+  useEffect(() => {
+    if (isCollapsed) {
+      if (asideRef.current) asideRef.current.style.width = '64px';
+    } else {
+      applyWidth(sidebarWidth);
+    }
+  }, [isCollapsed, sidebarWidth, applyWidth]);
+
+  // ── Drag handlers ──────────────────────────────────────────────
+  const handleResizeStart = useCallback(
+    (e) => {
+      if (e.button !== undefined && e.button !== 0) return;
+      if (isCollapsed) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      isResizingRef.current = true;
+      setIsResizing(true);
+
+      const liveWidth =
+        asideRef.current?.getBoundingClientRect().width ?? sidebarWidth;
+      startWidthRef.current = liveWidth;
+      startXRef.current = e.clientX;
+      pendingWidthRef.current = liveWidth;
+
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      document.body.style.touchAction = 'none';
+    },
+    [sidebarWidth, isCollapsed]
+  );
+
+  useEffect(() => {
+    const onMove = (e) => {
+      if (!isResizingRef.current) return;
+
+      const next = clampWidth(
+        startWidthRef.current + (e.clientX - startXRef.current)
+      );
+      pendingWidthRef.current = next;
+
+      // Coalesce pointer events into a single paint per frame
+      if (rafRef.current == null) {
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null;
+          if (pendingWidthRef.current != null) {
+            applyWidth(pendingWidthRef.current);
+          }
+        });
+      }
+    };
+
+    const onEnd = () => {
+      if (!isResizingRef.current) return;
+      isResizingRef.current = false;
+      setIsResizing(false);
+
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      document.body.style.touchAction = '';
+
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+
+      if (pendingWidthRef.current != null) {
+        const finalWidth = pendingWidthRef.current;
+        pendingWidthRef.current = null;
+        setSidebarWidth(finalWidth);
+      }
+    };
+
+    window.addEventListener('pointermove', onMove, { passive: true });
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onEnd);
+    window.addEventListener('blur', onEnd);
+
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onEnd);
+      window.removeEventListener('pointercancel', onEnd);
+      window.removeEventListener('blur', onEnd);
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    };
+  }, [applyWidth]);
+
+  // Double-click / keyboard reset & nudge
+  const resetWidth = useCallback(() => {
+    setSidebarWidth(DEFAULT_WIDTH);
+    applyWidth(DEFAULT_WIDTH);
+  }, [applyWidth]);
+
+  const handleHandleKeyDown = useCallback(
+    (e) => {
+      const step = e.shiftKey ? 40 : 10;
+      let next = null;
+      if (e.key === 'ArrowLeft') next = clampWidth(sidebarWidth - step);
+      else if (e.key === 'ArrowRight') next = clampWidth(sidebarWidth + step);
+      else if (e.key === 'Home' || e.key === 'Enter') {
+        e.preventDefault();
+        resetWidth();
+        return;
+      }
+      if (next != null) {
+        e.preventDefault();
+        setSidebarWidth(next);
+        applyWidth(next);
+      }
+    },
+    [sidebarWidth, applyWidth, resetWidth]
+  );
+
   // ─── Navigation ──────────────────────────────────────────────────
   const navOptions = [
     { id: 'home', label: 'Dashboard', icon: FiHome, path: `/workspace/${workspaceId}` },
@@ -128,7 +304,7 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
     { id: 'all-tasks', label: 'All Tasks', icon: FiCheckSquare, path: `/workspace/${workspaceId}/tasks` },
     { id: 'channels', label: 'Channels', icon: ChatIcon, path: `/workspace/${workspaceId}/channels` },
     { id: 'dms', label: 'Direct Messages', icon: FiMail, path: `/workspace/${workspaceId}/dms` },
-    { id: 'members', label: 'Members', icon: FiUsers, path: `/workspace/${workspaceId}/members` }, // 👈 added
+    { id: 'members', label: 'Members', icon: FiUsers, path: `/workspace/${workspaceId}/members` },
     { id: 'clockin', label: 'Clock‑in', icon: FiClock, path: `/workspace/${workspaceId}/clockin` },
   ];
 
@@ -261,417 +437,460 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   };
 
   return (
-    <div
-      className={`sticky top-0 h-screen bg-white dark:bg-[#18181b] border-r border-gray-200 dark:border-gray-800 flex flex-col overflow-hidden transition-all duration-300 ease-in-out ${
-        isCollapsed ? 'w-16' : 'w-64'
-      }`}
-    >
-      {/* ── Header ── */}
+    <>
       <div
-        className={`flex items-center border-b border-gray-200 dark:border-gray-800 min-h-[56px] flex-shrink-0 ${
-          isCollapsed ? 'justify-center px-2' : 'gap-3 px-4'
+        ref={asideRef}
+        style={{ width: `var(${CSS_VAR}, ${DEFAULT_WIDTH}px)` }}
+        className={`sticky top-0 h-screen bg-white dark:bg-[#18181b] border-r border-gray-200 dark:border-gray-800 flex flex-col overflow-hidden ${
+          isResizing ? '' : 'transition-all duration-300 ease-in-out'
         }`}
       >
-        {workspace?.logo ? (
-          <img
-            src={workspace.logo}
-            alt={workspace.name}
-            className="w-9 h-9 rounded-lg object-cover flex-shrink-0"
-          />
-        ) : (
-          <div
-            className="w-9 h-9 rounded-lg flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
-            style={{ backgroundColor: brandColor }}
-          >
-            {workspace?.initials || getInitials(workspace?.name)}
-          </div>
-        )}
-
-        {!isCollapsed && (
-          <div className="flex-1 min-w-0">
-            <p className="font-semibold text-gray-800 dark:text-gray-100 truncate text-sm">
-              {workspace?.name}
-            </p>
-            <p className="text-xs text-gray-500 dark:text-gray-500 truncate">
-              {members.length} members · {onlineCount} online
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* ─── Navigation ── */}
-      <div
-        className={`py-2 border-b border-gray-200 dark:border-gray-800 flex-shrink-0 ${
-          isCollapsed ? 'px-2' : 'px-3'
-        }`}
-      >
-        {navOptions.map((opt) => {
-          const Icon = opt.icon;
-          const active = isActive(opt.path);
-          return (
-            <Link
-              key={opt.id}
-              to={opt.path}
-              title={isCollapsed ? opt.label : undefined}
-              className={`flex items-center rounded-lg transition-all text-sm ${
-                isCollapsed
-                  ? 'justify-center p-2.5 mb-1'
-                  : 'gap-3 px-3 py-1.5 mb-0.5'
-              } ${
-                active
-                  ? 'text-white'
-                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200'
-              }`}
-              style={active ? { backgroundColor: brandColor } : {}}
+        {/* ── Header ── */}
+        <div
+          className={`flex items-center border-b border-gray-200 dark:border-gray-800 min-h-[56px] flex-shrink-0 ${
+            isCollapsed ? 'justify-center px-2' : 'gap-3 px-4'
+          }`}
+        >
+          {workspace?.logo ? (
+            <img
+              src={workspace.logo}
+              alt={workspace.name}
+              className="w-9 h-9 rounded-lg object-cover flex-shrink-0"
+            />
+          ) : (
+            <div
+              className="w-9 h-9 rounded-lg flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
+              style={{ backgroundColor: brandColor }}
             >
-              <Icon
-                className={`${active ? 'text-white' : ''} ${
-                  isCollapsed ? 'text-lg' : ''
-                }`}
-              />
-              {!isCollapsed && <span className="font-medium">{opt.label}</span>}
-            </Link>
-          );
-        })}
-      </div>
+              {workspace?.initials || getInitials(workspace?.name)}
+            </div>
+          )}
 
-      {/* ─── Scrollable Content ─── */}
-      {isCollapsed ? (
-        <div className="flex-1 overflow-y-auto scrollbar-hide py-3 px-2 flex flex-col items-center gap-3">
-          <Link
-            to={`/workspace/${workspaceId}/projects`}
-            title="Projects"
-            className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
-          >
-            <FiFolder className="text-lg" />
-            {projects.some((p) => p.progress < 100) && (
-              <span
-                className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full"
-                style={{ backgroundColor: brandColor }}
-              />
-            )}
-          </Link>
-
-          <Link
-            to={`/workspace/${workspaceId}/tasks`}
-            title="All Tasks"
-            className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
-          >
-            <FiCheckSquare className="text-lg" />
-          </Link>
-
-          <Link
-            to={`/workspace/${workspaceId}/channels`}
-            title="Channels"
-            className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
-          >
-            <ChatIcon className="text-lg" />
-            {channels.some((c) => c.unreadCount > 0) && (
-              <span
-                className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full"
-                style={{ backgroundColor: brandColor }}
-              />
-            )}
-          </Link>
-
-          <Link
-            to={`/workspace/${workspaceId}/dms`}
-            title="Direct Messages"
-            className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
-          >
-            <FiMail className="text-lg" />
-            {directMessages.some((c) => c.unreadCount > 0) && (
-              <span
-                className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full"
-                style={{ backgroundColor: brandColor }}
-              />
-            )}
-          </Link>
-
-          <Link
-            to={`/workspace/${workspaceId}/members`}
-            title="Members"
-            className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
-          >
-            <FiUsers className="text-lg" />
-          </Link>
-
-          <Link
-            to={`/workspace/${workspaceId}/clockin`}
-            title="Clock‑in"
-            className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
-          >
-            <FiClock className="text-lg" />
-          </Link>
+          {!isCollapsed && (
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-gray-800 dark:text-gray-100 truncate text-sm">
+                {workspace?.name}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-500 truncate">
+                {members.length} members · {onlineCount} online
+              </p>
+            </div>
+          )}
         </div>
-      ) : (
-        <div className="flex-1 overflow-y-auto scrollbar-hide pb-2">
-          {/* Projects Section */}
-          <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-800/50">
-            <button
-              onClick={() => toggleSection('projects')}
-              className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider"
-            >
-              {expandedSections.projects ? (
-                <FiChevronDown className="text-[10px]" />
-              ) : (
-                <FiChevronRight className="text-[10px]" />
-              )}
-              <span>Projects</span>
-              <span className="ml-auto text-xs text-gray-400 dark:text-gray-600">
-                {projects.length}
-              </span>
-            </button>
-            {expandedSections.projects && (
-              <div className="mt-1 space-y-0.5">
-                <Link
-                  to={`/workspace/${workspaceId}/tasks`}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group text-sm text-gray-700 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
-                >
-                  <FiCheckSquare className="text-xs text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300" />
-                  <span className="font-medium">All Tasks</span>
-                </Link>
 
-                {projectsLoading ? (
-                  <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-500">
-                    Loading projects...
-                  </div>
-                ) : projects.length === 0 ? (
-                  <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-600">
-                    No projects yet
-                  </div>
-                ) : (
-                  projects.slice(0, 6).map((project) => (
-                    <ProjectItem key={project._id} project={project} />
-                  ))
-                )}
-                {projects.length > 6 && (
-                  <Link
-                    to={`/workspace/${workspaceId}/projects`}
-                    className="block px-3 py-1 text-xs text-gray-500 dark:text-gray-600 hover:text-gray-800 dark:hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
-                  >
-                    +{projects.length - 6} more
-                  </Link>
-                )}
-              </div>
-            )}
+        {/* ─── Navigation ── */}
+        <div
+          className={`py-2 border-b border-gray-200 dark:border-gray-800 flex-shrink-0 ${
+            isCollapsed ? 'px-2' : 'px-3'
+          }`}
+        >
+          {navOptions.map((opt) => {
+            const Icon = opt.icon;
+            const active = isActive(opt.path);
+            return (
+              <Link
+                key={opt.id}
+                to={opt.path}
+                title={isCollapsed ? opt.label : undefined}
+                className={`flex items-center rounded-lg transition-all text-sm ${
+                  isCollapsed
+                    ? 'justify-center p-2.5 mb-1'
+                    : 'gap-3 px-3 py-1.5 mb-0.5'
+                } ${
+                  active
+                    ? 'text-white'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+                style={active ? { backgroundColor: brandColor } : {}}
+              >
+                <Icon
+                  className={`${active ? 'text-white' : ''} ${
+                    isCollapsed ? 'text-lg' : ''
+                  }`}
+                />
+                {!isCollapsed && <span className="font-medium">{opt.label}</span>}
+              </Link>
+            );
+          })}
+        </div>
+
+        {/* ─── Scrollable Content ─── */}
+        {isCollapsed ? (
+          <div className="flex-1 overflow-y-auto scrollbar-hide py-3 px-2 flex flex-col items-center gap-3">
+            <Link
+              to={`/workspace/${workspaceId}/projects`}
+              title="Projects"
+              className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+            >
+              <FiFolder className="text-lg" />
+              {projects.some((p) => p.progress < 100) && (
+                <span
+                  className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full"
+                  style={{ backgroundColor: brandColor }}
+                />
+              )}
+            </Link>
+
+            <Link
+              to={`/workspace/${workspaceId}/tasks`}
+              title="All Tasks"
+              className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+            >
+              <FiCheckSquare className="text-lg" />
+            </Link>
+
+            <Link
+              to={`/workspace/${workspaceId}/channels`}
+              title="Channels"
+              className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+            >
+              <ChatIcon className="text-lg" />
+              {channels.some((c) => c.unreadCount > 0) && (
+                <span
+                  className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full"
+                  style={{ backgroundColor: brandColor }}
+                />
+              )}
+            </Link>
+
+            <Link
+              to={`/workspace/${workspaceId}/dms`}
+              title="Direct Messages"
+              className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+            >
+              <FiMail className="text-lg" />
+              {directMessages.some((c) => c.unreadCount > 0) && (
+                <span
+                  className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full"
+                  style={{ backgroundColor: brandColor }}
+                />
+              )}
+            </Link>
+
+            <Link
+              to={`/workspace/${workspaceId}/members`}
+              title="Members"
+              className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+            >
+              <FiUsers className="text-lg" />
+            </Link>
+
+            <Link
+              to={`/workspace/${workspaceId}/clockin`}
+              title="Clock‑in"
+              className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+            >
+              <FiClock className="text-lg" />
+            </Link>
           </div>
-
-          {/* Channels */}
-          <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-800/50">
-            <button
-              onClick={() => toggleSection('channels')}
-              className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider"
-            >
-              {expandedSections.channels ? (
-                <FiChevronDown className="text-[10px]" />
-              ) : (
-                <FiChevronRight className="text-[10px]" />
-              )}
-              <span>Channels</span>
-              <span className="ml-auto text-xs text-gray-400 dark:text-gray-600">
-                {channels.length}
-              </span>
-            </button>
-            {expandedSections.channels && (
-              <div className="mt-1 space-y-0.5">
-                {chatsLoading ? (
-                  <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-500">
-                    Loading channels...
-                  </div>
-                ) : channels.length === 0 ? (
-                  <p className="px-3 py-2 text-xs text-gray-500 dark:text-gray-600">No channels yet</p>
+        ) : (
+          <div className="flex-1 overflow-y-auto scrollbar-hide pb-2">
+            {/* Projects Section */}
+            <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-800/50">
+              <button
+                onClick={() => toggleSection('projects')}
+                className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider"
+              >
+                {expandedSections.projects ? (
+                  <FiChevronDown className="text-[10px]" />
                 ) : (
-                  channels.slice(0, 6).map((chat) => (
+                  <FiChevronRight className="text-[10px]" />
+                )}
+                <span>Projects</span>
+                <span className="ml-auto text-xs text-gray-400 dark:text-gray-600">
+                  {projects.length}
+                </span>
+              </button>
+              {expandedSections.projects && (
+                <div className="mt-1 space-y-0.5">
+                  <Link
+                    to={`/workspace/${workspaceId}/tasks`}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group text-sm text-gray-700 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+                  >
+                    <FiCheckSquare className="text-xs text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300" />
+                    <span className="font-medium">All Tasks</span>
+                  </Link>
+
+                  {projectsLoading ? (
+                    <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-500">
+                      Loading projects...
+                    </div>
+                  ) : projects.length === 0 ? (
+                    <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-600">
+                      No projects yet
+                    </div>
+                  ) : (
+                    projects.slice(0, 6).map((project) => (
+                      <ProjectItem key={project._id} project={project} />
+                    ))
+                  )}
+                  {projects.length > 6 && (
                     <Link
-                      key={chat._id}
-                      to={`/workspace/${workspaceId}/chat/${chat._id}`}
-                      className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-sm group"
+                      to={`/workspace/${workspaceId}/projects`}
+                      className="block px-3 py-1 text-xs text-gray-500 dark:text-gray-600 hover:text-gray-800 dark:hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
                     >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <ChatIcon className="text-gray-400 dark:text-gray-500 text-xs" />
-                        <span className="truncate text-gray-700 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-gray-200">
-                          {chat.name || 'Unnamed'}
-                        </span>
-                      </div>
-                      {chat.unreadCount > 0 && (
-                        <span
-                          className="text-white text-xs rounded-full px-2 py-0.5 min-w-[20px] text-center font-medium"
-                          style={{ backgroundColor: brandColor }}
-                        >
-                          {chat.unreadCount}
-                        </span>
-                      )}
+                      +{projects.length - 6} more
                     </Link>
-                  ))
-                )}
-                {channels.length > 6 && (
-                  <Link
-                    to={`/workspace/${workspaceId}/channels`}
-                    className="block px-3 py-1 text-xs text-gray-500 dark:text-gray-600 hover:text-gray-800 dark:hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
-                  >
-                    +{channels.length - 6} more
-                  </Link>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Direct Messages */}
-          <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-800/50">
-            <button
-              onClick={() => toggleSection('dms')}
-              className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider"
-            >
-              {expandedSections.dms ? (
-                <FiChevronDown className="text-[10px]" />
-              ) : (
-                <FiChevronRight className="text-[10px]" />
+                  )}
+                </div>
               )}
-              <span>Direct Messages</span>
-              <span className="ml-auto text-xs text-gray-400 dark:text-gray-600">
-                {directMessages.length}
-              </span>
-            </button>
-            {expandedSections.dms && (
-              <div className="mt-1 space-y-0.5">
-                {chatsLoading ? (
-                  <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-500">
-                    Loading DMs...
-                  </div>
-                ) : directMessages.length === 0 ? (
-                  <p className="px-3 py-2 text-xs text-gray-500 dark:text-gray-600">No DMs</p>
+            </div>
+
+            {/* Channels */}
+            <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-800/50">
+              <button
+                onClick={() => toggleSection('channels')}
+                className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider"
+              >
+                {expandedSections.channels ? (
+                  <FiChevronDown className="text-[10px]" />
                 ) : (
-                  directMessages.slice(0, 6).map((chat) => {
-                    const participant = getDMParticipant(chat);
-                    const unread = getDMUnread(chat);
-                    const isOnline = onlineUserIds.has(participant?._id); // 👈 use presence
-                    return (
+                  <FiChevronRight className="text-[10px]" />
+                )}
+                <span>Channels</span>
+                <span className="ml-auto text-xs text-gray-400 dark:text-gray-600">
+                  {channels.length}
+                </span>
+              </button>
+              {expandedSections.channels && (
+                <div className="mt-1 space-y-0.5">
+                  {chatsLoading ? (
+                    <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-500">
+                      Loading channels...
+                    </div>
+                  ) : channels.length === 0 ? (
+                    <p className="px-3 py-2 text-xs text-gray-500 dark:text-gray-600">No channels yet</p>
+                  ) : (
+                    channels.slice(0, 6).map((chat) => (
                       <Link
                         key={chat._id}
                         to={`/workspace/${workspaceId}/chat/${chat._id}`}
-                        className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group"
+                        className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-sm group"
                       >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="relative flex-shrink-0">
-                            {participant?.profile ? (
-                              <img
-                                src={participant.profile}
-                                alt={participant.name}
-                                className="w-6 h-6 rounded-full object-cover"
-                              />
-                            ) : (
-                              <div
-                                className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold"
-                                style={{ backgroundColor: brandColor }}
-                              >
-                                {getInitials(participant?.name)}
-                              </div>
-                            )}
-                            {isOnline && (
-                              <span className="absolute bottom-0 right-0 w-2 h-2 bg-green-500 rounded-full border-2 border-white dark:border-[#18181b]" />
-                            )}
-                          </div>
-                          <span className="truncate text-gray-700 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-gray-200 text-sm">
-                            {participant?.name || 'Unknown'}
+                        <div className="flex items-center gap-2 min-w-0">
+                          <ChatIcon className="text-gray-400 dark:text-gray-500 text-xs" />
+                          <span className="truncate text-gray-700 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-gray-200">
+                            {chat.name || 'Unnamed'}
                           </span>
                         </div>
-                        {unread > 0 && (
+                        {chat.unreadCount > 0 && (
                           <span
                             className="text-white text-xs rounded-full px-2 py-0.5 min-w-[20px] text-center font-medium"
                             style={{ backgroundColor: brandColor }}
                           >
-                            {unread}
+                            {chat.unreadCount}
                           </span>
                         )}
                       </Link>
-                    );
-                  })
-                )}
-                {directMessages.length > 6 && (
-                  <Link
-                    to={`/workspace/${workspaceId}/dms`}
-                    className="block px-3 py-1 text-xs text-gray-500 dark:text-gray-600 hover:text-gray-800 dark:hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
-                  >
-                    +{directMessages.length - 6} more
-                  </Link>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ── Collapse Toggle ── */}
-      <div className="flex-shrink-0 border-t border-gray-200 dark:border-gray-800 p-2 flex justify-center">
-        <button
-          onClick={() => setIsCollapsed(!isCollapsed)}
-          className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
-          title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          {isCollapsed ? (
-            <FiChevronRight className="text-xs" />
-          ) : (
-            <FiChevronLeft className="text-xs" />
-          )}
-        </button>
-      </div>
-
-      {/* ── User Footer (profile + theme icon side‑by‑side) ── */}
-      <div
-        className={`border-t border-gray-200 dark:border-gray-800 flex-shrink-0 bg-white dark:bg-[#18181b] ${
-          isCollapsed ? 'p-2 flex flex-col items-center gap-2' : 'p-3'
-        }`}
-      >
-        {isCollapsed ? (
-          <>
-            <Link to="/profile" className="relative">
-              {userInfo?.profile ? (
-                <img
-                  src={userInfo.profile}
-                  alt={userInfo.name}
-                  className="w-8 h-8 rounded-full object-cover"
-                />
-              ) : (
-                <div
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold"
-                  style={{ backgroundColor: brandColor }}
-                >
-                  {getInitials(userInfo?.name)}
+                    ))
+                  )}
+                  {channels.length > 6 && (
+                    <Link
+                      to={`/workspace/${workspaceId}/channels`}
+                      className="block px-3 py-1 text-xs text-gray-500 dark:text-gray-600 hover:text-gray-800 dark:hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
+                    >
+                      +{channels.length - 6} more
+                    </Link>
+                  )}
                 </div>
               )}
-            </Link>
-            <ThemeToggleIcon />
-          </>
-        ) : (
-          <div className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer">
-            <Link to="/profile" className="flex items-center gap-3 flex-1 min-w-0">
-              {userInfo?.profile ? (
-                <img
-                  src={userInfo.profile}
-                  alt={userInfo.name}
-                  className="w-8 h-8 rounded-full object-cover"
-                />
-              ) : (
-                <div
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold"
-                  style={{ backgroundColor: brandColor }}
-                >
-                  {getInitials(userInfo?.name)}
+            </div>
+
+            {/* Direct Messages */}
+            <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-800/50">
+              <button
+                onClick={() => toggleSection('dms')}
+                className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider"
+              >
+                {expandedSections.dms ? (
+                  <FiChevronDown className="text-[10px]" />
+                ) : (
+                  <FiChevronRight className="text-[10px]" />
+                )}
+                <span>Direct Messages</span>
+                <span className="ml-auto text-xs text-gray-400 dark:text-gray-600">
+                  {directMessages.length}
+                </span>
+              </button>
+              {expandedSections.dms && (
+                <div className="mt-1 space-y-0.5">
+                  {chatsLoading ? (
+                    <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-500">
+                      Loading DMs...
+                    </div>
+                  ) : directMessages.length === 0 ? (
+                    <p className="px-3 py-2 text-xs text-gray-500 dark:text-gray-600">No DMs</p>
+                  ) : (
+                    directMessages.slice(0, 6).map((chat) => {
+                      const participant = getDMParticipant(chat);
+                      const unread = getDMUnread(chat);
+                      const isOnline = onlineUserIds.has(participant?._id);
+                      return (
+                        <Link
+                          key={chat._id}
+                          to={`/workspace/${workspaceId}/chat/${chat._id}`}
+                          className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="relative flex-shrink-0">
+                              {participant?.profile ? (
+                                <img
+                                  src={participant.profile}
+                                  alt={participant.name}
+                                  className="w-6 h-6 rounded-full object-cover"
+                                />
+                              ) : (
+                                <div
+                                  className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold"
+                                  style={{ backgroundColor: brandColor }}
+                                >
+                                  {getInitials(participant?.name)}
+                                </div>
+                              )}
+                              {isOnline && (
+                                <span className="absolute bottom-0 right-0 w-2 h-2 bg-green-500 rounded-full border-2 border-white dark:border-[#18181b]" />
+                              )}
+                            </div>
+                            <span className="truncate text-gray-700 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-gray-200 text-sm">
+                              {participant?.name || 'Unknown'}
+                            </span>
+                          </div>
+                          {unread > 0 && (
+                            <span
+                              className="text-white text-xs rounded-full px-2 py-0.5 min-w-[20px] text-center font-medium"
+                              style={{ backgroundColor: brandColor }}
+                            >
+                              {unread}
+                            </span>
+                          )}
+                        </Link>
+                      );
+                    })
+                  )}
+                  {directMessages.length > 6 && (
+                    <Link
+                      to={`/workspace/${workspaceId}/dms`}
+                      className="block px-3 py-1 text-xs text-gray-500 dark:text-gray-600 hover:text-gray-800 dark:hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
+                    >
+                      +{directMessages.length - 6} more
+                    </Link>
+                  )}
                 </div>
               )}
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
-                  {userInfo?.name}
-                </p>
-                <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{userRole}</p>
-              </div>
-            </Link>
-            <ThemeToggleIcon />
+            </div>
           </div>
         )}
+
+        {/* ── Collapse Toggle ── */}
+        <div className="flex-shrink-0 border-t border-gray-200 dark:border-gray-800 p-2 flex justify-center">
+          <button
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+            title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {isCollapsed ? (
+              <FiChevronRight className="text-xs" />
+            ) : (
+              <FiChevronLeft className="text-xs" />
+            )}
+          </button>
+        </div>
+
+        {/* ── User Footer (profile + theme icon side‑by‑side) ── */}
+        <div
+          className={`border-t border-gray-200 dark:border-gray-800 flex-shrink-0 bg-white dark:bg-[#18181b] ${
+            isCollapsed ? 'p-2 flex flex-col items-center gap-2' : 'p-3'
+          }`}
+        >
+          {isCollapsed ? (
+            <>
+              <Link to="/profile" className="relative">
+                {userInfo?.profile ? (
+                  <img
+                    src={userInfo.profile}
+                    alt={userInfo.name}
+                    className="w-8 h-8 rounded-full object-cover"
+                  />
+                ) : (
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold"
+                    style={{ backgroundColor: brandColor }}
+                  >
+                    {getInitials(userInfo?.name)}
+                  </div>
+                )}
+              </Link>
+              <ThemeToggleIcon />
+            </>
+          ) : (
+            <div className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer">
+              <Link to="/profile" className="flex items-center gap-3 flex-1 min-w-0">
+                {userInfo?.profile ? (
+                  <img
+                    src={userInfo.profile}
+                    alt={userInfo.name}
+                    className="w-8 h-8 rounded-full object-cover"
+                  />
+                ) : (
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold"
+                    style={{ backgroundColor: brandColor }}
+                  >
+                    {getInitials(userInfo?.name)}
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
+                    {userInfo?.name}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{userRole}</p>
+                </div>
+              </Link>
+              <ThemeToggleIcon />
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+
+      {/* ─── Resize Handle (same markup & styling as GeneralSidebar) ─── */}
+      <div
+        ref={handleRef}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize sidebar"
+        aria-valuenow={sidebarWidth}
+        aria-valuemin={MIN_WIDTH}
+        aria-valuemax={MAX_WIDTH}
+        tabIndex={isCollapsed ? -1 : 0}
+        onPointerDown={handleResizeStart}
+        onDoubleClick={resetWidth}
+        onKeyDown={handleHandleKeyDown}
+        title="Drag to resize • Double-click to reset"
+        className={`fixed top-0 h-full z-50 cursor-col-resize group outline-none touch-none ${
+          isCollapsed ? 'opacity-0 pointer-events-none' : ''
+        }`}
+        style={{ left: sidebarWidth - 5, width: 10 }}
+      >
+        <div
+          className={`absolute inset-y-0 left-1/2 -translate-x-1/2 transition-[width,background-color] duration-100 ${
+            isResizing
+              ? 'w-[2px] bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.9)]'
+              : 'w-px bg-gray-300 dark:bg-white/10 group-hover:w-[2px] group-hover:bg-cyan-400/70 group-focus-visible:w-[2px] group-focus-visible:bg-cyan-400'
+          }`}
+        />
+        <div
+          className={`absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 flex flex-col gap-[3px] transition-opacity duration-100 ${
+            isResizing
+              ? 'opacity-100'
+              : 'opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100'
+          }`}
+        >
+          <span className="block w-[3px] h-[3px] rounded-full bg-cyan-400" />
+          <span className="block w-[3px] h-[3px] rounded-full bg-cyan-400" />
+          <span className="block w-[3px] h-[3px] rounded-full bg-cyan-400" />
+        </div>
+      </div>
+    </>
   );
 };
 

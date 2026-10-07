@@ -789,11 +789,11 @@ const YourWorkspaceClockin = () => {
   return (
     <>
       <div className="min-h-screen bg-gray-50 dark:bg-[#0b0b10] flex flex-col md:flex-row">
-        <div className="hidden md:block md:w-72 md:flex-shrink-0">
+        <div className="hidden md:block md:min-h-screen fixed top-0 left-0 z-20 workspace-shell-sidebar">
           <YourWorkspaceSidebar workspace={workspace} />
         </div>
 
-        <div className="flex-1 flex flex-col h-screen md:h-auto md:min-h-screen overflow-hidden">
+        <div className="flex-1 flex flex-col h-screen md:h-auto md:min-h-screen overflow-hidden workspace-shell-main">
           {/* ─── Header ────────────────────────────────────────────────── */}
           <header className="bg-white/95 dark:bg-[#0f0f12]/95 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0 sticky top-0 z-10">
             <div className="flex items-center justify-between px-3 sm:px-6 h-12 sm:h-14">

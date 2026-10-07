@@ -158,13 +158,12 @@ textarea {
   outline: 2px solid #0d9488;
 }
 
-/* ─── Resizable sidebar: keep layout slot in sync with the sidebar ───
-   GeneralSidebar is position:fixed and writes --sidebar-width on <html>
-   as you drag. Any block that wraps it must match that same width, or
-   the sidebar slides on top of the content next to it.                  */
 @media (min-width: 768px) {
-  div:has(> aside.fixed.left-0) {
+  .workspace-shell-sidebar {
     width: var(--sidebar-width, 288px);
     flex-shrink: 0;
+  }
+  .workspace-shell-main {
+    margin-left: var(--sidebar-width, 288px);
   }
 }
