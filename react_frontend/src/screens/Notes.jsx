@@ -27,6 +27,20 @@ import { formatDistanceToNow } from 'date-fns';
 import GeneralSidebar from '../components/GeneralSidebar';
 import GeneralBottombar from '../components/GeneralBottombar';
 
+// ─── Share URL base ──────────────────────────────────────────────────
+// The public share page is always served from the production web host.
+// Inside the Capacitor native shell, `window.location.origin` resolves
+// to capacitor://localhost (iOS) or http://localhost (Android) — that
+// URL is meaningless to whoever receives the shared link. So we hardcode
+// the canonical base here rather than deriving it from the current origin.
+//
+// If you ever spin up a staging environment where you want staging share
+// URLs, swap this for:
+//   const SHARE_BASE_URL =
+//     import.meta.env.VITE_SHARE_BASE_URL || 'https://xircle.lovohcreate.com';
+// …and set VITE_SHARE_BASE_URL in each environment.
+const SHARE_BASE_URL = 'https://xircle.lovohcreate.com';
+
 // ─── Inline Confirm Modal ────────────────────────────────────────────
 const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message }) => {
   if (!isOpen) return null;
@@ -292,17 +306,21 @@ const Notes = () => {
     }
   };
 
-  // Share / copy link. Uses the Web Share API when available (mobile),
-  // otherwise falls back to clipboard (desktop). Both paths use the same
-  // URL: `${origin}/share/${shareLink}`.
+  // Share / copy link. Uses the Web Share API when available (Capacitor
+  // native shell + mobile browsers), otherwise falls back to clipboard.
+  //
+  // The URL is ALWAYS built from SHARE_BASE_URL, never from
+  // window.location.origin — inside the Capacitor app, origin is
+  // capacitor://localhost (iOS) or http://localhost (Android), which
+  // would send the recipient a broken link.
   const handleShareLink = useCallback(async (note) => {
     if (!note?.shareLink) {
       toast.error('No share link available');
       return;
     }
-    const url = `${window.location.origin}/share/${note.shareLink}`;
+    const url = `${SHARE_BASE_URL}/share/${note.shareLink}`;
 
-    // Try native share first (mobile + some desktop browsers).
+    // Try native share first (Capacitor + mobile browsers + some desktop).
     if (typeof navigator !== 'undefined' && navigator.share) {
       try {
         await navigator.share({ title: note.title || 'Note', url });
