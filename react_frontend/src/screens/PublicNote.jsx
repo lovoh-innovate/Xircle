@@ -17,17 +17,22 @@
 //   identically inside the editor, in this public viewer, and in the PDF
 //   exporter. Tables and callouts share the same CSS helpers.
 //
+// RESPONSIVE CARD:
+//   On mobile the note body is full-bleed (no card, tiny padding).
+//   From sm: up it sits in a bordered, rounded card — matching the
+//   original desktop look.
+//
 // PDF EXPORT:
 //   Same helpers as WriteNote's handleExportPDF (generatePdfFromNote +
 //   PDF_SCOPED_CSS) so a downloaded PDF looks the same regardless of
-//   which page triggered the export. Uses dynamic import so html2canvas
-//   and jsPDF aren't in the initial bundle for readers who don't export.
+//   which page triggered the export. Dynamic import keeps html2canvas
+//   and jsPDF out of the initial bundle for readers who don't export.
 //
 // SECURITY:
 //   Content is sanitized with DOMPurify before injection. `style` is
 //   allowed so inline text colors, font sizes, backgrounds, highlights,
-//   table CSS vars, and callout CSS vars survive — but scripts, event
-//   handlers, and iframes are stripped.
+//   table CSS vars, and callout CSS vars all survive — but scripts,
+//   event handlers, and iframes are stripped.
 import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import DOMPurify from 'dompurify';
@@ -420,7 +425,6 @@ const PublicNote = () => {
     setPdfError('');
     setPdfBusy(true);
     try {
-      // Sanitized HTML goes into the PDF so no script can sneak in.
       const blob = await generatePdfFromNote(
         note.title || 'Untitled Note',
         safeContent
@@ -502,7 +506,7 @@ const PublicNote = () => {
         style={{ paddingTop: 'max(env(safe-area-inset-top), 1rem)' }}
       >
         {/* Title + meta row (author, updated, PDF button) */}
-        <div className="mb-4 sm:mb-6">
+        <div className="mb-3 sm:mb-6">
           <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 dark:text-white leading-tight break-words">
             {note.title || 'Untitled Note'}
           </h1>
@@ -544,13 +548,13 @@ const PublicNote = () => {
           )}
         </div>
 
-        {/* ── Content card ─────────────────────────────────────────
-            Bordered, rounded card — matches the original PublicNote
-            look. The note body inside uses the exact same
-            .note-rich > .note-content structure + NOTE_RICH_CSS as
-            WriteNote's view mode, so typography, tables, callouts,
-            and inline styles all render identically. */}
-        <article className="bg-white dark:bg-[#1a1a1a] rounded-md border border-gray-200/60 dark:border-gray-800/60 p-4 sm:p-6 lg:p-8">
+        {/* ── Content ─────────────────────────────────────────────
+            Mobile: full-bleed, tiny padding (no card).
+            ≥ sm: bordered, rounded card — matches the original
+            desktop look.
+            Inside either way: exact same .note-rich > .note-content
+            structure + NOTE_RICH_CSS as WriteNote's view mode. */}
+        <article className="bg-transparent dark:bg-transparent rounded-none border-0 p-0 sm:bg-white sm:dark:bg-[#1a1a1a] sm:rounded-md sm:border sm:border-gray-200/60 sm:dark:border-gray-800/60 sm:p-6 lg:p-8">
           {safeContent ? (
             <div className="note-rich text-gray-800 dark:text-gray-100">
               <div

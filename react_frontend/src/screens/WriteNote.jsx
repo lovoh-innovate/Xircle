@@ -19,13 +19,20 @@
 //   • Edit and view modes share the exact same CSS + classes.
 //
 // CALLOUTS:
-//   • A block container with a rounded box, tinted bg, colored accent bar,
-//     and an emoji icon in the corner (Slack / Notion style).
-//   • Wrap any block (or selection of blocks) via the 💡 toolbar dropdown.
+//   • Block container with rounded box, tinted bg, colored accent bar.
+//   • Icon is stored as a *name* (lightbulb / info / warning / success /
+//     danger / note) and rendered via CSS mask-image, so it works in the
+//     editor, in view mode, and in the public viewer.
+//   • Icon floats above the top-right corner and only fades in on hover
+//     (always visible on touch devices). Text flows at normal padding —
+//     no more left gutter, no layout shift.
+//   • Wrap any block (or selection of blocks) via the toolbar dropdown.
 //   • Customizable icon, background, accent bar, and text color.
 //   • Round-trips through save/load as <div data-callout …>.
 //   • Backspace at start of empty callout unwraps it.
 //   • Mod-Enter exits a callout.
+//   • Backwards compatibility: old emoji data-icons are auto-migrated to
+//     the matching icon name on parse, then re-saved as names.
 //
 // EDIT == VIEW PARITY:
 //   All spacing/rhythm lives in NOTE_RICH_CSS. Edit and view modes mount
@@ -84,6 +91,7 @@ import {
   FaMagic, FaBookOpen, FaSearch, FaCheckDouble, FaExpandAlt, FaExternalLinkAlt,
   FaEllipsisV, FaChevronRight, FaFeather, FaPuzzlePiece, FaPaintBrush,
   FaObjectGroup, FaObjectUngroup, FaRegLightbulb, FaGripLines,
+  FaInfoCircle, FaCheckCircle, FaTimesCircle, FaStickyNote,
 } from 'react-icons/fa';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -234,7 +242,37 @@ ${S} .column-resize-handle {
 ${S} .resize-cursor { cursor: col-resize; }
 `;
 
-const buildCalloutCss = (S, { dark = true } = {}) => `
+// ─── CALLOUT CSS (icon via mask-image, floating badge on hover) ────
+//
+// The icon is stored as a name in `data-icon` ("lightbulb", "info", …)
+// and rendered as a small floating badge above the top-right corner of
+// the callout. It's hidden by default; shows on hover. Touch devices
+// (hover: none) always show it. The badge is absolutely positioned so
+// it never affects the text flow — no left gutter, no layout shift.
+const CALLOUT_ICON_MASKS = {
+  lightbulb:
+    "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 18h6'/%3E%3Cpath d='M10 22h4'/%3E%3Cpath d='M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14'/%3E%3C/svg%3E",
+  info:
+    "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 16v-4'/%3E%3Cpath d='M12 8h.01'/%3E%3C/svg%3E",
+  warning:
+    "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z'/%3E%3Cline x1='12' y1='9' x2='12' y2='13'/%3E%3Cline x1='12' y1='17' x2='12.01' y2='17'/%3E%3C/svg%3E",
+  success:
+    "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M22 11.08V12a10 10 0 1 1-5.93-9.14'/%3E%3Cpolyline points='22 4 12 14.01 9 11.01'/%3E%3C/svg%3E",
+  danger:
+    "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cline x1='15' y1='9' x2='9' y2='15'/%3E%3Cline x1='9' y1='9' x2='15' y2='15'/%3E%3C/svg%3E",
+  note:
+    "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpolyline points='14 2 14 8 20 8'/%3E%3C/svg%3E",
+};
+
+const buildCalloutCss = (S, { dark = true } = {}) => {
+  const maskRules = Object.entries(CALLOUT_ICON_MASKS)
+    .map(
+      ([name, mask]) =>
+        `${S} [data-callout][data-icon="${name}"] { --callout-icon-mask: url("data:image/svg+xml;utf8,${mask}"); }`
+    )
+    .join('\n');
+
+  return `
 ${S} {
   --callout-def-bg: #f0fdfa;
   --callout-def-border: #14b8a6;
@@ -251,24 +289,66 @@ ${
 }
 ${S} [data-callout] {
   position: relative;
-  margin: 14px 0;
-  padding: 12px 16px 12px 48px;
+  margin: 22px 0 16px;
+  padding: 14px 18px;
   border-radius: 8px;
   background-color: var(--callout-bg, var(--callout-def-bg));
   border-left: 4px solid var(--callout-border, var(--callout-def-border));
   color: var(--callout-color, var(--callout-def-text));
   transition: box-shadow 120ms ease;
 }
-${S} [data-callout]::before {
-  content: attr(data-icon);
+
+/* Floating icon badge — absolute, so it never affects text flow.
+   Hidden by default; fades in on hover. Straddles the top edge just
+   right of center so it doesn't clash with the accent bar. */
+${S} [data-callout]::before,
+${S} [data-callout]::after {
+  content: '';
   position: absolute;
-  left: 14px;
-  top: 12px;
-  font-size: 18px;
-  line-height: 1.2;
+  top: -13px;
+  right: 12px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  opacity: 0;
+  transform: translateY(3px);
+  transition: opacity 160ms ease, transform 160ms ease;
   pointer-events: none;
-  user-select: none;
 }
+${S} [data-callout]::before {
+  background-color: var(--callout-border, var(--callout-def-border));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16), 0 0 0 2px rgba(255, 255, 255, 0.6);
+}
+${S} [data-callout]::after {
+  background-color: #ffffff;
+  -webkit-mask-image: var(--callout-icon-mask);
+  -webkit-mask-size: 58%;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-image: var(--callout-icon-mask);
+  mask-size: 58%;
+  mask-position: center;
+  mask-repeat: no-repeat;
+}
+.dark ${S} [data-callout]::before {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5), 0 0 0 2px rgba(24, 24, 27, 0.6);
+}
+${S} [data-callout]:hover::before,
+${S} [data-callout]:hover::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+@media (hover: none) {
+  ${S} [data-callout]::before,
+  ${S} [data-callout]::after {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Icon masks — one attribute selector per icon name. */
+${maskRules}
+
 ${S} [data-callout] > :first-child { margin-top: 0; }
 ${S} [data-callout] > :last-child { margin-bottom: 0; }
 ${S} [data-callout] p { margin: 0.35rem 0; }
@@ -278,15 +358,8 @@ ${S} [data-callout].ProseMirror-selectednode {
   outline: 2px solid #14b8a6;
   outline-offset: 2px;
 }
-${S} [data-callout].is-empty-hint::after {
-  content: 'Empty callout — type here…';
-  color: rgba(20, 184, 166, 0.55);
-  pointer-events: none;
-  position: absolute;
-  left: 48px;
-  top: 12px;
-}
 `;
+};
 
 // ─── SHARED NOTE CONTENT CSS (identical for edit + view + PDF) ──────
 const NOTE_RICH_CSS = `
@@ -361,6 +434,9 @@ const NOTE_RICH_CSS = `
 ` + buildTableCss('.note-rich') + buildCalloutCss('.note-rich');
 
 // ─── PDF EXPORT ──────────────────────────────────────────────────────
+// In PDFs we want the icon always visible (no hover). Override the
+// opacity/transform and pin the badge to the top-right so it renders
+// statically.
 const PDF_SCOPED_CSS =
   `
   [data-pdf-root] { background: #ffffff; color: #111827; }
@@ -382,7 +458,15 @@ const PDF_SCOPED_CSS =
   [data-pdf-root] img { max-width: 100%; height: auto; display: block; margin: 8pt auto; }
 ` +
   buildTableCss('[data-pdf-root]', { dark: false }) +
-  buildCalloutCss('[data-pdf-root]', { dark: false });
+  buildCalloutCss('[data-pdf-root]', { dark: false }) +
+  // Force the badge visible in print.
+  `
+  [data-pdf-root] [data-callout]::before,
+  [data-pdf-root] [data-callout]::after {
+    opacity: 1 !important;
+    transform: translateY(0) !important;
+  }
+  `;
 
 const generatePdfFromNote = async (title, contentHtml) => {
   const [html2canvasMod, jspdfMod] = await Promise.all([
@@ -504,6 +588,41 @@ const BIBLE_BOOKS = [
   },
 ];
 
+// ─── CALLOUT ICON REGISTRY ─────────────────────────────────────────
+// Names match the CSS mask rules built above. The picker UI uses the
+// React components here; the rendering engine uses the CSS masks.
+const CALLOUT_ICON_COMPONENTS = {
+  lightbulb: FaRegLightbulb,
+  info: FaInfoCircle,
+  warning: FaExclamationTriangle,
+  success: FaCheckCircle,
+  danger: FaTimesCircle,
+  note: FaStickyNote,
+};
+
+const CALLOUT_ICONS = Object.keys(CALLOUT_ICON_COMPONENTS);
+
+// Old emoji values are mapped to their closest icon name during parse so
+// existing notes silently migrate the next time they're saved.
+const EMOJI_TO_ICON_NAME = {
+  '💡': 'lightbulb',
+  'ℹ️': 'info', 'ℹ': 'info',
+  '⚠️': 'warning', '⚠': 'warning',
+  '✅': 'success', '✔️': 'success', '✔': 'success',
+  '❌': 'danger', '✖️': 'danger', '✖': 'danger',
+  '📝': 'note', '📄': 'note', '📌': 'note',
+  '🔥': 'warning',
+  '⭐': 'success', '🌟': 'success',
+  '🎯': 'success',
+  '❓': 'info',
+  '🚀': 'success',
+};
+
+const migrateIconValue = (raw) => {
+  if (!raw) return 'lightbulb';
+  return EMOJI_TO_ICON_NAME[raw] || raw;
+};
+
 // ─── TIPTAP EXTENSIONS ──────────────────────────────────────────────
 const ResizableImage = Image.extend({
   addAttributes() {
@@ -613,7 +732,7 @@ const CustomTableHeader = TableHeader.extend({
 
 // ─── CALLOUT NODE ───────────────────────────────────────────────────
 // Block container with rounded box, tinted bg, colored accent bar, and
-// an emoji icon. Persists as <div data-callout …>.
+// a hover-revealed floating icon. Persists as <div data-callout …>.
 const Callout = Node.create({
   name: 'callout',
   group: 'block',
@@ -651,9 +770,9 @@ const Callout = Node.create({
           attrs.textColor ? { style: `--callout-color: ${attrs.textColor};` } : {},
       },
       icon: {
-        default: '💡',
-        parseHTML: (el) => el.getAttribute('data-icon') || '💡',
-        renderHTML: (attrs) => ({ 'data-icon': attrs.icon || '💡' }),
+        default: 'lightbulb',
+        parseHTML: (el) => migrateIconValue(el.getAttribute('data-icon')),
+        renderHTML: (attrs) => ({ 'data-icon': attrs.icon || 'lightbulb' }),
       },
     };
   },
@@ -869,15 +988,14 @@ const CALLOUT_TEXT_COLORS = [
   '#0f172a', '#1e293b', '#111827', '#0d9488', '#1d4ed8',
   '#dc2626', '#b45309', '#7c3aed', '#db2777', '#ffffff',
 ];
-const CALLOUT_ICONS = ['💡', 'ℹ️', '⚠️', '✅', '❌', '📝', '🔥', '⭐', '🎯', '📌', '❓', '🚀'];
 
 const CALLOUT_PRESETS = [
-  { id: 'idea',    label: 'Idea',    icon: '💡', bgColor: '#f0fdfa', borderColor: '#14b8a6', textColor: '#0f172a' },
-  { id: 'info',    label: 'Info',    icon: 'ℹ️', bgColor: '#eff6ff', borderColor: '#3b82f6', textColor: '#0f172a' },
-  { id: 'warning', label: 'Warning', icon: '⚠️', bgColor: '#fffbeb', borderColor: '#f59e0b', textColor: '#451a03' },
-  { id: 'success', label: 'Success', icon: '✅', bgColor: '#f0fdf4', borderColor: '#22c55e', textColor: '#052e16' },
-  { id: 'danger',  label: 'Danger',  icon: '❌', bgColor: '#fef2f2', borderColor: '#ef4444', textColor: '#450a0a' },
-  { id: 'note',    label: 'Note',    icon: '📝', bgColor: '#f9fafb', borderColor: '#6b7280', textColor: '#111827' },
+  { id: 'idea',    label: 'Idea',    icon: 'lightbulb', bgColor: '#f0fdfa', borderColor: '#14b8a6', textColor: '#0f172a' },
+  { id: 'info',    label: 'Info',    icon: 'info',      bgColor: '#eff6ff', borderColor: '#3b82f6', textColor: '#0f172a' },
+  { id: 'warning', label: 'Warning', icon: 'warning',   bgColor: '#fffbeb', borderColor: '#f59e0b', textColor: '#451a03' },
+  { id: 'success', label: 'Success', icon: 'success',   bgColor: '#f0fdf4', borderColor: '#22c55e', textColor: '#052e16' },
+  { id: 'danger',  label: 'Danger',  icon: 'danger',    bgColor: '#fef2f2', borderColor: '#ef4444', textColor: '#450a0a' },
+  { id: 'note',    label: 'Note',    icon: 'note',      bgColor: '#f9fafb', borderColor: '#6b7280', textColor: '#111827' },
 ];
 
 const FONT_FAMILIES = [
@@ -1901,7 +2019,7 @@ const EditorToolbar = ({ editor, isMobile, onOpenTableSettings }) => {
       bgColor: preset.bgColor ?? null,
       borderColor: preset.borderColor ?? null,
       textColor: preset.textColor ?? null,
-      icon: preset.icon ?? '💡',
+      icon: preset.icon ?? 'lightbulb',
     };
     if (inCallout) {
       editor.chain().focus().updateCallout(attrs).run();
@@ -2074,7 +2192,7 @@ const EditorToolbar = ({ editor, isMobile, onOpenTableSettings }) => {
         {/* ── CALLOUT ─────────────────────────────────────────────── */}
         <ToolbarDropdown
           id="callout" openId={openId} setOpenId={setOpenId} isMobile={isMobile}
-          icon={<FaRegLightbulb className="text-xs" />} label="Callout" width={272}
+          icon={<FaRegLightbulb className="text-xs" />} label="Callout" width={288}
           active={inCallout}
         >
           <div className="space-y-3">
@@ -2100,19 +2218,24 @@ const EditorToolbar = ({ editor, isMobile, onOpenTableSettings }) => {
                 Presets
               </div>
               <div className="grid grid-cols-3 gap-1.5">
-                {CALLOUT_PRESETS.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => { wrapInCallout(p); setOpenId(null); }}
-                    className="flex flex-col items-center gap-0.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-teal-500 transition"
-                    style={{ backgroundColor: p.bgColor }}
-                  >
-                    <span className="text-base leading-none">{p.icon}</span>
-                    <span className="text-[10px] text-gray-700">{p.label}</span>
-                  </button>
-                ))}
+                {CALLOUT_PRESETS.map((p) => {
+                  const IconComp = CALLOUT_ICON_COMPONENTS[p.icon];
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => { wrapInCallout(p); setOpenId(null); }}
+                      className="flex flex-col items-center gap-1 py-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-teal-500 transition"
+                      style={{ backgroundColor: p.bgColor }}
+                    >
+                      {IconComp ? (
+                        <IconComp className="text-sm" style={{ color: p.borderColor }} />
+                      ) : null}
+                      <span className="text-[10px] text-gray-700 dark:text-gray-800">{p.label}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -2123,22 +2246,30 @@ const EditorToolbar = ({ editor, isMobile, onOpenTableSettings }) => {
                     Icon
                   </div>
                   <div className="flex flex-wrap gap-1">
-                    {CALLOUT_ICONS.map((ic) => (
-                      <button
-                        key={ic}
-                        type="button"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => updateCalloutAttr({ icon: ic })}
-                        className={`w-7 h-7 rounded-lg flex items-center justify-center text-base transition ${
-                          calloutAttrs.icon === ic
-                            ? 'bg-teal-100 dark:bg-teal-900/30 ring-2 ring-teal-500'
-                            : 'hover:bg-gray-100 dark:hover:bg-gray-800'
-                        }`}
-                      >
-                        {ic}
-                      </button>
-                    ))}
+                    {CALLOUT_ICONS.map((name) => {
+                      const IconComp = CALLOUT_ICON_COMPONENTS[name];
+                      const selected = calloutAttrs.icon === name;
+                      return (
+                        <button
+                          key={name}
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => updateCalloutAttr({ icon: name })}
+                          title={name}
+                          className={`w-8 h-8 rounded-lg flex items-center justify-center transition ${
+                            selected
+                              ? 'bg-teal-100 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400 ring-2 ring-teal-500'
+                              : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                          }`}
+                        >
+                          {IconComp ? <IconComp className="text-sm" /> : null}
+                        </button>
+                      );
+                    })}
                   </div>
+                  <p className="mt-1.5 text-[10px] text-gray-400 dark:text-gray-500">
+                    The icon floats above the callout and only shows on hover — text flows freely.
+                  </p>
                 </div>
 
                 <ColorRow
