@@ -24,7 +24,7 @@ import personalNoteRoutes from "./routes/personalNoteRoutes.js";
 import workspaceNoteRoutes from "./routes/workspaceNoteRoutes.js";
 import stickerRoutes from './routes/stickerRoutes.js';
 import aiRoutes from './routes/aiRoutes.js';
-import todayRoutes from './routes/todayRoutes.js';                 // 👈 NEW
+import todayRoutes from './routes/todayRoutes.js';
 import googleCalendarRoutes from './routes/googleCalendarRoutes.js';
 
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
@@ -36,13 +36,16 @@ import {
   startAutoClockOutScheduler,
   sendMonthlyLeaderboardForAllWorkspaces,
 } from "./controllers/clockInController.js";
-import { sendDailyDigest } from "./controllers/todayController.js";   // 👈 NEW
+import { sendDailyDigest } from "./controllers/todayController.js";
 
 // 👇 Standalone cleanup script
 import {
   startClockOutPreviousDayScheduler,
   runClockOutPreviousDayForAllWorkspaces,
 } from "./scripts/clockOutPreviousDay.js";
+
+// 👇 ADDED — the model itself, for the /share/:link OG endpoint below
+import PersonalNote from "./models/personalNoteModel.js";
 
 dotenv.config();
 
@@ -92,7 +95,7 @@ app.get("/", (req, res) => {
 });
 
 // ── Routes ──
-app.use('/api/today', todayRoutes);                                 // 👈 NEW — the front door
+app.use('/api/today', todayRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/workspaces", workspaceRoutes);
 app.use("/api/team", teamRoutes);
@@ -111,6 +114,129 @@ app.use('/api/google-calendar', googleCalendarRoutes);
 // Note routes
 app.use("/api/personal-notes", personalNoteRoutes);
 app.use("/api/workspace-notes", workspaceNoteRoutes);
+
+// ─────────────────────────────────────────────────────────────────────
+// 👇 ADDED — OG / link-preview for shared public notes
+//
+// Crawlers (WhatsApp, Twitter, FB, LinkedIn, Telegram, Slack, Discord)
+// read raw HTML and look for og:* meta tags. This endpoint serves a
+// tiny HTML doc with those tags for any bot hitting /share/:link.
+//
+// Real browsers get the frontend's LIVE index.html fetched and
+// returned directly — NOT a redirect (a redirect back to the same
+// domain would loop straight back into this same rewrite rule).
+// Fetching the root ("/") sidesteps the rule entirely, so we always
+// serve whatever's actually live on the frontend's own static host.
+// ─────────────────────────────────────────────────────────────────────
+const CRAWLER_RE =
+  /(whatsapp|facebookexternalhit|twitterbot|telegrambot|linkedinbot|slackbot|discordbot|embedly|quora link preview|showyoubot|outbrain|pinterest|vkShare|W3C_Validator|redditbot|applebot|googlebot|bingbot|yandex|duckduckbot|skypeuripreview)/i;
+
+const escapeHtml = (s = "") =>
+  String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+// note.content is stored as HTML — strip tags for og:description.
+const stripHtml = (html = "") =>
+  String(html).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+
+app.get("/share/:link", async (req, res, next) => {
+  const ua = req.headers["user-agent"] || "";
+  const isCrawler = CRAWLER_RE.test(ua);
+  const frontend = (process.env.FRONTEND_URL || "").replace(/\/$/, "");
+
+  // ── Real browsers: fetch the frontend's own live index.html and
+  // return it directly. Avoids the redirect-loop problem entirely.
+  if (!isCrawler) {
+    if (frontend) {
+      try {
+        const resp = await fetch(`${frontend}/`);
+        if (resp.ok) {
+          const html = await resp.text();
+          return res
+            .status(200)
+            .set("Content-Type", "text/html; charset=utf-8")
+            .send(html);
+        }
+      } catch (err) {
+        console.error("Failed to proxy frontend index.html:", err.message);
+      }
+    }
+    return next();
+  }
+
+  // ── Crawler: build OG meta tags from the note ──
+  try {
+    const note = await PersonalNote.findOne({
+      shareLink: req.params.link,
+      isPublic: true,
+    })
+      .select("title content attachments shareLink updatedAt")
+      .lean();
+
+    if (!note) {
+      return res
+        .status(404)
+        .type("html")
+        .send(
+          `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Note not found</title></head><body><p>Note not found.</p></body></html>`
+        );
+    }
+
+    const url = `${frontend}/share/${note.shareLink || req.params.link}`;
+    const title = `${note.title || "Untitled Note"} — Xircle`;
+    const desc =
+      stripHtml(note.content || "").slice(0, 200) ||
+      "A shared note on Xircle.";
+
+    // Use the first image attachment as the preview image, if any.
+    const img =
+      (note.attachments || []).find((a) =>
+        /\.(jpe?g|png|gif|webp)$/i.test(a.path || "")
+      )?.path || "";
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>${escapeHtml(title)}</title>
+  <meta name="description" content="${escapeHtml(desc)}" />
+  <link rel="canonical" href="${escapeHtml(url)}" />
+  <meta property="og:title" content="${escapeHtml(title)}" />
+  <meta property="og:description" content="${escapeHtml(desc)}" />
+  <meta property="og:url" content="${escapeHtml(url)}" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="Xircle" />
+  ${
+    img
+      ? `<meta property="og:image" content="${escapeHtml(img)}" />
+  <meta property="og:image:secure_url" content="${escapeHtml(img)}" />`
+      : ""
+  }
+  <meta name="twitter:card" content="${
+    img ? "summary_large_image" : "summary"
+  }" />
+  <meta name="twitter:title" content="${escapeHtml(title)}" />
+  <meta name="twitter:description" content="${escapeHtml(desc)}" />
+  ${img ? `<meta name="twitter:image" content="${escapeHtml(img)}" />` : ""}
+</head>
+<body>
+  <p>${escapeHtml(title)}</p>
+</body>
+</html>`;
+
+    res
+      .status(200)
+      .set("Content-Type", "text/html; charset=utf-8")
+      .set("Cache-Control", "public, max-age=60, s-maxage=300")
+      .send(html);
+  } catch (err) {
+    console.error("OG render failed:", err.message);
+    next();
+  }
+});
 
 // ── Error middleware ──
 app.use(notFound);

@@ -548,6 +548,7 @@ const router = createBrowserRouter([
       { path: 'signup', element: <Signup /> },
       { path: 'forgot-password', element: <ForgotPassword /> },
       { path: 'app/download/:versionId', element: <AppDownload /> },
+      {path: 'share/:link', element: <PublicNote />},
       { path: '*', element: <NotFound /> },
 
       {
@@ -602,7 +603,6 @@ const router = createBrowserRouter([
           { path: 'notes', element: <Notes /> },
           { path: 'notes/:id', element: <WriteNote /> },
           {path: 'extensions', element: <Extensions />},
-          {path: 'share/:link', element: <PublicNote />},
           { path: 'accept-task-collab', element: <AcceptTaskCollab /> },
           { path: 'stickers', element: <Sticker /> },
 
