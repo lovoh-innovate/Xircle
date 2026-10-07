@@ -15,9 +15,21 @@
 // Layout: full-bleed on every screen size. No back button — this is a
 // standalone share page. On mount, scrolls to top so the reader always
 // starts at the beginning of the note.
-import React, { useEffect, useLayoutEffect } from 'react';
+//
+// ── Changes vs previous version ─────────────────────────────────────
+// 1. Sanitizes note.content with DOMPurify before dangerouslySetInnerHTML
+//    (prevents stored-XSS via note editor).
+// 2. Sets document <title>/<meta> for the note via useDocumentMeta —
+//    browser tabs and JS-capable share clients now see the real title.
+//    Pairs with the server-side /share/:link OG handler (crawlers only).
+// 3. Respects the device safe-area on mobile (notches, home indicator).
+// 4. Adds a scroll-to-top button that appears after 600 px of scroll.
+// 5. Small copy/visual polish in the error + loading states.
+import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import DOMPurify from 'dompurify';
 import { useGetNoteByShareLinkQuery } from '../slices/personalNoteApiSlice';
+import { useDocumentMeta } from '../hooks/useDocumentMeta';
 import {
   FaFileAlt,
   FaSpinner,
@@ -25,6 +37,7 @@ import {
   FaPaperclip,
   FaExternalLinkAlt,
   FaClock,
+  FaArrowUp,
 } from 'react-icons/fa';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -51,6 +64,35 @@ const PublicNote = () => {
     refetchOnReconnect: true,
   });
 
+  // ── Document meta (title, description, image) ───────────────────
+  // Runs for real browsers; crawlers get their tags from the server-side
+  // /share/:link OG handler instead. Together they cover both audiences.
+  const note = data?.note;
+  useDocumentMeta({
+    title: note?.title ? `${note.title} — Xircle` : undefined,
+    description: note?.content
+      ? DOMPurify.sanitize(note.content, { ALLOWED_TAGS: [] }).slice(0, 200)
+      : undefined,
+    image:
+      note?.attachments?.find((a) =>
+        /\.(jpe?g|png|gif|webp)$/i.test(a.path || '')
+      )?.path || undefined,
+    url:
+      typeof window !== 'undefined' ? window.location.href : undefined,
+  });
+
+  // ── Sanitize HTML once per note change ──────────────────────────
+  // This is the actual XSS gate. The editor stores raw HTML, so any
+  // `<img src=x onerror=…>` that makes it into a note would otherwise
+  // run in every reader's browser the moment it renders.
+  const safeContent = useMemo(() => {
+    if (!note?.content) return '';
+    return DOMPurify.sanitize(note.content, {
+      USE_PROFILES: { html: true },
+      ADD_ATTR: ['target', 'rel'],
+    });
+  }, [note?.content]);
+
   // Force scroll to the very top the instant this page mounts.
   // useLayoutEffect runs before paint, so there's no visible jump.
   useLayoutEffect(() => {
@@ -72,10 +114,21 @@ const PublicNote = () => {
     }
   }, [isLoading]);
 
+  // ── Scroll-to-top button visibility ─────────────────────────────
+  const [showTop, setShowTop] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setShowTop(window.scrollY > 600);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
   // ── Loading (first time only) ─────────────────────────────────
   if (isLoading) {
     return (
-      <div className="min-h-dvh bg-white dark:bg-[#0f0f12] flex items-center justify-center">
+      <div
+        className="min-h-dvh bg-white dark:bg-[#0f0f12] flex items-center justify-center"
+        style={{ paddingTop: 'env(safe-area-inset-top)' }}
+      >
         <FaSpinner className="animate-spin text-teal-500 text-3xl" />
       </div>
     );
@@ -87,19 +140,26 @@ const PublicNote = () => {
       error?.data?.message ||
       'This note is not available. It may have been made private or deleted.';
     return (
-      <div className="min-h-dvh bg-white dark:bg-[#0f0f12] flex flex-col items-center justify-center p-6 text-center">
+      <div
+        className="min-h-dvh bg-white dark:bg-[#0f0f12] flex flex-col items-center justify-center p-6 text-center"
+        style={{
+          paddingTop: 'max(env(safe-area-inset-top), 1.5rem)',
+          paddingBottom: 'max(env(safe-area-inset-bottom), 1.5rem)',
+        }}
+      >
         <div className="w-16 h-16 rounded-lg bg-red-50 dark:bg-red-900/20 flex items-center justify-center mb-4">
           <FaExclamationTriangle className="text-red-500 text-2xl" />
         </div>
         <h1 className="text-lg font-semibold text-gray-800 dark:text-white mb-2">
           Note unavailable
         </h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm">{message}</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm">
+          {message}
+        </p>
       </div>
     );
   }
 
-  const note = data.note;
   const authorName = note.user?.name || 'Unknown';
   const updated = note.updatedAt
     ? formatDistanceToNow(new Date(note.updatedAt), { addSuffix: true })
@@ -108,7 +168,10 @@ const PublicNote = () => {
   return (
     <div className="min-h-dvh bg-white dark:bg-[#0f0f12] w-full">
       {/* ── Body — full-bleed on every screen size ────────────── */}
-      <main className="w-full px-3 sm:px-5 lg:px-8 py-4 sm:py-8">
+      <main
+        className="w-full px-3 sm:px-5 lg:px-8 py-4 sm:py-8"
+        style={{ paddingTop: 'max(env(safe-area-inset-top), 1rem)' }}
+      >
         {/* Title + meta */}
         <div className="mb-4 sm:mb-6">
           <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 dark:text-white leading-tight break-words">
@@ -130,29 +193,36 @@ const PublicNote = () => {
           </div>
         </div>
 
-        {/* Content — full width, small radius */}
+        {/* Content — sanitized HTML */}
         <article className="bg-white dark:bg-[#1a1a1a] rounded-md border border-gray-200/60 dark:border-gray-800/60 p-4 sm:p-6 lg:p-8">
-          <div
-            className={
-              'prose prose-sm sm:prose-base max-w-none dark:prose-invert ' +
-              '[&_h1]:text-2xl [&_h2]:text-xl [&_h3]:text-lg [&_h1]:font-bold [&_h2]:font-bold [&_h3]:font-semibold ' +
-              '[&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-1 ' +
-              '[&_p]:my-2 [&_a]:text-teal-600 [&_a]:underline ' +
-              '[&_strong]:font-semibold [&_em]:italic [&_u]:underline ' +
-              '[&_img]:rounded-md [&_img]:max-w-full ' +
-              '[&_table]:border-collapse [&_table]:w-full [&_table]:my-3 ' +
-              '[&_th]:border [&_th]:border-gray-300 [&_th]:dark:border-gray-600 [&_th]:p-2 ' +
-              '[&_td]:border [&_td]:border-gray-300 [&_td]:dark:border-gray-600 [&_td]:p-2'
-            }
-            dangerouslySetInnerHTML={{ __html: note.content || '' }}
-          />
+          {safeContent ? (
+            <div
+              className={
+                'prose prose-sm sm:prose-base max-w-none dark:prose-invert ' +
+                '[&_h1]:text-2xl [&_h2]:text-xl [&_h3]:text-lg [&_h1]:font-bold [&_h2]:font-bold [&_h3]:font-semibold ' +
+                '[&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-1 ' +
+                '[&_p]:my-2 [&_a]:text-teal-600 [&_a]:underline ' +
+                '[&_strong]:font-semibold [&_em]:italic [&_u]:underline ' +
+                '[&_img]:rounded-md [&_img]:max-w-full ' +
+                '[&_table]:border-collapse [&_table]:w-full [&_table]:my-3 ' +
+                '[&_th]:border [&_th]:border-gray-300 [&_th]:dark:border-gray-600 [&_th]:p-2 ' +
+                '[&_td]:border [&_td]:border-gray-300 [&_td]:dark:border-gray-600 [&_td]:p-2'
+              }
+              dangerouslySetInnerHTML={{ __html: safeContent }}
+            />
+          ) : (
+            <p className="text-sm italic text-gray-400 dark:text-gray-500">
+              This note is empty.
+            </p>
+          )}
         </article>
 
         {/* Attachments */}
         {note.attachments?.length > 0 && (
           <section className="mt-6">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-500 mb-3 flex items-center gap-2">
-              <FaPaperclip className="text-[10px]" /> Attachments ({note.attachments.length})
+              <FaPaperclip className="text-[10px]" /> Attachments (
+              {note.attachments.length})
             </h2>
             <div className="space-y-2">
               {note.attachments.map((att, i) => (
@@ -184,10 +254,30 @@ const PublicNote = () => {
         )}
 
         {/* Footer */}
-        <p className="mt-10 text-center text-[11px] text-gray-400 dark:text-gray-600">
+        <p
+          className="mt-10 text-center text-[11px] text-gray-400 dark:text-gray-600"
+          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+        >
           Shared via Xircle
         </p>
       </main>
+
+      {/* ── Scroll-to-top ─────────────────────────────────────── */}
+      {showTop && (
+        <button
+          type="button"
+          onClick={() =>
+            window.scrollTo({ top: 0, behavior: 'smooth' })
+          }
+          aria-label="Scroll to top"
+          className="fixed right-4 z-30 flex h-9 w-9 items-center justify-center rounded-md border border-stone-200 bg-white text-stone-500 shadow-sm transition-all hover:-translate-y-0.5 hover:text-teal-600 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-400 dark:hover:text-teal-400"
+          style={{
+            bottom: 'max(env(safe-area-inset-bottom), 1rem)',
+          }}
+        >
+          <FaArrowUp className="h-4 w-4" />
+        </button>
+      )}
     </div>
   );
 };
