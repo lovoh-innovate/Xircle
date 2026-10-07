@@ -2,16 +2,12 @@
   "rewrites": [
     {
       "source": "/share/:link",
-      "has": [
-        {
-          "type": "header",
-          "key": "user-agent",
-          "value": "(?i).*(whatsapp|facebookexternalhit|twitterbot|telegrambot|linkedinbot|slackbot|discordbot|embedly|quora link preview|showyoubot|outbrain|pinterest|vkshare|w3c_validator|redditbot|applebot|googlebot|bingbot|yandex|duckduckbot|skypeuripreview).*"
-        }
-      ],
-      "destination": "https://YOUR-BACKEND-DOMAIN/share/:link"
+      "destination": "https://xircle.onrender.com/share/:link"
     },
-    { "source": "/(.*)", "destination": "/" }
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ],
   "headers": [
     {
