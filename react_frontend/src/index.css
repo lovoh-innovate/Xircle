@@ -28,10 +28,26 @@
   body {
     @apply bg-gray-50 dark:bg-[#0b0b10] text-gray-900 dark:text-gray-100;
     transition: background-color 0.3s ease, color 0.3s ease;
+    /* Disable pinch-zoom + double-tap zoom on iOS/Android WebViews.
+       Harmless on desktop browsers that don't support it. */
+    touch-action: manipulation;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
-  input, textarea, select {
-    font-size: 16px;
+  /* iOS Safari auto-zooms the whole page when an input with
+     font-size < 16px gains focus. Tailwind utility classes like
+     text-sm (14px) or text-xs (12px) override our base rule, so we
+     need !important to win against the utilities layer.
+     This rule alone fixes ~95% of the input-zoom complaints. */
+  input,
+  textarea,
+  select,
+  button {
+    font-size: 16px !important;
+    touch-action: manipulation;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 }
 

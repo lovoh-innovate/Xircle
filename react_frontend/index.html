@@ -2,7 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      maximum-scale=1 + user-scalable=no  → stops iOS auto-zoom on input focus
+      viewport-fit=cover                  → makes env(safe-area-inset-*) resolve
+                                             on notched iPhones
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
 
     <!-- ===== PRIMARY META ===== -->
     <title>Xircle — Project Management · Color Your Workspace</title>
@@ -57,83 +65,17 @@
       rel="stylesheet"
     />
     <meta name="apple-mobile-web-app-title" content="Xircle" />
-    <!-- ===== BASE STYLES ===== -->
-    <!-- <style>
-      html,
-      body,
-      #root {
-        height: 100%;
-        margin: 0;
-        padding: 0;
-      }
 
-      body {
-        font-family: "Inter", "Roboto", system-ui, -apple-system, sans-serif;
-        background: #f8f9fe;
-        color: #1a1a2e;
-        -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
-      }
-
-      input,
-      textarea,
-      select {
-        font-size: 16px;
-      }
-
-      /* ── splash screen ── */
-      .xircle-splash {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        height: 100%;
-        text-align: center;
-        padding: 2rem;
-        animation: pulse 1.8s ease-in-out infinite;
-      }
-
-      .xircle-splash img {
-        display: block;
-        width: 72px;
-        height: 72px;
-        margin: 0 auto 1.2rem;
-        border-radius: 12px;
-        box-shadow: 0 4px 24px rgba(108, 71, 255, 0.25);
-      }
-
-      .xircle-splash p {
-        font-size: 1.1rem;
-        font-weight: 450;
-        color: #6b6b8d;
-        letter-spacing: 0.3px;
-      }
-
-      @keyframes pulse {
-        0%,
-        100% {
-          opacity: 1;
-        }
-        50% {
-          opacity: 0.5;
-        }
-      }
-
-      /* hide splash once React renders */
-      #root:has(> :not(.xircle-splash)) .xircle-splash {
-        display: none;
-      }
-    </style> -->
+    <!--
+      Base styles + splash screen are intentionally removed from index.html.
+      They now live in index.css (Tailwind layer) since the splash markup
+      was already disabled. If you want the splash back, uncomment the
+      markup below and move its CSS into index.css.
+    -->
   </head>
 
   <body>
-    <div id="root">
-      <!-- splash screen shown while React loads -->
-      <!-- <div class="xircle-splash" aria-hidden="true">
-        <img src="/logo.jpeg" alt="Xircle logo" />
-        <p>Loading Xircle …</p>
-      </div> -->
-    </div>
+    <div id="root"></div>
 
     <!-- ===== REACT ENTRY ===== -->
     <script type="module" src="/src/main.jsx"></script>
