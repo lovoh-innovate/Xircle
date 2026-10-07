@@ -32,7 +32,8 @@
 //   • Backspace at start of empty callout unwraps it.
 //   • Mod-Enter exits a callout.
 //   • Backwards compatibility: old emoji data-icons are auto-migrated to
-//     the matching icon name on parse, then re-saved as names.
+//     the matching icon name both in-memory (Tiptap parse) AND in the
+//     loaded HTML string (view mode + PDF). See migrateCalloutIcons().
 //
 // EDIT == VIEW PARITY:
 //   All spacing/rhythm lives in NOTE_RICH_CSS. Edit and view modes mount
@@ -91,7 +92,7 @@ import {
   FaMagic, FaBookOpen, FaSearch, FaCheckDouble, FaExpandAlt, FaExternalLinkAlt,
   FaEllipsisV, FaChevronRight, FaFeather, FaPuzzlePiece, FaPaintBrush,
   FaObjectGroup, FaObjectUngroup, FaRegLightbulb, FaGripLines,
-  FaInfoCircle, FaCheckCircle, FaTimesCircle, FaStickyNote,
+  FaExclamationTriangle, FaInfoCircle, FaCheckCircle, FaTimesCircle, FaStickyNote,
 } from 'react-icons/fa';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -243,12 +244,6 @@ ${S} .resize-cursor { cursor: col-resize; }
 `;
 
 // ─── CALLOUT CSS (icon via mask-image, floating badge on hover) ────
-//
-// The icon is stored as a name in `data-icon` ("lightbulb", "info", …)
-// and rendered as a small floating badge above the top-right corner of
-// the callout. It's hidden by default; shows on hover. Touch devices
-// (hover: none) always show it. The badge is absolutely positioned so
-// it never affects the text flow — no left gutter, no layout shift.
 const CALLOUT_ICON_MASKS = {
   lightbulb:
     "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 18h6'/%3E%3Cpath d='M10 22h4'/%3E%3Cpath d='M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14'/%3E%3C/svg%3E",
@@ -434,9 +429,6 @@ const NOTE_RICH_CSS = `
 ` + buildTableCss('.note-rich') + buildCalloutCss('.note-rich');
 
 // ─── PDF EXPORT ──────────────────────────────────────────────────────
-// In PDFs we want the icon always visible (no hover). Override the
-// opacity/transform and pin the badge to the top-right so it renders
-// statically.
 const PDF_SCOPED_CSS =
   `
   [data-pdf-root] { background: #ffffff; color: #111827; }
@@ -589,8 +581,6 @@ const BIBLE_BOOKS = [
 ];
 
 // ─── CALLOUT ICON REGISTRY ─────────────────────────────────────────
-// Names match the CSS mask rules built above. The picker UI uses the
-// React components here; the rendering engine uses the CSS masks.
 const CALLOUT_ICON_COMPONENTS = {
   lightbulb: FaRegLightbulb,
   info: FaInfoCircle,
@@ -621,6 +611,37 @@ const EMOJI_TO_ICON_NAME = {
 const migrateIconValue = (raw) => {
   if (!raw) return 'lightbulb';
   return EMOJI_TO_ICON_NAME[raw] || raw;
+};
+
+// Rewrites old emoji data-icons ("💡") to their name equivalents
+// ("lightbulb") in a stored HTML string. Tiptap's parseHTML migrates
+// them in memory for edit mode, but view mode + PDF export + the public
+// viewer inject the raw stored HTML — without this they'd render an
+// empty white dot because the emoji doesn't match any mask selector.
+const migrateCalloutIcons = (html) => {
+  if (!html || typeof html !== 'string') return html || '';
+  if (!html.includes('data-callout')) return html;
+
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  const callouts = tmp.querySelectorAll('[data-callout]');
+  let changed = false;
+
+  callouts.forEach((el) => {
+    const raw = el.getAttribute('data-icon');
+    if (!raw) {
+      el.setAttribute('data-icon', 'lightbulb');
+      changed = true;
+      return;
+    }
+    const migrated = EMOJI_TO_ICON_NAME[raw];
+    if (migrated && migrated !== raw) {
+      el.setAttribute('data-icon', migrated);
+      changed = true;
+    }
+  });
+
+  return changed ? tmp.innerHTML : html;
 };
 
 // ─── TIPTAP EXTENSIONS ──────────────────────────────────────────────
@@ -731,8 +752,6 @@ const CustomTableHeader = TableHeader.extend({
 });
 
 // ─── CALLOUT NODE ───────────────────────────────────────────────────
-// Block container with rounded box, tinted bg, colored accent bar, and
-// a hover-revealed floating icon. Persists as <div data-callout …>.
 const Callout = Node.create({
   name: 'callout',
   group: 'block',
@@ -809,7 +828,6 @@ const Callout = Node.create({
   addKeyboardShortcuts() {
     return {
       'Mod-Alt-c': () => this.editor.commands.toggleCallout(),
-      // Exit a callout at the end of its last block.
       'Mod-Enter': () => {
         if (!this.editor.isActive(this.name)) return false;
         return this.editor
@@ -828,7 +846,6 @@ const Callout = Node.create({
           })
           .run();
       },
-      // Backspace at the very start of the first empty paragraph unwraps.
       Backspace: () => {
         if (!this.editor.isActive(this.name)) return false;
         const { state } = this.editor;
@@ -845,7 +862,6 @@ const Callout = Node.create({
         if ($from.pos !== calloutStart + 1) return false;
 
         const calloutNode = $from.node(calloutDepth);
-        // If the only child is an empty paragraph, unwrap.
         if (calloutNode.childCount === 1 && calloutNode.firstChild.content.size === 0) {
           return this.editor.commands.unsetCallout();
         }
@@ -855,7 +871,6 @@ const Callout = Node.create({
   },
 });
 
-// Ensures there's always an editable paragraph below a trailing table/callout.
 const EnsureTrailingParagraph = Extension.create({
   name: 'ensureTrailingParagraph',
   addProseMirrorPlugins() {
@@ -2010,7 +2025,6 @@ const EditorToolbar = ({ editor, isMobile, onOpenTableSettings }) => {
     setOpenId(null);
   };
 
-  // ── Callout ─────────────────────────────────────────────────────
   const inCallout = editor.isActive('callout');
   const calloutAttrs = editor.getAttributes('callout');
 
@@ -3871,7 +3885,11 @@ const WriteNote = () => {
     if (noteData?.note && loadedNoteRef.current !== noteData.note._id) {
       suppressAutosaveRef.current = true;
       setTitle(noteData.note.title || '');
-      const html = noteData.note.content || '';
+      // Migrate any legacy emoji data-icons to their name equivalents
+      // before storing, so view mode + PDF export render the mask-based
+      // icon instead of an empty white dot.
+      const rawHtml = noteData.note.content || '';
+      const html = migrateCalloutIcons(rawHtml);
       setContent(html);
       setIsPublic(noteData.note.isPublic || false);
       setSaveStatus('idle');

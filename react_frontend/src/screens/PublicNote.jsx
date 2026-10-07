@@ -13,9 +13,18 @@
 // reload.
 //
 // EDIT == VIEW PARITY:
-//   Uses the exact same NOTE_RICH_CSS as WriteNote.jsx so a note renders
-//   identically inside the editor, in this public viewer, and in the PDF
-//   exporter. Tables and callouts share the same CSS helpers.
+//   Uses the exact same NOTE_RICH_CSS, buildTableCss and buildCalloutCss
+//   as WriteNote.jsx so a note renders identically inside the editor, in
+//   this public viewer, and in the PDF exporter.
+//
+// CALLOUTS:
+//   Icon names (lightbulb / info / warning / success / danger / note) are
+//   rendered via CSS mask-image, floating above the top-right corner and
+//   only revealed on hover (always visible on touch devices). Text flows
+//   at normal padding — no left gutter, no layout shift.
+//   migrateCalloutIcons() rewrites any legacy emoji data-icons ("💡") in
+//   the fetched HTML to their name equivalents, so old notes render the
+//   same icon the editor already migrated in memory.
 //
 // RESPONSIVE CARD:
 //   On mobile the note body is full-bleed (no card, tiny padding).
@@ -25,8 +34,10 @@
 // PDF EXPORT:
 //   Same helpers as WriteNote's handleExportPDF (generatePdfFromNote +
 //   PDF_SCOPED_CSS) so a downloaded PDF looks the same regardless of
-//   which page triggered the export. Dynamic import keeps html2canvas
-//   and jsPDF out of the initial bundle for readers who don't export.
+//   which page triggered the export. The callout icon is forced visible
+//   in the PDF since hover doesn't exist there. Dynamic import keeps
+//   html2canvas and jsPDF out of the initial bundle for readers who
+//   don't export.
 //
 // SECURITY:
 //   Content is sanitized with DOMPurify before injection. `style` is
@@ -122,8 +133,32 @@ ${S} th > :last-child { margin-bottom: 0; }
 ${S} td ul, ${S} td ol, ${S} th ul, ${S} th ol { margin: 2px 0; }
 `;
 
-// ─── SHARED CALLOUT CSS (copied verbatim from WriteNote.jsx) ───────
-const buildCalloutCss = (S, { dark = true } = {}) => `
+// ─── CALLOUT ICON MASKS (mirrors WriteNote.jsx) ────────────────────
+const CALLOUT_ICON_MASKS = {
+  lightbulb:
+    "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 18h6'/%3E%3Cpath d='M10 22h4'/%3E%3Cpath d='M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14'/%3E%3C/svg%3E",
+  info:
+    "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 16v-4'/%3E%3Cpath d='M12 8h.01'/%3E%3C/svg%3E",
+  warning:
+    "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z'/%3E%3Cline x1='12' y1='9' x2='12' y2='13'/%3E%3Cline x1='12' y1='17' x2='12.01' y2='17'/%3E%3C/svg%3E",
+  success:
+    "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M22 11.08V12a10 10 0 1 1-5.93-9.14'/%3E%3Cpolyline points='22 4 12 14.01 9 11.01'/%3E%3C/svg%3E",
+  danger:
+    "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cline x1='15' y1='9' x2='9' y2='15'/%3E%3Cline x1='9' y1='9' x2='15' y2='15'/%3E%3C/svg%3E",
+  note:
+    "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpolyline points='14 2 14 8 20 8'/%3E%3C/svg%3E",
+};
+
+// ─── SHARED CALLOUT CSS (mirrors WriteNote.jsx) ────────────────────
+const buildCalloutCss = (S, { dark = true } = {}) => {
+  const maskRules = Object.entries(CALLOUT_ICON_MASKS)
+    .map(
+      ([name, mask]) =>
+        `${S} [data-callout][data-icon="${name}"] { --callout-icon-mask: url("data:image/svg+xml;utf8,${mask}"); }`
+    )
+    .join('\n');
+
+  return `
 ${S} {
   --callout-def-bg: #f0fdfa;
   --callout-def-border: #14b8a6;
@@ -140,29 +175,73 @@ ${
 }
 ${S} [data-callout] {
   position: relative;
-  margin: 14px 0;
-  padding: 12px 16px 12px 48px;
+  margin: 22px 0 16px;
+  padding: 14px 18px;
   border-radius: 8px;
   background-color: var(--callout-bg, var(--callout-def-bg));
   border-left: 4px solid var(--callout-border, var(--callout-def-border));
   color: var(--callout-color, var(--callout-def-text));
+  transition: box-shadow 120ms ease;
+}
+
+/* Floating icon badge — absolute, so it never affects text flow.
+   Hidden by default; fades in on hover. Straddles the top edge just
+   right of center so it doesn't clash with the accent bar. */
+${S} [data-callout]::before,
+${S} [data-callout]::after {
+  content: '';
+  position: absolute;
+  top: -13px;
+  right: 12px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  opacity: 0;
+  transform: translateY(3px);
+  transition: opacity 160ms ease, transform 160ms ease;
+  pointer-events: none;
 }
 ${S} [data-callout]::before {
-  content: attr(data-icon);
-  position: absolute;
-  left: 14px;
-  top: 12px;
-  font-size: 18px;
-  line-height: 1.2;
-  pointer-events: none;
-  user-select: none;
+  background-color: var(--callout-border, var(--callout-def-border));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16), 0 0 0 2px rgba(255, 255, 255, 0.6);
 }
+${S} [data-callout]::after {
+  background-color: #ffffff;
+  -webkit-mask-image: var(--callout-icon-mask);
+  -webkit-mask-size: 58%;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-image: var(--callout-icon-mask);
+  mask-size: 58%;
+  mask-position: center;
+  mask-repeat: no-repeat;
+}
+.dark ${S} [data-callout]::before {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5), 0 0 0 2px rgba(24, 24, 27, 0.6);
+}
+${S} [data-callout]:hover::before,
+${S} [data-callout]:hover::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+@media (hover: none) {
+  ${S} [data-callout]::before,
+  ${S} [data-callout]::after {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Icon masks — one attribute selector per icon name. */
+${maskRules}
+
 ${S} [data-callout] > :first-child { margin-top: 0; }
 ${S} [data-callout] > :last-child { margin-bottom: 0; }
 ${S} [data-callout] p { margin: 0.35rem 0; }
 ${S} [data-callout] p:first-child { margin-top: 0; }
 ${S} [data-callout] p:last-child { margin-bottom: 0; }
 `;
+};
 
 // ─── SHARED NOTE CONTENT CSS — identical to WriteNote's NOTE_RICH_CSS.
 const NOTE_RICH_CSS = `
@@ -231,6 +310,51 @@ const NOTE_RICH_CSS = `
 }
 ` + buildTableCss('.note-rich') + buildCalloutCss('.note-rich');
 
+// ─── CALLOUT ICON MIGRATION ────────────────────────────────────────
+// Old notes stored emoji in data-icon ("💡"). The CSS only matches the
+// name equivalents ("lightbulb"), so without this migration those
+// callouts render an empty white dot. Rewrites the attribute in a
+// stored HTML string to the matching name.
+const EMOJI_TO_ICON_NAME = {
+  '💡': 'lightbulb',
+  'ℹ️': 'info', 'ℹ': 'info',
+  '⚠️': 'warning', '⚠': 'warning',
+  '✅': 'success', '✔️': 'success', '✔': 'success',
+  '❌': 'danger', '✖️': 'danger', '✖': 'danger',
+  '📝': 'note', '📄': 'note', '📌': 'note',
+  '🔥': 'warning',
+  '⭐': 'success', '🌟': 'success',
+  '🎯': 'success',
+  '❓': 'info',
+  '🚀': 'success',
+};
+
+const migrateCalloutIcons = (html) => {
+  if (!html || typeof html !== 'string') return html || '';
+  if (!html.includes('data-callout')) return html;
+
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  const callouts = tmp.querySelectorAll('[data-callout]');
+  let changed = false;
+
+  callouts.forEach((el) => {
+    const raw = el.getAttribute('data-icon');
+    if (!raw) {
+      el.setAttribute('data-icon', 'lightbulb');
+      changed = true;
+      return;
+    }
+    const migrated = EMOJI_TO_ICON_NAME[raw];
+    if (migrated && migrated !== raw) {
+      el.setAttribute('data-icon', migrated);
+      changed = true;
+    }
+  });
+
+  return changed ? tmp.innerHTML : html;
+};
+
 // ─── PDF EXPORT (same helpers as WriteNote.jsx) ────────────────────
 const PDF_SCOPED_CSS =
   `
@@ -253,7 +377,15 @@ const PDF_SCOPED_CSS =
   [data-pdf-root] img { max-width: 100%; height: auto; display: block; margin: 8pt auto; }
 ` +
   buildTableCss('[data-pdf-root]', { dark: false }) +
-  buildCalloutCss('[data-pdf-root]', { dark: false });
+  buildCalloutCss('[data-pdf-root]', { dark: false }) +
+  // Force the badge visible in print — there's no hover in a PDF.
+  `
+  [data-pdf-root] [data-callout]::before,
+  [data-pdf-root] [data-callout]::after {
+    opacity: 1 !important;
+    transform: translateY(0) !important;
+  }
+  `;
 
 const generatePdfFromNote = async (title, contentHtml) => {
   const [html2canvasMod, jspdfMod] = await Promise.all([
@@ -369,6 +501,13 @@ const PublicNote = () => {
     });
   }, [note?.content]);
 
+  // ── Migrate legacy emoji callout icons to names ─────────────────
+  // Runs after sanitization so we only touch cleaned HTML.
+  const migratedContent = useMemo(
+    () => migrateCalloutIcons(safeContent),
+    [safeContent]
+  );
+
   // ── Plain-text description for meta tags ────────────────────────
   const noteDescription = useMemo(() => {
     if (!note?.content) return undefined;
@@ -427,7 +566,7 @@ const PublicNote = () => {
     try {
       const blob = await generatePdfFromNote(
         note.title || 'Untitled Note',
-        safeContent
+        migratedContent
       );
       if (!blob) throw new Error('PDF generation returned no data');
 
@@ -528,7 +667,7 @@ const PublicNote = () => {
             <button
               type="button"
               onClick={handleExportPDF}
-              disabled={pdfBusy || !safeContent}
+              disabled={pdfBusy || !migratedContent}
               title="Download as PDF"
               className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-gray-200 dark:border-gray-700 text-[11px] font-medium text-gray-600 dark:text-gray-300 hover:border-teal-400 hover:text-teal-600 dark:hover:border-teal-500/60 dark:hover:text-teal-400 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -555,11 +694,11 @@ const PublicNote = () => {
             Inside either way: exact same .note-rich > .note-content
             structure + NOTE_RICH_CSS as WriteNote's view mode. */}
         <article className="bg-transparent dark:bg-transparent rounded-none border-0 p-0 sm:bg-white sm:dark:bg-[#1a1a1a] sm:rounded-md sm:border sm:border-gray-200/60 sm:dark:border-gray-800/60 sm:p-6 lg:p-8">
-          {safeContent ? (
+          {migratedContent ? (
             <div className="note-rich text-gray-800 dark:text-gray-100">
               <div
                 className="note-content"
-                dangerouslySetInnerHTML={{ __html: safeContent }}
+                dangerouslySetInnerHTML={{ __html: migratedContent }}
               />
             </div>
           ) : (
