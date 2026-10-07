@@ -16,22 +16,20 @@
 // standalone share page. On mount, scrolls to top so the reader always
 // starts at the beginning of the note.
 //
-// ── Changes vs previous version ─────────────────────────────────────
-// 1. Sanitizes note.content with DOMPurify before dangerouslySetInnerHTML
-//    (prevents stored-XSS via note editor).
-// 2. Sets document <title>/<meta> for the note via useDocumentMeta —
-//    browser tabs and JS-capable share clients now see the real title.
-//    Pairs with the server-side /share/:link OG handler (crawlers only).
-// 3. Respects the device safe-area on mobile (notches, home indicator).
-// 4. Adds a scroll-to-top button that appears after 600 px of scroll.
-// 5. Small copy/visual polish in the error + loading states.
+// ── Features ────────────────────────────────────────────────────────
+// • Content sanitized with DOMPurify before injection (stored-XSS safe).
+// • Document meta (title / description / image / url) set client-side for
+//   real browsers — pairs with the server-side /share/:link OG handler
+//   that serves crawlers (WhatsApp, Twitter, etc.).
+// • Safe-area insets for notched devices.
+// • Scroll-to-top button after 600 px of scroll.
+// • Empty-content fallback.
 import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import DOMPurify from 'dompurify';
 import { useGetNoteByShareLinkQuery } from '../slices/personalNoteApiSlice';
 import { useDocumentMeta } from '../hooks/useDocumentMeta';
 import {
-  FaFileAlt,
   FaSpinner,
   FaExclamationTriangle,
   FaPaperclip,
@@ -44,15 +42,13 @@ import { formatDistanceToNow } from 'date-fns';
 // How often to poll the server for changes to a shared note.
 const POLL_INTERVAL_MS = 15_000;
 
+// Matches image extensions we'll treat as OG candidates.
+const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp)$/i;
+
 const PublicNote = () => {
   const { link } = useParams();
 
-  const {
-    data,
-    isLoading,
-    isError,
-    error,
-  } = useGetNoteByShareLinkQuery(link, {
+  const { data, isLoading, isError, error } = useGetNoteByShareLinkQuery(link, {
     skip: !link,
     // Poll the server so an open viewer auto-updates when the owner saves.
     pollingInterval: POLL_INTERVAL_MS,
@@ -64,27 +60,12 @@ const PublicNote = () => {
     refetchOnReconnect: true,
   });
 
-  // ── Document meta (title, description, image) ───────────────────
-  // Runs for real browsers; crawlers get their tags from the server-side
-  // /share/:link OG handler instead. Together they cover both audiences.
   const note = data?.note;
-  useDocumentMeta({
-    title: note?.title ? `${note.title} — Xircle` : undefined,
-    description: note?.content
-      ? DOMPurify.sanitize(note.content, { ALLOWED_TAGS: [] }).slice(0, 200)
-      : undefined,
-    image:
-      note?.attachments?.find((a) =>
-        /\.(jpe?g|png|gif|webp)$/i.test(a.path || '')
-      )?.path || undefined,
-    url:
-      typeof window !== 'undefined' ? window.location.href : undefined,
-  });
 
-  // ── Sanitize HTML once per note change ──────────────────────────
+  // ── Sanitize note HTML once per content change ──────────────────
   // This is the actual XSS gate. The editor stores raw HTML, so any
-  // `<img src=x onerror=…>` that makes it into a note would otherwise
-  // run in every reader's browser the moment it renders.
+  // <img src=x onerror=…> that ends up in a note would otherwise run in
+  // every reader's browser the moment it renders.
   const safeContent = useMemo(() => {
     if (!note?.content) return '';
     return DOMPurify.sanitize(note.content, {
@@ -92,6 +73,32 @@ const PublicNote = () => {
       ADD_ATTR: ['target', 'rel'],
     });
   }, [note?.content]);
+
+  // ── Plain-text description for meta tags ────────────────────────
+  // Strip tags, collapse whitespace, truncate.
+  const noteDescription = useMemo(() => {
+    if (!note?.content) return undefined;
+    const text = DOMPurify.sanitize(note.content, { ALLOWED_TAGS: [] })
+      .replace(/\s+/g, ' ')
+      .trim();
+    return text ? text.slice(0, 200) : undefined;
+  }, [note?.content]);
+
+  // First image attachment (if any) is used as the preview image.
+  const noteImage = useMemo(() => {
+    if (!note?.attachments?.length) return undefined;
+    return note.attachments.find((a) => IMAGE_EXT_RE.test(a.path || ''))?.path;
+  }, [note?.attachments]);
+
+  // ── Document meta ──────────────────────────────────────────────
+  // Sets <title>, description, OG + Twitter tags for real browsers.
+  // Crawlers get their tags from the server-side /share/:link OG handler.
+  useDocumentMeta({
+    title: note?.title ? `${note.title} — Xircle` : undefined,
+    description: noteDescription,
+    image: noteImage,
+    url: typeof window !== 'undefined' ? window.location.href : undefined,
+  });
 
   // Force scroll to the very top the instant this page mounts.
   // useLayoutEffect runs before paint, so there's no visible jump.
@@ -122,7 +129,7 @@ const PublicNote = () => {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  // ── Loading (first time only) ─────────────────────────────────
+  // ── Loading ─────────────────────────────────────────────────────
   if (isLoading) {
     return (
       <div
@@ -134,8 +141,8 @@ const PublicNote = () => {
     );
   }
 
-  // ── Error / not found ─────────────────────────────────────────
-  if (isError || !data?.note) {
+  // ── Error / not found ───────────────────────────────────────────
+  if (isError || !note) {
     const message =
       error?.data?.message ||
       'This note is not available. It may have been made private or deleted.';
@@ -266,14 +273,10 @@ const PublicNote = () => {
       {showTop && (
         <button
           type="button"
-          onClick={() =>
-            window.scrollTo({ top: 0, behavior: 'smooth' })
-          }
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           aria-label="Scroll to top"
           className="fixed right-4 z-30 flex h-9 w-9 items-center justify-center rounded-md border border-stone-200 bg-white text-stone-500 shadow-sm transition-all hover:-translate-y-0.5 hover:text-teal-600 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-400 dark:hover:text-teal-400"
-          style={{
-            bottom: 'max(env(safe-area-inset-bottom), 1rem)',
-          }}
+          style={{ bottom: 'max(env(safe-area-inset-bottom), 1rem)' }}
         >
           <FaArrowUp className="h-4 w-4" />
         </button>
