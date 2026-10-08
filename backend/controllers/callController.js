@@ -13,9 +13,11 @@ import { getIO } from './socket.js';
 const callTimeouts = new Map();
 
 const startRingTimeout = (callId, seconds = 60) => {
-  if (callTimeouts.has(callId)) {
-    clearTimeout(callTimeouts.get(callId));
-    callTimeouts.delete(callId);
+  const key = String(callId);
+
+  if (callTimeouts.has(key)) {
+    clearTimeout(callTimeouts.get(key));
+    callTimeouts.delete(key);
   }
 
   const timeoutId = setTimeout(async () => {
@@ -26,7 +28,7 @@ const startRingTimeout = (callId, seconds = 60) => {
       if (call.status === 'ringing') {
         call.status = 'ended';
         call.endedAt = new Date();
-        call.participants.forEach(p => {
+        call.participants.forEach((p) => {
           if (p.status === 'ringing' || p.status === 'pending') {
             p.status = 'missed';
           }
@@ -40,27 +42,29 @@ const startRingTimeout = (callId, seconds = 60) => {
           reason: 'timeout',
         });
 
-        const allIds = call.participants.map(p => p.user.toString());
-        await notifyParticipants(allIds,
+        const allIds = call.participants.map((p) => p.user.toString());
+        await notifyParticipants(
+          allIds,
           '⏰ Call timed out',
           `The ${call.type} call was not answered in time.`,
-          { callId: call._id }
+          { callId: call._id.toString() }
         );
       }
     } catch (err) {
       console.error('Ring timeout error:', err);
     } finally {
-      callTimeouts.delete(callId);
+      callTimeouts.delete(key);
     }
   }, seconds * 1000);
 
-  callTimeouts.set(callId, timeoutId);
+  callTimeouts.set(key, timeoutId);
 };
 
 const cancelRingTimeout = (callId) => {
-  if (callTimeouts.has(callId)) {
-    clearTimeout(callTimeouts.get(callId));
-    callTimeouts.delete(callId);
+  const key = String(callId);
+  if (callTimeouts.has(key)) {
+    clearTimeout(callTimeouts.get(key));
+    callTimeouts.delete(key);
   }
 };
 
@@ -78,7 +82,7 @@ const notifyParticipants = async (userIds, title, body, data = {}) => {
         ...data,
         notificationType: data.notificationType || 'default',
         actions: data.actions || [],
-        // Platform-specific extras for mobile full‑screen call UI
+        // Platform-specific extras for mobile full-screen call UI
         _android: {
           priority: 'high',
           notification: {
@@ -101,25 +105,28 @@ const notifyParticipants = async (userIds, title, body, data = {}) => {
       emailEventType: 'teamInvite',
       emailSubject: title,
       emailHtml: `<p>${body}</p>`,
-    }).catch(err => console.error(`Notify ${uid} failed:`, err.message));
+    }).catch((err) => console.error(`Notify ${uid} failed:`, err.message));
   }
 };
 
 const isWorkspaceMember = async (workspaceId, userId) => {
   const workspace = await Workspace.findById(workspaceId);
   return workspace?.members.some(
-    m => m.user.toString() === userId && m.status === 'active'
+    (m) => m.user.toString() === userId && m.status === 'active'
   );
 };
 
 const triggerScheduledCall = async (callId) => {
-  const call = await Call.findById(callId).populate('participants.user', 'name email pushTokens');
+  const call = await Call.findById(callId).populate(
+    'participants.user',
+    'name email pushTokens'
+  );
   if (!call || call.status !== 'scheduled') return;
 
   call.status = 'ringing';
   await call.save();
 
-  const participantIds = call.participants.map(p => p.user._id.toString());
+  const participantIds = call.participants.map((p) => p.user._id.toString());
   const creatorId = call.creator.toString();
 
   const io = getIO();
@@ -131,32 +138,40 @@ const triggerScheduledCall = async (callId) => {
       type: call.type,
       workspaceId: call.workspace.toString(),
       caller: call.creator,
-      participants: call.participants.map(x => ({
+      participants: call.participants.map((x) => ({
         _id: x.user._id,
         name: x.user.name,
         email: x.user.email,
       })),
     });
-    const participant = call.participants.find(x => x.user._id.toString() === uid);
-    if (participant) {
-      participant.status = 'ringing';
-    }
+    p.status = 'ringing';
   }
   await call.save();
 
-  const otherIds = participantIds.filter(id => id !== creatorId);
-  await notifyParticipants(otherIds,
-    `📞 Incoming ${call.type} call`,
-    `A call is starting in workspace. Tap to join.`,
+  // Caller name for the push popup (creator isn't populated here,
+  // so read it from the participants we already loaded)
+  const otherIds = participantIds.filter((id) => id !== creatorId);
+  const creatorParticipant = call.participants.find(
+    (p) => p.user._id.toString() === creatorId
+  );
+  const callerName = creatorParticipant?.user?.name || 'Someone';
+
+  await notifyParticipants(
+    otherIds,
+    `📞 ${callerName}`,
+    `Scheduled ${call.type} call is starting. Tap to join.`,
     {
       callId: call._id.toString(),
       roomId: call.roomId,
       type: call.type,
+      workspaceId: call.workspace.toString(),
+      callerId: creatorId,
+      callerName,
       notificationType: 'call',
       actions: [
         { action: 'answer', title: 'Answer' },
-        { action: 'decline', title: 'Decline' }
-      ]
+        { action: 'decline', title: 'Decline' },
+      ],
     }
   );
 
@@ -173,7 +188,9 @@ const initiateCall = asyncHandler(async (req, res) => {
 
   if (!workspaceId || !type || !participantIds?.length) {
     res.status(400);
-    throw new Error('Workspace ID, call type, and at least one participant are required.');
+    throw new Error(
+      'Workspace ID, call type, and at least one participant are required.'
+    );
   }
 
   const isMember = await isWorkspaceMember(workspaceId, userId);
@@ -184,9 +201,9 @@ const initiateCall = asyncHandler(async (req, res) => {
 
   const workspace = await Workspace.findById(workspaceId);
   const activeMembers = workspace.members
-    .filter(m => m.status === 'active')
-    .map(m => m.user.toString());
-  const invalid = participantIds.filter(id => !activeMembers.includes(id));
+    .filter((m) => m.status === 'active')
+    .map((m) => m.user.toString());
+  const invalid = participantIds.filter((id) => !activeMembers.includes(id));
   if (invalid.length) {
     res.status(400);
     throw new Error('Some participants are not active members of this workspace.');
@@ -200,7 +217,7 @@ const initiateCall = asyncHandler(async (req, res) => {
     type,
     roomId: uuidv4(),
     status: 'ringing',
-    participants: uniqueParticipants.map(uid => ({
+    participants: uniqueParticipants.map((uid) => ({
       user: uid,
       status: uid === userId ? 'accepted' : 'ringing',
       joinedAt: uid === userId ? new Date() : null,
@@ -219,7 +236,7 @@ const initiateCall = asyncHandler(async (req, res) => {
       type: call.type,
       workspaceId,
       caller: call.creator,
-      participants: call.participants.map(x => ({
+      participants: call.participants.map((x) => ({
         _id: x.user._id,
         name: x.user.name,
         email: x.user.email,
@@ -227,19 +244,25 @@ const initiateCall = asyncHandler(async (req, res) => {
     });
   }
 
-  const otherIds = uniqueParticipants.filter(id => id !== userId);
-  await notifyParticipants(otherIds,
-    `📞 Incoming ${type} call`,
-    `You have an incoming ${type} call. Tap to join.`,
+  const otherIds = uniqueParticipants.filter((id) => id !== userId);
+  const callerName = call.creator?.name || 'Someone';
+
+  await notifyParticipants(
+    otherIds,
+    `📞 ${callerName}`,
+    `Incoming ${type} call`,
     {
       callId: call._id.toString(),
       roomId: call.roomId,
       type,
+      workspaceId: String(workspaceId),
+      callerId: String(userId),
+      callerName,
       notificationType: 'call',
       actions: [
         { action: 'answer', title: 'Answer' },
-        { action: 'decline', title: 'Decline' }
-      ]
+        { action: 'decline', title: 'Decline' },
+      ],
     }
   );
 
@@ -258,7 +281,9 @@ const scheduleCall = asyncHandler(async (req, res) => {
 
   if (!workspaceId || !type || !participantIds?.length || !scheduledAt) {
     res.status(400);
-    throw new Error('Workspace ID, call type, participants, and scheduledAt are required.');
+    throw new Error(
+      'Workspace ID, call type, participants, and scheduledAt are required.'
+    );
   }
 
   const scheduledDate = new Date(scheduledAt);
@@ -275,9 +300,9 @@ const scheduleCall = asyncHandler(async (req, res) => {
 
   const workspace = await Workspace.findById(workspaceId);
   const activeMembers = workspace.members
-    .filter(m => m.status === 'active')
-    .map(m => m.user.toString());
-  const invalid = participantIds.filter(id => !activeMembers.includes(id));
+    .filter((m) => m.status === 'active')
+    .map((m) => m.user.toString());
+  const invalid = participantIds.filter((id) => !activeMembers.includes(id));
   if (invalid.length) {
     res.status(400);
     throw new Error('Some participants are not active members.');
@@ -292,7 +317,7 @@ const scheduleCall = asyncHandler(async (req, res) => {
     roomId: uuidv4(),
     scheduledAt: scheduledDate,
     status: 'scheduled',
-    participants: uniqueParticipants.map(uid => ({
+    participants: uniqueParticipants.map((uid) => ({
       user: uid,
       status: 'pending',
     })),
@@ -302,14 +327,14 @@ const scheduleCall = asyncHandler(async (req, res) => {
   await call.populate('creator', 'name email profile');
 
   await notifyParticipants(
-    uniqueParticipants.filter(id => id !== userId),
+    uniqueParticipants.filter((id) => id !== userId),
     `📅 Call scheduled`,
     `A ${type} call has been scheduled for ${scheduledDate.toLocaleString()}.`,
     {
       callId: call._id.toString(),
       roomId: call.roomId,
       type,
-      notificationType: 'scheduled_call'
+      notificationType: 'scheduled_call',
     }
   );
 
@@ -335,7 +360,7 @@ const joinCall = asyncHandler(async (req, res) => {
     throw new Error('This call is not active.');
   }
 
-  const participant = call.participants.find(p => p.user.toString() === userId);
+  const participant = call.participants.find((p) => p.user.toString() === userId);
   if (!participant) {
     res.status(403);
     throw new Error('You are not a participant of this call.');
@@ -358,8 +383,10 @@ const joinCall = asyncHandler(async (req, res) => {
   await call.populate('participants.user', 'name email profile');
   await call.populate('creator', 'name email profile');
 
+  // Media (audio/video) is handled by LiveKit. This event only tells
+  // everyone's UI that the call is now live.
   const io = getIO();
-  call.participants.forEach(p => {
+  call.participants.forEach((p) => {
     io.to(`user:${p.user._id}`).emit('call-participant-update', {
       callId: call._id,
       roomId: call.roomId,
@@ -367,24 +394,6 @@ const joinCall = asyncHandler(async (req, res) => {
       status: 'joined',
     });
   });
-
-  // ─────────────────────────────────────────────────────────────
-  // NOTE: We deliberately do NOT emit 'participant-joined' here.
-  //
-  // That event is already broadcast by socket.js's 'join-call-room'
-  // handler the moment this user's socket actually joins the call
-  // room — which is what the WebRTC signaling flow in useCallSocket.js
-  // listens for to know when to send/receive offers.
-  //
-  // Emitting it a second time from here (using io.to(), which reaches
-  // everyone in the room including the sender) was pure duplication:
-  // harmless in the common case because the client guards against it,
-  // but it's the kind of hidden double-fire that causes hard-to-trace
-  // races (double offers, glare, stale peer connections) once timing
-  // shifts even slightly — e.g. under load, on slower connections, or
-  // with retries. One source of truth for "someone joined the call
-  // room" (the socket layer) is much easier to reason about than two.
-  // ─────────────────────────────────────────────────────────────
 
   res.status(200).json({ success: true, call });
 });
@@ -403,7 +412,7 @@ const rejectCall = asyncHandler(async (req, res) => {
     throw new Error('Call not found.');
   }
 
-  const participant = call.participants.find(p => p.user.toString() === userId);
+  const participant = call.participants.find((p) => p.user.toString() === userId);
   if (!participant) {
     res.status(403);
     throw new Error('You are not a participant.');
@@ -448,7 +457,7 @@ const endCall = asyncHandler(async (req, res) => {
 
   call.status = 'ended';
   call.endedAt = new Date();
-  call.participants.forEach(p => {
+  call.participants.forEach((p) => {
     if (p.status === 'ringing' || p.status === 'pending') {
       p.status = 'missed';
     }
@@ -463,11 +472,12 @@ const endCall = asyncHandler(async (req, res) => {
     roomId: call.roomId,
   });
 
-  const participantIds = call.participants.map(p => p.user.toString());
-  await notifyParticipants(participantIds,
+  const participantIds = call.participants.map((p) => p.user.toString());
+  await notifyParticipants(
+    participantIds,
     '📞 Call ended',
     `The ${call.type} call has ended.`,
-    { callId: call._id }
+    { callId: call._id.toString() }
   );
 
   res.status(200).json({ success: true, call });
@@ -500,11 +510,12 @@ const cancelScheduledCall = asyncHandler(async (req, res) => {
   call.status = 'cancelled';
   await call.save();
 
-  const participantIds = call.participants.map(p => p.user.toString());
-  await notifyParticipants(participantIds,
+  const participantIds = call.participants.map((p) => p.user.toString());
+  await notifyParticipants(
+    participantIds,
     '📅 Call cancelled',
     `The scheduled call has been cancelled.`,
-    { callId: call._id }
+    { callId: call._id.toString() }
   );
 
   res.status(200).json({ success: true, message: 'Call cancelled.' });
@@ -537,7 +548,10 @@ const getCallHistory = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const { workspaceId } = req.query;
 
-  const query = { 'participants.user': userId, status: { $in: ['ended', 'missed'] } };
+  const query = {
+    'participants.user': userId,
+    status: { $in: ['ended', 'missed'] },
+  };
   if (workspaceId) query.workspace = workspaceId;
 
   const calls = await Call.find(query)
@@ -570,7 +584,7 @@ const processScheduledCalls = async () => {
 };
 
 // ─────────────────────────────────────────────────────────────
-// 10. Invite / Re‑ring
+// 10. Invite / Re-ring
 // ─────────────────────────────────────────────────────────────
 
 const inviteToCall = asyncHandler(async (req, res) => {
@@ -594,7 +608,7 @@ const inviteToCall = asyncHandler(async (req, res) => {
     throw new Error('Call is not active for inviting.');
   }
 
-  const inviter = call.participants.find(p => p.user.toString() === userId);
+  const inviter = call.participants.find((p) => p.user.toString() === userId);
   if (!inviter || inviter.status !== 'accepted') {
     res.status(403);
     throw new Error('You must be an active participant to invite others.');
@@ -607,21 +621,22 @@ const inviteToCall = asyncHandler(async (req, res) => {
   }
 
   const activeMemberIds = workspace.members
-    .filter(m => m.status === 'active')
-    .map(m => m.user.toString());
+    .filter((m) => m.status === 'active')
+    .map((m) => m.user.toString());
 
-  const existingParticipantIds = call.participants.map(p => p.user.toString());
-  const validNewUserIds = inviteUserIds.filter(id =>
-    activeMemberIds.includes(id) &&
-    !existingParticipantIds.includes(id)
+  const existingParticipantIds = call.participants.map((p) => p.user.toString());
+  const validNewUserIds = inviteUserIds.filter(
+    (id) => activeMemberIds.includes(id) && !existingParticipantIds.includes(id)
   );
 
   if (!validNewUserIds.length) {
     res.status(400);
-    throw new Error('No valid new participants to invite (they must be active members not already in the call).');
+    throw new Error(
+      'No valid new participants to invite (they must be active members not already in the call).'
+    );
   }
 
-  const newParticipants = validNewUserIds.map(id => ({
+  const newParticipants = validNewUserIds.map((id) => ({
     user: id,
     status: 'ringing',
     joinedAt: null,
@@ -639,7 +654,7 @@ const inviteToCall = asyncHandler(async (req, res) => {
       type: call.type,
       workspaceId: call.workspace.toString(),
       caller: call.creator,
-      participants: call.participants.map(p => ({
+      participants: call.participants.map((p) => ({
         _id: p.user._id,
         name: p.user.name,
         email: p.user.email,
@@ -647,18 +662,26 @@ const inviteToCall = asyncHandler(async (req, res) => {
     });
   }
 
-  await notifyParticipants(validNewUserIds,
-    `📞 Incoming ${call.type} call (invite)`,
-    `You've been invited to an ongoing ${call.type} call. Tap to join.`,
+  // The inviter is the one "ringing" the new people
+  const inviterUser = await User.findById(userId).select('name');
+  const callerName = inviterUser?.name || 'Someone';
+
+  await notifyParticipants(
+    validNewUserIds,
+    `📞 ${callerName}`,
+    `Invited you to a ${call.type} call. Tap to join.`,
     {
       callId: call._id.toString(),
       roomId: call.roomId,
       type: call.type,
+      workspaceId: call.workspace.toString(),
+      callerId: String(userId),
+      callerName,
       notificationType: 'call',
       actions: [
         { action: 'answer', title: 'Answer' },
-        { action: 'decline', title: 'Decline' }
-      ]
+        { action: 'decline', title: 'Decline' },
+      ],
     }
   );
 
