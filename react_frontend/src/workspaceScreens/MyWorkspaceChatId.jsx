@@ -4077,7 +4077,7 @@ const MyWorkspaceChatId = () => {
     setTimeout(() => target.classList.remove("ring-2", "ring-teal-400", "rounded-2xl"), 1200);
   }, []);
 
-  const handleCall = async (type) => {
+    const handleCall = async (type) => {
     if (!workspace || !chat) {
       toast.error("Missing workspace or chat data");
       return;
@@ -4093,13 +4093,24 @@ const MyWorkspaceChatId = () => {
         type,
         participantIds: [otherId],
       }).unwrap();
-      navigate(`/call/${response.call.roomId}`, {
+
+      const call = response.call;
+
+      navigate(`/call/${call.roomId}`, {
         state: {
           callData: {
-            ...response.call,
-            status: "ringing",
-            isInitiator: true,
+            callId: call._id, // required by useCallSocket
+            roomId: call.roomId,
+            type: call.type,
+            workspaceId,
             workspaceColor: brandColor,
+            status: "ringing",
+            isInitiator: true, // caller must NOT auto-accept
+            participants: (call.participants || []).map((p) => ({
+              _id: p.user?._id || p.user,
+              name: p.user?.name,
+              email: p.user?.email,
+            })),
           },
         },
       });

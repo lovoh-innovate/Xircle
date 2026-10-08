@@ -4804,14 +4804,15 @@ const markMessageAsRead = useCallback((messageId) => {
   };
 
   // ─── Call initiation ──────────────────────────────────────────────
-  const handleCall = async (type) => {
+    const handleCall = async (type) => {
     if (!workspace || !chat) {
       toast.error("Missing workspace or chat data");
       return;
     }
-    let participantIds = chat.participants
+    const participantIds = chat.participants
       .filter((p) => (p.user?._id || p.user) !== userInfo?._id)
       .map((p) => p.user?._id || p.user);
+
     if (participantIds.length === 0) {
       toast.info("No one else to call in this chat.");
       return;
@@ -4822,13 +4823,24 @@ const markMessageAsRead = useCallback((messageId) => {
         type,
         participantIds,
       }).unwrap();
-      navigate(`/call/${response.call.roomId}`, {
+
+      const call = response.call;
+
+      navigate(`/call/${call.roomId}`, {
         state: {
           callData: {
-            ...response.call,
-            status: "ringing",
-            isInitiator: true,
+            callId: call._id, // required by useCallSocket
+            roomId: call.roomId,
+            type: call.type,
+            workspaceId,
             workspaceColor: brandColor,
+            status: "ringing",
+            isInitiator: true, // caller must NOT auto-accept
+            participants: (call.participants || []).map((p) => ({
+              _id: p.user?._id || p.user,
+              name: p.user?.name,
+              email: p.user?.email,
+            })),
           },
         },
       });
