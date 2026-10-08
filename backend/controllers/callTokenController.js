@@ -20,13 +20,21 @@ const getCallToken = asyncHandler(async (req, res) => {
     throw new Error('This call is not active.');
   }
 
-  const participant = call.participants.find(p => p.user.toString() === userId);
+  const participant = call.participants.find((p) => p.user.toString() === userId);
   if (!participant || participant.status !== 'accepted') {
     res.status(403);
     throw new Error('Join the call before requesting access.');
   }
 
-  const user = await User.findById(userId).select('name');
+  const user = await User.findById(userId).select('name username profile');
+
+  // Keep metadata small: tokens have a size limit, so skip data-URL avatars
+  const profile =
+    typeof user?.profile === 'string' &&
+    user.profile.startsWith('http') &&
+    user.profile.length < 500
+      ? user.profile
+      : '';
 
   const at = new AccessToken(
     process.env.LIVEKIT_API_KEY,
@@ -35,6 +43,10 @@ const getCallToken = asyncHandler(async (req, res) => {
       identity: userId,
       name: user?.name || 'User',
       ttl: '2h',
+      metadata: JSON.stringify({
+        username: user?.username || '',
+        profile,
+      }),
     }
   );
 
