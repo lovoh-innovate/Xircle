@@ -2,7 +2,7 @@ import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import { logout } from './authSlice';
 
 const rawBaseQuery = fetchBaseQuery({
-  baseUrl: `${import.meta.env.VITE_API_URL || ''}/api`,
+  baseUrl: `${import.meta.env.VITE_API_URL || 'https://xircle.onrender.com'}/api`,
   credentials: 'omit', // ← was 'include'. We don't need cross-site cookies at all —
                         // auth is carried entirely by the Authorization header below,
                         // which is immune to Safari's cross-site cookie blocking.
