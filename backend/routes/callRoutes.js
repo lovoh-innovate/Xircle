@@ -13,6 +13,8 @@ import {
   inviteToCall,           // ← new import
 } from '../controllers/callController.js';
 
+import { getCallToken } from '../controllers/callTokenController.js';
+
 const router = express.Router();
 
 // All routes are protected – only authenticated users can use calls
@@ -44,5 +46,9 @@ router.get('/history', getCallHistory);
 
 // ✅ NEW: Invite / re‑ring additional participants to an ongoing call
 router.post('/:callId/invite', inviteToCall);
+
+//call token 
+
+router.post('/:callId/token', protect, getCallToken);
 
 export default router;

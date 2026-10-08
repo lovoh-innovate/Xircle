@@ -61,7 +61,7 @@ export const callApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['Call'],
     }),
 
-    // ✅ NEW: Invite / re‑ring additional participants to an ongoing call
+    // Invite / re-ring additional participants to an ongoing call
     inviteToCall: builder.mutation({
       query: ({ callId, inviteUserIds }) => ({
         url: `${CALLS_URL}/${callId}/invite`,
@@ -69,6 +69,15 @@ export const callApiSlice = apiSlice.injectEndpoints({
         body: { inviteUserIds },
       }),
       invalidatesTags: ['Call'],
+    }),
+
+    // LiveKit media token for an accepted participant
+    // Returns { success, token, url, roomId, type }
+    getCallToken: builder.mutation({
+      query: (callId) => ({
+        url: `${CALLS_URL}/${callId}/token`,
+        method: 'POST',
+      }),
     }),
 
     // Get upcoming scheduled calls
@@ -98,7 +107,8 @@ export const {
   useRejectCallMutation,
   useEndCallMutation,
   useCancelScheduledCallMutation,
-  useInviteToCallMutation,        // ← new export
+  useInviteToCallMutation,
+  useGetCallTokenMutation,
   useGetScheduledCallsQuery,
   useGetCallHistoryQuery,
 } = callApiSlice;

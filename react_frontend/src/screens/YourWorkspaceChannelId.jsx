@@ -5559,6 +5559,7 @@ const messagesMentioningMe = useMemo(() => {
   };
 
   // ─── Call initiation ────────────────────────────────────────────────
+   // ─── Call initiation ────────────────────────────────────────────────
   const handleCall = async (type) => {
     if (!workspace || !chat) return;
 
@@ -5570,7 +5571,7 @@ const messagesMentioningMe = useMemo(() => {
       participantIds = chat.participants
         .filter((p) => {
           const uid = p.user?._id || p.user;
-          return uid !== userInfo._id && uid !== userInfo?._id;
+          return uid !== userInfo?._id;
         })
         .map((p) => p.user?._id || p.user);
     }
@@ -5587,13 +5588,23 @@ const messagesMentioningMe = useMemo(() => {
         participantIds,
       }).unwrap();
 
-      navigate(`/call/${response.call.roomId}`, {
+      const call = response.call;
+
+      navigate(`/call/${call.roomId}`, {
         state: {
           callData: {
-            ...response.call,
-            status: "ringing",
-            isInitiator: true,
+            callId: call._id, // required by useCallSocket
+            roomId: call.roomId,
+            type: call.type,
+            workspaceId,
             workspaceColor: brandColor,
+            status: "ringing",
+            isInitiator: true, // caller must NOT auto-accept
+            participants: (call.participants || []).map((p) => ({
+              _id: p.user?._id || p.user,
+              name: p.user?.name,
+              email: p.user?.email,
+            })),
           },
         },
       });

@@ -1,8 +1,20 @@
+// src/components/CallScreen.jsx
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { useSelector } from 'react-redux';
+import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { useSocket } from './SocketContext.jsx';
 import { useCallSocket } from '../hooks/useCallSocket';
+import {
+  LiveKitRoom,
+  RoomAudioRenderer,
+  StartAudio,
+  GridLayout,
+  ParticipantTile,
+  useTracks,
+  useLocalParticipant,
+  useParticipants,
+} from '@livekit/components-react';
+import { Track, DisconnectReason } from 'livekit-client';
+import '@livekit/components-styles';
 import {
   FaPhoneSlash,
   FaMicrophone,
@@ -17,76 +29,118 @@ import {
 // the SocketContext state update landing on a re-render.
 const CALL_DATA_GRACE_MS = 4000;
 
-// Resolve a display name for a remote participant given their WebRTC
-// userId. `participants` can arrive in two different shapes depending on
-// where callData came from:
-//  - the flat socket/push shape:            { _id, name, email }
-//  - the raw Mongoose-populated subdoc:      { user: { _id, name }, status }
-// (the caller's callData currently comes from the raw REST response of
-// initiateCall, which is the second shape; the callee's comes from the
-// socket 'incoming-call' event / push payload, which is the first shape.)
-// This handles both so the name resolves regardless of which flow built
-// callData, instead of falling back to printing the raw uid.
-const resolveParticipantName = (participants, uid) => {
-  const participant = (participants || []).find((p) => {
-    if (!p) return false;
-    if (p._id === uid) return true;
-    if (typeof p.user === 'string') return p.user === uid;
-    if (p.user && typeof p.user === 'object') return p.user._id === uid;
-    return false;
-  });
-  return participant?.name || participant?.user?.name || 'Participant';
+// ─────────────────────────────────────────────────────────────────────
+// In-call UI. Must live INSIDE <LiveKitRoom> so the LiveKit hooks work.
+// LiveKit handles all audio/video; this just renders tiles + controls.
+// ─────────────────────────────────────────────────────────────────────
+const CallStage = ({ isVideo, workspaceColor, onHangUp }) => {
+  const tracks = useTracks(
+    [{ source: Track.Source.Camera, withPlaceholder: true }],
+    { onlySubscribed: false }
+  );
+  const participants = useParticipants();
+  const { localParticipant, isMicrophoneEnabled, isCameraEnabled } = useLocalParticipant();
+
+  const toggleMute = () => {
+    localParticipant?.setMicrophoneEnabled(!isMicrophoneEnabled);
+  };
+
+  const toggleCamera = () => {
+    localParticipant?.setCameraEnabled(!isCameraEnabled);
+  };
+
+  const isMuted = !isMicrophoneEnabled;
+  const isCameraOff = !isCameraEnabled;
+
+  return (
+    <div className="min-h-screen bg-gray-900 text-white flex flex-col">
+      {/* Header */}
+      <div className="p-4 flex items-center justify-between border-b border-gray-800">
+        <h3 className="text-lg font-semibold">
+          {isVideo ? 'Video Call' : 'Voice Call'}
+        </h3>
+        <span className="text-sm text-gray-400">
+          {participants.length} participant{participants.length === 1 ? '' : 's'}
+        </span>
+      </div>
+
+      {/* Tiles */}
+      <div className="flex-1 min-h-0 p-4" style={{ height: 'calc(100vh - 150px)' }}>
+        <GridLayout tracks={tracks} style={{ height: '100%' }}>
+          <ParticipantTile />
+        </GridLayout>
+      </div>
+
+      {/* Audio output + autoplay unlock for mobile WebViews */}
+      <RoomAudioRenderer />
+      <StartAudio
+        label="Tap to enable audio"
+        className="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-white text-gray-900 font-medium shadow-lg"
+      />
+
+      {/* Controls */}
+      <div className="p-4 bg-gray-800/50 border-t border-gray-700 flex items-center justify-center gap-4">
+        <button
+          onClick={toggleMute}
+          className={`w-14 h-14 rounded-full flex items-center justify-center transition ${
+            isMuted ? 'bg-red-600' : 'bg-gray-600 hover:bg-gray-500'
+          }`}
+          aria-label={isMuted ? 'Unmute' : 'Mute'}
+        >
+          {isMuted ? <FaMicrophoneSlash className="text-xl" /> : <FaMicrophone className="text-xl" />}
+        </button>
+
+        {isVideo && (
+          <button
+            onClick={toggleCamera}
+            className={`w-14 h-14 rounded-full flex items-center justify-center transition ${
+              isCameraOff ? 'bg-red-600' : 'bg-gray-600 hover:bg-gray-500'
+            }`}
+            aria-label={isCameraOff ? 'Turn Camera On' : 'Turn Camera Off'}
+          >
+            {isCameraOff ? <FaVideoSlash className="text-xl" /> : <FaVideo className="text-xl" />}
+          </button>
+        )}
+
+        <button
+          onClick={onHangUp}
+          className="w-16 h-16 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center transition shadow-lg"
+          aria-label="End Call"
+          style={{ boxShadow: `0 0 0 2px ${workspaceColor}22` }}
+        >
+          <FaPhoneSlash className="text-2xl" />
+        </button>
+      </div>
+    </div>
+  );
 };
 
 const CallScreen = () => {
   const { roomId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
 
-  // Auto‑join flag from push notification
-  const autoJoin = searchParams.get('autoJoin') === 'true';
-
-  // Current user info
-  const { userInfo } = useSelector((state) => state.auth);
-  const userId = userInfo?._id || userInfo?.id;
-
-  // ── Get socket context ──────────────────────────────────────────────
-  // IMPORTANT: never throw here based on this value. socketContext can be
-  // legitimately falsy for a render or two (StrictMode's double-invoke,
-  // or a brief instant before SocketProvider finishes mounting), and a
-  // component that sometimes throws mid-render and sometimes doesn't is
-  // exactly what corrupts React's hook bookkeeping ("Should have a
-  // queue" / "change in the order of Hooks"). Every hook below this line
-  // must run unconditionally, every render, regardless of this value —
-  // so we destructure with a safe fallback instead of bailing out.
+  // ── Socket context ──────────────────────────────────────────────────
+  // Never throw based on this value; every hook below must run
+  // unconditionally on every render (see hook-order note in earlier
+  // versions). We destructure with a safe fallback and bail out later.
   const socketContext = useSocket();
   const { incomingCall, clearIncomingCall } = socketContext || {};
 
   // ── Resolve callData from whichever source has it ──────────────────
-  // 1. location.state – used when the caller initiates a call from within
-  //    the app (e.g. clicking "Call" navigates with state directly).
-  // 2. incomingCall (SocketContext) – used for the callee/push‑notification
-  //    flow, populated either by the live socket 'incoming-call' event or
-  //    by main.jsx's handlePushTapped before it navigates here.
+  // 1. location.state – caller started the call from inside the app.
+  // 2. incomingCall (SocketContext) – callee / push-notification flow.
   const stateCallData = location.state?.callData;
   const socketCallData =
     incomingCall && incomingCall.roomId === roomId ? incomingCall : null;
-
-  // Prefer stateCallData, then socketCallData
   const callData = stateCallData || socketCallData;
 
   const [waitedTooLong, setWaitedTooLong] = useState(false);
+  const [connectionLost, setConnectionLost] = useState(false);
+  const leavingRef = useRef(false);
+  const hasInitialized = useRef(false);
 
   // ── Go back to wherever the call was started from ───────────────────
-  // react-router marks the very first history entry in a browsing
-  // session with location.key === 'default'. If that's what we're on,
-  // there is no real "previous page" to go back to in-app (e.g. the
-  // user arrived here fresh via a push-notification deep link) — in
-  // that case navigate(-1) could exit the app or land somewhere
-  // meaningless, so we fall back to /my-workspaces instead. Otherwise,
-  // navigate(-1) genuinely returns to whatever screen the call was
-  // started/received from.
   const goBackFromCall = useCallback(() => {
     if (location.key && location.key !== 'default') {
       navigate(-1);
@@ -95,8 +149,7 @@ const CallScreen = () => {
     }
   }, [location.key, navigate]);
 
-  // Give callData a moment to arrive (covers native cold‑start timing)
-  // before deciding there's genuinely nothing to show.
+  // Give callData a moment to arrive (covers native cold-start timing)
   useEffect(() => {
     if (callData) return;
     const timeout = setTimeout(() => setWaitedTooLong(true), CALL_DATA_GRACE_MS);
@@ -110,8 +163,8 @@ const CallScreen = () => {
     }
   }, [callData, waitedTooLong, navigate]);
 
-  // Clear the "incoming call" flag from context once we've consumed it into
-  // this screen, so IncomingCallModal doesn't also try to render it.
+  // Clear the "incoming call" flag once consumed so IncomingCallModal
+  // doesn't also try to render it.
   useEffect(() => {
     if (socketCallData && clearIncomingCall) {
       clearIncomingCall();
@@ -119,88 +172,53 @@ const CallScreen = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socketCallData?.roomId]);
 
-  // ── Use call socket hook — must run on every render regardless of
-  // whether callData exists yet. The hook itself needs to tolerate
-  // callData being null/undefined internally (return no-op state, don't
-  // throw, don't skip calling it).
+  // ── Call lifecycle hook (must run on every render) ──────────────────
   const {
-    localStream,
-    remoteStreams,
     callStatus,
-    isMuted,
-    isCameraOff,
-    hangUp,
-    toggleMute,
-    toggleCamera,
+    media,
+    mediaError,
+    isVideo,
     acceptCall,
-    startLocalStream,
+    hangUp,
+    retryMedia,
   } = useCallSocket(callData);
 
-  const localVideoRef = useRef(null);
-  const remoteVideoRefs = useRef({});
-  const [isConnecting, setIsConnecting] = useState(false);
-  const hasInitialized = useRef(false);
-
-  // ── Set up local video stream ──────────────────────────────────────
-  useEffect(() => {
-    if (localVideoRef.current && localStream) {
-      localVideoRef.current.srcObject = localStream;
-    }
-  }, [localStream]);
-
-  // ── Set up remote video streams ────────────────────────────────────
-  useEffect(() => {
-    Object.entries(remoteStreams || {}).forEach(([uid, stream]) => {
-      if (remoteVideoRefs.current[uid]) {
-        remoteVideoRefs.current[uid].srcObject = stream;
-      }
-    });
-  }, [remoteStreams]);
-
-  // ── Handle call initiation / acceptance — run once callData exists ─
+  // ── Receiver: accept the call once callData exists ──────────────────
+  // Caller: nothing to do. The caller is already an accepted participant
+  // server-side; media connects automatically once someone joins and
+  // the hook flips callStatus to 'ongoing'.
   useEffect(() => {
     if (!callData || hasInitialized.current) return;
     hasInitialized.current = true;
 
-    const initCall = async () => {
-      setIsConnecting(true);
-      try {
-        if (callData.isInitiator) {
-          // Caller: just warm up the mic/camera and wait. We do NOT
-          // send a WebRTC offer here — the callee hasn't navigated to
-          // their call screen yet, so nobody is listening for it and
-          // it would be lost. Once the callee actually joins the call
-          // room, the socket layer fires 'participant-joined' to us,
-          // and *that* is what triggers sending them the offer (see
-          // useCallSocket's handleParticipantJoined). This removes the
-          // race that was causing calls to ring forever with no audio.
-          await startLocalStream(true);
-        } else {
-          // Receiver: accept call (either via push auto‑join or manual accept)
-          await acceptCall();
-        }
-      } catch (error) {
-        console.error('Call initialization error:', error);
-        // Optionally show a toast or redirect
-      } finally {
-        setIsConnecting(false);
-      }
-    };
-
-    initCall();
+    if (!callData.isInitiator) {
+      acceptCall();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [callData]);
 
   // ── End the call and return to wherever it was started from ────────
   const handleHangUp = useCallback(async () => {
+    leavingRef.current = true;
     await hangUp();
     goBackFromCall();
   }, [hangUp, goBackFromCall]);
 
-  // ── NOW it's safe to bail out — every hook above has already run on
-  // every render, so hook count stays constant whether callData exists,
-  // or socketContext is momentarily missing, or not. ──────────────────
-  if (!socketContext) {
+  // LiveKit gave up reconnecting (network dropped, etc.). Don't end the
+  // call for everyone, just let this user try to reconnect.
+  const handleDisconnected = useCallback((reason) => {
+    if (leavingRef.current) return;
+    if (reason === DisconnectReason.CLIENT_INITIATED) return;
+    setConnectionLost(true);
+  }, []);
+
+  const handleReconnect = useCallback(() => {
+    setConnectionLost(false);
+    retryMedia(); // clears media; the hook then fetches a fresh token
+  }, [retryMedia]);
+
+  // ── Safe to bail out now: all hooks have run ────────────────────────
+  if (!socketContext || !callData) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white">
         <FaSpinner className="animate-spin text-3xl" />
@@ -208,25 +226,12 @@ const CallScreen = () => {
     );
   }
 
-  if (!callData) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white">
-        <FaSpinner className="animate-spin text-3xl" />
-      </div>
-    );
-  }
-
-  // ── Destructure callData with defaults ────────────────────────────
   const {
-    callId,
     type = 'voice',
-    participants = [],
-    isInitiator = false,
-    workspaceId,
     workspaceColor = '#0d9488',
   } = callData;
 
-  // ── If call ended, show ended screen ──────────────────────────────
+  // ── Call ended ──────────────────────────────────────────────────────
   if (callStatus === 'ended') {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-900 text-white p-6">
@@ -234,7 +239,8 @@ const CallScreen = () => {
           <div className="text-6xl mb-6">📞</div>
           <h2 className="text-2xl font-bold mb-2">Call Ended</h2>
           <p className="text-gray-400 mb-8">
-            {type === 'video' ? 'Your video call has ended.' : 'Your voice call has ended.'}
+            {mediaError ||
+              (type === 'video' ? 'Your video call has ended.' : 'Your voice call has ended.')}
           </p>
           <button
             onClick={goBackFromCall}
@@ -248,113 +254,72 @@ const CallScreen = () => {
     );
   }
 
-  const isRinging = callStatus === 'ringing';
-  const isOngoing = callStatus === 'ongoing';
+  // ── Live call (LiveKit connected) ───────────────────────────────────
+  if (media && !connectionLost) {
+    return (
+      <div data-lk-theme="default" className="min-h-screen bg-gray-900">
+        <LiveKitRoom
+          serverUrl={media.url}
+          token={media.token}
+          connect
+          audio
+          video={isVideo}
+          onDisconnected={handleDisconnected}
+        >
+          <CallStage
+            isVideo={isVideo}
+            workspaceColor={workspaceColor}
+            onHangUp={handleHangUp}
+          />
+        </LiveKitRoom>
+      </div>
+    );
+  }
 
-  // ── Render the call UI ─────────────────────────────────────────────
+  // ── Everything else: ringing / connecting / error / connection lost ─
+  const isRinging = callStatus === 'ringing';
+
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col">
-      {/* Header */}
       <div className="p-4 flex items-center justify-between border-b border-gray-800">
         <h3 className="text-lg font-semibold">
           {type === 'video' ? 'Video Call' : 'Voice Call'}
         </h3>
         <span className="text-sm text-gray-400">
-          {isRinging && 'Ringing...'}
-          {isOngoing && `${Object.keys(remoteStreams).length} participant(s)`}
-          {isConnecting && 'Connecting...'}
+          {isRinging ? 'Ringing...' : 'Connecting...'}
         </span>
       </div>
 
-      {/* Main content area */}
-      <div className="flex-1 p-4 overflow-auto">
-        {isRinging && (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <FaSpinner className="animate-spin text-4xl mx-auto mb-4" style={{ color: workspaceColor }} />
-              <p className="text-lg">Waiting for others to join...</p>
-            </div>
-          </div>
-        )}
-
-        {isOngoing && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 h-full">
-            {/* Local video tile */}
-            {type === 'video' && localStream && (
-              <div className="relative bg-gray-800 rounded-xl overflow-hidden shadow-lg flex flex-col items-center justify-center">
-                <video
-                  ref={localVideoRef}
-                  autoPlay
-                  muted
-                  playsInline
-                  className="w-full h-full object-cover"
-                  style={{ minHeight: '200px' }}
-                />
-                <div className="absolute bottom-2 left-2 bg-black/60 px-3 py-1 rounded-full text-sm">
-                  You {isMuted ? '(muted)' : ''}{isCameraOff ? '(camera off)' : ''}
-                </div>
-              </div>
-            )}
-
-            {/* Remote video tiles */}
-            {Object.entries(remoteStreams).map(([uid, stream]) => {
-              const name = resolveParticipantName(participants, uid);
-              return (
-                <div
-                  key={uid}
-                  className="relative bg-gray-800 rounded-xl overflow-hidden shadow-lg flex flex-col items-center justify-center"
-                >
-                  <video
-                    ref={(el) => (remoteVideoRefs.current[uid] = el)}
-                    autoPlay
-                    playsInline
-                    className="w-full h-full object-cover"
-                    style={{ minHeight: '200px' }}
-                  />
-                  <div className="absolute bottom-2 left-2 bg-black/60 px-3 py-1 rounded-full text-sm">
-                    {name}
-                  </div>
-                </div>
-              );
-            })}
-
-            {/* Audio‑only fallback */}
-            {type === 'voice' && Object.keys(remoteStreams).length === 0 && (
-              <div className="col-span-full flex flex-col items-center justify-center text-gray-400">
-                <div className="text-6xl mb-4">🎙️</div>
-                <p>Voice call in progress</p>
-              </div>
-            )}
-          </div>
-        )}
+      <div className="flex-1 flex items-center justify-center p-4">
+        <div className="text-center">
+          {mediaError || connectionLost ? (
+            <>
+              <p className="text-lg mb-4">
+                {mediaError || 'Connection lost.'}
+              </p>
+              <button
+                onClick={handleReconnect}
+                className="px-6 py-3 rounded-full font-semibold text-white transition"
+                style={{ backgroundColor: workspaceColor }}
+              >
+                Reconnect
+              </button>
+            </>
+          ) : (
+            <>
+              <FaSpinner
+                className="animate-spin text-4xl mx-auto mb-4"
+                style={{ color: workspaceColor }}
+              />
+              <p className="text-lg">
+                {isRinging ? 'Waiting for others to join...' : 'Connecting to the call...'}
+              </p>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Call controls */}
-      <div className="p-4 bg-gray-800/50 border-t border-gray-700 flex items-center justify-center gap-4">
-        <button
-          onClick={toggleMute}
-          className={`w-14 h-14 rounded-full flex items-center justify-center transition ${
-            isMuted ? 'bg-red-600' : 'bg-gray-600 hover:bg-gray-500'
-          }`}
-          aria-label={isMuted ? 'Unmute' : 'Mute'}
-          disabled={isRinging}
-        >
-          {isMuted ? <FaMicrophoneSlash className="text-xl" /> : <FaMicrophone className="text-xl" />}
-        </button>
-
-        {type === 'video' && (
-          <button
-            onClick={toggleCamera}
-            className={`w-14 h-14 rounded-full flex items-center justify-center transition ${
-              isCameraOff ? 'bg-red-600' : 'bg-gray-600 hover:bg-gray-500'
-            }`}
-            aria-label={isCameraOff ? 'Turn Camera On' : 'Turn Camera Off'}
-            disabled={isRinging}
-          >
-            {isCameraOff ? <FaVideoSlash className="text-xl" /> : <FaVideo className="text-xl" />}
-          </button>
-        )}
-
+      <div className="p-4 bg-gray-800/50 border-t border-gray-700 flex items-center justify-center">
         <button
           onClick={handleHangUp}
           className="w-16 h-16 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center transition shadow-lg"

@@ -27,6 +27,7 @@
     "googleapis": "^183.0.0",
     "http": "^0.0.1-security",
     "jsonwebtoken": "^9.0.3",
+    "livekit-server-sdk": "^2.19.1",
     "mammoth": "^1.12.2",
     "mongoose": "^9.3.3",
     "multer": "^2.2.0",

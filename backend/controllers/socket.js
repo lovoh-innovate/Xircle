@@ -17,11 +17,6 @@ let io;
 
 const NOTIFICATION_DELAY_MS = 2500;
 
-// Track which call rooms each socket has joined, so we can clean up
-// and notify other participants on disconnect (browser refresh, app kill,
-// dropped connection, etc.) even if the client never emits 'leave-call'.
-const socketCallRooms = new Map(); // socketId -> Set<roomId>
-
 const isSocketUserOnline = (userId) => {
   const room = io.sockets.adapter.rooms.get(`user:${userId}`);
   return !!room && room.size > 0;
@@ -172,7 +167,6 @@ export const initSocket = (server) => {
   io.on('connection', async (socket) => {
     console.log(`✅ User connected: ${socket.userId} - ${socket.user.name}`);
     socket.join(`user:${socket.userId}`);
-    socketCallRooms.set(socket.id, new Set());
 
     const updateUserOnlineStatus = async (isOnline) => {
       try {
@@ -267,7 +261,7 @@ export const initSocket = (server) => {
           mediaDuration,
           stickerId,
           clientMsgId,
-          references: rawReferences,   // 👈 NEW
+          references: rawReferences,
         } = data;
 
         const chat = await Chat.findById(chatId);
@@ -311,7 +305,7 @@ export const initSocket = (server) => {
           mediaSize: mediaSize || null,
           mediaDuration: mediaDuration || null,
           mentions: mentions || [],
-          references: sanitizedReferences,   // 👈 stored
+          references: sanitizedReferences,
           replyTo: replyToId || null,
           sticker: stickerRef,
           readBy: [{ user: socket.userId, readAt: new Date() }],
@@ -436,89 +430,62 @@ export const initSocket = (server) => {
       }
     });
 
-    // ── Typing (unchanged) ──────────────────────────────────────────
+    // ⚠️ PUT YOUR REAL CODE BACK IN THESE FIVE HANDLERS (they were collapsed in what you pasted)
     socket.on('typing:start', (data) => { /* ... */ });
     socket.on('typing:stop', (data) => { /* ... */ });
-
-    // ── Mark read (unchanged) ─────────────────────────────────────────
     socket.on('mark-read', async (data) => { /* ... */ });
-
-    // ── Delete message (unchanged) ────────────────────────────────────
     socket.on('delete-message', async (data, callback) => { /* ... */ });
-
-    // ── Edit message (unchanged) ────────────────────────────────────
     socket.on('edit-message', async (data, callback) => { /* ... */ });
-
-    // ── Reactions (unchanged) ────────────────────────────────────────
     socket.on('toggle-reaction', async (data, callback) => { /* ... */ });
 
     // ─────────────────────────────────────────────────────────────
-    // ── Call signaling — unchanged
+    // ── Call events (LiveKit handles all media + in-call presence)
+    //
+    // The socket room `room:${roomId}` is now ONLY used so clients
+    // receive 'call-ended' and 'call-participant-update' from
+    // callController.js. Offers/answers/ICE are no longer relayed.
     // ─────────────────────────────────────────────────────────────
 
-    socket.on('join-call-room', async (roomId) => {
-      if (!roomId) return;
-      socket.join(`room:${roomId}`);
+    socket.on('join-call-room', async (roomId, callback) => {
+      try {
+        if (!roomId) {
+          return typeof callback === 'function' && callback({ error: 'roomId required' });
+        }
 
-      const rooms = socketCallRooms.get(socket.id);
-      if (rooms) rooms.add(roomId);
+        // Only participants of an active call may join its socket room
+        const call = await Call.findOne({
+          roomId,
+          status: { $in: ['ringing', 'ongoing'] },
+          'participants.user': socket.userId,
+        }).select('_id');
 
-      socket.to(`room:${roomId}`).emit('participant-joined', socket.userId);
+        if (!call) {
+          return typeof callback === 'function' && callback({ error: 'Not allowed to join this call' });
+        }
+
+        socket.join(`room:${roomId}`);
+        if (typeof callback === 'function') callback({ success: true });
+      } catch (err) {
+        console.error('join-call-room error:', err.message);
+        if (typeof callback === 'function') callback({ error: 'Failed to join call room' });
+      }
     });
 
     socket.on('leave-call-room', (roomId) => {
       if (!roomId) return;
       socket.leave(`room:${roomId}`);
-      const rooms = socketCallRooms.get(socket.id);
-      if (rooms) rooms.delete(roomId);
     });
 
-    socket.on('call-offer', ({ toUserId, roomId, sdp } = {}) => {
-      if (!toUserId || !sdp) return;
-      io.to(`user:${toUserId}`).emit('call-offer', {
-        from: socket.userId,
-        roomId,
-        sdp,
-      });
-    });
-
-    socket.on('call-answer', ({ toUserId, roomId, sdp } = {}) => {
-      if (!toUserId || !sdp) return;
-      io.to(`user:${toUserId}`).emit('call-answer', {
-        from: socket.userId,
-        roomId,
-        sdp,
-      });
-    });
-
-    socket.on('ice-candidate', ({ toUserId, roomId, candidate } = {}) => {
-      if (!toUserId || !candidate) return;
-      io.to(`user:${toUserId}`).emit('ice-candidate', {
-        from: socket.userId,
-        roomId,
-        candidate,
-      });
-    });
-
+    // Kept as an alias so older clients that still emit 'leave-call' don't break
     socket.on('leave-call', (roomId) => {
       if (!roomId) return;
-      socket.to(`room:${roomId}`).emit('participant-left', socket.userId);
       socket.leave(`room:${roomId}`);
-      const rooms = socketCallRooms.get(socket.id);
-      if (rooms) rooms.delete(roomId);
     });
 
     socket.on('disconnect', async () => {
       console.log(`❌ User disconnected: ${socket.userId} - ${socket.user.name}`);
-
-      const rooms = socketCallRooms.get(socket.id);
-      if (rooms && rooms.size > 0) {
-        for (const roomId of rooms) {
-          socket.to(`room:${roomId}`).emit('participant-left', socket.userId);
-        }
-      }
-      socketCallRooms.delete(socket.id);
-
+      // Socket.io removes the socket from all rooms automatically.
+      // LiveKit detects the dropped media connection on its own.
       await updateUserOnlineStatus(false);
     });
   });
