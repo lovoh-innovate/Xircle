@@ -68,7 +68,9 @@ const allowedOrigins = [
   'http://localhost:9000',
   'https://xircle.lovohcreate.com',
   'http://localhost',
-  'https://localhost'
+  'https://localhost',
+  'https://www.xircle.in',
+  'https://.xircle.in',
 ];
 
 app.use(cors({
