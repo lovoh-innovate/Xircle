@@ -12,7 +12,7 @@ import {
   FaMagic, FaRobot, FaFileAlt, FaHeartbeat, FaLightbulb, FaDownload,
   FaExclamationCircle, FaCheckCircle, FaSpinner,
   FaList, FaThLarge, FaCheckDouble, FaHandPointer, FaMousePointer,
-  FaCalendarAlt, FaAngleLeft, FaAngleRight, FaStickyNote,
+  FaCalendarAlt, FaAngleLeft, FaAngleRight, FaStickyNote, FaFeather,
 } from 'react-icons/fa';
 import { jsPDF } from 'jspdf';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
@@ -46,8 +46,7 @@ import {
   useEditProjectWithAIMutation,
   useApplyProjectEditsMutation,
 } from '../slices/aiApiSlice';
-// ─── Notes hooks — adjust the slice paths if yours differ ────────────
-import { useGetNotesQuery } from '../slices/personalNoteApiSlice';
+import { useGetNotesQuery, useCreateNoteMutation } from '../slices/personalNoteApiSlice';
 import { useGetWorkspaceNotesQuery } from '../slices/workspaceNoteApiSlice';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
 import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
@@ -203,7 +202,7 @@ const ErrorScreen = ({
   title = 'Something went wrong',
   message = 'Please try again in a moment.',
   icon: Icon = FaExclamationTriangle,
-  tone = 'error', // 'error' | 'warn' | 'info'
+  tone = 'error',
   onBack,
   onRetry,
   backLabel = 'Back to projects',
@@ -222,23 +221,15 @@ const ErrorScreen = ({
           <Icon className="text-2xl" />
         </div>
         <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200 mb-2">{title}</h2>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6 break-words leading-relaxed">
-          {message}
-        </p>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6 break-words leading-relaxed">{message}</p>
         <div className="flex gap-3">
           {onRetry && (
-            <button
-              onClick={onRetry}
-              className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
-            >
+            <button onClick={onRetry} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
               Try again
             </button>
           )}
           {onBack && (
-            <button
-              onClick={onBack}
-              className="flex-1 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl text-sm font-medium hover:opacity-90 transition"
-            >
+            <button onClick={onBack} className="flex-1 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl text-sm font-medium hover:opacity-90 transition">
               {backLabel}
             </button>
           )}
@@ -249,7 +240,7 @@ const ErrorScreen = ({
 };
 
 // ═══════════════════════════════════════════════════════════════
-// Custom Dropdown — portaled + smart anchor
+// Custom Dropdown
 // ═══════════════════════════════════════════════════════════════
 const Dropdown = ({ label, options, value, onChange, placeholder, brandColor }) => {
   const [open, setOpen] = useState(false);
@@ -456,18 +447,30 @@ const MultiDropdown = ({ label, options, values = [], onChange, placeholder }) =
 };
 
 // ═══════════════════════════════════════════════════════════════
-// Custom DateTime Picker
+// Custom DateTime Picker with optional quick shortcuts
 // ═══════════════════════════════════════════════════════════════
-const CustomDateTimePicker = ({ value, onChange, placeholder = 'Select date & time', disabled = false }) => {
+const QUICK_DUE_SHORTCUTS = [
+  ['1h', 'in an hour'],
+  ['12h', 'in 12 hours'],
+  ['today', 'today'],
+  ['2d', 'in 2 days'],
+  ['1w', 'in a week'],
+  ['2w', 'in 2 weeks'],
+  ['1m', 'in a month'],
+];
+
+const CustomDateTimePicker = ({
+  value, onChange, placeholder = 'Select date & time', disabled = false, showShortcuts = false,
+}) => {
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState({ top: 'auto', bottom: 'auto', left: -9999, maxHeight: 420 });
+  const [pos, setPos] = useState({ top: 'auto', bottom: 'auto', left: -9999, maxHeight: 480 });
 
   const wrapperRef = useRef(null);
   const triggerRef = useRef(null);
   const popupRef = useRef(null);
 
   const POPUP_W = 290;
-  const MAX_H = 420, MIN_H = 220, GAP = 6, EDGE = 8;
+  const MAX_H = 480, MIN_H = 240, GAP = 6, EDGE = 8;
 
   const initialDate = value ? new Date(value) : null;
   const [selected, setSelected] = useState(initialDate);
@@ -576,6 +579,21 @@ const CustomDateTimePicker = ({ value, onChange, placeholder = 'Select date & ti
   };
   const handleClear = () => { setSelected(null); onChange(''); };
 
+  const applyQuick = (preset) => {
+    const now = new Date();
+    let t = new Date(now);
+    if (preset === '1h') t.setHours(now.getHours() + 1);
+    else if (preset === '12h') t.setHours(now.getHours() + 12);
+    else if (preset === 'today') t.setHours(23, 59, 59);
+    else if (preset === '2d') t.setDate(now.getDate() + 2);
+    else if (preset === '1w') t.setDate(now.getDate() + 7);
+    else if (preset === '2w') t.setDate(now.getDate() + 14);
+    else if (preset === '1m') t.setMonth(now.getMonth() + 1);
+    setSelected(t); setViewDate(t);
+    setHour(t.getHours()); setMinute(t.getMinutes());
+    commit(t, t.getHours(), t.getMinutes());
+  };
+
   const display = selected
     ? `${selected.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · ${pad(hour)}:${pad(minute)}`
     : '';
@@ -601,6 +619,26 @@ const CustomDateTimePicker = ({ value, onChange, placeholder = 'Select date & ti
           style={{ top: pos.top, bottom: pos.bottom, left: pos.left, width: POPUP_W, maxHeight: pos.maxHeight }}
           className="fixed z-[120] bg-white dark:bg-[#1a1a24] border border-gray-200 dark:border-gray-800/60 rounded-2xl shadow-2xl p-3 overflow-y-auto"
         >
+          {showShortcuts && (
+            <div className="mb-3 pb-3 border-b border-gray-200 dark:border-gray-800/60">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-500 mb-1.5">
+                Quick
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {QUICK_DUE_SHORTCUTS.map(([k, l]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => applyQuick(k)}
+                    className="px-2 py-1 text-[10px] font-medium bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-md border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 transition"
+                  >
+                    {l}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center justify-between mb-2">
             <button type="button" onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1))} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-teal-600 dark:hover:text-[#0d9488] hover:bg-teal-500/10 rounded-lg transition"><FaAngleLeft className="text-xs" /></button>
             <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">{monthName}</span>
@@ -873,7 +911,7 @@ const ViewToggle = ({ view, onChange }) => (
 );
 
 // ═══════════════════════════════════════════════════════════════
-// Task Card (grid + list) — now shows a small "notes" badge
+// Task Card — grid + list, with mobile chevron menu
 // ═══════════════════════════════════════════════════════════════
 const TaskCard = React.memo(({
   task, view = 'grid', brandColor, onClick, onOpenModal,
@@ -1001,6 +1039,9 @@ const TaskCard = React.memo(({
             </div>
           </div>
           <div className="flex-shrink-0 flex items-center gap-1">
+            <button onClick={(e) => { e.stopPropagation(); onOpenModal(task); }} className="task-menu-btn md:hidden p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition" aria-label="More actions">
+              <FaAngleDown className="text-sm" />
+            </button>
             <button onClick={(e) => { e.stopPropagation(); onOpenModal(task); }} className="task-menu-btn hidden md:flex p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition" aria-label="More actions">
               <FaEllipsisV className="text-sm" />
             </button>
@@ -1044,6 +1085,13 @@ const TaskCard = React.memo(({
           </h4>
         </div>
         <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={(e) => { e.stopPropagation(); onOpenModal(task); }}
+            className="task-menu-btn md:hidden p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+            aria-label="More actions"
+          >
+            <FaAngleDown className="text-sm" />
+          </button>
           <button onClick={(e) => { e.stopPropagation(); onOpenModal(task); }} className="task-menu-btn hidden md:flex p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition" aria-label="More actions">
             <FaEllipsisV className="text-sm" />
           </button>
@@ -1090,11 +1138,15 @@ const TaskCard = React.memo(({
 });
 
 // ═══════════════════════════════════════════════════════════════
-// Notes Picker — 2-stage: pick source → pick notes
+// Notes Picker Modal — 3 sources including quick note creation
 // ═══════════════════════════════════════════════════════════════
 const NotesPickerModal = ({ isOpen, onClose, workspaceId, alreadySelected, onConfirm }) => {
-  const [stage, setStage] = useState('source'); // 'source' | 'workspace' | 'personal'
+  const [stage, setStage] = useState('source');
   const [draft, setDraft] = useState([]);
+
+  const [quickTitle, setQuickTitle] = useState('');
+  const [quickContent, setQuickContent] = useState('');
+  const [createNote, { isLoading: creatingQuickNote }] = useCreateNoteMutation();
 
   const { data: pData, isLoading: pLoading } = useGetNotesQuery(undefined, {
     skip: !isOpen || stage !== 'personal',
@@ -1110,8 +1162,10 @@ const NotesPickerModal = ({ isOpen, onClose, workspaceId, alreadySelected, onCon
     if (isOpen) {
       setDraft(Array.isArray(alreadySelected) ? alreadySelected : []);
       setStage('source');
+      setQuickTitle('');
+      setQuickContent('');
     }
-  }, [isOpen]); // eslint-disable-line
+  }, [isOpen]);
 
   const isPicked = (noteId, source) =>
     draft.some((d) => String(d.noteId) === String(noteId) && d.source === source);
@@ -1121,6 +1175,28 @@ const NotesPickerModal = ({ isOpen, onClose, workspaceId, alreadySelected, onCon
       setDraft((prev) => prev.filter((d) => !(String(d.noteId) === String(note._id) && d.source === source)));
     } else {
       setDraft((prev) => [...prev, { noteId: note._id, source, title: note.title }]);
+    }
+  };
+
+  const handleSaveQuickNote = async () => {
+    if (!quickTitle.trim()) { toast.error('Give your note a title'); return; }
+    try {
+      const res = await createNote({
+        title: quickTitle.trim(),
+        content: quickContent.trim() || 'Write your note here...',
+      }).unwrap();
+      const newNote = res.note;
+      const newEntry = { noteId: newNote._id, source: 'personal', title: newNote.title };
+      const next = [
+        ...draft.filter((d) => !(String(d.noteId) === String(newNote._id) && d.source === 'personal')),
+        newEntry,
+      ];
+      setDraft(next);
+      onConfirm(next);
+      toast.success('Quick note created');
+      onClose();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to create note');
     }
   };
 
@@ -1174,6 +1250,12 @@ const NotesPickerModal = ({ isOpen, onClose, workspaceId, alreadySelected, onCon
     </div>
   );
 
+  const headerTitle =
+    stage === 'source' ? 'Add from notes'
+    : stage === 'workspace' ? 'Workspace notes'
+    : stage === 'personal' ? 'Personal notes'
+    : 'Quick note';
+
   return (
     <div
       className="fixed inset-0 z-[90] flex items-end md:items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4"
@@ -1183,7 +1265,6 @@ const NotesPickerModal = ({ isOpen, onClose, workspaceId, alreadySelected, onCon
         className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl md:rounded-2xl w-full md:max-w-lg flex flex-col max-h-[88vh]"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200/60 dark:border-gray-800/60">
           <div className="flex items-center gap-2 min-w-0">
             {stage !== 'source' && (
@@ -1197,9 +1278,7 @@ const NotesPickerModal = ({ isOpen, onClose, workspaceId, alreadySelected, onCon
             )}
             <FaStickyNote className="text-teal-600 dark:text-[#0d9488] text-sm shrink-0" />
             <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate">
-              {stage === 'source' && 'Add from notes'}
-              {stage === 'workspace' && 'Workspace notes'}
-              {stage === 'personal' && 'Personal notes'}
+              {headerTitle}
             </h3>
           </div>
           <button
@@ -1210,7 +1289,6 @@ const NotesPickerModal = ({ isOpen, onClose, workspaceId, alreadySelected, onCon
           </button>
         </div>
 
-        {/* Body */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
           {stage === 'source' && (
             <div className="space-y-2">
@@ -1247,15 +1325,77 @@ const NotesPickerModal = ({ isOpen, onClose, workspaceId, alreadySelected, onCon
                 </div>
                 <FaChevronRight className="text-xs text-gray-400 self-center shrink-0" />
               </button>
+
+              <button
+                type="button"
+                onClick={() => setStage('quicknote')}
+                className="w-full flex items-start gap-3 px-4 py-3.5 rounded-xl border border-dashed border-teal-400/60 dark:border-[#0d9488]/50 hover:border-teal-500 dark:hover:border-[#0d9488] hover:bg-teal-50/40 dark:hover:bg-[#0d9488]/5 transition text-left"
+              >
+                <div className="w-10 h-10 rounded-xl bg-teal-600 dark:bg-[#0d9488] flex items-center justify-center shrink-0">
+                  <FaFeather className="text-white text-sm" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Quick note</p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-500 mt-0.5">
+                    Jot something down now — saves as a personal note
+                  </p>
+                </div>
+                <FaChevronRight className="text-xs text-gray-400 self-center shrink-0" />
+              </button>
             </div>
           )}
 
           {stage === 'workspace' && renderNotesList(workspaceNotes, 'workspace', wLoading)}
           {stage === 'personal' && renderNotesList(personalNotes, 'personal', pLoading)}
+
+          {stage === 'quicknote' && (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Title *</label>
+                <input
+                  value={quickTitle}
+                  onChange={(e) => setQuickTitle(e.target.value)}
+                  placeholder="e.g. Site inspection notes"
+                  autoFocus
+                  className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none focus:border-teal-500 dark:focus:border-[#0d9488]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Content</label>
+                <textarea
+                  value={quickContent}
+                  onChange={(e) => setQuickContent(e.target.value)}
+                  rows={6}
+                  placeholder="Write whatever you need…"
+                  className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none focus:border-teal-500 dark:focus:border-[#0d9488] resize-none"
+                />
+              </div>
+              <p className="text-[11px] text-gray-500 dark:text-gray-500">
+                Saved as a personal note and immediately linked to this task.
+              </p>
+            </div>
+          )}
         </div>
 
-        {/* Footer */}
-        {stage !== 'source' && (
+        {stage === 'quicknote' ? (
+          <div className="shrink-0 flex items-center gap-2 px-5 py-3 border-t border-gray-200/60 dark:border-gray-800/60">
+            <button
+              type="button"
+              onClick={() => setStage('source')}
+              className="px-4 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition"
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveQuickNote}
+              disabled={creatingQuickNote || !quickTitle.trim()}
+              className="flex-1 px-4 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl text-sm font-medium hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {creatingQuickNote ? <><FaSpinner className="animate-spin text-xs" /> Creating…</> : <><FaCheck className="text-xs" /> Save & link</>}
+            </button>
+          </div>
+        ) : stage !== 'source' ? (
           <div className="shrink-0 flex items-center gap-2 px-5 py-3 border-t border-gray-200/60 dark:border-gray-800/60">
             <span className="text-xs text-gray-500 dark:text-gray-500 mr-auto">
               {draft.length} selected
@@ -1275,67 +1415,274 @@ const NotesPickerModal = ({ isOpen, onClose, workspaceId, alreadySelected, onCon
               Add {draft.length > 0 ? `(${draft.length})` : ''}
             </button>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
 };
 
-// ─── Create Task Modal ──────────────────────────────────────────
-const CreateTaskModal = ({ isOpen, onClose, projectId, workspaceId, brandColor, assignableMembers, folders, onSubmit }) => {
+// ─── Recurrence Field (shared) ──────────────────────────────────
+const RecurrenceField = ({ recurrenceType, setRecurrenceType, recurrenceDays, setRecurrenceDays, recurrenceEndDate, setRecurrenceEndDate, brandColor }) => {
+  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  return (
+    <div className="bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800/60 rounded-xl p-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <label className="text-xs font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+          <FaRedo className="text-[10px] text-teal-600 dark:text-[#0d9488]" />
+          Repeat task
+        </label>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={recurrenceType !== 'none'}
+          onClick={() => {
+            if (recurrenceType === 'none') {
+              setRecurrenceType('daily');
+            } else {
+              setRecurrenceType('none');
+              setRecurrenceDays([]);
+              setRecurrenceEndDate('');
+            }
+          }}
+          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+            recurrenceType !== 'none' ? '' : 'bg-gray-300 dark:bg-gray-700'
+          }`}
+          style={recurrenceType !== 'none' ? { backgroundColor: brandColor } : undefined}
+        >
+          <span
+            className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform ${
+              recurrenceType !== 'none' ? 'translate-x-[1.15rem]' : 'translate-x-0.5'
+            }`}
+          />
+        </button>
+      </div>
+
+      {recurrenceType !== 'none' && (
+        <>
+          <div className="flex gap-2">
+            {['daily', 'weekly'].map((opt) => {
+              const active = recurrenceType === opt;
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => {
+                    setRecurrenceType(opt);
+                    if (opt !== 'weekly') setRecurrenceDays([]);
+                  }}
+                  className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
+                    active
+                      ? 'text-white border-transparent shadow-sm'
+                      : 'bg-white dark:bg-[#14141a] text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700/60 hover:border-gray-400 dark:hover:border-gray-600'
+                  }`}
+                  style={active ? { backgroundColor: brandColor } : undefined}
+                >
+                  {opt === 'daily' ? 'Daily' : 'Weekly'}
+                </button>
+              );
+            })}
+          </div>
+
+          {recurrenceType === 'weekly' && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-500 mb-1.5">
+                On these days
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {weekDays.map((d, i) => {
+                  const on = recurrenceDays.includes(i);
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() =>
+                        setRecurrenceDays(
+                          on ? recurrenceDays.filter((x) => x !== i) : [...recurrenceDays, i].sort()
+                        )
+                      }
+                      className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition ${
+                        on
+                          ? 'text-white border-transparent shadow-sm'
+                          : 'bg-white dark:bg-[#14141a] text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700/60 hover:border-gray-400 dark:hover:border-gray-600'
+                      }`}
+                      style={on ? { backgroundColor: brandColor } : undefined}
+                    >
+                      {d}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+              Ends on <span className="text-gray-400 dark:text-gray-500 font-normal">(optional)</span>
+            </label>
+            <CustomDateTimePicker
+              value={recurrenceEndDate}
+              onChange={setRecurrenceEndDate}
+              placeholder="Pick end date"
+            />
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+// ─── Notes Field (shared) ───────────────────────────────────────
+const NotesField = ({ linkedNotes, onRemove, onOpenPicker }) => (
+  <div>
+    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+      <FaStickyNote className="inline mr-1 text-teal-600 dark:text-[#0d9488]" />
+      Notes
+    </label>
+    <div className="space-y-2">
+      {linkedNotes.map((n) => (
+        <div
+          key={`${n.source}:${n.noteId}`}
+          className="flex items-center gap-2 bg-teal-50/60 dark:bg-[#0d9488]/10 border border-teal-200/60 dark:border-[#0d9488]/30 rounded-xl px-3 py-2"
+        >
+          {n.source === 'workspace' ? (
+            <FaUsers className="text-teal-600 dark:text-[#0d9488] text-xs shrink-0" />
+          ) : (
+            <FaUser className="text-teal-600 dark:text-[#0d9488] text-xs shrink-0" />
+          )}
+          <span className="text-sm truncate flex-1 text-gray-800 dark:text-gray-200">
+            {n.title || 'Untitled'}
+          </span>
+          <button
+            type="button"
+            onClick={() => onRemove(n.noteId, n.source)}
+            className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded p-1 transition"
+            title="Remove"
+          >
+            <FaTimes className="text-[10px]" />
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={onOpenPicker}
+        className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] rounded-lg text-xs font-medium hover:bg-teal-100 dark:hover:bg-teal-900/30 transition"
+      >
+        <FaPlus className="text-[10px]" /> Add from notes
+      </button>
+    </div>
+  </div>
+);
+
+// ─── Folder Field (shared) with inline create ──────────────────
+const FolderField = ({ projectId, folderId, setFolderId, folders, onFolderCreated }) => {
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState('');
+  const [createFolder, { isLoading }] = useCreateFolderMutation();
+
+  const folderOpts = [
+    { value: '', label: 'No Folder', icon: <FaFolderOpen className="text-gray-400" /> },
+    ...folders.map((f) => ({ value: f._id, label: f.name, icon: <FaFolder className="text-gray-400" /> })),
+  ];
+
+  const handleCreate = async () => {
+    if (!name.trim()) { toast.error('Folder name required'); return; }
+    try {
+      const res = await createFolder({ projectId, name: name.trim() }).unwrap();
+      const newId = res?.folder?._id || res?._id;
+      if (newId) setFolderId(newId);
+      setName('');
+      setCreating(false);
+      onFolderCreated?.();
+      toast.success('Folder created');
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to create folder');
+    }
+  };
+
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Folder</label>
+      {creating ? (
+        <div className="flex items-center gap-1">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreate(); } if (e.key === 'Escape') { setCreating(false); setName(''); } }}
+            placeholder="New folder name"
+            autoFocus
+            className="flex-1 min-w-0 px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-teal-500 dark:border-[#0d9488] rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none"
+          />
+          <button
+            type="button"
+            onClick={handleCreate}
+            disabled={isLoading}
+            className="p-2 rounded-xl bg-teal-600 dark:bg-[#0d9488] text-white disabled:opacity-50 hover:opacity-90 transition"
+            title="Save folder"
+          >
+            {isLoading ? <FaSpinner className="animate-spin text-xs" /> : <FaCheck className="text-xs" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setCreating(false); setName(''); }}
+            className="p-2 rounded-xl border border-gray-300 dark:border-gray-700/60 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/40 transition"
+            title="Cancel"
+          >
+            <FaTimes className="text-xs" />
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-1">
+          <div className="flex-1 min-w-0">
+            <Dropdown options={folderOpts} value={folderId} onChange={setFolderId} placeholder="Select folder" />
+          </div>
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="shrink-0 p-2 rounded-xl bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] hover:bg-teal-100 dark:hover:bg-teal-900/30 transition"
+            title="Create new folder"
+          >
+            <FaPlus className="text-xs" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════
+// Create Task Modal — no est hours/buffer, notes under description,
+// inline folder create, quick due shortcuts in calendar
+// ═══════════════════════════════════════════════════════════════
+const CreateTaskModal = ({
+  isOpen, onClose, projectId, workspaceId, brandColor, assignableMembers, folders, onSubmit, onFolderCreated,
+}) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [linkedNotes, setLinkedNotes] = useState([]);
+  const [notesPickerOpen, setNotesPickerOpen] = useState(false);
+
   const [assigneeIds, setAssigneeIds] = useState([]);
+  const [folderId, setFolderId] = useState('');
   const [priority, setPriority] = useState('medium');
   const [startDate, setStartDate] = useState('');
   const [dueDate, setDueDate] = useState('');
-  const [estimatedHours, setEstimatedHours] = useState('');
-  const [bufferTime, setBufferTime] = useState(0);
-  const [allowAssigneeEditSubtasks, setAllowAssigneeEditSubtasks] = useState(false);
-  const [links, setLinks] = useState([]);
-  const { files, pickMedia, setFiles } = useMediaPicker();
-  const [folderId, setFolderId] = useState('');
   const [recurrenceType, setRecurrenceType] = useState('none');
   const [recurrenceDays, setRecurrenceDays] = useState([]);
   const [recurrenceEndDate, setRecurrenceEndDate] = useState('');
-  const [linkedNotes, setLinkedNotes] = useState([]);
-  const [notesPickerOpen, setNotesPickerOpen] = useState(false);
+  const [allowAssigneeEditSubtasks, setAllowAssigneeEditSubtasks] = useState(false);
+  const [links, setLinks] = useState([]);
+  const { files, pickMedia, setFiles } = useMediaPicker();
   const [loading, setLoading] = useState(false);
-  const [showDetails, setShowDetails] = useState(false);
-  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-  useEffect(() => {
-    if (startDate && dueDate) {
-      const s = new Date(startDate), d = new Date(dueDate);
-      setEstimatedHours(s < d ? ((d - s) / 3600000).toFixed(1) : '0');
-    } else setEstimatedHours('');
-  }, [startDate, dueDate]);
-
-  const setQuickDue = (preset) => {
-    const now = new Date();
-    let t = new Date(now);
-    if (preset === '1h') t.setHours(now.getHours() + 1);
-    else if (preset === '12h') t.setHours(now.getHours() + 12);
-    else if (preset === 'today') t.setHours(23, 59, 59);
-    else if (preset === '2d') t.setDate(now.getDate() + 2);
-    else if (preset === '1w') t.setDate(now.getDate() + 7);
-    else if (preset === '2w') t.setDate(now.getDate() + 14);
-    else if (preset === '1m') t.setMonth(now.getMonth() + 1);
-    const p = (n) => String(n).padStart(2, '0');
-    setDueDate(`${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}T${p(t.getHours())}:${p(t.getMinutes())}`);
-  };
 
   const assigneeOpts = assignableMembers.map((m) => {
     const u = m.user || m;
     return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full object-cover" alt="" /> : <FaUser className="text-gray-400" /> };
   });
-  const folderOpts = [{ value: '', label: 'No Folder', icon: <FaFolderOpen className="text-gray-400" /> }, ...folders.map((f) => ({ value: f._id, label: f.name, icon: <FaFolder className="text-gray-400" /> }))];
 
   const reset = () => {
     setTitle(''); setDescription(''); setAssigneeIds([]); setPriority('medium'); setStartDate(''); setDueDate('');
-    setEstimatedHours(''); setBufferTime(0); setAllowAssigneeEditSubtasks(false); setLinks([]); setFiles([]);
-    setFolderId(''); setRecurrenceType('none'); setRecurrenceDays([]); setRecurrenceEndDate('');
-    setLinkedNotes([]); setShowDetails(false);
+    setRecurrenceType('none'); setRecurrenceDays([]); setRecurrenceEndDate('');
+    setAllowAssigneeEditSubtasks(false); setLinks([]); setFiles([]); setFolderId(''); setLinkedNotes([]);
   };
 
   const handleSubmit = async (e) => {
@@ -1345,7 +1692,7 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, workspaceId, brandColor, 
     try {
       await onSubmit({
         projectId, title: title.trim(), description, assigneeIds, priority,
-        estimatedHours, bufferTime, allowAssigneeEditSubtasks, startDate, dueDate,
+        allowAssigneeEditSubtasks, startDate, dueDate,
         folderId, recurrenceType, recurrenceDays, recurrenceEndDate,
         links: links.map((l) => l.trim()).filter(Boolean),
         attachments: files,
@@ -1361,7 +1708,6 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, workspaceId, brandColor, 
   const addLink = () => setLinks((prev) => [...prev, '']);
   const updateLink = (i, v) => setLinks((prev) => { const n = [...prev]; n[i] = v; return n; });
   const removeLink = (i) => setLinks((prev) => prev.filter((_, idx) => idx !== i));
-
   const removeLinkedNote = (noteId, source) =>
     setLinkedNotes((prev) => prev.filter((d) => !(String(d.noteId) === String(noteId) && d.source === source)));
 
@@ -1379,237 +1725,99 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, workspaceId, brandColor, 
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Title *</label>
               <input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" required />
             </div>
-            <button type="button" onClick={() => setShowDetails(!showDetails)} className="flex items-center gap-2 text-sm text-teal-600 dark:text-[#0d9488]">
-              <FaAngleDown className={`transition-transform ${showDetails ? 'rotate-180' : ''}`} /> {showDetails ? 'Hide details' : 'Add more details'}
-            </button>
-            {showDetails && (
-              <>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
-                  <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
-                </div>
-                <MultiDropdown label="Assignees" options={assigneeOpts} values={assigneeIds} onChange={setAssigneeIds} placeholder="Select members..." />
-                <Dropdown label="Folder" options={folderOpts} value={folderId} onChange={setFolderId} placeholder="Select folder" />
-                <div className="grid grid-cols-2 gap-3">
-                  <Dropdown label="Priority" options={priorityOptions} value={priority} onChange={setPriority} />
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Start</label>
-                    <CustomDateTimePicker value={startDate} onChange={setStartDate} placeholder="Pick start" />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Due</label>
-                  <div className="flex flex-wrap gap-1.5 mb-2">
-                    {[['1h', 'in an hour'], ['12h', 'in 12 hours'], ['today', 'today'], ['2d', 'in 2 days'], ['1w', 'in a week'], ['2w', 'in 2 weeks'], ['1m', 'in a month']].map(([k, l]) => (
-                      <button key={k} type="button" onClick={() => setQuickDue(k)} className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300">{l}</button>
-                    ))}
-                  </div>
-                  <CustomDateTimePicker value={dueDate} onChange={setDueDate} placeholder="Pick due" />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Est. hours</label>
-                    <input type="number" step="0.5" value={estimatedHours} onChange={(e) => setEstimatedHours(e.target.value)} readOnly={!!(startDate && dueDate)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Buffer (min)</label>
-                    <input type="number" min="0" value={bufferTime} onChange={(e) => setBufferTime(parseInt(e.target.value) || 0)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
-                  </div>
-                </div>
-                <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-                  <input type="checkbox" checked={allowAssigneeEditSubtasks} onChange={(e) => setAllowAssigneeEditSubtasks(e.target.checked)} className="accent-teal-600" /> Allow assignee to edit sub‑tasks
-                </label>
 
-                {/* ─── Recurrence — toggle switch + segmented picker ─── */}
-                <div className="bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800/60 rounded-xl p-3 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
-                      <FaRedo className="text-[10px] text-teal-600 dark:text-[#0d9488]" />
-                      Repeat task
-                    </label>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
+              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none resize-none" />
+            </div>
+
+            <NotesField
+              linkedNotes={linkedNotes}
+              onRemove={removeLinkedNote}
+              onOpenPicker={() => setNotesPickerOpen(true)}
+            />
+
+            <div className="grid grid-cols-2 gap-3">
+              <MultiDropdown label="Assignees" options={assigneeOpts} values={assigneeIds} onChange={setAssigneeIds} placeholder="Select members..." />
+              <FolderField
+                projectId={projectId}
+                folderId={folderId}
+                setFolderId={setFolderId}
+                folders={folders}
+                onFolderCreated={onFolderCreated}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Dropdown label="Priority" options={priorityOptions} value={priority} onChange={setPriority} />
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Start</label>
+                <CustomDateTimePicker value={startDate} onChange={setStartDate} placeholder="Pick start" />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Due</label>
+              <CustomDateTimePicker value={dueDate} onChange={setDueDate} placeholder="Pick due" showShortcuts />
+            </div>
+
+            <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+              <input type="checkbox" checked={allowAssigneeEditSubtasks} onChange={(e) => setAllowAssigneeEditSubtasks(e.target.checked)} className="accent-teal-600" /> Allow assignee to edit sub‑tasks
+            </label>
+
+            <RecurrenceField
+              recurrenceType={recurrenceType}
+              setRecurrenceType={setRecurrenceType}
+              recurrenceDays={recurrenceDays}
+              setRecurrenceDays={setRecurrenceDays}
+              recurrenceEndDate={recurrenceEndDate}
+              setRecurrenceEndDate={setRecurrenceEndDate}
+              brandColor={brandColor}
+            />
+
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaLink className="inline mr-1" />Links</label>
+              <div className="space-y-2">
+                {links.map((link, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={link}
+                      onChange={(e) => updateLink(i, e.target.value)}
+                      placeholder="https://..."
+                      className="flex-1 px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none"
+                    />
                     <button
                       type="button"
-                      role="switch"
-                      aria-checked={recurrenceType !== 'none'}
-                      onClick={() => {
-                        if (recurrenceType === 'none') {
-                          setRecurrenceType('daily');
-                        } else {
-                          setRecurrenceType('none');
-                          setRecurrenceDays([]);
-                          setRecurrenceEndDate('');
-                        }
-                      }}
-                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                        recurrenceType !== 'none' ? '' : 'bg-gray-300 dark:bg-gray-700'
-                      }`}
-                      style={recurrenceType !== 'none' ? { backgroundColor: brandColor } : undefined}
+                      onClick={() => removeLink(i)}
+                      className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition"
+                      title="Remove link"
                     >
-                      <span
-                        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform ${
-                          recurrenceType !== 'none' ? 'translate-x-[1.15rem]' : 'translate-x-0.5'
-                        }`}
-                      />
+                      <FaTrashAlt className="text-xs" />
                     </button>
                   </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={addLink}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] rounded-lg text-xs font-medium hover:bg-teal-100 dark:hover:bg-teal-900/30 transition"
+                >
+                  <FaPlus className="text-[10px]" /> Add link
+                </button>
+              </div>
+            </div>
 
-                  {recurrenceType !== 'none' && (
-                    <>
-                      <div className="flex gap-2">
-                        {['daily', 'weekly'].map((opt) => {
-                          const active = recurrenceType === opt;
-                          return (
-                            <button
-                              key={opt}
-                              type="button"
-                              onClick={() => {
-                                setRecurrenceType(opt);
-                                if (opt !== 'weekly') setRecurrenceDays([]);
-                              }}
-                              className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
-                                active
-                                  ? 'text-white border-transparent shadow-sm'
-                                  : 'bg-white dark:bg-[#14141a] text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700/60 hover:border-gray-400 dark:hover:border-gray-600'
-                              }`}
-                              style={active ? { backgroundColor: brandColor } : undefined}
-                            >
-                              {opt === 'daily' ? 'Daily' : 'Weekly'}
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      {recurrenceType === 'weekly' && (
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-500 mb-1.5">
-                            On these days
-                          </p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {weekDays.map((d, i) => {
-                              const on = recurrenceDays.includes(i);
-                              return (
-                                <button
-                                  key={i}
-                                  type="button"
-                                  onClick={() =>
-                                    setRecurrenceDays(
-                                      on ? recurrenceDays.filter((x) => x !== i) : [...recurrenceDays, i].sort()
-                                    )
-                                  }
-                                  className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition ${
-                                    on
-                                      ? 'text-white border-transparent shadow-sm'
-                                      : 'bg-white dark:bg-[#14141a] text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700/60 hover:border-gray-400 dark:hover:border-gray-600'
-                                  }`}
-                                  style={on ? { backgroundColor: brandColor } : undefined}
-                                >
-                                  {d}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                          Ends on <span className="text-gray-400 dark:text-gray-500 font-normal">(optional)</span>
-                        </label>
-                        <CustomDateTimePicker
-                          value={recurrenceEndDate}
-                          onChange={setRecurrenceEndDate}
-                          placeholder="Pick end date"
-                        />
-                      </div>
-                    </>
-                  )}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaPaperclip className="inline mr-1" />Attachments</label>
+              <button type="button" onClick={() => pickMedia({ multiple: true })} className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-300"><FaCamera className="text-xs" /> Choose Files</button>
+              {files.length > 0 && files.map((f, i) => (
+                <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5 mt-1">
+                  <span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span>
+                  <button type="button" onClick={() => setFiles((p) => p.filter((_, idx) => idx !== i))} className="text-red-500"><FaTrashAlt className="text-xs" /></button>
                 </div>
+              ))}
+            </div>
 
-                {/* ─── Notes — link workspace / personal notes ─── */}
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                    <FaStickyNote className="inline mr-1 text-teal-600 dark:text-[#0d9488]" />
-                    Notes
-                  </label>
-                  <div className="space-y-2">
-                    {linkedNotes.map((n) => (
-                      <div
-                        key={`${n.source}:${n.noteId}`}
-                        className="flex items-center gap-2 bg-teal-50/60 dark:bg-[#0d9488]/10 border border-teal-200/60 dark:border-[#0d9488]/30 rounded-xl px-3 py-2"
-                      >
-                        {n.source === 'workspace' ? (
-                          <FaUsers className="text-teal-600 dark:text-[#0d9488] text-xs shrink-0" />
-                        ) : (
-                          <FaUser className="text-teal-600 dark:text-[#0d9488] text-xs shrink-0" />
-                        )}
-                        <span className="text-sm truncate flex-1 text-gray-800 dark:text-gray-200">
-                          {n.title || 'Untitled'}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => removeLinkedNote(n.noteId, n.source)}
-                          className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded p-1 transition"
-                          title="Remove"
-                        >
-                          <FaTimes className="text-[10px]" />
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => setNotesPickerOpen(true)}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] rounded-lg text-xs font-medium hover:bg-teal-100 dark:hover:bg-teal-900/30 transition"
-                    >
-                      <FaPlus className="text-[10px]" /> Add from notes
-                    </button>
-                  </div>
-                </div>
-
-                {/* Links */}
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaLink className="inline mr-1" />Links</label>
-                  <div className="space-y-2">
-                    {links.map((link, i) => (
-                      <div key={i} className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={link}
-                          onChange={(e) => updateLink(i, e.target.value)}
-                          placeholder="https://..."
-                          className="flex-1 px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => removeLink(i)}
-                          className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition"
-                          title="Remove link"
-                        >
-                          <FaTrashAlt className="text-xs" />
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={addLink}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] rounded-lg text-xs font-medium hover:bg-teal-100 dark:hover:bg-teal-900/30 transition"
-                    >
-                      <FaPlus className="text-[10px]" /> Add link
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaPaperclip className="inline mr-1" />Attachments</label>
-                  <button type="button" onClick={() => pickMedia({ multiple: true })} className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-300"><FaCamera className="text-xs" /> Choose Files</button>
-                  {files.length > 0 && files.map((f, i) => (
-                    <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5 mt-1">
-                      <span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span>
-                      <button type="button" onClick={() => setFiles((p) => p.filter((_, idx) => idx !== i))} className="text-red-500"><FaTrashAlt className="text-xs" /></button>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400">Cancel</button>
               <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium" style={{ backgroundColor: brandColor }}>{loading ? 'Creating...' : 'Create Task'}</button>
@@ -1629,31 +1837,32 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, workspaceId, brandColor, 
   );
 };
 
-// ─── Edit Task Modal ────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// Edit Task Modal — priority+status on one line, notes under
+// description, media upload, quick due shortcuts, inline folder
+// ═══════════════════════════════════════════════════════════════
 const EditTaskModal = ({
   isOpen, onClose, task, projectId, workspaceId, brandColor,
-  assignableMembers, folders, onSubmit,
+  assignableMembers, folders, onSubmit, onFolderCreated,
 }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [linkedNotes, setLinkedNotes] = useState([]);
+  const [notesPickerOpen, setNotesPickerOpen] = useState(false);
+
   const [assigneeIds, setAssigneeIds] = useState([]);
+  const [folderId, setFolderId] = useState('');
   const [priority, setPriority] = useState('medium');
   const [status, setStatus] = useState('pending');
   const [startDate, setStartDate] = useState('');
   const [dueDate, setDueDate] = useState('');
-  const [estimatedHours, setEstimatedHours] = useState('');
-  const [bufferTime, setBufferTime] = useState(0);
-  const [allowAssigneeEditSubtasks, setAllowAssigneeEditSubtasks] = useState(false);
-  const [links, setLinks] = useState([]);
-  const [folderId, setFolderId] = useState('');
   const [recurrenceType, setRecurrenceType] = useState('none');
   const [recurrenceDays, setRecurrenceDays] = useState([]);
   const [recurrenceEndDate, setRecurrenceEndDate] = useState('');
-  const [linkedNotes, setLinkedNotes] = useState([]);
-  const [notesPickerOpen, setNotesPickerOpen] = useState(false);
+  const [allowAssigneeEditSubtasks, setAllowAssigneeEditSubtasks] = useState(false);
+  const [links, setLinks] = useState([]);
+  const { files, pickMedia, setFiles } = useMediaPicker();
   const [loading, setLoading] = useState(false);
-  const [showDetails, setShowDetails] = useState(true);
-  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   const toLocalInput = (iso) => {
     if (!iso) return '';
@@ -1663,7 +1872,6 @@ const EditTaskModal = ({
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
   };
 
-  // Prefill whenever a task is opened
   useEffect(() => {
     if (!isOpen || !task) return;
     setTitle(task.title || '');
@@ -1673,8 +1881,6 @@ const EditTaskModal = ({
     setStatus(task.status || 'pending');
     setStartDate(toLocalInput(task.startDate));
     setDueDate(toLocalInput(task.dueDate));
-    setEstimatedHours(task.estimatedHours != null ? String(task.estimatedHours) : '');
-    setBufferTime(task.bufferTime || 0);
     setAllowAssigneeEditSubtasks(!!task.allowAssigneeEditSubtasks);
     setLinks(Array.isArray(task.links) ? [...task.links] : []);
     setFolderId(task.folder?._id || task.folder || '');
@@ -1688,34 +1894,13 @@ const EditTaskModal = ({
         title: ln.note?.title || 'Untitled',
       }))
     );
-  }, [isOpen, task]); // eslint-disable-line
-
-  useEffect(() => {
-    if (startDate && dueDate && !task?.estimatedHours) {
-      const s = new Date(startDate), d = new Date(dueDate);
-      setEstimatedHours(s < d ? ((d - s) / 3600000).toFixed(1) : '0');
-    }
-  }, [startDate, dueDate]); // eslint-disable-line
-
-  const setQuickDue = (preset) => {
-    const now = new Date();
-    let t = new Date(now);
-    if (preset === '1h') t.setHours(now.getHours() + 1);
-    else if (preset === '12h') t.setHours(now.getHours() + 12);
-    else if (preset === 'today') t.setHours(23, 59, 59);
-    else if (preset === '2d') t.setDate(now.getDate() + 2);
-    else if (preset === '1w') t.setDate(now.getDate() + 7);
-    else if (preset === '2w') t.setDate(now.getDate() + 14);
-    else if (preset === '1m') t.setMonth(now.getMonth() + 1);
-    const p = (n) => String(n).padStart(2, '0');
-    setDueDate(`${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}T${p(t.getHours())}:${p(t.getMinutes())}`);
-  };
+    setFiles([]);
+  }, [isOpen, task]);
 
   const assigneeOpts = assignableMembers.map((m) => {
     const u = m.user || m;
     return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full object-cover" alt="" /> : <FaUser className="text-gray-400" /> };
   });
-  const folderOpts = [{ value: '', label: 'No Folder', icon: <FaFolderOpen className="text-gray-400" /> }, ...folders.map((f) => ({ value: f._id, label: f.name, icon: <FaFolder className="text-gray-400" /> }))];
   const statusOpts = [
     { value: 'pending', label: 'Pending' },
     { value: 'in-progress', label: 'In Progress' },
@@ -1739,14 +1924,13 @@ const EditTaskModal = ({
         status,
         startDate: startDate || '',
         dueDate: dueDate || '',
-        estimatedHours,
-        bufferTime,
         allowAssigneeEditSubtasks,
         folderId: folderId || null,
         recurrenceType,
         recurrenceDays: recurrenceType === 'weekly' ? recurrenceDays : [],
         recurrenceEndDate: recurrenceEndDate || '',
         links: links.map((l) => l.trim()).filter(Boolean),
+        attachments: files,
         linkedNotes: linkedNotes.map(({ noteId, source }) => ({ noteId, source })),
       });
       onClose();
@@ -1758,7 +1942,6 @@ const EditTaskModal = ({
   const addLink = () => setLinks((prev) => [...prev, '']);
   const updateLink = (i, v) => setLinks((prev) => { const n = [...prev]; n[i] = v; return n; });
   const removeLink = (i) => setLinks((prev) => prev.filter((_, idx) => idx !== i));
-
   const removeLinkedNote = (noteId, source) =>
     setLinkedNotes((prev) => prev.filter((d) => !(String(d.noteId) === String(noteId) && d.source === source)));
 
@@ -1778,229 +1961,107 @@ const EditTaskModal = ({
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Title *</label>
               <input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" required />
             </div>
-            <button type="button" onClick={() => setShowDetails(!showDetails)} className="flex items-center gap-2 text-sm text-teal-600 dark:text-[#0d9488]">
-              <FaAngleDown className={`transition-transform ${showDetails ? 'rotate-180' : ''}`} /> {showDetails ? 'Hide details' : 'Add more details'}
-            </button>
-            {showDetails && (
-              <>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
-                  <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
-                </div>
-                <MultiDropdown label="Assignees" options={assigneeOpts} values={assigneeIds} onChange={setAssigneeIds} placeholder="Select members..." />
-                <div className="grid grid-cols-2 gap-3">
-                  <Dropdown label="Folder" options={folderOpts} value={folderId} onChange={setFolderId} placeholder="Select folder" />
-                  <Dropdown label="Status" options={statusOpts} value={status} onChange={setStatus} />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <Dropdown label="Priority" options={priorityOptions} value={priority} onChange={setPriority} />
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Start</label>
-                    <CustomDateTimePicker value={startDate} onChange={setStartDate} placeholder="Pick start" />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Due</label>
-                  <div className="flex flex-wrap gap-1.5 mb-2">
-                    {[['1h', 'in an hour'], ['12h', 'in 12 hours'], ['today', 'today'], ['2d', 'in 2 days'], ['1w', 'in a week'], ['2w', 'in 2 weeks'], ['1m', 'in a month']].map(([k, l]) => (
-                      <button key={k} type="button" onClick={() => setQuickDue(k)} className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300">{l}</button>
-                    ))}
-                  </div>
-                  <CustomDateTimePicker value={dueDate} onChange={setDueDate} placeholder="Pick due" />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Est. hours</label>
-                    <input type="number" step="0.5" value={estimatedHours} onChange={(e) => setEstimatedHours(e.target.value)} readOnly={!!(startDate && dueDate)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Buffer (min)</label>
-                    <input type="number" min="0" value={bufferTime} onChange={(e) => setBufferTime(parseInt(e.target.value) || 0)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
-                  </div>
-                </div>
-                <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-                  <input type="checkbox" checked={allowAssigneeEditSubtasks} onChange={(e) => setAllowAssigneeEditSubtasks(e.target.checked)} className="accent-teal-600" /> Allow assignee to edit sub‑tasks
-                </label>
 
-                {/* ─── Recurrence ─── */}
-                <div className="bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800/60 rounded-xl p-3 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
-                      <FaRedo className="text-[10px] text-teal-600 dark:text-[#0d9488]" />
-                      Repeat task
-                    </label>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
+              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none resize-none" />
+            </div>
+
+            <NotesField
+              linkedNotes={linkedNotes}
+              onRemove={removeLinkedNote}
+              onOpenPicker={() => setNotesPickerOpen(true)}
+            />
+
+            <div className="grid grid-cols-2 gap-3">
+              <MultiDropdown label="Assignees" options={assigneeOpts} values={assigneeIds} onChange={setAssigneeIds} placeholder="Select members..." />
+              <FolderField
+                projectId={projectId}
+                folderId={folderId}
+                setFolderId={setFolderId}
+                folders={folders}
+                onFolderCreated={onFolderCreated}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Dropdown label="Priority" options={priorityOptions} value={priority} onChange={setPriority} />
+              <Dropdown label="Status" options={statusOpts} value={status} onChange={setStatus} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Start</label>
+                <CustomDateTimePicker value={startDate} onChange={setStartDate} placeholder="Pick start" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Due</label>
+                <CustomDateTimePicker value={dueDate} onChange={setDueDate} placeholder="Pick due" showShortcuts />
+              </div>
+            </div>
+
+            <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+              <input type="checkbox" checked={allowAssigneeEditSubtasks} onChange={(e) => setAllowAssigneeEditSubtasks(e.target.checked)} className="accent-teal-600" /> Allow assignee to edit sub‑tasks
+            </label>
+
+            <RecurrenceField
+              recurrenceType={recurrenceType}
+              setRecurrenceType={setRecurrenceType}
+              recurrenceDays={recurrenceDays}
+              setRecurrenceDays={setRecurrenceDays}
+              recurrenceEndDate={recurrenceEndDate}
+              setRecurrenceEndDate={setRecurrenceEndDate}
+              brandColor={brandColor}
+            />
+
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaLink className="inline mr-1" />Links</label>
+              <div className="space-y-2">
+                {links.map((link, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={link}
+                      onChange={(e) => updateLink(i, e.target.value)}
+                      placeholder="https://..."
+                      className="flex-1 px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none"
+                    />
                     <button
                       type="button"
-                      role="switch"
-                      aria-checked={recurrenceType !== 'none'}
-                      onClick={() => {
-                        if (recurrenceType === 'none') {
-                          setRecurrenceType('daily');
-                        } else {
-                          setRecurrenceType('none');
-                          setRecurrenceDays([]);
-                          setRecurrenceEndDate('');
-                        }
-                      }}
-                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                        recurrenceType !== 'none' ? '' : 'bg-gray-300 dark:bg-gray-700'
-                      }`}
-                      style={recurrenceType !== 'none' ? { backgroundColor: brandColor } : undefined}
+                      onClick={() => removeLink(i)}
+                      className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition"
+                      title="Remove link"
                     >
-                      <span
-                        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform ${
-                          recurrenceType !== 'none' ? 'translate-x-[1.15rem]' : 'translate-x-0.5'
-                        }`}
-                      />
+                      <FaTrashAlt className="text-xs" />
                     </button>
                   </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={addLink}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] rounded-lg text-xs font-medium hover:bg-teal-100 dark:hover:bg-teal-900/30 transition"
+                >
+                  <FaPlus className="text-[10px]" /> Add link
+                </button>
+              </div>
+            </div>
 
-                  {recurrenceType !== 'none' && (
-                    <>
-                      <div className="flex gap-2">
-                        {['daily', 'weekly'].map((opt) => {
-                          const active = recurrenceType === opt;
-                          return (
-                            <button
-                              key={opt}
-                              type="button"
-                              onClick={() => {
-                                setRecurrenceType(opt);
-                                if (opt !== 'weekly') setRecurrenceDays([]);
-                              }}
-                              className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
-                                active
-                                  ? 'text-white border-transparent shadow-sm'
-                                  : 'bg-white dark:bg-[#14141a] text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700/60 hover:border-gray-400 dark:hover:border-gray-600'
-                              }`}
-                              style={active ? { backgroundColor: brandColor } : undefined}
-                            >
-                              {opt === 'daily' ? 'Daily' : 'Weekly'}
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      {recurrenceType === 'weekly' && (
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-500 mb-1.5">
-                            On these days
-                          </p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {weekDays.map((d, i) => {
-                              const on = recurrenceDays.includes(i);
-                              return (
-                                <button
-                                  key={i}
-                                  type="button"
-                                  onClick={() =>
-                                    setRecurrenceDays(
-                                      on ? recurrenceDays.filter((x) => x !== i) : [...recurrenceDays, i].sort()
-                                    )
-                                  }
-                                  className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition ${
-                                    on
-                                      ? 'text-white border-transparent shadow-sm'
-                                      : 'bg-white dark:bg-[#14141a] text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700/60 hover:border-gray-400 dark:hover:border-gray-600'
-                                  }`}
-                                  style={on ? { backgroundColor: brandColor } : undefined}
-                                >
-                                  {d}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                          Ends on <span className="text-gray-400 dark:text-gray-500 font-normal">(optional)</span>
-                        </label>
-                        <CustomDateTimePicker
-                          value={recurrenceEndDate}
-                          onChange={setRecurrenceEndDate}
-                          placeholder="Pick end date"
-                        />
-                      </div>
-                    </>
-                  )}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaPaperclip className="inline mr-1" />Attachments</label>
+              <button type="button" onClick={() => pickMedia({ multiple: true })} className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-300"><FaCamera className="text-xs" /> Choose Files</button>
+              {files.length > 0 && files.map((f, i) => (
+                <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5 mt-1">
+                  <span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span>
+                  <button type="button" onClick={() => setFiles((p) => p.filter((_, idx) => idx !== i))} className="text-red-500"><FaTrashAlt className="text-xs" /></button>
                 </div>
+              ))}
+              {(task.attachments || []).length > 0 && (
+                <p className="text-[10px] text-gray-400 mt-1">
+                  {task.attachments.length} existing attachment(s) — selecting new files replaces them.
+                </p>
+              )}
+            </div>
 
-                {/* ─── Notes ─── */}
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                    <FaStickyNote className="inline mr-1 text-teal-600 dark:text-[#0d9488]" />
-                    Notes
-                  </label>
-                  <div className="space-y-2">
-                    {linkedNotes.map((n) => (
-                      <div
-                        key={`${n.source}:${n.noteId}`}
-                        className="flex items-center gap-2 bg-teal-50/60 dark:bg-[#0d9488]/10 border border-teal-200/60 dark:border-[#0d9488]/30 rounded-xl px-3 py-2"
-                      >
-                        {n.source === 'workspace' ? (
-                          <FaUsers className="text-teal-600 dark:text-[#0d9488] text-xs shrink-0" />
-                        ) : (
-                          <FaUser className="text-teal-600 dark:text-[#0d9488] text-xs shrink-0" />
-                        )}
-                        <span className="text-sm truncate flex-1 text-gray-800 dark:text-gray-200">
-                          {n.title || 'Untitled'}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => removeLinkedNote(n.noteId, n.source)}
-                          className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded p-1 transition"
-                          title="Remove"
-                        >
-                          <FaTimes className="text-[10px]" />
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => setNotesPickerOpen(true)}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] rounded-lg text-xs font-medium hover:bg-teal-100 dark:hover:bg-teal-900/30 transition"
-                    >
-                      <FaPlus className="text-[10px]" /> Add from notes
-                    </button>
-                  </div>
-                </div>
-
-                {/* Links */}
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaLink className="inline mr-1" />Links</label>
-                  <div className="space-y-2">
-                    {links.map((link, i) => (
-                      <div key={i} className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={link}
-                          onChange={(e) => updateLink(i, e.target.value)}
-                          placeholder="https://..."
-                          className="flex-1 px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => removeLink(i)}
-                          className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition"
-                          title="Remove link"
-                        >
-                          <FaTrashAlt className="text-xs" />
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={addLink}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] rounded-lg text-xs font-medium hover:bg-teal-100 dark:hover:bg-teal-900/30 transition"
-                    >
-                      <FaPlus className="text-[10px]" /> Add link
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400">Cancel</button>
               <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium" style={{ backgroundColor: brandColor }}>{loading ? 'Saving...' : 'Save changes'}</button>
@@ -2721,7 +2782,7 @@ const AISummaryModal = ({ isOpen, onClose, projectId, brandColor }) => {
       setBusy(true);
       summarizeProject({ projectId }).unwrap().then((r) => setResult(r.summary)).catch((e) => toast.error(e?.data?.message || 'Summarize failed')).finally(() => setBusy(false));
     }
-  }, [isOpen]); // eslint-disable-line
+  }, [isOpen]);
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-[75] flex items-end md:items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
@@ -2763,7 +2824,7 @@ const AIDocsModal = ({ isOpen, onClose, projectId, brandColor }) => {
       setBusy(true);
       generate({ projectId }).unwrap().then((r) => setDoc(r.doc)).catch((e) => toast.error(e?.data?.message || 'Doc generation failed')).finally(() => setBusy(false));
     }
-  }, [isOpen]); // eslint-disable-line
+  }, [isOpen]);
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-[75] flex items-end md:items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
@@ -2905,11 +2966,14 @@ const YourWorkspaceProjectId = () => {
   const { workspaceId, projectId } = useParams();
   const navigate = useNavigate();
 
-  const { data: wData, isLoading: wLoad, error: wErr } = useGetWorkspaceQuery(workspaceId);
-  const { data: pData, isLoading: pLoad, error: pErr, refetch: refetchProject } = useGetProjectByIdQuery(projectId);
-  const { data: foldersData, isLoading: foldersLoading, refetch: refetchFolders } = useGetProjectFoldersQuery(projectId);
+  const { data: wData, isLoading: wLoad, error: wErr } = useGetWorkspaceQuery(workspaceId, { skip: !workspaceId });
+  const { data: pData, isLoading: pLoad, error: pErr, refetch: refetchProject } = useGetProjectByIdQuery(projectId, { skip: !projectId });
+  const { data: foldersData, isLoading: foldersLoading, refetch: refetchFolders } = useGetProjectFoldersQuery(projectId, { skip: !projectId });
   const [selectedFolderId, setSelectedFolderId] = useState(null);
-  const { data: tData, isLoading: tLoad, error: tErr, refetch: refetchTasks } = useGetProjectTasksQuery({ projectId, folderId: selectedFolderId || undefined });
+  const { data: tData, isLoading: tLoad, error: tErr, refetch: refetchTasks } = useGetProjectTasksQuery(
+    { projectId, folderId: selectedFolderId || undefined },
+    { skip: !projectId }
+  );
 
   const [archiveProject] = useArchiveProjectMutation();
   const [unarchiveProject] = useUnarchiveProjectMutation();
@@ -2933,7 +2997,7 @@ const YourWorkspaceProjectId = () => {
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [showCreateTask, setShowCreateTask] = useState(false);
-  const [editingTask, setEditingTask] = useState(null); // 👈 new — drives EditTaskModal
+  const [editingTask, setEditingTask] = useState(null);
   const [showFolderForm, setShowFolderForm] = useState(false);
   const [editingFolder, setEditingFolder] = useState(null);
   const [showReadOnly, setShowReadOnly] = useState(false);
@@ -3011,7 +3075,7 @@ const YourWorkspaceProjectId = () => {
     else startSelection(taskId);
   };
 
-  const bulkAction = async (fn, successMsg, errMsg) => {
+  const bulkAction = async (fn, successMsg) => {
     const ids = Array.from(selectedIds);
     if (!ids.length) return;
     setBulkLoading(true);
@@ -3028,16 +3092,15 @@ const YourWorkspaceProjectId = () => {
 
   const bulkComplete = () => bulkAction(
     (id) => updateTask({ taskId: id, data: { status: 'completed' } }).unwrap(),
-    'Completed', 'Failed'
+    'Completed'
   );
   const bulkDelete = () => {
     if (!window.confirm(`Delete ${selectedIds.size} task(s)?`)) return;
-    bulkAction((id) => deleteTask(id).unwrap(), 'Deleted', 'Failed');
+    bulkAction((id) => deleteTask(id).unwrap(), 'Deleted');
   };
 
   const handleOpenTaskModal = (task) => setActionModal({ isOpen: true, task });
 
-  // ─── 👇 Edit now opens the modal instead of navigating to the task page ──
   const handleEditFromModal = (task) => {
     setEditingTask(task);
   };
@@ -3058,6 +3121,7 @@ const YourWorkspaceProjectId = () => {
           })()
         : null,
     };
+    delete tempPatch.attachments;
 
     const prevTasks = localTasks;
     setLocalTasks((prev) => prev.map((t) => (t._id === taskId ? { ...t, ...tempPatch } : t)));
@@ -3067,8 +3131,6 @@ const YourWorkspaceProjectId = () => {
     fd.append('description', data.description || '');
     fd.append('priority', data.priority);
     if (data.status) fd.append('status', data.status);
-    fd.append('estimatedHours', data.estimatedHours || '');
-    fd.append('bufferTime', data.bufferTime || 0);
     fd.append('allowAssigneeEditSubtasks', data.allowAssigneeEditSubtasks ? 'true' : 'false');
     fd.append('startDate', data.startDate || '');
     fd.append('dueDate', data.dueDate || '');
@@ -3085,6 +3147,9 @@ const YourWorkspaceProjectId = () => {
       fd.append('linkedNotes', JSON.stringify(data.linkedNotes));
     } else {
       fd.append('linkedNotes', JSON.stringify([]));
+    }
+    if (data.attachments && data.attachments.length > 0) {
+      data.attachments.forEach((f) => fd.append('attachments', f));
     }
 
     try {
@@ -3148,8 +3213,6 @@ const YourWorkspaceProjectId = () => {
     fd.append('description', formData.description);
     if (assigneeIds.length > 0) { fd.append('assigneeIds', JSON.stringify(assigneeIds)); fd.append('assigneeId', assigneeIds[0]); }
     fd.append('priority', formData.priority);
-    fd.append('estimatedHours', formData.estimatedHours || '');
-    fd.append('bufferTime', formData.bufferTime);
     fd.append('allowAssigneeEditSubtasks', formData.allowAssigneeEditSubtasks);
     if (formData.startDate) fd.append('startDate', formData.startDate);
     if (formData.dueDate) fd.append('dueDate', formData.dueDate);
@@ -3222,8 +3285,6 @@ const YourWorkspaceProjectId = () => {
         fd.append('title', task.title);
         fd.append('description', task.description || '');
         fd.append('priority', task.priority || 'medium');
-        fd.append('estimatedHours', task.estimatedHours || '');
-        fd.append('bufferTime', task.bufferTime || 0);
         fd.append('allowAssigneeEditSubtasks', task.allowAssigneeEditSubtasks ? 'true' : 'false');
         if (task.startDate) fd.append('startDate', task.startDate);
         if (task.dueDate) fd.append('dueDate', task.dueDate);
@@ -3234,7 +3295,6 @@ const YourWorkspaceProjectId = () => {
         const assigneeIds = (task.assignees || []).map((a) => a._id || a).filter(Boolean);
         fd.append('assigneeIds', JSON.stringify(assigneeIds));
         if (assigneeIds[0]) fd.append('assigneeId', assigneeIds[0]);
-        // carry over linked notes as references
         if (task.linkedNotes && task.linkedNotes.length > 0) {
           fd.append('linkedNotes', JSON.stringify(
             task.linkedNotes.map((ln) => ({ noteId: ln.note?._id || ln.note, source: ln.source }))
@@ -3284,9 +3344,7 @@ const YourWorkspaceProjectId = () => {
       return {
         kind: 'denied',
         title: 'Access Denied',
-        message:
-          serverMessage ||
-          'Only the workspace owner, admins, project managers, or project members can open this project.',
+        message: serverMessage || 'Only the workspace owner, admins, project managers, or project members can open this project.',
         icon: FaUserLock,
         tone: 'error',
       };
@@ -3318,14 +3376,21 @@ const YourWorkspaceProjectId = () => {
           message={errorInfo.message}
           icon={errorInfo.icon}
           tone={errorInfo.tone}
-          onRetry={
-            errorInfo.kind !== 'denied'
-              ? () => {
-                  refetchProject();
-                }
-              : undefined
-          }
+          onRetry={errorInfo.kind !== 'denied' ? () => { refetchProject(); } : undefined}
           onBack={() => navigate(`/workspace/${workspaceId}/projects`, { replace: true })}
+        />
+      </>
+    );
+  }
+
+  if (!projectId || !workspaceId) {
+    return (
+      <>
+        <GlobalStyles />
+        <ErrorScreen
+          title="Invalid project link"
+          message="This URL is missing a workspace or project id."
+          onBack={() => navigate(-1)}
         />
       </>
     );
@@ -3388,20 +3453,32 @@ const YourWorkspaceProjectId = () => {
 
           {!selectionMode && (
             <div className="border-b border-gray-200/60 dark:border-gray-800/30 px-3 py-2 bg-gray-50 dark:bg-[#14141a]/60 shrink-0">
-              <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center mb-1">
                 <span className="text-[10px] md:text-xs font-medium text-gray-500 uppercase">Folders</span>
-                {canManage && !isTrash && !isArchivedForMe && (
-                  <button onClick={() => { setEditingFolder(null); setShowFolderForm(true); }} className="text-[10px] md:text-xs text-teal-600 dark:text-[#0d9488] font-medium flex items-center gap-1"><FaPlus className="text-[8px]" /> New</button>
-                )}
               </div>
               <div className="flex flex-nowrap overflow-x-auto gap-1.5 pb-1 scrollbar-hide">
-                <button onClick={() => setSelectedFolderId(null)} className={`text-[10px] md:text-xs px-2 py-1 rounded-full border whitespace-nowrap ${!selectedFolderId ? 'bg-teal-600 dark:bg-[#0d9488] text-white border-teal-600' : 'bg-gray-100 dark:bg-[#1e1e26] border-gray-300 dark:border-gray-700/60 text-gray-700 dark:text-gray-300'}`}>All</button>
+                {/* New folder as tab-rectangle, BEFORE All */}
+                {canManage && !isTrash && !isArchivedForMe && (
+                  <button
+                    onClick={() => { setEditingFolder(null); setShowFolderForm(true); }}
+                    className="text-[10px] md:text-xs px-2.5 py-1 rounded-md border border-dashed border-teal-500/70 text-teal-700 dark:text-[#0d9488] hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 flex items-center gap-1 whitespace-nowrap shrink-0 transition font-medium"
+                    title="Create new folder"
+                  >
+                    <FaPlus className="text-[8px]" /> Folder
+                  </button>
+                )}
+                <button
+                  onClick={() => setSelectedFolderId(null)}
+                  className={`text-[10px] md:text-xs px-2.5 py-1 rounded-md border whitespace-nowrap shrink-0 ${!selectedFolderId ? 'bg-teal-600 dark:bg-[#0d9488] text-white border-teal-600' : 'bg-gray-100 dark:bg-[#1e1e26] border-gray-300 dark:border-gray-700/60 text-gray-700 dark:text-gray-300'}`}
+                >
+                  All
+                </button>
                 {folders.map((f) => (
                   <div key={f._id} className="relative flex items-center shrink-0">
                     <button
                       onClick={() => setSelectedFolderId(selectedFolderId === f._id ? null : f._id)}
                       onTouchStart={() => handleTouchStart(f._id)} onTouchEnd={clearTouch} onTouchMove={clearTouch}
-                      className={`text-[10px] md:text-xs px-2 py-1 rounded-full border flex items-center gap-1 whitespace-nowrap ${selectedFolderId === f._id ? 'bg-teal-600 dark:bg-[#0d9488] text-white border-teal-600' : 'bg-gray-100 dark:bg-[#1e1e26] border-gray-300 dark:border-gray-700/60 text-gray-700 dark:text-gray-300'}`}
+                      className={`text-[10px] md:text-xs px-2.5 py-1 rounded-md border flex items-center gap-1 whitespace-nowrap ${selectedFolderId === f._id ? 'bg-teal-600 dark:bg-[#0d9488] text-white border-teal-600' : 'bg-gray-100 dark:bg-[#1e1e26] border-gray-300 dark:border-gray-700/60 text-gray-700 dark:text-gray-300'}`}
                     >
                       <FaFolder className="text-[8px]" /><span className="truncate max-w-[60px] md:max-w-[100px]">{f.name}</span>
                     </button>
@@ -3503,9 +3580,19 @@ const YourWorkspaceProjectId = () => {
         <YourWorkspaceBottombar workspace={workspace} />
 
         <SearchOverlay isOpen={searchOpen} onClose={() => setSearchOpen(false)} tasks={tasks} brandColor={brandColor} onSelect={(id) => navigate(`/workspace/${workspaceId}/project/${projectId}/task/${id}`)} />
-        <CreateTaskModal isOpen={showCreateTask} onClose={() => setShowCreateTask(false)} projectId={projectId} workspaceId={workspaceId} brandColor={brandColor} assignableMembers={assignableMembers} folders={folders} onSubmit={handleCreateTask} />
 
-        {/* 👇 New — inline Edit Task modal */}
+        <CreateTaskModal
+          isOpen={showCreateTask}
+          onClose={() => setShowCreateTask(false)}
+          projectId={projectId}
+          workspaceId={workspaceId}
+          brandColor={brandColor}
+          assignableMembers={assignableMembers}
+          folders={folders}
+          onSubmit={handleCreateTask}
+          onFolderCreated={refetchFolders}
+        />
+
         <EditTaskModal
           isOpen={!!editingTask}
           onClose={() => setEditingTask(null)}
@@ -3516,6 +3603,7 @@ const YourWorkspaceProjectId = () => {
           assignableMembers={assignableMembers}
           folders={folders}
           onSubmit={handleEditTaskSubmit}
+          onFolderCreated={refetchFolders}
         />
 
         <FolderFormModal isOpen={showFolderForm} onClose={() => { setShowFolderForm(false); setEditingFolder(null); }} onSuccess={refetchFolders} folder={editingFolder} brandColor={brandColor} projectId={projectId} />
@@ -3620,7 +3708,7 @@ const YourWorkspaceProjectId = () => {
         {isTouch && !selectionMode && tasks.length > 0 && !tErr && (
           <div className="fixed bottom-24 md:bottom-6 left-1/2 -translate-x-1/2 z-10 bg-black/70 dark:bg-[#14141a]/90 backdrop-blur-md text-white text-[11px] px-3 py-1.5 rounded-full flex items-center gap-2 pointer-events-none shadow-lg">
             <FaHandPointer className="text-[10px]" />
-            <span><strong>Double-tap</strong> for options · <strong>Long-press</strong> to select</span>
+            <span><strong>Tap ↓</strong> for options · <strong>Long-press</strong> to select</span>
           </div>
         )}
       </div>
