@@ -1,6 +1,14 @@
 // models/projectModel.js
 import mongoose from 'mongoose';
 
+const HEX_RE = /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/;
+
+const NAMED_COLORS = [
+  'red', 'blue', 'green', 'yellow', 'orange', 'purple',
+  'pink', 'teal', 'indigo', 'gray', 'grey', 'slate',
+  'emerald', 'rose', 'amber', 'cyan', 'violet',
+];
+
 const projectSchema = new mongoose.Schema(
   {
     workspace: {
@@ -22,6 +30,22 @@ const projectSchema = new mongoose.Schema(
     detailedDescription: {
       type: String,
       default: '',
+    },
+    // ── NEW: Project color ────────────────────────────────────────
+    color: {
+      type: String,
+      default: '#6366F1', // indigo fallback
+      trim: true,
+      lowercase: true,
+      validate: {
+        validator: (v) => {
+          if (!v) return true; // allow empty → default applies
+          const value = String(v).trim().toLowerCase();
+          return HEX_RE.test(value) || NAMED_COLORS.includes(value);
+        },
+        message: (props) =>
+          `"${props.value}" is not a valid color. Use a hex code like #3B82F6 or one of: ${NAMED_COLORS.join(', ')}.`,
+      },
     },
     links: [
       {
@@ -153,7 +177,7 @@ const projectSchema = new mongoose.Schema(
       ref: 'User',
       default: null,
     },
-    // ── NEW: Per‑user archive ─────────────────────────────────────
+    // ── Per‑user archive ──────────────────────────────────────────
     archivedBy: [
       {
         user: {
@@ -166,7 +190,7 @@ const projectSchema = new mongoose.Schema(
         },
       },
     ],
-    // ── NEW: Global soft‑delete (trash) ───────────────────────────
+    // ── Global soft‑delete (trash) ────────────────────────────────
     isTrash: {
       type: Boolean,
       default: false,

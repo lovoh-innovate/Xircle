@@ -16,10 +16,25 @@ import {
 // HELPERS
 // ─────────────────────────────────────────────────────────────────────
 
-const isWorkspaceOwner = (workspace, userId) =>
-  workspace.owner?._id
-    ? workspace.owner._id.toString() === userId
-    : workspace.owner?.toString() === userId;
+const isWorkspaceOwner = (workspace, userId) => {
+  if (!workspace?.owner || !userId) return false;
+  const ownerId = workspace.owner?._id
+    ? workspace.owner._id.toString()
+    : workspace.owner.toString();
+  return ownerId === userId;
+};
+
+/**
+ * Workspace admin — gets VIEW access to any task in the workspace, but
+ * NOT manage rights (those stay with owner + project managers only).
+ */
+const isWorkspaceAdmin = (workspace, userId) => {
+  if (!workspace?.members || !userId) return false;
+  return workspace.members.some((m) => {
+    const uid = m.user?._id ? m.user._id.toString() : m.user?.toString();
+    return uid === userId && m.role === 'Admin' && m.status === 'active';
+  });
+};
 
 const isProjectManager = (project, userId) =>
   project.projectManagers.some((pm) => {
@@ -40,7 +55,11 @@ const isTaskAssignee = (task, userId) =>
     return id === userId;
   });
 
-// Manager-level rights over this task: workspace owner, project creator, or PM
+/**
+ * Manager-level rights over this task.
+ *   → workspace OWNER, project CREATOR, or PROJECT MANAGER.
+ *   → Workspace ADMINS are explicitly NOT included here.
+ */
 const canManageTasks = (workspace, project, userId) =>
   isWorkspaceOwner(workspace, userId) ||
   (project.createdBy && project.createdBy.toString() === userId) ||
@@ -61,8 +80,17 @@ const getVisibleFolderIdsForUser = async (projectId, userId) => {
   return Array.from(new Set([...assignedFolders, ...readOnlyFolders]));
 };
 
+/**
+ * Read access — broader than manage access.
+ *   - Managers (owner / creator / PM): yes
+ *   - Workspace admins: yes (view-only)
+ *   - Task assignees: yes
+ *   - Task creator: yes
+ *   - Project team members: yes
+ */
 const canViewTask = (workspace, project, userId, task) => {
   if (canManageTasks(workspace, project, userId)) return true;
+  if (isWorkspaceAdmin(workspace, userId)) return true;
   if (isTaskAssignee(task, userId)) return true;
   if (task.createdBy?.toString() === userId) return true;
   if (isProjectMember(project, userId)) return true;
@@ -1561,9 +1589,7 @@ export const getProjectTasks = async (req, res) => {
 
     const workspace = await Workspace.findById(project.workspace);
     const isOwner = isWorkspaceOwner(workspace, userId);
-    const isAdmin = workspace.members.some(
-      (m) => m.user.toString() === userId && m.role === 'Admin' && m.status === 'active'
-    );
+    const isAdmin = isWorkspaceAdmin(workspace, userId);
     const isPM = isProjectManager(project, userId);
     const isMember = isProjectMember(project, userId);
 
@@ -1585,6 +1611,7 @@ export const getProjectTasks = async (req, res) => {
     if (taskType) query.taskType = taskType;
     if (folderId) query.folder = folderId;
 
+    // Managers + admins see everything. Plain members only see their own.
     if (isOwner || isAdmin || isPM) {
       if (assigneeId) query.assignees = assigneeId;
     } else {
@@ -2033,9 +2060,7 @@ export const getProjectFolders = async (req, res) => {
 
     const workspace = await Workspace.findById(project.workspace);
     const isOwner = isWorkspaceOwner(workspace, userId);
-    const isAdmin = workspace.members.some(
-      (m) => m.user.toString() === userId && m.role === 'Admin' && m.status === 'active'
-    );
+    const isAdmin = isWorkspaceAdmin(workspace, userId);
     const isPM = isProjectManager(project, userId);
 
     let folders;

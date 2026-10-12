@@ -60,6 +60,31 @@ const parseArrayField = (value) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
+// COLOR HELPERS
+// ─────────────────────────────────────────────────────────────────────
+
+const NAMED_COLORS = new Set([
+  'red', 'blue', 'green', 'yellow', 'orange', 'purple',
+  'pink', 'teal', 'indigo', 'gray', 'grey', 'slate',
+  'emerald', 'rose', 'amber', 'cyan', 'violet',
+]);
+
+const HEX_RE = /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/;
+
+const DEFAULT_PROJECT_COLOR = '#6366F1'; // indigo
+
+/**
+ * Normalize a color input. Returns a valid color string or null if invalid.
+ */
+const sanitizeColor = (value, fallback = DEFAULT_PROJECT_COLOR) => {
+  if (value === undefined || value === null || value === '') return fallback;
+  const v = String(value).trim().toLowerCase();
+  if (HEX_RE.test(v)) return v;
+  if (NAMED_COLORS.has(v)) return v;
+  return null;
+};
+
+// ─────────────────────────────────────────────────────────────────────
 // NOTIFICATION HELPER
 // ─────────────────────────────────────────────────────────────────────
 
@@ -83,11 +108,6 @@ async function notifyUsers(userIds, { title, body, data = {}, emailEventType = n
 // ─────────────────────────────────────────────────────────────────────
 // CREATE PROJECT  (workspace owner or admin)
 // POST /api/projects?workspaceId=xxx
-// ─────────────────────────────────────────────────────────────────────
-
-// ─────────────────────────────────────────────────────────────────────
-// CREATE PROJECT  (workspace owner or admin)
-// POST /api/projects?workspaceId=xxx
 // Creator is automatically added as a Project Manager.
 // ─────────────────────────────────────────────────────────────────────
 
@@ -105,6 +125,7 @@ const createProject = async (req, res) => {
       dailyReportTime = '17:00',
       startDate = new Date(),
       endDate = null,
+      color = DEFAULT_PROJECT_COLOR,
     } = req.body;
 
     const links = parseArrayField(req.body.links);
@@ -117,6 +138,14 @@ const createProject = async (req, res) => {
     }
     if (!name?.trim()) {
       return res.status(400).json({ success: false, message: 'Project name is required.' });
+    }
+
+    const safeColor = sanitizeColor(color);
+    if (safeColor === null) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid color. Use a hex code like #3B82F6 or a supported named color.',
+      });
     }
 
     const workspace = await Workspace.findById(workspaceId);
@@ -156,8 +185,6 @@ const createProject = async (req, res) => {
     }
 
     // ── Creator is ALWAYS a Project Manager ───────────────────
-    // Added before team-member validation so the dupe check below
-    // automatically keeps the creator out of `teamMembers`.
     if (!validPMs.includes(userId)) {
       validPMs.push(userId);
     }
@@ -200,6 +227,7 @@ const createProject = async (req, res) => {
       dailyReportTime,
       projectType,
       tags,
+      color: safeColor,
       archivedBy: [],
       isTrash: false,
     });
@@ -283,7 +311,6 @@ const getWorkspaceProjects = async (req, res) => {
     } else if (trash !== 'true') {
       query.isTrash = { $ne: true };
     } else {
-      // non-owner/admin asking for trash – return empty array
       return res.status(200).json({ success: true, projects: [], count: 0 });
     }
 
@@ -501,6 +528,7 @@ const updateProject = async (req, res) => {
       status,
       dailyReportTime,
       projectType,
+      color,
     } = req.body;
 
     if (req.body.status === 'completed') {
@@ -539,6 +567,17 @@ const updateProject = async (req, res) => {
     if (status !== undefined) project.status = status;
     if (dailyReportTime !== undefined) project.dailyReportTime = dailyReportTime;
     if (projectType !== undefined) project.projectType = projectType;
+
+    if (color !== undefined) {
+      const safeColor = sanitizeColor(color, project.color);
+      if (safeColor === null) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid color. Use a hex code like #3B82F6 or a supported named color.',
+        });
+      }
+      project.color = safeColor;
+    }
 
     await project.save();
 
@@ -902,8 +941,6 @@ const removeTeamMember = async (req, res) => {
     await project.save();
 
     // ── Notify the removed member ─────────────────────────────
-    // No projectId here on purpose — they've been removed and may lose
-    // visibility into the project, so we route to the workspace instead.
     notifyUsers(memberId, {
       title: `Removed from project "${project.name}"`,
       body: 'You have been removed from the project.',
@@ -1191,8 +1228,6 @@ const deleteProject = async (req, res) => {
       ...project.projectManagers.map(pm => pm.toString()),
       ...project.teamMembers.filter(tm => tm.status === 'active').map(tm => tm.user.toString()),
     ];
-    // No projectId — it's in trash, not a live route target. Land on the
-    // workspace's projects list instead.
     notifyUsers(recipients, {
       title: `Project "${project.name}" moved to trash`,
       body: 'The project has been moved to trash and will be permanently deleted after 30 days.',

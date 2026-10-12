@@ -31,9 +31,63 @@ import {
   FaChevronDown, FaChartPie, FaArchive, FaUndo, FaTrashRestore,
   FaMagic, FaPaperPlane, FaExclamationTriangle, FaCheck, FaUser,
   FaHeartbeat, FaLightbulb, FaFileAlt, FaDownload, FaExclamationCircle,
-  FaAngleDown,
+  FaAngleDown, FaPalette,
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
+
+// ─── Project color palette ─────────────────────────────────────────────
+const PROJECT_COLORS = [
+  { name: 'Teal',    value: '#0d9488' },
+  { name: 'Emerald', value: '#10b981' },
+  { name: 'Green',   value: '#22c55e' },
+  { name: 'Yellow',  value: '#eab308' },
+  { name: 'Amber',   value: '#f59e0b' },
+  { name: 'Orange',  value: '#f97316' },
+  { name: 'Red',     value: '#ef4444' },
+  { name: 'Rose',    value: '#f43f5e' },
+  { name: 'Pink',    value: '#ec4899' },
+  { name: 'Purple',  value: '#a855f7' },
+  { name: 'Violet',  value: '#8b5cf6' },
+  { name: 'Indigo',  value: '#6366f1' },
+  { name: 'Blue',    value: '#3b82f6' },
+  { name: 'Sky',     value: '#0ea5e9' },
+  { name: 'Cyan',    value: '#06b6d4' },
+  { name: 'Slate',   value: '#64748b' },
+];
+
+const DEFAULT_PROJECT_COLOR = PROJECT_COLORS[0].value;
+
+// Reusable color swatch picker
+const ColorPicker = ({ value, onChange, disabled = false }) => (
+  <div className="flex flex-wrap gap-2">
+    {PROJECT_COLORS.map((c) => {
+      const selected = (value || '').toLowerCase() === c.value.toLowerCase();
+      return (
+        <button
+          key={c.value}
+          type="button"
+          disabled={disabled}
+          onClick={() => onChange(c.value)}
+          title={c.name}
+          aria-label={c.name}
+          className={`relative w-7 h-7 rounded-full transition-all duration-150 hover:scale-110 disabled:opacity-50 disabled:cursor-not-allowed ${
+            selected
+              ? 'ring-2 ring-offset-2 ring-offset-white dark:ring-offset-[#14141a] scale-110'
+              : 'ring-1 ring-black/5 dark:ring-white/5'
+          }`}
+          style={{
+            backgroundColor: c.value,
+            ...(selected ? { boxShadow: `0 0 0 2px ${c.value}` } : {}),
+          }}
+        >
+          {selected && (
+            <FaCheck className="absolute inset-0 m-auto text-white text-[10px] drop-shadow-[0_0_2px_rgba(0,0,0,0.8)]" />
+          )}
+        </button>
+      );
+    })}
+  </div>
+);
 
 // Helper: treat progress >= 100 as completed
 const isProjectCompleted = (p) => p.status === 'completed' || (p.progress || 0) >= 100;
@@ -157,18 +211,21 @@ const SearchProjectsModal = ({ isOpen, onClose, projects, brandColor, workspaceI
         )}
         {query && filtered.length > 0 && (
           <div className="space-y-2">
-            {filtered.map((project) => (
-              <div key={project._id} onClick={() => { onClose(); navigate(`/workspace/${workspaceId}/project/${project._id}`); }}
-                className="flex items-center gap-4 px-4 py-3 bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 hover:border-[#0d9488]/40 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition cursor-pointer group">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${brandColor}20`, color: brandColor }}>
-                  <FaFolder className="text-sm" />
+            {filtered.map((project) => {
+              const cardColor = project.color || brandColor;
+              return (
+                <div key={project._id} onClick={() => { onClose(); navigate(`/workspace/${workspaceId}/project/${project._id}`); }}
+                  className="flex items-center gap-4 px-4 py-3 bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 hover:border-gray-300 dark:hover:border-gray-700 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition cursor-pointer group">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${cardColor}20`, color: cardColor }}>
+                    <FaFolder className="text-sm" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition">{project.name}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{project.description || 'No description'}</p>
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition">{project.name}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{project.description || 'No description'}</p>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -180,9 +237,20 @@ const SearchProjectsModal = ({ isOpen, onClose, projects, brandColor, workspaceI
 const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [color, setColor] = useState(workspace?.color || DEFAULT_PROJECT_COLOR);
   const [loading, setLoading] = useState(false);
   const [createProject] = useCreateProjectMutation();
   const brandColor = workspace?.color || '#0d9488';
+
+  // Reset fields when the modal re-opens
+  useEffect(() => {
+    if (isOpen) {
+      setName('');
+      setDescription('');
+      setColor(workspace?.color || DEFAULT_PROJECT_COLOR);
+    }
+  }, [isOpen, workspace?.color]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!name.trim()) { toast.error('Project name is required'); return; }
@@ -192,6 +260,7 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
       fd.append('workspaceId', workspace._id);
       fd.append('name', name.trim());
       fd.append('description', description.trim());
+      fd.append('color', color);
       await createProject({ workspaceId: workspace._id, data: fd }).unwrap();
       toast.success('Project created!');
       onCreated && onCreated();
@@ -202,9 +271,14 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200"><FaPlus className="inline mr-2 text-[#0d9488]" /> New Project</h2>
+          <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">
+            <span className="inline-flex items-center justify-center w-6 h-6 rounded-lg mr-2 align-middle" style={{ backgroundColor: `${color}25`, color }}>
+              <FaPlus className="text-xs" />
+            </span>
+            New Project
+          </h2>
           <button onClick={onClose} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"><FaTimes /></button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -218,9 +292,22 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3}
               className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
           </div>
+          <div>
+            <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-400 mb-2">
+              <FaPalette className="text-xs" /> Color
+              <span
+                className="ml-auto inline-flex items-center gap-1.5 text-xs font-normal text-gray-500 dark:text-gray-500"
+                aria-hidden="true"
+              >
+                <span className="w-3 h-3 rounded-full ring-1 ring-black/10 dark:ring-white/10" style={{ backgroundColor: color }} />
+                {PROJECT_COLORS.find((c) => c.value.toLowerCase() === color.toLowerCase())?.name || 'Custom'}
+              </span>
+            </label>
+            <ColorPicker value={color} onChange={setColor} disabled={loading} />
+          </div>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
-            <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80" style={{ backgroundColor: brandColor }}>{loading ? 'Creating...' : 'Create Project'}</button>
+            <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-90 disabled:opacity-50" style={{ backgroundColor: color }}>{loading ? 'Creating...' : 'Create Project'}</button>
           </div>
         </form>
       </div>
@@ -236,6 +323,7 @@ const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor,
   const [priority, setPriority] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [color, setColor] = useState(DEFAULT_PROJECT_COLOR);
   const [loading, setLoading] = useState(false);
   const [updateProject] = useUpdateProjectMutation();
   const { data: projectData, isLoading: projectLoading } = useGetProjectByIdQuery(projectId, { skip: !isOpen || !projectId });
@@ -249,6 +337,7 @@ const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor,
       setPriority(p.priority || 'medium');
       setStartDate(p.startDate ? new Date(p.startDate).toISOString().slice(0, 16) : '');
       setEndDate(p.endDate ? new Date(p.endDate).toISOString().slice(0, 16) : '');
+      setColor(p.color || DEFAULT_PROJECT_COLOR);
     }
   }, [projectData]);
 
@@ -262,6 +351,7 @@ const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor,
       fd.append('description', description.trim());
       fd.append('status', status);
       fd.append('priority', priority);
+      fd.append('color', color);
       if (startDate) fd.append('startDate', startDate);
       if (endDate) fd.append('endDate', endDate);
       await updateProject({ projectId, data: fd }).unwrap();
@@ -276,7 +366,12 @@ const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor,
       <div className={`bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl md:rounded-2xl w-full md:max-w-md max-h-[90vh] overflow-y-auto transform transition-transform duration-300 ${isMobile ? 'mt-auto' : 'mx-auto'}`} onClick={(e) => e.stopPropagation()}>
         <div className="p-5">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200"><FaEdit className="inline mr-2 text-[#0d9488]" /> Edit Project</h2>
+            <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">
+              <span className="inline-flex items-center justify-center w-6 h-6 rounded-lg mr-2 align-middle" style={{ backgroundColor: `${color}25`, color }}>
+                <FaEdit className="text-xs" />
+              </span>
+              Edit Project
+            </h2>
             <button onClick={onClose} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"><FaTimes /></button>
           </div>
           {projectLoading ? (
@@ -290,6 +385,16 @@ const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor,
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Description</label>
                 <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
+              </div>
+              <div>
+                <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-400 mb-2">
+                  <FaPalette className="text-xs" /> Color
+                  <span className="ml-auto inline-flex items-center gap-1.5 text-xs font-normal text-gray-500 dark:text-gray-500">
+                    <span className="w-3 h-3 rounded-full ring-1 ring-black/10 dark:ring-white/10" style={{ backgroundColor: color }} />
+                    {PROJECT_COLORS.find((c) => c.value.toLowerCase() === (color || '').toLowerCase())?.name || 'Custom'}
+                  </span>
+                </label>
+                <ColorPicker value={color} onChange={setColor} disabled={loading} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Status</label>
@@ -317,7 +422,7 @@ const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor,
               </div>
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
-                <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80" style={{ backgroundColor: brandColor }}>{loading ? 'Updating...' : 'Update Project'}</button>
+                <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-90 disabled:opacity-50" style={{ backgroundColor: color }}>{loading ? 'Updating...' : 'Update Project'}</button>
               </div>
             </form>
           )}
@@ -339,12 +444,16 @@ const ProjectMenuModal = ({
   const isArchivedForMe = project.isArchivedForMe;
   const handleAction = (action) => { onClose(); action(); };
   const isMobile = window.innerWidth < 768;
+  const cardColor = project.color || brandColor;
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-0 md:p-4" onClick={onClose}>
       <div className={`bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl md:rounded-2xl w-full md:max-w-sm max-h-[85vh] overflow-y-auto transform transition-transform duration-300 ${isMobile ? 'mt-auto' : 'mx-auto'}`} onClick={(e) => e.stopPropagation()}>
         <div className="p-5">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 truncate pr-4">{project.name}</h3>
+            <div className="flex items-center gap-2 min-w-0 pr-4">
+              <span className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-black/5 dark:ring-white/10" style={{ backgroundColor: cardColor }} />
+              <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 truncate">{project.name}</h3>
+            </div>
             <button onClick={onClose} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition flex-shrink-0"><FaTimes /></button>
           </div>
 
@@ -414,6 +523,7 @@ const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen }
   const navigate = useNavigate();
   const progress = project.progress || 0;
   const completed = isProjectCompleted(project);
+  const cardColor = project.color || brandColor;
   const statusLabels = { planning: 'Planning', 'in-progress': 'In Progress', completed: 'Completed', archived: 'Archived' };
   const statusColor = {
     planning: 'text-blue-600 dark:text-blue-400',
@@ -444,8 +554,8 @@ const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen }
         {project.coverImage ? (
           <img src={project.coverImage} alt={project.name} className="w-full h-full object-cover" />
         ) : (
-          <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: `${brandColor}15` }}>
-            <FaFolder className="text-2xl md:text-3xl" style={{ color: brandColor }} />
+          <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: `${cardColor}15` }}>
+            <FaFolder className="text-2xl md:text-3xl" style={{ color: cardColor }} />
           </div>
         )}
         <span className={`absolute top-2 right-2 text-[10px] font-medium px-2.5 py-1 rounded-full backdrop-blur-sm border ${statusColor[displayStatus]} bg-white/60 dark:bg-black/30 border-gray-200 dark:border-gray-700/50 pointer-events-none`}>
@@ -457,7 +567,10 @@ const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen }
         </button>
       </div>
       <div className="p-3 md:p-4">
-        <h3 className="text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">{project.name}</h3>
+        <h3 className="text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition truncate flex items-center gap-1.5">
+          <span className="inline-block w-2 h-2 rounded-full shrink-0 ring-1 ring-black/5 dark:ring-white/10" style={{ backgroundColor: cardColor }} />
+          <span className="truncate">{project.name}</span>
+        </h3>
         {project.description && (
           <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-1 md:line-clamp-2 mt-0.5 md:mt-1">{project.description}</p>
         )}
@@ -465,7 +578,7 @@ const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen }
           <div className="flex -space-x-2">
             {(project.teamMembers || []).slice(0, 4).map((member, idx) => (
               <div key={idx} className="w-5 h-5 md:w-6 md:h-6 rounded-full border border-gray-300 dark:border-gray-800 bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-[7px] md:text-[8px] font-bold text-white"
-                style={{ backgroundColor: member?.profile ? 'transparent' : brandColor }}>
+                style={{ backgroundColor: member?.profile ? 'transparent' : cardColor }}>
                 {member?.profile ? <img src={member.profile} alt="" className="w-full h-full rounded-full object-cover" /> : (member?.name?.charAt(0) || '?').toUpperCase()}
               </div>
             ))}
@@ -484,7 +597,7 @@ const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen }
                 <span>Progress</span><span className="font-mono">{progress}%</span>
               </div>
               <div className="w-full h-1 md:h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
-                <div className="h-full rounded-full transition-all duration-1000 ease-out" style={{ width: `${progress}%`, backgroundColor: brandColor, boxShadow: `0 0 12px ${brandColor}88` }} />
+                <div className="h-full rounded-full transition-all duration-1000 ease-out" style={{ width: `${progress}%`, backgroundColor: cardColor, boxShadow: `0 0 12px ${cardColor}88` }} />
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 md:gap-3 mt-2 md:mt-3 text-[9px] md:text-[10px] text-gray-500 dark:text-gray-500 pointer-events-none">
@@ -1729,17 +1842,23 @@ const YourWorkspaceProjects = () => {
                       {activeProjects.length === 0 ? (
                         <p className="text-xs text-gray-500 dark:text-gray-500">No active projects</p>
                       ) : (
-                        activeProjects.map((p) => (
-                          <Link key={p._id} to={`/workspace/${workspaceId}/project/${p._id}`} className="flex items-center justify-between group">
-                            <span className="text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">{p.name}</span>
-                            <div className="flex items-center gap-2">
-                              <div className="w-12 h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
-                                <div className="h-full rounded-full transition-all" style={{ width: `${p.progress || 0}%`, backgroundColor: brandColor }} />
+                        activeProjects.map((p) => {
+                          const pColor = p.color || brandColor;
+                          return (
+                            <Link key={p._id} to={`/workspace/${workspaceId}/project/${p._id}`} className="flex items-center justify-between group">
+                              <span className="flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white transition truncate min-w-0">
+                                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: pColor }} />
+                                <span className="truncate">{p.name}</span>
+                              </span>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <div className="w-12 h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
+                                  <div className="h-full rounded-full transition-all" style={{ width: `${p.progress || 0}%`, backgroundColor: pColor }} />
+                                </div>
+                                <span className="text-xs font-mono text-gray-500 dark:text-gray-500">{p.progress || 0}%</span>
                               </div>
-                              <span className="text-xs font-mono text-gray-500 dark:text-gray-500">{p.progress || 0}%</span>
-                            </div>
-                          </Link>
-                        ))
+                            </Link>
+                          );
+                        })
                       )}
                     </div>
                   </div>
