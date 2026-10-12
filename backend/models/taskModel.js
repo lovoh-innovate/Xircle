@@ -12,6 +12,25 @@ const attachmentSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// ─── Linked notes (workspace + personal) ──────────────────────────
+// A task can reference existing notes without copying their content.
+// `source` tells us which collection to look the note up in.
+const linkedNoteSchema = new mongoose.Schema(
+  {
+    note: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: true,
+    },
+    source: {
+      type: String,
+      enum: ['workspace', 'personal'],
+      required: true,
+    },
+    addedAt: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
+
 const subTaskSchema = new mongoose.Schema(
   {
     title: { type: String, required: true, trim: true },
@@ -167,6 +186,15 @@ const taskSchema = new mongoose.Schema(
     ],
     links: [String],
     attachments: [attachmentSchema],
+
+    // ─── LINKED NOTES ──────────────────────────────────────────────
+    // Pointers to existing workspace or personal notes. The controller
+    // hydrates the `note` id into `{ _id, title }` on the way out.
+    linkedNotes: {
+      type: [linkedNoteSchema],
+      default: [],
+    },
+
     reminderSent: {
       type: Boolean,
       default: false,
@@ -341,6 +369,7 @@ taskSchema.index({ assignees: 1, status: 1 }); // multi-assignee queries
 taskSchema.index({ dueDate: 1 });
 taskSchema.index({ isTrash: 1, trashedAt: 1 });
 taskSchema.index({ project: 1, order: 1 });
+taskSchema.index({ 'linkedNotes.note': 1, 'linkedNotes.source': 1 });
 
 const Task = mongoose.model('Task', taskSchema);
 export default Task;

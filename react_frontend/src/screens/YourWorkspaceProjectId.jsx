@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { motion } from 'framer-motion';
@@ -11,6 +12,7 @@ import {
   FaMagic, FaRobot, FaFileAlt, FaHeartbeat, FaLightbulb, FaDownload,
   FaExclamationCircle, FaCheckCircle, FaSpinner,
   FaList, FaThLarge, FaCheckDouble, FaHandPointer, FaMousePointer,
+  FaCalendarAlt, FaAngleLeft, FaAngleRight, FaStickyNote,
 } from 'react-icons/fa';
 import { jsPDF } from 'jspdf';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
@@ -44,6 +46,9 @@ import {
   useEditProjectWithAIMutation,
   useApplyProjectEditsMutation,
 } from '../slices/aiApiSlice';
+// ─── Notes hooks — adjust the slice paths if yours differ ────────────
+import { useGetNotesQuery } from '../slices/personalNoteApiSlice';
+import { useGetWorkspaceNotesQuery } from '../slices/workspaceNoteApiSlice';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
 import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
 import { useMediaPicker } from '../hooks/useMediaPicker';
@@ -243,76 +248,418 @@ const ErrorScreen = ({
   );
 };
 
-// ─── tiny dropdowns ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// Custom Dropdown — portaled + smart anchor
+// ═══════════════════════════════════════════════════════════════
 const Dropdown = ({ label, options, value, onChange, placeholder, brandColor }) => {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-  useEffect(() => {
-    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
+  const [pos, setPos] = useState({ top: 'auto', bottom: 'auto', left: -9999, width: 0, maxHeight: 260 });
+  const wrapperRef = useRef(null);
+  const triggerRef = useRef(null);
+  const popupRef = useRef(null);
+
+  const MAX_H = 260, MIN_H = 80, GAP = 6, EDGE = 8;
+
+  const compute = useCallback(() => {
+    if (!triggerRef.current) return;
+    const r = triggerRef.current.getBoundingClientRect();
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const below = vh - r.bottom - GAP - EDGE;
+    const above = r.top - GAP - EDGE;
+
+    let top = 'auto', bottom = 'auto', maxHeight = MAX_H;
+    if (below >= MAX_H || below >= above) {
+      top = r.bottom + GAP;
+      maxHeight = Math.max(MIN_H, Math.min(MAX_H, below));
+    } else {
+      bottom = vh - r.top + GAP;
+      maxHeight = Math.max(MIN_H, Math.min(MAX_H, above));
+    }
+    let left = r.left;
+    const width = r.width;
+    if (left + width > vw - EDGE) left = vw - width - EDGE;
+    if (left < EDGE) left = EDGE;
+    setPos({ top, bottom, left, width, maxHeight });
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    compute();
+    const h = () => compute();
+    window.addEventListener('resize', h);
+    window.addEventListener('scroll', h, true);
+    return () => { window.removeEventListener('resize', h); window.removeEventListener('scroll', h, true); };
+  }, [open, compute]);
+
+  useEffect(() => {
+    if (!open) return;
+    const down = (e) => {
+      const inW = wrapperRef.current && wrapperRef.current.contains(e.target);
+      const inP = popupRef.current && popupRef.current.contains(e.target);
+      if (!inW && !inP) setOpen(false);
+    };
+    const key = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', down);
+    document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('mousedown', down); document.removeEventListener('keydown', key); };
+  }, [open]);
+
   const sel = options.find((o) => o.value === value);
+
   return (
-    <div ref={ref} className="relative">
+    <div ref={wrapperRef} className="relative">
       {label && <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{label}</label>}
-      <button type="button" onClick={() => setOpen(!open)} className="w-full flex items-center gap-1.5 px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-300">
-        {sel?.icon && <span className="text-xs">{sel.icon}</span>}
-        <span className="truncate flex-1 text-left">{sel ? sel.label : placeholder}</span>
-        <FaAngleDown className={`text-[10px] text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-1.5 px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-300"
+      >
+        {sel?.icon && <span className="text-xs shrink-0">{sel.icon}</span>}
+        <span className={`truncate flex-1 text-left ${sel ? '' : 'text-gray-400 dark:text-gray-500'}`}>{sel ? sel.label : placeholder}</span>
+        <FaAngleDown className={`text-[10px] text-gray-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
-      {open && (
-        <div className="absolute top-full left-0 mt-1 w-full bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg py-1 z-50 max-h-48 overflow-y-auto">
+      {open && createPortal(
+        <div
+          ref={popupRef}
+          style={{ top: pos.top, bottom: pos.bottom, left: pos.left, width: pos.width, maxHeight: pos.maxHeight }}
+          className="fixed z-[120] bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl py-1 overflow-y-auto"
+        >
           {options.map((o) => (
-            <button key={o.value} type="button" onClick={() => { onChange(o.value); setOpen(false); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${o.value === value ? 'bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-teal-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50'}`}>
-              {o.icon && <span className="text-xs">{o.icon}</span>}<span>{o.label}</span>
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => { onChange(o.value); setOpen(false); }}
+              className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left ${
+                o.value === value
+                  ? 'bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-teal-400'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50'
+              }`}
+            >
+              {o.icon && <span className="text-xs shrink-0">{o.icon}</span>}
+              <span className="truncate flex-1">{o.label}</span>
+              {o.value === value && <FaCheck className="text-[9px] shrink-0" />}
             </button>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
 };
 
+// ═══════════════════════════════════════════════════════════════
+// Custom Multi-Dropdown
+// ═══════════════════════════════════════════════════════════════
 const MultiDropdown = ({ label, options, values = [], onChange, placeholder }) => {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-  useEffect(() => {
-    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
+  const [pos, setPos] = useState({ top: 'auto', bottom: 'auto', left: -9999, width: 0, maxHeight: 300 });
+  const wrapperRef = useRef(null);
+  const triggerRef = useRef(null);
+  const popupRef = useRef(null);
+
+  const MAX_H = 300, MIN_H = 80, GAP = 6, EDGE = 8;
+
+  const compute = useCallback(() => {
+    if (!triggerRef.current) return;
+    const r = triggerRef.current.getBoundingClientRect();
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const below = vh - r.bottom - GAP - EDGE;
+    const above = r.top - GAP - EDGE;
+
+    let top = 'auto', bottom = 'auto', maxHeight = MAX_H;
+    if (below >= MAX_H || below >= above) {
+      top = r.bottom + GAP;
+      maxHeight = Math.max(MIN_H, Math.min(MAX_H, below));
+    } else {
+      bottom = vh - r.top + GAP;
+      maxHeight = Math.max(MIN_H, Math.min(MAX_H, above));
+    }
+    let left = r.left;
+    const width = r.width;
+    if (left + width > vw - EDGE) left = vw - width - EDGE;
+    if (left < EDGE) left = EDGE;
+    setPos({ top, bottom, left, width, maxHeight });
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    compute();
+    const h = () => compute();
+    window.addEventListener('resize', h);
+    window.addEventListener('scroll', h, true);
+    return () => { window.removeEventListener('resize', h); window.removeEventListener('scroll', h, true); };
+  }, [open, compute]);
+
+  useEffect(() => {
+    if (!open) return;
+    const down = (e) => {
+      const inW = wrapperRef.current && wrapperRef.current.contains(e.target);
+      const inP = popupRef.current && popupRef.current.contains(e.target);
+      if (!inW && !inP) setOpen(false);
+    };
+    const key = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', down);
+    document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('mousedown', down); document.removeEventListener('keydown', key); };
+  }, [open]);
+
   const sel = options.filter((o) => values.includes(o.value));
   const text = sel.length === 0 ? placeholder : sel.length === 1 ? sel[0].label : `${sel.length} selected`;
   const toggle = (v) => onChange(values.includes(v) ? values.filter((x) => x !== v) : [...values, v]);
+
   return (
-    <div ref={ref} className="relative">
+    <div ref={wrapperRef} className="relative">
       {label && <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{label}</label>}
-      <button type="button" onClick={() => setOpen(!open)} className="w-full flex items-center gap-1.5 px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-300">
-        <span className="truncate flex-1 text-left">{text}</span>
-        <FaAngleDown className={`text-[10px] text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-1.5 px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-300"
+      >
+        <span className={`truncate flex-1 text-left ${sel.length === 0 ? 'text-gray-400 dark:text-gray-500' : ''}`}>{text}</span>
+        <FaAngleDown className={`text-[10px] text-gray-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
-      {open && (
-        <div className="absolute top-full left-0 mt-1 w-full bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg py-1 z-50 max-h-56 overflow-y-auto">
+      {open && createPortal(
+        <div
+          ref={popupRef}
+          style={{ top: pos.top, bottom: pos.bottom, left: pos.left, width: pos.width, maxHeight: pos.maxHeight }}
+          className="fixed z-[120] bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl py-1 overflow-y-auto"
+        >
           {options.length === 0 && <div className="px-3 py-2 text-xs text-gray-500">No members available</div>}
           {options.map((o) => {
             const checked = values.includes(o.value);
             return (
-              <button key={o.value} type="button" onClick={() => toggle(o.value)} className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${checked ? 'bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-teal-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50'}`}>
-                <span className={`w-3.5 h-3.5 flex items-center justify-center border rounded ${checked ? 'bg-teal-500 border-teal-500 text-white' : 'border-gray-400 dark:border-gray-600'}`}>
+              <button
+                key={o.value}
+                type="button"
+                onClick={() => toggle(o.value)}
+                className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left ${
+                  checked
+                    ? 'bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-teal-400'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50'
+                }`}
+              >
+                <span className={`w-3.5 h-3.5 flex items-center justify-center border rounded shrink-0 ${checked ? 'bg-teal-500 border-teal-500 text-white' : 'border-gray-400 dark:border-gray-600'}`}>
                   {checked && <FaCheck className="text-[8px]" />}
                 </span>
-                {o.icon}<span className="truncate">{o.label}</span>
+                {o.icon}
+                <span className="truncate flex-1">{o.label}</span>
               </button>
             );
           })}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
 };
 
-// ─── Bottom Sheet (matches PersonalTasks) ───────────────────────
+// ═══════════════════════════════════════════════════════════════
+// Custom DateTime Picker
+// ═══════════════════════════════════════════════════════════════
+const CustomDateTimePicker = ({ value, onChange, placeholder = 'Select date & time', disabled = false }) => {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 'auto', bottom: 'auto', left: -9999, maxHeight: 420 });
+
+  const wrapperRef = useRef(null);
+  const triggerRef = useRef(null);
+  const popupRef = useRef(null);
+
+  const POPUP_W = 290;
+  const MAX_H = 420, MIN_H = 220, GAP = 6, EDGE = 8;
+
+  const initialDate = value ? new Date(value) : null;
+  const [selected, setSelected] = useState(initialDate);
+  const [viewDate, setViewDate] = useState(initialDate || new Date());
+  const [hour, setHour] = useState(initialDate ? initialDate.getHours() : 12);
+  const [minute, setMinute] = useState(initialDate ? initialDate.getMinutes() : 0);
+
+  const compute = useCallback(() => {
+    if (!triggerRef.current) return;
+    const r = triggerRef.current.getBoundingClientRect();
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const below = vh - r.bottom - GAP - EDGE;
+    const above = r.top - GAP - EDGE;
+
+    let top = 'auto', bottom = 'auto', maxHeight = MAX_H;
+    if (below >= MAX_H || below >= above) {
+      top = r.bottom + GAP;
+      maxHeight = Math.max(MIN_H, Math.min(MAX_H, below));
+    } else {
+      bottom = vh - r.top + GAP;
+      maxHeight = Math.max(MIN_H, Math.min(MAX_H, above));
+    }
+    let left = r.left;
+    if (left + POPUP_W > vw - EDGE) left = vw - POPUP_W - EDGE;
+    if (left < EDGE) left = EDGE;
+    setPos({ top, bottom, left, maxHeight });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    compute();
+    const h = () => compute();
+    window.addEventListener('resize', h);
+    window.addEventListener('scroll', h, true);
+    return () => { window.removeEventListener('resize', h); window.removeEventListener('scroll', h, true); };
+  }, [open, compute]);
+
+  useEffect(() => {
+    if (!open) return;
+    const down = (e) => {
+      const inW = wrapperRef.current && wrapperRef.current.contains(e.target);
+      const inP = popupRef.current && popupRef.current.contains(e.target);
+      if (!inW && !inP) setOpen(false);
+    };
+    const key = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', down);
+    document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('mousedown', down); document.removeEventListener('keydown', key); };
+  }, [open]);
+
+  useEffect(() => {
+    if (value) {
+      const d = new Date(value);
+      setSelected(d);
+      setViewDate(d);
+      setHour(d.getHours());
+      setMinute(d.getMinutes());
+    } else {
+      setSelected(null);
+    }
+  }, [value]);
+
+  const pad = (n) => String(n).padStart(2, '0');
+  const monthName = viewDate.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+  const firstDay = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1).getDay();
+  const daysInMonth = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0).getDate();
+
+  const cells = [];
+  for (let i = 0; i < firstDay; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const isSameDay = (a, b) =>
+    a && b && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+
+  const isToday = (d) => {
+    const t = new Date();
+    return d && t.getFullYear() === viewDate.getFullYear() && t.getMonth() === viewDate.getMonth() && t.getDate() === d;
+  };
+
+  const commit = (d, h, m) => {
+    if (!d) return;
+    const dd = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m, 0, 0);
+    onChange(`${dd.getFullYear()}-${pad(dd.getMonth() + 1)}-${pad(dd.getDate())}T${pad(dd.getHours())}:${pad(dd.getMinutes())}`);
+  };
+
+  const pickDay = (d) => {
+    const nd = new Date(viewDate.getFullYear(), viewDate.getMonth(), d);
+    setSelected(nd);
+    commit(nd, hour, minute);
+  };
+  const pickHour = (h) => {
+    const v = Math.max(0, Math.min(23, h || 0));
+    setHour(v);
+    if (selected) commit(selected, v, minute);
+  };
+  const pickMinute = (m) => {
+    const v = Math.max(0, Math.min(59, m || 0));
+    setMinute(v);
+    if (selected) commit(selected, hour, v);
+  };
+  const handleToday = () => {
+    const t = new Date();
+    setSelected(t); setViewDate(t);
+    setHour(t.getHours()); setMinute(t.getMinutes());
+    commit(t, t.getHours(), t.getMinutes());
+  };
+  const handleClear = () => { setSelected(null); onChange(''); };
+
+  const display = selected
+    ? `${selected.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · ${pad(hour)}:${pad(minute)}`
+    : '';
+
+  const weekdays = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => !disabled && setOpen((v) => !v)}
+        disabled={disabled}
+        className="w-full flex items-center justify-between gap-2 px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-left text-gray-700 dark:text-gray-300 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none disabled:opacity-50 disabled:cursor-not-allowed transition"
+      >
+        <span className={`truncate ${display ? '' : 'text-gray-400 dark:text-gray-500'}`}>{display || placeholder}</span>
+        <FaCalendarAlt className="text-gray-400 text-xs shrink-0" />
+      </button>
+
+      {open && !disabled && createPortal(
+        <div
+          ref={popupRef}
+          style={{ top: pos.top, bottom: pos.bottom, left: pos.left, width: POPUP_W, maxHeight: pos.maxHeight }}
+          className="fixed z-[120] bg-white dark:bg-[#1a1a24] border border-gray-200 dark:border-gray-800/60 rounded-2xl shadow-2xl p-3 overflow-y-auto"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <button type="button" onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1))} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-teal-600 dark:hover:text-[#0d9488] hover:bg-teal-500/10 rounded-lg transition"><FaAngleLeft className="text-xs" /></button>
+            <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">{monthName}</span>
+            <button type="button" onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1))} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-teal-600 dark:hover:text-[#0d9488] hover:bg-teal-500/10 rounded-lg transition"><FaAngleRight className="text-xs" /></button>
+          </div>
+
+          <div className="grid grid-cols-7 gap-0.5 mb-1">
+            {weekdays.map((w) => (<div key={w} className="text-center text-[10px] font-semibold text-gray-400 dark:text-gray-500 py-1">{w}</div>))}
+          </div>
+
+          <div className="grid grid-cols-7 gap-0.5">
+            {cells.map((d, i) => {
+              if (d === null) return <div key={i} />;
+              const cellDate = new Date(viewDate.getFullYear(), viewDate.getMonth(), d);
+              const isSel = isSameDay(selected, cellDate);
+              const isTod = isToday(d);
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => pickDay(d)}
+                  className={`aspect-square text-xs rounded-lg transition flex items-center justify-center ${
+                    isSel
+                      ? 'bg-teal-600 dark:bg-[#0d9488] text-white font-semibold shadow-sm'
+                      : isTod
+                        ? 'text-teal-600 dark:text-[#0d9488] font-semibold hover:bg-teal-500/10'
+                        : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/60'
+                  }`}
+                >
+                  {d}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-800/60">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-medium text-gray-500 dark:text-gray-500 uppercase tracking-wide flex-1">Time</span>
+              <div className="flex items-center gap-1">
+                <input type="number" min={0} max={23} value={pad(hour)} onChange={(e) => pickHour(parseInt(e.target.value, 10))} className="w-12 px-1.5 py-1 text-center text-sm bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800/60 rounded-lg text-gray-800 dark:text-gray-200 outline-none focus:border-teal-500 dark:focus:border-[#0d9488]" />
+                <span className="text-gray-400 text-sm">:</span>
+                <input type="number" min={0} max={59} value={pad(minute)} onChange={(e) => pickMinute(parseInt(e.target.value, 10))} className="w-12 px-1.5 py-1 text-center text-sm bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800/60 rounded-lg text-gray-800 dark:text-gray-200 outline-none focus:border-teal-500 dark:focus:border-[#0d9488]" />
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 pt-2 border-t border-gray-200 dark:border-gray-800/60 flex items-center gap-1">
+            <button type="button" onClick={handleToday} className="flex-1 text-xs py-1.5 text-teal-600 dark:text-[#0d9488] font-medium rounded-lg hover:bg-teal-500/10 transition">Today</button>
+            <button type="button" onClick={handleClear} className="flex-1 text-xs py-1.5 text-gray-500 dark:text-gray-400 font-medium rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/60 transition">Clear</button>
+            <button type="button" onClick={() => setOpen(false)} className="flex-1 text-xs py-1.5 text-white font-medium rounded-lg transition hover:opacity-90 bg-teal-600 dark:bg-[#0d9488]">Done</button>
+          </div>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+};
+
+// ─── Bottom Sheet ───────────────────────────────────────────────
 const BottomSheet = ({ isOpen, onClose, children }) => {
   const [visible, setVisible] = useState(false);
   const [animating, setAnimating] = useState(false);
@@ -388,7 +735,7 @@ const DeleteTaskDialog = ({ isOpen, onClose, onConfirm, taskName }) => {
   );
 };
 
-// ─── Task Action Modal (bottom sheet) — shared by grid + list ───
+// ─── Task Action Modal ──────────────────────────────────────────
 const TaskActionModal = ({
   isOpen, onClose, task, canManage, isTrash, isArchivedForMe,
   onEdit, onCopy, onMove, onDelete, onArchive, onRestore,
@@ -525,27 +872,13 @@ const ViewToggle = ({ view, onChange }) => (
   </div>
 );
 
-// ─── Task Card (grid + list — IDENTICAL gestures & modal behavior) ─
+// ═══════════════════════════════════════════════════════════════
+// Task Card (grid + list) — now shows a small "notes" badge
+// ═══════════════════════════════════════════════════════════════
 const TaskCard = React.memo(({
-  task,
-  view = 'grid',
-  brandColor,
-  onClick,
-  onOpenModal,
-  draggable,
-  onDragStart,
-  onDragEnd,
-  onDragOver,
-  onDragLeave,
-  onDrop,
-  dragOver,
-  onCopy,
-  onMove,
-  isSelected = false,
-  onLongPress,
-  isTouch,
-  selectionMode,
-  onTap,
+  task, view = 'grid', brandColor, onClick, onOpenModal,
+  draggable, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop, dragOver,
+  onCopy, onMove, isSelected = false, onLongPress, isTouch, selectionMode, onTap,
 }) => {
   const progress = task.progress || 0;
   const subCount = task.subTasks?.length || 0;
@@ -555,16 +888,14 @@ const TaskCard = React.memo(({
   const assignees = task.assignees || [];
   const hasRecurrence = task.recurrenceType && task.recurrenceType !== 'none';
   const isCompleted = task.status === 'completed' || task.status === 'confirmed_completed';
+  const linkedNotesCount = (task.linkedNotes || []).length;
 
-  // ── gestures (shared by grid + list) ────────────────────────
   const lastTap = useRef(0);
   const longPressTimer = useRef(null);
 
   const handleTouchStart = (e) => {
     if (e.target.closest('.task-menu-btn') || e.target.closest('.task-grip')) return;
-    longPressTimer.current = setTimeout(() => {
-      if (onLongPress) onLongPress(task._id);
-    }, 500);
+    longPressTimer.current = setTimeout(() => { if (onLongPress) onLongPress(task._id); }, 500);
   };
   const handleTouchEnd = () => {
     if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
@@ -581,9 +912,7 @@ const TaskCard = React.memo(({
       const diff = now - lastTap.current;
       if (diff < 300 && diff > 0) { onOpenModal(task); lastTap.current = 0; return; }
       lastTap.current = now;
-      setTimeout(() => {
-        if (lastTap.current === now) { onClick(task); lastTap.current = 0; }
-      }, 300);
+      setTimeout(() => { if (lastTap.current === now) { onClick(task); lastTap.current = 0; } }, 300);
     } else {
       onClick(task);
     }
@@ -599,9 +928,6 @@ const TaskCard = React.memo(({
     ? { onDragStart: (ev) => { ev.dataTransfer.setData('text/plain', task._id); onDragStart?.(ev, task); } }
     : {};
 
-  // ══════════════════════════════════════════════════════════════
-  // LIST VIEW — mirrors PersonalTasks
-  // ══════════════════════════════════════════════════════════════
   if (view === 'list') {
     return (
       <div
@@ -626,35 +952,30 @@ const TaskCard = React.memo(({
               <FaGripVertical className="text-sm" />
             </div>
           )}
-
           <div className="flex-shrink-0 w-5 h-5 flex items-center justify-center mt-0.5" title={task.status}>
             <span
               className="w-2.5 h-2.5 rounded-full ring-2 ring-offset-1 ring-offset-white dark:ring-offset-[#0f0f12]"
               style={{ backgroundColor: STATUS_DOT[task.status] || '#9ca3af', '--tw-ring-color': `${STATUS_DOT[task.status] || '#9ca3af'}33` }}
             />
           </div>
-
           <div className="flex-1 min-w-0">
             <div className="flex items-start gap-1 sm:gap-2">
-              <span className={`text-sm font-medium break-words flex-1 min-w-0 ${isCompleted ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-800 dark:text-white'}`}>
-                {task.title}
-              </span>
+              <span className={`text-sm font-medium break-words flex-1 min-w-0 ${isCompleted ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-800 dark:text-white'}`}>{task.title}</span>
               {hasRecurrence && <FaRedo className="text-[10px] text-teal-500 flex-shrink-0 mt-1" />}
+              {linkedNotesCount > 0 && (
+                <span className="inline-flex items-center gap-0.5 text-[10px] text-teal-600 dark:text-[#0d9488] flex-shrink-0 mt-0.5" title={`${linkedNotesCount} linked note(s)`}>
+                  <FaStickyNote className="text-[10px]" /> {linkedNotesCount}
+                </span>
+              )}
               {overdue && <FaExclamationCircle className="text-xs text-red-500 flex-shrink-0 mt-0.5" />}
             </div>
-
             <div className="flex flex-wrap items-center gap-1.5 sm:gap-3 text-xs text-gray-500 dark:text-gray-400 mt-1">
               <StatusPill status={task.status} />
               <PriorityPill priority={task.priority} />
               {subCount > 0 && <span>{confirmed}/{subCount} done</span>}
-              {task.folder?.name && (
-                <span className="flex items-center gap-1">
-                  <FaFolder className="text-[9px]" style={{ color: task.folder.color || undefined }} /> {task.folder.name}
-                </span>
-              )}
+              {task.folder?.name && (<span className="flex items-center gap-1"><FaFolder className="text-[9px]" style={{ color: task.folder.color || undefined }} /> {task.folder.name}</span>)}
               {due && <span className={overdue ? 'text-red-500' : ''}>{fmtShortDate(task.dueDate)}</span>}
             </div>
-
             <div className="flex items-center gap-2 mt-1.5">
               {assignees.length === 0 ? (
                 <span className="text-[11px] text-gray-400 dark:text-gray-500">Unassigned</span>
@@ -666,9 +987,7 @@ const TaskCard = React.memo(({
                         {a.profile ? <img src={a.profile} className="w-full h-full object-cover" alt="" /> : (a.name || '?').charAt(0).toUpperCase()}
                       </div>
                     ))}
-                    {assignees.length > 4 && (
-                      <div className="w-5 h-5 rounded-full border border-white dark:border-[#14141a] flex items-center justify-center bg-gray-500 text-white text-[8px]">+{assignees.length - 4}</div>
-                    )}
+                    {assignees.length > 4 && (<div className="w-5 h-5 rounded-full border border-white dark:border-[#14141a] flex items-center justify-center bg-gray-500 text-white text-[8px]">+{assignees.length - 4}</div>)}
                   </div>
                   <span className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
                     {assignees.length === 1 ? assignees[0].name : `${assignees.length} assignees`}
@@ -681,13 +1000,8 @@ const TaskCard = React.memo(({
               <span className="text-[10px] font-mono text-gray-400">{progress}%</span>
             </div>
           </div>
-
           <div className="flex-shrink-0 flex items-center gap-1">
-            <button
-              onClick={(e) => { e.stopPropagation(); onOpenModal(task); }}
-              className="task-menu-btn hidden md:flex p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
-              aria-label="More actions"
-            >
+            <button onClick={(e) => { e.stopPropagation(); onOpenModal(task); }} className="task-menu-btn hidden md:flex p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition" aria-label="More actions">
               <FaEllipsisV className="text-sm" />
             </button>
           </div>
@@ -696,9 +1010,6 @@ const TaskCard = React.memo(({
     );
   }
 
-  // ══════════════════════════════════════════════════════════════
-  // GRID VIEW — same gestures + same modal, no inline dropdown
-  // ══════════════════════════════════════════════════════════════
   return (
     <div
       draggable={draggable}
@@ -713,9 +1024,7 @@ const TaskCard = React.memo(({
       onTouchEnd={handleTouchEnd}
       onTouchMove={handleTouchMove}
       className={`group bg-white dark:bg-[#14141a] rounded-2xl border p-4 cursor-pointer transition-all ${
-        dragOver
-          ? 'border-teal-500 dark:border-[#0d9488] bg-teal-50/50 dark:bg-[#0d9488]/5'
-          : 'border-gray-200/60 dark:border-gray-800/40 hover:border-teal-500/60 dark:hover:border-[#0d9488]/50'
+        dragOver ? 'border-teal-500 dark:border-[#0d9488] bg-teal-50/50 dark:bg-[#0d9488]/5' : 'border-gray-200/60 dark:border-gray-800/40 hover:border-teal-500/60 dark:hover:border-[#0d9488]/50'
       } ${isSelected ? 'ring-2 ring-teal-500/50 dark:ring-[#0d9488]/50 bg-teal-50/70 dark:bg-teal-900/30' : ''} ${selectionMode && !isSelected ? 'hover:ring-1 hover:ring-teal-300 dark:hover:ring-teal-700' : ''}`}
     >
       <div className="flex items-start justify-between gap-2">
@@ -727,14 +1036,15 @@ const TaskCard = React.memo(({
           <h4 className={`text-sm font-medium break-words min-w-0 flex-1 ${isCompleted ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-800 dark:text-gray-200'}`}>
             {task.title}
             {hasRecurrence && <FaRedo className="inline text-[10px] text-teal-600 dark:text-[#0d9488] ml-1.5 -mt-0.5" />}
+            {linkedNotesCount > 0 && (
+              <span className="inline-flex items-center gap-0.5 text-[10px] text-teal-600 dark:text-[#0d9488] ml-1.5" title={`${linkedNotesCount} linked note(s)`}>
+                <FaStickyNote className="text-[10px]" /> {linkedNotesCount}
+              </span>
+            )}
           </h4>
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={(e) => { e.stopPropagation(); onOpenModal(task); }}
-            className="task-menu-btn hidden md:flex p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
-            aria-label="More actions"
-          >
+          <button onClick={(e) => { e.stopPropagation(); onOpenModal(task); }} className="task-menu-btn hidden md:flex p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition" aria-label="More actions">
             <FaEllipsisV className="text-sm" />
           </button>
           <StatusPill status={task.status} />
@@ -745,11 +1055,7 @@ const TaskCard = React.memo(({
         <PriorityPill priority={task.priority} />
         {subCount > 0 && <span className="text-[10px] text-gray-500">• {confirmed}/{subCount} done</span>}
         {overdue && <span className="text-[10px] text-red-500 flex items-center gap-1"><FaClock className="text-[8px]" /> Overdue</span>}
-        {task.folder?.name && (
-          <span className="text-[10px] text-gray-500 flex items-center gap-1">
-            <FaFolder className="text-[8px]" /> {task.folder.name}
-          </span>
-        )}
+        {task.folder?.name && (<span className="text-[10px] text-gray-500 flex items-center gap-1"><FaFolder className="text-[8px]" /> {task.folder.name}</span>)}
       </div>
 
       <div className="mt-3 flex items-center justify-between gap-2">
@@ -764,9 +1070,7 @@ const TaskCard = React.memo(({
                     {a.profile ? <img src={a.profile} className="w-full h-full object-cover" alt="" /> : (a.name || '?').charAt(0).toUpperCase()}
                   </div>
                 ))}
-                {assignees.length > 3 && (
-                  <div className="w-5 h-5 rounded-full border border-white dark:border-[#14141a] flex items-center justify-center bg-gray-500 text-white text-[8px]">+{assignees.length - 3}</div>
-                )}
+                {assignees.length > 3 && (<div className="w-5 h-5 rounded-full border border-white dark:border-[#14141a] flex items-center justify-center bg-gray-500 text-white text-[8px]">+{assignees.length - 3}</div>)}
               </div>
               <span className="text-xs text-gray-500 truncate">{assignees.length === 1 ? assignees[0].name : `${assignees.length} assignees`}</span>
             </>
@@ -785,8 +1089,200 @@ const TaskCard = React.memo(({
   );
 });
 
+// ═══════════════════════════════════════════════════════════════
+// Notes Picker — 2-stage: pick source → pick notes
+// ═══════════════════════════════════════════════════════════════
+const NotesPickerModal = ({ isOpen, onClose, workspaceId, alreadySelected, onConfirm }) => {
+  const [stage, setStage] = useState('source'); // 'source' | 'workspace' | 'personal'
+  const [draft, setDraft] = useState([]);
+
+  const { data: pData, isLoading: pLoading } = useGetNotesQuery(undefined, {
+    skip: !isOpen || stage !== 'personal',
+  });
+  const { data: wData, isLoading: wLoading } = useGetWorkspaceNotesQuery(workspaceId, {
+    skip: !isOpen || stage !== 'workspace' || !workspaceId,
+  });
+
+  const personalNotes = pData?.notes || [];
+  const workspaceNotes = wData?.notes || [];
+
+  useEffect(() => {
+    if (isOpen) {
+      setDraft(Array.isArray(alreadySelected) ? alreadySelected : []);
+      setStage('source');
+    }
+  }, [isOpen]); // eslint-disable-line
+
+  const isPicked = (noteId, source) =>
+    draft.some((d) => String(d.noteId) === String(noteId) && d.source === source);
+
+  const toggleNote = (note, source) => {
+    if (isPicked(note._id, source)) {
+      setDraft((prev) => prev.filter((d) => !(String(d.noteId) === String(note._id) && d.source === source)));
+    } else {
+      setDraft((prev) => [...prev, { noteId: note._id, source, title: note.title }]);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  const renderNotesList = (notes, source, loading) => (
+    <div className="space-y-2">
+      {loading && (
+        <div className="flex items-center justify-center py-10">
+          <FaSpinner className="animate-spin text-teal-500 text-xl" />
+        </div>
+      )}
+      {!loading && notes.length === 0 && (
+        <div className="text-center py-10">
+          <FaStickyNote className="text-3xl text-gray-300 dark:text-gray-700 mx-auto mb-2" />
+          <p className="text-sm text-gray-500 dark:text-gray-500">
+            {source === 'personal' ? 'No personal notes yet' : 'No workspace notes yet'}
+          </p>
+        </div>
+      )}
+      {!loading && notes.map((n) => {
+        const checked = isPicked(n._id, source);
+        return (
+          <button
+            key={n._id}
+            type="button"
+            onClick={() => toggleNote(n, source)}
+            className={`w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-xl border transition ${
+              checked
+                ? 'bg-teal-50 dark:bg-teal-900/20 border-teal-300 dark:border-[#0d9488]/50'
+                : 'bg-white dark:bg-[#0f0f12] border-gray-200 dark:border-gray-800/60 hover:border-gray-300 dark:hover:border-gray-700'
+            }`}
+          >
+            <span className={`w-4 h-4 mt-0.5 flex items-center justify-center border rounded shrink-0 ${checked ? 'bg-teal-500 border-teal-500 text-white' : 'border-gray-400 dark:border-gray-600'}`}>
+              {checked && <FaCheck className="text-[8px]" />}
+            </span>
+            <span className="min-w-0 flex-1">
+              <p className={`text-sm font-medium truncate ${checked ? 'text-teal-700 dark:text-[#14b8a6]' : 'text-gray-800 dark:text-gray-200'}`}>
+                {n.title || 'Untitled'}
+              </p>
+              {n.content && (
+                <p className="text-[11px] text-gray-500 dark:text-gray-500 truncate mt-0.5">
+                  {n.content.replace(/\s+/g, ' ').trim().slice(0, 80)}
+                  {n.content.length > 80 ? '…' : ''}
+                </p>
+              )}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  return (
+    <div
+      className="fixed inset-0 z-[90] flex items-end md:items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl md:rounded-2xl w-full md:max-w-lg flex flex-col max-h-[88vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200/60 dark:border-gray-800/60">
+          <div className="flex items-center gap-2 min-w-0">
+            {stage !== 'source' && (
+              <button
+                onClick={() => setStage('source')}
+                className="p-1.5 text-gray-500 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/40 rounded-lg transition"
+                title="Back"
+              >
+                <FaArrowLeft className="text-xs" />
+              </button>
+            )}
+            <FaStickyNote className="text-teal-600 dark:text-[#0d9488] text-sm shrink-0" />
+            <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate">
+              {stage === 'source' && 'Add from notes'}
+              {stage === 'workspace' && 'Workspace notes'}
+              {stage === 'personal' && 'Personal notes'}
+            </h3>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 text-gray-500 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"
+          >
+            <FaTimes className="text-sm" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {stage === 'source' && (
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => setStage('workspace')}
+                className="w-full flex items-start gap-3 px-4 py-3.5 rounded-xl border border-gray-200 dark:border-gray-800/60 hover:border-teal-400 dark:hover:border-[#0d9488]/50 hover:bg-teal-50/40 dark:hover:bg-[#0d9488]/5 transition text-left"
+              >
+                <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-[#0d9488]/15 flex items-center justify-center shrink-0">
+                  <FaUsers className="text-teal-600 dark:text-[#0d9488]" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Workspace notes</p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-500 mt-0.5">
+                    Team-shared notes from this workspace
+                  </p>
+                </div>
+                <FaChevronRight className="text-xs text-gray-400 self-center shrink-0" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setStage('personal')}
+                className="w-full flex items-start gap-3 px-4 py-3.5 rounded-xl border border-gray-200 dark:border-gray-800/60 hover:border-teal-400 dark:hover:border-[#0d9488]/50 hover:bg-teal-50/40 dark:hover:bg-[#0d9488]/5 transition text-left"
+              >
+                <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-[#0d9488]/15 flex items-center justify-center shrink-0">
+                  <FaUser className="text-teal-600 dark:text-[#0d9488]" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Personal notes</p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-500 mt-0.5">
+                    Your private notes — only you can see them
+                  </p>
+                </div>
+                <FaChevronRight className="text-xs text-gray-400 self-center shrink-0" />
+              </button>
+            </div>
+          )}
+
+          {stage === 'workspace' && renderNotesList(workspaceNotes, 'workspace', wLoading)}
+          {stage === 'personal' && renderNotesList(personalNotes, 'personal', pLoading)}
+        </div>
+
+        {/* Footer */}
+        {stage !== 'source' && (
+          <div className="shrink-0 flex items-center gap-2 px-5 py-3 border-t border-gray-200/60 dark:border-gray-800/60">
+            <span className="text-xs text-gray-500 dark:text-gray-500 mr-auto">
+              {draft.length} selected
+            </span>
+            <button
+              type="button"
+              onClick={() => setStage('source')}
+              className="px-4 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition"
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              onClick={() => { onConfirm(draft); onClose(); }}
+              className="px-4 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl text-sm font-medium hover:opacity-90 transition"
+            >
+              Add {draft.length > 0 ? `(${draft.length})` : ''}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ─── Create Task Modal ──────────────────────────────────────────
-const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMembers, folders, onSubmit }) => {
+const CreateTaskModal = ({ isOpen, onClose, projectId, workspaceId, brandColor, assignableMembers, folders, onSubmit }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [assigneeIds, setAssigneeIds] = useState([]);
@@ -796,12 +1292,14 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
   const [estimatedHours, setEstimatedHours] = useState('');
   const [bufferTime, setBufferTime] = useState(0);
   const [allowAssigneeEditSubtasks, setAllowAssigneeEditSubtasks] = useState(false);
-  const [linksText, setLinksText] = useState('');
+  const [links, setLinks] = useState([]);
   const { files, pickMedia, setFiles } = useMediaPicker();
   const [folderId, setFolderId] = useState('');
   const [recurrenceType, setRecurrenceType] = useState('none');
   const [recurrenceDays, setRecurrenceDays] = useState([]);
   const [recurrenceEndDate, setRecurrenceEndDate] = useState('');
+  const [linkedNotes, setLinkedNotes] = useState([]);
+  const [notesPickerOpen, setNotesPickerOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -835,8 +1333,9 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
 
   const reset = () => {
     setTitle(''); setDescription(''); setAssigneeIds([]); setPriority('medium'); setStartDate(''); setDueDate('');
-    setEstimatedHours(''); setBufferTime(0); setAllowAssigneeEditSubtasks(false); setLinksText(''); setFiles([]);
-    setFolderId(''); setRecurrenceType('none'); setRecurrenceDays([]); setRecurrenceEndDate(''); setShowDetails(false);
+    setEstimatedHours(''); setBufferTime(0); setAllowAssigneeEditSubtasks(false); setLinks([]); setFiles([]);
+    setFolderId(''); setRecurrenceType('none'); setRecurrenceDays([]); setRecurrenceEndDate('');
+    setLinkedNotes([]); setShowDetails(false);
   };
 
   const handleSubmit = async (e) => {
@@ -848,7 +1347,9 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
         projectId, title: title.trim(), description, assigneeIds, priority,
         estimatedHours, bufferTime, allowAssigneeEditSubtasks, startDate, dueDate,
         folderId, recurrenceType, recurrenceDays, recurrenceEndDate,
-        links: linksText.split('\n').map((l) => l.trim()).filter(Boolean), attachments: files,
+        links: links.map((l) => l.trim()).filter(Boolean),
+        attachments: files,
+        linkedNotes: linkedNotes.map(({ noteId, source }) => ({ noteId, source })),
       });
       reset();
       onClose();
@@ -857,101 +1358,665 @@ const CreateTaskModal = ({ isOpen, onClose, projectId, brandColor, assignableMem
     } finally { setLoading(false); }
   };
 
+  const addLink = () => setLinks((prev) => [...prev, '']);
+  const updateLink = (i, v) => setLinks((prev) => { const n = [...prev]; n[i] = v; return n; });
+  const removeLink = (i) => setLinks((prev) => prev.filter((_, idx) => idx !== i));
+
+  const removeLinkedNote = (noteId, source) =>
+    setLinkedNotes((prev) => prev.filter((d) => !(String(d.noteId) === String(noteId) && d.source === source)));
+
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto shadow-xl">
-        <div className="flex justify-between mb-4">
-          <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200"><FaTasks className="inline mr-1 text-teal-600 dark:text-[#0d9488]" /> New Task</h2>
-          <button onClick={onClose} className="p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg"><FaTimes /></button>
-        </div>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Title *</label>
-            <input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" required />
+    <>
+      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+        <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto shadow-xl">
+          <div className="flex justify-between mb-4">
+            <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200"><FaTasks className="inline mr-1 text-teal-600 dark:text-[#0d9488]" /> New Task</h2>
+            <button onClick={onClose} className="p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg"><FaTimes /></button>
           </div>
-          <button type="button" onClick={() => setShowDetails(!showDetails)} className="flex items-center gap-2 text-sm text-teal-600 dark:text-[#0d9488]">
-            <FaAngleDown className={`transition-transform ${showDetails ? 'rotate-180' : ''}`} /> {showDetails ? 'Hide details' : 'Add more details'}
-          </button>
-          {showDetails && (
-            <>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
-                <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
-              </div>
-              <MultiDropdown label="Assignees" options={assigneeOpts} values={assigneeIds} onChange={setAssigneeIds} placeholder="Select members..." />
-              <Dropdown label="Folder" options={folderOpts} value={folderId} onChange={setFolderId} placeholder="Select folder" />
-              <div className="grid grid-cols-2 gap-3">
-                <Dropdown label="Priority" options={priorityOptions} value={priority} onChange={setPriority} />
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Title *</label>
+              <input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" required />
+            </div>
+            <button type="button" onClick={() => setShowDetails(!showDetails)} className="flex items-center gap-2 text-sm text-teal-600 dark:text-[#0d9488]">
+              <FaAngleDown className={`transition-transform ${showDetails ? 'rotate-180' : ''}`} /> {showDetails ? 'Hide details' : 'Add more details'}
+            </button>
+            {showDetails && (
+              <>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Start</label>
-                  <input type="datetime-local" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
+                  <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
                 </div>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Due</label>
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {[['1h', 'in an hour'], ['12h', 'in 12 hours'], ['today', 'today'], ['2d', 'in 2 days'], ['1w', 'in a week'], ['2w', 'in 2 weeks'], ['1m', 'in a month']].map(([k, l]) => (
-                    <button key={k} type="button" onClick={() => setQuickDue(k)} className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300">{l}</button>
-                  ))}
-                </div>
-                <input type="datetime-local" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Est. hours</label>
-                  <input type="number" step="0.5" value={estimatedHours} onChange={(e) => setEstimatedHours(e.target.value)} readOnly={!!(startDate && dueDate)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Buffer (min)</label>
-                  <input type="number" min="0" value={bufferTime} onChange={(e) => setBufferTime(parseInt(e.target.value) || 0)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
-                </div>
-              </div>
-              <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-                <input type="checkbox" checked={allowAssigneeEditSubtasks} onChange={(e) => setAllowAssigneeEditSubtasks(e.target.checked)} className="accent-teal-600" /> Allow assignee to edit sub‑tasks
-              </label>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Recurrence</label>
-                <select value={recurrenceType} onChange={(e) => { setRecurrenceType(e.target.value); if (e.target.value !== 'weekly') setRecurrenceDays([]); }} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none">
-                  <option value="none">None</option><option value="daily">Daily</option><option value="weekly">Weekly</option>
-                </select>
-              </div>
-              {recurrenceType === 'weekly' && (
-                <div className="flex flex-wrap gap-2">
-                  {weekDays.map((d, i) => (
-                    <button key={i} type="button" onClick={() => setRecurrenceDays(recurrenceDays.includes(i) ? recurrenceDays.filter((x) => x !== i) : [...recurrenceDays, i].sort())} className={`px-3 py-1 rounded-full text-xs font-medium ${recurrenceDays.includes(i) ? 'bg-teal-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}`}>{d}</button>
-                  ))}
-                </div>
-              )}
-              {recurrenceType !== 'none' && (
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Recurrence end (optional)</label>
-                  <input type="datetime-local" value={recurrenceEndDate} onChange={(e) => setRecurrenceEndDate(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
-                </div>
-              )}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaLink className="inline mr-1" />Links (one per line)</label>
-                <textarea value={linksText} onChange={(e) => setLinksText(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaPaperclip className="inline mr-1" />Attachments</label>
-                <button type="button" onClick={() => pickMedia({ multiple: true })} className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-300"><FaCamera className="text-xs" /> Choose Files</button>
-                {files.length > 0 && files.map((f, i) => (
-                  <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5 mt-1">
-                    <span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span>
-                    <button type="button" onClick={() => setFiles((p) => p.filter((_, idx) => idx !== i))} className="text-red-500"><FaTrashAlt className="text-xs" /></button>
+                <MultiDropdown label="Assignees" options={assigneeOpts} values={assigneeIds} onChange={setAssigneeIds} placeholder="Select members..." />
+                <Dropdown label="Folder" options={folderOpts} value={folderId} onChange={setFolderId} placeholder="Select folder" />
+                <div className="grid grid-cols-2 gap-3">
+                  <Dropdown label="Priority" options={priorityOptions} value={priority} onChange={setPriority} />
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Start</label>
+                    <CustomDateTimePicker value={startDate} onChange={setStartDate} placeholder="Pick start" />
                   </div>
-                ))}
-              </div>
-            </>
-          )}
-          <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400">Cancel</button>
-            <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium" style={{ backgroundColor: brandColor }}>{loading ? 'Creating...' : 'Create Task'}</button>
-          </div>
-        </form>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Due</label>
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {[['1h', 'in an hour'], ['12h', 'in 12 hours'], ['today', 'today'], ['2d', 'in 2 days'], ['1w', 'in a week'], ['2w', 'in 2 weeks'], ['1m', 'in a month']].map(([k, l]) => (
+                      <button key={k} type="button" onClick={() => setQuickDue(k)} className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300">{l}</button>
+                    ))}
+                  </div>
+                  <CustomDateTimePicker value={dueDate} onChange={setDueDate} placeholder="Pick due" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Est. hours</label>
+                    <input type="number" step="0.5" value={estimatedHours} onChange={(e) => setEstimatedHours(e.target.value)} readOnly={!!(startDate && dueDate)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Buffer (min)</label>
+                    <input type="number" min="0" value={bufferTime} onChange={(e) => setBufferTime(parseInt(e.target.value) || 0)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
+                  </div>
+                </div>
+                <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+                  <input type="checkbox" checked={allowAssigneeEditSubtasks} onChange={(e) => setAllowAssigneeEditSubtasks(e.target.checked)} className="accent-teal-600" /> Allow assignee to edit sub‑tasks
+                </label>
+
+                {/* ─── Recurrence — toggle switch + segmented picker ─── */}
+                <div className="bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800/60 rounded-xl p-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+                      <FaRedo className="text-[10px] text-teal-600 dark:text-[#0d9488]" />
+                      Repeat task
+                    </label>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={recurrenceType !== 'none'}
+                      onClick={() => {
+                        if (recurrenceType === 'none') {
+                          setRecurrenceType('daily');
+                        } else {
+                          setRecurrenceType('none');
+                          setRecurrenceDays([]);
+                          setRecurrenceEndDate('');
+                        }
+                      }}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                        recurrenceType !== 'none' ? '' : 'bg-gray-300 dark:bg-gray-700'
+                      }`}
+                      style={recurrenceType !== 'none' ? { backgroundColor: brandColor } : undefined}
+                    >
+                      <span
+                        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform ${
+                          recurrenceType !== 'none' ? 'translate-x-[1.15rem]' : 'translate-x-0.5'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {recurrenceType !== 'none' && (
+                    <>
+                      <div className="flex gap-2">
+                        {['daily', 'weekly'].map((opt) => {
+                          const active = recurrenceType === opt;
+                          return (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() => {
+                                setRecurrenceType(opt);
+                                if (opt !== 'weekly') setRecurrenceDays([]);
+                              }}
+                              className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
+                                active
+                                  ? 'text-white border-transparent shadow-sm'
+                                  : 'bg-white dark:bg-[#14141a] text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700/60 hover:border-gray-400 dark:hover:border-gray-600'
+                              }`}
+                              style={active ? { backgroundColor: brandColor } : undefined}
+                            >
+                              {opt === 'daily' ? 'Daily' : 'Weekly'}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {recurrenceType === 'weekly' && (
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-500 mb-1.5">
+                            On these days
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {weekDays.map((d, i) => {
+                              const on = recurrenceDays.includes(i);
+                              return (
+                                <button
+                                  key={i}
+                                  type="button"
+                                  onClick={() =>
+                                    setRecurrenceDays(
+                                      on ? recurrenceDays.filter((x) => x !== i) : [...recurrenceDays, i].sort()
+                                    )
+                                  }
+                                  className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition ${
+                                    on
+                                      ? 'text-white border-transparent shadow-sm'
+                                      : 'bg-white dark:bg-[#14141a] text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700/60 hover:border-gray-400 dark:hover:border-gray-600'
+                                  }`}
+                                  style={on ? { backgroundColor: brandColor } : undefined}
+                                >
+                                  {d}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          Ends on <span className="text-gray-400 dark:text-gray-500 font-normal">(optional)</span>
+                        </label>
+                        <CustomDateTimePicker
+                          value={recurrenceEndDate}
+                          onChange={setRecurrenceEndDate}
+                          placeholder="Pick end date"
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* ─── Notes — link workspace / personal notes ─── */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    <FaStickyNote className="inline mr-1 text-teal-600 dark:text-[#0d9488]" />
+                    Notes
+                  </label>
+                  <div className="space-y-2">
+                    {linkedNotes.map((n) => (
+                      <div
+                        key={`${n.source}:${n.noteId}`}
+                        className="flex items-center gap-2 bg-teal-50/60 dark:bg-[#0d9488]/10 border border-teal-200/60 dark:border-[#0d9488]/30 rounded-xl px-3 py-2"
+                      >
+                        {n.source === 'workspace' ? (
+                          <FaUsers className="text-teal-600 dark:text-[#0d9488] text-xs shrink-0" />
+                        ) : (
+                          <FaUser className="text-teal-600 dark:text-[#0d9488] text-xs shrink-0" />
+                        )}
+                        <span className="text-sm truncate flex-1 text-gray-800 dark:text-gray-200">
+                          {n.title || 'Untitled'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => removeLinkedNote(n.noteId, n.source)}
+                          className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded p-1 transition"
+                          title="Remove"
+                        >
+                          <FaTimes className="text-[10px]" />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setNotesPickerOpen(true)}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] rounded-lg text-xs font-medium hover:bg-teal-100 dark:hover:bg-teal-900/30 transition"
+                    >
+                      <FaPlus className="text-[10px]" /> Add from notes
+                    </button>
+                  </div>
+                </div>
+
+                {/* Links */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaLink className="inline mr-1" />Links</label>
+                  <div className="space-y-2">
+                    {links.map((link, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={link}
+                          onChange={(e) => updateLink(i, e.target.value)}
+                          placeholder="https://..."
+                          className="flex-1 px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeLink(i)}
+                          className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition"
+                          title="Remove link"
+                        >
+                          <FaTrashAlt className="text-xs" />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={addLink}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] rounded-lg text-xs font-medium hover:bg-teal-100 dark:hover:bg-teal-900/30 transition"
+                    >
+                      <FaPlus className="text-[10px]" /> Add link
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaPaperclip className="inline mr-1" />Attachments</label>
+                  <button type="button" onClick={() => pickMedia({ multiple: true })} className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-300"><FaCamera className="text-xs" /> Choose Files</button>
+                  {files.length > 0 && files.map((f, i) => (
+                    <div key={i} className="flex justify-between bg-gray-50 dark:bg-[#1a1a24] rounded-lg px-3 py-1.5 mt-1">
+                      <span className="text-sm truncate text-gray-700 dark:text-gray-300">{f.name}</span>
+                      <button type="button" onClick={() => setFiles((p) => p.filter((_, idx) => idx !== i))} className="text-red-500"><FaTrashAlt className="text-xs" /></button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400">Cancel</button>
+              <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium" style={{ backgroundColor: brandColor }}>{loading ? 'Creating...' : 'Create Task'}</button>
+            </div>
+          </form>
+        </div>
       </div>
-    </div>
+
+      <NotesPickerModal
+        isOpen={notesPickerOpen}
+        onClose={() => setNotesPickerOpen(false)}
+        workspaceId={workspaceId}
+        alreadySelected={linkedNotes}
+        onConfirm={setLinkedNotes}
+      />
+    </>
+  );
+};
+
+// ─── Edit Task Modal ────────────────────────────────────────────
+const EditTaskModal = ({
+  isOpen, onClose, task, projectId, workspaceId, brandColor,
+  assignableMembers, folders, onSubmit,
+}) => {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [assigneeIds, setAssigneeIds] = useState([]);
+  const [priority, setPriority] = useState('medium');
+  const [status, setStatus] = useState('pending');
+  const [startDate, setStartDate] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [estimatedHours, setEstimatedHours] = useState('');
+  const [bufferTime, setBufferTime] = useState(0);
+  const [allowAssigneeEditSubtasks, setAllowAssigneeEditSubtasks] = useState(false);
+  const [links, setLinks] = useState([]);
+  const [folderId, setFolderId] = useState('');
+  const [recurrenceType, setRecurrenceType] = useState('none');
+  const [recurrenceDays, setRecurrenceDays] = useState([]);
+  const [recurrenceEndDate, setRecurrenceEndDate] = useState('');
+  const [linkedNotes, setLinkedNotes] = useState([]);
+  const [notesPickerOpen, setNotesPickerOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [showDetails, setShowDetails] = useState(true);
+  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  const toLocalInput = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+
+  // Prefill whenever a task is opened
+  useEffect(() => {
+    if (!isOpen || !task) return;
+    setTitle(task.title || '');
+    setDescription(task.description || '');
+    setAssigneeIds((task.assignees || []).map((a) => a._id || a).filter(Boolean).map(String));
+    setPriority(task.priority || 'medium');
+    setStatus(task.status || 'pending');
+    setStartDate(toLocalInput(task.startDate));
+    setDueDate(toLocalInput(task.dueDate));
+    setEstimatedHours(task.estimatedHours != null ? String(task.estimatedHours) : '');
+    setBufferTime(task.bufferTime || 0);
+    setAllowAssigneeEditSubtasks(!!task.allowAssigneeEditSubtasks);
+    setLinks(Array.isArray(task.links) ? [...task.links] : []);
+    setFolderId(task.folder?._id || task.folder || '');
+    setRecurrenceType(task.recurrenceType || 'none');
+    setRecurrenceDays(Array.isArray(task.recurrenceDays) ? [...task.recurrenceDays] : []);
+    setRecurrenceEndDate(toLocalInput(task.recurrenceEndDate));
+    setLinkedNotes(
+      (task.linkedNotes || []).map((ln) => ({
+        noteId: ln.note?._id || ln.note,
+        source: ln.source,
+        title: ln.note?.title || 'Untitled',
+      }))
+    );
+  }, [isOpen, task]); // eslint-disable-line
+
+  useEffect(() => {
+    if (startDate && dueDate && !task?.estimatedHours) {
+      const s = new Date(startDate), d = new Date(dueDate);
+      setEstimatedHours(s < d ? ((d - s) / 3600000).toFixed(1) : '0');
+    }
+  }, [startDate, dueDate]); // eslint-disable-line
+
+  const setQuickDue = (preset) => {
+    const now = new Date();
+    let t = new Date(now);
+    if (preset === '1h') t.setHours(now.getHours() + 1);
+    else if (preset === '12h') t.setHours(now.getHours() + 12);
+    else if (preset === 'today') t.setHours(23, 59, 59);
+    else if (preset === '2d') t.setDate(now.getDate() + 2);
+    else if (preset === '1w') t.setDate(now.getDate() + 7);
+    else if (preset === '2w') t.setDate(now.getDate() + 14);
+    else if (preset === '1m') t.setMonth(now.getMonth() + 1);
+    const p = (n) => String(n).padStart(2, '0');
+    setDueDate(`${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}T${p(t.getHours())}:${p(t.getMinutes())}`);
+  };
+
+  const assigneeOpts = assignableMembers.map((m) => {
+    const u = m.user || m;
+    return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full object-cover" alt="" /> : <FaUser className="text-gray-400" /> };
+  });
+  const folderOpts = [{ value: '', label: 'No Folder', icon: <FaFolderOpen className="text-gray-400" /> }, ...folders.map((f) => ({ value: f._id, label: f.name, icon: <FaFolder className="text-gray-400" /> }))];
+  const statusOpts = [
+    { value: 'pending', label: 'Pending' },
+    { value: 'in-progress', label: 'In Progress' },
+    { value: 'ready_for_completion', label: 'Ready for completion' },
+    { value: 'completed', label: 'Completed' },
+    { value: 'confirmed_completed', label: 'Confirmed completed' },
+    { value: 'cancelled', label: 'Cancelled' },
+  ];
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!title.trim()) { toast.error('Title required'); return; }
+    setLoading(true);
+    try {
+      await onSubmit(task._id, {
+        title: title.trim(),
+        description,
+        detailedDescription: task.detailedDescription || '',
+        assigneeIds,
+        priority,
+        status,
+        startDate: startDate || '',
+        dueDate: dueDate || '',
+        estimatedHours,
+        bufferTime,
+        allowAssigneeEditSubtasks,
+        folderId: folderId || null,
+        recurrenceType,
+        recurrenceDays: recurrenceType === 'weekly' ? recurrenceDays : [],
+        recurrenceEndDate: recurrenceEndDate || '',
+        links: links.map((l) => l.trim()).filter(Boolean),
+        linkedNotes: linkedNotes.map(({ noteId, source }) => ({ noteId, source })),
+      });
+      onClose();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to update task');
+    } finally { setLoading(false); }
+  };
+
+  const addLink = () => setLinks((prev) => [...prev, '']);
+  const updateLink = (i, v) => setLinks((prev) => { const n = [...prev]; n[i] = v; return n; });
+  const removeLink = (i) => setLinks((prev) => prev.filter((_, idx) => idx !== i));
+
+  const removeLinkedNote = (noteId, source) =>
+    setLinkedNotes((prev) => prev.filter((d) => !(String(d.noteId) === String(noteId) && d.source === source)));
+
+  if (!isOpen || !task) return null;
+  return (
+    <>
+      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+        <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto shadow-xl">
+          <div className="flex justify-between mb-4">
+            <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">
+              <FaEdit className="inline mr-1 text-teal-600 dark:text-[#0d9488]" /> Edit Task
+            </h2>
+            <button onClick={onClose} className="p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg"><FaTimes /></button>
+          </div>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Title *</label>
+              <input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" required />
+            </div>
+            <button type="button" onClick={() => setShowDetails(!showDetails)} className="flex items-center gap-2 text-sm text-teal-600 dark:text-[#0d9488]">
+              <FaAngleDown className={`transition-transform ${showDetails ? 'rotate-180' : ''}`} /> {showDetails ? 'Hide details' : 'Add more details'}
+            </button>
+            {showDetails && (
+              <>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
+                  <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
+                </div>
+                <MultiDropdown label="Assignees" options={assigneeOpts} values={assigneeIds} onChange={setAssigneeIds} placeholder="Select members..." />
+                <div className="grid grid-cols-2 gap-3">
+                  <Dropdown label="Folder" options={folderOpts} value={folderId} onChange={setFolderId} placeholder="Select folder" />
+                  <Dropdown label="Status" options={statusOpts} value={status} onChange={setStatus} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <Dropdown label="Priority" options={priorityOptions} value={priority} onChange={setPriority} />
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Start</label>
+                    <CustomDateTimePicker value={startDate} onChange={setStartDate} placeholder="Pick start" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Due</label>
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {[['1h', 'in an hour'], ['12h', 'in 12 hours'], ['today', 'today'], ['2d', 'in 2 days'], ['1w', 'in a week'], ['2w', 'in 2 weeks'], ['1m', 'in a month']].map(([k, l]) => (
+                      <button key={k} type="button" onClick={() => setQuickDue(k)} className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300">{l}</button>
+                    ))}
+                  </div>
+                  <CustomDateTimePicker value={dueDate} onChange={setDueDate} placeholder="Pick due" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Est. hours</label>
+                    <input type="number" step="0.5" value={estimatedHours} onChange={(e) => setEstimatedHours(e.target.value)} readOnly={!!(startDate && dueDate)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Buffer (min)</label>
+                    <input type="number" min="0" value={bufferTime} onChange={(e) => setBufferTime(parseInt(e.target.value) || 0)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
+                  </div>
+                </div>
+                <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+                  <input type="checkbox" checked={allowAssigneeEditSubtasks} onChange={(e) => setAllowAssigneeEditSubtasks(e.target.checked)} className="accent-teal-600" /> Allow assignee to edit sub‑tasks
+                </label>
+
+                {/* ─── Recurrence ─── */}
+                <div className="bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800/60 rounded-xl p-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+                      <FaRedo className="text-[10px] text-teal-600 dark:text-[#0d9488]" />
+                      Repeat task
+                    </label>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={recurrenceType !== 'none'}
+                      onClick={() => {
+                        if (recurrenceType === 'none') {
+                          setRecurrenceType('daily');
+                        } else {
+                          setRecurrenceType('none');
+                          setRecurrenceDays([]);
+                          setRecurrenceEndDate('');
+                        }
+                      }}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                        recurrenceType !== 'none' ? '' : 'bg-gray-300 dark:bg-gray-700'
+                      }`}
+                      style={recurrenceType !== 'none' ? { backgroundColor: brandColor } : undefined}
+                    >
+                      <span
+                        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform ${
+                          recurrenceType !== 'none' ? 'translate-x-[1.15rem]' : 'translate-x-0.5'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {recurrenceType !== 'none' && (
+                    <>
+                      <div className="flex gap-2">
+                        {['daily', 'weekly'].map((opt) => {
+                          const active = recurrenceType === opt;
+                          return (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() => {
+                                setRecurrenceType(opt);
+                                if (opt !== 'weekly') setRecurrenceDays([]);
+                              }}
+                              className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
+                                active
+                                  ? 'text-white border-transparent shadow-sm'
+                                  : 'bg-white dark:bg-[#14141a] text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700/60 hover:border-gray-400 dark:hover:border-gray-600'
+                              }`}
+                              style={active ? { backgroundColor: brandColor } : undefined}
+                            >
+                              {opt === 'daily' ? 'Daily' : 'Weekly'}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {recurrenceType === 'weekly' && (
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-500 mb-1.5">
+                            On these days
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {weekDays.map((d, i) => {
+                              const on = recurrenceDays.includes(i);
+                              return (
+                                <button
+                                  key={i}
+                                  type="button"
+                                  onClick={() =>
+                                    setRecurrenceDays(
+                                      on ? recurrenceDays.filter((x) => x !== i) : [...recurrenceDays, i].sort()
+                                    )
+                                  }
+                                  className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition ${
+                                    on
+                                      ? 'text-white border-transparent shadow-sm'
+                                      : 'bg-white dark:bg-[#14141a] text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700/60 hover:border-gray-400 dark:hover:border-gray-600'
+                                  }`}
+                                  style={on ? { backgroundColor: brandColor } : undefined}
+                                >
+                                  {d}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          Ends on <span className="text-gray-400 dark:text-gray-500 font-normal">(optional)</span>
+                        </label>
+                        <CustomDateTimePicker
+                          value={recurrenceEndDate}
+                          onChange={setRecurrenceEndDate}
+                          placeholder="Pick end date"
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* ─── Notes ─── */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    <FaStickyNote className="inline mr-1 text-teal-600 dark:text-[#0d9488]" />
+                    Notes
+                  </label>
+                  <div className="space-y-2">
+                    {linkedNotes.map((n) => (
+                      <div
+                        key={`${n.source}:${n.noteId}`}
+                        className="flex items-center gap-2 bg-teal-50/60 dark:bg-[#0d9488]/10 border border-teal-200/60 dark:border-[#0d9488]/30 rounded-xl px-3 py-2"
+                      >
+                        {n.source === 'workspace' ? (
+                          <FaUsers className="text-teal-600 dark:text-[#0d9488] text-xs shrink-0" />
+                        ) : (
+                          <FaUser className="text-teal-600 dark:text-[#0d9488] text-xs shrink-0" />
+                        )}
+                        <span className="text-sm truncate flex-1 text-gray-800 dark:text-gray-200">
+                          {n.title || 'Untitled'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => removeLinkedNote(n.noteId, n.source)}
+                          className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded p-1 transition"
+                          title="Remove"
+                        >
+                          <FaTimes className="text-[10px]" />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setNotesPickerOpen(true)}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] rounded-lg text-xs font-medium hover:bg-teal-100 dark:hover:bg-teal-900/30 transition"
+                    >
+                      <FaPlus className="text-[10px]" /> Add from notes
+                    </button>
+                  </div>
+                </div>
+
+                {/* Links */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaLink className="inline mr-1" />Links</label>
+                  <div className="space-y-2">
+                    {links.map((link, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={link}
+                          onChange={(e) => updateLink(i, e.target.value)}
+                          placeholder="https://..."
+                          className="flex-1 px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeLink(i)}
+                          className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition"
+                          title="Remove link"
+                        >
+                          <FaTrashAlt className="text-xs" />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={addLink}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] rounded-lg text-xs font-medium hover:bg-teal-100 dark:hover:bg-teal-900/30 transition"
+                    >
+                      <FaPlus className="text-[10px]" /> Add link
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400">Cancel</button>
+              <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium" style={{ backgroundColor: brandColor }}>{loading ? 'Saving...' : 'Save changes'}</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <NotesPickerModal
+        isOpen={notesPickerOpen}
+        onClose={() => setNotesPickerOpen(false)}
+        workspaceId={workspaceId}
+        alreadySelected={linkedNotes}
+        onConfirm={setLinkedNotes}
+      />
+    </>
   );
 };
 
@@ -1117,7 +2182,7 @@ const SearchOverlay = ({ isOpen, onClose, tasks, brandColor, onSelect }) => {
 };
 
 // ══════════════════════════════════════════════════════════════
-// Professional PDF generator — Times, 12pt, justified body.
+// Professional PDF generator
 // ══════════════════════════════════════════════════════════════
 const downloadDocsPDF = (doc) => {
   if (!doc) return;
@@ -1868,6 +2933,7 @@ const YourWorkspaceProjectId = () => {
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [showCreateTask, setShowCreateTask] = useState(false);
+  const [editingTask, setEditingTask] = useState(null); // 👈 new — drives EditTaskModal
   const [showFolderForm, setShowFolderForm] = useState(false);
   const [editingFolder, setEditingFolder] = useState(null);
   const [showReadOnly, setShowReadOnly] = useState(false);
@@ -1879,7 +2945,6 @@ const YourWorkspaceProjectId = () => {
   const [folderMenuOpen, setFolderMenuOpen] = useState(null);
   const longPress = useRef(null);
 
-  // ── view mode, selection, task action modal ────────────
   const [viewMode, setViewMode] = useState(() => {
     try { return localStorage.getItem('projectTasksView') || 'grid'; } catch { return 'grid'; }
   });
@@ -1930,7 +2995,6 @@ const YourWorkspaceProjectId = () => {
 
   const refreshAll = useCallback(() => { refetchTasks(); refetchProject(); refetchFolders(); }, [refetchTasks, refetchProject, refetchFolders]);
 
-  // ── selection helpers ───────────────────────────────────────
   const toggleSelection = (taskId) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
@@ -1971,11 +3035,71 @@ const YourWorkspaceProjectId = () => {
     bulkAction((id) => deleteTask(id).unwrap(), 'Deleted', 'Failed');
   };
 
-  // ── task action handlers ────────────────────────────────────
   const handleOpenTaskModal = (task) => setActionModal({ isOpen: true, task });
+
+  // ─── 👇 Edit now opens the modal instead of navigating to the task page ──
   const handleEditFromModal = (task) => {
-    navigate(`/workspace/${workspaceId}/project/${projectId}/task/${task._id}`);
+    setEditingTask(task);
   };
+
+  const handleEditTaskSubmit = useCallback(async (taskId, data) => {
+    const assigneeIds = data.assigneeIds || [];
+    const tempPatch = {
+      ...data,
+      assignees: assigneeIds.map((id) => {
+        const found = assignableMembers.find((m) => (m.user?._id || m._id) === id);
+        const u = found?.user || found;
+        return u ? { _id: u._id, name: u.name, profile: u.profile } : { _id: id, name: 'Loading...' };
+      }),
+      folder: data.folderId
+        ? (() => {
+            const f = folders.find((x) => x._id === data.folderId);
+            return f ? { _id: f._id, name: f.name } : null;
+          })()
+        : null,
+    };
+
+    const prevTasks = localTasks;
+    setLocalTasks((prev) => prev.map((t) => (t._id === taskId ? { ...t, ...tempPatch } : t)));
+
+    const fd = new FormData();
+    fd.append('title', data.title);
+    fd.append('description', data.description || '');
+    fd.append('priority', data.priority);
+    if (data.status) fd.append('status', data.status);
+    fd.append('estimatedHours', data.estimatedHours || '');
+    fd.append('bufferTime', data.bufferTime || 0);
+    fd.append('allowAssigneeEditSubtasks', data.allowAssigneeEditSubtasks ? 'true' : 'false');
+    fd.append('startDate', data.startDate || '');
+    fd.append('dueDate', data.dueDate || '');
+    fd.append('folderId', data.folderId || '');
+    fd.append('recurrenceType', data.recurrenceType || 'none');
+    if (data.recurrenceType === 'weekly') {
+      fd.append('recurrenceDays', JSON.stringify(data.recurrenceDays || []));
+    }
+    if (data.recurrenceEndDate) fd.append('recurrenceEndDate', data.recurrenceEndDate);
+    (data.links || []).forEach((l) => fd.append('links', l));
+    fd.append('assigneeIds', JSON.stringify(assigneeIds));
+    if (assigneeIds[0]) fd.append('assigneeId', assigneeIds[0]);
+    if (data.linkedNotes && data.linkedNotes.length > 0) {
+      fd.append('linkedNotes', JSON.stringify(data.linkedNotes));
+    } else {
+      fd.append('linkedNotes', JSON.stringify([]));
+    }
+
+    try {
+      const result = await updateTask({ taskId, data: fd }).unwrap();
+      if (result?.task) {
+        setLocalTasks((prev) => prev.map((t) => (t._id === taskId ? result.task : t)));
+      }
+      toast.success('Task updated');
+      refreshAll();
+    } catch (err) {
+      setLocalTasks(prevTasks);
+      throw err;
+    }
+  }, [updateTask, refreshAll, assignableMembers, folders, localTasks]);
+
   const handleCopyFromModal = (task) => setMoveCopy({ isOpen: true, task, mode: 'copy' });
   const handleMoveFromModal = (task) => setMoveCopy({ isOpen: true, task, mode: 'move' });
   const handleArchiveTask = async (taskId) => {
@@ -2014,6 +3138,7 @@ const YourWorkspaceProjectId = () => {
       progress: 0, assignees: assigneeIds.map((id) => ({ _id: id, name: 'Loading...' })),
       folder: formData.folderId ? { _id: formData.folderId, name: folders.find((f) => f._id === formData.folderId)?.name || 'Folder' } : null,
       dueDate: formData.dueDate || null, subTasks: [], recurrenceType: formData.recurrenceType || 'none',
+      linkedNotes: formData.linkedNotes || [],
     };
     setLocalTasks((prev) => [optimistic, ...prev]);
 
@@ -2034,6 +3159,9 @@ const YourWorkspaceProjectId = () => {
     if (formData.recurrenceEndDate) fd.append('recurrenceEndDate', formData.recurrenceEndDate);
     formData.links.forEach((l) => fd.append('links', l));
     formData.attachments.forEach((f) => fd.append('attachments', f));
+    if (formData.linkedNotes && formData.linkedNotes.length > 0) {
+      fd.append('linkedNotes', JSON.stringify(formData.linkedNotes));
+    }
 
     try {
       const result = await createTask(fd).unwrap();
@@ -2106,6 +3234,12 @@ const YourWorkspaceProjectId = () => {
         const assigneeIds = (task.assignees || []).map((a) => a._id || a).filter(Boolean);
         fd.append('assigneeIds', JSON.stringify(assigneeIds));
         if (assigneeIds[0]) fd.append('assigneeId', assigneeIds[0]);
+        // carry over linked notes as references
+        if (task.linkedNotes && task.linkedNotes.length > 0) {
+          fd.append('linkedNotes', JSON.stringify(
+            task.linkedNotes.map((ln) => ({ noteId: ln.note?._id || ln.note, source: ln.source }))
+          ));
+        }
         await createTask(fd).unwrap();
         toast.success(`Copied to ${folderId ? folders.find((f) => f._id === folderId)?.name || 'folder' : 'Uncategorized'}`);
       }
@@ -2136,7 +3270,6 @@ const YourWorkspaceProjectId = () => {
   const handleTouchStart = (id) => { longPress.current = setTimeout(() => { setFolderMenuOpen(id); if (navigator.vibrate) navigator.vibrate(50); }, 600); };
   const clearTouch = () => clearTimeout(longPress.current);
 
-  // ── Translate API errors into a friendly, non-redirecting screen ──
   const errorInfo = useMemo(() => {
     const err = wErr || pErr;
     if (!err) return null;
@@ -2369,9 +3502,22 @@ const YourWorkspaceProjectId = () => {
 
         <YourWorkspaceBottombar workspace={workspace} />
 
-        {/* Modals */}
         <SearchOverlay isOpen={searchOpen} onClose={() => setSearchOpen(false)} tasks={tasks} brandColor={brandColor} onSelect={(id) => navigate(`/workspace/${workspaceId}/project/${projectId}/task/${id}`)} />
-        <CreateTaskModal isOpen={showCreateTask} onClose={() => setShowCreateTask(false)} projectId={projectId} brandColor={brandColor} assignableMembers={assignableMembers} folders={folders} onSubmit={handleCreateTask} />
+        <CreateTaskModal isOpen={showCreateTask} onClose={() => setShowCreateTask(false)} projectId={projectId} workspaceId={workspaceId} brandColor={brandColor} assignableMembers={assignableMembers} folders={folders} onSubmit={handleCreateTask} />
+
+        {/* 👇 New — inline Edit Task modal */}
+        <EditTaskModal
+          isOpen={!!editingTask}
+          onClose={() => setEditingTask(null)}
+          task={editingTask}
+          projectId={projectId}
+          workspaceId={workspaceId}
+          brandColor={brandColor}
+          assignableMembers={assignableMembers}
+          folders={folders}
+          onSubmit={handleEditTaskSubmit}
+        />
+
         <FolderFormModal isOpen={showFolderForm} onClose={() => { setShowFolderForm(false); setEditingFolder(null); }} onSuccess={refetchFolders} folder={editingFolder} brandColor={brandColor} projectId={projectId} />
         <FolderReadOnlyModal isOpen={showReadOnly} onClose={() => { setShowReadOnly(false); setReadOnlyFolder(null); }} folder={readOnlyFolder} project={project} brandColor={brandColor} onSuccess={refetchFolders} />
         <FolderSelectModal isOpen={moveCopy.isOpen} onClose={() => setMoveCopy({ isOpen: false, task: null, mode: 'move' })} folders={folders} onSelect={handleMoveCopyConfirm} title={moveCopy.mode === 'copy' ? 'Copy task to folder' : 'Move task to folder'} />
@@ -2398,7 +3544,6 @@ const YourWorkspaceProjectId = () => {
           brandColor={brandColor}
         />
 
-        {/* AI */}
         <AIMenu
           isOpen={aiMenuOpen}
           onClose={() => setAiMenuOpen(false)}

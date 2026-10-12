@@ -4,6 +4,8 @@ import Project from '../models/projectModel.js';
 import Workspace from '../models/workspaceModel.js';
 import Folder from '../models/folderModel.js';
 import Feedback from '../models/feedbackModel.js';
+import PersonalNote from '../models/personalNoteModel.js';
+import WorkspaceNote from '../models/workspaceNoteModel.js';
 import { v2 as cloudinary } from 'cloudinary';
 import { createAndSendNotification } from './notificationController.js';
 import {
@@ -24,10 +26,6 @@ const isWorkspaceOwner = (workspace, userId) => {
   return ownerId === userId;
 };
 
-/**
- * Workspace admin — gets VIEW access to any task in the workspace, but
- * NOT manage rights (those stay with owner + project managers only).
- */
 const isWorkspaceAdmin = (workspace, userId) => {
   if (!workspace?.members || !userId) return false;
   return workspace.members.some((m) => {
@@ -55,11 +53,6 @@ const isTaskAssignee = (task, userId) =>
     return id === userId;
   });
 
-/**
- * Manager-level rights over this task.
- *   → workspace OWNER, project CREATOR, or PROJECT MANAGER.
- *   → Workspace ADMINS are explicitly NOT included here.
- */
 const canManageTasks = (workspace, project, userId) =>
   isWorkspaceOwner(workspace, userId) ||
   (project.createdBy && project.createdBy.toString() === userId) ||
@@ -80,14 +73,6 @@ const getVisibleFolderIdsForUser = async (projectId, userId) => {
   return Array.from(new Set([...assignedFolders, ...readOnlyFolders]));
 };
 
-/**
- * Read access — broader than manage access.
- *   - Managers (owner / creator / PM): yes
- *   - Workspace admins: yes (view-only)
- *   - Task assignees: yes
- *   - Task creator: yes
- *   - Project team members: yes
- */
 const canViewTask = (workspace, project, userId, task) => {
   if (canManageTasks(workspace, project, userId)) return true;
   if (isWorkspaceAdmin(workspace, userId)) return true;
@@ -122,10 +107,6 @@ const normalizeAttachments = (files) => {
   }));
 };
 
-/**
- * Ensure every provided user is an active workspace member and (if needed)
- * auto-add them to the project's team members.
- */
 const ensureProjectMembers = async (project, workspace, assigneeIds) => {
   let modified = false;
   for (const assigneeId of assigneeIds) {
@@ -160,12 +141,6 @@ const ensureProjectMembers = async (project, workspace, assigneeIds) => {
   if (modified) await project.save();
 };
 
-/**
- * Extract the assignee list from the request body. Accepts:
- *   - assigneeIds: array | JSON string | single id
- *   - assigneeId : single id (backward compat)
- * Returns a deduped array of string IDs.
- */
 const extractAssigneeIds = (body) => {
   const raw = [
     ...parseArrayField(body.assigneeIds),
@@ -174,14 +149,140 @@ const extractAssigneeIds = (body) => {
   return [...new Set(raw.map(String).filter(Boolean))];
 };
 
-// ─── Google Calendar sync ─────────────────────────────────────────
+// ─── Linked notes (workspace + personal) ─────────────────────────
 
 /**
- * Mirror a project task onto its CREATOR's Google Calendar.
- * Only synced tasks (syncToGoogleCalendar === true) are pushed, and
- * only when the creator has connected their Google account. All errors
- * are swallowed so a Google outage can never break task operations.
+ * Normalize whatever the client sends into a clean array of
+ * `{ note: <id-string>, source: 'workspace' | 'personal' }` objects.
+ * Accepts:
+ *   - an array of `{ noteId|_id|note, source }` objects
+ *   - a JSON-encoded array of the above
+ * Silently drops malformed entries.
  */
+const parseLinkedNotes = (value) => {
+  if (!value) return [];
+  let arr = value;
+  if (typeof value === 'string') {
+    try {
+      arr = JSON.parse(value);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(arr)) return [];
+
+  const seen = new Set();
+  const out = [];
+  for (const item of arr) {
+    if (!item) continue;
+    const rawId = item.noteId || item._id || item.note;
+    const source = item.source;
+    if (!rawId || !['workspace', 'personal'].includes(source)) continue;
+    const idStr = String(rawId);
+    const key = `${source}:${idStr}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ note: idStr, source });
+  }
+  return out;
+};
+
+/**
+ * Verify the caller can actually attach each linked note.
+ *  - personal → note must belong to the caller
+ *  - workspace → note must belong to the same workspace as the task's project
+ * Returns a fresh array of subdocuments ready to store, with `addedAt` set.
+ * Invalid entries are dropped silently so a stale ID never fails the whole save.
+ */
+const validateLinkedNotes = async (items, userId, workspaceId) => {
+  if (!items || items.length === 0) return [];
+
+  const personalIds = items.filter((i) => i.source === 'personal').map((i) => i.note);
+  const workspaceIds = items.filter((i) => i.source === 'workspace').map((i) => i.note);
+
+  const [personalNotes, workspaceNotes] = await Promise.all([
+    personalIds.length
+      ? PersonalNote.find({ _id: { $in: personalIds }, user: userId }).select('_id')
+      : [],
+    workspaceIds.length
+      ? WorkspaceNote.find({
+          _id: { $in: workspaceIds },
+          workspace: workspaceId,
+        }).select('_id')
+      : [],
+  ]);
+
+  const personalSet = new Set(personalNotes.map((n) => n._id.toString()));
+  const workspaceSet = new Set(workspaceNotes.map((n) => n._id.toString()));
+
+  const now = new Date();
+  const validated = [];
+  for (const item of items) {
+    if (item.source === 'personal' && personalSet.has(item.note)) {
+      validated.push({ note: item.note, source: 'personal', addedAt: now });
+    } else if (item.source === 'workspace' && workspaceSet.has(item.note)) {
+      validated.push({ note: item.note, source: 'workspace', addedAt: now });
+    }
+  }
+  return validated;
+};
+
+/**
+ * Hydrate a task's `linkedNotes` with `{ _id, title, content, updatedAt }`
+ * from the actual note documents so the client can render the full note
+ * body inline without extra round-trips.
+ * Returns a plain object (not a Mongoose doc). Deleted notes fall back to
+ * `{ _id, title: '[Deleted]', content: '' }` so the reference is still visible.
+ */
+const populateTaskLinkedNotes = async (task) => {
+  if (!task) return task;
+  const obj = typeof task.toObject === 'function' ? task.toObject() : task;
+
+  const links = obj.linkedNotes || [];
+  if (links.length === 0) {
+    obj.linkedNotes = [];
+    return obj;
+  }
+
+  const personalIds = links.filter((l) => l.source === 'personal').map((l) => l.note);
+  const workspaceIds = links.filter((l) => l.source === 'workspace').map((l) => l.note);
+
+  const [personalDocs, workspaceDocs] = await Promise.all([
+    personalIds.length
+      ? PersonalNote.find({ _id: { $in: personalIds } })
+          .select('title content updatedAt')
+      : [],
+    workspaceIds.length
+      ? WorkspaceNote.find({ _id: { $in: workspaceIds } })
+          .select('title content updatedAt')
+      : [],
+  ]);
+
+  const personalMap = new Map(personalDocs.map((n) => [n._id.toString(), n]));
+  const workspaceMap = new Map(workspaceDocs.map((n) => [n._id.toString(), n]));
+
+  obj.linkedNotes = links.map((ln) => {
+    const idStr = ln.note.toString();
+    const doc = ln.source === 'personal' ? personalMap.get(idStr) : workspaceMap.get(idStr);
+    return {
+      note: doc
+        ? {
+            _id: doc._id,
+            title: doc.title,
+            content: doc.content,
+            updatedAt: doc.updatedAt,
+          }
+        : { _id: ln.note, title: '[Deleted]', content: '' },
+      source: ln.source,
+      addedAt: ln.addedAt,
+    };
+  });
+
+  return obj;
+};
+
+// ─── Google Calendar sync ─────────────────────────────────────────
+
 const syncTaskToGoogle = async (task, action = 'create') => {
   if (!task.syncToGoogleCalendar) return;
   const ownerId = task.createdBy?.toString();
@@ -264,14 +365,6 @@ const parseRecurrence = (body) => {
   };
 };
 
-/**
- * If the task recurs, clone it into a fresh `pending` occurrence.
- * Mutates `task.recurrenceType` to 'none' when the chain ends.
- * Returns the new task or null.
- *
- * If the original was synced to Google Calendar, the new occurrence
- * is pushed to Google as a NEW event (it has its own event id).
- */
 const spawnNextTaskOccurrence = async (task) => {
   if (!task.recurrenceType || task.recurrenceType === 'none') return null;
   const nextDue = calculateNextDueDate(task, task.dueDate);
@@ -296,7 +389,7 @@ const spawnNextTaskOccurrence = async (task) => {
   data.completionNotes = null;
   data.completionFeedback = null;
   data.reminderSent = false;
-  data.googleEventId = null; // fresh event for the new occurrence
+  data.googleEventId = null;
   data.subTasks = (data.subTasks || []).map((st) => ({
     ...st,
     status: 'pending',
@@ -310,10 +403,10 @@ const spawnNextTaskOccurrence = async (task) => {
     rejectionReason: null,
     reminderSent: false,
   }));
+  // linkedNotes carries over automatically (just references).
 
   const newTask = await Task.create(data);
 
-  // Push the new occurrence to Google too, if the original was synced.
   if (newTask.syncToGoogleCalendar) {
     await syncTaskToGoogle(newTask, 'create');
   }
@@ -321,9 +414,6 @@ const spawnNextTaskOccurrence = async (task) => {
   return newTask;
 };
 
-/**
- * If a subtask recurs, insert a fresh pending occurrence right after it.
- */
 const spawnNextSubTaskOccurrence = (task, subTask, index) => {
   if (!subTask.recurrenceType || subTask.recurrenceType === 'none') return false;
   const nextDue = calculateNextDueDate(subTask, subTask.dueDate);
@@ -471,6 +561,7 @@ export const createTask = async (req, res) => {
     const links = parseArrayField(req.body.links);
     const deps = parseArrayField(dependencies);
     const assigneeIds = extractAssigneeIds(req.body);
+    const rawLinkedNotes = parseLinkedNotes(req.body.linkedNotes);
 
     if (!projectId || !title?.trim()) {
       return res.status(400).json({ success: false, message: 'projectId and title are required.' });
@@ -511,16 +602,21 @@ export const createTask = async (req, res) => {
       return res.status(400).json({ success: false, message: err.message });
     }
 
+    // Validate the linked notes up-front (silently drops inaccessible IDs).
+    const validatedLinkedNotes = await validateLinkedNotes(
+      rawLinkedNotes,
+      userId,
+      project.workspace.toString()
+    );
+
     const lastOrderedTask = await Task.findOne({ project: projectId })
       .sort({ order: -1 })
       .select('order');
     const nextOrder = (lastOrderedTask?.order ?? -1) + 1;
 
-    // ─── Auto-ready: assigned tasks skip the ceremony ─────────
     const hasAssignees = assigneeIds.length > 0;
     const initialStatus = hasAssignees ? 'ready_for_completion' : 'pending';
 
-    // Read the per-task Google Calendar opt-in from the request body.
     const wantsGoogleSync =
       req.body.syncToGoogleCalendar === 'true' ||
       req.body.syncToGoogleCalendar === true;
@@ -555,9 +651,9 @@ export const createTask = async (req, res) => {
       recurrenceEndDate: recurrenceData.recurrenceEndDate,
       syncToGoogleCalendar: wantsGoogleSync,
       googleEventId: null,
+      linkedNotes: validatedLinkedNotes,
     });
 
-    // Push to the creator's Google Calendar if they opted in.
     if (task.syncToGoogleCalendar) {
       await syncTaskToGoogle(task, 'create');
     }
@@ -583,7 +679,9 @@ export const createTask = async (req, res) => {
       .populate('createdBy', 'name email profile')
       .populate('folder', 'name');
 
-    res.status(201).json({ success: true, message: 'Task created', task: populated });
+    const hydrated = await populateTaskLinkedNotes(populated);
+
+    res.status(201).json({ success: true, message: 'Task created', task: hydrated });
   } catch (error) {
     console.error('❌ Create task error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -680,7 +778,17 @@ export const updateTask = async (req, res) => {
         }
       }
 
-      // ─── Google Calendar opt-in toggle (manager-only) ────
+      // ─── Linked notes (replace whole list when provided) ────
+      if (req.body.linkedNotes !== undefined) {
+        const rawItems = parseLinkedNotes(req.body.linkedNotes);
+        task.linkedNotes = await validateLinkedNotes(
+          rawItems,
+          userId,
+          project.workspace.toString()
+        );
+      }
+
+      // ─── Google Calendar opt-in toggle ────
       if (req.body.syncToGoogleCalendar !== undefined) {
         const wantsSync =
           req.body.syncToGoogleCalendar === 'true' ||
@@ -689,17 +797,15 @@ export const updateTask = async (req, res) => {
         task.syncToGoogleCalendar = wantsSync;
 
         if (wantsSync && !wasSync) {
-          // Just enabled — push the event now.
           await task.save();
           await syncTaskToGoogle(task, 'create');
         } else if (!wantsSync && wasSync) {
-          // Just disabled — remove the event.
           await task.save();
           await syncTaskToGoogle(task, 'delete');
         }
       }
 
-      // ─── Assignees update ────────────────────────────────
+      // ─── Assignees update ────
       if (req.body.assigneeIds !== undefined || req.body.assigneeId !== undefined) {
         const newIds = extractAssigneeIds(req.body);
         if (newIds.length > 0) {
@@ -747,7 +853,6 @@ export const updateTask = async (req, res) => {
     await task.save();
     await updateTaskProgress(task._id, { preserveStatus: statusExplicitlySet });
 
-    // Reflect any changes (title, dates, status) on Google Calendar.
     const freshTask = await Task.findById(task._id);
     await syncTaskToGoogle(freshTask, 'update');
 
@@ -756,7 +861,9 @@ export const updateTask = async (req, res) => {
       .populate('createdBy', 'name email profile')
       .populate('folder', 'name');
 
-    res.status(200).json({ success: true, message: 'Task updated', task: updated });
+    const hydrated = await populateTaskLinkedNotes(updated);
+
+    res.status(200).json({ success: true, message: 'Task updated', task: hydrated });
   } catch (error) {
     console.error('❌ Update task error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -798,7 +905,6 @@ export const assignTask = async (req, res) => {
     await task.save();
     await updateTaskProgress(task._id);
 
-    // Assignment changes can flip status → keep Google in sync.
     const freshTask = await Task.findById(task._id);
     await syncTaskToGoogle(freshTask, 'update');
 
@@ -821,7 +927,8 @@ export const assignTask = async (req, res) => {
       .populate('assignees', 'name email profile')
       .populate('createdBy', 'name email profile');
 
-    res.status(200).json({ success: true, task: updated });
+    const hydrated = await populateTaskLinkedNotes(updated);
+    res.status(200).json({ success: true, task: hydrated });
   } catch (error) {
     console.error('❌ Assign task error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -907,7 +1014,8 @@ export const addSubTask = async (req, res) => {
       .populate('assignees', 'name email profile')
       .populate('createdBy', 'name email profile');
 
-    res.status(201).json({ success: true, message: 'Sub‑task added', task: updated });
+    const hydrated = await populateTaskLinkedNotes(updated);
+    res.status(201).json({ success: true, message: 'Sub‑task added', task: hydrated });
   } catch (error) {
     console.error('❌ Add sub‑task error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -975,18 +1083,14 @@ export const updateSubTask = async (req, res) => {
       .populate('assignees', 'name email profile')
       .populate('createdBy', 'name email profile');
 
-    res.status(200).json({ success: true, message: 'Sub‑task updated', task: updated });
+    const hydrated = await populateTaskLinkedNotes(updated);
+    res.status(200).json({ success: true, message: 'Sub‑task updated', task: hydrated });
   } catch (error) {
     console.error('❌ Update sub‑task error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-/**
- * Mark a subtask done.
- *   - If a manager marks it → immediately `confirmed` (no second click).
- *   - If an assignee marks it → `done`, awaiting manager confirmation.
- */
 export const markSubTaskDone = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1093,10 +1197,11 @@ export const markSubTaskDone = async (req, res) => {
       .populate('assignees', 'name email profile')
       .populate('createdBy', 'name email profile');
 
+    const hydrated = await populateTaskLinkedNotes(updated);
     res.status(200).json({
       success: true,
       message: isManager ? 'Sub‑task completed and confirmed.' : 'Sub‑task marked done, awaiting confirmation.',
-      task: updated,
+      task: hydrated,
     });
   } catch (error) {
     console.error('❌ Mark sub‑task done error:', error);
@@ -1164,10 +1269,11 @@ export const confirmSubTask = async (req, res) => {
       .populate('assignees', 'name email profile')
       .populate('createdBy', 'name email profile');
 
+    const hydrated = await populateTaskLinkedNotes(updated);
     res.status(200).json({
       success: true,
       message: spawned ? 'Sub‑task confirmed; next occurrence created.' : 'Sub‑task confirmed',
-      task: updated,
+      task: hydrated,
     });
   } catch (error) {
     console.error('❌ Confirm sub‑task error:', error);
@@ -1233,7 +1339,8 @@ export const rejectSubTask = async (req, res) => {
       .populate('assignees', 'name email profile')
       .populate('createdBy', 'name email profile');
 
-    res.status(200).json({ success: true, message: 'Sub‑task rejected', task: updated });
+    const hydrated = await populateTaskLinkedNotes(updated);
+    res.status(200).json({ success: true, message: 'Sub‑task rejected', task: hydrated });
   } catch (error) {
     console.error('❌ Reject sub‑task error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -1279,7 +1386,8 @@ export const deleteSubTask = async (req, res) => {
       .populate('assignees', 'name email profile')
       .populate('createdBy', 'name email profile');
 
-    res.status(200).json({ success: true, message: 'Sub‑task deleted', task: updated });
+    const hydrated = await populateTaskLinkedNotes(updated);
+    res.status(200).json({ success: true, message: 'Sub‑task deleted', task: hydrated });
   } catch (error) {
     console.error('❌ Delete sub‑task error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -1288,8 +1396,6 @@ export const deleteSubTask = async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────
 // TASK COMPLETION
-//   - Assignee clicks "mark done" → `completed`, awaits PM confirm.
-//   - PM/owner clicks "mark done" → `confirmed_completed` instantly.
 // ─────────────────────────────────────────────────────────────────────
 
 export const markTaskCompleted = async (req, res) => {
@@ -1365,8 +1471,6 @@ export const markTaskCompleted = async (req, res) => {
     }
 
     await updateProjectProgress(task.project);
-
-    // Reflect the new status on Google Calendar.
     await syncTaskToGoogle(task, 'update');
 
     const assigneeIds = (task.assignees || []).map((a) => a.toString());
@@ -1423,6 +1527,8 @@ export const markTaskCompleted = async (req, res) => {
       .populate('completedBy', 'name email profile')
       .populate('confirmedBy', 'name email profile');
 
+    const hydrated = await populateTaskLinkedNotes(updated);
+
     res.status(200).json({
       success: true,
       message: isManager
@@ -1430,7 +1536,7 @@ export const markTaskCompleted = async (req, res) => {
           ? 'Task completed, confirmed, and next occurrence created.'
           : 'Task completed and confirmed.'
         : 'Task marked done, awaiting confirmation.',
-      task: updated,
+      task: hydrated,
     });
   } catch (error) {
     console.error('❌ Mark task completed error:', error);
@@ -1476,8 +1582,6 @@ export const confirmTaskCompletion = async (req, res) => {
     if (spawned) await task.save();
 
     await updateProjectProgress(task.project);
-
-    // Reflect the confirmed-complete status on Google Calendar.
     await syncTaskToGoogle(task, 'update');
 
     const assigneeIds = (task.assignees || []).map((a) => a.toString());
@@ -1501,10 +1605,12 @@ export const confirmTaskCompletion = async (req, res) => {
       .populate('createdBy', 'name email profile')
       .populate('confirmedBy', 'name email profile');
 
+    const hydrated = await populateTaskLinkedNotes(updated);
+
     res.status(200).json({
       success: true,
       message: spawned ? 'Task confirmed; next occurrence created.' : 'Task completion confirmed',
-      task: updated,
+      task: hydrated,
     });
   } catch (error) {
     console.error('❌ Confirm task completion error:', error);
@@ -1543,8 +1649,6 @@ export const rejectTask = async (req, res) => {
     task.completedAt = null;
 
     await task.save();
-
-    // Status moved back → update Google Calendar.
     await syncTaskToGoogle(task, 'update');
 
     const assigneeIds = (task.assignees || []).map((a) => a.toString());
@@ -1567,7 +1671,8 @@ export const rejectTask = async (req, res) => {
       .populate('assignees', 'name email profile')
       .populate('createdBy', 'name email profile');
 
-    res.status(200).json({ success: true, message: 'Task rejected', task: updated });
+    const hydrated = await populateTaskLinkedNotes(updated);
+    res.status(200).json({ success: true, message: 'Task rejected', task: hydrated });
   } catch (error) {
     console.error('❌ Reject task error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -1611,7 +1716,6 @@ export const getProjectTasks = async (req, res) => {
     if (taskType) query.taskType = taskType;
     if (folderId) query.folder = folderId;
 
-    // Managers + admins see everything. Plain members only see their own.
     if (isOwner || isAdmin || isPM) {
       if (assigneeId) query.assignees = assigneeId;
     } else {
@@ -1628,7 +1732,12 @@ export const getProjectTasks = async (req, res) => {
       .populate('folder', 'name')
       .sort({ order: 1, createdAt: -1 });
 
-    res.status(200).json({ success: true, tasks, count: tasks.length });
+    // Hydrate linked notes for every task in parallel.
+    const hydratedTasks = await Promise.all(
+      tasks.map((t) => populateTaskLinkedNotes(t))
+    );
+
+    res.status(200).json({ success: true, tasks: hydratedTasks, count: hydratedTasks.length });
   } catch (error) {
     console.error('❌ Get project tasks error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -1651,7 +1760,11 @@ export const getMyTasks = async (req, res) => {
       .populate('createdBy', 'name email profile')
       .sort({ dueDate: 1, createdAt: -1 });
 
-    res.status(200).json({ success: true, tasks, count: tasks.length });
+    const hydratedTasks = await Promise.all(
+      tasks.map((t) => populateTaskLinkedNotes(t))
+    );
+
+    res.status(200).json({ success: true, tasks: hydratedTasks, count: hydratedTasks.length });
   } catch (error) {
     console.error('❌ Get my tasks error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -1681,7 +1794,8 @@ export const getTaskById = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Access denied.' });
     }
 
-    res.status(200).json({ success: true, task });
+    const hydrated = await populateTaskLinkedNotes(task);
+    res.status(200).json({ success: true, task: hydrated });
   } catch (error) {
     console.error('❌ Get task error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -1707,7 +1821,6 @@ export const deleteTask = async (req, res) => {
     task.isArchived = false;
     await task.save();
 
-    // Trash = remove from Google Calendar too.
     await syncTaskToGoogle(task, 'delete');
 
     res.status(200).json({ success: true, message: 'Task moved to trash (auto‑delete in 30 days).' });
@@ -1736,7 +1849,6 @@ export const archiveTask = async (req, res) => {
     task.isTrash = false;
     await task.save();
 
-    // Archives stay on Google Calendar — the task is still "real", just hidden.
     res.status(200).json({ success: true, message: 'Task archived' });
   } catch (error) {
     console.error('❌ Archive task error:', error);
@@ -1765,7 +1877,6 @@ export const restoreTask = async (req, res) => {
     task.trashedAt = null;
     await task.save();
 
-    // Coming back from trash → recreate the Google event if it was deleted.
     if (wasTrashed && task.syncToGoogleCalendar && !task.googleEventId) {
       await syncTaskToGoogle(task, 'create');
     }
@@ -1791,8 +1902,6 @@ export const permanentlyDeleteTask = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Not authorized.' });
     }
 
-    // Safety net: if the event still exists (e.g. task was hard-deleted
-    // from trash before ever being trashed properly), remove it now.
     if (task.syncToGoogleCalendar && task.googleEventId) {
       await syncTaskToGoogle(task, 'delete');
     }
@@ -2195,12 +2304,12 @@ export const copyTask = async (req, res) => {
     taskData.title = `${taskData.title} (copy)`;
     taskData.status = (taskData.assignees?.length || 0) > 0 ? 'ready_for_completion' : 'pending';
     taskData.progress = 0;
-    taskData.googleEventId = null; // copy gets its own Google event
+    taskData.googleEventId = null;
     taskData.subTasks = taskData.subTasks.map((st) => ({ ...st, status: 'pending' }));
+    // linkedNotes carries over as-is (references only).
 
     const newTask = await Task.create(taskData);
 
-    // If the original was synced, push a fresh event for the copy.
     if (newTask.syncToGoogleCalendar) {
       await syncTaskToGoogle(newTask, 'create');
     }
@@ -2210,7 +2319,8 @@ export const copyTask = async (req, res) => {
       .populate('createdBy', 'name email profile')
       .populate('folder', 'name');
 
-    res.status(201).json({ success: true, message: 'Task copied', task: populated });
+    const hydrated = await populateTaskLinkedNotes(populated);
+    res.status(201).json({ success: true, message: 'Task copied', task: hydrated });
   } catch (error) {
     console.error('❌ Copy task error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -2244,7 +2354,8 @@ export const moveTask = async (req, res) => {
 
     await task.save();
     const updated = await Task.findById(taskId).populate('folder', 'name');
-    res.status(200).json({ success: true, message: 'Task moved', task: updated });
+    const hydrated = await populateTaskLinkedNotes(updated);
+    res.status(200).json({ success: true, message: 'Task moved', task: hydrated });
   } catch (error) {
     console.error('❌ Move task error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -2269,7 +2380,6 @@ export const reorderTasks = async (req, res) => {
     }));
     await Task.bulkWrite(updates);
 
-    // No Google sync — order is an in-app concept only.
     res.status(200).json({ success: true, message: 'Tasks reordered' });
   } catch (error) {
     console.error('Reorder tasks error:', error);
@@ -2443,7 +2553,6 @@ export const permanentlyDeleteTrashedTasks = async () => {
 
   const trashedTasks = await Task.find({ isTrash: true, trashedAt: { $lte: thirtyDaysAgo } });
   for (const task of trashedTasks) {
-    // Safety-net Google cleanup before the DB record disappears.
     if (task.syncToGoogleCalendar && task.googleEventId) {
       await syncTaskToGoogle(task, 'delete');
     }

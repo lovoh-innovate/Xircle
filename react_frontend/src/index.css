@@ -35,16 +35,22 @@
     text-size-adjust: 100%;
   }
 
-  /* iOS Safari auto-zooms the whole page when an input with
-     font-size < 16px gains focus. Tailwind utility classes like
-     text-sm (14px) or text-xs (12px) override our base rule, so we
-     need !important to win against the utilities layer.
-     This rule alone fixes ~95% of the input-zoom complaints. */
+  /* Prevent iOS Safari auto-zoom on focused form controls without
+     overriding Tailwind font-size utilities on desktop.
+     Applies only on small screens and only to elements that trigger
+     the zoom behavior (inputs, textareas, selects — not buttons). */
+  @media (max-width: 767px) {
+    input,
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
+  }
+
   input,
   textarea,
   select,
   button {
-    font-size: 16px !important;
     touch-action: manipulation;
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
