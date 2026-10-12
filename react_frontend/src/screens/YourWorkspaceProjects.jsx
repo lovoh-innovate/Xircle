@@ -1,5 +1,6 @@
 // src/workspaceScreens/YourWorkspaceProjects.jsx
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
@@ -31,7 +32,7 @@ import {
   FaChevronDown, FaChartPie, FaArchive, FaUndo, FaTrashRestore,
   FaMagic, FaPaperPlane, FaExclamationTriangle, FaCheck, FaUser,
   FaHeartbeat, FaLightbulb, FaFileAlt, FaDownload, FaExclamationCircle,
-  FaAngleDown, FaPalette,
+  FaAngleDown, FaPalette, FaCalendarAlt, FaAngleLeft, FaAngleRight,
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
@@ -57,7 +58,7 @@ const PROJECT_COLORS = [
 
 const DEFAULT_PROJECT_COLOR = PROJECT_COLORS[0].value;
 
-// Reusable color swatch picker
+// ─── Reusable color swatch picker ──────────────────────────────────────
 const ColorPicker = ({ value, onChange, disabled = false }) => (
   <div className="flex flex-wrap gap-2">
     {PROJECT_COLORS.map((c) => {
@@ -88,6 +89,430 @@ const ColorPicker = ({ value, onChange, disabled = false }) => (
     })}
   </div>
 );
+
+// ─── Custom Dropdown ───────────────────────────────────────────────────
+const CustomDropdown = ({ value, onChange, options, placeholder = 'Select', disabled = false }) => {
+  const [open, setOpen] = useState(false);
+  const [popupPos, setPopupPos] = useState({
+    top: 'auto', bottom: 'auto', left: -9999, width: 0, maxHeight: 260,
+  });
+
+  const wrapperRef = useRef(null);
+  const triggerRef = useRef(null);
+  const popupRef = useRef(null);
+
+  const MAX_POPUP_H = 260;
+  const MIN_POPUP_H = 80;
+  const GAP = 6;
+  const EDGE = 8;
+
+  const computePosition = useCallback(() => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    const spaceBelow = vh - rect.bottom - GAP - EDGE;
+    const spaceAbove = rect.top - GAP - EDGE;
+
+    let top = 'auto';
+    let bottom = 'auto';
+    let maxHeight = MAX_POPUP_H;
+
+    // Prefer below when it fits (or has more room); otherwise anchor flush above.
+    if (spaceBelow >= MAX_POPUP_H || spaceBelow >= spaceAbove) {
+      top = rect.bottom + GAP;
+      maxHeight = Math.max(MIN_POPUP_H, Math.min(MAX_POPUP_H, spaceBelow));
+    } else {
+      bottom = vh - rect.top + GAP;
+      maxHeight = Math.max(MIN_POPUP_H, Math.min(MAX_POPUP_H, spaceAbove));
+    }
+
+    let left = rect.left;
+    const width = rect.width;
+    if (left + width > vw - EDGE) left = vw - width - EDGE;
+    if (left < EDGE) left = EDGE;
+
+    setPopupPos({ top, bottom, left, width, maxHeight });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    computePosition();
+    const onWinChange = () => computePosition();
+    window.addEventListener('resize', onWinChange);
+    window.addEventListener('scroll', onWinChange, true);
+    return () => {
+      window.removeEventListener('resize', onWinChange);
+      window.removeEventListener('scroll', onWinChange, true);
+    };
+  }, [open, computePosition]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => {
+      const inWrapper = wrapperRef.current && wrapperRef.current.contains(e.target);
+      const inPopup = popupRef.current && popupRef.current.contains(e.target);
+      if (!inWrapper && !inPopup) setOpen(false);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const selected = options.find((o) => o.value === value);
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => !disabled && setOpen((v) => !v)}
+        disabled={disabled}
+        className="w-full flex items-center justify-between gap-2 px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-left text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none disabled:opacity-50 disabled:cursor-not-allowed transition"
+      >
+        <span className={`truncate ${selected ? '' : 'text-gray-400 dark:text-gray-500'}`}>
+          {selected ? selected.label : placeholder}
+        </span>
+        <FaAngleDown className={`text-gray-400 text-xs shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && !disabled && createPortal(
+        <div
+          ref={popupRef}
+          style={{
+            top: popupPos.top,
+            bottom: popupPos.bottom,
+            left: popupPos.left,
+            width: popupPos.width,
+            maxHeight: popupPos.maxHeight,
+          }}
+          className="fixed z-[100] bg-white dark:bg-[#1a1a24] border border-gray-200 dark:border-gray-800/60 rounded-xl shadow-xl py-1 overflow-y-auto"
+        >
+          {options.map((o) => {
+            const isSel = o.value === value;
+            return (
+              <button
+                key={o.value}
+                type="button"
+                onClick={() => { onChange(o.value); setOpen(false); }}
+                className={`w-full flex items-center justify-between gap-2 px-3.5 py-2 text-sm text-left transition ${
+                  isSel
+                    ? 'bg-[#0d9488]/10 text-[#0d9488] font-medium'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/60'
+                }`}
+              >
+                <span>{o.label}</span>
+                {isSel && <FaCheck className="text-[10px] text-[#0d9488] shrink-0" />}
+              </button>
+            );
+          })}
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+};
+
+// ─── Custom DateTime Picker ────────────────────────────────────────────
+const CustomDateTimePicker = ({ value, onChange, placeholder = 'Select date & time', disabled = false }) => {
+  const [open, setOpen] = useState(false);
+  const [popupPos, setPopupPos] = useState({
+    top: 'auto', bottom: 'auto', left: -9999, maxHeight: 420,
+  });
+
+  const wrapperRef = useRef(null);
+  const triggerRef = useRef(null);
+  const popupRef = useRef(null);
+
+  const POPUP_W = 290;
+  const MAX_POPUP_H = 420;
+  const MIN_POPUP_H = 220;
+  const GAP = 6;
+  const EDGE = 8;
+
+  const initialDate = value ? new Date(value) : null;
+  const [selected, setSelected] = useState(initialDate);
+  const [viewDate, setViewDate] = useState(initialDate || new Date());
+  const [hour, setHour] = useState(initialDate ? initialDate.getHours() : 12);
+  const [minute, setMinute] = useState(initialDate ? initialDate.getMinutes() : 0);
+
+  const computePosition = useCallback(() => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    const spaceBelow = vh - rect.bottom - GAP - EDGE;
+    const spaceAbove = rect.top - GAP - EDGE;
+
+    let top = 'auto';
+    let bottom = 'auto';
+    let maxHeight = MAX_POPUP_H;
+
+    // Prefer below when it fits (or has more room); otherwise anchor flush above.
+    if (spaceBelow >= MAX_POPUP_H || spaceBelow >= spaceAbove) {
+      top = rect.bottom + GAP;
+      maxHeight = Math.max(MIN_POPUP_H, Math.min(MAX_POPUP_H, spaceBelow));
+    } else {
+      bottom = vh - rect.top + GAP;
+      maxHeight = Math.max(MIN_POPUP_H, Math.min(MAX_POPUP_H, spaceAbove));
+    }
+
+    let left = rect.left;
+    if (left + POPUP_W > vw - EDGE) left = vw - POPUP_W - EDGE;
+    if (left < EDGE) left = EDGE;
+
+    setPopupPos({ top, bottom, left, maxHeight });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    computePosition();
+    const onWinChange = () => computePosition();
+    window.addEventListener('resize', onWinChange);
+    window.addEventListener('scroll', onWinChange, true);
+    return () => {
+      window.removeEventListener('resize', onWinChange);
+      window.removeEventListener('scroll', onWinChange, true);
+    };
+  }, [open, computePosition]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => {
+      const inWrapper = wrapperRef.current && wrapperRef.current.contains(e.target);
+      const inPopup = popupRef.current && popupRef.current.contains(e.target);
+      if (!inWrapper && !inPopup) setOpen(false);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  // Sync when the value prop changes externally
+  useEffect(() => {
+    if (value) {
+      const d = new Date(value);
+      setSelected(d);
+      setViewDate(d);
+      setHour(d.getHours());
+      setMinute(d.getMinutes());
+    } else {
+      setSelected(null);
+    }
+  }, [value]);
+
+  const pad = (n) => String(n).padStart(2, '0');
+
+  const monthName = viewDate.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+  const firstDay = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1).getDay();
+  const daysInMonth = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0).getDate();
+
+  const cells = [];
+  for (let i = 0; i < firstDay; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const isSameDay = (a, b) =>
+    a && b && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+
+  const isToday = (d) => {
+    const t = new Date();
+    return d && t.getFullYear() === viewDate.getFullYear() && t.getMonth() === viewDate.getMonth() && t.getDate() === d;
+  };
+
+  const commit = (d, h, m) => {
+    if (!d) return;
+    const dd = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m, 0, 0);
+    onChange(`${dd.getFullYear()}-${pad(dd.getMonth() + 1)}-${pad(dd.getDate())}T${pad(dd.getHours())}:${pad(dd.getMinutes())}`);
+  };
+
+  const pickDay = (d) => {
+    const nd = new Date(viewDate.getFullYear(), viewDate.getMonth(), d);
+    setSelected(nd);
+    commit(nd, hour, minute);
+  };
+
+  const pickHour = (h) => {
+    const v = Math.max(0, Math.min(23, h || 0));
+    setHour(v);
+    if (selected) commit(selected, v, minute);
+  };
+
+  const pickMinute = (m) => {
+    const v = Math.max(0, Math.min(59, m || 0));
+    setMinute(v);
+    if (selected) commit(selected, hour, v);
+  };
+
+  const handleToday = () => {
+    const t = new Date();
+    setSelected(t);
+    setViewDate(t);
+    setHour(t.getHours());
+    setMinute(t.getMinutes());
+    commit(t, t.getHours(), t.getMinutes());
+  };
+
+  const handleClear = () => {
+    setSelected(null);
+    onChange('');
+  };
+
+  const display = selected
+    ? `${selected.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · ${pad(hour)}:${pad(minute)}`
+    : '';
+
+  const weekdays = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => !disabled && setOpen((v) => !v)}
+        disabled={disabled}
+        className="w-full flex items-center justify-between gap-2 px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-left text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none disabled:opacity-50 disabled:cursor-not-allowed transition"
+      >
+        <span className={`truncate ${display ? '' : 'text-gray-400 dark:text-gray-500'}`}>
+          {display || placeholder}
+        </span>
+        <FaCalendarAlt className="text-gray-400 text-xs shrink-0" />
+      </button>
+
+      {open && !disabled && createPortal(
+        <div
+          ref={popupRef}
+          style={{
+            top: popupPos.top,
+            bottom: popupPos.bottom,
+            left: popupPos.left,
+            width: POPUP_W,
+            maxHeight: popupPos.maxHeight,
+          }}
+          className="fixed z-[100] bg-white dark:bg-[#1a1a24] border border-gray-200 dark:border-gray-800/60 rounded-2xl shadow-2xl p-3 overflow-y-auto"
+        >
+          {/* Month nav */}
+          <div className="flex items-center justify-between mb-2">
+            <button
+              type="button"
+              onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1))}
+              className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-[#0d9488] hover:bg-[#0d9488]/10 rounded-lg transition"
+            >
+              <FaAngleLeft className="text-xs" />
+            </button>
+            <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">{monthName}</span>
+            <button
+              type="button"
+              onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1))}
+              className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-[#0d9488] hover:bg-[#0d9488]/10 rounded-lg transition"
+            >
+              <FaAngleRight className="text-xs" />
+            </button>
+          </div>
+
+          {/* Weekday header */}
+          <div className="grid grid-cols-7 gap-0.5 mb-1">
+            {weekdays.map((w) => (
+              <div key={w} className="text-center text-[10px] font-semibold text-gray-400 dark:text-gray-500 py-1">
+                {w}
+              </div>
+            ))}
+          </div>
+
+          {/* Days */}
+          <div className="grid grid-cols-7 gap-0.5">
+            {cells.map((d, i) => {
+              if (d === null) return <div key={i} />;
+              const cellDate = new Date(viewDate.getFullYear(), viewDate.getMonth(), d);
+              const isSel = isSameDay(selected, cellDate);
+              const isTod = isToday(d);
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => pickDay(d)}
+                  className={`aspect-square text-xs rounded-lg transition flex items-center justify-center ${
+                    isSel
+                      ? 'bg-[#0d9488] text-white font-semibold shadow-sm'
+                      : isTod
+                        ? 'text-[#0d9488] font-semibold hover:bg-[#0d9488]/10'
+                        : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/60'
+                  }`}
+                >
+                  {d}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Time */}
+          <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-800/60">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-medium text-gray-500 dark:text-gray-500 uppercase tracking-wide flex-1">
+                Time
+              </span>
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={pad(hour)}
+                  onChange={(e) => pickHour(parseInt(e.target.value, 10))}
+                  className="w-12 px-1.5 py-1 text-center text-sm bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800/60 rounded-lg text-gray-800 dark:text-gray-200 outline-none focus:border-[#0d9488]"
+                />
+                <span className="text-gray-400 text-sm">:</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={59}
+                  value={pad(minute)}
+                  onChange={(e) => pickMinute(parseInt(e.target.value, 10))}
+                  className="w-12 px-1.5 py-1 text-center text-sm bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800/60 rounded-lg text-gray-800 dark:text-gray-200 outline-none focus:border-[#0d9488]"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="mt-3 pt-2 border-t border-gray-200 dark:border-gray-800/60 flex items-center gap-1">
+            <button
+              type="button"
+              onClick={handleToday}
+              className="flex-1 text-xs py-1.5 text-[#0d9488] font-medium rounded-lg hover:bg-[#0d9488]/10 transition"
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              onClick={handleClear}
+              className="flex-1 text-xs py-1.5 text-gray-500 dark:text-gray-400 font-medium rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/60 transition"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="flex-1 text-xs py-1.5 text-white font-medium rounded-lg transition hover:opacity-90"
+              style={{ backgroundColor: '#0d9488' }}
+            >
+              Done
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+};
 
 // Helper: treat progress >= 100 as completed
 const isProjectCompleted = (p) => p.status === 'completed' || (p.progress || 0) >= 100;
@@ -238,16 +663,38 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [color, setColor] = useState(workspace?.color || DEFAULT_PROJECT_COLOR);
+  const [status, setStatus] = useState('planning');
+  const [priority, setPriority] = useState('medium');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [showMore, setShowMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [createProject] = useCreateProjectMutation();
-  const brandColor = workspace?.color || '#0d9488';
 
-  // Reset fields when the modal re-opens
+  const STATUS_OPTIONS = [
+    { value: 'planning', label: 'Planning' },
+    { value: 'in-progress', label: 'In Progress' },
+    { value: 'on-hold', label: 'On Hold' },
+  ];
+
+  const PRIORITY_OPTIONS = [
+    { value: 'low', label: 'Low' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'high', label: 'High' },
+    { value: 'urgent', label: 'Urgent' },
+  ];
+
+  // Reset all fields when the modal re-opens
   useEffect(() => {
     if (isOpen) {
       setName('');
       setDescription('');
       setColor(workspace?.color || DEFAULT_PROJECT_COLOR);
+      setStatus('planning');
+      setPriority('medium');
+      setStartDate('');
+      setEndDate('');
+      setShowMore(false);
     }
   }, [isOpen, workspace?.color]);
 
@@ -261,6 +708,10 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
       fd.append('name', name.trim());
       fd.append('description', description.trim());
       fd.append('color', color);
+      fd.append('status', status);
+      fd.append('priority', priority);
+      if (startDate) fd.append('startDate', startDate);
+      if (endDate) fd.append('endDate', endDate);
       await createProject({ workspaceId: workspace._id, data: fd }).unwrap();
       toast.success('Project created!');
       onCreated && onCreated();
@@ -268,7 +719,9 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
     } catch (err) { toast.error(err?.data?.message || 'Failed to create project'); }
     finally { setLoading(false); }
   };
+
   if (!isOpen) return null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
       <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
@@ -281,33 +734,117 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
           </h2>
           <button onClick={onClose} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"><FaTimes /></button>
         </div>
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Project Name *</label>
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)}
-              className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" required />
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
+              required
+            />
           </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Description</label>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3}
-              className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
+            />
           </div>
+
           <div>
             <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-400 mb-2">
               <FaPalette className="text-xs" /> Color
-              <span
-                className="ml-auto inline-flex items-center gap-1.5 text-xs font-normal text-gray-500 dark:text-gray-500"
-                aria-hidden="true"
-              >
+              <span className="ml-auto inline-flex items-center gap-1.5 text-xs font-normal text-gray-500 dark:text-gray-500">
                 <span className="w-3 h-3 rounded-full ring-1 ring-black/10 dark:ring-white/10" style={{ backgroundColor: color }} />
                 {PROJECT_COLORS.find((c) => c.value.toLowerCase() === color.toLowerCase())?.name || 'Custom'}
               </span>
             </label>
             <ColorPicker value={color} onChange={setColor} disabled={loading} />
           </div>
+
+          {/* Optional details toggle */}
+          <button
+            type="button"
+            onClick={() => setShowMore((v) => !v)}
+            className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-700/60 rounded-xl text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/40 transition"
+          >
+            <span className="font-medium">Add more details (optional)</span>
+            <span className="flex items-center gap-1 text-gray-400">
+              <span className="text-[10px]">{showMore ? 'Hide' : 'Show'}</span>
+              <FaAngleDown className={`text-[10px] transition-transform ${showMore ? 'rotate-180' : ''}`} />
+            </span>
+          </button>
+
+          {showMore && (
+            <div className="space-y-3 pt-1">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Status</label>
+                  <CustomDropdown
+                    value={status}
+                    onChange={setStatus}
+                    options={STATUS_OPTIONS}
+                    placeholder="Select"
+                    disabled={loading}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Priority</label>
+                  <CustomDropdown
+                    value={priority}
+                    onChange={setPriority}
+                    options={PRIORITY_OPTIONS}
+                    placeholder="Select"
+                    disabled={loading}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Start Date</label>
+                  <CustomDateTimePicker
+                    value={startDate}
+                    onChange={setStartDate}
+                    placeholder="Pick start"
+                    disabled={loading}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">End Date</label>
+                  <CustomDateTimePicker
+                    value={endDate}
+                    onChange={setEndDate}
+                    placeholder="Pick end"
+                    disabled={loading}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
-            <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-90 disabled:opacity-50" style={{ backgroundColor: color }}>{loading ? 'Creating...' : 'Create Project'}</button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-90 disabled:opacity-50"
+              style={{ backgroundColor: color }}
+            >
+              {loading ? 'Creating...' : 'Create Project'}
+            </button>
           </div>
         </form>
       </div>
@@ -327,6 +864,21 @@ const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor,
   const [loading, setLoading] = useState(false);
   const [updateProject] = useUpdateProjectMutation();
   const { data: projectData, isLoading: projectLoading } = useGetProjectByIdQuery(projectId, { skip: !isOpen || !projectId });
+
+  const STATUS_OPTIONS = [
+    { value: 'planning', label: 'Planning' },
+    { value: 'in-progress', label: 'In Progress' },
+    { value: 'on-hold', label: 'On Hold' },
+    { value: 'completed', label: 'Completed' },
+    { value: 'cancelled', label: 'Cancelled' },
+  ];
+
+  const PRIORITY_OPTIONS = [
+    { value: 'low', label: 'Low' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'high', label: 'High' },
+    { value: 'urgent', label: 'Urgent' },
+  ];
 
   useEffect(() => {
     if (projectData?.project) {
@@ -398,26 +950,42 @@ const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor,
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Status</label>
-                <select value={status} onChange={(e) => setStatus(e.target.value)} className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none">
-                  <option value="planning">Planning</option>
-                  <option value="in-progress">In Progress</option>
-                  <option value="completed">Completed</option>
-                </select>
+                <CustomDropdown
+                  value={status}
+                  onChange={setStatus}
+                  options={STATUS_OPTIONS}
+                  placeholder="Select status"
+                  disabled={loading}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Priority</label>
-                <select value={priority} onChange={(e) => setPriority(e.target.value)} className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none">
-                  <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
-                </select>
+                <CustomDropdown
+                  value={priority}
+                  onChange={setPriority}
+                  options={PRIORITY_OPTIONS}
+                  placeholder="Select priority"
+                  disabled={loading}
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Start Date</label>
-                  <input type="datetime-local" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
+                  <CustomDateTimePicker
+                    value={startDate}
+                    onChange={setStartDate}
+                    placeholder="Pick start"
+                    disabled={loading}
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">End Date</label>
-                  <input type="datetime-local" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
+                  <CustomDateTimePicker
+                    value={endDate}
+                    onChange={setEndDate}
+                    placeholder="Pick end"
+                    disabled={loading}
+                  />
                 </div>
               </div>
               <div className="flex gap-3 pt-2">
