@@ -33,6 +33,8 @@ import {
   FaMagic, FaPaperPlane, FaExclamationTriangle, FaCheck, FaUser,
   FaHeartbeat, FaLightbulb, FaFileAlt, FaDownload, FaExclamationCircle,
   FaAngleDown, FaPalette, FaCalendarAlt, FaAngleLeft, FaAngleRight,
+  FaThLarge, FaList,
+  FaBolt, FaCube, FaStar, FaFire, FaFeather, FaCrown, FaGem, FaCompass, FaLayerGroup,
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
@@ -57,6 +59,115 @@ const PROJECT_COLORS = [
 ];
 
 const DEFAULT_PROJECT_COLOR = PROJECT_COLORS[0].value;
+
+// ─── Color utilities ──────────────────────────────────────────────────
+const NAMED_TO_HEX = {
+  red: '#ef4444', blue: '#3b82f6', green: '#22c55e', yellow: '#eab308',
+  orange: '#f97316', purple: '#a855f7', pink: '#ec4899', teal: '#14b8a6',
+  indigo: '#6366f1', gray: '#6b7280', grey: '#6b7280', slate: '#64748b',
+  emerald: '#10b981', rose: '#f43f5e', amber: '#f59e0b', cyan: '#06b6d4',
+  violet: '#8b5cf6',
+};
+
+const toHex = (color) => {
+  if (!color) return '#0d9488';
+  const c = String(color).trim().toLowerCase();
+  if (c.startsWith('#')) return c;
+  return NAMED_TO_HEX[c] || '#0d9488';
+};
+
+const shadeHex = (hex, percent) => {
+  const h = String(hex || '').replace('#', '');
+  if (h.length !== 3 && h.length !== 6) return hex;
+  const full = h.length === 3 ? h.split('').map((ch) => ch + ch).join('') : h;
+  const num = parseInt(full, 16);
+  if (Number.isNaN(num)) return hex;
+  const amt = Math.round(2.55 * percent);
+  const r = Math.max(0, Math.min(255, (num >> 16) + amt));
+  const g = Math.max(0, Math.min(255, ((num >> 8) & 0x00ff) + amt));
+  const b = Math.max(0, Math.min(255, (num & 0x0000ff) + amt));
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+};
+
+// ─── Fun per-project icon ─────────────────────────────────────────────
+const PROJECT_ICONS = [
+  FaRocket, FaBolt, FaLightbulb, FaCube, FaStar,
+  FaFire, FaFeather, FaCrown, FaGem, FaCompass, FaLayerGroup,
+];
+
+const hashString = (str) => {
+  let h = 0;
+  const s = String(str || '');
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+};
+
+const pickProjectIcon = (project) => {
+  const seed = project?._id || project?.name || '';
+  if (!seed) return PROJECT_ICONS[0];
+  return PROJECT_ICONS[hashString(seed) % PROJECT_ICONS.length];
+};
+
+// ─── Member normalization ─────────────────────────────────────────────
+// Server returns teamMembers as wrappers: { user: {...}, role, status }
+// and projectManagers as raw user objects. This makes both safe to render.
+const getTeamUser = (tm) => {
+  if (!tm) return null;
+  if (typeof tm === 'string') return { _id: tm, name: '', profile: '' };
+  if (tm.user) {
+    if (typeof tm.user === 'string') return { _id: tm.user, name: '', profile: '' };
+    const u = tm.user;
+    return {
+      _id: u._id || u.id || '',
+      name: u.name || u.username || u.fullName
+        || [u.firstName, u.lastName].filter(Boolean).join(' ')
+        || u.email || '',
+      profile: u.profile || u.avatar || u.profileImage || u.profilePicture || '',
+    };
+  }
+  return {
+    _id: tm._id || tm.id || '',
+    name: tm.name || tm.username || tm.fullName
+      || [tm.firstName, tm.lastName].filter(Boolean).join(' ')
+      || tm.email || '',
+    profile: tm.profile || tm.avatar || tm.profileImage || tm.profilePicture || '',
+  };
+};
+
+const getInitials = (name) => {
+  if (!name) return '';
+  const parts = String(name).trim().split(/\s+/);
+  const first = parts[0]?.[0] || '';
+  const second = parts.length > 1 ? parts[parts.length - 1][0] : (parts[0]?.[1] || '');
+  return (first + second).toUpperCase();
+};
+
+// ─── Member avatar ────────────────────────────────────────────────────
+const MemberAvatar = ({ user, size = 'sm', fallbackColor, ring = false }) => {
+  const sizes = {
+    xs: 'w-5 h-5 text-[8px]',
+    sm: 'w-6 h-6 text-[9px]',
+    md: 'w-7 h-7 text-[10px]',
+  };
+  const cls = sizes[size] || sizes.sm;
+  const hasPhoto = !!user?.profile;
+  const initials = getInitials(user?.name);
+  return (
+    <span
+      title={user?.name || 'Member'}
+      className={`${cls} rounded-full overflow-hidden inline-flex items-center justify-center font-semibold text-white shrink-0 ${ring ? 'ring-2 ring-white dark:ring-[#14141a]' : ''}`}
+      style={{ backgroundColor: hasPhoto ? '#e5e7eb' : (fallbackColor || '#0d9488') }}
+    >
+      {hasPhoto ? (
+        <img src={user.profile} alt={user.name || 'Member'} className="w-full h-full object-cover" />
+      ) : initials ? (
+        initials
+      ) : (
+        <FaUser className="opacity-90" style={{ fontSize: '55%' }} />
+      )}
+    </span>
+  );
+};
 
 // ─── Reusable color swatch picker ──────────────────────────────────────
 const ColorPicker = ({ value, onChange, disabled = false }) => (
@@ -119,7 +230,6 @@ const CustomDropdown = ({ value, onChange, options, placeholder = 'Select', disa
     let bottom = 'auto';
     let maxHeight = MAX_POPUP_H;
 
-    // Prefer below when it fits (or has more room); otherwise anchor flush above.
     if (spaceBelow >= MAX_POPUP_H || spaceBelow >= spaceAbove) {
       top = rect.bottom + GAP;
       maxHeight = Math.max(MIN_POPUP_H, Math.min(MAX_POPUP_H, spaceBelow));
@@ -254,7 +364,6 @@ const CustomDateTimePicker = ({ value, onChange, placeholder = 'Select date & ti
     let bottom = 'auto';
     let maxHeight = MAX_POPUP_H;
 
-    // Prefer below when it fits (or has more room); otherwise anchor flush above.
     if (spaceBelow >= MAX_POPUP_H || spaceBelow >= spaceAbove) {
       top = rect.bottom + GAP;
       maxHeight = Math.max(MIN_POPUP_H, Math.min(MAX_POPUP_H, spaceBelow));
@@ -298,7 +407,6 @@ const CustomDateTimePicker = ({ value, onChange, placeholder = 'Select date & ti
     };
   }, [open]);
 
-  // Sync when the value prop changes externally
   useEffect(() => {
     if (value) {
       const d = new Date(value);
@@ -400,7 +508,6 @@ const CustomDateTimePicker = ({ value, onChange, placeholder = 'Select date & ti
           }}
           className="fixed z-[100] bg-white dark:bg-[#1a1a24] border border-gray-200 dark:border-gray-800/60 rounded-2xl shadow-2xl p-3 overflow-y-auto"
         >
-          {/* Month nav */}
           <div className="flex items-center justify-between mb-2">
             <button
               type="button"
@@ -419,7 +526,6 @@ const CustomDateTimePicker = ({ value, onChange, placeholder = 'Select date & ti
             </button>
           </div>
 
-          {/* Weekday header */}
           <div className="grid grid-cols-7 gap-0.5 mb-1">
             {weekdays.map((w) => (
               <div key={w} className="text-center text-[10px] font-semibold text-gray-400 dark:text-gray-500 py-1">
@@ -428,7 +534,6 @@ const CustomDateTimePicker = ({ value, onChange, placeholder = 'Select date & ti
             ))}
           </div>
 
-          {/* Days */}
           <div className="grid grid-cols-7 gap-0.5">
             {cells.map((d, i) => {
               if (d === null) return <div key={i} />;
@@ -454,7 +559,6 @@ const CustomDateTimePicker = ({ value, onChange, placeholder = 'Select date & ti
             })}
           </div>
 
-          {/* Time */}
           <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-800/60">
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-medium text-gray-500 dark:text-gray-500 uppercase tracking-wide flex-1">
@@ -482,7 +586,6 @@ const CustomDateTimePicker = ({ value, onChange, placeholder = 'Select date & ti
             </div>
           </div>
 
-          {/* Footer */}
           <div className="mt-3 pt-2 border-t border-gray-200 dark:border-gray-800/60 flex items-center gap-1">
             <button
               type="button"
@@ -638,14 +741,19 @@ const SearchProjectsModal = ({ isOpen, onClose, projects, brandColor, workspaceI
           <div className="space-y-2">
             {filtered.map((project) => {
               const cardColor = project.color || brandColor;
+              const cardHex = toHex(cardColor);
+              const Icon = pickProjectIcon(project);
               return (
                 <div key={project._id} onClick={() => { onClose(); navigate(`/workspace/${workspaceId}/project/${project._id}`); }}
                   className="flex items-center gap-4 px-4 py-3 bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 hover:border-gray-300 dark:hover:border-gray-700 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition cursor-pointer group">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${cardColor}20`, color: cardColor }}>
-                    <FaFolder className="text-sm" />
+                  <div
+                    className="w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0"
+                    style={{ background: `linear-gradient(135deg, ${cardHex} 0%, ${shadeHex(cardHex, -18)} 100%)` }}
+                  >
+                    <Icon className="text-sm" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition">{project.name}</p>
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">{project.name}</p>
                     <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{project.description || 'No description'}</p>
                   </div>
                 </div>
@@ -684,7 +792,6 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
     { value: 'urgent', label: 'Urgent' },
   ];
 
-  // Reset all fields when the modal re-opens
   useEffect(() => {
     if (isOpen) {
       setName('');
@@ -768,7 +875,6 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
             <ColorPicker value={color} onChange={setColor} disabled={loading} />
           </div>
 
-          {/* Optional details toggle */}
           <button
             type="button"
             onClick={() => setShowMore((v) => !v)}
@@ -1013,13 +1119,20 @@ const ProjectMenuModal = ({
   const handleAction = (action) => { onClose(); action(); };
   const isMobile = window.innerWidth < 768;
   const cardColor = project.color || brandColor;
+  const cardHex = toHex(cardColor);
+  const Icon = pickProjectIcon(project);
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-0 md:p-4" onClick={onClose}>
       <div className={`bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl md:rounded-2xl w-full md:max-w-sm max-h-[85vh] overflow-y-auto transform transition-transform duration-300 ${isMobile ? 'mt-auto' : 'mx-auto'}`} onClick={(e) => e.stopPropagation()}>
         <div className="p-5">
           <div className="flex justify-between items-center mb-4">
-            <div className="flex items-center gap-2 min-w-0 pr-4">
-              <span className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-black/5 dark:ring-white/10" style={{ backgroundColor: cardColor }} />
+            <div className="flex items-center gap-2.5 min-w-0 pr-4">
+              <span
+                className="w-8 h-8 rounded-xl flex items-center justify-center text-white shrink-0"
+                style={{ background: `linear-gradient(135deg, ${cardHex} 0%, ${shadeHex(cardHex, -18)} 100%)` }}
+              >
+                <Icon className="text-xs" />
+              </span>
               <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 truncate">{project.name}</h3>
             </div>
             <button onClick={onClose} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition flex-shrink-0"><FaTimes /></button>
@@ -1043,7 +1156,6 @@ const ProjectMenuModal = ({
                   </button>
                 )}
 
-                {/* AI actions */}
                 <div className="pt-2 mt-2 border-t border-gray-100 dark:border-gray-800/40">
                   <p className="px-4 py-1 text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-600 flex items-center gap-1.5">
                     <FaMagic className="text-[10px] text-[#0d9488]" /> AI
@@ -1086,19 +1198,29 @@ const ProjectMenuModal = ({
   );
 };
 
-// ─── Project Card ──────────────────────────────────────────────────────
+// ─── Shared card helpers ──────────────────────────────────────────────
+const STATUS_LABELS = {
+  planning: 'Planning',
+  'in-progress': 'In Progress',
+  completed: 'Completed',
+  archived: 'Archived',
+};
+const STATUS_TEXT_COLOR = {
+  planning: 'text-blue-600 dark:text-blue-400',
+  'in-progress': 'text-yellow-600 dark:text-yellow-400',
+  completed: 'text-green-600 dark:text-green-400',
+  archived: 'text-gray-500 dark:text-gray-400',
+};
+
+// ─── Project Card (grid view) ─────────────────────────────────────────
 const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen }) => {
   const navigate = useNavigate();
   const progress = project.progress || 0;
   const completed = isProjectCompleted(project);
   const cardColor = project.color || brandColor;
-  const statusLabels = { planning: 'Planning', 'in-progress': 'In Progress', completed: 'Completed', archived: 'Archived' };
-  const statusColor = {
-    planning: 'text-blue-600 dark:text-blue-400',
-    'in-progress': 'text-yellow-600 dark:text-yellow-400',
-    completed: 'text-green-600 dark:text-green-400',
-    archived: 'text-gray-500 dark:text-gray-400',
-  };
+  const cardHex = toHex(cardColor);
+  const bannerBg = `linear-gradient(135deg, ${cardHex} 0%, ${shadeHex(cardHex, -22)} 100%)`;
+  const Icon = pickProjectIcon(project);
   const displayStatus = completed ? 'completed' : project.status;
 
   const { data: taskData, isLoading: taskLoading } = useGetProjectTasksQuery(
@@ -1108,73 +1230,293 @@ const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen }
   const totalTasks = tasks.length;
   const completedTasks = tasks.filter((t) => t.status === 'completed' || t.status === 'confirmed_completed').length;
 
-  const stopProp = (e) => e.stopPropagation();
+  const members = useMemo(
+    () => (project.teamMembers || []).map(getTeamUser).filter(Boolean),
+    [project.teamMembers]
+  );
+
   const handleCardClick = (e) => {
     if (e.target.closest('button')) return;
     navigate(`/workspace/${workspaceId}/project/${project._id}`);
   };
 
   return (
-    <div onClick={handleCardClick}
-      className="group relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 hover:border-[#0d9488]/50 transition-all duration-500 hover:shadow-[0_8px_40px_rgba(13,148,136,0.15)] active:scale-[0.98] cursor-pointer overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-br from-[#0d9488]/0 via-[#0d9488]/0 to-transparent group-hover:from-[#0d9488]/10 group-hover:via-[#0d9488]/5 transition-all duration-700 pointer-events-none" />
-      <div className="relative h-20 md:h-28 bg-gray-100 dark:bg-[#1a1a24] overflow-hidden">
-        {project.coverImage ? (
-          <img src={project.coverImage} alt={project.name} className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: `${cardColor}15` }}>
-            <FaFolder className="text-2xl md:text-3xl" style={{ color: cardColor }} />
-          </div>
+    <article
+      onClick={handleCardClick}
+      className="group relative flex flex-col bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/70 dark:border-gray-800/50 hover:border-gray-300/80 dark:hover:border-gray-700/70 hover:shadow-[0_12px_40px_-12px_rgba(13,148,136,0.28)] dark:hover:shadow-[0_12px_40px_-12px_rgba(13,148,136,0.35)] transition-all duration-300 active:scale-[0.985] cursor-pointer overflow-hidden"
+    >
+      {/* Banner */}
+      <div
+        className="relative h-16 sm:h-20 md:h-24 flex items-center justify-center overflow-hidden shrink-0"
+        style={{ background: bannerBg }}
+      >
+        {/* Dot pattern */}
+        <div
+          className="absolute inset-0 opacity-[0.14] pointer-events-none"
+          style={{
+            backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.9) 1px, transparent 1px)',
+            backgroundSize: '12px 12px',
+          }}
+        />
+        {/* Soft highlight */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{ background: 'radial-gradient(circle at 30% 15%, rgba(255,255,255,0.28), transparent 60%)' }}
+        />
+        {/* Bottom inner shadow for depth */}
+        <div
+          className="absolute inset-x-0 bottom-0 h-8 pointer-events-none"
+          style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.18), transparent)' }}
+        />
+
+        {/* Cover image overrides the banner */}
+        {project.coverImage && (
+          <>
+            <img
+              src={project.coverImage}
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-black/10 to-transparent" />
+          </>
         )}
-        <span className={`absolute top-2 right-2 text-[10px] font-medium px-2.5 py-1 rounded-full backdrop-blur-sm border ${statusColor[displayStatus]} bg-white/60 dark:bg-black/30 border-gray-200 dark:border-gray-700/50 pointer-events-none`}>
-          {statusLabels[displayStatus] || 'Planning'}
+
+        {/* Fun project icon */}
+        {!project.coverImage && (
+          <Icon className="relative text-white text-[22px] sm:text-[26px] md:text-[32px] drop-shadow-[0_2px_6px_rgba(0,0,0,0.35)]" />
+        )}
+
+        {/* Status pill */}
+        <span className="absolute top-1.5 left-1.5 md:top-2 md:left-2 text-[8px] md:text-[9.5px] font-bold tracking-wider uppercase px-1.5 md:px-2 py-0.5 rounded-full bg-black/25 text-white backdrop-blur-md border border-white/15 pointer-events-none">
+          {STATUS_LABELS[displayStatus] || 'Planning'}
         </span>
-        <button onClick={(e) => { stopProp(e); onMenuOpen(project); }}
-          className="absolute top-2 left-2 p-1.5 bg-white/60 dark:bg-black/40 backdrop-blur-sm rounded-lg text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-black/60 transition z-10">
-          <FaEllipsisV className="text-xs" />
+
+        {/* Menu button */}
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onMenuOpen(project); }}
+          className="absolute top-1.5 right-1.5 md:top-2 md:right-2 p-1 md:p-1.5 rounded-lg bg-black/25 text-white backdrop-blur-md border border-white/15 hover:bg-black/45 transition z-10"
+          aria-label="Project menu"
+        >
+          <FaEllipsisV className="text-[10px] md:text-[11px]" />
         </button>
       </div>
-      <div className="p-3 md:p-4">
-        <h3 className="text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition truncate flex items-center gap-1.5">
-          <span className="inline-block w-2 h-2 rounded-full shrink-0 ring-1 ring-black/5 dark:ring-white/10" style={{ backgroundColor: cardColor }} />
-          <span className="truncate">{project.name}</span>
+
+      {/* Body */}
+      <div className="flex flex-col flex-1 p-2.5 md:p-3.5 min-w-0">
+        <h3 className="text-[12.5px] sm:text-[13.5px] md:text-[15px] font-semibold text-gray-900 dark:text-gray-100 leading-snug line-clamp-2 break-words">
+          {project.name}
         </h3>
-        {project.description && (
-          <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-1 md:line-clamp-2 mt-0.5 md:mt-1">{project.description}</p>
+
+        {project.description ? (
+          <p className="mt-0.5 md:mt-1 text-[10.5px] md:text-xs text-gray-500 dark:text-gray-500 line-clamp-1 md:line-clamp-2 leading-relaxed">
+            {project.description}
+          </p>
+        ) : (
+          <p className="mt-0.5 md:mt-1 text-[10.5px] md:text-xs text-gray-400 dark:text-gray-600 italic truncate">
+            No description
+          </p>
         )}
-        <div className="flex items-center mt-2 md:mt-3 gap-1">
-          <div className="flex -space-x-2">
-            {(project.teamMembers || []).slice(0, 4).map((member, idx) => (
-              <div key={idx} className="w-5 h-5 md:w-6 md:h-6 rounded-full border border-gray-300 dark:border-gray-800 bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-[7px] md:text-[8px] font-bold text-white"
-                style={{ backgroundColor: member?.profile ? 'transparent' : cardColor }}>
-                {member?.profile ? <img src={member.profile} alt="" className="w-full h-full rounded-full object-cover" /> : (member?.name?.charAt(0) || '?').toUpperCase()}
-              </div>
-            ))}
-            {(project.teamMembers || []).length > 4 && (
-              <div className="w-5 h-5 md:w-6 md:h-6 rounded-full border border-gray-300 dark:border-gray-800 bg-gray-200 dark:bg-[#1e1e26] flex items-center justify-center text-[7px] md:text-[8px] text-gray-600 dark:text-gray-400">
-                +{(project.teamMembers || []).length - 4}
-              </div>
-            )}
-          </div>
-          <span className="text-[9px] md:text-[10px] text-gray-500 dark:text-gray-500 ml-1">{(project.teamMembers || []).length} members</span>
-        </div>
+
+        <div className="flex-1 min-h-[6px]" />
+
         {!project.isTrash && (
           <>
-            <div className="mt-2 md:mt-3 relative">
-              <div className="flex justify-between text-[9px] md:text-[10px] text-gray-500 dark:text-gray-500 mb-0.5 md:mb-1">
-                <span>Progress</span><span className="font-mono">{progress}%</span>
+            {/* Progress row */}
+            <div className="flex items-center gap-2 mt-2">
+              <div className="flex-1 h-[3px] md:h-1 bg-gray-100 dark:bg-gray-800/70 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-700 ease-out"
+                  style={{ width: `${progress}%`, backgroundColor: cardColor }}
+                />
               </div>
-              <div className="w-full h-1 md:h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
-                <div className="h-full rounded-full transition-all duration-1000 ease-out" style={{ width: `${progress}%`, backgroundColor: cardColor, boxShadow: `0 0 12px ${cardColor}88` }} />
-              </div>
+              <span className="text-[9.5px] md:text-[10.5px] font-mono font-semibold text-gray-500 dark:text-gray-500 tabular-nums shrink-0">
+                {progress}%
+              </span>
             </div>
-            <div className="flex flex-wrap items-center gap-2 md:gap-3 mt-2 md:mt-3 text-[9px] md:text-[10px] text-gray-500 dark:text-gray-500 pointer-events-none">
-              <span className="flex items-center gap-1"><FaTasks className="text-[8px] md:text-[10px] text-[#0d9488]" />{taskLoading ? <FaSpinner className="animate-spin text-[10px]" /> : totalTasks}</span>
-              <span className="flex items-center gap-1"><FaCheckCircle className="text-[8px] md:text-[10px] text-green-500 dark:text-green-400" />{taskLoading ? '...' : completedTasks}</span>
+
+            {/* Footer */}
+            <div className="mt-2 flex items-center justify-between gap-2 min-w-0">
+              {/* Members */}
+              <div className="flex -space-x-1.5 min-w-0 shrink">
+                {members.slice(0, 3).map((u, idx) => (
+                  <MemberAvatar
+                    key={u._id || idx}
+                    user={u}
+                    size="xs"
+                    fallbackColor={cardHex}
+                    ring
+                  />
+                ))}
+                {members.length > 3 && (
+                  <span className="w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-[8px] font-semibold flex items-center justify-center ring-2 ring-white dark:ring-[#14141a]">
+                    +{members.length - 3}
+                  </span>
+                )}
+                {members.length === 0 && (
+                  <span className="text-[9.5px] md:text-[10px] text-gray-400 dark:text-gray-600">No members</span>
+                )}
+              </div>
+
+              {/* Task counts */}
+              <div className="flex items-center gap-1.5 md:gap-2 text-[9.5px] md:text-[10.5px] text-gray-500 dark:text-gray-500 shrink-0">
+                <span className="flex items-center gap-1">
+                  <FaTasks className="text-[8.5px] md:text-[9.5px] text-[#0d9488]" />
+                  <span className="tabular-nums">{taskLoading ? <FaSpinner className="animate-spin text-[8.5px]" /> : totalTasks}</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <FaCheckCircle className="text-[8.5px] md:text-[9.5px] text-green-500" />
+                  <span className="tabular-nums">{taskLoading ? '…' : completedTasks}</span>
+                </span>
+              </div>
             </div>
           </>
         )}
       </div>
+    </article>
+  );
+};
+
+// ─── Project List Item (list view) ────────────────────────────────────
+const ProjectListItem = ({ project, brandColor, workspaceId, canManage, onMenuOpen }) => {
+  const navigate = useNavigate();
+  const progress = project.progress || 0;
+  const completed = isProjectCompleted(project);
+  const cardColor = project.color || brandColor;
+  const cardHex = toHex(cardColor);
+  const tileBg = `linear-gradient(135deg, ${cardHex} 0%, ${shadeHex(cardHex, -22)} 100%)`;
+  const Icon = pickProjectIcon(project);
+  const displayStatus = completed ? 'completed' : project.status;
+
+  const { data: taskData, isLoading: taskLoading } = useGetProjectTasksQuery(
+    { projectId: project._id }, { skip: project.isTrash }
+  );
+  const tasks = taskData?.tasks || [];
+  const totalTasks = tasks.length;
+  const completedTasks = tasks.filter((t) => t.status === 'completed' || t.status === 'confirmed_completed').length;
+
+  const members = useMemo(
+    () => (project.teamMembers || []).map(getTeamUser).filter(Boolean),
+    [project.teamMembers]
+  );
+
+  const handleClick = (e) => {
+    if (e.target.closest('button')) return;
+    navigate(`/workspace/${workspaceId}/project/${project._id}`);
+  };
+
+  return (
+    <div
+      onClick={handleClick}
+      className="group relative bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/70 dark:border-gray-800/50 hover:border-gray-300/80 dark:hover:border-gray-700/70 hover:shadow-md dark:hover:shadow-[0_4px_20px_rgba(13,148,136,0.12)] transition-all cursor-pointer pl-3 pr-2 py-2.5 md:pl-3.5 md:pr-3 md:py-3 flex items-center gap-3 md:gap-3.5 overflow-hidden"
+    >
+      <span className="absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-r-full" style={{ backgroundColor: cardColor }} />
+
+      {/* Icon tile */}
+      <div
+        className="w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center text-white shrink-0 overflow-hidden relative"
+        style={{ background: tileBg }}
+      >
+        <div
+          className="absolute inset-0 opacity-[0.14] pointer-events-none"
+          style={{
+            backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.9) 1px, transparent 1px)',
+            backgroundSize: '8px 8px',
+          }}
+        />
+        {project.coverImage ? (
+          <img src={project.coverImage} alt="" className="absolute inset-0 w-full h-full object-cover" />
+        ) : (
+          <Icon className="relative text-base md:text-lg drop-shadow-[0_1px_3px_rgba(0,0,0,0.3)]" />
+        )}
+      </div>
+
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <h3 className="text-sm md:text-[15px] font-semibold text-gray-900 dark:text-gray-100 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">
+            {project.name}
+          </h3>
+          <span className={`hidden sm:inline-flex text-[10px] font-medium px-2 py-0.5 rounded-full border ${STATUS_TEXT_COLOR[displayStatus]} bg-white/60 dark:bg-black/20 border-gray-200 dark:border-gray-700/50 shrink-0`}>
+            {STATUS_LABELS[displayStatus] || 'Planning'}
+          </span>
+        </div>
+        {project.description && (
+          <p className="text-xs text-gray-500 dark:text-gray-500 truncate mt-0.5">{project.description}</p>
+        )}
+
+        {/* Mobile progress row */}
+        {!project.isTrash && (
+          <div className="flex md:hidden items-center gap-2 mt-1.5">
+            <div className="flex-1 h-[3px] bg-gray-100 dark:bg-gray-800/70 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all"
+                style={{ width: `${progress}%`, backgroundColor: cardColor }}
+              />
+            </div>
+            <span className="text-[10px] font-mono font-semibold text-gray-500 shrink-0 w-8 text-right tabular-nums">
+              {progress}%
+            </span>
+            <span className="flex items-center gap-1 text-[10px] text-gray-500 shrink-0">
+              <FaTasks className="text-[9px] text-[#0d9488]" />
+              {taskLoading ? '…' : `${completedTasks}/${totalTasks}`}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Desktop meta */}
+      {!project.isTrash && (
+        <div className="hidden md:flex items-center gap-4 shrink-0">
+          <div className="flex -space-x-1.5">
+            {members.slice(0, 3).map((u, i) => (
+              <MemberAvatar
+                key={u._id || i}
+                user={u}
+                size="sm"
+                fallbackColor={cardHex}
+                ring
+              />
+            ))}
+            {members.length > 3 && (
+              <span className="w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-[9px] font-semibold flex items-center justify-center ring-2 ring-white dark:ring-[#14141a]">
+                +{members.length - 3}
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-500 w-20">
+            <span className="flex items-center gap-1">
+              <FaTasks className="text-[10px] text-[#0d9488]" />
+              <span className="tabular-nums">{taskLoading ? '…' : totalTasks}</span>
+            </span>
+            <span className="flex items-center gap-1">
+              <FaCheckCircle className="text-[10px] text-green-500" />
+              <span className="tabular-nums">{taskLoading ? '…' : completedTasks}</span>
+            </span>
+          </div>
+
+          <div className="w-28 flex items-center gap-2">
+            <div className="flex-1 h-1 bg-gray-100 dark:bg-gray-800/70 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all"
+                style={{ width: `${progress}%`, backgroundColor: cardColor }}
+              />
+            </div>
+            <span className="text-xs font-mono font-semibold text-gray-500 w-9 text-right tabular-nums">
+              {progress}%
+            </span>
+          </div>
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onMenuOpen(project); }}
+        className="p-1.5 md:p-2 text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/40 rounded-lg transition shrink-0"
+        aria-label="Project menu"
+      >
+        <FaEllipsisV className="text-[11px] md:text-xs" />
+      </button>
     </div>
   );
 };
@@ -1363,7 +1705,6 @@ const downloadDocsPDF = (doc) => {
     y += 12;
   };
 
-  // Cover page
   pdf.setFillColor(238, 243, 245);
   pdf.rect(0, 0, PAGE_W, 8, 'F');
   pdf.setFillColor(...ACCENT);
@@ -1413,7 +1754,6 @@ const downloadDocsPDF = (doc) => {
     pdf.text(doc.meta.generatedBy, MARGIN_X, metaY + 176);
   }
 
-  // Body
   newPage();
 
   (doc.sections || []).forEach((section, sIdx) => {
@@ -1524,7 +1864,6 @@ const AIProjectPanel = ({ workspaceId, brandColor, workspaceMembers = [], onClos
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-[#14141a]">
-      {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800/60 bg-gradient-to-r from-[#0d9488]/5 to-transparent">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#0d9488] to-[#0f766e] flex items-center justify-center flex-shrink-0 shadow-lg shadow-[#0d9488]/30">
@@ -1544,7 +1883,6 @@ const AIProjectPanel = ({ workspaceId, brandColor, workspaceMembers = [], onClos
         </button>
       </div>
 
-      {/* Body */}
       <div className="flex-1 overflow-y-auto p-4">
         {stage === 'prompt' && (
           <>
@@ -1619,7 +1957,7 @@ const AIProjectPanel = ({ workspaceId, brandColor, workspaceMembers = [], onClos
                               ? 'bg-teal-50 dark:bg-[#0d9488]/15 border-teal-500/50 dark:border-[#0d9488]/50 text-teal-700 dark:text-[#14b8a6]'
                               : 'bg-gray-50 dark:bg-[#1a1a24] border-gray-200 dark:border-gray-800/40 text-gray-600 dark:text-gray-400 hover:border-gray-300'}`}>
                             <span className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold overflow-hidden shrink-0" style={{ backgroundColor: brandColor }}>
-                              {u.profile ? <img src={u.profile} alt="" className="w-full h-full object-cover" /> : (u.name || '?').charAt(0).toUpperCase()}
+                              {u.profile ? <img src={u.profile} alt="" className="w-full h-full object-cover" /> : getInitials(u.name) || <FaUser className="text-[8px]" />}
                             </span>
                             {u.name || 'Unknown'}
                             {selected && <FaCheck className="text-[8px]" />}
@@ -1669,7 +2007,7 @@ const AIProjectPanel = ({ workspaceId, brandColor, workspaceMembers = [], onClos
                                       ? 'bg-teal-50 dark:bg-[#0d9488]/15 border-teal-500/50 text-teal-700 dark:text-[#14b8a6]'
                                       : 'bg-white dark:bg-[#0f0f12] border-gray-200 dark:border-gray-800/40 text-gray-500 dark:text-gray-500 hover:border-gray-300'}`}>
                                     <span className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[8px] font-bold overflow-hidden" style={{ backgroundColor: brandColor }}>
-                                      {u.profile ? <img src={u.profile} alt="" className="w-full h-full object-cover" /> : (u.name || '?').charAt(0).toUpperCase()}
+                                      {u.profile ? <img src={u.profile} alt="" className="w-full h-full object-cover" /> : getInitials(u.name) || <FaUser className="text-[6px]" />}
                                     </span>
                                     {(u.name || '').split(' ')[0] || 'Unknown'}
                                   </button>
@@ -1724,7 +2062,6 @@ const AIProjectPanel = ({ workspaceId, brandColor, workspaceMembers = [], onClos
         )}
       </div>
 
-      {/* Footer */}
       {stage === 'edit' && plan && (
         <div className="flex gap-2 px-4 py-3 border-t border-gray-200/60 dark:border-gray-800/60">
           <button onClick={reset} disabled={isExecuting}
@@ -2053,6 +2390,38 @@ const AIDocsModal = ({ isOpen, onClose, projectId, brandColor }) => {
   );
 };
 
+// ─── Layout Toggle (grid / list) ──────────────────────────────────────
+const LayoutToggle = ({ value, onChange }) => (
+  <div className="flex items-center bg-gray-100 dark:bg-[#1a1a24] border border-gray-300 dark:border-gray-800/60 rounded-full p-0.5 shrink-0">
+    <button
+      type="button"
+      onClick={() => onChange('grid')}
+      title="Grid view"
+      aria-label="Grid view"
+      className={`p-1.5 rounded-full transition ${
+        value === 'grid'
+          ? 'bg-white dark:bg-[#0f0f12] text-[#0d9488] shadow-sm'
+          : 'text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+      }`}
+    >
+      <FaThLarge className="text-[11px]" />
+    </button>
+    <button
+      type="button"
+      onClick={() => onChange('list')}
+      title="List view"
+      aria-label="List view"
+      className={`p-1.5 rounded-full transition ${
+        value === 'list'
+          ? 'bg-white dark:bg-[#0f0f12] text-[#0d9488] shadow-sm'
+          : 'text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+      }`}
+    >
+      <FaList className="text-[11px]" />
+    </button>
+  </div>
+);
+
 // ─── Main Component ─────────────────────────────────────────────────────
 const YourWorkspaceProjects = () => {
   const { workspaceId } = useParams();
@@ -2069,6 +2438,16 @@ const YourWorkspaceProjects = () => {
   const [filters, setFilters] = useState({ status: 'all', sort: 'newest', search: '' });
   const [view, setView] = useState('active');
   const [optimisticArchivedIds, setOptimisticArchivedIds] = useState([]);
+
+  // Grid / list layout
+  const [layoutView, setLayoutView] = useState(() => {
+    if (typeof window === 'undefined') return 'grid';
+    return window.localStorage.getItem('projects.layoutView') || 'grid';
+  });
+
+  useEffect(() => {
+    try { window.localStorage.setItem('projects.layoutView', layoutView); } catch { /* noop */ }
+  }, [layoutView]);
 
   // AI mode state
   const [aiOpen, setAiOpen] = useState(false);
@@ -2109,14 +2488,16 @@ const YourWorkspaceProjects = () => {
 
   const workspaceMembers = useMemo(() => {
     if (!workspace) return [];
-    return (workspace.members || []).filter((m) => m.status === 'active').map((m) => m.user || m).filter(Boolean);
+    return (workspace.members || [])
+      .filter((m) => m.status === 'active')
+      .map((m) => getTeamUser(m))
+      .filter(Boolean);
   }, [workspace]);
 
   useEffect(() => {
     if (!projectsLoading && optimisticArchivedIds.length > 0) setOptimisticArchivedIds([]);
   }, [projectsLoading, optimisticArchivedIds]);
 
-  // Splitter drag
   const handleSplitterMove = useCallback((e) => {
     if (!isDraggingSplitter || !containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
@@ -2244,6 +2625,10 @@ const YourWorkspaceProjects = () => {
   const handleMenuOpen = (project) => { setSelectedProject(project); setMenuModalOpen(true); };
   const handleMenuClose = () => { setMenuModalOpen(false); setSelectedProject(null); };
 
+  const gridCols = aiOpen && isDesktop
+    ? 'grid-cols-1 sm:grid-cols-1'
+    : 'grid-cols-2';
+
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
       <div className="hidden md:block md:min-h-screen fixed top-0 left-0 z-20 workspace-shell-sidebar">
@@ -2253,7 +2638,7 @@ const YourWorkspaceProjects = () => {
       <div className="flex-1 flex flex-col h-full overflow-hidden workspace-shell-main">
         <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800/40 flex-shrink-0">
           <div className="flex items-center justify-between px-4 h-14 lg:h-16">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 min-w-0">
               <button onClick={() => navigate(`/workspace/${workspaceId}`)} className="p-1 lg:hidden text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"><FaArrowLeft /></button>
               <h1 className="text-lg font-bold text-gray-800 dark:text-gray-100 tracking-tight">Projects</h1>
               <span className="text-xs font-normal text-gray-500 dark:text-gray-500 bg-gray-100 dark:bg-[#1a1a24] px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-800/40">{projects.length}</span>
@@ -2277,6 +2662,8 @@ const YourWorkspaceProjects = () => {
                 <FaFilter className="text-sm" />
               </button>
 
+              {!aiOpen && <LayoutToggle value={layoutView} onChange={setLayoutView} />}
+
               {canManage && (
                 <button onClick={() => setAiOpen(v => !v)}
                   className={`text-sm font-medium px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 ${aiOpen
@@ -2296,7 +2683,7 @@ const YourWorkspaceProjects = () => {
             </div>
           </div>
 
-          <div className="flex items-center justify-between px-4 pb-2">
+          <div className="flex items-center justify-between px-4 pb-2 gap-2">
             <div className="flex gap-1">
               {['active', 'archived', ...(canManage ? ['trash'] : [])].map((tab) => (
                 <button key={tab} onClick={() => setView(tab)}
@@ -2319,7 +2706,7 @@ const YourWorkspaceProjects = () => {
         </header>
 
         <div ref={containerRef} className="flex-1 flex overflow-hidden">
-          <div className="overflow-y-auto px-4 sm:px-6 lg:px-8 py-5 pb-28 md:pb-6 flex-shrink-0"
+          <div className="overflow-y-auto px-3 sm:px-4 md:px-6 lg:px-8 py-4 md:py-5 pb-28 md:pb-6 flex-shrink-0"
             style={{ width: aiOpen && isDesktop ? `${leftWidthPercent}%` : '100%' }}>
 
             {view === 'active' && !aiOpen && (
@@ -2393,10 +2780,16 @@ const YourWorkspaceProjects = () => {
                       {view === 'trash' ? 'Trash is empty' : view === 'archived' ? 'No archived projects' : 'No projects match your filters'}
                     </p>
                   </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                ) : layoutView === 'grid' ? (
+                  <div className={`grid ${gridCols} gap-3 md:gap-4`}>
                     {filteredProjects.map((project) => (
                       <ProjectCard key={project._id} project={project} brandColor={brandColor} workspaceId={workspaceId} canManage={canManage} onMenuOpen={handleMenuOpen} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {filteredProjects.map((project) => (
+                      <ProjectListItem key={project._id} project={project} brandColor={brandColor} workspaceId={workspaceId} canManage={canManage} onMenuOpen={handleMenuOpen} />
                     ))}
                   </div>
                 )}
@@ -2538,7 +2931,6 @@ const YourWorkspaceProjects = () => {
         brandColor={brandColor}
       />
 
-      {/* AI modals — project-scoped */}
       <AISummaryModal
         isOpen={!!aiSummaryProject}
         onClose={() => setAiSummaryProject(null)}
