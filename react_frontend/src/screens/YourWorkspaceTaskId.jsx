@@ -8,7 +8,7 @@ import {
   FaAngleDown, FaFolder, FaFolderOpen, FaCalendarAlt, FaRegClock,
   FaRedo, FaClock, FaGripVertical, FaUser, FaFlag, FaFire, FaCamera,
   FaLink, FaPaperclip, FaExclamationTriangle, FaListUl, FaCommentDots,
-  FaMagic,
+  FaMagic, FaMousePointer,
 } from 'react-icons/fa';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
 import { useGetProjectByIdQuery } from '../slices/projectApiSlice';
@@ -71,20 +71,13 @@ const statusOptions = [
   { value: 'confirmed_completed', label: 'Confirmed' }, { value: 'cancelled', label: 'Cancelled' },
 ];
 
-// ─── Global Styles (skeleton shimmer) ───────────────────────────
+// ─── Global Styles ──────────────────────────────────────────────
 const GlobalStyles = () => (
   <style>{`
-    .skeleton {
-      position: relative;
-      overflow: hidden;
-      background-color: rgb(229 231 235);
-    }
+    .skeleton { position: relative; overflow: hidden; background-color: rgb(229 231 235); }
     .dark .skeleton { background-color: rgba(255, 255, 255, 0.07); }
     .skeleton::after {
-      content: '';
-      position: absolute;
-      inset: 0;
-      transform: translateX(-100%);
+      content: ''; position: absolute; inset: 0; transform: translateX(-100%);
       background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
       animation: skeletonShimmer 1.5s ease-in-out infinite;
     }
@@ -268,11 +261,11 @@ const ShowMoreToggle = ({ open, onToggle, label }) => (
   <button
     type="button"
     onClick={onToggle}
-    className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-700/60 rounded-xl text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/40 transition"
+    className="w-full flex items-center justify-between px-3 py-2.5 bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-700/60 rounded-xl text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/40 transition"
   >
-    <span className="font-medium">{label}</span>
-    <span className="flex items-center gap-1 text-gray-400">
-      <span className="text-[10px]">{open ? 'Hide' : 'Show more'}</span>
+    <span className="font-medium truncate">{label}</span>
+    <span className="flex items-center gap-1 text-gray-400 shrink-0 ml-2">
+      <span className="text-[10px]">{open ? 'Hide' : 'Show'}</span>
       <FaAngleDown className={`text-[10px] transition-transform ${open ? 'rotate-180' : ''}`} />
     </span>
   </button>
@@ -350,6 +343,105 @@ const TaskMenuModal = ({
                 className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition"
               >
                 <FaTrashAlt className="text-sm" /><span className="text-sm font-medium">Delete Task</span>
+              </button>
+            )}
+            {noActions && (
+              <p className="text-sm text-gray-500 dark:text-gray-500 text-center py-4">
+                No actions available for your role.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Checklist item action modal ────────────────────────────────
+const SubtaskActionModal = ({
+  isOpen, onClose, item, index,
+  canManage, isReadOnly, isAssignee, canSelectSubs, canDeleteThis,
+  onMarkDone, onConfirm, onReject, onSelect, onDelete,
+}) => {
+  if (!isOpen || !item) return null;
+
+  const isConfirmed = item.status === 'confirmed';
+  const isDone = item.status === 'done';
+  const isPending = item.status === 'pending';
+
+  const showMarkDone = !isReadOnly && (isAssignee || canManage) && isPending;
+  const showConfirm = !isReadOnly && canManage && isDone;
+  const showReject = !isReadOnly && canManage && isDone;
+
+  const noActions = !showMarkDone && !showConfirm && !showReject && !canSelectSubs && !canDeleteThis;
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm shadow-xl max-h-[85vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-5">
+          <div className="flex justify-between items-center mb-4">
+            <div className="min-w-0 pr-3">
+              <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 break-words">{item.title}</h3>
+              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${
+                  isConfirmed ? 'bg-green-100 dark:bg-green-800/50 text-green-700 dark:text-green-200 border-green-300 dark:border-green-600/50'
+                  : isDone ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 border-blue-200 dark:border-blue-700/50'
+                  : 'bg-gray-100 dark:bg-gray-800/60 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-700'
+                }`}>
+                  {isConfirmed ? 'Confirmed' : isDone ? 'Awaiting confirmation' : 'Pending'}
+                </span>
+              </div>
+            </div>
+            <button onClick={onClose} className="p-1.5 text-gray-500 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition flex-shrink-0">
+              <FaTimes />
+            </button>
+          </div>
+
+          <div className="space-y-1">
+            {showMarkDone && (
+              <button
+                onClick={() => { onClose(); onMarkDone(index); }}
+                className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition"
+              >
+                <FaCheck className="text-sm" /><span className="text-sm font-medium">Mark as Done</span>
+              </button>
+            )}
+            {showConfirm && (
+              <button
+                onClick={() => { onClose(); onConfirm(index); }}
+                className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-500/10 transition"
+              >
+                <FaCheckDouble className="text-sm" /><span className="text-sm font-medium">Confirm</span>
+              </button>
+            )}
+            {showReject && (
+              <button
+                onClick={() => { onClose(); onReject(index); }}
+                className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-500/10 transition"
+              >
+                <FaTimes className="text-sm" /><span className="text-sm font-medium">Reject</span>
+              </button>
+            )}
+            {canSelectSubs && (
+              <button
+                onClick={() => { onClose(); onSelect(index); }}
+                className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition"
+              >
+                <FaMousePointer className="text-sm" /><span className="text-sm font-medium">Select</span>
+              </button>
+            )}
+            {canDeleteThis && (
+              <button
+                onClick={() => { onClose(); onDelete(index); }}
+                className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition"
+              >
+                <FaTrashAlt className="text-sm" /><span className="text-sm font-medium">Delete</span>
               </button>
             )}
             {noActions && (
@@ -448,12 +540,7 @@ const ChecklistDoneModal = ({ isOpen, onClose, onSubmit, canManage }) => {
   const [showMore, setShowMore] = useState(false);
 
   useEffect(() => {
-    if (isOpen) {
-      setShowMore(false);
-      setNotes('');
-      setLinksText('');
-      setFiles([]);
-    }
+    if (isOpen) { setShowMore(false); setNotes(''); setLinksText(''); setFiles([]); }
   }, [isOpen]); // eslint-disable-line
 
   if (!isOpen) return null;
@@ -477,7 +564,7 @@ const ChecklistDoneModal = ({ isOpen, onClose, onSubmit, canManage }) => {
         </div>
         <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-3 sm:py-4 space-y-3">
           <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">Confirm you've finished this checklist item.</p>
-          <ShowMoreToggle open={showMore} onToggle={() => setShowMore((v) => !v)} label="Add notes, links or attachments (optional)" />
+          <ShowMoreToggle open={showMore} onToggle={() => setShowMore((v) => !v)} label="Notes, links or files" />
           {showMore && (
             <div className="space-y-2">
               <textarea placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
@@ -508,7 +595,8 @@ const ChecklistConfirmModal = ({ isOpen, onClose, subTask, onSubmit }) => {
   const [loading, setLoading] = useState(false);
   const [showMore, setShowMore] = useState(false);
 
-  useEffect(() => { if (isOpen) setShowMore(false); }, [isOpen]);
+  useEffect(() => { if (isOpen) { setShowMore(false); setFeedback(''); } }, [isOpen]);
+
   if (!isOpen) return null;
 
   const submit = async () => {
@@ -527,7 +615,7 @@ const ChecklistConfirmModal = ({ isOpen, onClose, subTask, onSubmit }) => {
         </div>
         <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-3 sm:py-4 space-y-3">
           {subTask?.notes && (<p className="text-xs text-gray-600 dark:text-gray-400"><span className="font-medium">Notes:</span> {subTask.notes}</p>)}
-          <ShowMoreToggle open={showMore} onToggle={() => setShowMore((v) => !v)} label="Add feedback (optional)" />
+          <ShowMoreToggle open={showMore} onToggle={() => setShowMore((v) => !v)} label="Add feedback" />
           {showMore && (
             <textarea placeholder="Feedback (optional)" value={feedback} onChange={(e) => setFeedback(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
           )}
@@ -606,7 +694,7 @@ const MarkCompleteModal = ({ isOpen, onClose, task, brandColor, onSubmit }) => {
         </div>
         <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-3 sm:py-4 space-y-3">
           <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">Confirm you have completed <span className="font-medium text-gray-800 dark:text-gray-200">"{task?.title}"</span>.</p>
-          <ShowMoreToggle open={showMore} onToggle={() => setShowMore((v) => !v)} label="Add notes, links or attachments (optional)" />
+          <ShowMoreToggle open={showMore} onToggle={() => setShowMore((v) => !v)} label="Notes, links or files" />
           {showMore && (
             <div className="space-y-2">
               <textarea placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
@@ -692,7 +780,7 @@ const ConfirmCompletionModal = ({ isOpen, onClose, task, brandColor, onSubmit, o
               </ul>
             </div>
           )}
-          <ShowMoreToggle open={showMore} onToggle={() => setShowMore((v) => !v)} label="Add feedback, hours or files (optional)" />
+          <ShowMoreToggle open={showMore} onToggle={() => setShowMore((v) => !v)} label="Feedback, hours or files" />
           {showMore && (
             <div className="space-y-2">
               <textarea placeholder="Feedback (optional)" value={feedback} onChange={(e) => setFeedback(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
@@ -1136,9 +1224,7 @@ const YourWorkspaceTaskId = () => {
   const brandColor = workspace?.color || '#0d9488';
 
   // ── Permissions ─────────────────────────────────────────────
-  // Manage (edit / delete / confirm / reject / assign / reminders)
-  //   → ONLY the workspace owner OR a project manager.
-  //   Admins do NOT get manage rights.
+  // Manage = workspace owner OR project manager. Admins are VIEW-only.
   const isWorkspaceOwner = useMemo(() => {
     if (!workspace?.owner || !userInfo?._id) return false;
     const ownerId = workspace.owner?._id || workspace.owner;
@@ -1181,6 +1267,7 @@ const YourWorkspaceTaskId = () => {
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, index: null });
   const [rejectModal, setRejectModal] = useState({ isOpen: false, index: null });
   const [deleteSubModal, setDeleteSubModal] = useState({ isOpen: false, index: null });
+  const [itemActionModal, setItemActionModal] = useState({ isOpen: false, index: null });
   const [expandedSub, setExpandedSub] = useState(null);
   const [submissionExpanded, setSubmissionExpanded] = useState(false);
   const [rejectionExpanded, setRejectionExpanded] = useState(!!task?.rejectedBy);
@@ -1191,15 +1278,20 @@ const YourWorkspaceTaskId = () => {
   const [selectedSubIndices, setSelectedSubIndices] = useState(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
+  // Single long-press timer shared across items (only one at a time)
+  const longPressTimerRef = useRef(null);
+  const clearLongPress = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
   useEffect(() => { if (task?.rejectedBy) setRejectionExpanded(true); }, [task?.rejectedBy]);
   useEffect(() => { setSelectedSubIndices(new Set()); }, [task?._id]);
+  useEffect(() => () => clearLongPress(), []);
 
   // ── Loading / error gating ──────────────────────────────────
-  // Priority order:
-  //   1. No taskId yet → loading
-  //   2. Actively fetching → loading (never flash error while in-flight)
-  //   3. Error present → error screen
-  //   4. Data not yet available → loading
   if (!taskId) {
     return (<><GlobalStyles /><TaskSkeleton /></>);
   }
@@ -1328,12 +1420,17 @@ const YourWorkspaceTaskId = () => {
     setDeleteSubModal({ isOpen: false, index: null });
   };
 
+  // ── Multi-select ─────────────────────────────────────────────
   const toggleSubSelection = (idx) => {
     setSelectedSubIndices((prev) => {
       const next = new Set(prev);
       if (next.has(idx)) next.delete(idx); else next.add(idx);
       return next;
     });
+  };
+
+  const startSubSelection = (idx) => {
+    setSelectedSubIndices(new Set([idx]));
   };
 
   const clearSubSelection = () => setSelectedSubIndices(new Set());
@@ -1355,12 +1452,11 @@ const YourWorkspaceTaskId = () => {
     else toast.error('Failed to delete items');
   };
 
+  // ── Drag & drop (grip-only) ──────────────────────────────────
   const canReorderSub = (canManage || (isAssignee && task.allowAssigneeEditSubtasks)) && !isReadOnly;
 
-  // Drag only from the grip handle (moved draggable there so clicks elsewhere
-  // never accidentally start a drag).
   const onSubDragStart = (e, i) => {
-    if (!canReorderSub) { e.preventDefault(); toast.error('No permission to reorder'); return; }
+    if (!canReorderSub) { e.preventDefault(); return; }
     setDraggedIdx(i);
     try { e.dataTransfer.setData('text/plain', String(i)); } catch {}
     e.dataTransfer.effectAllowed = 'move';
@@ -1386,6 +1482,39 @@ const YourWorkspaceTaskId = () => {
     catch (err) { toast.error(err?.data?.message || 'Failed to reorder'); }
   };
 
+  // ── Context menu / long press ────────────────────────────────
+  const openItemModal = (idx) => {
+    setItemActionModal({ isOpen: true, index: idx });
+  };
+
+  const handleRowContextMenu = (e, idx) => {
+    e.preventDefault();
+    // When in multi-select mode, a right-click just toggles the item.
+    if (selectedSubIndices.size > 0) { toggleSubSelection(idx); return; }
+    openItemModal(idx);
+  };
+
+  const handleRowTouchStart = (idx) => {
+    clearLongPress();
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTimerRef.current = null;
+      if (selectedSubIndices.size > 0) { toggleSubSelection(idx); return; }
+      openItemModal(idx);
+    }, 500);
+  };
+
+  const handleRowTouchEnd = () => { clearLongPress(); };
+  const handleRowTouchMove = () => { clearLongPress(); };
+
+  const handleRowClick = (e, idx) => {
+    // Multi-select mode: tap anywhere on the row toggles selection
+    if (selectedSubIndices.size > 0) {
+      if (e.target.closest('.subtask-grip') || e.target.closest('.subtask-checkbox') || e.target.closest('.subtask-expand')) return;
+      toggleSubSelection(idx);
+    }
+  };
+
+  // ── Derived ──────────────────────────────────────────────────
   const progress = task.progress || 0;
   const subTasks = task.subTasks || [];
   const confirmedCount = subTasks.filter((s) => s.status === 'confirmed').length;
@@ -1398,6 +1527,8 @@ const YourWorkspaceTaskId = () => {
   const showConfirmCompletionBtn = !isReadOnly && canManage && task.status === 'completed';
   const canSelectSubs = ((isAssignee && task.allowAssigneeEditSubtasks) || canManage) && !isReadOnly && subTasks.length > 0;
   const canAddItems = !isReadOnly && ((isAssignee && task.allowAssigneeEditSubtasks) || canManage);
+
+  const currentItem = itemActionModal.index != null ? subTasks[itemActionModal.index] : null;
 
   return (
     <>
@@ -1542,18 +1673,20 @@ const YourWorkspaceTaskId = () => {
                 </div>
               </div>
 
-              {canSelectSubs && selectedSubIndices.size > 0 && (
+              {selectedSubIndices.size > 0 && (
                 <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl shadow-lg">
                   <span className="text-sm font-medium flex-1">{selectedSubIndices.size} selected</span>
                   <button onClick={clearSubSelection} className="text-xs px-2.5 py-1 bg-white/20 hover:bg-white/30 rounded-lg transition">Clear</button>
-                  <button
-                    onClick={handleDeleteSelectedSubs}
-                    disabled={bulkDeleting}
-                    className="text-xs px-2.5 py-1 bg-red-500 hover:bg-red-600 disabled:opacity-60 rounded-lg flex items-center gap-1 transition"
-                  >
-                    <FaTrashAlt className="text-[10px]" />
-                    {bulkDeleting ? 'Deleting...' : 'Delete'}
-                  </button>
+                  {canSelectSubs && (
+                    <button
+                      onClick={handleDeleteSelectedSubs}
+                      disabled={bulkDeleting}
+                      className="text-xs px-2.5 py-1 bg-red-500 hover:bg-red-600 disabled:opacity-60 rounded-lg flex items-center gap-1 transition"
+                    >
+                      <FaTrashAlt className="text-[10px]" />
+                      {bulkDeleting ? 'Deleting...' : 'Delete'}
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -1572,17 +1705,14 @@ const YourWorkspaceTaskId = () => {
                     const isSelected = selectedSubIndices.has(idx);
                     const isDragOver = dragOverIdx === idx;
                     const showMarkDone = !isReadOnly && (isAssignee || canManage) && isPending;
-                    const showConfirmReject = !isReadOnly && canManage && isDone;
                     const canDeleteThis = ((isAssignee && !isConfirmed) || canManage) && canReorderSub;
                     const hasDetails = st.notes || st.links?.length || st.attachments?.length || st.feedback || st.rejectedBy;
                     const isOverdue = st.dueDate && new Date(st.dueDate) < new Date() && !isConfirmed;
                     const completedBy = st.confirmedBy || st.completedBy;
 
-                    const checkboxClass = isConfirmed
+                    const checkboxClass = isConfirmed || isDone
                       ? 'text-white border-transparent'
-                      : isDone
-                        ? 'text-white border-transparent'
-                        : 'border-gray-300 dark:border-gray-600 hover:border-teal-500';
+                      : 'border-gray-300 dark:border-gray-600 hover:border-teal-500';
                     const checkboxStyle = isConfirmed
                       ? { backgroundColor: brandColor, borderColor: brandColor }
                       : isDone
@@ -1592,6 +1722,7 @@ const YourWorkspaceTaskId = () => {
                     const handleCheckboxClick = (e) => {
                       e.stopPropagation();
                       if (isReadOnly) return;
+                      if (selectedSubIndices.size > 0) { toggleSubSelection(idx); return; }
                       if (isConfirmed) { toast.info('Already confirmed'); return; }
                       if (isPending && showMarkDone) { setDoneModal({ isOpen: true, index: idx }); return; }
                       if (isDone && canManage) { setConfirmModal({ isOpen: true, index: idx }); return; }
@@ -1602,35 +1733,27 @@ const YourWorkspaceTaskId = () => {
                     return (
                       <div
                         key={idx}
+                        onContextMenu={(e) => handleRowContextMenu(e, idx)}
+                        onTouchStart={() => handleRowTouchStart(idx)}
+                        onTouchEnd={handleRowTouchEnd}
+                        onTouchMove={handleRowTouchMove}
+                        onClick={(e) => handleRowClick(e, idx)}
                         onDragOver={(e) => onSubDragOver(e, idx)}
                         onDragLeave={() => setDragOverIdx(null)}
                         onDrop={(e) => onSubDrop(e, idx)}
-                        className={`bg-white dark:bg-[#14141a] rounded-2xl border transition-all ${
+                        className={`bg-white dark:bg-[#14141a] rounded-2xl border transition-all select-none ${
                           isDragOver
                             ? 'border-teal-500 dark:border-[#0d9488] bg-teal-50/50 dark:bg-[#0d9488]/5'
                             : isSelected
-                              ? 'border-teal-400 dark:border-[#0d9488]/70 bg-teal-50/40 dark:bg-[#0d9488]/5'
+                              ? 'border-teal-400 dark:border-[#0d9488]/70 bg-teal-50/60 dark:bg-[#0d9488]/10'
                               : 'border-gray-200/60 dark:border-gray-800/40 hover:border-gray-300 dark:hover:border-gray-700/60'
                         }`}
                       >
                         <div className="p-3 lg:p-4">
                           <div className="flex items-start gap-2 sm:gap-3 w-full">
-                            {canSelectSubs && (
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); toggleSubSelection(idx); }}
-                                className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 mt-0.5 transition ${
-                                  isSelected ? 'bg-teal-500 border-teal-500' : 'border-gray-300 dark:border-gray-600 hover:border-teal-400'
-                                }`}
-                                title="Select item"
-                              >
-                                {isSelected && <FaCheck className="text-white text-[8px]" />}
-                              </button>
-                            )}
-
                             {canReorderSub && (
                               <div
-                                className="shrink-0 text-gray-300 dark:text-gray-700 mt-0.5 cursor-grab touch-none"
+                                className="subtask-grip shrink-0 text-gray-300 dark:text-gray-700 mt-0.5 cursor-grab touch-none active:cursor-grabbing"
                                 draggable
                                 onDragStart={(e) => onSubDragStart(e, idx)}
                                 onDragEnd={onSubDragEnd}
@@ -1643,7 +1766,7 @@ const YourWorkspaceTaskId = () => {
                             <button
                               type="button"
                               onClick={handleCheckboxClick}
-                              className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition ${checkboxClass}`}
+                              className={`subtask-checkbox w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition ${checkboxClass}`}
                               style={checkboxStyle}
                               title={
                                 isConfirmed ? 'Confirmed' :
@@ -1673,43 +1796,15 @@ const YourWorkspaceTaskId = () => {
                                   )}
                                 </span>
 
-                                <div className="flex items-center flex-shrink-0 -mr-1">
-                                  {showConfirmReject && (
-                                    <>
-                                      <button
-                                        onClick={(e) => { e.stopPropagation(); setConfirmModal({ isOpen: true, index: idx }); }}
-                                        title="Confirm"
-                                        className="p-1.5 text-green-500 hover:bg-green-50 dark:hover:bg-green-500/10 rounded-lg transition"
-                                      >
-                                        <FaCheckDouble className="text-xs" />
-                                      </button>
-                                      <button
-                                        onClick={(e) => { e.stopPropagation(); setRejectModal({ isOpen: true, index: idx }); }}
-                                        title="Reject"
-                                        className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition"
-                                      >
-                                        <FaTimes className="text-xs" />
-                                      </button>
-                                    </>
-                                  )}
-                                  {hasDetails && (
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); setExpandedSub(expandedSub === idx ? null : idx); }}
-                                      className="p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"
-                                    >
-                                      <FaAngleDown className={`text-xs transition-transform ${expandedSub === idx ? 'rotate-180' : ''}`} />
-                                    </button>
-                                  )}
-                                  {canDeleteThis && (
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); setDeleteSubModal({ isOpen: true, index: idx }); }}
-                                      title="Delete"
-                                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition"
-                                    >
-                                      <FaTrashAlt className="text-xs" />
-                                    </button>
-                                  )}
-                                </div>
+                                {hasDetails && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setExpandedSub(expandedSub === idx ? null : idx); }}
+                                    className="subtask-expand p-1.5 -mr-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition flex-shrink-0"
+                                    title={expandedSub === idx ? 'Hide details' : 'Show details'}
+                                  >
+                                    <FaAngleDown className={`text-xs transition-transform ${expandedSub === idx ? 'rotate-180' : ''}`} />
+                                  </button>
+                                )}
                               </div>
 
                               <div className="flex flex-wrap items-center gap-1 sm:gap-3 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
@@ -1834,6 +1929,28 @@ const YourWorkspaceTaskId = () => {
           onDelete={() => setDeleteConfirm(true)}
           onAIEdit={() => setShowAIEdit(true)}
         />
+
+        <SubtaskActionModal
+          isOpen={itemActionModal.isOpen}
+          onClose={() => setItemActionModal({ isOpen: false, index: null })}
+          item={currentItem}
+          index={itemActionModal.index}
+          canManage={canManage}
+          isReadOnly={isReadOnly}
+          isAssignee={isAssignee}
+          canSelectSubs={canSelectSubs}
+          canDeleteThis={
+            itemActionModal.index != null &&
+            ((isAssignee && subTasks[itemActionModal.index]?.status !== 'confirmed') || canManage) &&
+            canReorderSub
+          }
+          onMarkDone={(idx) => setDoneModal({ isOpen: true, index: idx })}
+          onConfirm={(idx) => setConfirmModal({ isOpen: true, index: idx })}
+          onReject={(idx) => setRejectModal({ isOpen: true, index: idx })}
+          onSelect={(idx) => startSubSelection(idx)}
+          onDelete={(idx) => setDeleteSubModal({ isOpen: true, index: idx })}
+        />
+
         <EditTaskModal isOpen={showEdit} onClose={() => setShowEdit(false)} task={task} brandColor={brandColor} assignableMembers={assignableMembers} folders={foldersData?.folders || []} onSuccess={refetchTask} />
         <AssignTaskModal isOpen={showAssign} onClose={() => setShowAssign(false)} task={task} assignableMembers={assignableMembers} brandColor={brandColor} onAssign={handleAssign} />
         <MarkCompleteModal isOpen={showMarkComplete} onClose={() => setShowMarkComplete(false)} task={task} brandColor={brandColor} onSubmit={handleMarkComplete} />
