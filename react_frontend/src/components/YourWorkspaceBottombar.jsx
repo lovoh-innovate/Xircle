@@ -13,10 +13,8 @@ import {
   FiMenu,
   FiX,
   FiFolder,
-  FiBell,
   FiLogOut,
   FiClock,
-  FiSettings,
 } from 'react-icons/fi';
 import { useGetUserChatsQuery, messagingApiSlice } from '../slices/messagingApiSlice';
 import { useSocket } from '../components/SocketContext.jsx';
@@ -44,18 +42,13 @@ const YourWorkspaceBottombar = ({ workspace }) => {
   const brandColor = workspace?.color || '#0d9488';
 
   // ── Query with aggressive refresh options ──
-  const {
-    data: chatsData,
-    refetch: refetchChats,
-  } = useGetUserChatsQuery(workspaceId, {
+  const { data: chatsData, refetch: refetchChats } = useGetUserChatsQuery(workspaceId, {
     pollingInterval: 15000,
     refetchOnFocus: true,
     refetchOnReconnect: true,
   });
 
   const allChats = chatsData?.chats || [];
-
-  // ── FILTER: only keep chats that belong to this workspace ──
   const workspaceChats = allChats.filter(chat => belongsToWorkspace(chat, workspaceId));
 
   // ── Socket listener for real‑time unread updates ──
@@ -65,22 +58,14 @@ const YourWorkspaceBottombar = ({ workspace }) => {
     const handleChatListUpdate = ({ chatId, unreadCount }) => {
       if (!chatId) return;
 
-      // 1. Patch the cache immediately (optimistic)
       dispatch(
-        messagingApiSlice.util.updateQueryData(
-          'getUserChats',
-          workspaceId,
-          (draft) => {
-            if (!draft?.chats) return;
-            const chat = draft.chats.find(c => c._id === chatId);
-            if (chat && typeof unreadCount === 'number') {
-              chat.unreadCount = unreadCount;
-            }
-          }
-        )
+        messagingApiSlice.util.updateQueryData('getUserChats', workspaceId, draft => {
+          if (!draft?.chats) return;
+          const chat = draft.chats.find(c => c._id === chatId);
+          if (chat && typeof unreadCount === 'number') chat.unreadCount = unreadCount;
+        })
       );
 
-      // 2. Also trigger a quiet refetch after a short delay to guarantee consistency
       if (refetchTimeoutRef.current) clearTimeout(refetchTimeoutRef.current);
       refetchTimeoutRef.current = setTimeout(() => {
         refetchChats();
@@ -96,25 +81,21 @@ const YourWorkspaceBottombar = ({ workspace }) => {
     };
   }, [socket, isConnected, workspaceId, dispatch, refetchChats]);
 
-  // ── Also refetch when the page becomes visible (user switches back) ──
+  // ── Refetch when page becomes visible ──
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        refetchChats();
-      }
+      if (document.visibilityState === 'visible') refetchChats();
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [refetchChats]);
 
-  // ── Refetch when socket connects to ensure initial data ──
+  // ── Refetch when socket connects ──
   useEffect(() => {
-    if (isConnected) {
-      refetchChats();
-    }
+    if (isConnected) refetchChats();
   }, [isConnected, refetchChats]);
 
-  // ── Compute totals using ONLY workspaceChats ──
+  // ── Totals ──
   const unreadChannels = workspaceChats
     .filter(c => c.type === 'group')
     .reduce((acc, c) => acc + (c.unreadCount || 0), 0);
@@ -124,10 +105,8 @@ const YourWorkspaceBottombar = ({ workspace }) => {
     .reduce((acc, c) => acc + (c.unreadCount || 0), 0);
 
   // ── Navigation helpers ──
-  const isActive = (pathPattern) => {
-    if (pathPattern === 'home') {
-      return location.pathname === `/workspace/${workspaceId}`;
-    }
+  const isActive = pathPattern => {
+    if (pathPattern === 'home') return location.pathname === `/workspace/${workspaceId}`;
     return location.pathname.includes(pathPattern);
   };
 
@@ -142,8 +121,6 @@ const YourWorkspaceBottombar = ({ workspace }) => {
     }
   };
 
-  // ─── Bottom navigation items ──
-  // Projects moved here from the drawer — sits right after Channels.
   const navItems = [
     { id: 'home', label: 'Home', icon: FiHome, path: `/workspace/${workspaceId}`, activeCheck: 'home' },
     { id: 'dms', label: 'Messages', icon: FiMessageCircle, path: `/workspace/${workspaceId}/dms`, activeCheck: '/dms' },
@@ -152,117 +129,134 @@ const YourWorkspaceBottombar = ({ workspace }) => {
     { id: 'members', label: 'Members', icon: FiUser, path: `/workspace/${workspaceId}/members`, activeCheck: '/members' },
   ];
 
-  // ─── Menu items ──────────────────────────────────────────────────────
-  // Projects removed — it now lives on the bottom bar.
   const menuItems = [
     { id: 'clockin', label: 'Clock‑in', icon: FiClock, path: `/workspace/${workspaceId}/clockin` },
     { id: 'profile', label: 'Profile', icon: FiUser, path: '/profile' },
     { id: 'logout', label: 'Logout', icon: FiLogOut, action: handleLogout },
   ];
 
+  // ─── Reusable renderer for a single bottom-bar tab ───
+  const renderTab = ({ key, icon: Icon, label, active, badgeCount = 0, onClick, to }) => {
+    const content = (
+      <>
+        <span
+          className={`relative flex items-center justify-center w-[46px] h-8 rounded-full transition-all duration-300 ease-out ${
+            active
+              ? 'shadow-sm'
+              : 'group-hover:bg-gray-100/80 dark:group-hover:bg-white/[0.06] group-active:scale-95'
+          }`}
+          style={active ? { backgroundColor: `${brandColor}1a` } : undefined}
+        >
+          <Icon
+            className={`w-[20px] h-[20px] transition-all duration-300 ${
+              active
+                ? ''
+                : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300'
+            }`}
+            style={active ? { color: brandColor } : undefined}
+            strokeWidth={active ? 2.4 : 1.9}
+          />
+          {badgeCount > 0 && (
+            <span className="absolute -top-0.5 right-0.5 min-w-[17px] h-[17px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center shadow-md ring-2 ring-white dark:ring-[#0f0f12]">
+              {badgeCount > 99 ? '99+' : badgeCount}
+            </span>
+          )}
+        </span>
+
+        <span
+          className={`text-[10px] leading-none font-semibold tracking-tight transition-colors duration-300 ${
+            active
+              ? ''
+              : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300'
+          }`}
+          style={active ? { color: brandColor } : undefined}
+        >
+          {label}
+        </span>
+      </>
+    );
+
+    const baseClass =
+      'group relative flex flex-1 flex-col items-center justify-center gap-[5px] pt-1 pb-1 select-none transition-transform active:scale-95';
+
+    if (to) {
+      return (
+        <Link key={key} to={to} className={baseClass} aria-label={label}>
+          {content}
+        </Link>
+      );
+    }
+    return (
+      <button key={key} onClick={onClick} className={baseClass} aria-label={label}>
+        {content}
+      </button>
+    );
+  };
+
   return (
     <>
       {/* ─── Bottom Bar (mobile only) ──────────────────────────────── */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/90 dark:bg-[#0f0f12]/90 backdrop-blur-xl border-t border-gray-200/60 dark:border-gray-800/60 md:hidden shadow-lg">
-        <div className="flex items-center justify-around h-16 px-1 max-w-lg mx-auto">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const active = isActive(item.activeCheck);
+      <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-white/85 dark:bg-[#0f0f12]/85 backdrop-blur-xl border-t border-gray-200/70 dark:border-white/[0.06] shadow-[0_-6px_24px_-8px_rgba(0,0,0,0.12)] pb-[env(safe-area-inset-bottom)]">
+        <div className="flex items-stretch justify-around h-[62px] px-1 max-w-lg mx-auto">
+          {navItems.map(item => {
             let badgeCount = 0;
             if (item.id === 'channels') badgeCount = unreadChannels;
             if (item.id === 'dms') badgeCount = unreadDMs;
 
-            return (
-              <Link
-                key={item.id}
-                to={item.path}
-                className="relative flex flex-col items-center justify-center gap-0.5 px-2 py-1 rounded-full transition-all group flex-1"
-              >
-                <div className="relative">
-                  <Icon
-                    className={`w-5 h-5 transition-all duration-200 ${
-                      active
-                        ? 'scale-110'
-                        : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300'
-                    }`}
-                    style={active ? { color: brandColor } : {}}
-                    strokeWidth={2}
-                  />
-                  {badgeCount > 0 && (
-                    <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 shadow-md border-2 border-white dark:border-[#0f0f12]">
-                      {badgeCount > 99 ? '99+' : badgeCount}
-                    </span>
-                  )}
-                </div>
-                <span
-                  className={`text-[10px] font-medium transition-colors duration-200 ${
-                    active
-                      ? 'text-gray-800 dark:text-gray-200'
-                      : 'text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300'
-                  }`}
-                >
-                  {item.label}
-                </span>
-                {active && (
-                  <span
-                    className="absolute -top-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full"
-                    style={{ backgroundColor: brandColor }}
-                  />
-                )}
-              </Link>
-            );
+            return renderTab({
+              key: item.id,
+              icon: item.icon,
+              label: item.label,
+              active: isActive(item.activeCheck),
+              badgeCount,
+              to: item.path,
+            });
           })}
 
-          {/* Menu button */}
-          <button
-            onClick={() => setMenuOpen(true)}
-            className="relative flex flex-col items-center justify-center gap-0.5 px-2 py-1 rounded-full transition-all group flex-1"
-          >
-            <FiMenu
-              className="w-5 h-5 text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300 group-hover:scale-105 transition"
-              strokeWidth={2}
-            />
-            <span className="text-[10px] font-medium text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300 transition">
-              Menu
-            </span>
-          </button>
+          {renderTab({
+            key: 'menu',
+            icon: FiMenu,
+            label: 'Menu',
+            active: menuOpen,
+            onClick: () => setMenuOpen(true),
+          })}
         </div>
       </div>
 
       {/* ─── Slide‑out overlay ──────────────────────────────────────── */}
       {menuOpen && (
         <div
-          className="fixed inset-0 z-50 bg-black/40 dark:bg-[#0b0b10]/70 backdrop-blur-sm md:hidden"
+          className="fixed inset-0 z-50 bg-black/40 dark:bg-black/60 backdrop-blur-sm md:hidden animate-[fadeIn_.2s_ease-out]"
           onClick={() => setMenuOpen(false)}
         />
       )}
 
       {/* ─── Slide‑out panel ────────────────────────────────────────── */}
       <div
-        className={`fixed top-0 left-0 z-50 h-full w-[280px] bg-white dark:bg-[#14141a] border-r border-gray-200/60 dark:border-gray-800/60 shadow-2xl transition-transform duration-300 ease-out md:hidden ${
+        className={`fixed top-0 left-0 z-50 h-full w-[280px] bg-white dark:bg-[#14141a] border-r border-gray-200/70 dark:border-white/[0.06] shadow-2xl transition-transform duration-300 ease-out md:hidden ${
           menuOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
         style={{ borderRadius: '0 24px 24px 0' }}
       >
         {/* Header */}
-        <div className="px-5 py-5 flex items-center justify-between border-b border-gray-200/60 dark:border-gray-800/60">
+        <div className="px-5 py-5 flex items-center justify-between border-b border-gray-200/70 dark:border-white/[0.06]">
           <div className="flex items-center gap-3">
             {workspace?.logo ? (
               <img
                 src={workspace.logo}
                 alt={workspace.name}
-                className="w-9 h-9 rounded-xl object-cover border border-gray-200 dark:border-gray-700/60"
+                className="w-10 h-10 rounded-2xl object-cover border border-gray-200 dark:border-gray-700/60"
               />
             ) : (
               <div
-                className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-sm"
+                className="w-10 h-10 rounded-2xl flex items-center justify-center text-white font-bold text-sm shadow-sm"
                 style={{ backgroundColor: brandColor }}
               >
                 {workspace?.initials || workspace?.name?.charAt(0).toUpperCase() || 'W'}
               </div>
             )}
-            <div>
-              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">
                 {workspace?.name || 'Workspace'}
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-500">Member</p>
@@ -270,19 +264,34 @@ const YourWorkspaceBottombar = ({ workspace }) => {
           </div>
           <button
             onClick={() => setMenuOpen(false)}
-            className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-full text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
+            aria-label="Close menu"
+            className="p-2 hover:bg-gray-100 dark:hover:bg-white/[0.06] rounded-full text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition active:scale-95"
           >
             <FiX className="text-lg" strokeWidth={2} />
           </button>
         </div>
 
         {/* Menu Items */}
-        <div
-          className="py-2 px-3 overflow-y-auto"
-          style={{ maxHeight: 'calc(100% - 160px)' }}
-        >
-          {menuItems.map((item) => {
+        <div className="py-3 px-3 overflow-y-auto" style={{ maxHeight: 'calc(100% - 170px)' }}>
+          {menuItems.map(item => {
             const Icon = item.icon;
+            const rowClass =
+              'group flex items-center gap-3 px-3 py-3 rounded-2xl hover:bg-gray-100 dark:hover:bg-white/[0.05] transition w-full active:scale-[0.98]';
+
+            const inner = (
+              <>
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center transition-transform group-hover:scale-105"
+                  style={{ backgroundColor: `${brandColor}1a` }}
+                >
+                  <Icon className="w-[20px] h-[20px]" style={{ color: brandColor }} strokeWidth={2} />
+                </div>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white transition">
+                  {item.label}
+                </span>
+              </>
+            );
+
             if (item.action) {
               return (
                 <button
@@ -291,17 +300,9 @@ const YourWorkspaceBottombar = ({ workspace }) => {
                     setMenuOpen(false);
                     item.action();
                   }}
-                  className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800/30 transition w-full"
+                  className={rowClass}
                 >
-                  <div
-                    className="w-9 h-9 rounded-xl flex items-center justify-center"
-                    style={{ backgroundColor: `${brandColor}20` }}
-                  >
-                    <Icon className="w-5 h-5" style={{ color: brandColor }} strokeWidth={2} />
-                  </div>
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition">
-                    {item.label}
-                  </span>
+                  {inner}
                 </button>
               );
             }
@@ -310,24 +311,16 @@ const YourWorkspaceBottombar = ({ workspace }) => {
                 key={item.id}
                 to={item.path}
                 onClick={() => setMenuOpen(false)}
-                className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+                className={rowClass}
               >
-                <div
-                  className="w-9 h-9 rounded-xl flex items-center justify-center"
-                  style={{ backgroundColor: `${brandColor}20` }}
-                >
-                  <Icon className="w-5 h-5" style={{ color: brandColor }} strokeWidth={2} />
-                </div>
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition">
-                  {item.label}
-                </span>
+                {inner}
               </Link>
             );
           })}
         </div>
 
         {/* Footer */}
-        <div className="absolute bottom-0 left-0 right-0 px-6 py-4 border-t border-gray-200/60 dark:border-gray-800/60 bg-white/80 dark:bg-[#14141a]/80 backdrop-blur-sm">
+        <div className="absolute bottom-0 left-0 right-0 px-6 py-4 border-t border-gray-200/70 dark:border-white/[0.06] bg-white/80 dark:bg-[#14141a]/80 backdrop-blur-sm">
           <p className="text-xs text-gray-500 dark:text-gray-500 text-center">
             Xircle · {workspace?.name}
           </p>

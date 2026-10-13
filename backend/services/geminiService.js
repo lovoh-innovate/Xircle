@@ -1,8 +1,8 @@
 // services/geminiService.js
 //
 // Groq-backed AI service.
-// Includes a hardened agent loop with automatic retry on 429
-// (rate-limit) responses so the free tier doesn't break the UI.
+// Hardened agent loop with automatic retry on 429 and an honest
+// fallback summary when iterations run out mid-task.
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
@@ -17,7 +17,57 @@ const stripCodeFences = (text) =>
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ─────────────────────────────────────────────────────────────────────
-// Single-shot caller (used by all the "plan / review / docs / note" endpoints)
+// Fetch with automatic retry on 429 (rate limit)
+// ─────────────────────────────────────────────────────────────────────
+async function fetchWithRetry(body, maxAttempts = 3) {
+  let attempt = 0;
+
+  while (attempt < maxAttempts) {
+    attempt++;
+
+    let response;
+    try {
+      response = await fetch(GROQ_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${GROQ_API_KEY}`,
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      throw new Error(`Groq request failed: ${err.message}`);
+    }
+
+    if (response.ok) return response;
+
+    if (response.status === 429) {
+      const errBody = await response.text().catch(() => '');
+      const match = errBody.match(/in\s+([\d.]+)s/);
+      const waitSec = match ? Math.ceil(parseFloat(match[1])) + 1 : 18;
+
+      if (attempt < maxAttempts) {
+        console.warn(`⏳ Groq 429 — retrying in ${waitSec}s (attempt ${attempt}/${maxAttempts})`);
+        await sleep(waitSec * 1000);
+        continue;
+      }
+
+      throw new Error(
+        'Groq rate limit reached. The assistant will retry shortly — please try again in a moment.'
+      );
+    }
+
+    const errBody = await response.text().catch(() => '');
+    throw new Error(
+      `Groq API error (${response.status}): ${errBody.slice(0, 300) || response.statusText}`
+    );
+  }
+
+  throw new Error('Groq request failed after retries.');
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Single-shot caller (used by plan/review/docs/note endpoints)
 // ─────────────────────────────────────────────────────────────────────
 async function callGroq({ system, user, jsonMode = true, temperature = 0.5 }) {
   if (!GROQ_API_KEY) throw new Error('GROQ_API_KEY is not set.');
@@ -49,73 +99,8 @@ async function callGroq({ system, user, jsonMode = true, temperature = 0.5 }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Fetch with automatic retry on 429 (rate limit)
-// Reads Groq's "retry after X seconds" hint when available.
+// AGENT LOOP
 // ─────────────────────────────────────────────────────────────────────
-async function fetchWithRetry(body, maxAttempts = 3) {
-  let attempt = 0;
-
-  while (attempt < maxAttempts) {
-    attempt++;
-
-    let response;
-    try {
-      response = await fetch(GROQ_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${GROQ_API_KEY}`,
-        },
-        body: JSON.stringify(body),
-      });
-    } catch (err) {
-      throw new Error(`Groq request failed: ${err.message}`);
-    }
-
-    if (response.ok) return response;
-
-    // Rate limit → wait & retry
-    if (response.status === 429) {
-      const errBody = await response.text().catch(() => '');
-      const match = errBody.match(/in\s+([\d.]+)s/);
-      const waitSec = match ? Math.ceil(parseFloat(match[1])) + 1 : 18;
-
-      if (attempt < maxAttempts) {
-        console.warn(`⏳ Groq 429 — retrying in ${waitSec}s (attempt ${attempt}/${maxAttempts})`);
-        await sleep(waitSec * 1000);
-        continue;
-      }
-
-      throw new Error(
-        'Groq rate limit reached. The assistant will retry shortly — please try again in a moment.'
-      );
-    }
-
-    // Any other error — surface it
-    const errBody = await response.text().catch(() => '');
-    throw new Error(
-      `Groq API error (${response.status}): ${errBody.slice(0, 300) || response.statusText}`
-    );
-  }
-
-  throw new Error('Groq request failed after retries.');
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// AGENT LOOP — the flexible chat engine
-// ─────────────────────────────────────────────────────────────────────
-//
-// Inputs:
-//   system        – system prompt
-//   history       – [{ role: 'user'|'assistant', content: '...' }]
-//   userMessage   – the new user turn
-//   tools         – OpenAI-compatible tool schema array
-//   toolExecutor  – async (toolName, args) => any
-//   temperature   – float
-//   maxIterations – safety cap (default 3)
-//
-// Returns: { content, toolCalls: [{ name, args, result }], messages }
-//
 export async function runAgent({
   system,
   history = [],
@@ -123,14 +108,13 @@ export async function runAgent({
   tools = [],
   toolExecutor,
   temperature = 0.4,
-  maxIterations = 3,
+  maxIterations = 5,
 }) {
   if (!GROQ_API_KEY) throw new Error('GROQ_API_KEY is not set.');
   if (!system || !userMessage) {
     throw new Error('runAgent requires both system and userMessage.');
   }
 
-  // Keep history short — 6 messages max (3 turns each side)
   const trimmedHistory = history
     .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && m.content)
     .slice(-6)
@@ -207,20 +191,57 @@ export async function runAgent({
       messages.push({
         role: 'tool',
         tool_call_id: call.id,
-        // Cap the size of each tool result pushed back into the prompt
         content: JSON.stringify(result ?? null).slice(0, 4000),
       });
     }
   }
 
-  // Ran out of iterations — return the last assistant text
+  // ─── Iterations exhausted — compose an HONEST summary of what ran ──
   const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
+  const lastAssistantText =
+    lastAssistant && typeof lastAssistant.content === 'string' && lastAssistant.content.trim()
+      ? lastAssistant.content.trim()
+      : '';
+
+  if (lastAssistantText) {
+    return { content: lastAssistantText, toolCalls: executedTools, messages };
+  }
+
+  const successful = executedTools.filter((t) => !(t.result && t.result.error));
+  const failed = executedTools.filter((t) => t.result && t.result.error);
+
+  if (successful.length === 0) {
+    return {
+      content:
+        "I wasn't able to finish that request. Try rephrasing or asking again.",
+      toolCalls: executedTools,
+      messages,
+    };
+  }
+
+  const lines = successful
+    .map((t) => {
+      if (t.result?.message && typeof t.result.message === 'string') {
+        return `• ${t.result.message}`;
+      }
+      if (typeof t.result?.sentCount === 'number') {
+        return `• Sent ${t.result.sentCount} message${t.result.sentCount === 1 ? '' : 's'}`;
+      }
+      return `• Ran ${t.name}`;
+    })
+    .slice(0, 20);
+
+  const failedLines = failed.map(
+    (t) => `• ${t.name}: ${t.result?.error || 'failed'}`
+  );
+
+  const summary =
+    `Here's what I got done:\n${lines.join('\n')}` +
+    (failedLines.length ? `\n\nCouldn't complete:\n${failedLines.join('\n')}` : '') +
+    `\n\nWant me to continue?`;
+
   return {
-    content:
-      (lastAssistant &&
-        typeof lastAssistant.content === 'string' &&
-        lastAssistant.content) ||
-      "I wasn't able to finish that request. Try rephrasing or asking again.",
+    content: summary,
     toolCalls: executedTools,
     messages,
   };
@@ -547,7 +568,7 @@ ${JSON.stringify(taskDigest, null, 2)}
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// 6. ASK XIRCLE — legacy single-shot Q&A (kept for compat)
+// 6. ASK XIRCLE (legacy)
 // ─────────────────────────────────────────────────────────────────────
 const ASK_SYSTEM = `
 You are the assistant inside Xircle, a simple team delivery app.
@@ -734,5 +755,4 @@ ${content}
   return callGroq({ system: COMPLETE_SYSTEM, user, temperature: 0.6 });
 }
 
-// Expose the raw caller in case anything else wants it.
 export { callGroq };

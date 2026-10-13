@@ -152,7 +152,7 @@ async function callGroqForEdit({ system, user, temperature = 0.3, maxTokens = 81
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// WEB SEARCH — flexible provider (Tavily → Brave → Serper)
+// WEB SEARCH
 // ═════════════════════════════════════════════════════════════════════
 async function performWebSearch(query, maxResults = 5) {
   const q = String(query || '').trim().slice(0, 400);
@@ -1963,7 +1963,7 @@ const AI_TOOLS = [
     function: {
       name: 'find_or_create_direct_chat',
       description:
-        'Find the direct chat between the caller and a workspace member by NAME or userId. Creates the chat if it doesn\'t exist. Returns the chatId. Use this when the user names a person rather than giving a chatId.',
+        'Find the direct chat between the caller and a workspace member by NAME or userId. Creates the chat if it doesn\'t exist. Returns the chatId.',
       parameters: {
         type: 'object',
         properties: {
@@ -1980,7 +1980,7 @@ const AI_TOOLS = [
     function: {
       name: 'send_message_to_user',
       description:
-        'Send a direct message to a workspace member by NAME or userId. Automatically finds or creates the direct chat and sends the message. PREFER THIS when the user says "message X", "tell Y", "send a note to Z", etc.',
+        'Send a direct message to ONE workspace member by NAME or userId. Automatically finds or creates the direct chat and sends the message. For 2+ recipients, use send_message_to_many instead.',
       parameters: {
         type: 'object',
         properties: {
@@ -1988,6 +1988,37 @@ const AI_TOOLS = [
           userId: { type: 'string', description: 'Target user ID (optional if nameQuery is given).' },
           nameQuery: { type: 'string', description: 'Person\'s name to search for (optional if userId is given).' },
           content: { type: 'string', description: 'The message text to send.' },
+        },
+        required: ['workspaceId', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'send_message_to_many',
+      description:
+        'Send the same direct message to MULTIPLE workspace members in one call. Use this for "message everyone", "tell all members", "remind the whole team", or "message X, Y, and Z". Set allMembers:true to target every active member. NEVER loop send_message_to_user for broadcasts — use this instead.',
+      parameters: {
+        type: 'object',
+        properties: {
+          workspaceId: { type: 'string' },
+          content: { type: 'string', description: 'The message text to send to each person.' },
+          allMembers: {
+            type: 'boolean',
+            description: 'Set true to send to every active member of the workspace (except the caller).',
+          },
+          recipients: {
+            type: 'array',
+            description: 'Explicit list when not using allMembers. Each item: { userId } or { nameQuery }.',
+            items: {
+              type: 'object',
+              properties: {
+                userId: { type: 'string' },
+                nameQuery: { type: 'string' },
+              },
+            },
+          },
         },
         required: ['workspaceId', 'content'],
       },
@@ -2919,20 +2950,14 @@ function buildToolExecutor(userId) {
           chat.lastMessageAt = new Date();
           await chat.save();
 
-          // Socket broadcast
           try {
             const io = getIO();
             io.to(`chat:${chat._id}`).emit('new-message', {
-              _id: msg._id,
-              chat: chat._id,
-              sender: userId,
-              content,
-              messageType: 'text',
-              createdAt: msg.createdAt,
+              _id: msg._id, chat: chat._id, sender: userId,
+              content, messageType: 'text', createdAt: msg.createdAt,
             });
           } catch (e) { /* ignore */ }
 
-          // Push notification to recipient
           const sender = await User.findById(userId).select('name').lean();
           const target = await User.findById(targetId).select('name').lean();
 
@@ -2955,6 +2980,103 @@ function buildToolExecutor(userId) {
             recipient: target?.name || 'Unknown',
             isNewChat: isNew,
             message: `${isNew ? 'Started a new chat with' : 'Sent to'} ${target?.name}: "${content.slice(0, 80)}${content.length > 80 ? '…' : ''}"`,
+          };
+        }
+
+        case 'send_message_to_many': {
+          const ws = await Workspace.findById(args.workspaceId).lean();
+          if (!ws) return { error: 'Workspace not found.' };
+          if (!(await canAccessWorkspace(ws, userId))) return { error: 'Access denied.' };
+
+          const content = String(args.content || '').trim().slice(0, 4000);
+          if (!content) return { error: 'Message content is empty.' };
+
+          let targetIds = [];
+
+          if (args.allMembers) {
+            targetIds = [
+              ws.owner?.toString(),
+              ...(ws.members || [])
+                .filter((m) => m.status === 'active')
+                .map((m) => (m.user?._id || m.user)?.toString()),
+            ]
+              .filter(Boolean)
+              .filter((id) => id !== userId);
+          } else if (Array.isArray(args.recipients)) {
+            for (const r of args.recipients) {
+              let tid = r?.userId || null;
+              if (!tid && r?.nameQuery) {
+                const hit = await resolveWorkspaceMemberByName(ws, r.nameQuery, userId);
+                if (hit) tid = hit._id.toString();
+              }
+              if (tid && tid !== userId) targetIds.push(tid);
+            }
+          }
+
+          targetIds = [...new Set(targetIds)];
+          if (targetIds.length === 0) return { error: 'No valid recipients found.' };
+
+          const sender = await User.findById(userId).select('name').lean();
+          const results = [];
+
+          for (const targetId of targetIds) {
+            try {
+              const { chat } = await findOrCreateDirectChat(ws, userId, targetId);
+
+              const msg = await Message.create({
+                workspace: chat.workspace || null,
+                chat: chat._id,
+                sender: userId,
+                content,
+                messageType: 'text',
+                readBy: [{ user: userId, readAt: new Date() }],
+              });
+
+              chat.lastMessage = msg._id;
+              chat.lastMessageAt = new Date();
+              await chat.save();
+
+              try {
+                const io = getIO();
+                io.to(`chat:${chat._id}`).emit('new-message', {
+                  _id: msg._id,
+                  chat: chat._id,
+                  sender: userId,
+                  content,
+                  messageType: 'text',
+                  createdAt: msg.createdAt,
+                });
+              } catch (e) { /* ignore */ }
+
+              createAndSendNotification({
+                recipient: targetId,
+                title: `💬 ${sender?.name || 'Someone'}`,
+                body: content.slice(0, 120),
+                data: {
+                  notificationType: 'chat',
+                  chatId: chat._id.toString(),
+                  workspaceId: ws._id.toString(),
+                },
+                sendPush: true,
+              }).catch(() => {});
+
+              const target = await User.findById(targetId).select('name').lean();
+              results.push({ name: target?.name || 'Unknown', ok: true });
+            } catch (err) {
+              results.push({ name: `User ${targetId}`, ok: false, error: err.message });
+            }
+          }
+
+          const sent = results.filter((r) => r.ok);
+          const failed = results.filter((r) => !r.ok);
+          const names = sent.map((r) => r.name).join(', ') || 'nobody';
+
+          return {
+            success: true,
+            sentCount: sent.length,
+            failedCount: failed.length,
+            recipients: results,
+            message: `Sent to ${sent.length} ${sent.length === 1 ? 'person' : 'people'}: ${names}${failed.length ? ` — ${failed.length} failed` : ''}`,
           };
         }
 
@@ -3036,10 +3158,12 @@ TOOLS — USE THEM:
 - Any question about the user's workspace (people, tasks, projects,
   chats, clock-ins, notes, activity) → call a READ tool FIRST. Never guess.
 - Any "do X for me" request → call a WRITE tool.
-- Naming a person + "message/tell/send X to" → use send_message_to_user
-  (NOT send_chat_message, which needs a chatId). Only use
-  send_chat_message when you already have a chatId from a previous tool call.
-- "Do I have a chat with X?" → use find_or_create_direct_chat.
+- Naming a person + "message/tell/send X to" → use send_message_to_user.
+- "Everyone", "all members", "the whole team", "broadcast", or naming 2+ people
+  at once → use send_message_to_many with allMembers:true (or an explicit
+  recipients array). NEVER loop send_message_to_user for multiple people.
+- Only use send_chat_message when you already have a chatId from a
+  previous tool result.
 - Need current info, news, or you're unsure about a fact → call web_search.
 - Chain tools in one turn (e.g. "clock me in and message Sarah").
 
@@ -3158,7 +3282,7 @@ export const chatWithAI = async (req, res) => {
       tools: AI_TOOLS,
       toolExecutor: executor,
       temperature: 0.4,
-      maxIterations: 4,
+      maxIterations: 5,
     });
 
     conversation.messages.push({
