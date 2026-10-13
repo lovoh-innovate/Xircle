@@ -5,6 +5,156 @@ const AI_URL = '/ai';
 
 export const aiApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
+    // ═══════════════════════════════════════════════════════════════════
+    // ── CHAT (the flexible one) ──────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════
+
+    // ─── Send a turn to the AI ──────────────────────────────────────
+    // body: {
+    //   message:         string   (required)
+    //   conversationId?: string   (omit for a new chat)
+    //   workspaceId?:    string   (scope + active workspace hint)
+    // }
+    //
+    // returns: {
+    //   success: true,
+    //   conversationId: string,
+    //   answer:  string,
+    //   actions: [{ tool, args, ok, summary }],
+    //   generatedAt: Date
+    // }
+    //
+    // The AI can chain multiple tool calls in one turn (clock you in AND
+    // message a colleague, etc.). `actions` lists what it actually did.
+    //
+    // Invalidates anything the tools might have touched, so the rest of
+    // the app refreshes when the AI does something.
+    chatWithAI: builder.mutation({
+      query: (data) => ({
+        url: `${AI_URL}/chat`,
+        method: 'POST',
+        body: data,
+      }),
+      invalidatesTags: (result) => {
+        // If the AI took no actions, nothing to invalidate.
+        if (!result?.actions || result.actions.length === 0) return [];
+
+        const tags = new Set();
+        for (const action of result.actions) {
+          if (!action?.ok) continue;
+          switch (action.tool) {
+            case 'clock_in':
+            case 'clock_out':
+              tags.add('ClockIn');
+              break;
+            case 'schedule_call':
+            case 'start_call_now':
+              tags.add('Call');
+              break;
+            case 'send_chat_message':
+              tags.add('Chat');
+              tags.add('Message');
+              break;
+            case 'create_task':
+            case 'update_task_status':
+              tags.add('Task');
+              tags.add('Project');
+              break;
+            default:
+              // Read-only tools — no invalidation.
+              break;
+          }
+        }
+        // Only invalidate the conversation list if a chat actually changed
+        // shape — cheap enough to always add when there are actions.
+        if (tags.size > 0) tags.add('AIConversation');
+        return Array.from(tags);
+      },
+    }),
+
+    // ─── List the caller's AI conversations ─────────────────────────
+    // args: { workspaceId?, archived?: 'true' | 'false' }
+    // returns: {
+    //   success,
+    //   conversations: [{
+    //     _id, title, workspaceId, lastMessageAt, archived, createdAt,
+    //     messageCount, preview
+    //   }]
+    // }
+    getAIConversations: builder.query({
+      query: ({ workspaceId, archived } = {}) => {
+        const params = new URLSearchParams();
+        if (workspaceId) params.set('workspaceId', workspaceId);
+        if (archived !== undefined) params.set('archived', archived);
+        const qs = params.toString();
+        return `${AI_URL}/conversations${qs ? `?${qs}` : ''}`;
+      },
+      providesTags: (result) =>
+        result?.conversations
+          ? [
+              ...result.conversations.map((c) => ({ type: 'AIConversation', id: c._id })),
+              { type: 'AIConversation', id: 'LIST' },
+            ]
+          : [{ type: 'AIConversation', id: 'LIST' }],
+    }),
+
+    // ─── Fetch one full conversation (with all messages) ────────────
+    // args: conversationId
+    // returns: { success, conversation: { _id, title, messages: [...], ... } }
+    getAIConversation: builder.query({
+      query: (conversationId) => `${AI_URL}/conversations/${conversationId}`,
+      providesTags: (result, error, conversationId) => [
+        { type: 'AIConversation', id: conversationId },
+      ],
+    }),
+
+    // ─── Create an empty conversation up front ──────────────────────
+    // body: { title?, workspaceId? }
+    // returns: { success, conversation }
+    //
+    // Rarely needed — POST /chat creates one automatically when
+    // conversationId is omitted. Use this if you want an empty chat
+    // to show up in the sidebar before the first message.
+    createAIConversation: builder.mutation({
+      query: (data) => ({
+        url: `${AI_URL}/conversations`,
+        method: 'POST',
+        body: data,
+      }),
+      invalidatesTags: [{ type: 'AIConversation', id: 'LIST' }],
+    }),
+
+    // ─── Rename or archive a conversation ───────────────────────────
+    // body: { title?, archived? }
+    // returns: { success, conversation }
+    updateAIConversation: builder.mutation({
+      query: ({ conversationId, ...body }) => ({
+        url: `${AI_URL}/conversations/${conversationId}`,
+        method: 'PATCH',
+        body,
+      }),
+      invalidatesTags: (result, error, { conversationId }) => [
+        { type: 'AIConversation', id: conversationId },
+        { type: 'AIConversation', id: 'LIST' },
+      ],
+    }),
+
+    // ─── Delete a conversation ──────────────────────────────────────
+    deleteAIConversation: builder.mutation({
+      query: (conversationId) => ({
+        url: `${AI_URL}/conversations/${conversationId}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: (result, error, conversationId) => [
+        { type: 'AIConversation', id: conversationId },
+        { type: 'AIConversation', id: 'LIST' },
+      ],
+    }),
+
+    // ═══════════════════════════════════════════════════════════════════
+    // ── PLANNING ─────────────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════
+
     // ─── Preview a plan — NOTHING hits the DB ────────────────────────
     // body: { workspaceId, prompt }
     // returns: { success, plan: { project, tasks, warnings } }
@@ -14,15 +164,11 @@ export const aiApiSlice = apiSlice.injectEndpoints({
         method: 'POST',
         body: data,
       }),
-      // No invalidatesTags — plan creation doesn't change server data.
     }),
 
     // ─── Iterate on a plan preview — NOTHING hits the DB ────────────
     // body: { workspaceId, plan, prompt }
     // returns: { success, plan, summary, changes, warnings }
-    //
-    // Same shape as planWithAI so the client can swap the plan object
-    // in place. Read-only on the server.
     editPlanPreview: builder.mutation({
       query: (data) => ({
         url: `${AI_URL}/plan/edit`,
@@ -43,22 +189,22 @@ export const aiApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['Project', 'Task', 'Workspace'],
     }),
 
+    // ═══════════════════════════════════════════════════════════════════
+    // ── PROJECT INTELLIGENCE ─────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════
+
     // ─── Review an existing project ─────────────────────────────────
     // body: { projectId, focus? }
-    // returns: { success, review: { healthScore, overallAssessment, strengths, issues, recommendations } }
-    // Managers only (owner / admin / PM).
     reviewProject: builder.mutation({
       query: (data) => ({
         url: `${AI_URL}/review`,
         method: 'POST',
         body: data,
       }),
-      // No invalidation — this is analysis, not mutation of data.
     }),
 
     // ─── Summary snapshot of a project ──────────────────────────────
     // body: { projectId }
-    // returns: { success, summary: { headline, summary, currentState, highlights, risks, nextSteps } }
     summarizeProject: builder.mutation({
       query: (data) => ({
         url: `${AI_URL}/summarize`,
@@ -69,7 +215,6 @@ export const aiApiSlice = apiSlice.injectEndpoints({
 
     // ─── Explain a task or the project ──────────────────────────────
     // body: { projectId, taskId?, question?, audience? }
-    // returns: { success, explanation: { tlDr, explanation, whyItMatters, whatYouActuallyDo, commonPitfalls } }
     explainContext: builder.mutation({
       query: (data) => ({
         url: `${AI_URL}/explain`,
@@ -80,7 +225,6 @@ export const aiApiSlice = apiSlice.injectEndpoints({
 
     // ─── Structured project documentation (for PDF export) ──────────
     // body: { projectId }
-    // returns: { success, doc: { meta, sections } }
     generateProjectDocs: builder.mutation({
       query: (data) => ({
         url: `${AI_URL}/document`,
@@ -89,19 +233,12 @@ export const aiApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
-    // ─── Ask Xircle — conversational lens over the user's own data ──
-    // body: { question: string, history?: [{ role: 'user'|'assistant', content: string }] }
-    // returns: {
-    //   success,
-    //   answer: string,
-    //   followUps: string[],
-    //   generatedAt,
-    //   timezone,
-    //   contextCounts: { openPersonalTasks, openProjectTasks, activeProjects, ... }
-    // }
+    // ═══════════════════════════════════════════════════════════════════
+    // ── ASK XIRCLE (legacy single-shot Q&A) ──────────────────────────
+    // ═══════════════════════════════════════════════════════════════════
     //
-    // READ-ONLY. Does not change any server data, so no invalidatesTags.
-    // No providesTags either — this is a one-shot query, not cached state.
+    // Kept for backwards compat. New code should prefer `chatWithAI`.
+    // Body: { question: string, history? }
     askXircle: builder.mutation({
       query: (data) => ({
         url: `${AI_URL}/ask`,
@@ -111,24 +248,11 @@ export const aiApiSlice = apiSlice.injectEndpoints({
     }),
 
     // ═══════════════════════════════════════════════════════════════════
-    // Task-level AI editing  (propose → apply)
+    // ── TASK-LEVEL AI EDITING (propose → apply) ──────────────────────
     // ═══════════════════════════════════════════════════════════════════
 
     // ─── Preview an AI-driven edit to one task — NO writes ──────────
     // body: { taskId, prompt }
-    // returns: {
-    //   success,
-    //   current:  { _id, title, description, priority, status, startDate, dueDate,
-    //               estimatedHours, bufferTime, assigneeIds, assigneeNames,
-    //               allowAssigneeEditSubtasks, subTasks: [...] },
-    //   proposed: { ...same shape, plus hydrated `assignees` array },
-    //   summary:  string,
-    //   changes:  [{ field, from, to }],
-    //   warnings: string[]
-    // }
-    //
-    // The client shows `current` vs `proposed` as a diff. No server state
-    // changes until the user calls applyTaskEdits.
     editTaskWithAI: builder.mutation({
       query: (data) => ({
         url: `${AI_URL}/task/edit`,
@@ -139,10 +263,6 @@ export const aiApiSlice = apiSlice.injectEndpoints({
 
     // ─── Commit a task edit — saves the proposed state ──────────────
     // body: { taskId, proposed }
-    // returns: { success, task, warnings }
-    //
-    // Invalidates the single task tag plus the whole Task list so any
-    // open task list / detail view refreshes.
     applyTaskEdits: builder.mutation({
       query: (data) => ({
         url: `${AI_URL}/task/apply`,
@@ -157,24 +277,11 @@ export const aiApiSlice = apiSlice.injectEndpoints({
     }),
 
     // ═══════════════════════════════════════════════════════════════════
-    // Project-level AI editing  (propose → apply)
+    // ── PROJECT-LEVEL AI EDITING (propose → apply) ───────────────────
     // ═══════════════════════════════════════════════════════════════════
 
     // ─── Preview an AI-driven edit to a project AND its tasks — NO writes ─
     // body: { projectId, prompt }
-    // returns: {
-    //   success,
-    //   current:  { project, tasks: [...] },
-    //   proposed: { project, tasks: [...] },
-    //   summary:  string,
-    //   changes:  [{ field, from, to }],
-    //   warnings: string[]
-    // }
-    //
-    // The proposed tasks array can include:
-    //   • existing tasks with their _id (updates)
-    //   • new tasks without an _id (creates)
-    //   • existing tasks with _deleted: true (soft-deletes)
     editProjectWithAI: builder.mutation({
       query: (data) => ({
         url: `${AI_URL}/project/edit`,
@@ -185,15 +292,6 @@ export const aiApiSlice = apiSlice.injectEndpoints({
 
     // ─── Commit a project edit — creates / updates / deletes tasks ──
     // body: { projectId, proposed }
-    // returns: {
-    //   success,
-    //   project,
-    //   tasks,
-    //   created: number,
-    //   updated: number,
-    //   deleted: number,
-    //   warnings: string[]
-    // }
     applyProjectEdits: builder.mutation({
       query: (data) => ({
         url: `${AI_URL}/project/apply`,
@@ -211,16 +309,33 @@ export const aiApiSlice = apiSlice.injectEndpoints({
 });
 
 export const {
+  // ── Chat ──────────────────────────────────────────────────────────
+  useChatWithAIMutation,
+  useGetAIConversationsQuery,
+  useGetAIConversationQuery,
+  useCreateAIConversationMutation,
+  useUpdateAIConversationMutation,
+  useDeleteAIConversationMutation,
+
+  // ── Planning ──────────────────────────────────────────────────────
   usePlanWithAIMutation,
-  useEditPlanPreviewMutation,              // 👈 NEW
+  useEditPlanPreviewMutation,
   useExecuteAIPlanMutation,
+
+  // ── Project intelligence ──────────────────────────────────────────
   useReviewProjectMutation,
   useSummarizeProjectMutation,
   useExplainContextMutation,
   useGenerateProjectDocsMutation,
+
+  // ── Ask Xircle (legacy) ───────────────────────────────────────────
   useAskXircleMutation,
-  useEditTaskWithAIMutation,               // 👈 NEW
-  useApplyTaskEditsMutation,               // 👈 NEW
-  useEditProjectWithAIMutation,            // 👈 NEW
-  useApplyProjectEditsMutation,            // 👈 NEW
+
+  // ── Task-level editing ────────────────────────────────────────────
+  useEditTaskWithAIMutation,
+  useApplyTaskEditsMutation,
+
+  // ── Project-level editing ─────────────────────────────────────────
+  useEditProjectWithAIMutation,
+  useApplyProjectEditsMutation,
 } = aiApiSlice;
