@@ -17,6 +17,7 @@ import {
   FiSun,
   FiMoon,
   FiMonitor,
+  FiFileText, // ADDED — icon for Notes
 } from 'react-icons/fi';
 import { FaSpinner } from 'react-icons/fa';
 import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
@@ -105,10 +106,16 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   };
 
   // ─── Navigation ──────────────────────────────────────────────────
+  // NOTE: The Notes routes live under /my-workspace/notes (no workspaceId
+  // segment) because MyWorkspaceWriteNote resolves the owner workspace
+  // from the auth slice.
+  const notesPath = '/my-workspace/notes'; // ADDED
+
   const navOptions = [
     { id: 'home', label: 'Dashboard', icon: FiHome, path: `/my-workspace/${workspaceId}` },
     { id: 'projects', label: 'Projects', icon: FiFolder, path: `/my-workspace/${workspaceId}/projects` },
     { id: 'all-tasks', label: 'All Tasks', icon: FiCheckSquare, path: `/my-workspace/${workspaceId}/tasks` },
+    { id: 'notes', label: 'Notes', icon: FiFileText, path: notesPath }, // ADDED
     { id: 'channels', label: 'Channels', icon: ChatIcon, path: `/my-workspace/${workspaceId}/channels` },
     { id: 'dms', label: 'Direct Messages', icon: FiMail, path: `/my-workspace/${workspaceId}/dms` },
     { id: 'members', label: 'Members', icon: FiUsers, path: `/my-workspace/${workspaceId}/members` },
@@ -147,6 +154,11 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   const isActive = (path) => {
     if (path === `/my-workspace/${workspaceId}`) {
       return location.pathname === path;
+    }
+    // ADDED — treat both `/my-workspace/notes` and
+    // `/my-workspace/notes/:id` as the active Notes route.
+    if (path === notesPath) {
+      return location.pathname.startsWith('/my-workspace/notes');
     }
     return location.pathname.includes(path.split('/').pop());
   };
@@ -345,6 +357,15 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
             className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
           >
             <FiCheckSquare className="text-lg" />
+          </Link>
+
+          {/* ADDED — Notes (collapsed) */}
+          <Link
+            to={notesPath}
+            title="Notes"
+            className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+          >
+            <FiFileText className="text-lg" />
           </Link>
 
           <Link

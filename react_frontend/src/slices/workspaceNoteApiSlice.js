@@ -5,7 +5,13 @@ const WORKSPACE_NOTES_URL = '/workspace-notes';
 
 export const workspaceNoteApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
+    // ═══════════════════════════════════════════════════════════════════
+    // CRUD
+    // ═══════════════════════════════════════════════════════════════════
+
     // ─── Create a workspace note ────────────────────────────────────────
+    // Body may include: { workspaceId, title?, content?, folderId? }
+    // Drafts allowed — title / content may be empty.
     createWorkspaceNote: builder.mutation({
       query: (data) => {
         const isFormData = data instanceof FormData;
@@ -16,22 +22,38 @@ export const workspaceNoteApiSlice = apiSlice.injectEndpoints({
           headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
         };
       },
-      invalidatesTags: ['WorkspaceNote'],
+      invalidatesTags: ['WorkspaceNote', 'WorkspaceNoteFolder'],
     }),
 
-    // ─── Get all notes for a workspace ──────────────────────────────────
+    // ─── Get all notes for a workspace (optionally filtered by folder) ─
+    // Pass either:
+    //   useGetWorkspaceNotesQuery(workspaceId)                 → all notes
+    //   useGetWorkspaceNotesQuery({ workspaceId, folderId })   → filtered
+    //     folderId: '<id>' → notes in that folder
+    //     folderId: 'root' → unfiled only
     getWorkspaceNotes: builder.query({
-      query: (workspaceId) => ({
-        url: `${WORKSPACE_NOTES_URL}/${workspaceId}`,
-      }),
-      providesTags: (result, error, workspaceId) =>
-        result
+      query: (arg) => {
+        // Support both call styles: bare string OR { workspaceId, folderId }
+        const workspaceId = typeof arg === 'string' ? arg : arg.workspaceId;
+        const folderId = typeof arg === 'string' ? undefined : arg.folderId;
+        return {
+          url: `${WORKSPACE_NOTES_URL}/${workspaceId}`,
+          params: folderId ? { folderId } : undefined,
+        };
+      },
+      providesTags: (result, error, arg) => {
+        const workspaceId = typeof arg === 'string' ? arg : arg.workspaceId;
+        const base = [
+          { type: 'WorkspaceNote', id: 'LIST' },
+          { type: 'WorkspaceNote', id: workspaceId },
+        ];
+        return result
           ? [
               ...result.notes.map((note) => ({ type: 'WorkspaceNote', id: note._id })),
-              { type: 'WorkspaceNote', id: 'LIST' },
-              { type: 'WorkspaceNote', id: workspaceId },
+              ...base,
             ]
-          : [{ type: 'WorkspaceNote', id: 'LIST' }, { type: 'WorkspaceNote', id: workspaceId }],
+          : base;
+      },
     }),
 
     // ─── Get a single workspace note by ID ─────────────────────────────
@@ -43,6 +65,10 @@ export const workspaceNoteApiSlice = apiSlice.injectEndpoints({
     }),
 
     // ─── Update a workspace note ──────────────────────────────────────
+    // Body may include: { title?, content?, folderId? }
+    //   folderId absent → leave folder unchanged
+    //   folderId null   → move to root
+    //   folderId <id>   → move to that folder
     updateWorkspaceNote: builder.mutation({
       query: ({ noteId, data }) => {
         const isFormData = data instanceof FormData;
@@ -56,6 +82,23 @@ export const workspaceNoteApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (result, error, { noteId }) => [
         { type: 'WorkspaceNote', id: noteId },
         'WorkspaceNote',
+        'WorkspaceNoteFolder',
+      ],
+    }),
+
+    // ─── Move a note to a folder (or root) ────────────────────────────
+    // Send { noteId, folderId } where folderId is a folder _id OR null
+    // (null = unfiled / root).
+    moveWorkspaceNote: builder.mutation({
+      query: ({ noteId, folderId }) => ({
+        url: `${WORKSPACE_NOTES_URL}/${noteId}/move`,
+        method: 'PATCH',
+        body: { folderId },
+      }),
+      invalidatesTags: (result, error, { noteId }) => [
+        { type: 'WorkspaceNote', id: noteId },
+        'WorkspaceNote',
+        'WorkspaceNoteFolder',
       ],
     }),
 
@@ -68,6 +111,7 @@ export const workspaceNoteApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (result, error, noteId) => [
         { type: 'WorkspaceNote', id: noteId },
         'WorkspaceNote',
+        'WorkspaceNoteFolder',
       ],
     }),
 
@@ -82,32 +126,109 @@ export const workspaceNoteApiSlice = apiSlice.injectEndpoints({
     }),
 
     // ─── Import file to create workspace note ──────────────────────────
+    // Send { file, title?, workspaceId, folderId? }
     importFileToWorkspaceNote: builder.mutation({
       query: (data) => {
         const formData = new FormData();
         if (data.file) formData.append('file', data.file);
         if (data.title) formData.append('title', data.title);
         if (data.workspaceId) formData.append('workspaceId', data.workspaceId);
+        if (data.folderId) formData.append('folderId', data.folderId);
         return {
           url: `${WORKSPACE_NOTES_URL}/import`,
           method: 'POST',
           body: formData,
         };
       },
-      invalidatesTags: ['WorkspaceNote'],
+      invalidatesTags: ['WorkspaceNote', 'WorkspaceNoteFolder'],
+    }),
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Folders
+    // ═══════════════════════════════════════════════════════════════════
+
+    // ─── Create a folder ──────────────────────────────────────────────
+    // Send { workspaceId, name, parentId?, color? }
+    createWorkspaceNoteFolder: builder.mutation({
+      query: (data) => ({
+        url: `${WORKSPACE_NOTES_URL}/folders`,
+        method: 'POST',
+        body: data,
+      }),
+      invalidatesTags: ['WorkspaceNoteFolder'],
+    }),
+
+    // ─── List folders for a workspace (flat list; build tree on client) ─
+    getWorkspaceNoteFolders: builder.query({
+      query: (workspaceId) => ({
+        url: `${WORKSPACE_NOTES_URL}/folders/${workspaceId}`,
+      }),
+      providesTags: (result, error, workspaceId) =>
+        result
+          ? [
+              ...result.folders.map((f) => ({ type: 'WorkspaceNoteFolder', id: f._id })),
+              { type: 'WorkspaceNoteFolder', id: 'LIST' },
+              { type: 'WorkspaceNoteFolder', id: workspaceId },
+            ]
+          : [
+              { type: 'WorkspaceNoteFolder', id: 'LIST' },
+              { type: 'WorkspaceNoteFolder', id: workspaceId },
+            ],
+    }),
+
+    // ─── Update a folder (rename / recolor / reorder / re-parent) ────
+    // Send { folderId, data } where data may include:
+    //   { name?, color?, order?, parentId? }
+    //   parentId: null → move to root
+    updateWorkspaceNoteFolder: builder.mutation({
+      query: ({ folderId, data }) => ({
+        url: `${WORKSPACE_NOTES_URL}/folders/${folderId}`,
+        method: 'PUT',
+        body: data,
+      }),
+      invalidatesTags: (result, error, { folderId }) => [
+        { type: 'WorkspaceNoteFolder', id: folderId },
+        'WorkspaceNoteFolder',
+        'WorkspaceNote',
+      ],
+    }),
+
+    // ─── Delete a folder ──────────────────────────────────────────────
+    // Send { folderId, moveNotesTo? }
+    //   moveNotesTo: 'parent' (default) | 'root' | '<folderId>'
+    deleteWorkspaceNoteFolder: builder.mutation({
+      query: ({ folderId, moveNotesTo }) => ({
+        url: `${WORKSPACE_NOTES_URL}/folders/${folderId}`,
+        method: 'DELETE',
+        body: moveNotesTo ? { moveNotesTo } : {},
+      }),
+      invalidatesTags: (result, error, { folderId }) => [
+        { type: 'WorkspaceNoteFolder', id: folderId },
+        'WorkspaceNoteFolder',
+        'WorkspaceNote', // notes got re-homed — refresh visible lists
+      ],
     }),
   }),
 });
 
 export const {
+  // CRUD
   useCreateWorkspaceNoteMutation,
   useGetWorkspaceNotesQuery,
   useLazyGetWorkspaceNotesQuery,
   useGetWorkspaceNoteQuery,
   useLazyGetWorkspaceNoteQuery,
   useUpdateWorkspaceNoteMutation,
+  useMoveWorkspaceNoteMutation,              // 👈 new
   useDeleteWorkspaceNoteMutation,
   useExportWorkspaceNotePDFQuery,
   useLazyExportWorkspaceNotePDFQuery,
   useImportFileToWorkspaceNoteMutation,
+
+  // Folders
+  useCreateWorkspaceNoteFolderMutation,      // 👈 new
+  useGetWorkspaceNoteFoldersQuery,           // 👈 new
+  useLazyGetWorkspaceNoteFoldersQuery,       // 👈 new
+  useUpdateWorkspaceNoteFolderMutation,      // 👈 new
+  useDeleteWorkspaceNoteFolderMutation,      // 👈 new
 } = workspaceNoteApiSlice;

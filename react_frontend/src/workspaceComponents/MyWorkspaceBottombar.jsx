@@ -66,7 +66,7 @@ const InviteModal = ({ isOpen, onClose, inviteCode, brandColor, workspaceName })
       onClick={onClose}
     >
       <div
-        className="bg-white dark:bg-[#14141a] border border-gray-200/70 dark:border-white/[0.06] rounded-t-3xl w-full max-w-md p-6 pb-8 animate-slide-up shadow-2xl"
+        className="bg-white dark:bg-[#14141a] border border-gray-200/70 dark:border-white/[0.06] rounded-t-3xl w-full max-w-md p-6 pb-8 animate-slide-up shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
@@ -86,7 +86,7 @@ const InviteModal = ({ isOpen, onClose, inviteCode, brandColor, workspaceName })
 
         <div className="bg-gray-50 dark:bg-[#0b0b10] rounded-2xl border border-gray-200 dark:border-white/[0.06] p-4 mb-4">
           <div className="flex items-center justify-between">
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="text-xs text-gray-500 dark:text-gray-500 uppercase tracking-wider">Invite Code</p>
               <p className="text-xl font-mono font-bold text-gray-800 dark:text-gray-100 mt-1 truncate">{inviteCode}</p>
             </div>
@@ -109,7 +109,7 @@ const InviteModal = ({ isOpen, onClose, inviteCode, brandColor, workspaceName })
           Copy invite link
         </button>
 
-        <p className="text-xs text-gray-500 dark:text-gray-500 text-center mt-4">
+        <p className="text-xs text-gray-500 dark:text-gray-500 text-center mt-4 break-words line-clamp-2">
           Anyone with this link can join {workspaceName}
         </p>
       </div>
@@ -333,20 +333,22 @@ const MyWorkspaceBottombar = ({ workspace }) => {
       )}
 
       {/* ─── Slide-out panel ── */}
+      {/* overflow-hidden clips anything too wide; invisible when closed so nothing leaks onto the screen */}
       <div
-        className={`fixed top-0 left-0 z-50 h-full w-[300px] bg-white dark:bg-[#14141a] border-r border-gray-200/70 dark:border-white/[0.06] shadow-2xl transition-transform duration-300 ease-out md:hidden ${
-          menuOpen ? 'translate-x-0' : '-translate-x-full'
+        aria-hidden={!menuOpen}
+        className={`fixed top-0 left-0 z-50 h-full w-[300px] max-w-[85vw] overflow-hidden bg-white dark:bg-[#14141a] border-r border-gray-200/70 dark:border-white/[0.06] shadow-2xl transition-all duration-300 ease-out md:hidden ${
+          menuOpen ? 'translate-x-0 visible' : '-translate-x-full invisible pointer-events-none'
         }`}
         style={{ borderRadius: '0 24px 24px 0' }}
       >
         {/* Header */}
-        <div className="px-5 py-5 flex items-center justify-between border-b border-gray-200/70 dark:border-white/[0.06]">
-          <div className="flex items-center gap-3 min-w-0">
+        <div className="px-5 py-5 flex items-center justify-between gap-3 border-b border-gray-200/70 dark:border-white/[0.06]">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
             {workspace?.logo ? (
               <img
                 src={workspace.logo}
                 alt={workspace.name}
-                className="w-10 h-10 rounded-2xl object-cover border border-gray-200 dark:border-gray-700/60"
+                className="w-10 h-10 rounded-2xl object-cover border border-gray-200 dark:border-gray-700/60 flex-shrink-0"
               />
             ) : (
               <div
@@ -356,8 +358,11 @@ const MyWorkspaceBottombar = ({ workspace }) => {
                 {workspace?.initials || workspace?.name?.charAt(0).toUpperCase() || 'W'}
               </div>
             )}
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <p
+                className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate"
+                title={workspace?.name}
+              >
                 {workspace?.name || 'Workspace'}
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-500">Owner</p>
@@ -387,7 +392,7 @@ const MyWorkspaceBottombar = ({ workspace }) => {
                 >
                   <Icon className="w-[18px] h-[18px]" strokeWidth={2} />
                 </div>
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white transition">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">
                   {item.label}
                 </span>
               </>
@@ -437,7 +442,7 @@ const MyWorkspaceBottombar = ({ workspace }) => {
 
         {/* Footer */}
         <div className="absolute bottom-0 left-0 right-0 px-6 py-4 border-t border-gray-200/70 dark:border-white/[0.06] bg-white/80 dark:bg-[#14141a]/80 backdrop-blur-sm">
-          <p className="text-xs text-gray-500 dark:text-gray-500 text-center">
+          <p className="text-xs text-gray-500 dark:text-gray-500 text-center truncate">
             Xircle v1.0 · {workspace?.name}
           </p>
         </div>
@@ -459,6 +464,12 @@ const MyWorkspaceBottombar = ({ workspace }) => {
         }
         .animate-slide-up {
           animation: slideUp 0.3s ease-out forwards;
+        }
+        .line-clamp-2 {
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
         }
       `}</style>
     </>

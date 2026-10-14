@@ -22,14 +22,15 @@ import {
   FiSun,
   FiMoon,
   FiMonitor,
-  FiUser, // for Members nav icon
+  FiUser,
+  FiFileText, // 👈 NEW — Notes icon
 } from 'react-icons/fi';
 import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
 import { useGetWorkspaceProjectsQuery } from '../slices/projectApiSlice';
 import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
 import { useTheme } from '../contexts/ThemeContext';
 import { FaSpinner } from 'react-icons/fa';
-import useWorkspacePresence from '../services/useWorkspacePresence'; // 👈 real-time presence
+import useWorkspacePresence from '../services/useWorkspacePresence';
 
 // ─── Custom WhatsApp‑style Chat Icon ──────────────────────────────
 const ChatIcon = ({ className }) => (
@@ -64,7 +65,6 @@ const forceUniqueById = (arr, getId = (item) => item?._id) => {
   return out;
 };
 
-// ─── Helper: is this chat a workspace-scoped chat for THIS workspace ───
 const belongsToWorkspace = (chat, workspaceId) => {
   if (!chat) return false;
   const chatWorkspaceId =
@@ -99,23 +99,19 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   const { theme, toggleTheme, isDarkMode } = useTheme();
   const [isCollapsed, setIsCollapsed] = useState(false);
 
-  // ── real‑time online users ──
   const onlineUserIds = useWorkspacePresence(workspaceId);
   const onlineCount = onlineUserIds.size;
 
-  // ── fetch chats if not provided ──
   const { data: chatsData, isLoading: chatsLoading } = useGetUserChatsQuery(workspaceId, {
     skip: !!propChats,
   });
   const rawChats = propChats || chatsData?.chats || [];
 
-  // ── only chats that actually belong to this workspace ──
   const chats = useMemo(
     () => rawChats.filter((chat) => belongsToWorkspace(chat, workspaceId)),
     [rawChats, workspaceId]
   );
 
-  // ── fetch projects ──
   const { data: projectsData, isLoading: projectsLoading } = useGetWorkspaceProjectsQuery({
     workspaceId,
   });
@@ -159,7 +155,6 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   const pendingWidthRef = useRef(null);
   const rafRef = useRef(null);
 
-  // Apply width instantly to the DOM (no React re-render → smooth 1:1)
   const applyWidth = useCallback((w) => {
     const px = `${w}px`;
     document.documentElement.style.setProperty(CSS_VAR, px);
@@ -167,13 +162,11 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
     if (handleRef.current) handleRef.current.style.left = `${w - 5}px`;
   }, []);
 
-  // Set initial width before paint
   useLayoutEffect(() => {
     if (!isCollapsed) applyWidth(sidebarWidth);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Persist on commit (skip while dragging)
   useEffect(() => {
     if (isResizing) return;
     try {
@@ -183,7 +176,6 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
     }
   }, [sidebarWidth, isResizing]);
 
-  // React to collapse toggle
   useEffect(() => {
     if (isCollapsed) {
       if (asideRef.current) asideRef.current.style.width = '64px';
@@ -192,7 +184,6 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
     }
   }, [isCollapsed, sidebarWidth, applyWidth]);
 
-  // ── Drag handlers ──────────────────────────────────────────────
   const handleResizeStart = useCallback(
     (e) => {
       if (e.button !== undefined && e.button !== 0) return;
@@ -225,7 +216,6 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
       );
       pendingWidthRef.current = next;
 
-      // Coalesce pointer events into a single paint per frame
       if (rafRef.current == null) {
         rafRef.current = requestAnimationFrame(() => {
           rafRef.current = null;
@@ -271,7 +261,6 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
     };
   }, [applyWidth]);
 
-  // Double-click / keyboard reset & nudge
   const resetWidth = useCallback(() => {
     setSidebarWidth(DEFAULT_WIDTH);
     applyWidth(DEFAULT_WIDTH);
@@ -302,6 +291,7 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
     { id: 'home', label: 'Dashboard', icon: FiHome, path: `/workspace/${workspaceId}` },
     { id: 'projects', label: 'Projects', icon: FiFolder, path: `/workspace/${workspaceId}/projects` },
     { id: 'all-tasks', label: 'All Tasks', icon: FiCheckSquare, path: `/workspace/${workspaceId}/tasks` },
+    { id: 'notes', label: 'Notes', icon: FiFileText, path: `/workspace/${workspaceId}/notes` }, // 👈 NEW
     { id: 'channels', label: 'Channels', icon: ChatIcon, path: `/workspace/${workspaceId}/channels` },
     { id: 'dms', label: 'Direct Messages', icon: FiMail, path: `/workspace/${workspaceId}/dms` },
     { id: 'members', label: 'Members', icon: FiUsers, path: `/workspace/${workspaceId}/members` },
@@ -312,7 +302,6 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
 
   const channels = chats.filter((chat) => chat.type === 'group') || [];
 
-  // ─── NUCLEAR DEDUPLICATION: one DM per participant, keep most recent ──
   const myId = String(userInfo?._id);
   const rawDirectMessages = chats.filter((chat) => chat.type === 'direct') || [];
   const directMessages = useMemo(() => {
@@ -418,7 +407,7 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
     );
   };
 
-  // ─── Theme Toggle Icon (small, no label) ──────────────────────
+  // ─── Theme Toggle Icon ────────────────────────────────────────
   const ThemeToggleIcon = () => {
     const getIcon = () => {
       if (theme === 'light') return <FiSun className="text-yellow-500" />;
@@ -539,6 +528,15 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
               <FiCheckSquare className="text-lg" />
             </Link>
 
+            {/* 👇 NEW — Notes (collapsed state) */}
+            <Link
+              to={`/workspace/${workspaceId}/notes`}
+              title="Notes"
+              className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+            >
+              <FiFileText className="text-lg" />
+            </Link>
+
             <Link
               to={`/workspace/${workspaceId}/channels`}
               title="Channels"
@@ -609,6 +607,15 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
                   >
                     <FiCheckSquare className="text-xs text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300" />
                     <span className="font-medium">All Tasks</span>
+                  </Link>
+
+                  {/* 👇 NEW — Notes shortcut under Projects (expanded state) */}
+                  <Link
+                    to={`/workspace/${workspaceId}/notes`}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group text-sm text-gray-700 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+                  >
+                    <FiFileText className="text-xs text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300" />
+                    <span className="font-medium">Workspace Notes</span>
                   </Link>
 
                   {projectsLoading ? (
@@ -796,7 +803,7 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
           </button>
         </div>
 
-        {/* ── User Footer (profile + theme icon side‑by‑side) ── */}
+        {/* ── User Footer ── */}
         <div
           className={`border-t border-gray-200 dark:border-gray-800 flex-shrink-0 bg-white dark:bg-[#18181b] ${
             isCollapsed ? 'p-2 flex flex-col items-center gap-2' : 'p-3'
@@ -852,7 +859,7 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
         </div>
       </div>
 
-      {/* ─── Resize Handle (same markup & styling as GeneralSidebar) ─── */}
+      {/* ─── Resize Handle ─── */}
       <div
         ref={handleRef}
         role="separator"

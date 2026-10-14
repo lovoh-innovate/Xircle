@@ -9,6 +9,12 @@ const personalNoteSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    folder: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'PersonalNoteFolder',
+      default: null, // null = unfiled / root
+      index: true,
+    },
     title: {
       type: String,
       required: [true, 'Title is required'],
@@ -69,19 +75,22 @@ const personalNoteSchema = new mongoose.Schema(
 // 1. For retrieving a user's own notes (sorted by creation)
 personalNoteSchema.index({ user: 1, createdAt: -1 });
 
-// 2. For public notes lookup by shareLink (already unique, but explicit)
+// 2. Notes within a specific folder (or root when folder is null)
+personalNoteSchema.index({ user: 1, folder: 1, updatedAt: -1 });
+
+// 3. For public notes lookup by shareLink (already unique, but explicit)
 personalNoteSchema.index({ shareLink: 1 });
 
-// 3. For filtering public notes (e.g., listing public notes)
+// 4. For filtering public notes (e.g., listing public notes)
 personalNoteSchema.index({ isPublic: 1, createdAt: -1 });
 
-// 4. For finding notes shared with a specific collaborator (array field)
+// 5. For finding notes shared with a specific collaborator (array field)
 personalNoteSchema.index({ 'collaborators.user': 1 });
 
-// 5. Compound index for collaborators + permission (if needed)
+// 6. Compound index for collaborators + permission (if needed)
 personalNoteSchema.index({ 'collaborators.user': 1, 'collaborators.permission': 1 });
 
-// 6. Text search index on title and content (enable full-text search)
+// 7. Text search index on title and content (enable full-text search)
 personalNoteSchema.index(
   { title: 'text', content: 'text' },
   { weights: { title: 10, content: 5 }, name: 'text_search_index' }

@@ -78,6 +78,20 @@ const GlobalStyles = () => (
     .ai-markdown { line-height: 1.55; }
     .ai-markdown > *:last-child { margin-bottom: 0 !important; }
     .ai-markdown table { font-size: 12px; }
+
+    /* Mobile top bar: solid, always above page content, safe-area aware */
+    .ws-mobile-header {
+      padding-top: env(safe-area-inset-top, 0px);
+    }
+    .ws-mobile-header-spacer {
+      height: calc(3.5rem + env(safe-area-inset-top, 0px));
+    }
+    .line-clamp-2 {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
   `}</style>
 );
 
@@ -102,8 +116,8 @@ const WorkspaceLoadingShell = () => (
     </div>
 
     <div className="flex-1 md:ml-[260px]">
-      <div className="md:hidden fixed top-0 left-0 right-0 z-10 bg-white/80 dark:bg-[#0b0b10]/80 backdrop-blur-md px-4 pt-4 pb-2 border-b border-gray-200/60 dark:border-gray-800/40">
-        <div className="flex items-center justify-between gap-3">
+      <div className="ws-mobile-header md:hidden fixed top-0 left-0 right-0 z-30 bg-white dark:bg-[#0b0b10] border-b border-gray-200 dark:border-gray-800/60">
+        <div className="h-14 flex items-center justify-between gap-3 px-3">
           <div className="flex-1 min-w-0 space-y-1.5">
             <Skeleton className="h-2.5 w-20" />
             <Skeleton className="h-4 w-32" />
@@ -111,8 +125,9 @@ const WorkspaceLoadingShell = () => (
           <Skeleton className="w-8 h-8 rounded-full flex-shrink-0" />
         </div>
       </div>
+      <div className="ws-mobile-header-spacer md:hidden" />
 
-      <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 md:pb-6 mt-16 md:mt-0">
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 md:pb-6">
         <div className="grid grid-cols-3 gap-2 sm:gap-3 md:gap-4 mb-4 sm:mb-6">
           <MetricCardSkeleton />
           <MetricCardSkeleton />
@@ -826,10 +841,10 @@ const MyWorkspaceId = () => {
   // ─── Hero Card (mobile) ──────────────────────────────────────────
   const HeroCard = () => (
     <div className="relative bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl p-4 sm:p-5 mb-4">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between gap-3 mb-3">
         <button
           onClick={() => navigate('/my-workspaces')}
-          className="flex items-center gap-3 hover:opacity-80 transition-opacity min-w-0 flex-1"
+          className="flex items-center gap-3 hover:opacity-80 transition-opacity min-w-0 flex-1 overflow-hidden"
         >
           {workspace.logo ? (
             <img
@@ -845,14 +860,14 @@ const MyWorkspaceId = () => {
               {workspace.initials || workspace.name.charAt(0).toUpperCase()}
             </div>
           )}
-          <div className="min-w-0 flex-1 text-left">
+          <div className="min-w-0 flex-1 text-left overflow-hidden">
             <span className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1.5">
               <FaArrowLeft className="text-[8px]" />
               Workspace
             </span>
-            <h1 className="text-base sm:text-lg font-bold leading-tight truncate w-full text-gray-800 dark:text-gray-100">
+            <h2 className="text-base sm:text-lg font-bold leading-tight line-clamp-2 break-words text-gray-800 dark:text-gray-100">
               {workspace.name}
-            </h1>
+            </h2>
           </div>
         </button>
         <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -873,7 +888,12 @@ const MyWorkspaceId = () => {
         </div>
       </div>
 
-      <div className="flex items-center justify-between bg-gray-100 dark:bg-gray-800/30 rounded-xl px-3 sm:px-4 py-2 border border-gray-200 dark:border-gray-800/40">
+      {/* Clock in / out chip (hidden automatically when clock-in is disabled) */}
+      <div className="mb-3 flex justify-start empty:hidden">
+        <ClockInWidget workspaceId={workspaceId} brandColor={brandColor} />
+      </div>
+
+      <div className="flex items-center justify-between gap-2 bg-gray-100 dark:bg-gray-800/30 rounded-xl px-3 sm:px-4 py-2 border border-gray-200 dark:border-gray-800/40">
         <span className="text-[11px] text-gray-500 dark:text-gray-400">Invite code</span>
         <span className="text-[11px] font-mono tracking-wider text-gray-800 dark:text-gray-300 flex items-center gap-2">
           {hideStats ? '••••••••' : workspace.inviteCode || '—'}
@@ -947,19 +967,22 @@ const MyWorkspaceId = () => {
         </div>
 
         <div className="flex-1 md:ml-[260px] workspace-shell-main">
-          {/* Mobile header */}
-          <div className="md:hidden fixed top-0 left-0 right-0 z-10 bg-white/80 dark:bg-[#0b0b10]/80 backdrop-blur-md px-3 pt-4 pb-2 border-b border-gray-200/60 dark:border-gray-800/40">
-            <div className="flex items-center justify-between">
+          {/* ═══ Mobile fixed header — solid, one line, never overlaps ═══ */}
+          <header className="ws-mobile-header md:hidden fixed top-0 left-0 right-0 z-30 bg-white dark:bg-[#0b0b10] border-b border-gray-200 dark:border-gray-800/60">
+            <div className="h-14 flex items-center gap-2 px-3 overflow-hidden">
               <button
                 onClick={() => navigate('/my-workspaces')}
-                className="flex items-center gap-2 hover:opacity-80 transition-opacity flex-1 min-w-0"
+                className="flex items-center gap-2 hover:opacity-80 transition-opacity flex-1 min-w-0 overflow-hidden"
               >
                 <span className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1.5 flex-shrink-0">
                   <FaArrowLeft className="text-[8px]" />
                   Workspace
                 </span>
                 <span className="text-gray-300 dark:text-gray-700 flex-shrink-0">/</span>
-                <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate min-w-0">
+                <span
+                  className="text-sm font-semibold text-gray-800 dark:text-gray-100 whitespace-nowrap overflow-hidden text-ellipsis min-w-0"
+                  title={workspace.name}
+                >
                   {workspace.name}
                 </span>
               </button>
@@ -967,6 +990,7 @@ const MyWorkspaceId = () => {
                 <button
                   onClick={() => setHideStats((v) => !v)}
                   className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition flex-shrink-0"
+                  aria-label="Toggle stats"
                 >
                   {hideStats ? <FaEyeSlash className="text-xs" /> : <FaEye className="text-xs" />}
                 </button>
@@ -979,9 +1003,11 @@ const MyWorkspaceId = () => {
                 </Link>
               </div>
             </div>
-          </div>
+          </header>
+          {/* Spacer so content starts below the fixed header */}
+          <div className="ws-mobile-header-spacer md:hidden" />
 
-          <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 md:pb-6 mt-16 md:mt-0">
+          <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 md:pb-6">
             {/* Hidden task counters */}
             {projects.map((p) => (
               <TaskCounter
@@ -1006,7 +1032,7 @@ const MyWorkspaceId = () => {
             <div className="hidden md:flex flex-wrap items-center justify-between gap-3 mb-6">
               <button
                 onClick={() => navigate('/my-workspaces')}
-                className="flex items-center gap-3 hover:opacity-80 transition-opacity"
+                className="flex items-center gap-3 hover:opacity-80 transition-opacity min-w-0"
               >
                 {workspace.logo ? (
                   <img
@@ -1022,12 +1048,12 @@ const MyWorkspaceId = () => {
                     {workspace.initials || workspace.name.charAt(0).toUpperCase()}
                   </div>
                 )}
-                <div>
+                <div className="min-w-0 text-left">
                   <span className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1.5">
                     <FaArrowLeft className="text-[8px]" />
                     Workspace
                   </span>
-                  <h1 className="text-xl font-bold text-gray-800 dark:text-gray-100 tracking-tight">
+                  <h1 className="text-xl font-bold text-gray-800 dark:text-gray-100 tracking-tight line-clamp-2 break-words max-w-[520px]">
                     {workspace.name}
                   </h1>
                 </div>

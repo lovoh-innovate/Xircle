@@ -1,12 +1,19 @@
 import express from "express";
 import {
+  // notes
   createWorkspaceNote,
   getWorkspaceNotes,
   getWorkspaceNote,
   updateWorkspaceNote,
+  moveWorkspaceNote,
   deleteWorkspaceNote,
   exportWorkspaceNotePDF,
   importFileToWorkspaceNote,
+  // folders
+  createNoteFolder,
+  getNoteFolders,
+  updateNoteFolder,
+  deleteNoteFolder,
 } from "../controllers/workspaceNoteController.js";
 import { protect } from "../middleware/authMiddleware.js";
 import multer from "multer";
@@ -26,7 +33,10 @@ const noteStorage = new CloudinaryStorage({
   cloudinary,
   params: {
     folder: "Xircle_WorkspaceNoteAttachments",
-    allowed_formats: ["jpg", "png", "jpeg", "webp", "avif", "pdf", "doc", "docx", "xls", "xlsx", "txt", "csv"],
+    allowed_formats: [
+      "jpg", "png", "jpeg", "webp", "avif",
+      "pdf", "doc", "docx", "xls", "xlsx", "txt", "csv",
+    ],
     transformation: [{ width: 1000, crop: "limit" }],
     resource_type: "auto",
   },
@@ -34,23 +44,44 @@ const noteStorage = new CloudinaryStorage({
 
 const upload = multer({
   storage: noteStorage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  limits: { fileSize: 10 * 1024 * 1024 },
 });
 
 // ─── All routes require authentication ──────────────────────────────────
 router.use(protect);
 
-// Workspace notes
+// ═══════════════════════════════════════════════════════════════════════
+//  FOLDER ROUTES  (must come before `/:id` note routes)
+// ═══════════════════════════════════════════════════════════════════════
+router.post("/folders", createNoteFolder);
+router.get("/folders/:workspaceId", getNoteFolders);
+router.put("/folders/:id", updateNoteFolder);
+router.delete("/folders/:id", deleteNoteFolder);
+
+// ═══════════════════════════════════════════════════════════════════════
+//  NOTE ROUTES
+// ═══════════════════════════════════════════════════════════════════════
+
+// Create note (drafts allowed)
 router.post("/", upload.array("attachments", 5), createWorkspaceNote);
-router.get("/:workspaceId", getWorkspaceNotes);
-router.get("/note/:id", getWorkspaceNote); // note: avoid conflict with :workspaceId
+
+// Import file → note
+router.post("/import", upload.single("file"), importFileToWorkspaceNote);
+
+// Get one note
+router.get("/note/:id", getWorkspaceNote);
+
+// Export PDF
+router.get("/:id/export-pdf", exportWorkspaceNotePDF);
+
+// Move note to folder
+router.patch("/:id/move", moveWorkspaceNote);
+
+// Update / delete note
 router.put("/:id", upload.array("attachments", 5), updateWorkspaceNote);
 router.delete("/:id", deleteWorkspaceNote);
 
-// Export as PDF
-router.get("/:id/export-pdf", exportWorkspaceNotePDF);
-
-// Import file to create workspace note
-router.post("/import", upload.single("file"), importFileToWorkspaceNote);
+// List notes for a workspace — keep LAST
+router.get("/:workspaceId", getWorkspaceNotes);
 
 export default router;

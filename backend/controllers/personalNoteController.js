@@ -1,13 +1,14 @@
 // controllers/personalNoteController.js
 import asyncHandler from 'express-async-handler';
+import mongoose from 'mongoose';
 import PersonalNote from '../models/personalNoteModel.js';
+import PersonalNoteFolder from '../models/personalNoteFolderModel.js';
 import User from '../models/userModel.js';
 import { v4 as uuidv4 } from 'uuid';
 import { createAndSendNotification } from './notificationController.js';
 import pdf from 'pdfkit';
 import mammoth from 'mammoth';
 import XLSX from 'xlsx';
-// pdf‑parse is now imported dynamically (see inside importFileToNote)
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -16,32 +17,77 @@ const getUserName = async (userId) => {
   return user?.name || 'Unknown User';
 };
 
+const resolveFolderId = async (folderId, userId) => {
+  if (folderId === undefined) return undefined;
+  if (folderId === null || folderId === '' || folderId === 'root') return null;
+  if (!mongoose.Types.ObjectId.isValid(folderId)) {
+    const err = new Error('Invalid folder ID.');
+    err.statusCode = 400;
+    throw err;
+  }
+  const folder = await PersonalNoteFolder.findById(folderId);
+  if (!folder) {
+    const err = new Error('Folder not found.');
+    err.statusCode = 404;
+    throw err;
+  }
+  if (folder.user.toString() !== userId.toString()) {
+    const err = new Error('Folder does not belong to you.');
+    err.statusCode = 403;
+    throw err;
+  }
+  return folder._id;
+};
+
+const wouldCreateCycle = async (folderId, candidateParentId) => {
+  if (!candidateParentId) return false;
+  let current = candidateParentId;
+  const seen = new Set();
+  while (current) {
+    if (current.toString() === folderId.toString()) return true;
+    if (seen.has(current.toString())) return true;
+    seen.add(current.toString());
+    const parent = await PersonalNoteFolder.findById(current).select('parent');
+    if (!parent) return false;
+    current = parent.parent;
+  }
+  return false;
+};
+
+// ══════════════════════════════════════════════════════════════════════════
+//  NOTE CONTROLLERS
+// ══════════════════════════════════════════════════════════════════════════
+
 // ─── Create Personal Note ──────────────────────────────────────────────
-// POST /api/personal-notes
-// Empty notes are allowed on creation — title defaults to "Untitled" and
-// content defaults to a placeholder string if not supplied.
-// IMPORTANT: shareLink must be `undefined` (not `null`) when the note isn't
-// public. `shareLink` has a sparse unique index — sparse only skips docs
-// where the field is *missing*, not docs where it's explicitly `null`, so
-// setting it to `null` on every private note collides on the second one.
 export const createNote = asyncHandler(async (req, res) => {
   const userId = req.user.id;
-  const { title, content, isPublic = false } = req.body;
+  const { title, content, isPublic = false, folderId } = req.body;
 
   const noteTitle = title?.trim() ? title.trim() : 'Untitled';
   const noteContent = content?.trim() ? content.trim() : 'Write your note here...';
 
-  const attachments = req.files?.map(file => ({
-    filename: file.originalname,
-    path: file.path,
-    size: file.size,
-    mimeType: file.mimetype,
-  })) || [];
+  let resolvedFolderId = null;
+  try {
+    const r = await resolveFolderId(folderId, userId);
+    if (r !== undefined) resolvedFolderId = r;
+  } catch (err) {
+    res.status(err.statusCode || 400);
+    throw err;
+  }
+
+  const attachments =
+    req.files?.map(file => ({
+      filename: file.originalname,
+      path: file.path,
+      size: file.size,
+      mimeType: file.mimetype,
+    })) || [];
 
   const shareLink = isPublic ? uuidv4() : undefined;
 
   const note = await PersonalNote.create({
     user: userId,
+    folder: resolvedFolderId,
     title: noteTitle,
     content: noteContent,
     isPublic,
@@ -53,21 +99,36 @@ export const createNote = asyncHandler(async (req, res) => {
 });
 
 // ─── Get All Personal Notes ──────────────────────────────────────────────
-// GET /api/personal-notes
 export const getNotes = asyncHandler(async (req, res) => {
   const userId = req.user.id;
-  const notes = await PersonalNote.find({ user: userId })
+  const { folderId } = req.query;
+
+  const query = { user: userId };
+
+  if (folderId !== undefined) {
+    if (folderId === 'root' || folderId === 'unfiled' || folderId === 'null') {
+      query.folder = null;
+    } else if (mongoose.Types.ObjectId.isValid(folderId)) {
+      query.folder = folderId;
+    } else {
+      res.status(400);
+      throw new Error('Invalid folderId.');
+    }
+  }
+
+  const notes = await PersonalNote.find(query)
     .sort({ updatedAt: -1 })
     .select('-__v');
+
   res.status(200).json({ success: true, notes });
 });
 
 // ─── Get Single Personal Note ────────────────────────────────────────────
-// GET /api/personal-notes/:id
 export const getNote = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const note = await PersonalNote.findById(req.params.id)
-    .populate('collaborators.user', 'name email');
+    .populate('collaborators.user', 'name email')
+    .populate('folder', 'name parent');
 
   if (!note) {
     res.status(404);
@@ -87,15 +148,9 @@ export const getNote = asyncHandler(async (req, res) => {
 });
 
 // ─── Update Personal Note ────────────────────────────────────────────────
-// PUT /api/personal-notes/:id
-// NOTE: uses `!== undefined` checks (not truthiness) so that saving an
-// intentionally-emptied title/content (e.g. user deleted everything in the
-// editor) actually persists instead of being silently skipped.
-// Also: shareLink is unset with `undefined`, never `null` — see createNote
-// comment above for why.
 export const updateNote = asyncHandler(async (req, res) => {
   const userId = req.user.id;
-  const { title, content, isPublic } = req.body;
+  const { title, content, isPublic, folderId } = req.body;
   const note = await PersonalNote.findById(req.params.id);
 
   if (!note) {
@@ -115,12 +170,26 @@ export const updateNote = asyncHandler(async (req, res) => {
 
   if (title !== undefined) note.title = title.trim() || 'Untitled';
   if (content !== undefined) note.content = content.trim();
+
   if (isPublic !== undefined) {
     note.isPublic = isPublic;
     if (isPublic && !note.shareLink) {
       note.shareLink = uuidv4();
     } else if (!isPublic) {
       note.shareLink = undefined;
+    }
+  }
+
+  if (folderId !== undefined) {
+    if (!isOwner) {
+      res.status(403);
+      throw new Error('Only the owner can move this note.');
+    }
+    try {
+      note.folder = await resolveFolderId(folderId, userId);
+    } catch (err) {
+      res.status(err.statusCode || 400);
+      throw err;
     }
   }
 
@@ -137,8 +206,36 @@ export const updateNote = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, note });
 });
 
+// ─── Move Note to Folder ────────────────────────────────────────────────
+export const moveNote = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { folderId } = req.body;
+
+  const note = await PersonalNote.findById(req.params.id);
+  if (!note) {
+    res.status(404);
+    throw new Error('Note not found.');
+  }
+
+  if (note.user.toString() !== userId) {
+    res.status(403);
+    throw new Error('Only the owner can move this note.');
+  }
+
+  try {
+    note.folder = await resolveFolderId(folderId, userId);
+  } catch (err) {
+    res.status(err.statusCode || 400);
+    throw err;
+  }
+
+  await note.save();
+  await note.populate('folder', 'name parent');
+
+  res.status(200).json({ success: true, note });
+});
+
 // ─── Delete Personal Note ──────────────────────────────────────────────
-// DELETE /api/personal-notes/:id
 export const deleteNote = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const note = await PersonalNote.findById(req.params.id);
@@ -158,7 +255,6 @@ export const deleteNote = asyncHandler(async (req, res) => {
 });
 
 // ─── Toggle Public / Generate Share Link ──────────────────────────────
-// PATCH /api/personal-notes/:id/public
 export const togglePublic = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const { isPublic } = req.body;
@@ -194,7 +290,6 @@ export const togglePublic = asyncHandler(async (req, res) => {
 });
 
 // ─── Get Public Note by Share Link ────────────────────────────────────
-// GET /api/personal-notes/share/:link
 export const getNoteByShareLink = asyncHandler(async (req, res) => {
   const { link } = req.params;
   const note = await PersonalNote.findOne({ shareLink: link, isPublic: true })
@@ -210,6 +305,7 @@ export const getNoteByShareLink = asyncHandler(async (req, res) => {
 });
 
 // ─── Manage Collaborators ──────────────────────────────────────────────
+// ✅ KEPT — unchanged from your original file.
 
 // Add collaborator
 // POST /api/personal-notes/:id/collaborators
@@ -233,7 +329,9 @@ export const addCollaborator = asyncHandler(async (req, res) => {
     throw new Error('Only the owner can add collaborators.');
   }
 
-  const collaborator = await User.findOne({ email: collaboratorEmail.trim().toLowerCase() });
+  const collaborator = await User.findOne({
+    email: collaboratorEmail.trim().toLowerCase(),
+  });
   if (!collaborator) {
     res.status(404);
     throw new Error('User not found with that email.');
@@ -335,7 +433,6 @@ export const updateCollaboratorPermission = asyncHandler(async (req, res) => {
 });
 
 // ─── Export Note as PDF ──────────────────────────────────────────────────
-// GET /api/personal-notes/:id/export-pdf
 export const exportNotePDF = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const note = await PersonalNote.findById(req.params.id).populate('user', 'name');
@@ -353,16 +450,16 @@ export const exportNotePDF = asyncHandler(async (req, res) => {
     throw new Error('You do not have permission to export this note.');
   }
 
-  const doc = new pdf({
-    size: 'A4',
-    margin: 50,
-  });
+  const safeTitle = (note.title || 'Untitled').replace(/[^\w\-]+/g, '_');
+  const doc = new pdf({ size: 'A4', margin: 50 });
 
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `attachment; filename="Note-${note.title}.pdf"`);
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="Note-${safeTitle}.pdf"`
+  );
 
   doc.pipe(res);
-
   doc.fontSize(20).text(note.title, { align: 'center' });
   doc.moveDown();
   doc.fontSize(12).text(`Author: ${note.user.name}`);
@@ -373,7 +470,7 @@ export const exportNotePDF = asyncHandler(async (req, res) => {
     doc.moveDown();
     doc.fontSize(10).text('Attachments:');
     note.attachments.forEach((att, i) => {
-      doc.text(`  ${i+1}. ${att.filename} (${att.size} bytes)`);
+      doc.text(`  ${i + 1}. ${att.filename} (${att.size} bytes)`);
     });
   }
 
@@ -381,14 +478,23 @@ export const exportNotePDF = asyncHandler(async (req, res) => {
 });
 
 // ─── Import File to Note ──────────────────────────────────────────────
-// POST /api/personal-notes/import
 export const importFileToNote = asyncHandler(async (req, res) => {
   const userId = req.user.id;
+  const { title, folderId } = req.body;
   const file = req.file;
 
   if (!file) {
     res.status(400);
     throw new Error('No file uploaded.');
+  }
+
+  let resolvedFolderId = null;
+  try {
+    const r = await resolveFolderId(folderId, userId);
+    if (r !== undefined) resolvedFolderId = r;
+  } catch (err) {
+    res.status(err.statusCode || 400);
+    throw err;
   }
 
   let extractedText = '';
@@ -397,7 +503,6 @@ export const importFileToNote = asyncHandler(async (req, res) => {
 
   try {
     if (mime === 'application/pdf') {
-      // ✅ dynamic import for pdf-parse
       const pdfParse = (await import('pdf-parse')).default;
       const data = await pdfParse(buffer);
       extractedText = data.text;
@@ -425,11 +530,12 @@ export const importFileToNote = asyncHandler(async (req, res) => {
       extractedText = buffer.toString('utf-8');
     }
 
-    const title = req.body.title || file.originalname;
+    const noteTitle = (title || file.originalname || '').trim();
 
     const note = await PersonalNote.create({
       user: userId,
-      title: title.trim(),
+      folder: resolvedFolderId,
+      title: noteTitle,
       content: extractedText.trim() || 'No text could be extracted from the file.',
       isPublic: false,
       attachments: [{
@@ -451,4 +557,183 @@ export const importFileToNote = asyncHandler(async (req, res) => {
     res.status(500);
     throw new Error('Failed to extract text from file: ' + error.message);
   }
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+//  FOLDER CONTROLLERS
+// ══════════════════════════════════════════════════════════════════════════
+
+// ─── Create Folder ──────────────────────────────────────────────────────
+export const createNoteFolder = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { name, parentId = null, color = null } = req.body;
+
+  if (!name?.trim()) {
+    res.status(400);
+    throw new Error('Folder name is required.');
+  }
+
+  let parent = null;
+  if (parentId) {
+    if (!mongoose.Types.ObjectId.isValid(parentId)) {
+      res.status(400);
+      throw new Error('Invalid parent folder ID.');
+    }
+    const parentFolder = await PersonalNoteFolder.findById(parentId);
+    if (!parentFolder) {
+      res.status(404);
+      throw new Error('Parent folder not found.');
+    }
+    if (parentFolder.user.toString() !== userId) {
+      res.status(403);
+      throw new Error('Parent folder belongs to a different user.');
+    }
+    parent = parentFolder._id;
+  }
+
+  try {
+    const folder = await PersonalNoteFolder.create({
+      user: userId,
+      name: name.trim(),
+      parent,
+      color,
+    });
+    res.status(201).json({ success: true, folder });
+  } catch (err) {
+    if (err.code === 11000) {
+      res.status(409);
+      throw new Error('A folder with that name already exists here.');
+    }
+    throw err;
+  }
+});
+
+// ─── List Folders ───────────────────────────────────────────────────────
+export const getNoteFolders = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const folders = await PersonalNoteFolder.find({ user: userId })
+    .sort({ parent: 1, order: 1, name: 1 })
+    .lean();
+  res.status(200).json({ success: true, folders });
+});
+
+// ─── Update Folder ──────────────────────────────────────────────────────
+export const updateNoteFolder = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { name, color, order, parentId } = req.body;
+
+  const folder = await PersonalNoteFolder.findById(req.params.id);
+  if (!folder) {
+    res.status(404);
+    throw new Error('Folder not found.');
+  }
+  if (folder.user.toString() !== userId) {
+    res.status(403);
+    throw new Error('You do not have permission to edit this folder.');
+  }
+
+  if (name !== undefined) {
+    if (!name.trim()) {
+      res.status(400);
+      throw new Error('Folder name cannot be empty.');
+    }
+    folder.name = name.trim();
+  }
+
+  if (color !== undefined) folder.color = color;
+  if (order !== undefined) folder.order = order;
+
+  if (parentId !== undefined) {
+    if (parentId === null || parentId === 'root') {
+      folder.parent = null;
+    } else {
+      if (!mongoose.Types.ObjectId.isValid(parentId)) {
+        res.status(400);
+        throw new Error('Invalid parent folder ID.');
+      }
+      if (parentId.toString() === folder._id.toString()) {
+        res.status(400);
+        throw new Error('A folder cannot be its own parent.');
+      }
+      const newParent = await PersonalNoteFolder.findById(parentId);
+      if (!newParent) {
+        res.status(404);
+        throw new Error('Parent folder not found.');
+      }
+      if (newParent.user.toString() !== folder.user.toString()) {
+        res.status(403);
+        throw new Error('Parent folder belongs to a different user.');
+      }
+      if (await wouldCreateCycle(folder._id, newParent._id)) {
+        res.status(400);
+        throw new Error('Cannot move a folder into one of its own descendants.');
+      }
+      folder.parent = newParent._id;
+    }
+  }
+
+  try {
+    await folder.save();
+    res.status(200).json({ success: true, folder });
+  } catch (err) {
+    if (err.code === 11000) {
+      res.status(409);
+      throw new Error('A folder with that name already exists here.');
+    }
+    throw err;
+  }
+});
+
+// ─── Delete Folder ──────────────────────────────────────────────────────
+export const deleteNoteFolder = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { moveNotesTo = 'parent' } = req.body || {};
+
+  const folder = await PersonalNoteFolder.findById(req.params.id);
+  if (!folder) {
+    res.status(404);
+    throw new Error('Folder not found.');
+  }
+  if (folder.user.toString() !== userId) {
+    res.status(403);
+    throw new Error('You do not have permission to delete this folder.');
+  }
+
+  let targetFolderId = folder.parent;
+  if (moveNotesTo === 'root') {
+    targetFolderId = null;
+  } else if (moveNotesTo !== 'parent') {
+    if (!mongoose.Types.ObjectId.isValid(moveNotesTo)) {
+      res.status(400);
+      throw new Error('Invalid moveNotesTo value.');
+    }
+    const target = await PersonalNoteFolder.findById(moveNotesTo);
+    if (!target) {
+      res.status(404);
+      throw new Error('Target folder for move not found.');
+    }
+    if (target.user.toString() !== folder.user.toString()) {
+      res.status(403);
+      throw new Error('Target folder belongs to a different user.');
+    }
+    targetFolderId = target._id;
+  }
+
+  await PersonalNoteFolder.updateMany(
+    { parent: folder._id },
+    { $set: { parent: folder.parent } }
+  );
+
+  await PersonalNote.updateMany(
+    { folder: folder._id },
+    { $set: { folder: targetFolderId } }
+  );
+
+  await folder.deleteOne();
+
+  res.status(200).json({
+    success: true,
+    message: 'Folder deleted.',
+    movedNotesTo: targetFolderId,
+  });
 });

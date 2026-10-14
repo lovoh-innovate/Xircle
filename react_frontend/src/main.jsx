@@ -69,6 +69,8 @@ import MyWorkspaceCreateProject from './workspaceScreens/MyWorkspaceCreateProjec
 import MyWorkspaceUpdateProject from './workspaceScreens/MyWorkspaceUpdateProject.jsx';
 import MyWorkspaceClockin from './workspaceScreens/MyWorkspaceClockin.jsx';
 import MyWorkspaceNotifications from './workspaceScreens/MyWorkspaceNotifications.jsx';
+import MyWorkspaceNotes from './workspaceScreens/MyWorkspaceNotes.jsx';
+import MyWorkspaceWriteNote from './workspaceScreens/MyWorkspaceWriteNote.jsx';
 
 // ─── YourWorkspace screens ───────────────────────────────────────────
 import YourWorkspaceChannels from './screens/YourWorkspaceChannels.jsx';
@@ -81,6 +83,8 @@ import YourWorkspaceProjectTeam from './screens/YourWorkspaceProjectTeam.jsx';
 import YourWorkspaceMembers from './screens/YourWorkspaceMembers.jsx';
 import YourWorkspaceClockin from './screens/YourWorkspaceClockin.jsx';
 import YourWorkspaceNotifications from './screens/YourWorkspaceNotifications.jsx';
+import YourWorkspaceNotes from './screens/YourWorkspaceNotes.jsx';
+import YourWorkspaceWriteNote from './screens/YourWorkspaceWriteNote.jsx';
 
 import CallScreen from './components/CallScreen.jsx';
 
@@ -576,6 +580,8 @@ const router = createBrowserRouter([
           { path: 'my-workspace/:workspaceId/clockin', element: <MyWorkspaceClockin /> },
           { path: 'my-workspace/:workspaceId/tasks', element: <AllTasks /> },
           { path: 'my-workspace/:workspaceId/notifications', element: <MyWorkspaceNotifications /> },
+          {path: 'my-workspace/:workspaceId/notes', element: <MyWorkspaceNotes />},
+          {path: 'my-workspace/:workspaceId/notes/:id', element: <MyWorkspaceWriteNote />},
 
           // ── YourWorkspace routes ───────────────────────────────
           { path: 'workspace/:workspaceId/channels', element: <YourWorkspaceChannels /> },
@@ -589,6 +595,8 @@ const router = createBrowserRouter([
           { path: 'workspace/:workspaceId/tasks', element: <AllTasks /> },
           { path: 'workspace/:workspaceId/clockin', element: <YourWorkspaceClockin /> },
           { path: 'workspace/:workspaceId/notifications', element: <YourWorkspaceNotifications /> },
+          {path: 'workspace/:workspaceId/notes', element: <YourWorkspaceNotes />},
+          {path: 'workspace/:workspaceId/notes/:id', element: <YourWorkspaceWriteNote />},
 
           { path: 'profile', element: <Profile /> },
 

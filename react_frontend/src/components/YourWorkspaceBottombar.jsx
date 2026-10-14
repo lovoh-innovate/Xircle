@@ -15,6 +15,7 @@ import {
   FiFolder,
   FiLogOut,
   FiClock,
+  FiFileText, // 👈 NEW — Notes icon
 } from 'react-icons/fi';
 import { useGetUserChatsQuery, messagingApiSlice } from '../slices/messagingApiSlice';
 import { useSocket } from '../components/SocketContext.jsx';
@@ -131,6 +132,7 @@ const YourWorkspaceBottombar = ({ workspace }) => {
 
   const menuItems = [
     { id: 'clockin', label: 'Clock‑in', icon: FiClock, path: `/workspace/${workspaceId}/clockin` },
+    { id: 'notes', label: 'Notes', icon: FiFileText, path: `/workspace/${workspaceId}/notes` }, // 👈 NEW
     { id: 'profile', label: 'Profile', icon: FiUser, path: '/profile' },
     { id: 'logout', label: 'Logout', icon: FiLogOut, action: handleLogout },
   ];
@@ -233,30 +235,34 @@ const YourWorkspaceBottombar = ({ workspace }) => {
 
       {/* ─── Slide‑out panel ────────────────────────────────────────── */}
       <div
-        className={`fixed top-0 left-0 z-50 h-full w-[280px] bg-white dark:bg-[#14141a] border-r border-gray-200/70 dark:border-white/[0.06] shadow-2xl transition-transform duration-300 ease-out md:hidden ${
-          menuOpen ? 'translate-x-0' : '-translate-x-full'
+        aria-hidden={!menuOpen}
+        className={`fixed top-0 left-0 z-50 h-full w-[280px] max-w-[85vw] overflow-hidden bg-white dark:bg-[#14141a] border-r border-gray-200/70 dark:border-white/[0.06] shadow-2xl transition-all duration-300 ease-out md:hidden ${
+          menuOpen ? 'translate-x-0 visible' : '-translate-x-full invisible pointer-events-none'
         }`}
         style={{ borderRadius: '0 24px 24px 0' }}
       >
         {/* Header */}
-        <div className="px-5 py-5 flex items-center justify-between border-b border-gray-200/70 dark:border-white/[0.06]">
-          <div className="flex items-center gap-3">
+        <div className="px-5 py-5 flex items-center justify-between gap-3 border-b border-gray-200/70 dark:border-white/[0.06]">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
             {workspace?.logo ? (
               <img
                 src={workspace.logo}
                 alt={workspace.name}
-                className="w-10 h-10 rounded-2xl object-cover border border-gray-200 dark:border-gray-700/60"
+                className="w-10 h-10 rounded-2xl object-cover border border-gray-200 dark:border-gray-700/60 flex-shrink-0"
               />
             ) : (
               <div
-                className="w-10 h-10 rounded-2xl flex items-center justify-center text-white font-bold text-sm shadow-sm"
+                className="w-10 h-10 rounded-2xl flex items-center justify-center text-white font-bold text-sm shadow-sm flex-shrink-0"
                 style={{ backgroundColor: brandColor }}
               >
                 {workspace?.initials || workspace?.name?.charAt(0).toUpperCase() || 'W'}
               </div>
             )}
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <p
+                className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate"
+                title={workspace?.name}
+              >
                 {workspace?.name || 'Workspace'}
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-500">Member</p>
@@ -265,7 +271,7 @@ const YourWorkspaceBottombar = ({ workspace }) => {
           <button
             onClick={() => setMenuOpen(false)}
             aria-label="Close menu"
-            className="p-2 hover:bg-gray-100 dark:hover:bg-white/[0.06] rounded-full text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition active:scale-95"
+            className="p-2 hover:bg-gray-100 dark:hover:bg-white/[0.06] rounded-full text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition active:scale-95 flex-shrink-0"
           >
             <FiX className="text-lg" strokeWidth={2} />
           </button>
@@ -281,12 +287,12 @@ const YourWorkspaceBottombar = ({ workspace }) => {
             const inner = (
               <>
                 <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center transition-transform group-hover:scale-105"
+                  className="w-10 h-10 rounded-xl flex items-center justify-center transition-transform group-hover:scale-105 flex-shrink-0"
                   style={{ backgroundColor: `${brandColor}1a` }}
                 >
                   <Icon className="w-[20px] h-[20px]" style={{ color: brandColor }} strokeWidth={2} />
                 </div>
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white transition">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">
                   {item.label}
                 </span>
               </>
@@ -321,7 +327,7 @@ const YourWorkspaceBottombar = ({ workspace }) => {
 
         {/* Footer */}
         <div className="absolute bottom-0 left-0 right-0 px-6 py-4 border-t border-gray-200/70 dark:border-white/[0.06] bg-white/80 dark:bg-[#14141a]/80 backdrop-blur-sm">
-          <p className="text-xs text-gray-500 dark:text-gray-500 text-center">
+          <p className="text-xs text-gray-500 dark:text-gray-500 text-center truncate">
             Xircle · {workspace?.name}
           </p>
         </div>

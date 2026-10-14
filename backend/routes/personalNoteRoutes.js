@@ -5,6 +5,7 @@ import {
   getNotes,
   getNote,
   updateNote,
+  moveNote,                // 👈 new
   deleteNote,
   togglePublic,
   getNoteByShareLink,
@@ -13,6 +14,11 @@ import {
   updateCollaboratorPermission,
   exportNotePDF,
   importFileToNote,
+  // 👇 new — folder handlers, same controller
+  createNoteFolder,
+  getNoteFolders,
+  updateNoteFolder,
+  deleteNoteFolder,
 } from "../controllers/personalNoteController.js";
 import {
   lookupScripture,
@@ -20,7 +26,7 @@ import {
   searchHighlight,
   proofreadNoteHandler,
   completeNoteHandler,
-  rewriteNoteHandler,                    // 👈 NEW
+  rewriteNoteHandler,
 } from "../controllers/noteAiController.js";
 import { protect } from "../middleware/authMiddleware.js";
 import multer from "multer";
@@ -41,70 +47,65 @@ const noteStorage = new CloudinaryStorage({
   params: {
     folder: "Xircle_NoteAttachments",
     allowed_formats: ["jpg", "png", "jpeg", "webp", "avif", "pdf", "doc", "docx", "xls", "xlsx", "txt", "csv"],
-    transformation: [{ width: 1000, crop: "limit" }], // For images; other files remain as is
-    resource_type: "auto", // important to handle non-image files
+    transformation: [{ width: 1000, crop: "limit" }],
+    resource_type: "auto",
   },
 });
 
 const upload = multer({
   storage: noteStorage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit per file
+  limits: { fileSize: 10 * 1024 * 1024 },
 });
 
 // ── Public route (no authentication) ──────────────────────────────────────
-// Get a public note by share link
 router.get("/share/:link", getNoteByShareLink);
 
 // ── Protected routes ──────────────────────────────────────────────────────
-router.use(protect); // All following routes require authentication
+router.use(protect);
 
-// ── AI routes ─────────────────────────────────────────────────────────────
-// Must be declared BEFORE the /:id routes so path segments like "ai" are
-// never mistaken for a note id. All six are POST; none of them write to
-// the database — proofread, complete, and rewrite return suggestions only.
-
-// Highlight → detect Bible/Quran/general, fetch the passage text
+// ══════════════════════════════════════════════════════════════════════════
+//  1. AI ROUTES (static "/ai/*" — must come before any "/:id" route)
+// ══════════════════════════════════════════════════════════════════════════
 router.post("/ai/scripture", lookupScripture);
-
-// "Show more verses" / "Show full chapter" buttons
 router.post("/ai/scripture/expand", expandScripture);
-
-// Non-scripture highlight → summary, definitions, search links
 router.post("/ai/search", searchHighlight);
-
-// Spelling / punctuation / grammar / formatting fixes (suggestions only)
 router.post("/ai/proofread", proofreadNoteHandler);
-
-// Expand a note with explanation, examples, depth (suggestions only)
 router.post("/ai/complete", completeNoteHandler);
+router.post("/ai/rewrite", rewriteNoteHandler);
 
-// Full rewrite: restructure, elaborate, reformat, adjust tone/length.
-// Body: { noteId } OR { content, title }
-// Optional: instructions (string), style, length
-//   style:  explanatory | formal | casual | devotional | academic | journal
-//   length: shorter | same | longer | much_longer
-// Returns { original, rewrittenContent, changed, changeCount, changes, summary, style, length }
-router.post("/ai/rewrite", rewriteNoteHandler);                    // 👈 NEW
+// ══════════════════════════════════════════════════════════════════════════
+//  2. FOLDER ROUTES (static "/folders*" — must come before "/:id")
+//     Otherwise `GET /folders` would be caught by `GET /:id` (id="folders").
+// ══════════════════════════════════════════════════════════════════════════
+router.post("/folders", createNoteFolder);
+router.get("/folders", getNoteFolders);
+router.put("/folders/:id", updateNoteFolder);
+router.delete("/folders/:id", deleteNoteFolder);
 
-// ── CRUD ──────────────────────────────────────────────────────────────────
-router.post("/", upload.array("attachments", 5), createNote); // max 5 attachments
-router.get("/", getNotes);
+// ══════════════════════════════════════════════════════════════════════════
+//  3. IMPORT (static "/import" — before dynamic CRUD)
+// ══════════════════════════════════════════════════════════════════════════
+router.post("/import", upload.single("file"), importFileToNote);
+
+// ══════════════════════════════════════════════════════════════════════════
+//  4. NOTE CRUD
+// ══════════════════════════════════════════════════════════════════════════
+router.post("/", upload.array("attachments", 5), createNote);
+router.get("/", getNotes);                                            // ?folderId=<id|root>
 router.get("/:id", getNote);
 router.put("/:id", upload.array("attachments", 5), updateNote);
 router.delete("/:id", deleteNote);
 
-// Toggle public status
+// ══════════════════════════════════════════════════════════════════════════
+//  5. SUB-RESOURCE / ACTION ROUTES on a note
+// ══════════════════════════════════════════════════════════════════════════
 router.patch("/:id/public", togglePublic);
+router.patch("/:id/move", moveNote);                                  // 👈 new
+router.get("/:id/export-pdf", exportNotePDF);
 
 // Collaborators
 router.post("/:id/collaborators", addCollaborator);
 router.delete("/:id/collaborators/:collaboratorId", removeCollaborator);
 router.patch("/:id/collaborators/:collaboratorId", updateCollaboratorPermission);
-
-// Export as PDF
-router.get("/:id/export-pdf", exportNotePDF);
-
-// Import file to create note
-router.post("/import", upload.single("file"), importFileToNote);
 
 export default router;
