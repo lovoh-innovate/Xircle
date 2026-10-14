@@ -5,19 +5,21 @@ import {
   getNotes,
   getNote,
   updateNote,
-  moveNote,                // 👈 new
+  moveNote,
   deleteNote,
   togglePublic,
+  updateNoteColor,                 // 👈 new
   getNoteByShareLink,
   addCollaborator,
   removeCollaborator,
   updateCollaboratorPermission,
   exportNotePDF,
   importFileToNote,
-  // 👇 new — folder handlers, same controller
+  // 👇 folder handlers, same controller
   createNoteFolder,
   getNoteFolders,
   updateNoteFolder,
+  updateNoteFolderColor,           // 👈 new
   deleteNoteFolder,
 } from "../controllers/personalNoteController.js";
 import {
@@ -80,6 +82,7 @@ router.post("/ai/rewrite", rewriteNoteHandler);
 router.post("/folders", createNoteFolder);
 router.get("/folders", getNoteFolders);
 router.put("/folders/:id", updateNoteFolder);
+router.patch("/folders/:id/color", updateNoteFolderColor);   // 👈 new
 router.delete("/folders/:id", deleteNoteFolder);
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -100,7 +103,8 @@ router.delete("/:id", deleteNote);
 //  5. SUB-RESOURCE / ACTION ROUTES on a note
 // ══════════════════════════════════════════════════════════════════════════
 router.patch("/:id/public", togglePublic);
-router.patch("/:id/move", moveNote);                                  // 👈 new
+router.patch("/:id/move", moveNote);
+router.patch("/:id/color", updateNoteColor);                         // 👈 new
 router.get("/:id/export-pdf", exportNotePDF);
 
 // Collaborators

@@ -14,9 +14,11 @@ import {
   useDeleteNoteMutation,
   useTogglePublicMutation,
   useMoveNoteMutation,
+  useUpdateNoteColorMutation,        // 👈 new
   useGetNoteFoldersQuery,
   useCreateNoteFolderMutation,
   useUpdateNoteFolderMutation,
+  useUpdateNoteFolderColorMutation,  // 👈 new
   useDeleteNoteFolderMutation,
 } from '../slices/personalNoteApiSlice';
 import toast from 'react-hot-toast';
@@ -39,6 +41,12 @@ import {
   FaChevronRight,
   FaChevronDown,
   FaInbox,
+  FaCheck,
+  FaCheckSquare,
+  FaCheckDouble,
+  FaTh,
+  FaList,
+  FaPalette,  // 👈 new
 } from 'react-icons/fa';
 import { formatDistanceToNow } from 'date-fns';
 import GeneralSidebar from '../components/GeneralSidebar';
@@ -50,10 +58,99 @@ import GeneralBottombar from '../components/GeneralBottombar';
 // break links for recipients.
 const SHARE_BASE_URL = 'https://xircle.lovohcreate.com';
 
-// ─── Folder-tree helpers ─────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════
+//  Global styles
+// ═════════════════════════════════════════════════════════════════════
+const GlobalStyles = () => (
+  <style>{`
+    .notes-scroll::-webkit-scrollbar { width: 6px; }
+    .notes-scroll::-webkit-scrollbar-thumb {
+      background: rgba(148,163,184,0.3); border-radius: 999px;
+    }
+    .notes-scroll::-webkit-scrollbar-track { background: transparent; }
 
-// Turn the flat folders array from the API into a nested tree.
-// Orphans (parent points to a missing doc) are treated as roots.
+    .line-clamp-2 {
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    /* Prevent iOS text selection / callout during long-press */
+    .notes-card {
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+  `}</style>
+);
+
+// ═════════════════════════════════════════════════════════════════════
+//  Color palette (shared by notes & folders)
+// ═════════════════════════════════════════════════════════════════════
+const COLOR_PRESETS = [
+  '#ef4444', // red
+  '#f97316', // orange
+  '#f59e0b', // amber
+  '#eab308', // yellow
+  '#84cc16', // lime
+  '#22c55e', // green
+  '#14b8a6', // teal
+  '#06b6d4', // cyan
+  '#3b82f6', // blue
+  '#6366f1', // indigo
+  '#a855f7', // purple
+  '#ec4899', // pink
+];
+
+// ═════════════════════════════════════════════════════════════════════
+//  Color picker grid
+// ═════════════════════════════════════════════════════════════════════
+const ColorPickerGrid = ({ value, onPick, onClear, label = 'Color' }) => (
+  <div className="p-3">
+    <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">
+      {label}
+    </div>
+    <div className="grid grid-cols-6 gap-2 mb-3">
+      {COLOR_PRESETS.map((c) => {
+        const active = (value || '').toLowerCase() === c.toLowerCase();
+        return (
+          <button
+            key={c}
+            type="button"
+            onClick={() => onPick(c)}
+            className={`w-6 h-6 rounded-full border-2 transition ${
+              active
+                ? 'border-gray-900 dark:border-white scale-110'
+                : 'border-transparent hover:scale-110'
+            }`}
+            style={{ backgroundColor: c }}
+            aria-label={`Color ${c}`}
+          />
+        );
+      })}
+    </div>
+    <div className="flex items-center gap-2">
+      <label className="relative flex-1 h-8 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer flex items-center justify-center gap-2 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-900/60 transition">
+        <FaPalette className="text-xs" />
+        <span>Custom</span>
+        <input
+          type="color"
+          value={value && /^#[0-9a-f]{6}$/i.test(value) ? value : '#888888'}
+          onChange={(e) => onPick(e.target.value)}
+          className="absolute inset-0 opacity-0 cursor-pointer"
+        />
+      </label>
+      <button
+        type="button"
+        onClick={onClear}
+        className="h-8 px-3 rounded-lg border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-900/60 transition"
+      >
+        Clear
+      </button>
+    </div>
+  </div>
+);
+
+// ─── Folder-tree helpers ─────────────────────────────────────────────
 const buildFolderTree = (folders) => {
   const byId = new Map();
   folders.forEach((f) => byId.set(f._id, { ...f, children: [] }));
@@ -71,7 +168,6 @@ const buildFolderTree = (folders) => {
   return roots;
 };
 
-// Depth-first flatten for pickers.
 const flattenTree = (nodes, depth = 0) => {
   const out = [];
   nodes.forEach((n) => {
@@ -81,32 +177,31 @@ const flattenTree = (nodes, depth = 0) => {
   return out;
 };
 
-// Find a folder by id in a nested tree.
-const findInTree = (nodes, id) => {
-  for (const n of nodes) {
-    if (n._id === id) return n;
-    const hit = findInTree(n.children, id);
-    if (hit) return hit;
-  }
-  return null;
-};
-
 // ═════════════════════════════════════════════════════════════════════
 //  Confirm Modal
 // ═════════════════════════════════════════════════════════════════════
-const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmLabel = 'Delete' }) => {
+const ConfirmModal = ({
+  isOpen,
+  onClose,
+  onConfirm,
+  title,
+  message,
+  confirmLabel = 'Delete',
+  busy = false,
+}) => {
   if (!isOpen) return null;
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      onClick={(e) => e.target === e.currentTarget && !busy && onClose()}
     >
       <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl max-w-md w-full p-6 shadow-xl border border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-800 dark:text-white">{title}</h3>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-white transition"
+            disabled={busy}
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-white transition disabled:opacity-40"
           >
             <FaTimes />
           </button>
@@ -115,14 +210,17 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmLabel
         <div className="flex gap-3">
           <button
             onClick={onClose}
-            className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+            disabled={busy}
+            className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition disabled:opacity-50"
           >
             Cancel
           </button>
           <button
-            onClick={() => { onConfirm(); onClose(); }}
-            className="flex-1 py-2 bg-red-600 text-white rounded-xl text-sm font-medium hover:bg-red-700 transition"
+            onClick={onConfirm}
+            disabled={busy}
+            className="flex-1 py-2 bg-red-600 text-white rounded-xl text-sm font-medium hover:bg-red-700 transition disabled:opacity-60 flex items-center justify-center gap-2"
           >
+            {busy ? <FaSpinner className="animate-spin text-xs" /> : null}
             {confirmLabel}
           </button>
         </div>
@@ -132,7 +230,7 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmLabel
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  Prompt Modal (create / rename folder)
+//  Prompt Modal (create / rename folder — with optional color)
 // ═════════════════════════════════════════════════════════════════════
 const PromptModal = ({
   isOpen,
@@ -142,23 +240,27 @@ const PromptModal = ({
   placeholder = 'Folder name',
   initialValue = '',
   submitLabel = 'Save',
+  showColor = false,          // 👈 new
+  initialColor = null,        // 👈 new
 }) => {
   const [value, setValue] = useState(initialValue);
+  const [color, setColor] = useState(initialColor);
   const inputRef = useRef(null);
 
   useEffect(() => {
     if (isOpen) {
       setValue(initialValue);
-      // Focus after paint
+      setColor(initialColor);
       setTimeout(() => inputRef.current?.focus(), 40);
     }
-  }, [isOpen, initialValue]);
+  }, [isOpen, initialValue, initialColor]);
 
   if (!isOpen) return null;
+
   const handleSubmit = () => {
     const trimmed = value.trim();
     if (!trimmed) return;
-    onSubmit(trimmed);
+    onSubmit({ name: trimmed, color });
   };
 
   return (
@@ -166,26 +268,41 @@ const PromptModal = ({
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl max-w-sm w-full p-5 shadow-xl border border-gray-200 dark:border-gray-700">
-        <div className="flex items-center justify-between mb-4">
+      <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl max-w-sm w-full shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="flex items-center justify-between p-5 pb-4">
           <h3 className="text-base font-semibold text-gray-800 dark:text-white">{title}</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-white">
             <FaTimes />
           </button>
         </div>
-        <input
-          ref={inputRef}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleSubmit();
-            if (e.key === 'Escape') onClose();
-          }}
-          placeholder={placeholder}
-          maxLength={100}
-          className="w-full px-3 py-2 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#0f0f12] text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-500"
-        />
-        <div className="flex gap-2 mt-5">
+
+        <div className="px-5">
+          <input
+            ref={inputRef}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSubmit();
+              if (e.key === 'Escape') onClose();
+            }}
+            placeholder={placeholder}
+            maxLength={100}
+            className="w-full px-3 py-2 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#0f0f12] text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500/40 focus:border-teal-500"
+          />
+
+          {showColor && (
+            <div className="mt-3">
+              <ColorPickerGrid
+                value={color}
+                onPick={setColor}
+                onClear={() => setColor(null)}
+                label="Folder color (optional)"
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-2 p-5 pt-4">
           <button
             onClick={onClose}
             className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
@@ -206,31 +323,44 @@ const PromptModal = ({
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  Move Note → Folder Modal
+//  Move Note → Folder Modal (single or bulk)
 // ═════════════════════════════════════════════════════════════════════
-const MoveNoteModal = ({ isOpen, onClose, note, tree, onMove }) => {
+const FolderPickerModal = ({
+  isOpen,
+  onClose,
+  note,               // single-note mode — null in bulk mode
+  tree,
+  onMove,             // (folderId) => Promise
+  title,
+  busy = false,
+}) => {
   const flat = useMemo(() => flattenTree(tree), [tree]);
-  if (!isOpen || !note) return null;
+  if (!isOpen) return null;
 
-  const current = note.folder || null;
+  const current = note?.folder || null;
+  const heading = title || 'Move to folder';
 
   return (
     <div
       className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm sm:p-4"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      onClick={(e) => e.target === e.currentTarget && !busy && onClose()}
     >
       <div className="bg-white dark:bg-[#1a1a1a] rounded-t-2xl sm:rounded-2xl max-w-sm w-full max-h-[70vh] shadow-xl border border-gray-200 dark:border-gray-700 flex flex-col">
         <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-800">
-          <h3 className="text-base font-semibold text-gray-800 dark:text-white">Move to folder</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-white">
+          <h3 className="text-base font-semibold text-gray-800 dark:text-white">{heading}</h3>
+          <button
+            onClick={onClose}
+            disabled={busy}
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-white disabled:opacity-40"
+          >
             <FaTimes />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-2">
-          {/* Unfiled / root */}
+        <div className="flex-1 overflow-y-auto p-2 notes-scroll">
           <button
-            onClick={() => onMove(note._id, null)}
-            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition ${
+            onClick={() => !busy && onMove(null)}
+            disabled={busy}
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition disabled:opacity-60 ${
               current === null
                 ? 'bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400'
                 : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
@@ -251,15 +381,19 @@ const MoveNoteModal = ({ isOpen, onClose, note, tree, onMove }) => {
             return (
               <button
                 key={f._id}
-                onClick={() => onMove(note._id, f._id)}
-                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition ${
+                onClick={() => !busy && onMove(f._id)}
+                disabled={busy}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition disabled:opacity-60 ${
                   isCurrent
                     ? 'bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400'
                     : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
                 style={{ paddingLeft: 12 + f.depth * 14 }}
               >
-                <FaFolder className="text-xs text-gray-400 flex-shrink-0" />
+                <FaFolder
+                  className="text-xs flex-shrink-0"
+                  style={!isCurrent && f.color ? { color: f.color } : { color: '#9ca3af' }}
+                />
                 <span className="truncate">{f.name}</span>
               </button>
             );
@@ -271,7 +405,7 @@ const MoveNoteModal = ({ isOpen, onClose, note, tree, onMove }) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  Folder Tree (recursive)
+//  Folder Tree (recursive, with color)
 // ═════════════════════════════════════════════════════════════════════
 const FolderNode = ({
   folder,
@@ -285,6 +419,7 @@ const FolderNode = ({
   const hasChildren = folder.children?.length > 0;
   const isExpanded = expandedIds.has(folder._id);
   const isSelected = selectedId === folder._id;
+  const folderColor = folder.color;
 
   return (
     <>
@@ -314,10 +449,24 @@ const FolderNode = ({
           )}
         </button>
 
+        {folderColor && !isSelected ? (
+          <span
+            className="flex-shrink-0 w-2 h-2 rounded-full mr-1"
+            style={{ backgroundColor: folderColor }}
+            aria-hidden
+          />
+        ) : null}
+
         {isSelected || isExpanded ? (
-          <FaFolderOpen className="text-teal-500 text-xs flex-shrink-0" />
+          <FaFolderOpen
+            className="text-xs flex-shrink-0"
+            style={!isSelected && folderColor ? { color: folderColor } : { color: '#14b8a6' }}
+          />
         ) : (
-          <FaFolder className="text-gray-400 text-xs flex-shrink-0" />
+          <FaFolder
+            className="text-xs flex-shrink-0"
+            style={folderColor ? { color: folderColor } : { color: '#9ca3af' }}
+          />
         )}
 
         <span className="text-xs truncate flex-1 py-1.5">{folder.name}</span>
@@ -354,9 +503,22 @@ const FolderNode = ({
   );
 };
 
-// Small context menu shown when clicking ⋯ on a folder.
-const FolderContextMenu = ({ pos, onClose, onRename, onDelete, onNewSubfolder }) => {
+// ═════════════════════════════════════════════════════════════════════
+//  Folder context menu (with color submenu)
+// ═════════════════════════════════════════════════════════════════════
+const FolderContextMenu = ({
+  pos,
+  onClose,
+  onRename,
+  onDelete,
+  onNewSubfolder,
+  onColorChange,
+  currentColor,
+}) => {
   const menuRef = useRef(null);
+  const [mode, setMode] = useState('main');
+
+  useEffect(() => { setMode('main'); }, [pos]);
 
   useEffect(() => {
     const handlePointerDown = (e) => {
@@ -381,11 +543,28 @@ const FolderContextMenu = ({ pos, onClose, onRename, onDelete, onNewSubfolder })
 
   const style = {
     position: 'fixed',
-    left: Math.min(pos.x, Math.max(0, window.innerWidth - 200)),
-    top: Math.min(pos.y, Math.max(0, window.innerHeight - 160)),
-    width: 190,
+    left: Math.min(pos.x, Math.max(0, window.innerWidth - 240)),
+    top: Math.min(pos.y, Math.max(0, window.innerHeight - 260)),
+    width: mode === 'color' ? 240 : 190,
     zIndex: 200,
   };
+
+  if (mode === 'color') {
+    return (
+      <div
+        ref={menuRef}
+        style={style}
+        className="bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl overflow-hidden"
+      >
+        <ColorPickerGrid
+          value={currentColor}
+          onPick={(c) => { onColorChange?.(c); onClose(); }}
+          onClear={() => { onColorChange?.(null); onClose(); }}
+          label="Folder color"
+        />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -406,6 +585,22 @@ const FolderContextMenu = ({ pos, onClose, onRename, onDelete, onNewSubfolder })
         <FaPen className="text-xs" /> Rename
       </button>
       <button
+        onClick={() => setMode('color')}
+        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50"
+      >
+        <FaPalette className="text-xs" />
+        Color
+        <span className="ml-auto flex items-center gap-1">
+          {currentColor ? (
+            <span
+              className="w-3.5 h-3.5 rounded-full border border-gray-300 dark:border-gray-600"
+              style={{ backgroundColor: currentColor }}
+            />
+          ) : null}
+          <FaChevronRight className="text-[9px] opacity-60" />
+        </span>
+      </button>
+      <button
         onClick={() => { onDelete(); onClose(); }}
         className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-800/50"
       >
@@ -416,38 +611,68 @@ const FolderContextMenu = ({ pos, onClose, onRename, onDelete, onNewSubfolder })
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  Note Card
+//  Selection checkbox
 // ═════════════════════════════════════════════════════════════════════
-const NoteCard = ({ note, onClick, onDelete, onTogglePublic, onShareLink, onMove }) => {
+const SelectionCheckbox = ({ selected }) => (
+  <span
+    className={`flex-shrink-0 w-[18px] h-[18px] rounded-full border-2 flex items-center justify-center transition ${
+      selected ? 'text-white' : 'border-gray-300 dark:border-gray-600'
+    }`}
+    style={selected ? { backgroundColor: '#14b8a6', borderColor: '#14b8a6' } : undefined}
+  >
+    {selected && <FaCheck className="text-[9px]" />}
+  </span>
+);
+
+// ═════════════════════════════════════════════════════════════════════
+//  Note Card — list & grid variants + selection + color + actions
+// ═════════════════════════════════════════════════════════════════════
+const NoteCard = ({
+  note,
+  viewMode,
+  selectionMode,
+  isSelected,
+  onToggleSelect,
+  onEnterSelection,
+  onClick,
+  onDelete,
+  onTogglePublic,
+  onShareLink,
+  onMove,
+  onColorChange,
+}) => {
   const [showMenu, setShowMenu] = useState(false);
   const [menuPos, setMenuPos] = useState(null);
+  const [menuMode, setMenuMode] = useState('main');
   const wrapperRef = useRef(null);
+  const longPressTimerRef = useRef(null);
+  const longPressFiredRef = useRef(false);
 
   useEffect(() => {
     if (!showMenu) return;
-
     const handlePointerDown = (e) => {
       if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
         setShowMenu(false);
         setMenuPos(null);
+        setMenuMode('main');
       }
     };
     const handleKey = (e) => {
       if (e.key === 'Escape') {
         setShowMenu(false);
         setMenuPos(null);
+        setMenuMode('main');
       }
     };
     const handleScroll = () => {
       setShowMenu(false);
       setMenuPos(null);
+      setMenuMode('main');
     };
-
     document.addEventListener('mousedown', handlePointerDown);
     document.addEventListener('touchstart', handlePointerDown);
     document.addEventListener('keydown', handleKey);
     window.addEventListener('scroll', handleScroll, true);
-
     return () => {
       document.removeEventListener('mousedown', handlePointerDown);
       document.removeEventListener('touchstart', handlePointerDown);
@@ -456,22 +681,72 @@ const NoteCard = ({ note, onClick, onDelete, onTogglePublic, onShareLink, onMove
     };
   }, [showMenu]);
 
-  const toggleMenu = (e) => {
-    e.stopPropagation();
-    setMenuPos(null);
-    setShowMenu((v) => !v);
+  useEffect(() => () => {
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+  }, []);
+
+  const clearLongPress = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const handleTouchStart = () => {
+    if (selectionMode) return;
+    longPressFiredRef.current = false;
+    clearLongPress();
+    longPressTimerRef.current = setTimeout(() => {
+      longPressFiredRef.current = true;
+      longPressTimerRef.current = null;
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try { navigator.vibrate(15); } catch { /* noop */ }
+      }
+      onEnterSelection?.(note._id);
+    }, 450);
+  };
+  const handleTouchEnd = () => clearLongPress();
+  const handleTouchMove = () => clearLongPress();
+
+  const handleClick = (e) => {
+    if (longPressFiredRef.current) {
+      longPressFiredRef.current = false;
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    if (selectionMode) {
+      e.preventDefault();
+      e.stopPropagation();
+      onToggleSelect?.(note._id);
+      return;
+    }
+    onClick?.();
   };
 
   const handleContextMenu = (e) => {
     e.preventDefault();
     e.stopPropagation();
+    if (selectionMode) {
+      onToggleSelect?.(note._id);
+      return;
+    }
     setMenuPos({ x: e.clientX, y: e.clientY });
+    setMenuMode('main');
     setShowMenu(true);
+  };
+
+  const toggleMenu = (e) => {
+    e.stopPropagation();
+    setMenuPos(null);
+    setMenuMode('main');
+    setShowMenu((v) => !v);
   };
 
   const closeMenu = () => {
     setShowMenu(false);
     setMenuPos(null);
+    setMenuMode('main');
   };
 
   const formatDate = (date) => formatDistanceToNow(new Date(date), { addSuffix: true });
@@ -483,60 +758,250 @@ const NoteCard = ({ note, onClick, onDelete, onTogglePublic, onShareLink, onMove
   };
 
   const preview = stripHtml(note.content || '').slice(0, 120);
+  const isGrid = viewMode === 'grid';
+  const noteColor = note.color;
+  const folderName = note.folder?.name;
 
   const menuStyle = menuPos
     ? {
         position: 'fixed',
-        left: Math.min(menuPos.x, Math.max(0, window.innerWidth - 220)),
-        top: Math.min(menuPos.y, Math.max(0, window.innerHeight - 240)),
-        width: 200,
+        left: Math.min(menuPos.x, Math.max(0, window.innerWidth - 260)),
+        top: Math.min(menuPos.y, Math.max(0, window.innerHeight - 320)),
+        width: menuMode === 'color' ? 240 : 200,
         zIndex: 100,
       }
     : undefined;
 
   const menuClassName = menuPos
-    ? 'bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl py-1'
-    : 'absolute right-0 top-full mt-1 w-52 bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg py-1 z-20';
+    ? 'bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl py-1 overflow-hidden'
+    : 'absolute right-0 top-full mt-1 bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg py-1 z-20 overflow-hidden';
 
-  return (
-    <div
-      className="bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1e1e1e] transition cursor-pointer"
-      onClick={onClick}
-      onContextMenu={handleContextMenu}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <FaFileAlt className="text-teal-500 text-sm flex-shrink-0" />
-            <h3 className="text-sm font-medium text-gray-800 dark:text-white truncate">
-              {note.title}
-            </h3>
-            {note.isPublic && (
-              <span className="flex-shrink-0 text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full">
+  const renderMenuContent = () => {
+    if (menuMode === 'color') {
+      return (
+        <ColorPickerGrid
+          value={noteColor}
+          onPick={(c) => { onColorChange?.(note._id, c); closeMenu(); }}
+          onClear={() => { onColorChange?.(note._id, null); closeMenu(); }}
+          label="Note color"
+        />
+      );
+    }
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => { onEnterSelection?.(note._id); closeMenu(); }}
+          className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
+        >
+          <FaCheckSquare className="text-xs text-teal-500" />
+          Select
+        </button>
+        <button
+          type="button"
+          onClick={() => setMenuMode('color')}
+          className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
+        >
+          <FaPalette className="text-xs text-teal-500" />
+          Color
+          <span className="ml-auto flex items-center gap-1">
+            {noteColor ? (
+              <span
+                className="w-3.5 h-3.5 rounded-full border border-gray-300 dark:border-gray-600"
+                style={{ backgroundColor: noteColor }}
+              />
+            ) : null}
+            <FaChevronRight className="text-[9px] opacity-60" />
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => { onMove(note); closeMenu(); }}
+          className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
+        >
+          <FaFolder className="text-xs text-teal-500" />
+          Move to folder…
+        </button>
+        {note.isPublic && note.shareLink && (
+          <button
+            type="button"
+            onClick={() => { onShareLink(note); closeMenu(); }}
+            className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
+          >
+            <FaShareAlt className="text-xs text-teal-500" />
+            Share link
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => { onTogglePublic(note._id, !note.isPublic); closeMenu(); }}
+          className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
+        >
+          {note.isPublic ? <FaLock className="text-xs" /> : <FaUnlock className="text-xs" />}
+          {note.isPublic ? 'Make Private' : 'Make Public'}
+        </button>
+        <button
+          type="button"
+          onClick={() => { onDelete(note); closeMenu(); }}
+          className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
+        >
+          <FaTrashAlt className="text-xs" /> Delete
+        </button>
+      </>
+    );
+  };
+
+  // ── Grid variant ──────────────────────────────────────────────
+  if (isGrid) {
+    return (
+      <div
+        className={`notes-card relative bg-white dark:bg-[#131316] rounded-xl border transition cursor-pointer flex flex-col p-3 min-h-[130px] ${
+          isSelected
+            ? 'shadow-sm'
+            : 'border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700 hover:shadow-sm'
+        }`}
+        style={
+          isSelected
+            ? { borderColor: '#14b8a6', boxShadow: '0 0 0 1px #14b8a6' }
+            : noteColor
+            ? { borderLeftWidth: 3, borderLeftColor: noteColor }
+            : undefined
+        }
+        onClick={handleClick}
+        onContextMenu={handleContextMenu}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onTouchMove={handleTouchMove}
+      >
+        <div className="flex items-center justify-between gap-2 mb-1.5">
+          <div className="flex items-center gap-2 min-w-0">
+            {selectionMode && <SelectionCheckbox selected={isSelected} />}
+            <FaFileAlt
+              className="text-sm flex-shrink-0"
+              style={{ color: noteColor || '#14b8a6' }}
+            />
+            {note.isPublic && !selectionMode && (
+              <span className="text-[9px] bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded-full">
                 Public
               </span>
             )}
           </div>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">
-            {preview || 'Empty note'}
-          </p>
-          <div className="flex flex-wrap items-center gap-3 text-xs text-gray-400 dark:text-gray-500 mt-1">
-            <span>Updated {formatDate(note.updatedAt)}</span>
-            {note.folder && (
-              <span className="flex items-center gap-1">
-                <FaFolder className="text-[10px]" /> {note.folder.name}
-              </span>
+
+          <div
+            ref={wrapperRef}
+            className="flex-shrink-0 flex items-center relative"
+            onClick={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+          >
+            {!selectionMode && (
+              <button
+                type="button"
+                onClick={toggleMenu}
+                className={`p-1 rounded-md transition ${
+                  showMenu
+                    ? 'text-teal-500 bg-teal-50 dark:bg-teal-900/20'
+                    : 'text-gray-400 hover:text-teal-500 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+                aria-label="Note options"
+              >
+                <FaEllipsisV className="text-xs" />
+              </button>
             )}
-            {note.attachments?.length > 0 && (
-              <span className="flex items-center gap-1">
-                <FaFile className="text-[10px]" /> {note.attachments.length}
-              </span>
+
+            {showMenu && !selectionMode && (
+              <div style={menuStyle} className={menuClassName} onClick={(e) => e.stopPropagation()}>
+                {renderMenuContent()}
+              </div>
             )}
-            {note.collaborators?.length > 0 && (
-              <span className="flex items-center gap-1">
-                <FaUserPlus className="text-[10px]" /> {note.collaborators.length}
-              </span>
-            )}
+          </div>
+        </div>
+
+        <h3 className="text-sm font-medium text-gray-800 dark:text-white line-clamp-2 leading-snug">
+          {note.title || 'Untitled note'}
+        </h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2 flex-1">
+          {preview || 'Empty note'}
+        </p>
+        <div className="flex items-center gap-2 text-[10px] text-gray-400 dark:text-gray-500 mt-2 truncate">
+          {folderName ? (
+            <span className="flex items-center gap-1 truncate">
+              <FaFolder className="text-[8px] flex-shrink-0" />
+              <span className="truncate">{folderName}</span>
+            </span>
+          ) : (
+            <span className="truncate">
+              {formatDistanceToNow(new Date(note.updatedAt), { addSuffix: true })}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── List variant ──────────────────────────────────────────────
+  return (
+    <div
+      className={`notes-card bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800 px-4 py-3 transition cursor-pointer relative ${
+        isSelected
+          ? 'bg-gray-50 dark:bg-[#1c1c20]'
+          : 'hover:bg-gray-50 dark:hover:bg-[#1e1e1e]'
+      }`}
+      style={
+        isSelected
+          ? { boxShadow: 'inset 3px 0 0 #14b8a6' }
+          : noteColor
+          ? { boxShadow: `inset 3px 0 0 ${noteColor}` }
+          : undefined
+      }
+      onClick={handleClick}
+      onContextMenu={handleContextMenu}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchMove={handleTouchMove}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-2 flex-1 min-w-0">
+          {selectionMode && (
+            <div className="pt-0.5">
+              <SelectionCheckbox selected={isSelected} />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <FaFileAlt
+                className="text-sm flex-shrink-0"
+                style={{ color: noteColor || '#14b8a6' }}
+              />
+              <h3 className="text-sm font-medium text-gray-800 dark:text-white truncate">
+                {note.title || 'Untitled note'}
+              </h3>
+              {note.isPublic && (
+                <span className="flex-shrink-0 text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full">
+                  Public
+                </span>
+              )}
+            </div>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">
+              {preview || 'Empty note'}
+            </p>
+            <div className="flex flex-wrap items-center gap-3 text-xs text-gray-400 dark:text-gray-500 mt-1">
+              <span>Updated {formatDate(note.updatedAt)}</span>
+              {folderName && (
+                <span className="flex items-center gap-1">
+                  <FaFolder className="text-[10px]" /> {folderName}
+                </span>
+              )}
+              {note.attachments?.length > 0 && (
+                <span className="flex items-center gap-1">
+                  <FaFile className="text-[10px]" /> {note.attachments.length}
+                </span>
+              )}
+              {note.collaborators?.length > 0 && (
+                <span className="flex items-center gap-1">
+                  <FaUserPlus className="text-[10px]" /> {note.collaborators.length}
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -544,63 +1009,26 @@ const NoteCard = ({ note, onClick, onDelete, onTogglePublic, onShareLink, onMove
           ref={wrapperRef}
           className="flex-shrink-0 flex items-center gap-1 relative"
           onClick={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
         >
-          <button
-            type="button"
-            onClick={toggleMenu}
-            className={`p-1.5 rounded-lg transition ${
-              showMenu
-                ? 'text-teal-500 bg-teal-50 dark:bg-teal-900/20'
-                : 'text-gray-400 hover:text-teal-500 hover:bg-gray-100 dark:hover:bg-gray-800'
-            }`}
-            aria-label="Note options"
-          >
-            <FaEllipsisV className="text-sm" />
-          </button>
-
-          {showMenu && (
-            <div
-              style={menuStyle}
-              className={menuClassName}
-              onClick={(e) => e.stopPropagation()}
+          {!selectionMode && (
+            <button
+              type="button"
+              onClick={toggleMenu}
+              className={`p-1.5 rounded-lg transition ${
+                showMenu
+                  ? 'text-teal-500 bg-teal-50 dark:bg-teal-900/20'
+                  : 'text-gray-400 hover:text-teal-500 hover:bg-gray-100 dark:hover:bg-gray-800'
+              }`}
+              aria-label="Note options"
             >
-              {/* Move to folder */}
-              <button
-                type="button"
-                onClick={() => { onMove(note); closeMenu(); }}
-                className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
-              >
-                <FaFolder className="text-xs text-teal-500" />
-                Move to folder…
-              </button>
+              <FaEllipsisV className="text-sm" />
+            </button>
+          )}
 
-              {note.isPublic && note.shareLink && (
-                <button
-                  type="button"
-                  onClick={() => { onShareLink(note); closeMenu(); }}
-                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
-                >
-                  <FaShareAlt className="text-xs text-teal-500" />
-                  Share link
-                </button>
-              )}
-
-              <button
-                type="button"
-                onClick={() => { onTogglePublic(note._id, !note.isPublic); closeMenu(); }}
-                className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
-              >
-                {note.isPublic ? <FaLock className="text-xs" /> : <FaUnlock className="text-xs" />}
-                {note.isPublic ? 'Make Private' : 'Make Public'}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => { onDelete(note); closeMenu(); }}
-                className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
-              >
-                <FaTrashAlt className="text-xs" /> Delete
-              </button>
+          {showMenu && !selectionMode && (
+            <div style={menuStyle} className={menuClassName} onClick={(e) => e.stopPropagation()}>
+              {renderMenuContent()}
             </div>
           )}
         </div>
@@ -612,6 +1040,15 @@ const NoteCard = ({ note, onClick, onDelete, onTogglePublic, onShareLink, onMove
 // ═════════════════════════════════════════════════════════════════════
 //  Main Component
 // ═════════════════════════════════════════════════════════════════════
+const VIEW_MODE_KEY = 'xircle.notes.viewMode';
+const readViewMode = () => {
+  try {
+    return localStorage.getItem(VIEW_MODE_KEY) === 'grid' ? 'grid' : 'list';
+  } catch {
+    return 'list';
+  }
+};
+
 const Notes = () => {
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
@@ -630,38 +1067,42 @@ const Notes = () => {
 
   // Folder modals
   const [promptState, setPromptState] = useState(null);
-  // { mode: 'create' | 'rename' | 'create-sub', folderId?, parentId?, initialValue? }
-
-  // Folder context menu
   const [folderMenu, setFolderMenu] = useState(null);
-  // { pos: {x, y}, folder }
+
+  // ── View + selection state ──────────────────────────────────────
+  const [viewMode, setViewMode] = useState(readViewMode);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+
+  // Bulk action state
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  useEffect(() => {
+    try { localStorage.setItem(VIEW_MODE_KEY, viewMode); } catch { /* noop */ }
+  }, [viewMode]);
 
   // ── Data ──────────────────────────────────────────────────────────
   const notesArg = selectedFolder === 'all' ? undefined : selectedFolder;
-  const {
-    data: notesData,
-    isLoading,
-  } = useGetNotesQuery(notesArg);
-
-  const {
-    data: foldersData,
-    isLoading: foldersLoading,
-  } = useGetNoteFoldersQuery();
+  const { data: notesData, isLoading } = useGetNotesQuery(notesArg);
+  const { data: foldersData, isLoading: foldersLoading } = useGetNoteFoldersQuery();
 
   const [createNote] = useCreateNoteMutation();
   const [deleteNote] = useDeleteNoteMutation();
   const [togglePublic] = useTogglePublicMutation();
   const [moveNote] = useMoveNoteMutation();
+  const [updateNoteColor] = useUpdateNoteColorMutation();                // 👈 new
   const [createFolder] = useCreateNoteFolderMutation();
   const [updateFolder] = useUpdateNoteFolderMutation();
+  const [updateFolderColor] = useUpdateNoteFolderColorMutation();        // 👈 new
   const [deleteFolder] = useDeleteNoteFolderMutation();
 
   const notes = notesData?.notes || [];
   const folders = foldersData?.folders || [];
-
   const tree = useMemo(() => buildFolderTree(folders), [folders]);
 
-  // Expand top-level folders by default when first loaded.
+  // Expand top-level folders by default on first load
   useEffect(() => {
     if (folders.length > 0 && expandedIds.size === 0) {
       const roots = folders.filter((f) => !f.parent).map((f) => f._id);
@@ -677,7 +1118,27 @@ const Notes = () => {
     if (!exists && !foldersLoading) setSelectedFolder('all');
   }, [folders, foldersLoading, selectedFolder]);
 
-  // ── Selection label ──────────────────────────────────────────────
+  // Drop selection when exiting selection mode
+  useEffect(() => {
+    if (!selectionMode) setSelectedIds(new Set());
+  }, [selectionMode]);
+
+  // Prune stale ids when the visible list changes
+  useEffect(() => {
+    if (!selectionMode) return;
+    const valid = new Set(notes.map((n) => n._id));
+    setSelectedIds((prev) => {
+      let changed = false;
+      const next = new Set();
+      prev.forEach((id) => {
+        if (valid.has(id)) next.add(id);
+        else changed = true;
+      });
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notes]);
+
   const currentFolderName = useMemo(() => {
     if (selectedFolder === 'all') return 'All Notes';
     if (selectedFolder === 'root') return 'Unfiled';
@@ -685,8 +1146,33 @@ const Notes = () => {
     return found?.name || 'All Notes';
   }, [selectedFolder, folders]);
 
-  // ── Handlers ─────────────────────────────────────────────────────
+  // ── Selection handlers ─────────────────────────────────────────
+  const enterSelectionMode = (firstId) => {
+    setSelectionMode(true);
+    setSelectedIds(new Set(firstId ? [firstId] : []));
+  };
 
+  const exitSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAll = () => setSelectedIds(new Set(notes.map((n) => n._id)));
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const selectedCount = selectedIds.size;
+  const allSelected = notes.length > 0 && selectedCount === notes.length;
+
+  // ── Handlers ────────────────────────────────────────────────────
   const handleDelete = (note) => setDeleteTarget(note);
 
   const confirmDelete = async () => {
@@ -752,7 +1238,6 @@ const Notes = () => {
     isCreatingRef.current = true;
     setIsCreatingNote(true);
     try {
-      // Create inside the currently-viewed folder if it's a real folder.
       const folderId =
         selectedFolder === 'all' || selectedFolder === 'root'
           ? null
@@ -772,8 +1257,75 @@ const Notes = () => {
     }
   };
 
-  // ── Folder CRUD ──────────────────────────────────────────────────
+  // ── Color handlers ─────────────────────────────────────────────
+  const handleNoteColorChange = async (noteId, color) => {
+    try {
+      await updateNoteColor({ noteId, color }).unwrap();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to change note color');
+    }
+  };
 
+  const handleFolderColorChange = async (folderId, color) => {
+    try {
+      await updateFolderColor({ folderId, color }).unwrap();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to change folder color');
+    }
+  };
+
+  // ── Bulk actions ────────────────────────────────────────────────
+  // Fan out to the single-item endpoints; the server still sees one call per
+  // note, but the UI presents it as one atomic operation.
+  const runBulk = useCallback(async (ids, fn) => {
+    if (!ids.length) return { ok: 0, failed: 0 };
+    const results = await Promise.allSettled(ids.map((id) => fn(id).unwrap()));
+    const ok = results.filter((r) => r.status === 'fulfilled').length;
+    return { ok, failed: results.length - ok };
+  }, []);
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (!ids.length) return;
+    setBulkBusy(true);
+    try {
+      const { ok, failed } = await runBulk(ids, (id) => deleteNote(id));
+      if (failed === 0) {
+        toast.success(`${ok} note${ok === 1 ? '' : 's'} deleted`);
+      } else if (ok === 0) {
+        toast.error('Failed to delete selected notes');
+      } else {
+        toast.error(`${failed} of ${ids.length} notes failed to delete`);
+      }
+      exitSelectionMode();
+      setBulkDeleteOpen(false);
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const handleBulkMove = async (folderId) => {
+    const ids = Array.from(selectedIds);
+    if (!ids.length) return;
+    setBulkBusy(true);
+    try {
+      const { ok, failed } = await runBulk(ids, (id) => moveNote({ noteId: id, folderId }));
+      const label = folderId ? 'moved' : 'moved to root';
+      if (failed === 0) {
+        toast.success(`${ok} note${ok === 1 ? '' : 's'} ${label}`);
+      } else if (ok === 0) {
+        toast.error('Failed to move selected notes');
+      } else {
+        toast.error(`${failed} of ${ids.length} notes failed to move`);
+      }
+      exitSelectionMode();
+      setBulkMoveOpen(false);
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  // ── Folder CRUD ─────────────────────────────────────────────────
   const handleFolderMenuOpen = (e, folder) => {
     const rect = e.currentTarget.getBoundingClientRect();
     setFolderMenu({
@@ -782,15 +1334,15 @@ const Notes = () => {
     });
   };
 
-  const handleFolderPromptSubmit = async (name) => {
+  const handleFolderPromptSubmit = async ({ name, color }) => {
     if (!promptState) return;
     try {
       if (promptState.mode === 'create' || promptState.mode === 'create-sub') {
         await createFolder({
           name,
           parentId: promptState.parentId || null,
+          color: color || null,   // 👈 send color on create
         }).unwrap();
-        // Auto-expand parent so the new child is visible
         if (promptState.parentId) {
           setExpandedIds((prev) => {
             const next = new Set(prev);
@@ -815,8 +1367,6 @@ const Notes = () => {
   const confirmDeleteFolder = async () => {
     if (!folderToDelete) return;
     try {
-      // Default backend behaviour: notes move to the folder's parent
-      // (or root if it was top-level), sub-folders bubble up.
       await deleteFolder({ folderId: folderToDelete._id }).unwrap();
       toast.success('Folder deleted');
       if (selectedFolder === folderToDelete._id) setSelectedFolder('all');
@@ -827,8 +1377,7 @@ const Notes = () => {
     }
   };
 
-  // ── Move Note ────────────────────────────────────────────────────
-
+  // ── Single-note move ────────────────────────────────────────────
   const handleMove = async (noteId, folderId) => {
     try {
       await moveNote({ noteId, folderId }).unwrap();
@@ -849,10 +1398,9 @@ const Notes = () => {
     });
   };
 
-  // The shared FolderTree panel — reused on desktop and in the mobile drawer.
+  // ── Folder tree panel ──────────────────────────────────────────
   const FolderTreePanel = () => (
     <div className="flex flex-col h-full">
-      {/* Special rows: All Notes / Unfiled */}
       <div className="space-y-0.5 pb-2">
         <div
           onClick={() => { setSelectedFolder('all'); setFolderDrawerOpen(false); }}
@@ -898,6 +1446,7 @@ const Notes = () => {
                 onSelect={(id) => {
                   setSelectedFolder(id);
                   setFolderDrawerOpen(false);
+                  if (selectionMode) exitSelectionMode();
                 }}
                 onContextMenu={handleFolderMenuOpen}
                 expandedIds={expandedIds}
@@ -910,22 +1459,27 @@ const Notes = () => {
     </div>
   );
 
-  // ── Loading screen ───────────────────────────────────────────────
+  // ── Loading screen ──────────────────────────────────────────────
   if (isLoading && selectedFolder === 'all') {
     return (
-      <div className="min-h-screen bg-white dark:bg-[#0f0f12] flex flex-col md:flex-row">
-        <div className="hidden md:block md:w-72 md:flex-shrink-0">
-          <GeneralSidebar />
+      <>
+        <GlobalStyles />
+        <div className="min-h-screen bg-white dark:bg-[#0f0f12] flex flex-col md:flex-row">
+          <div className="hidden md:block md:w-72 md:flex-shrink-0">
+            <GeneralSidebar />
+          </div>
+          <div className="flex-1 flex items-center justify-center">
+            <FaSpinner className="animate-spin text-teal-500 text-3xl" />
+          </div>
         </div>
-        <div className="flex-1 flex items-center justify-center">
-          <FaSpinner className="animate-spin text-teal-500 text-3xl" />
-        </div>
-      </div>
+      </>
     );
   }
 
   return (
     <>
+      <GlobalStyles />
+
       <div className="h-dvh bg-white dark:bg-[#0f0f12] flex flex-col md:flex-row overflow-hidden">
         {/* Nav sidebar (desktop) */}
         <div className="hidden md:block md:w-72 md:flex-shrink-0">
@@ -947,46 +1501,124 @@ const Notes = () => {
               <FaFolderPlus className="text-sm" />
             </button>
           </header>
-          <div className="flex-1 min-h-0 overflow-y-auto p-2">
+          <div className="flex-1 min-h-0 overflow-y-auto p-2 notes-scroll">
             <FolderTreePanel />
           </div>
         </aside>
 
         {/* Notes list column */}
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
-          <header className="bg-white dark:bg-[#0f0f12] border-b border-gray-100 dark:border-gray-800 sticky top-0 z-10 flex-shrink-0">
-            <div className="px-3 sm:px-6 h-12 flex items-center justify-between gap-2">
-              {/* Mobile: folder drawer trigger */}
-              <button
-                onClick={() => setFolderDrawerOpen(true)}
-                className="md:hidden p-1.5 -ml-1.5 text-gray-500 dark:text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
-                aria-label="Open folders"
-              >
-                <FaFolderOpen className="text-sm" />
-              </button>
+          {/* ── Header (normal OR selection toolbar) ── */}
+          <header className="bg-white dark:bg-[#0f0f12] border-b border-gray-100 dark:border-gray-800 sticky top-0 z-30 flex-shrink-0">
+            {selectionMode ? (
+              <div className="px-3 sm:px-6 h-12 flex items-center gap-2">
+                <button
+                  onClick={exitSelectionMode}
+                  className="p-1.5 -ml-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300 transition"
+                  aria-label="Cancel selection"
+                >
+                  <FaTimes className="text-sm" />
+                </button>
+                <span className="text-sm font-semibold text-gray-800 dark:text-white truncate">
+                  {selectedCount} selected
+                </span>
+                <div className="flex-1" />
 
-              <h1 className="text-sm font-semibold text-gray-800 dark:text-white flex items-center gap-2 flex-1 min-w-0">
-                <FaFolder className="text-teal-500 text-sm hidden sm:block flex-shrink-0" />
-                <span className="truncate">{currentFolderName}</span>
-              </h1>
+                <button
+                  onClick={allSelected ? clearSelection : selectAll}
+                  className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300 transition"
+                  title={allSelected ? 'Deselect all' : 'Select all'}
+                  aria-label={allSelected ? 'Deselect all' : 'Select all'}
+                >
+                  {allSelected ? (
+                    <FaCheckDouble className="text-sm text-teal-500" />
+                  ) : (
+                    <FaCheckSquare className="text-sm" />
+                  )}
+                </button>
 
-              <button
-                onClick={handleCreateNote}
-                disabled={isCreatingNote}
-                className="p-1.5 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
-                aria-label="New note"
-              >
-                {isCreatingNote ? (
-                  <FaSpinner className="text-sm animate-spin" />
-                ) : (
-                  <FaPlus className="text-sm" />
-                )}
-              </button>
-            </div>
+                <button
+                  onClick={() => setBulkMoveOpen(true)}
+                  disabled={selectedCount === 0}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-teal-600 text-white hover:bg-teal-700 transition disabled:opacity-40 flex items-center gap-1.5"
+                  title="Move selected"
+                >
+                  <FaFolder className="text-xs" />
+                  <span className="hidden xs:inline">Move</span>
+                </button>
+
+                <button
+                  onClick={() => setBulkDeleteOpen(true)}
+                  disabled={selectedCount === 0}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-600 text-white hover:bg-red-700 transition disabled:opacity-40 flex items-center gap-1.5"
+                  title="Delete selected"
+                >
+                  <FaTrashAlt className="text-xs" />
+                  <span className="hidden xs:inline">Delete</span>
+                </button>
+              </div>
+            ) : (
+              <div className="px-3 sm:px-6 h-12 flex items-center justify-between gap-2">
+                {/* Mobile: folder drawer trigger */}
+                <button
+                  onClick={() => setFolderDrawerOpen(true)}
+                  className="md:hidden p-1.5 -ml-1.5 text-gray-500 dark:text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+                  aria-label="Open folders"
+                >
+                  <FaFolderOpen className="text-sm" />
+                </button>
+
+                <h1 className="text-sm font-semibold text-gray-800 dark:text-white flex items-center gap-2 flex-1 min-w-0">
+                  <FaFolder className="text-teal-500 text-sm hidden sm:block flex-shrink-0" />
+                  <span className="truncate">{currentFolderName}</span>
+                </h1>
+
+                {/* View toggle */}
+                <div className="flex items-center rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex-shrink-0">
+                  <button
+                    onClick={() => setViewMode('list')}
+                    className={`p-1.5 transition ${
+                      viewMode === 'list'
+                        ? 'bg-gray-100 dark:bg-gray-800 text-teal-500'
+                        : 'hover:bg-gray-50 dark:hover:bg-gray-900 text-gray-500 dark:text-gray-400'
+                    }`}
+                    title="List view"
+                    aria-label="List view"
+                  >
+                    <FaList className="text-xs" />
+                  </button>
+                  <button
+                    onClick={() => setViewMode('grid')}
+                    className={`p-1.5 transition border-l border-gray-200 dark:border-gray-700 ${
+                      viewMode === 'grid'
+                        ? 'bg-gray-100 dark:bg-gray-800 text-teal-500'
+                        : 'hover:bg-gray-50 dark:hover:bg-gray-900 text-gray-500 dark:text-gray-400'
+                    }`}
+                    title="Grid view"
+                    aria-label="Grid view"
+                  >
+                    <FaTh className="text-xs" />
+                  </button>
+                </div>
+
+                <button
+                  onClick={handleCreateNote}
+                  disabled={isCreatingNote}
+                  className="p-1.5 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                  aria-label="New note"
+                >
+                  {isCreatingNote ? (
+                    <FaSpinner className="text-sm animate-spin" />
+                  ) : (
+                    <FaPlus className="text-sm" />
+                  )}
+                </button>
+              </div>
+            )}
           </header>
 
           <main
-            className="flex-1 min-h-0 overflow-y-auto"
+            className="flex-1 min-h-0 overflow-y-auto notes-scroll"
             style={{
               paddingBottom: 'calc(7rem + env(safe-area-inset-bottom, 0px))',
             }}
@@ -1001,17 +1633,43 @@ const Notes = () => {
                 </p>
                 <p className="text-xs">Create your first note by tapping the + button.</p>
               </div>
+            ) : viewMode === 'grid' ? (
+              <div className="p-3 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
+                {notes.map((note) => (
+                  <NoteCard
+                    key={note._id}
+                    note={note}
+                    viewMode="grid"
+                    selectionMode={selectionMode}
+                    isSelected={selectedIds.has(note._id)}
+                    onToggleSelect={toggleSelect}
+                    onEnterSelection={enterSelectionMode}
+                    onClick={() => openNote(note._id)}
+                    onDelete={handleDelete}
+                    onTogglePublic={handleTogglePublic}
+                    onShareLink={handleShareLink}
+                    onMove={setMoveTarget}
+                    onColorChange={handleNoteColorChange}
+                  />
+                ))}
+              </div>
             ) : (
               <div className="md:pb-6">
                 {notes.map((note) => (
                   <NoteCard
                     key={note._id}
                     note={note}
+                    viewMode="list"
+                    selectionMode={selectionMode}
+                    isSelected={selectedIds.has(note._id)}
+                    onToggleSelect={toggleSelect}
+                    onEnterSelection={enterSelectionMode}
                     onClick={() => openNote(note._id)}
                     onDelete={handleDelete}
                     onTogglePublic={handleTogglePublic}
                     onShareLink={handleShareLink}
                     onMove={setMoveTarget}
+                    onColorChange={handleNoteColorChange}
                   />
                 ))}
               </div>
@@ -1025,7 +1683,7 @@ const Notes = () => {
       {/* Floating action button */}
       <button
         onClick={handleCreateNote}
-        disabled={isCreatingNote}
+        disabled={isCreatingNote || selectionMode}
         className="fixed right-4 sm:right-6 z-30 w-12 h-12 bg-teal-600 dark:bg-teal-500 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-teal-700 dark:hover:bg-teal-600 transition active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
         style={{
           bottom: 'calc(5.5rem + env(safe-area-inset-bottom, 0px))',
@@ -1068,14 +1726,14 @@ const Notes = () => {
                 </button>
               </div>
             </div>
-            <div className="flex-1 min-h-0 overflow-y-auto p-2">
+            <div className="flex-1 min-h-0 overflow-y-auto p-2 notes-scroll">
               <FolderTreePanel />
             </div>
           </div>
         </div>
       )}
 
-      {/* Folder context menu */}
+      {/* Folder context menu (with color) */}
       {folderMenu && (
         <FolderContextMenu
           pos={folderMenu.pos}
@@ -1094,6 +1752,10 @@ const Notes = () => {
             })
           }
           onDelete={() => setFolderToDelete(folderMenu.folder)}
+          onColorChange={(color) =>
+            handleFolderColorChange(folderMenu.folder._id, color)
+          }
+          currentColor={folderMenu.folder.color}
         />
       )}
 
@@ -1111,15 +1773,29 @@ const Notes = () => {
         }
         initialValue={promptState?.initialValue || ''}
         submitLabel={promptState?.mode === 'rename' ? 'Rename' : 'Create'}
+        showColor={promptState?.mode !== 'rename'}
+        initialColor={null}
       />
 
-      {/* Move note modal */}
-      <MoveNoteModal
+      {/* Single-note move */}
+      <FolderPickerModal
         isOpen={!!moveTarget}
         onClose={() => setMoveTarget(null)}
         note={moveTarget}
         tree={tree}
-        onMove={handleMove}
+        onMove={(folderId) => handleMove(moveTarget._id, folderId)}
+        title="Move to folder"
+      />
+
+      {/* Bulk move */}
+      <FolderPickerModal
+        isOpen={bulkMoveOpen}
+        onClose={() => !bulkBusy && setBulkMoveOpen(false)}
+        note={null}
+        tree={tree}
+        onMove={handleBulkMove}
+        title={`Move ${selectedCount} note${selectedCount === 1 ? '' : 's'}`}
+        busy={bulkBusy}
       />
 
       {/* Delete confirmations */}
@@ -1129,6 +1805,16 @@ const Notes = () => {
         onConfirm={confirmDelete}
         title="Delete Note"
         message="This note will be permanently deleted. This action cannot be undone."
+      />
+
+      <ConfirmModal
+        isOpen={bulkDeleteOpen}
+        onClose={() => !bulkBusy && setBulkDeleteOpen(false)}
+        onConfirm={handleBulkDelete}
+        title="Delete Notes"
+        message={`${selectedCount} note${selectedCount === 1 ? '' : 's'} will be permanently deleted. This action cannot be undone.`}
+        confirmLabel={`Delete ${selectedCount}`}
+        busy={bulkBusy}
       />
 
       <ConfirmModal

@@ -61,6 +61,22 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    // ─── Change a note's color only ─────────────────────────────────
+    // Send { noteId, color } where color is any CSS color string or null
+    // (null clears the color). Uses the lightweight dedicated endpoint
+    // so it doesn't touch the title/content autosave pipeline.
+    updateNoteColor: builder.mutation({
+      query: ({ noteId, color }) => ({
+        url: `${NOTES_URL}/${noteId}/color`,
+        method: 'PATCH',
+        body: { color },
+      }),
+      invalidatesTags: (result, error, { noteId }) => [
+        { type: 'PersonalNote', id: noteId },
+        'PersonalNote',
+      ],
+    }),
+
     // ─── Move a note to a folder (or root) ──────────────────────────
     // Send { noteId, folderId } where folderId is a folder _id OR null
     // (null = unfiled / root).
@@ -146,6 +162,18 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['PersonalNoteFolder', 'PersonalNote'],
     }),
 
+    // ─── Change a folder's color only ───────────────────────────────
+    // Send { folderId, color } where color is any CSS color string or
+    // null (null clears the color).
+    updateNoteFolderColor: builder.mutation({
+      query: ({ folderId, color }) => ({
+        url: `${NOTES_URL}/folders/${folderId}/color`,
+        method: 'PATCH',
+        body: { color },
+      }),
+      invalidatesTags: ['PersonalNoteFolder', 'PersonalNote'],
+    }),
+
     // ─── Delete a folder ────────────────────────────────────────────
     // Send { folderId, moveNotesTo? }
     //   moveNotesTo: 'parent' (default) | 'root' | '<folderId>'
@@ -210,13 +238,14 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
-    // Send { file, title?, folderId? }
+    // Send { file, title?, folderId?, color? }
     importFileToNote: builder.mutation({
       query: (data) => {
         const formData = new FormData();
         if (data.file) formData.append('file', data.file);
         if (data.title) formData.append('title', data.title);
         if (data.folderId) formData.append('folderId', data.folderId);
+        if (data.color) formData.append('color', data.color);
         return {
           url: `${NOTES_URL}/import`,
           method: 'POST',
@@ -288,18 +317,20 @@ export const {
   useGetNoteQuery,
   useLazyGetNoteQuery,
   useUpdateNoteMutation,
-  useMoveNoteMutation,               // 👈 new
+  useUpdateNoteColorMutation,        // 👈 new
+  useMoveNoteMutation,
   useDeleteNoteMutation,
   useTogglePublicMutation,
   useGetNoteByShareLinkQuery,
   useLazyGetNoteByShareLinkQuery,
 
   // Folders
-  useCreateNoteFolderMutation,       // 👈 new
-  useGetNoteFoldersQuery,            // 👈 new
-  useLazyGetNoteFoldersQuery,        // 👈 new
-  useUpdateNoteFolderMutation,       // 👈 new
-  useDeleteNoteFolderMutation,       // 👈 new
+  useCreateNoteFolderMutation,
+  useGetNoteFoldersQuery,
+  useLazyGetNoteFoldersQuery,
+  useUpdateNoteFolderMutation,
+  useUpdateNoteFolderColorMutation,  // 👈 new
+  useDeleteNoteFolderMutation,
 
   // Collaborators
   useAddCollaboratorMutation,

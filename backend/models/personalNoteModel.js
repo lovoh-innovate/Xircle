@@ -28,6 +28,12 @@ const personalNoteSchema = new mongoose.Schema(
       trim: true,
       default: 'Type your content here', // 👈 default content (change to '' if you prefer empty)
     },
+    // 👇 NEW — any CSS color string (e.g. "#a855f7", "rgba(168,85,247,0.5)") or null
+    color: {
+      type: String,
+      default: null,
+      trim: true,
+    },
     isPublic: {
       type: Boolean,
       default: false,

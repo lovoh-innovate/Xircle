@@ -32,6 +32,12 @@ const workspaceNoteSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    // 👇 NEW — any CSS color string (e.g. "#a855f7", "rgba(168,85,247,0.5)") or null
+    color: {
+      type: String,
+      default: null,
+      trim: true,
+    },
     attachments: [
       {
         filename: { type: String, required: true },

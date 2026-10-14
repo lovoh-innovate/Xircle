@@ -21,7 +21,8 @@ const personalNoteFolderSchema = new mongoose.Schema(
       default: null, // null = top-level folder
       index: true,
     },
-    color: { type: String, default: null },
+    // 👇 any CSS color string (e.g. "#a855f7", "rgba(168,85,247,0.5)") or null
+    color: { type: String, default: null, trim: true },
     order: { type: Number, default: 0 },
   },
   { timestamps: true }

@@ -54,6 +54,46 @@ const wouldCreateCycle = async (folderId, candidateParentId) => {
   return false;
 };
 
+// ─── COLOR HELPER ──────────────────────────────────────────────────────
+// Shared by BOTH notes and folders.
+//   undefined  → "not provided, leave as-is"  (returns undefined)
+//   null / ''  → clear the color              (returns null)
+//   valid      → normalize and return it
+//   invalid    → throw 400
+const normalizeColor = (color) => {
+  if (color === undefined) return undefined;
+  if (color === null) return null;
+  if (typeof color !== 'string') {
+    const err = new Error('Color must be a string.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const trimmed = color.trim();
+  if (!trimmed) return null;
+
+  // Hex: #RGB, #RGBA, #RRGGBB, #RRGGBBAA
+  if (/^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(trimmed)) {
+    return trimmed.toLowerCase();
+  }
+  // rgb() / rgba()
+  if (/^rgba?\(\s*\d{1,3}\s*[, ]\s*\d{1,3}\s*[, ]\s*\d{1,3}(\s*[,/]\s*(0|1|0?\.\d+|\d{1,3}%))?\s*\)$/i.test(trimmed)) {
+    return trimmed;
+  }
+  // hsl() / hsla()
+  if (/^hsla?\(\s*\d{1,3}(deg)?\s*[, ]\s*\d{1,3}%\s*[, ]\s*\d{1,3}%(\s*[,/]\s*(0|1|0?\.\d+|\d{1,3}%))?\s*\)$/i.test(trimmed)) {
+    return trimmed;
+  }
+  // Named colors (basic set)
+  if (/^[a-z]{3,20}$/i.test(trimmed)) {
+    return trimmed.toLowerCase();
+  }
+
+  const err = new Error('Invalid color format.');
+  err.statusCode = 400;
+  throw err;
+};
+
 // ══════════════════════════════════════════════════════════════════════════
 //  NOTE CONTROLLERS
 // ══════════════════════════════════════════════════════════════════════════
@@ -61,7 +101,7 @@ const wouldCreateCycle = async (folderId, candidateParentId) => {
 // ─── Create Personal Note ──────────────────────────────────────────────
 export const createNote = asyncHandler(async (req, res) => {
   const userId = req.user.id;
-  const { title, content, isPublic = false, folderId } = req.body;
+  const { title, content, isPublic = false, folderId, color } = req.body;
 
   const noteTitle = title?.trim() ? title.trim() : 'Untitled';
   const noteContent = content?.trim() ? content.trim() : 'Write your note here...';
@@ -70,6 +110,15 @@ export const createNote = asyncHandler(async (req, res) => {
   try {
     const r = await resolveFolderId(folderId, userId);
     if (r !== undefined) resolvedFolderId = r;
+  } catch (err) {
+    res.status(err.statusCode || 400);
+    throw err;
+  }
+
+  let resolvedColor = null;
+  try {
+    const c = normalizeColor(color);
+    if (c !== undefined) resolvedColor = c;
   } catch (err) {
     res.status(err.statusCode || 400);
     throw err;
@@ -90,6 +139,7 @@ export const createNote = asyncHandler(async (req, res) => {
     folder: resolvedFolderId,
     title: noteTitle,
     content: noteContent,
+    color: resolvedColor,
     isPublic,
     shareLink,
     attachments,
@@ -128,7 +178,7 @@ export const getNote = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const note = await PersonalNote.findById(req.params.id)
     .populate('collaborators.user', 'name email')
-    .populate('folder', 'name parent');
+    .populate('folder', 'name parent color');
 
   if (!note) {
     res.status(404);
@@ -150,7 +200,7 @@ export const getNote = asyncHandler(async (req, res) => {
 // ─── Update Personal Note ────────────────────────────────────────────────
 export const updateNote = asyncHandler(async (req, res) => {
   const userId = req.user.id;
-  const { title, content, isPublic, folderId } = req.body;
+  const { title, content, isPublic, folderId, color } = req.body;
   const note = await PersonalNote.findById(req.params.id);
 
   if (!note) {
@@ -170,6 +220,15 @@ export const updateNote = asyncHandler(async (req, res) => {
 
   if (title !== undefined) note.title = title.trim() || 'Untitled';
   if (content !== undefined) note.content = content.trim();
+
+  if (color !== undefined) {
+    try {
+      note.color = normalizeColor(color);
+    } catch (err) {
+      res.status(err.statusCode || 400);
+      throw err;
+    }
+  }
 
   if (isPublic !== undefined) {
     note.isPublic = isPublic;
@@ -230,8 +289,40 @@ export const moveNote = asyncHandler(async (req, res) => {
   }
 
   await note.save();
-  await note.populate('folder', 'name parent');
+  await note.populate('folder', 'name parent color');
 
+  res.status(200).json({ success: true, note });
+});
+
+// ─── Update Note Color (dedicated lightweight endpoint) ─────────────────
+// PATCH /api/personal-notes/:id/color   { color: "#RRGGBB" | null }
+export const updateNoteColor = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { color } = req.body;
+
+  const note = await PersonalNote.findById(req.params.id);
+  if (!note) {
+    res.status(404);
+    throw new Error('Note not found.');
+  }
+
+  const isOwner = note.user.toString() === userId;
+  const isEditCollaborator = note.collaborators.some(
+    c => c.user.toString() === userId && c.permission === 'edit'
+  );
+  if (!isOwner && !isEditCollaborator) {
+    res.status(403);
+    throw new Error('You do not have permission to change this note.');
+  }
+
+  try {
+    note.color = normalizeColor(color);
+  } catch (err) {
+    res.status(err.statusCode || 400);
+    throw err;
+  }
+
+  await note.save();
   res.status(200).json({ success: true, note });
 });
 
@@ -305,10 +396,8 @@ export const getNoteByShareLink = asyncHandler(async (req, res) => {
 });
 
 // ─── Manage Collaborators ──────────────────────────────────────────────
-// ✅ KEPT — unchanged from your original file.
 
 // Add collaborator
-// POST /api/personal-notes/:id/collaborators
 export const addCollaborator = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const { collaboratorEmail, permission = 'read' } = req.body;
@@ -372,7 +461,6 @@ export const addCollaborator = asyncHandler(async (req, res) => {
 });
 
 // Remove collaborator
-// DELETE /api/personal-notes/:id/collaborators/:collaboratorId
 export const removeCollaborator = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const note = await PersonalNote.findById(req.params.id);
@@ -397,7 +485,6 @@ export const removeCollaborator = asyncHandler(async (req, res) => {
 });
 
 // Update collaborator permission
-// PATCH /api/personal-notes/:id/collaborators/:collaboratorId
 export const updateCollaboratorPermission = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const { permission } = req.body;
@@ -480,7 +567,7 @@ export const exportNotePDF = asyncHandler(async (req, res) => {
 // ─── Import File to Note ──────────────────────────────────────────────
 export const importFileToNote = asyncHandler(async (req, res) => {
   const userId = req.user.id;
-  const { title, folderId } = req.body;
+  const { title, folderId, color } = req.body;
   const file = req.file;
 
   if (!file) {
@@ -492,6 +579,15 @@ export const importFileToNote = asyncHandler(async (req, res) => {
   try {
     const r = await resolveFolderId(folderId, userId);
     if (r !== undefined) resolvedFolderId = r;
+  } catch (err) {
+    res.status(err.statusCode || 400);
+    throw err;
+  }
+
+  let resolvedColor = null;
+  try {
+    const c = normalizeColor(color);
+    if (c !== undefined) resolvedColor = c;
   } catch (err) {
     res.status(err.statusCode || 400);
     throw err;
@@ -537,6 +633,7 @@ export const importFileToNote = asyncHandler(async (req, res) => {
       folder: resolvedFolderId,
       title: noteTitle,
       content: extractedText.trim() || 'No text could be extracted from the file.',
+      color: resolvedColor,
       isPublic: false,
       attachments: [{
         filename: file.originalname,
@@ -564,6 +661,7 @@ export const importFileToNote = asyncHandler(async (req, res) => {
 // ══════════════════════════════════════════════════════════════════════════
 
 // ─── Create Folder ──────────────────────────────────────────────────────
+// ✅ Color supported — pass `color` in body (any CSS string or null)
 export const createNoteFolder = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const { name, parentId = null, color = null } = req.body;
@@ -591,12 +689,22 @@ export const createNoteFolder = asyncHandler(async (req, res) => {
     parent = parentFolder._id;
   }
 
+  // ── FOLDER COLOR ──
+  let resolvedColor = null;
+  try {
+    const c = normalizeColor(color);
+    if (c !== undefined) resolvedColor = c;
+  } catch (err) {
+    res.status(err.statusCode || 400);
+    throw err;
+  }
+
   try {
     const folder = await PersonalNoteFolder.create({
       user: userId,
       name: name.trim(),
       parent,
-      color,
+      color: resolvedColor, // 👈 saved here
     });
     res.status(201).json({ success: true, folder });
   } catch (err) {
@@ -618,6 +726,7 @@ export const getNoteFolders = asyncHandler(async (req, res) => {
 });
 
 // ─── Update Folder ──────────────────────────────────────────────────────
+// ✅ Color supported — pass `color` in body to change it
 export const updateNoteFolder = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const { name, color, order, parentId } = req.body;
@@ -640,7 +749,16 @@ export const updateNoteFolder = asyncHandler(async (req, res) => {
     folder.name = name.trim();
   }
 
-  if (color !== undefined) folder.color = color;
+  // ── FOLDER COLOR ──
+  if (color !== undefined) {
+    try {
+      folder.color = normalizeColor(color);
+    } catch (err) {
+      res.status(err.statusCode || 400);
+      throw err;
+    }
+  }
+
   if (order !== undefined) folder.order = order;
 
   if (parentId !== undefined) {
@@ -682,6 +800,35 @@ export const updateNoteFolder = asyncHandler(async (req, res) => {
     }
     throw err;
   }
+});
+
+// ─── Update Folder Color (dedicated lightweight endpoint) ───────────────
+// PATCH /api/personal-note-folders/:id/color   { color: "#RRGGBB" | null }
+// Parallel to updateNoteColor — lets a color picker change just the color
+// without going through the full update payload.
+export const updateNoteFolderColor = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { color } = req.body;
+
+  const folder = await PersonalNoteFolder.findById(req.params.id);
+  if (!folder) {
+    res.status(404);
+    throw new Error('Folder not found.');
+  }
+  if (folder.user.toString() !== userId) {
+    res.status(403);
+    throw new Error('You do not have permission to change this folder.');
+  }
+
+  try {
+    folder.color = normalizeColor(color);
+  } catch (err) {
+    res.status(err.statusCode || 400);
+    throw err;
+  }
+
+  await folder.save();
+  res.status(200).json({ success: true, folder });
 });
 
 // ─── Delete Folder ──────────────────────────────────────────────────────

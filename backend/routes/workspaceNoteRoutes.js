@@ -5,6 +5,7 @@ import {
   getWorkspaceNotes,
   getWorkspaceNote,
   updateWorkspaceNote,
+  updateWorkspaceNoteColor,       // 👈 new
   moveWorkspaceNote,
   deleteWorkspaceNote,
   exportWorkspaceNotePDF,
@@ -13,6 +14,7 @@ import {
   createNoteFolder,
   getNoteFolders,
   updateNoteFolder,
+  updateNoteFolderColor,          // 👈 new
   deleteNoteFolder,
 } from "../controllers/workspaceNoteController.js";
 import { protect } from "../middleware/authMiddleware.js";
@@ -56,6 +58,7 @@ router.use(protect);
 router.post("/folders", createNoteFolder);
 router.get("/folders/:workspaceId", getNoteFolders);
 router.put("/folders/:id", updateNoteFolder);
+router.patch("/folders/:id/color", updateNoteFolderColor);   // 👈 new
 router.delete("/folders/:id", deleteNoteFolder);
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -76,6 +79,9 @@ router.get("/:id/export-pdf", exportWorkspaceNotePDF);
 
 // Move note to folder
 router.patch("/:id/move", moveWorkspaceNote);
+
+// Change note color only
+router.patch("/:id/color", updateWorkspaceNoteColor);        // 👈 new
 
 // Update / delete note
 router.put("/:id", upload.array("attachments", 5), updateWorkspaceNote);

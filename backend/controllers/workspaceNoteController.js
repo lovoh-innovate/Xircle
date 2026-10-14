@@ -70,15 +70,59 @@ const wouldCreateCycle = async (folderId, candidateParentId) => {
   return false;
 };
 
+// ─── COLOR HELPER ──────────────────────────────────────────────────────
+// Shared by BOTH notes and folders in this controller.
+//   undefined  → "not provided, leave as-is"  (returns undefined)
+//   null / ''  → clear the color              (returns null)
+//   valid      → normalize and return it
+//   invalid    → throw 400
+//
+// No whitelist — the frontend uses a native <input type="color"> picker
+// (or any third-party picker), so we accept any CSS-parseable color.
+const normalizeColor = (color) => {
+  if (color === undefined) return undefined;
+  if (color === null) return null;
+  if (typeof color !== 'string') {
+    const err = new Error('Color must be a string.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const trimmed = color.trim();
+  if (!trimmed) return null;
+
+  // Hex: #RGB, #RGBA, #RRGGBB, #RRGGBBAA
+  if (/^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(trimmed)) {
+    return trimmed.toLowerCase();
+  }
+  // rgb() / rgba()
+  if (/^rgba?\(\s*\d{1,3}\s*[, ]\s*\d{1,3}\s*[, ]\s*\d{1,3}(\s*[,/]\s*(0|1|0?\.\d+|\d{1,3}%))?\s*\)$/i.test(trimmed)) {
+    return trimmed;
+  }
+  // hsl() / hsla()
+  if (/^hsla?\(\s*\d{1,3}(deg)?\s*[, ]\s*\d{1,3}%\s*[, ]\s*\d{1,3}%(\s*[,/]\s*(0|1|0?\.\d+|\d{1,3}%))?\s*\)$/i.test(trimmed)) {
+    return trimmed;
+  }
+  // Named colors (basic set)
+  if (/^[a-z]{3,20}$/i.test(trimmed)) {
+    return trimmed.toLowerCase();
+  }
+
+  const err = new Error('Invalid color format.');
+  err.statusCode = 400;
+  throw err;
+};
+
 // ══════════════════════════════════════════════════════════════════════════
 //  NOTE CONTROLLERS
 // ══════════════════════════════════════════════════════════════════════════
 
 // ─── Create Workspace Note (supports drafts / autosave) ─────────────────
 // POST /api/workspace-notes
+// Body: { workspaceId, title?, content?, folderId?, color? }
 export const createWorkspaceNote = asyncHandler(async (req, res) => {
   const userId = req.user.id;
-  const { workspaceId, title, content, folderId } = req.body;
+  const { workspaceId, title, content, folderId, color } = req.body;
 
   if (!workspaceId) {
     res.status(400);
@@ -105,6 +149,16 @@ export const createWorkspaceNote = asyncHandler(async (req, res) => {
     throw err;
   }
 
+  // ── NOTE COLOR ──
+  let resolvedColor = null;
+  try {
+    const c = normalizeColor(color);
+    if (c !== undefined) resolvedColor = c;
+  } catch (err) {
+    res.status(err.statusCode || 400);
+    throw err;
+  }
+
   const attachments =
     req.files?.map(file => ({
       filename: file.originalname,
@@ -119,6 +173,7 @@ export const createWorkspaceNote = asyncHandler(async (req, res) => {
     author: userId,
     title: typeof title === 'string' ? title.trim() : '',
     content: typeof content === 'string' ? content.trim() : '',
+    color: resolvedColor, // 👈 saved here
     attachments,
   });
 
@@ -196,7 +251,7 @@ export const getWorkspaceNote = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const note = await WorkspaceNote.findById(req.params.id)
     .populate('author', 'name email profile')
-    .populate('folder', 'name parent');
+    .populate('folder', 'name parent color'); // 👈 include folder color
 
   if (!note) {
     res.status(404);
@@ -219,9 +274,10 @@ export const getWorkspaceNote = asyncHandler(async (req, res) => {
 
 // ─── Update Workspace Note (autosave-safe) ──────────────────────────────
 // PUT /api/workspace-notes/:id
+// Body (all optional): { title, content, folderId, color }
 export const updateWorkspaceNote = asyncHandler(async (req, res) => {
   const userId = req.user.id;
-  const { title, content, folderId } = req.body;
+  const { title, content, folderId, color } = req.body;
 
   const note = await WorkspaceNote.findById(req.params.id)
     .populate('author', 'name');
@@ -252,6 +308,16 @@ export const updateWorkspaceNote = asyncHandler(async (req, res) => {
     note.content = typeof content === 'string' ? content.trim() : '';
   }
 
+  // ── NOTE COLOR ──
+  if (color !== undefined) {
+    try {
+      note.color = normalizeColor(color);
+    } catch (err) {
+      res.status(err.statusCode || 400);
+      throw err;
+    }
+  }
+
   if (folderId !== undefined) {
     try {
       note.folder = await resolveFolderId(folderId, note.workspace);
@@ -272,7 +338,7 @@ export const updateWorkspaceNote = asyncHandler(async (req, res) => {
 
   await note.save();
   await note.populate('author', 'name email profile');
-  await note.populate('folder', 'name parent');
+  await note.populate('folder', 'name parent color');
 
   res.status(200).json({ success: true, note });
 });
@@ -311,8 +377,45 @@ export const moveWorkspaceNote = asyncHandler(async (req, res) => {
 
   await note.save();
   await note.populate('author', 'name email profile');
-  await note.populate('folder', 'name parent');
+  await note.populate('folder', 'name parent color');
 
+  res.status(200).json({ success: true, note });
+});
+
+// ─── Update Note Color (dedicated lightweight endpoint) ─────────────────
+// PATCH /api/workspace-notes/:id/color
+// Body: { color: "#RRGGBB" | null }
+export const updateWorkspaceNoteColor = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { color } = req.body;
+
+  const note = await WorkspaceNote.findById(req.params.id);
+  if (!note) {
+    res.status(404);
+    throw new Error('Note not found.');
+  }
+
+  const workspace = await Workspace.findById(note.workspace);
+  if (!workspace) {
+    res.status(404);
+    throw new Error('Workspace not found.');
+  }
+
+  const isAuthor = note.author.toString() === userId;
+  const isManager = isAdminOrOwner(workspace, userId);
+  if (!isAuthor && !isManager) {
+    res.status(403);
+    throw new Error('You do not have permission to change this note.');
+  }
+
+  try {
+    note.color = normalizeColor(color);
+  } catch (err) {
+    res.status(err.statusCode || 400);
+    throw err;
+  }
+
+  await note.save();
   res.status(200).json({ success: true, note });
 });
 
@@ -397,9 +500,10 @@ export const exportWorkspaceNotePDF = asyncHandler(async (req, res) => {
 
 // ─── Import File to Workspace Note ──────────────────────────────────────
 // POST /api/workspace-notes/import
+// Body: { workspaceId, title?, folderId?, color? }
 export const importFileToWorkspaceNote = asyncHandler(async (req, res) => {
   const userId = req.user.id;
-  const { workspaceId, title, folderId } = req.body;
+  const { workspaceId, title, folderId, color } = req.body;
   const file = req.file;
 
   if (!workspaceId || !file) {
@@ -422,6 +526,16 @@ export const importFileToWorkspaceNote = asyncHandler(async (req, res) => {
   try {
     const r = await resolveFolderId(folderId, workspaceId);
     if (r !== undefined) resolvedFolderId = r;
+  } catch (err) {
+    res.status(err.statusCode || 400);
+    throw err;
+  }
+
+  // ── NOTE COLOR ──
+  let resolvedColor = null;
+  try {
+    const c = normalizeColor(color);
+    if (c !== undefined) resolvedColor = c;
   } catch (err) {
     res.status(err.statusCode || 400);
     throw err;
@@ -468,6 +582,7 @@ export const importFileToWorkspaceNote = asyncHandler(async (req, res) => {
       author: userId,
       title: noteTitle,
       content: extractedText.trim() || 'No text could be extracted.',
+      color: resolvedColor, // 👈 saved here
       attachments: [
         {
           filename: file.originalname,
@@ -479,7 +594,7 @@ export const importFileToWorkspaceNote = asyncHandler(async (req, res) => {
     });
 
     await note.populate('author', 'name email profile');
-    await note.populate('folder', 'name parent');
+    await note.populate('folder', 'name parent color');
 
     const memberIds = getActiveMemberIds(workspace).filter(id => id !== userId);
     if (memberIds.length > 0) {
@@ -553,12 +668,22 @@ export const createNoteFolder = asyncHandler(async (req, res) => {
     parent = parentFolder._id;
   }
 
+  // ── FOLDER COLOR ──
+  let resolvedColor = null;
+  try {
+    const c = normalizeColor(color);
+    if (c !== undefined) resolvedColor = c;
+  } catch (err) {
+    res.status(err.statusCode || 400);
+    throw err;
+  }
+
   try {
     const folder = await WorkspaceNoteFolder.create({
       workspace: workspaceId,
       name: name.trim(),
       parent,
-      color,
+      color: resolvedColor, // 👈 saved here
       createdBy: userId,
     });
     res.status(201).json({ success: true, folder });
@@ -628,7 +753,16 @@ export const updateNoteFolder = asyncHandler(async (req, res) => {
     folder.name = name.trim();
   }
 
-  if (color !== undefined) folder.color = color;
+  // ── FOLDER COLOR ──
+  if (color !== undefined) {
+    try {
+      folder.color = normalizeColor(color);
+    } catch (err) {
+      res.status(err.statusCode || 400);
+      throw err;
+    }
+  }
+
   if (order !== undefined) folder.order = order;
 
   if (parentId !== undefined) {
@@ -670,6 +804,43 @@ export const updateNoteFolder = asyncHandler(async (req, res) => {
     }
     throw err;
   }
+});
+
+// ─── Update Folder Color (dedicated lightweight endpoint) ───────────────
+// PATCH /api/workspace-notes/folders/:id/color
+// Body: { color: "#RRGGBB" | null }
+export const updateNoteFolderColor = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { color } = req.body;
+
+  const folder = await WorkspaceNoteFolder.findById(req.params.id);
+  if (!folder) {
+    res.status(404);
+    throw new Error('Folder not found.');
+  }
+
+  const workspace = await Workspace.findById(folder.workspace);
+  if (!workspace) {
+    res.status(404);
+    throw new Error('Workspace not found.');
+  }
+
+  const isCreator = folder.createdBy.toString() === userId;
+  const isManager = isAdminOrOwner(workspace, userId);
+  if (!isCreator && !isManager) {
+    res.status(403);
+    throw new Error('You do not have permission to change this folder.');
+  }
+
+  try {
+    folder.color = normalizeColor(color);
+  } catch (err) {
+    res.status(err.statusCode || 400);
+    throw err;
+  }
+
+  await folder.save();
+  res.status(200).json({ success: true, folder });
 });
 
 // ─── Delete Folder ──────────────────────────────────────────────────────

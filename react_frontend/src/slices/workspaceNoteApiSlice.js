@@ -10,7 +10,7 @@ export const workspaceNoteApiSlice = apiSlice.injectEndpoints({
     // ═══════════════════════════════════════════════════════════════════
 
     // ─── Create a workspace note ────────────────────────────────────────
-    // Body may include: { workspaceId, title?, content?, folderId? }
+    // Body may include: { workspaceId, title?, content?, folderId?, color? }
     // Drafts allowed — title / content may be empty.
     createWorkspaceNote: builder.mutation({
       query: (data) => {
@@ -65,7 +65,7 @@ export const workspaceNoteApiSlice = apiSlice.injectEndpoints({
     }),
 
     // ─── Update a workspace note ──────────────────────────────────────
-    // Body may include: { title?, content?, folderId? }
+    // Body may include: { title?, content?, folderId?, color? }
     //   folderId absent → leave folder unchanged
     //   folderId null   → move to root
     //   folderId <id>   → move to that folder
@@ -83,6 +83,22 @@ export const workspaceNoteApiSlice = apiSlice.injectEndpoints({
         { type: 'WorkspaceNote', id: noteId },
         'WorkspaceNote',
         'WorkspaceNoteFolder',
+      ],
+    }),
+
+    // ─── Change a note's color only ────────────────────────────────────
+    // Send { noteId, color } where color is any CSS color string or null
+    // (null clears the color). Uses the lightweight dedicated endpoint
+    // so it doesn't touch the title/content autosave pipeline.
+    updateWorkspaceNoteColor: builder.mutation({
+      query: ({ noteId, color }) => ({
+        url: `${WORKSPACE_NOTES_URL}/${noteId}/color`,
+        method: 'PATCH',
+        body: { color },
+      }),
+      invalidatesTags: (result, error, { noteId }) => [
+        { type: 'WorkspaceNote', id: noteId },
+        'WorkspaceNote',
       ],
     }),
 
@@ -126,7 +142,7 @@ export const workspaceNoteApiSlice = apiSlice.injectEndpoints({
     }),
 
     // ─── Import file to create workspace note ──────────────────────────
-    // Send { file, title?, workspaceId, folderId? }
+    // Send { file, title?, workspaceId, folderId?, color? }
     importFileToWorkspaceNote: builder.mutation({
       query: (data) => {
         const formData = new FormData();
@@ -134,6 +150,7 @@ export const workspaceNoteApiSlice = apiSlice.injectEndpoints({
         if (data.title) formData.append('title', data.title);
         if (data.workspaceId) formData.append('workspaceId', data.workspaceId);
         if (data.folderId) formData.append('folderId', data.folderId);
+        if (data.color) formData.append('color', data.color);
         return {
           url: `${WORKSPACE_NOTES_URL}/import`,
           method: 'POST',
@@ -193,6 +210,22 @@ export const workspaceNoteApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    // ─── Change a folder's color only ─────────────────────────────────
+    // Send { folderId, color } where color is any CSS color string or
+    // null (null clears the color).
+    updateWorkspaceNoteFolderColor: builder.mutation({
+      query: ({ folderId, color }) => ({
+        url: `${WORKSPACE_NOTES_URL}/folders/${folderId}/color`,
+        method: 'PATCH',
+        body: { color },
+      }),
+      invalidatesTags: (result, error, { folderId }) => [
+        { type: 'WorkspaceNoteFolder', id: folderId },
+        'WorkspaceNoteFolder',
+        'WorkspaceNote',
+      ],
+    }),
+
     // ─── Delete a folder ──────────────────────────────────────────────
     // Send { folderId, moveNotesTo? }
     //   moveNotesTo: 'parent' (default) | 'root' | '<folderId>'
@@ -219,16 +252,18 @@ export const {
   useGetWorkspaceNoteQuery,
   useLazyGetWorkspaceNoteQuery,
   useUpdateWorkspaceNoteMutation,
-  useMoveWorkspaceNoteMutation,              // 👈 new
+  useUpdateWorkspaceNoteColorMutation,        // 👈 new
+  useMoveWorkspaceNoteMutation,
   useDeleteWorkspaceNoteMutation,
   useExportWorkspaceNotePDFQuery,
   useLazyExportWorkspaceNotePDFQuery,
   useImportFileToWorkspaceNoteMutation,
 
   // Folders
-  useCreateWorkspaceNoteFolderMutation,      // 👈 new
-  useGetWorkspaceNoteFoldersQuery,           // 👈 new
-  useLazyGetWorkspaceNoteFoldersQuery,       // 👈 new
-  useUpdateWorkspaceNoteFolderMutation,      // 👈 new
-  useDeleteWorkspaceNoteFolderMutation,      // 👈 new
+  useCreateWorkspaceNoteFolderMutation,
+  useGetWorkspaceNoteFoldersQuery,
+  useLazyGetWorkspaceNoteFoldersQuery,
+  useUpdateWorkspaceNoteFolderMutation,
+  useUpdateWorkspaceNoteFolderColorMutation,  // 👈 new
+  useDeleteWorkspaceNoteFolderMutation,
 } = workspaceNoteApiSlice;
