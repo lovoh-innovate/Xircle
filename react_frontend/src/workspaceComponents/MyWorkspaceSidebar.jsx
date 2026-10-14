@@ -17,7 +17,7 @@ import {
   FiSun,
   FiMoon,
   FiMonitor,
-  FiFileText, // ADDED — icon for Notes
+  FiFileText, // 👈 NEW — Notes icon
 } from 'react-icons/fi';
 import { FaSpinner } from 'react-icons/fa';
 import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
@@ -106,16 +106,11 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   };
 
   // ─── Navigation ──────────────────────────────────────────────────
-  // NOTE: The Notes routes live under /my-workspace/notes (no workspaceId
-  // segment) because MyWorkspaceWriteNote resolves the owner workspace
-  // from the auth slice.
-  const notesPath = '/my-workspace/notes'; // ADDED
-
   const navOptions = [
     { id: 'home', label: 'Dashboard', icon: FiHome, path: `/my-workspace/${workspaceId}` },
     { id: 'projects', label: 'Projects', icon: FiFolder, path: `/my-workspace/${workspaceId}/projects` },
     { id: 'all-tasks', label: 'All Tasks', icon: FiCheckSquare, path: `/my-workspace/${workspaceId}/tasks` },
-    { id: 'notes', label: 'Notes', icon: FiFileText, path: notesPath }, // ADDED
+    { id: 'notes', label: 'Notes', icon: FiFileText, path: `/my-workspace/${workspaceId}/notes` }, // 👈 NEW
     { id: 'channels', label: 'Channels', icon: ChatIcon, path: `/my-workspace/${workspaceId}/channels` },
     { id: 'dms', label: 'Direct Messages', icon: FiMail, path: `/my-workspace/${workspaceId}/dms` },
     { id: 'members', label: 'Members', icon: FiUsers, path: `/my-workspace/${workspaceId}/members` },
@@ -154,11 +149,6 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   const isActive = (path) => {
     if (path === `/my-workspace/${workspaceId}`) {
       return location.pathname === path;
-    }
-    // ADDED — treat both `/my-workspace/notes` and
-    // `/my-workspace/notes/:id` as the active Notes route.
-    if (path === notesPath) {
-      return location.pathname.startsWith('/my-workspace/notes');
     }
     return location.pathname.includes(path.split('/').pop());
   };
@@ -359,9 +349,9 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
             <FiCheckSquare className="text-lg" />
           </Link>
 
-          {/* ADDED — Notes (collapsed) */}
+          {/* 👇 NEW — Notes (collapsed state) */}
           <Link
-            to={notesPath}
+            to={`/my-workspace/${workspaceId}/notes`}
             title="Notes"
             className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
           >
@@ -430,6 +420,15 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
                 >
                   <FiCheckSquare className="text-xs text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300" />
                   <span className="font-medium">All Tasks</span>
+                </Link>
+
+                {/* 👇 NEW — Notes shortcut under Projects (expanded state) */}
+                <Link
+                  to={`/my-workspace/${workspaceId}/notes`}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group text-sm text-gray-700 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+                >
+                  <FiFileText className="text-xs text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300" />
+                  <span className="font-medium">Workspace Notes</span>
                 </Link>
 
                 {projectsLoading ? (

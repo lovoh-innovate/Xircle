@@ -14,6 +14,7 @@ import {
   FiCopy,
   FiCheck,
   FiClock,
+  FiFileText, // 👈 NEW — Notes icon
 } from 'react-icons/fi';
 import { useDispatch } from 'react-redux';
 import { useLogoutMutation } from '../slices/userApiSlice';
@@ -230,6 +231,8 @@ const MyWorkspaceBottombar = ({ workspace }) => {
   ];
 
   const menuItems = [
+    // 👇 NEW — Notes
+    { id: 'notes', label: 'Notes', icon: FiFileText, path: `/my-workspace/${workspaceId}/notes` },
     { id: 'clockin', label: 'Clock‑in', icon: FiClock, path: `/my-workspace/${workspaceId}/clockin` },
     { id: 'invite', label: 'Invite Members', icon: FiUserPlus, action: () => setInviteModalOpen(true) },
     { id: 'settings', label: 'Settings', icon: FiSettings, path: `/my-workspace/${workspaceId}/settings` },
@@ -333,7 +336,6 @@ const MyWorkspaceBottombar = ({ workspace }) => {
       )}
 
       {/* ─── Slide-out panel ── */}
-      {/* overflow-hidden clips anything too wide; invisible when closed so nothing leaks onto the screen */}
       <div
         aria-hidden={!menuOpen}
         className={`fixed top-0 left-0 z-50 h-full w-[300px] max-w-[85vw] overflow-hidden bg-white dark:bg-[#14141a] border-r border-gray-200/70 dark:border-white/[0.06] shadow-2xl transition-all duration-300 ease-out md:hidden ${
