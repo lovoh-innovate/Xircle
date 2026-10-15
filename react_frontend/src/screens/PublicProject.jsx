@@ -920,44 +920,37 @@ const PublicProject = () => {
 
         {/* Hero card */}
         <section className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/70 dark:border-gray-800/50 overflow-hidden">
-          {/* Banner */}
-          <div
-            className="relative h-32 sm:h-40 flex items-end overflow-hidden"
-            style={{ background: `linear-gradient(135deg, ${brandHex} 0%, ${shadeHex(brandHex, -22)} 100%)` }}
-          >
-            <div
-              className="absolute inset-0 opacity-[0.14] pointer-events-none"
-              style={{
-                backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.9) 1px, transparent 1px)',
-                backgroundSize: '14px 14px',
-              }}
-            />
-            <div
-              className="absolute inset-0 pointer-events-none"
-              style={{ background: 'radial-gradient(circle at 30% 15%, rgba(255,255,255,0.28), transparent 60%)' }}
-            />
-
-            {project.coverImage && (
-              <>
-                <img
-                  src={project.coverImage}
-                  alt=""
-                  className="absolute inset-0 w-full h-full object-cover"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
-              </>
-            )}
-
-            <div className="relative p-4 sm:p-5 w-full">
-              <span className={`inline-block text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded-full ${statusMeta.bg} ${statusMeta.color} backdrop-blur-md`}>
-                {statusMeta.label}
-              </span>
+          {/* Banner — tall only when there's an actual cover image */}
+          {project.coverImage ? (
+            <div className="relative h-32 sm:h-40 flex items-end overflow-hidden">
+              <img
+                src={project.coverImage}
+                alt=""
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
+              <div className="relative p-4 sm:p-5 w-full">
+                <span className={`inline-block text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded-full ${statusMeta.bg} ${statusMeta.color} backdrop-blur-md`}>
+                  {statusMeta.label}
+                </span>
+              </div>
             </div>
-          </div>
+          ) : (
+            /* Slim brand accent strip when there's no cover photo */
+            <div
+              className="h-1.5 w-full"
+              style={{ background: `linear-gradient(90deg, ${brandHex} 0%, ${shadeHex(brandHex, -22)} 100%)` }}
+            />
+          )}
 
           {/* Body */}
-          <div className="p-5 space-y-4">
+          <div className="p-4 sm:p-5 space-y-4">
             <div>
+              {!project.coverImage && (
+                <span className={`inline-block text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded-full ${statusMeta.bg} ${statusMeta.color} mb-2`}>
+                  {statusMeta.label}
+                </span>
+              )}
               <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 break-words">
                 {project.name}
               </h2>
