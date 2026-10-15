@@ -14,11 +14,11 @@ import {
   useDeleteNoteMutation,
   useTogglePublicMutation,
   useMoveNoteMutation,
-  useUpdateNoteColorMutation,        // 👈 new
+  useUpdateNoteColorMutation,
   useGetNoteFoldersQuery,
   useCreateNoteFolderMutation,
   useUpdateNoteFolderMutation,
-  useUpdateNoteFolderColorMutation,  // 👈 new
+  useUpdateNoteFolderColorMutation,
   useDeleteNoteFolderMutation,
 } from '../slices/personalNoteApiSlice';
 import toast from 'react-hot-toast';
@@ -46,16 +46,13 @@ import {
   FaCheckDouble,
   FaTh,
   FaList,
-  FaPalette,  // 👈 new
+  FaPalette,
 } from 'react-icons/fa';
 import { formatDistanceToNow } from 'date-fns';
 import GeneralSidebar from '../components/GeneralSidebar';
 import GeneralBottombar from '../components/GeneralBottombar';
 
 // ─── Share URL base ──────────────────────────────────────────────────
-// Always built from the production web host — inside the Capacitor shell
-// `window.location.origin` resolves to capacitor://localhost which would
-// break links for recipients.
 const SHARE_BASE_URL = 'https://xircle.lovohcreate.com';
 
 // ═════════════════════════════════════════════════════════════════════
@@ -74,7 +71,6 @@ const GlobalStyles = () => (
       overflow: hidden;
     }
 
-    /* Prevent iOS text selection / callout during long-press */
     .notes-card {
       -webkit-touch-callout: none;
       -webkit-user-select: none;
@@ -84,21 +80,11 @@ const GlobalStyles = () => (
 );
 
 // ═════════════════════════════════════════════════════════════════════
-//  Color palette (shared by notes & folders)
+//  Color palette
 // ═════════════════════════════════════════════════════════════════════
 const COLOR_PRESETS = [
-  '#ef4444', // red
-  '#f97316', // orange
-  '#f59e0b', // amber
-  '#eab308', // yellow
-  '#84cc16', // lime
-  '#22c55e', // green
-  '#14b8a6', // teal
-  '#06b6d4', // cyan
-  '#3b82f6', // blue
-  '#6366f1', // indigo
-  '#a855f7', // purple
-  '#ec4899', // pink
+  '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e',
+  '#14b8a6', '#06b6d4', '#3b82f6', '#6366f1', '#a855f7', '#ec4899',
 ];
 
 // ═════════════════════════════════════════════════════════════════════
@@ -144,7 +130,7 @@ const ColorPickerGrid = ({ value, onPick, onClear, label = 'Color' }) => (
         onClick={onClear}
         className="h-8 px-3 rounded-lg border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-900/60 transition"
       >
-        Clear
+        None
       </button>
     </div>
   </div>
@@ -175,6 +161,15 @@ const flattenTree = (nodes, depth = 0) => {
     out.push(...flattenTree(n.children || [], depth + 1));
   });
   return out;
+};
+
+// Extract a folder id from any shape note.folder / note.folderId might have
+const extractFolderId = (note) => {
+  if (!note) return null;
+  const raw = note.folder ?? note.folderId ?? null;
+  if (!raw) return null;
+  if (typeof raw === 'string') return raw;
+  return raw._id || null;
 };
 
 // ═════════════════════════════════════════════════════════════════════
@@ -230,7 +225,7 @@ const ConfirmModal = ({
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  Prompt Modal (create / rename folder — with optional color)
+//  Prompt Modal
 // ═════════════════════════════════════════════════════════════════════
 const PromptModal = ({
   isOpen,
@@ -240,8 +235,8 @@ const PromptModal = ({
   placeholder = 'Folder name',
   initialValue = '',
   submitLabel = 'Save',
-  showColor = false,          // 👈 new
-  initialColor = null,        // 👈 new
+  showColor = false,
+  initialColor = null,
 }) => {
   const [value, setValue] = useState(initialValue);
   const [color, setColor] = useState(initialColor);
@@ -328,16 +323,17 @@ const PromptModal = ({
 const FolderPickerModal = ({
   isOpen,
   onClose,
-  note,               // single-note mode — null in bulk mode
+  note,
   tree,
-  onMove,             // (folderId) => Promise
+  onMove,
   title,
   busy = false,
 }) => {
   const flat = useMemo(() => flattenTree(tree), [tree]);
   if (!isOpen) return null;
 
-  const current = note?.folder || null;
+  // 👈 use the safe extractor, handles both object & id shapes
+  const current = extractFolderId(note);
   const heading = title || 'Move to folder';
 
   return (
@@ -426,10 +422,15 @@ const FolderNode = ({
       <div
         className={`group flex items-center gap-1 rounded-lg cursor-pointer select-none ${
           isSelected
-            ? 'bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400'
+            ? 'text-white'
             : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
         }`}
-        style={{ paddingLeft: 4 + depth * 12, paddingRight: 4 }}
+        style={{
+          paddingLeft: 4 + depth * 12,
+          paddingRight: 4,
+          // 👈 use the folder's own color when selected, fall back to teal
+          ...(isSelected ? { backgroundColor: folderColor || '#14b8a6' } : {}),
+        }}
         onClick={() => onSelect(folder._id)}
       >
         <button
@@ -460,7 +461,13 @@ const FolderNode = ({
         {isSelected || isExpanded ? (
           <FaFolderOpen
             className="text-xs flex-shrink-0"
-            style={!isSelected && folderColor ? { color: folderColor } : { color: '#14b8a6' }}
+            style={
+              isSelected
+                ? undefined
+                : folderColor
+                ? { color: folderColor }
+                : { color: '#14b8a6' }
+            }
           />
         ) : (
           <FaFolder
@@ -476,7 +483,11 @@ const FolderNode = ({
             e.stopPropagation();
             onContextMenu(e, folder);
           }}
-          className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 text-gray-400 hover:text-gray-700 dark:hover:text-white rounded transition flex-shrink-0"
+          className={`opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 rounded transition flex-shrink-0 ${
+            isSelected
+              ? 'hover:bg-black/10'
+              : 'text-gray-400 hover:text-gray-700 dark:hover:text-white'
+          }`}
           aria-label="Folder options"
         >
           <FaEllipsisV className="text-[10px]" />
@@ -504,7 +515,7 @@ const FolderNode = ({
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  Folder context menu (with color submenu)
+//  Folder context menu
 // ═════════════════════════════════════════════════════════════════════
 const FolderContextMenu = ({
   pos,
@@ -625,7 +636,20 @@ const SelectionCheckbox = ({ selected }) => (
 );
 
 // ═════════════════════════════════════════════════════════════════════
-//  Note Card — list & grid variants + selection + color + actions
+//  Note menu sizing / styles
+// ═════════════════════════════════════════════════════════════════════
+const MENU_WIDTH_MAIN = 250;
+const MENU_WIDTH_COLOR = 264;
+const MENU_GUTTER = 8;
+const MENU_EST_HEIGHT = 340;
+
+const menuItemBase =
+  'w-full flex items-center gap-3 px-4 py-2.5 sm:py-2 text-sm transition whitespace-nowrap hover:bg-gray-100 dark:hover:bg-gray-800/50';
+const menuItem = `${menuItemBase} text-gray-700 dark:text-gray-300`;
+const menuItemDanger = `${menuItemBase} text-red-600 dark:text-red-400`;
+
+// ═════════════════════════════════════════════════════════════════════
+//  Note Card
 // ═════════════════════════════════════════════════════════════════════
 const NoteCard = ({
   note,
@@ -640,6 +664,8 @@ const NoteCard = ({
   onShareLink,
   onMove,
   onColorChange,
+  folders = [],             // 👈 for badge lookup
+  showFolderBadge = false,  // 👈 show tiny folder tag
 }) => {
   const [showMenu, setShowMenu] = useState(false);
   const [menuPos, setMenuPos] = useState(null);
@@ -673,11 +699,13 @@ const NoteCard = ({
     document.addEventListener('touchstart', handlePointerDown);
     document.addEventListener('keydown', handleKey);
     window.addEventListener('scroll', handleScroll, true);
+    window.addEventListener('resize', handleScroll);
     return () => {
       document.removeEventListener('mousedown', handlePointerDown);
       document.removeEventListener('touchstart', handlePointerDown);
       document.removeEventListener('keydown', handleKey);
       window.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('resize', handleScroll);
     };
   }, [showMenu]);
 
@@ -731,16 +759,40 @@ const NoteCard = ({
       onToggleSelect?.(note._id);
       return;
     }
-    setMenuPos({ x: e.clientX, y: e.clientY });
+    const width = MENU_WIDTH_MAIN;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let left = Math.max(MENU_GUTTER, Math.min(e.clientX, vw - width - MENU_GUTTER));
+    let top = Math.max(MENU_GUTTER, Math.min(e.clientY, vh - MENU_EST_HEIGHT));
+    setMenuPos({ x: left, y: top });
     setMenuMode('main');
     setShowMenu(true);
   };
 
   const toggleMenu = (e) => {
     e.stopPropagation();
-    setMenuPos(null);
+    if (showMenu) {
+      setShowMenu(false);
+      setMenuPos(null);
+      setMenuMode('main');
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const width = MENU_WIDTH_MAIN;
+
+    let left = rect.right - width;
+    left = Math.max(MENU_GUTTER, Math.min(left, vw - width - MENU_GUTTER));
+
+    let top = rect.bottom + 6;
+    if (top + MENU_EST_HEIGHT > vh - MENU_GUTTER) {
+      top = Math.max(MENU_GUTTER, rect.top - MENU_EST_HEIGHT - 6);
+    }
+
+    setMenuPos({ x: left, y: top });
     setMenuMode('main');
-    setShowMenu((v) => !v);
+    setShowMenu(true);
   };
 
   const closeMenu = () => {
@@ -760,21 +812,59 @@ const NoteCard = ({
   const preview = stripHtml(note.content || '').slice(0, 120);
   const isGrid = viewMode === 'grid';
   const noteColor = note.color;
-  const folderName = note.folder?.name;
+
+  // ── Resolve folder info (populated object OR raw id) ───────────
+  const folderId = extractFolderId(note);
+  const folderFromList = folderId
+    ? folders.find((f) => f._id === folderId)
+    : null;
+  const populatedFolder =
+    note.folder && typeof note.folder === 'object' ? note.folder : null;
+
+  const folderName =
+    folderFromList?.name || populatedFolder?.name || null;
+  const folderColor =
+    folderFromList?.color || populatedFolder?.color || null;
+
+  // ── Fixed-position menu geometry ───────────────────────────────
+  const menuWidth = menuMode === 'color' ? MENU_WIDTH_COLOR : MENU_WIDTH_MAIN;
 
   const menuStyle = menuPos
     ? {
         position: 'fixed',
-        left: Math.min(menuPos.x, Math.max(0, window.innerWidth - 260)),
-        top: Math.min(menuPos.y, Math.max(0, window.innerHeight - 320)),
-        width: menuMode === 'color' ? 240 : 200,
-        zIndex: 100,
+        left: Math.max(
+          MENU_GUTTER,
+          Math.min(menuPos.x, window.innerWidth - menuWidth - MENU_GUTTER)
+        ),
+        top: Math.max(
+          MENU_GUTTER,
+          Math.min(menuPos.y, window.innerHeight - MENU_EST_HEIGHT)
+        ),
+        width: menuWidth,
+        maxHeight: `calc(100dvh - ${MENU_GUTTER * 2}px)`,
+        zIndex: 120,
       }
     : undefined;
 
-  const menuClassName = menuPos
-    ? 'bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl py-1 overflow-hidden'
-    : 'absolute right-0 top-full mt-1 bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg py-1 z-20 overflow-hidden';
+  const menuClassName =
+    'bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl py-1 overflow-y-auto overflow-x-hidden notes-scroll';
+
+  // ── Tiny folder badge ──────────────────────────────────────────
+  const renderFolderBadge = () => {
+    if (!showFolderBadge || !folderName) return null;
+    return (
+      <span
+        className="inline-flex items-center gap-1 min-w-0 max-w-[140px] text-[10px] text-gray-400 dark:text-gray-500"
+        title={folderName}
+      >
+        <FaFolder
+          className="text-[8px] flex-shrink-0"
+          style={folderColor ? { color: folderColor } : undefined}
+        />
+        <span className="truncate">{folderName}</span>
+      </span>
+    );
+  };
 
   const renderMenuContent = () => {
     if (menuMode === 'color') {
@@ -792,60 +882,70 @@ const NoteCard = ({
         <button
           type="button"
           onClick={() => { onEnterSelection?.(note._id); closeMenu(); }}
-          className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
+          className={menuItem}
         >
-          <FaCheckSquare className="text-xs text-teal-500" />
-          Select
+          <FaCheckSquare className="text-xs text-teal-500 flex-shrink-0" />
+          <span>Select</span>
         </button>
+
         <button
           type="button"
           onClick={() => setMenuMode('color')}
-          className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
+          className={menuItem}
         >
-          <FaPalette className="text-xs text-teal-500" />
-          Color
-          <span className="ml-auto flex items-center gap-1">
+          <FaPalette className="text-xs text-teal-500 flex-shrink-0" />
+          <span>Color</span>
+          <span className="ml-auto flex items-center gap-2 flex-shrink-0">
             {noteColor ? (
               <span
-                className="w-3.5 h-3.5 rounded-full border border-gray-300 dark:border-gray-600"
+                className="w-4 h-4 rounded-full border border-gray-300 dark:border-gray-600"
                 style={{ backgroundColor: noteColor }}
               />
             ) : null}
             <FaChevronRight className="text-[9px] opacity-60" />
           </span>
         </button>
+
         <button
           type="button"
           onClick={() => { onMove(note); closeMenu(); }}
-          className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
+          className={menuItem}
         >
-          <FaFolder className="text-xs text-teal-500" />
-          Move to folder…
+          <FaFolder className="text-xs text-teal-500 flex-shrink-0" />
+          <span>Move to folder…</span>
         </button>
+
         {note.isPublic && note.shareLink && (
           <button
             type="button"
             onClick={() => { onShareLink(note); closeMenu(); }}
-            className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
+            className={menuItem}
           >
-            <FaShareAlt className="text-xs text-teal-500" />
-            Share link
+            <FaShareAlt className="text-xs text-teal-500 flex-shrink-0" />
+            <span>Share link</span>
           </button>
         )}
+
         <button
           type="button"
           onClick={() => { onTogglePublic(note._id, !note.isPublic); closeMenu(); }}
-          className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
+          className={menuItem}
         >
-          {note.isPublic ? <FaLock className="text-xs" /> : <FaUnlock className="text-xs" />}
-          {note.isPublic ? 'Make Private' : 'Make Public'}
+          {note.isPublic ? (
+            <FaLock className="text-xs flex-shrink-0" />
+          ) : (
+            <FaUnlock className="text-xs flex-shrink-0" />
+          )}
+          <span>{note.isPublic ? 'Make Private' : 'Make Public'}</span>
         </button>
+
         <button
           type="button"
           onClick={() => { onDelete(note); closeMenu(); }}
-          className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
+          className={menuItemDanger}
         >
-          <FaTrashAlt className="text-xs" /> Delete
+          <FaTrashAlt className="text-xs flex-shrink-0" />
+          <span>Delete</span>
         </button>
       </>
     );
@@ -889,7 +989,7 @@ const NoteCard = ({
 
           <div
             ref={wrapperRef}
-            className="flex-shrink-0 flex items-center relative"
+            className="flex-shrink-0 flex items-center"
             onClick={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
           >
@@ -909,7 +1009,12 @@ const NoteCard = ({
             )}
 
             {showMenu && !selectionMode && (
-              <div style={menuStyle} className={menuClassName} onClick={(e) => e.stopPropagation()}>
+              <div
+                style={menuStyle}
+                className={menuClassName}
+                onClick={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
+              >
                 {renderMenuContent()}
               </div>
             )}
@@ -922,17 +1027,13 @@ const NoteCard = ({
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2 flex-1">
           {preview || 'Empty note'}
         </p>
-        <div className="flex items-center gap-2 text-[10px] text-gray-400 dark:text-gray-500 mt-2 truncate">
-          {folderName ? (
-            <span className="flex items-center gap-1 truncate">
-              <FaFolder className="text-[8px] flex-shrink-0" />
-              <span className="truncate">{folderName}</span>
-            </span>
-          ) : (
-            <span className="truncate">
-              {formatDistanceToNow(new Date(note.updatedAt), { addSuffix: true })}
-            </span>
-          )}
+
+        {/* Footer: timestamp + optional folder badge */}
+        <div className="flex items-center gap-2 text-[10px] text-gray-400 dark:text-gray-500 mt-2 min-w-0">
+          <span className="truncate flex-shrink-0">
+            {formatDistanceToNow(new Date(note.updatedAt), { addSuffix: true })}
+          </span>
+          {renderFolderBadge()}
         </div>
       </div>
     );
@@ -986,11 +1087,7 @@ const NoteCard = ({
             </p>
             <div className="flex flex-wrap items-center gap-3 text-xs text-gray-400 dark:text-gray-500 mt-1">
               <span>Updated {formatDate(note.updatedAt)}</span>
-              {folderName && (
-                <span className="flex items-center gap-1">
-                  <FaFolder className="text-[10px]" /> {folderName}
-                </span>
-              )}
+              {renderFolderBadge()}
               {note.attachments?.length > 0 && (
                 <span className="flex items-center gap-1">
                   <FaFile className="text-[10px]" /> {note.attachments.length}
@@ -1007,7 +1104,7 @@ const NoteCard = ({
 
         <div
           ref={wrapperRef}
-          className="flex-shrink-0 flex items-center gap-1 relative"
+          className="flex-shrink-0 flex items-center gap-1"
           onClick={(e) => e.stopPropagation()}
           onTouchStart={(e) => e.stopPropagation()}
         >
@@ -1027,7 +1124,12 @@ const NoteCard = ({
           )}
 
           {showMenu && !selectionMode && (
-            <div style={menuStyle} className={menuClassName} onClick={(e) => e.stopPropagation()}>
+            <div
+              style={menuStyle}
+              className={menuClassName}
+              onClick={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+            >
               {renderMenuContent()}
             </div>
           )}
@@ -1043,9 +1145,11 @@ const NoteCard = ({
 const VIEW_MODE_KEY = 'xircle.notes.viewMode';
 const readViewMode = () => {
   try {
-    return localStorage.getItem(VIEW_MODE_KEY) === 'grid' ? 'grid' : 'list';
+    const v = localStorage.getItem(VIEW_MODE_KEY);
+    // Grid is the default; only honor an explicit "list" preference.
+    return v === 'list' ? 'list' : 'grid';
   } catch {
-    return 'list';
+    return 'grid';
   }
 };
 
@@ -1053,7 +1157,6 @@ const Notes = () => {
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
 
-  // selectedFolder: 'all' | 'root' | <folderId>
   const [selectedFolder, setSelectedFolder] = useState('all');
   const [expandedIds, setExpandedIds] = useState(new Set());
   const [folderDrawerOpen, setFolderDrawerOpen] = useState(false);
@@ -1065,16 +1168,13 @@ const Notes = () => {
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   const isCreatingRef = useRef(false);
 
-  // Folder modals
   const [promptState, setPromptState] = useState(null);
   const [folderMenu, setFolderMenu] = useState(null);
 
-  // ── View + selection state ──────────────────────────────────────
   const [viewMode, setViewMode] = useState(readViewMode);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
 
-  // Bulk action state
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -1092,17 +1192,16 @@ const Notes = () => {
   const [deleteNote] = useDeleteNoteMutation();
   const [togglePublic] = useTogglePublicMutation();
   const [moveNote] = useMoveNoteMutation();
-  const [updateNoteColor] = useUpdateNoteColorMutation();                // 👈 new
+  const [updateNoteColor] = useUpdateNoteColorMutation();
   const [createFolder] = useCreateNoteFolderMutation();
   const [updateFolder] = useUpdateNoteFolderMutation();
-  const [updateFolderColor] = useUpdateNoteFolderColorMutation();        // 👈 new
+  const [updateFolderColor] = useUpdateNoteFolderColorMutation();
   const [deleteFolder] = useDeleteNoteFolderMutation();
 
   const notes = notesData?.notes || [];
   const folders = foldersData?.folders || [];
   const tree = useMemo(() => buildFolderTree(folders), [folders]);
 
-  // Expand top-level folders by default on first load
   useEffect(() => {
     if (folders.length > 0 && expandedIds.size === 0) {
       const roots = folders.filter((f) => !f.parent).map((f) => f._id);
@@ -1111,19 +1210,16 @@ const Notes = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [folders.length]);
 
-  // If the selected folder disappears (was deleted), reset.
   useEffect(() => {
     if (selectedFolder === 'all' || selectedFolder === 'root') return;
     const exists = folders.some((f) => f._id === selectedFolder);
     if (!exists && !foldersLoading) setSelectedFolder('all');
   }, [folders, foldersLoading, selectedFolder]);
 
-  // Drop selection when exiting selection mode
   useEffect(() => {
     if (!selectionMode) setSelectedIds(new Set());
   }, [selectionMode]);
 
-  // Prune stale ids when the visible list changes
   useEffect(() => {
     if (!selectionMode) return;
     const valid = new Set(notes.map((n) => n._id));
@@ -1145,6 +1241,9 @@ const Notes = () => {
     const found = folders.find((f) => f._id === selectedFolder);
     return found?.name || 'All Notes';
   }, [selectedFolder, folders]);
+
+  // Show folder badge only when looking at "All Notes"
+  const showFolderBadge = selectedFolder === 'all';
 
   // ── Selection handlers ─────────────────────────────────────────
   const enterSelectionMode = (firstId) => {
@@ -1275,8 +1374,6 @@ const Notes = () => {
   };
 
   // ── Bulk actions ────────────────────────────────────────────────
-  // Fan out to the single-item endpoints; the server still sees one call per
-  // note, but the UI presents it as one atomic operation.
   const runBulk = useCallback(async (ids, fn) => {
     if (!ids.length) return { ok: 0, failed: 0 };
     const results = await Promise.allSettled(ids.map((id) => fn(id).unwrap()));
@@ -1341,7 +1438,7 @@ const Notes = () => {
         await createFolder({
           name,
           parentId: promptState.parentId || null,
-          color: color || null,   // 👈 send color on create
+          color: color || null,
         }).unwrap();
         if (promptState.parentId) {
           setExpandedIds((prev) => {
@@ -1508,7 +1605,6 @@ const Notes = () => {
 
         {/* Notes list column */}
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
-          {/* ── Header (normal OR selection toolbar) ── */}
           <header className="bg-white dark:bg-[#0f0f12] border-b border-gray-100 dark:border-gray-800 sticky top-0 z-30 flex-shrink-0">
             {selectionMode ? (
               <div className="px-3 sm:px-6 h-12 flex items-center gap-2">
@@ -1559,7 +1655,6 @@ const Notes = () => {
               </div>
             ) : (
               <div className="px-3 sm:px-6 h-12 flex items-center justify-between gap-2">
-                {/* Mobile: folder drawer trigger */}
                 <button
                   onClick={() => setFolderDrawerOpen(true)}
                   className="md:hidden p-1.5 -ml-1.5 text-gray-500 dark:text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
@@ -1573,7 +1668,6 @@ const Notes = () => {
                   <span className="truncate">{currentFolderName}</span>
                 </h1>
 
-                {/* View toggle */}
                 <div className="flex items-center rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex-shrink-0">
                   <button
                     onClick={() => setViewMode('list')}
@@ -1650,6 +1744,8 @@ const Notes = () => {
                     onShareLink={handleShareLink}
                     onMove={setMoveTarget}
                     onColorChange={handleNoteColorChange}
+                    folders={folders}                    // 👈 new
+                    showFolderBadge={showFolderBadge}    // 👈 new
                   />
                 ))}
               </div>
@@ -1670,6 +1766,8 @@ const Notes = () => {
                     onShareLink={handleShareLink}
                     onMove={setMoveTarget}
                     onColorChange={handleNoteColorChange}
+                    folders={folders}                    // 👈 new
+                    showFolderBadge={showFolderBadge}    // 👈 new
                   />
                 ))}
               </div>
@@ -1733,7 +1831,7 @@ const Notes = () => {
         </div>
       )}
 
-      {/* Folder context menu (with color) */}
+      {/* Folder context menu */}
       {folderMenu && (
         <FolderContextMenu
           pos={folderMenu.pos}

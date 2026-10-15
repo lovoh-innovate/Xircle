@@ -13,11 +13,11 @@ import {
   useCreateWorkspaceNoteMutation,
   useDeleteWorkspaceNoteMutation,
   useMoveWorkspaceNoteMutation,
-  useUpdateWorkspaceNoteColorMutation,        // 👈 new
+  useUpdateWorkspaceNoteColorMutation,
   useGetWorkspaceNoteFoldersQuery,
   useCreateWorkspaceNoteFolderMutation,
   useUpdateWorkspaceNoteFolderMutation,
-  useUpdateWorkspaceNoteFolderColorMutation,  // 👈 new
+  useUpdateWorkspaceNoteFolderColorMutation,
   useDeleteWorkspaceNoteFolderMutation,
   useLazyExportWorkspaceNotePDFQuery,
 } from '../slices/workspaceNoteApiSlice';
@@ -45,7 +45,7 @@ import {
   FaCheckDouble,
   FaTh,
   FaList,
-  FaPalette,  // 👈 new
+  FaPalette,
 } from 'react-icons/fa';
 
 // ═════════════════════════════════════════════════════════════════════
@@ -76,7 +76,6 @@ const GlobalStyles = () => (
       margin-left: 0 !important;
     }
 
-    /* Prevent iOS text selection / callout during long-press */
     .ws-note-card {
       -webkit-touch-callout: none;
       -webkit-user-select: none;
@@ -86,25 +85,15 @@ const GlobalStyles = () => (
 );
 
 // ═════════════════════════════════════════════════════════════════════
-//  Color palette (used by both note & folder pickers)
+//  Color palette
 // ═════════════════════════════════════════════════════════════════════
 const COLOR_PRESETS = [
-  '#ef4444', // red
-  '#f97316', // orange
-  '#f59e0b', // amber
-  '#eab308', // yellow
-  '#84cc16', // lime
-  '#22c55e', // green
-  '#14b8a6', // teal
-  '#06b6d4', // cyan
-  '#3b82f6', // blue
-  '#6366f1', // indigo
-  '#a855f7', // purple
-  '#ec4899', // pink
+  '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e',
+  '#14b8a6', '#06b6d4', '#3b82f6', '#6366f1', '#a855f7', '#ec4899',
 ];
 
 // ═════════════════════════════════════════════════════════════════════
-//  Color picker grid — shared by note card & folder context menu
+//  Color picker grid
 // ═════════════════════════════════════════════════════════════════════
 const ColorPickerGrid = ({ value, onPick, onClear, label = 'Color' }) => (
   <div className="p-3">
@@ -146,14 +135,14 @@ const ColorPickerGrid = ({ value, onPick, onClear, label = 'Color' }) => (
         onClick={onClear}
         className="h-8 px-3 rounded-lg border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-900/60 transition"
       >
-        Clear
+        None
       </button>
     </div>
   </div>
 );
 
 // ═════════════════════════════════════════════════════════════════════
-//  Folder tree helpers
+//  Folder helpers
 // ═════════════════════════════════════════════════════════════════════
 const buildFolderTree = (folders) => {
   const byId = new Map();
@@ -179,6 +168,15 @@ const flattenTree = (nodes, depth = 0) => {
     out.push(...flattenTree(n.children || [], depth + 1));
   });
   return out;
+};
+
+// Extract a folder id from any shape note.folder / note.folderId might have
+const extractFolderId = (note) => {
+  if (!note) return null;
+  const raw = note.folder ?? note.folderId ?? null;
+  if (!raw) return null;
+  if (typeof raw === 'string') return raw;
+  return raw._id || null;
 };
 
 // ═════════════════════════════════════════════════════════════════════
@@ -226,7 +224,7 @@ const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmLabel
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  Prompt modal (create / rename folder, with optional color)
+//  Prompt modal
 // ═════════════════════════════════════════════════════════════════════
 const PromptModal = ({
   isOpen,
@@ -237,8 +235,8 @@ const PromptModal = ({
   initialValue = '',
   submitLabel = 'Save',
   brandColor,
-  showColor = false,          // 👈 new
-  initialColor = null,        // 👈 new
+  showColor = false,
+  initialColor = null,
 }) => {
   const [value, setValue] = useState(initialValue);
   const [color, setColor] = useState(initialColor);
@@ -257,7 +255,7 @@ const PromptModal = ({
   const handleSubmit = () => {
     const trimmed = value.trim();
     if (!trimmed) return;
-    onSubmit({ name: trimmed, color });   // 👈 now passes { name, color }
+    onSubmit({ name: trimmed, color });
   };
 
   return (
@@ -288,7 +286,6 @@ const PromptModal = ({
             style={{ '--tw-ring-color': brandColor }}
           />
 
-          {/* 👇 Color section (only for create flows) */}
           {showColor && (
             <div className="mt-3">
               <ColorPickerGrid
@@ -323,7 +320,7 @@ const PromptModal = ({
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  Folder picker modal (used for single-note AND bulk move)
+//  Folder picker modal
 // ═════════════════════════════════════════════════════════════════════
 const FolderPickerModal = ({
   isOpen,
@@ -429,7 +426,7 @@ const FolderNode = ({
         style={{
           paddingLeft: 4 + depth * 12,
           paddingRight: 4,
-          ...(isSelected ? { backgroundColor: brandColor } : {}),
+          ...(isSelected ? { backgroundColor: folderColor || brandColor } : {}),
         }}
         onClick={() => onSelect(folder._id)}
       >
@@ -450,7 +447,6 @@ const FolderNode = ({
           )}
         </button>
 
-        {/* Colored dot OR folder icon */}
         {folderColor && !isSelected ? (
           <span
             className="flex-shrink-0 w-2 h-2 rounded-full mr-1"
@@ -507,7 +503,7 @@ const FolderNode = ({
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  Folder context menu (now with a color submenu)
+//  Folder context menu
 // ═════════════════════════════════════════════════════════════════════
 const FolderContextMenu = ({
   pos,
@@ -515,11 +511,11 @@ const FolderContextMenu = ({
   onRename,
   onDelete,
   onNewSubfolder,
-  onColorChange,     // 👈 new
-  currentColor,      // 👈 new
+  onColorChange,
+  currentColor,
 }) => {
   const menuRef = useRef(null);
-  const [mode, setMode] = useState('main'); // 'main' | 'color'
+  const [mode, setMode] = useState('main');
 
   useEffect(() => {
     setMode('main');
@@ -589,7 +585,6 @@ const FolderContextMenu = ({
       >
         <FaPen className="text-xs" /> Rename
       </button>
-      {/* 👇 new Color item */}
       <button
         onClick={() => setMode('color')}
         className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50"
@@ -631,7 +626,7 @@ const SelectionCheckbox = ({ selected, brandColor }) => (
 );
 
 // ═════════════════════════════════════════════════════════════════════
-//  Note card — supports list & grid variants + selection + color
+//  Note card
 // ═════════════════════════════════════════════════════════════════════
 const NoteCard = ({
   note,
@@ -645,16 +640,17 @@ const NoteCard = ({
   onDelete,
   onMove,
   onExport,
-  onColorChange,     // 👈 new
+  onColorChange,
+  folders = [],             // 👈 new — for badge lookup
+  showFolderBadge = false,  // 👈 new
 }) => {
   const [showMenu, setShowMenu] = useState(false);
   const [menuPos, setMenuPos] = useState(null);
-  const [menuMode, setMenuMode] = useState('main'); // 'main' | 'color'
+  const [menuMode, setMenuMode] = useState('main');
   const wrapperRef = useRef(null);
   const longPressTimerRef = useRef(null);
   const longPressFiredRef = useRef(false);
 
-  // close menu on outside click / escape / scroll
   useEffect(() => {
     if (!showMenu) return;
     const handlePointerDown = (e) => {
@@ -688,7 +684,6 @@ const NoteCard = ({
     };
   }, [showMenu]);
 
-  // clean up long-press timer on unmount
   useEffect(() => () => {
     if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
   }, []);
@@ -700,7 +695,6 @@ const NoteCard = ({
     }
   };
 
-  // ── Touch (mobile) — long press → selection mode ──────────────
   const handleTouchStart = () => {
     if (selectionMode) return;
     longPressFiredRef.current = false;
@@ -717,7 +711,6 @@ const NoteCard = ({
   const handleTouchEnd = () => clearLongPress();
   const handleTouchMove = () => clearLongPress();
 
-  // ── Click ──────────────────────────────────────────────────────
   const handleClick = (e) => {
     if (longPressFiredRef.current) {
       longPressFiredRef.current = false;
@@ -734,7 +727,6 @@ const NoteCard = ({
     onClick?.();
   };
 
-  // ── Context menu (right-click on desktop) ──────────────────────
   const handleContextMenu = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -768,25 +760,57 @@ const NoteCard = ({
   };
 
   const preview = stripHtml(note.content).slice(0, 160);
-  const folderName = note.folder?.name;
   const isGrid = viewMode === 'grid';
   const noteColor = note.color;
+
+  // ── Resolve folder info: handles populated object OR raw id ────
+  const folderId = extractFolderId(note);
+  const folderFromList = folderId
+    ? folders.find((f) => f._id === folderId)
+    : null;
+  const populatedFolder =
+    note.folder && typeof note.folder === 'object' ? note.folder : null;
+
+  const folderName =
+    folderFromList?.name || populatedFolder?.name || null;
+  const folderColor =
+    folderFromList?.color || populatedFolder?.color || null;
+
+  // ── Menu geometry ─────────────────────────────────────────────
+  const menuWidth = menuMode === 'color' ? 240 : 200;
 
   const menuStyle = menuPos
     ? {
         position: 'fixed',
-        left: Math.min(menuPos.x, Math.max(0, window.innerWidth - 260)),
+        left: Math.min(menuPos.x, Math.max(0, window.innerWidth - (menuWidth + 20))),
         top: Math.min(menuPos.y, Math.max(0, window.innerHeight - 300)),
-        width: menuMode === 'color' ? 240 : 200,
+        width: menuWidth,
         zIndex: 100,
       }
-    : undefined;
+    : { width: menuWidth };
 
   const menuClassName = menuPos
     ? 'bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl py-1 overflow-hidden'
     : 'absolute right-0 top-full mt-1 bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg py-1 z-20 overflow-hidden';
 
-  // ── Menu contents (main or color) ──────────────────────────────
+  // ── Folder badge ──────────────────────────────────────────────
+  const renderFolderBadge = () => {
+    if (!showFolderBadge || !folderName) return null;
+    return (
+      <span
+        className="inline-flex items-center gap-1 min-w-0 max-w-[140px] text-[10px] text-gray-500 dark:text-gray-400"
+        title={folderName}
+      >
+        <FaFolder
+          className="text-[8px] flex-shrink-0"
+          style={folderColor ? { color: folderColor } : undefined}
+        />
+        <span className="truncate">{folderName}</span>
+      </span>
+    );
+  };
+
+  // ── Menu content ──────────────────────────────────────────────
   const renderMenuContent = () => {
     if (menuMode === 'color') {
       return (
@@ -809,7 +833,6 @@ const NoteCard = ({
           Select
         </button>
 
-        {/* 👇 new Color item */}
         <button
           type="button"
           onClick={() => setMenuMode('color')}
@@ -927,23 +950,19 @@ const NoteCard = ({
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2 flex-1">
           {preview || 'Empty note'}
         </p>
-        <div className="flex items-center gap-2 text-[10px] text-gray-400 dark:text-gray-500 mt-2 truncate">
-          {folderName ? (
-            <span className="flex items-center gap-1 truncate">
-              <FaFolder className="text-[8px] flex-shrink-0" />
-              <span className="truncate">{folderName}</span>
-            </span>
-          ) : (
-            <span className="truncate">
-              {formatDistanceToNow(new Date(note.updatedAt), { addSuffix: true })}
-            </span>
-          )}
+
+        {/* Footer: timestamp + optional folder badge */}
+        <div className="flex items-center gap-2 text-[10px] text-gray-400 dark:text-gray-500 mt-2 min-w-0">
+          <span className="truncate flex-shrink-0">
+            {formatDistanceToNow(new Date(note.updatedAt), { addSuffix: true })}
+          </span>
+          {renderFolderBadge()}
         </div>
       </div>
     );
   }
 
-  // ── List variant (default) ────────────────────────────────────
+  // ── List variant ──────────────────────────────────────────────
   return (
     <div
       className={`ws-note-card bg-white dark:bg-[#0f0f12] border-b border-gray-100 dark:border-gray-800 px-4 py-3 transition cursor-pointer relative ${
@@ -988,11 +1007,7 @@ const NoteCard = ({
               <span>
                 Updated {formatDistanceToNow(new Date(note.updatedAt), { addSuffix: true })}
               </span>
-              {folderName && (
-                <span className="flex items-center gap-1">
-                  <FaFolder className="text-[9px]" /> {folderName}
-                </span>
-              )}
+              {renderFolderBadge()}
               {note.attachments?.length > 0 && (
                 <span>
                   {note.attachments.length} attachment
@@ -1047,9 +1062,9 @@ const VIEW_MODE_KEY = 'xircle.yourWorkspaceNotes.viewMode';
 const readViewMode = () => {
   try {
     const v = localStorage.getItem(VIEW_MODE_KEY);
-    return v === 'grid' ? 'grid' : 'list';
+    return v === 'list' ? 'list' : 'grid';
   } catch {
-    return 'list';
+    return 'grid';
   }
 };
 
@@ -1057,7 +1072,6 @@ const YourWorkspaceNotes = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
 
-  // 'all' | 'root' | <folderId>
   const [selectedFolder, setSelectedFolder] = useState('all');
   const [expandedIds, setExpandedIds] = useState(new Set());
   const [folderDrawerOpen, setFolderDrawerOpen] = useState(false);
@@ -1071,12 +1085,10 @@ const YourWorkspaceNotes = () => {
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   const isCreatingRef = useRef(false);
 
-  // ── View + selection state ──────────────────────────────────────
   const [viewMode, setViewMode] = useState(readViewMode);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
 
-  // bulk action state
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -1103,10 +1115,10 @@ const YourWorkspaceNotes = () => {
   const [createNote] = useCreateWorkspaceNoteMutation();
   const [deleteNote] = useDeleteWorkspaceNoteMutation();
   const [moveNote] = useMoveWorkspaceNoteMutation();
-  const [updateNoteColor] = useUpdateWorkspaceNoteColorMutation();          // 👈 new
+  const [updateNoteColor] = useUpdateWorkspaceNoteColorMutation();
   const [createFolder] = useCreateWorkspaceNoteFolderMutation();
   const [updateFolder] = useUpdateWorkspaceNoteFolderMutation();
-  const [updateFolderColor] = useUpdateWorkspaceNoteFolderColorMutation();  // 👈 new
+  const [updateFolderColor] = useUpdateWorkspaceNoteFolderColorMutation();
   const [deleteFolder] = useDeleteWorkspaceNoteFolderMutation();
   const [triggerExportPDF] = useLazyExportWorkspaceNotePDFQuery();
 
@@ -1116,12 +1128,10 @@ const YourWorkspaceNotes = () => {
   const folders = foldersData?.folders || [];
   const tree = useMemo(() => buildFolderTree(folders), [folders]);
 
-  // Redirect if workspace errors out
   useEffect(() => {
     if (wsError) navigate('/my-workspaces');
   }, [wsError, navigate]);
 
-  // Expand top-level folders on first load
   useEffect(() => {
     if (folders.length > 0 && expandedIds.size === 0) {
       const roots = folders.filter((f) => !f.parent).map((f) => f._id);
@@ -1130,19 +1140,16 @@ const YourWorkspaceNotes = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [folders.length]);
 
-  // Reset selection if the current folder was deleted elsewhere
   useEffect(() => {
     if (selectedFolder === 'all' || selectedFolder === 'root') return;
     const exists = folders.some((f) => f._id === selectedFolder);
     if (!exists && !foldersLoading) setSelectedFolder('all');
   }, [folders, foldersLoading, selectedFolder]);
 
-  // Drop selection when exiting selection mode
   useEffect(() => {
     if (!selectionMode) setSelectedIds(new Set());
   }, [selectionMode]);
 
-  // Prune stale ids when the visible list changes
   useEffect(() => {
     if (!selectionMode) return;
     const valid = new Set(notes.map((n) => n._id));
@@ -1164,6 +1171,9 @@ const YourWorkspaceNotes = () => {
     const found = folders.find((f) => f._id === selectedFolder);
     return found?.name || 'All Notes';
   }, [selectedFolder, folders]);
+
+  // Show badge only when looking at "All Notes"
+  const showFolderBadge = selectedFolder === 'all';
 
   // ── Selection handlers ──────────────────────────────────────────
   const enterSelectionMode = (firstId) => {
@@ -1264,17 +1274,14 @@ const YourWorkspaceNotes = () => {
     }
   };
 
-  // 👇 new — change a note's color
   const handleNoteColorChange = async (noteId, color) => {
     try {
       await updateNoteColor({ noteId, color }).unwrap();
-      // quiet success — no toast for a color tweak
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to change note color');
     }
   };
 
-  // 👇 new — change a folder's color
   const handleFolderColorChange = async (folderId, color) => {
     try {
       await updateFolderColor({ folderId, color }).unwrap();
@@ -1356,7 +1363,6 @@ const YourWorkspaceNotes = () => {
     });
   };
 
-  // PromptModal now receives { name, color }
   const handleFolderPromptSubmit = async ({ name, color }) => {
     if (!promptState) return;
     try {
@@ -1365,7 +1371,7 @@ const YourWorkspaceNotes = () => {
           workspaceId,
           name,
           parentId: promptState.parentId || null,
-          color: color || null,   // 👈 send color on create
+          color: color || null,
         }).unwrap();
         if (promptState.parentId) {
           setExpandedIds((prev) => {
@@ -1376,8 +1382,6 @@ const YourWorkspaceNotes = () => {
         }
         toast.success('Folder created');
       } else if (promptState.mode === 'rename') {
-        // Rename path — only updates name (color changes go through the
-        // dedicated color endpoint or the folder menu)
         await updateFolder({
           folderId: promptState.folderId,
           data: { name },
@@ -1463,7 +1467,6 @@ const YourWorkspaceNotes = () => {
     </div>
   );
 
-  // ── Loading ──────────────────────────────────────────────────────
   if (wsLoading) {
     return (
       <>
@@ -1481,18 +1484,15 @@ const YourWorkspaceNotes = () => {
   }
   if (!workspace) return null;
 
-  // ── Render ───────────────────────────────────────────────────────
   return (
     <>
       <GlobalStyles />
 
       <div className="ws-notes-root h-dvh w-full bg-white dark:bg-[#0f0f12] flex overflow-hidden">
-        {/* ── 1. Workspace sidebar (desktop) ─────────────────────── */}
         <div className="hidden md:flex flex-shrink-0 h-full">
           <YourWorkspaceSidebar workspace={workspace} />
         </div>
 
-        {/* ── 2. Folders sidebar (desktop) ───────────────────────── */}
         <aside className="hidden md:flex md:w-60 md:flex-shrink-0 h-full border-r border-gray-100 dark:border-gray-800 flex-col bg-white dark:bg-[#0f0f12]">
           <header className="h-12 px-3 flex items-center justify-between border-b border-gray-100 dark:border-gray-800 flex-shrink-0">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
@@ -1513,7 +1513,6 @@ const YourWorkspaceNotes = () => {
           </div>
         </aside>
 
-        {/* ── 3. Notes list column ───────────────────────────────── */}
         <section className="flex-1 min-w-0 flex flex-col h-full overflow-hidden bg-white dark:bg-[#0f0f12]">
           <header className="bg-white dark:bg-[#0f0f12] border-b border-gray-100 dark:border-gray-800 sticky top-0 z-30 flex-shrink-0 ws-mobile-header md:!pt-0">
             {selectionMode ? (
@@ -1668,7 +1667,9 @@ const YourWorkspaceNotes = () => {
                     onDelete={setDeleteTarget}
                     onMove={setMoveTarget}
                     onExport={handleExport}
-                    onColorChange={handleNoteColorChange}  // 👈 new
+                    onColorChange={handleNoteColorChange}
+                    folders={folders}                    // 👈 new
+                    showFolderBadge={showFolderBadge}    // 👈 new
                   />
                 ))}
               </div>
@@ -1688,7 +1689,9 @@ const YourWorkspaceNotes = () => {
                     onDelete={setDeleteTarget}
                     onMove={setMoveTarget}
                     onExport={handleExport}
-                    onColorChange={handleNoteColorChange}  // 👈 new
+                    onColorChange={handleNoteColorChange}
+                    folders={folders}                    // 👈 new
+                    showFolderBadge={showFolderBadge}    // 👈 new
                   />
                 ))}
               </div>
@@ -1699,7 +1702,7 @@ const YourWorkspaceNotes = () => {
         </section>
       </div>
 
-      {/* Mobile floating action button */}
+      {/* Mobile FAB */}
       <button
         onClick={handleCreateNote}
         disabled={isCreatingNote || selectionMode}
@@ -1758,7 +1761,6 @@ const YourWorkspaceNotes = () => {
         </div>
       )}
 
-      {/* Folder context menu (now with color support) */}
       {folderMenu && (
         <FolderContextMenu
           pos={folderMenu.pos}
@@ -1777,14 +1779,13 @@ const YourWorkspaceNotes = () => {
             })
           }
           onDelete={() => setFolderToDelete(folderMenu.folder)}
-          onColorChange={(color) =>                // 👈 new
+          onColorChange={(color) =>
             handleFolderColorChange(folderMenu.folder._id, color)
           }
-          currentColor={folderMenu.folder.color}   // 👈 new
+          currentColor={folderMenu.folder.color}
         />
       )}
 
-      {/* Prompt modal (create / rename folder — with optional color) */}
       <PromptModal
         isOpen={!!promptState}
         onClose={() => setPromptState(null)}
@@ -1799,22 +1800,22 @@ const YourWorkspaceNotes = () => {
         initialValue={promptState?.initialValue || ''}
         submitLabel={promptState?.mode === 'rename' ? 'Rename' : 'Create'}
         brandColor={brandColor}
-        showColor={promptState?.mode !== 'rename'}   // 👈 color grid for create / create-sub only
+        showColor={promptState?.mode !== 'rename'}
         initialColor={null}
       />
 
-      {/* Single-note move */}
       <FolderPickerModal
         isOpen={!!moveTarget}
         onClose={() => setMoveTarget(null)}
         tree={tree}
-        currentFolderId={moveTarget?.folder?._id || moveTarget?.folder || null}
+        currentFolderId={
+          moveTarget ? extractFolderId(moveTarget) : null
+        }
         onPick={(folderId) => handleMove(moveTarget._id, folderId)}
         brandColor={brandColor}
         title="Move to folder"
       />
 
-      {/* Bulk move */}
       <FolderPickerModal
         isOpen={bulkMoveOpen}
         onClose={() => !bulkBusy && setBulkMoveOpen(false)}
@@ -1826,7 +1827,6 @@ const YourWorkspaceNotes = () => {
         busy={bulkBusy}
       />
 
-      {/* Single delete */}
       <ConfirmModal
         isOpen={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
@@ -1835,7 +1835,6 @@ const YourWorkspaceNotes = () => {
         message="This note will be permanently deleted. This action cannot be undone."
       />
 
-      {/* Bulk delete */}
       <ConfirmModal
         isOpen={bulkDeleteOpen}
         onClose={() => !bulkBusy && setBulkDeleteOpen(false)}
@@ -1846,7 +1845,6 @@ const YourWorkspaceNotes = () => {
         busy={bulkBusy}
       />
 
-      {/* Folder delete */}
       <ConfirmModal
         isOpen={!!folderToDelete}
         onClose={() => setFolderToDelete(null)}
