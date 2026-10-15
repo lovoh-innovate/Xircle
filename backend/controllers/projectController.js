@@ -1,4 +1,5 @@
 // controllers/projectController.js
+import crypto from 'crypto';
 import Project from '../models/projectModel.js';
 import Task from '../models/taskModel.js';
 import Folder from '../models/folderModel.js';
@@ -19,9 +20,6 @@ const isWorkspaceOwner = (workspace, userId) =>
     ? workspace.owner._id.toString() === userId
     : workspace.owner?.toString() === userId;
 
-/**
- * Check if user is workspace owner OR an active admin.
- */
 const canManageWorkspace = (workspace, userId) => {
   if (isWorkspaceOwner(workspace, userId)) return true;
   return workspace.members.some(
@@ -59,9 +57,7 @@ const parseArrayField = (value) => {
   return [];
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// COLOR HELPERS
-// ─────────────────────────────────────────────────────────────────────
+// ─── Color helpers ───────────────────────────────────────────────
 
 const NAMED_COLORS = new Set([
   'red', 'blue', 'green', 'yellow', 'orange', 'purple',
@@ -70,12 +66,8 @@ const NAMED_COLORS = new Set([
 ]);
 
 const HEX_RE = /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/;
+const DEFAULT_PROJECT_COLOR = '#6366F1';
 
-const DEFAULT_PROJECT_COLOR = '#6366F1'; // indigo
-
-/**
- * Normalize a color input. Returns a valid color string or null if invalid.
- */
 const sanitizeColor = (value, fallback = DEFAULT_PROJECT_COLOR) => {
   if (value === undefined || value === null || value === '') return fallback;
   const v = String(value).trim().toLowerCase();
@@ -84,9 +76,11 @@ const sanitizeColor = (value, fallback = DEFAULT_PROJECT_COLOR) => {
   return null;
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// NOTIFICATION HELPER
-// ─────────────────────────────────────────────────────────────────────
+// ─── Token generation ───────────────────────────────────────────
+
+const generateShareToken = () => crypto.randomBytes(24).toString('hex');
+
+// ─── Notification helper ────────────────────────────────────────
 
 async function notifyUsers(userIds, { title, body, data = {}, emailEventType = null, emailHtml = null }) {
   if (!userIds) return;
@@ -101,14 +95,140 @@ async function notifyUsers(userIds, { title, body, data = {}, emailEventType = n
       emailEventType,
       emailSubject: title,
       emailHtml: emailHtml || `<p>${body}</p>`,
-    }).catch(err => console.error(`Notification to ${recipient} failed:`, err.message));
+    }).catch((err) => console.error(`Notification to ${recipient} failed:`, err.message));
   }
 }
 
+// ─── Access resolver ────────────────────────────────────────────
+//
+// Returns a rich object describing what the caller can do.
+// Used by getProjectById and by the sanitisation paths.
+
+const resolveProjectAccess = async (project, userId, workspace = null) => {
+  const ws = workspace || (await Workspace.findById(project.workspace));
+  if (!ws) return { role: 'none', canManage: false, canAct: false, canView: false, workspace: null, collaborator: null };
+
+  if (!userId) {
+    return { role: 'anonymous', canManage: false, canAct: false, canView: false, workspace: ws, collaborator: null };
+  }
+
+  if (isWorkspaceOwner(ws, userId)) {
+    return { role: 'workspaceOwner', canManage: true, canAct: true, canView: true, workspace: ws, collaborator: null };
+  }
+
+  const isAdmin = ws.members.some(
+    (m) => m.user.toString() === userId && m.role === 'Admin' && m.status === 'active'
+  );
+  if (isAdmin) {
+    return { role: 'workspaceAdmin', canManage: true, canAct: true, canView: true, workspace: ws, collaborator: null };
+  }
+
+  if (isProjectManager(project, userId)) {
+    return { role: 'projectManager', canManage: true, canAct: true, canView: true, workspace: ws, collaborator: null };
+  }
+
+  if (isProjectMember(project, userId)) {
+    return { role: 'teamMember', canManage: false, canAct: true, canView: true, workspace: ws, collaborator: null };
+  }
+
+  // Collaborator?
+  const collab = (project.collaborators || []).find(
+    (c) => c.userId && c.userId.toString() === userId && c.status === 'active'
+  );
+  if (collab) {
+    const isEditor = collab.role === 'editor';
+    return {
+      role: isEditor ? 'collaboratorEditor' : 'collaboratorViewer',
+      canManage: false,
+      // Editors can ONLY act on tasks where they are assignees — enforced in taskController
+      canAct: isEditor,
+      canView: true,
+      workspace: ws,
+      collaborator: collab,
+    };
+  }
+
+  // Task assignee fallback (rare, but the existing code had it)
+  const isTaskAssignee = await Task.exists({
+    project: project._id,
+    assignees: userId,
+    isDeleted: false,
+  });
+  if (isTaskAssignee) {
+    return { role: 'taskAssignee', canManage: false, canAct: true, canView: true, workspace: ws, collaborator: null };
+  }
+
+  return { role: 'none', canManage: false, canAct: false, canView: false, workspace: ws, collaborator: null };
+};
+
+// ─── Public-safe sanitisation ───────────────────────────────────
+
+const sanitizeTaskForPublic = (task) => {
+  const obj = typeof task.toObject === 'function' ? task.toObject() : task;
+  return {
+    _id: obj._id,
+    title: obj.title,
+    description: obj.description,
+    status: obj.status,
+    priority: obj.priority,
+    startDate: obj.startDate,
+    dueDate: obj.dueDate,
+    progress: obj.progress,
+    taskType: obj.taskType,
+    createdAt: obj.createdAt,
+    updatedAt: obj.updatedAt,
+    assignees: (obj.assignees || []).map((a) => ({
+      _id: a._id || a,
+      name: a.name || null,
+      profile: a.profile || '',
+    })),
+    subTasks: (obj.subTasks || []).map((st) => ({
+      _id: st._id,
+      title: st.title,
+      status: st.status,
+      dueDate: st.dueDate,
+    })),
+  };
+};
+
+const sanitizeProjectForPublic = (project, mode) => {
+  const obj = typeof project.toObject === 'function' ? project.toObject() : project;
+  return {
+    _id: obj._id,
+    name: obj.name,
+    description: obj.description,
+    detailedDescription: obj.detailedDescription,
+    coverImage: obj.coverImage,
+    color: obj.color,
+    status: obj.status,
+    progress: obj.progress,
+    priority: obj.priority,
+    projectType: obj.projectType,
+    startDate: obj.startDate,
+    endDate: obj.endDate,
+    tags: obj.tags,
+    links: obj.links,
+    mode, // 'public' | 'collaborator'
+    projectManagers: (obj.projectManagers || []).map((pm) => ({
+      _id: pm._id || pm,
+      name: pm.name || null,
+      profile: pm.profile || '',
+    })),
+    teamMembers: (obj.teamMembers || []).map((tm) => ({
+      user: {
+        _id: tm.user?._id || tm.user,
+        name: tm.user?.name || null,
+        profile: tm.user?.profile || '',
+      },
+      role: tm.role,
+      status: tm.status,
+    })),
+  };
+};
+
 // ─────────────────────────────────────────────────────────────────────
-// CREATE PROJECT  (workspace owner or admin)
+// CREATE PROJECT
 // POST /api/projects?workspaceId=xxx
-// Creator is automatically added as a Project Manager.
 // ─────────────────────────────────────────────────────────────────────
 
 const createProject = async (req, res) => {
@@ -153,7 +273,6 @@ const createProject = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Workspace not found.' });
     }
 
-    // Allow workspace owner OR admin to create projects
     if (!canManageWorkspace(workspace, userId)) {
       return res.status(403).json({
         success: false,
@@ -161,7 +280,6 @@ const createProject = async (req, res) => {
       });
     }
 
-    // ── Uploaded files ────────────────────────────────────────
     const documents = [];
     if (req.files?.documents) {
       for (const file of req.files.documents) {
@@ -175,7 +293,6 @@ const createProject = async (req, res) => {
     }
     const coverImage = req.files?.coverImage?.[0]?.path || '';
 
-    // ── Validate PMs against active workspace members ─────────
     const validPMs = [];
     for (const pmId of projectManagerIds) {
       const ok = workspace.members.some(
@@ -184,12 +301,8 @@ const createProject = async (req, res) => {
       if (ok && !validPMs.includes(pmId)) validPMs.push(pmId);
     }
 
-    // ── Creator is ALWAYS a Project Manager ───────────────────
-    if (!validPMs.includes(userId)) {
-      validPMs.push(userId);
-    }
+    if (!validPMs.includes(userId)) validPMs.push(userId);
 
-    // ── Validate team members (skip anyone already a PM) ──────
     const validTeamMembers = [];
     for (const memberId of teamMemberIds) {
       const ok = workspace.members.some(
@@ -230,9 +343,11 @@ const createProject = async (req, res) => {
       color: safeColor,
       archivedBy: [],
       isTrash: false,
+      collaborators: [],
+      publicShareEnabled: false,
+      publicShareToken: null,
     });
 
-    // ── Notify newly added members (excluding the creator) ────
     const allNewMembers = [
       ...validPMs,
       ...validTeamMembers.map((tm) => tm.user),
@@ -274,7 +389,7 @@ const createProject = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// GET WORKSPACE PROJECTS  (respects personal archive & global trash)
+// GET WORKSPACE PROJECTS
 // GET /api/projects/workspace/:workspaceId
 // ─────────────────────────────────────────────────────────────────────
 
@@ -305,7 +420,6 @@ const getWorkspaceProjects = async (req, res) => {
     if (priority) query.priority = priority;
     if (projectType) query.projectType = projectType;
 
-    // Global trash filter – only owner or admin can see trashed projects
     if (trash === 'true' && (isOwner || isAdmin)) {
       query.isTrash = true;
     } else if (trash !== 'true') {
@@ -314,7 +428,6 @@ const getWorkspaceProjects = async (req, res) => {
       return res.status(200).json({ success: true, projects: [], count: 0 });
     }
 
-    // Personal archive: if not explicitly asking for archived, exclude projects archived by this user
     if (archived === 'true') {
       query['archivedBy.user'] = userId;
     } else if (archived !== 'true' && !query.isTrash) {
@@ -323,12 +436,11 @@ const getWorkspaceProjects = async (req, res) => {
         $or: [
           { 'archivedBy.user': { $ne: userId } },
           { 'archivedBy.user': { $exists: false } },
-          { archivedBy: { $size: 0 } }
-        ]
+          { archivedBy: { $size: 0 } },
+        ],
       });
     }
 
-    // Permissions: non-owners/admins only see projects they belong to
     if (!isOwner && !isAdmin) {
       query.$or = [
         { projectManagers: userId },
@@ -367,7 +479,7 @@ const getWorkspaceProjects = async (req, res) => {
           : isProjectManager(project, userId)
           ? 'projectManager'
           : 'teamMember';
-        obj.isArchivedForMe = project.archivedBy.some(a => a.user.toString() === userId);
+        obj.isArchivedForMe = project.archivedBy.some((a) => a.user.toString() === userId);
         return obj;
       })
     );
@@ -379,6 +491,43 @@ const getWorkspaceProjects = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Get workspace projects error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// GET MY COLLABORATED PROJECTS (projects where I am an active collaborator)
+// GET /api/projects/collaborating
+// ─────────────────────────────────────────────────────────────────────
+
+const getMyCollaboratedProjects = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const projects = await Project.find({
+      isTrash: { $ne: true },
+      collaborators: {
+        $elemMatch: { userId, status: 'active' },
+      },
+    })
+      .populate('projectManagers', 'name email profile')
+      .populate('teamMembers.user', 'name email profile')
+      .populate('createdBy', 'name email profile')
+      .sort({ createdAt: -1 });
+
+    const shaped = projects.map((p) => {
+      const obj = p.toObject();
+      const collab = (p.collaborators || []).find(
+        (c) => c.userId && c.userId.toString() === userId
+      );
+      obj.userRole = collab?.role === 'editor' ? 'collaboratorEditor' : 'collaboratorViewer';
+      obj.collaboratorRole = collab?.role || 'viewer';
+      return obj;
+    });
+
+    res.status(200).json({ success: true, projects: shaped, count: shaped.length });
+  } catch (error) {
+    console.error('❌ Get collaborated projects error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -398,24 +547,8 @@ const getProjectById = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Project not found.' });
     }
 
-    const workspace = await Workspace.findById(project.workspace);
-    if (!workspace) {
-      return res.status(404).json({ success: false, message: 'Workspace not found.' });
-    }
-
-    const isOwner = isWorkspaceOwner(workspace, userId);
-    const isAdmin = workspace.members.some(
-      (m) => m.user.toString() === userId && m.role === 'Admin' && m.status === 'active'
-    );
-    const isPM = isProjectManager(project, userId);
-    const isMember = isProjectMember(project, userId);
-    const isTaskAssignee = await Task.exists({
-      project: projectId,
-      assignee: userId,
-      isDeleted: false,
-    });
-
-    if (!isOwner && !isAdmin && !isPM && !isMember && !isTaskAssignee) {
+    const access = await resolveProjectAccess(project, userId);
+    if (!access.canView) {
       return res.status(403).json({ success: false, message: 'Access denied.' });
     }
 
@@ -430,25 +563,17 @@ const getProjectById = async (req, res) => {
         $match: {
           project: new mongoose.Types.ObjectId(projectId),
           isDeleted: false,
-          isTrash: { $ne: true }
+          isTrash: { $ne: true },
         },
       },
       {
         $group: {
           _id: null,
           totalTasks: { $sum: 1 },
-          completedTasks: {
-            $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] },
-          },
-          inProgressTasks: {
-            $sum: { $cond: [{ $eq: ['$status', 'in-progress'] }, 1, 0] },
-          },
-          reviewTasks: {
-            $sum: { $cond: [{ $eq: ['$status', 'review'] }, 1, 0] },
-          },
-          pendingTasks: {
-            $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] },
-          },
+          completedTasks: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+          inProgressTasks: { $sum: { $cond: [{ $eq: ['$status', 'in-progress'] }, 1, 0] } },
+          reviewTasks: { $sum: { $cond: [{ $eq: ['$status', 'review'] }, 1, 0] } },
+          pendingTasks: { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] } },
           overdueTasks: {
             $sum: {
               $cond: [
@@ -468,15 +593,7 @@ const getProjectById = async (req, res) => {
     ]);
 
     const obj = populated.toObject();
-    obj.userRole = isOwner
-      ? 'workspaceOwner'
-      : isAdmin
-      ? 'workspaceAdmin'
-      : isPM
-      ? 'projectManager'
-      : isMember
-      ? 'teamMember'
-      : 'taskAssignee';
+    obj.userRole = access.role;
     obj.taskStats = taskStats[0] || {
       totalTasks: 0,
       completedTasks: 0,
@@ -485,8 +602,22 @@ const getProjectById = async (req, res) => {
       pendingTasks: 0,
       overdueTasks: 0,
     };
-    obj.canManage = isOwner || isAdmin || isPM;
-    obj.isArchivedForMe = populated.archivedBy.some(a => a.user.toString() === userId);
+    obj.canManage = access.canManage;
+    obj.access = {
+      role: access.role,
+      canManage: access.canManage,
+      canAct: access.canAct,
+      canView: access.canView,
+      canCompleteAssignedTasks: access.canAct,
+      collaboratorRole: access.collaborator?.role || null,
+    };
+    obj.isArchivedForMe = populated.archivedBy.some((a) => a.user.toString() === userId);
+
+    // Collaborators shouldn't see the full collaborator list (privacy)
+    if (access.role.startsWith('collaborator') || access.role === 'taskAssignee') {
+      delete obj.collaborators;
+      delete obj.publicShareToken;
+    }
 
     res.status(200).json({ success: true, project: obj });
   } catch (error) {
@@ -496,7 +627,7 @@ const getProjectById = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// UPDATE PROJECT  (Owner / Admin / PM)
+// UPDATE PROJECT
 // PUT /api/projects/:projectId
 // ─────────────────────────────────────────────────────────────────────
 
@@ -541,7 +672,6 @@ const updateProject = async (req, res) => {
 
     const oldStatus = project.status;
 
-    // Files
     if (req.files?.documents) {
       for (const file of req.files.documents) {
         project.documents.push({
@@ -581,13 +711,15 @@ const updateProject = async (req, res) => {
 
     await project.save();
 
-    // ── Notify if status changed (excluding completed) ─────────
     if (status && status !== oldStatus && status !== 'completed') {
       const recipients = [
-        ...project.projectManagers.map(pm => pm.toString()),
+        ...project.projectManagers.map((pm) => pm.toString()),
         ...project.teamMembers
-          .filter(tm => tm.status === 'active')
-          .map(tm => tm.user.toString()),
+          .filter((tm) => tm.status === 'active')
+          .map((tm) => tm.user.toString()),
+        ...project.collaborators
+          .filter((c) => c.status === 'active' && c.userId)
+          .map((c) => c.userId.toString()),
       ];
       notifyUsers(recipients, {
         title: `Project "${project.name}" updated`,
@@ -618,7 +750,7 @@ const updateProject = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// CONFIRM PROJECT COMPLETION  (Workspace OWNER or ADMIN)
+// CONFIRM PROJECT COMPLETION
 // PATCH /api/projects/:projectId/confirm-completion
 // ─────────────────────────────────────────────────────────────────────
 
@@ -641,10 +773,7 @@ const confirmProjectCompletion = async (req, res) => {
     }
 
     if (project.status === 'completed') {
-      return res.status(400).json({
-        success: false,
-        message: 'This project is already completed.',
-      });
+      return res.status(400).json({ success: false, message: 'This project is already completed.' });
     }
 
     const incompleteTasks = await Task.find({
@@ -669,12 +798,10 @@ const confirmProjectCompletion = async (req, res) => {
     project.completedBy = userId;
     await project.save();
 
-    // ── Notify all active members and PMs ─────────────────────
     const recipients = [
-      ...project.projectManagers.map(pm => pm.toString()),
-      ...project.teamMembers
-        .filter(tm => tm.status === 'active')
-        .map(tm => tm.user.toString()),
+      ...project.projectManagers.map((pm) => pm.toString()),
+      ...project.teamMembers.filter((tm) => tm.status === 'active').map((tm) => tm.user.toString()),
+      ...project.collaborators.filter((c) => c.status === 'active' && c.userId).map((c) => c.userId.toString()),
     ];
     notifyUsers(recipients, {
       title: `Project "${project.name}" completed`,
@@ -709,8 +836,8 @@ const confirmProjectCompletion = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// MANAGE PROJECT MANAGERS  (Workspace owner OR admin)
-// PATCH /api/projects/:projectId/managers  { action: 'add'|'remove', managerId }
+// MANAGE PROJECT MANAGERS
+// PATCH /api/projects/:projectId/managers
 // ─────────────────────────────────────────────────────────────────────
 
 const manageProjectManagers = async (req, res) => {
@@ -720,16 +847,11 @@ const manageProjectManagers = async (req, res) => {
     const { action, managerId } = req.body;
 
     if (!action || !managerId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Action and managerId are required.',
-      });
+      return res.status(400).json({ success: false, message: 'Action and managerId are required.' });
     }
 
     const project = await Project.findById(projectId);
-    if (!project) {
-      return res.status(404).json({ success: false, message: 'Project not found.' });
-    }
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
 
     const workspace = await Workspace.findById(project.workspace);
     if (!canManageWorkspace(workspace, userId)) {
@@ -743,38 +865,23 @@ const manageProjectManagers = async (req, res) => {
       (m) => m.user.toString() === managerId && m.status === 'active'
     );
     if (!isActiveMember) {
-      return res.status(400).json({
-        success: false,
-        message: 'User must be an active workspace member.',
-      });
+      return res.status(400).json({ success: false, message: 'User must be an active workspace member.' });
     }
 
     if (action === 'add') {
       if (project.projectManagers.some((pm) => pm.toString() === managerId)) {
-        return res.status(400).json({
-          success: false,
-          message: 'User is already a project manager.',
-        });
+        return res.status(400).json({ success: false, message: 'User is already a project manager.' });
       }
       project.projectManagers.push(managerId);
-      // Remove from teamMembers if present
-      project.teamMembers = project.teamMembers.filter(
-        (tm) => tm.user.toString() !== managerId
-      );
+      project.teamMembers = project.teamMembers.filter((tm) => tm.user.toString() !== managerId);
     } else if (action === 'remove') {
-      project.projectManagers = project.projectManagers.filter(
-        (pm) => pm.toString() !== managerId
-      );
+      project.projectManagers = project.projectManagers.filter((pm) => pm.toString() !== managerId);
     } else {
-      return res.status(400).json({
-        success: false,
-        message: "Action must be 'add' or 'remove'.",
-      });
+      return res.status(400).json({ success: false, message: "Action must be 'add' or 'remove'." });
     }
 
     await project.save();
 
-    // ── Notify the manager if added ───────────────────────────
     if (action === 'add') {
       notifyUsers(managerId, {
         title: `New role in "${project.name}"`,
@@ -800,8 +907,8 @@ const manageProjectManagers = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// ADD TEAM MEMBER  (Owner / Admin / PM)
-// POST /api/projects/:projectId/team  { userId, role? }
+// ADD TEAM MEMBER
+// POST /api/projects/:projectId/team
 // ─────────────────────────────────────────────────────────────────────
 
 const addTeamMember = async (req, res) => {
@@ -815,9 +922,7 @@ const addTeamMember = async (req, res) => {
     }
 
     const project = await Project.findById(projectId);
-    if (!project) {
-      return res.status(404).json({ success: false, message: 'Project not found.' });
-    }
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
 
     const workspace = await Workspace.findById(project.workspace);
     if (!canManageProject(workspace, project, userId)) {
@@ -831,21 +936,13 @@ const addTeamMember = async (req, res) => {
       (m) => m.user.toString() === memberId && m.status === 'active'
     );
     if (!isActiveMember) {
-      return res.status(400).json({
-        success: false,
-        message: 'User must be an active workspace member.',
-      });
+      return res.status(400).json({ success: false, message: 'User must be an active workspace member.' });
     }
 
-    const existing = project.teamMembers.find(
-      (tm) => tm.user.toString() === memberId
-    );
+    const existing = project.teamMembers.find((tm) => tm.user.toString() === memberId);
     if (existing) {
       if (existing.status === 'active') {
-        return res.status(400).json({
-          success: false,
-          message: 'User is already on the project team.',
-        });
+        return res.status(400).json({ success: false, message: 'User is already on the project team.' });
       }
       existing.status = 'active';
       existing.leftAt = null;
@@ -856,7 +953,6 @@ const addTeamMember = async (req, res) => {
 
     await project.save();
 
-    // ── Notify the added member ───────────────────────────────
     notifyUsers(memberId, {
       title: `Added to project "${project.name}"`,
       body: `You are now a team member (${role}) in this project.`,
@@ -868,10 +964,7 @@ const addTeamMember = async (req, res) => {
       emailEventType: 'teamInvite',
     });
 
-    const updated = await Project.findById(projectId).populate(
-      'teamMembers.user',
-      'name email profile'
-    );
+    const updated = await Project.findById(projectId).populate('teamMembers.user', 'name email profile');
 
     res.status(200).json({ success: true, message: 'Team member added', project: updated });
   } catch (error) {
@@ -881,7 +974,7 @@ const addTeamMember = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// REMOVE TEAM MEMBER  (Owner / Admin / PM)
+// REMOVE TEAM MEMBER
 // DELETE /api/projects/:projectId/team/:memberId
 // ─────────────────────────────────────────────────────────────────────
 
@@ -891,16 +984,11 @@ const removeTeamMember = async (req, res) => {
     const { projectId, memberId } = req.params;
 
     if (!memberId || !mongoose.Types.ObjectId.isValid(memberId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid or missing memberId.',
-      });
+      return res.status(400).json({ success: false, message: 'Invalid or missing memberId.' });
     }
 
     const project = await Project.findById(projectId);
-    if (!project) {
-      return res.status(404).json({ success: false, message: 'Project not found.' });
-    }
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
 
     const workspace = await Workspace.findById(project.workspace);
     if (!canManageProject(workspace, project, userId)) {
@@ -910,7 +998,6 @@ const removeTeamMember = async (req, res) => {
       });
     }
 
-    // Block removal while the member still has open tasks
     const openTasks = await Task.countDocuments({
       project: projectId,
       assignee: memberId,
@@ -930,17 +1017,13 @@ const removeTeamMember = async (req, res) => {
     );
 
     if (!member) {
-      return res.status(404).json({
-        success: false,
-        message: 'Member not found on this project.',
-      });
+      return res.status(404).json({ success: false, message: 'Member not found on this project.' });
     }
 
     member.status = 'removed';
     member.leftAt = new Date();
     await project.save();
 
-    // ── Notify the removed member ─────────────────────────────
     notifyUsers(memberId, {
       title: `Removed from project "${project.name}"`,
       body: 'You have been removed from the project.',
@@ -959,8 +1042,7 @@ const removeTeamMember = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// GET PROJECT TEAM WITH TASKS  (Owner / Admin / PM)
-// GET /api/projects/:projectId/team
+// GET PROJECT TEAM WITH TASKS
 // ─────────────────────────────────────────────────────────────────────
 
 const getProjectTeamWithTasks = async (req, res) => {
@@ -968,13 +1050,8 @@ const getProjectTeamWithTasks = async (req, res) => {
     const userId = req.user.id;
     const { projectId } = req.params;
 
-    const project = await Project.findById(projectId).populate(
-      'teamMembers.user',
-      'name email profile'
-    );
-    if (!project) {
-      return res.status(404).json({ success: false, message: 'Project not found.' });
-    }
+    const project = await Project.findById(projectId).populate('teamMembers.user', 'name email profile');
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
 
     const workspace = await Workspace.findById(project.workspace);
     if (!canManageProject(workspace, project, userId)) {
@@ -1015,8 +1092,7 @@ const getProjectTeamWithTasks = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// GET / CREATE DM WITH A TEAM MEMBER  (Owner / Admin / PM)
-// GET /api/projects/:projectId/dm/:userId
+// GET / CREATE DM WITH A TEAM MEMBER
 // ─────────────────────────────────────────────────────────────────────
 
 const getTeamMemberDM = async (req, res) => {
@@ -1025,9 +1101,7 @@ const getTeamMemberDM = async (req, res) => {
     const { projectId, userId: targetId } = req.params;
 
     const project = await Project.findById(projectId);
-    if (!project) {
-      return res.status(404).json({ success: false, message: 'Project not found.' });
-    }
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
 
     const workspace = await Workspace.findById(project.workspace);
     if (!canManageProject(workspace, project, userId)) {
@@ -1061,8 +1135,7 @@ const getTeamMemberDM = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// PROJECT STATS  (Owner / Admin / PM)
-// GET /api/projects/:projectId/stats
+// PROJECT STATS
 // ─────────────────────────────────────────────────────────────────────
 
 const getProjectStats = async (req, res) => {
@@ -1071,9 +1144,7 @@ const getProjectStats = async (req, res) => {
     const { projectId } = req.params;
 
     const project = await Project.findById(projectId);
-    if (!project) {
-      return res.status(404).json({ success: false, message: 'Project not found.' });
-    }
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
 
     const workspace = await Workspace.findById(project.workspace);
     if (!canManageProject(workspace, project, userId)) {
@@ -1089,14 +1160,15 @@ const getProjectStats = async (req, res) => {
       .select('title status progress submittedProgress priority dueDate assignee');
 
     const byStatus = { pending: 0, 'in-progress': 0, review: 0, completed: 0, cancelled: 0 };
-    tasks.forEach((t) => { byStatus[t.status] = (byStatus[t.status] || 0) + 1; });
+    tasks.forEach((t) => {
+      byStatus[t.status] = (byStatus[t.status] || 0) + 1;
+    });
 
     const now = new Date();
     const overdue = tasks.filter(
       (t) => t.dueDate && t.dueDate < now && !['completed', 'cancelled'].includes(t.status)
     );
 
-    // Per-member breakdown
     const memberMap = {};
     tasks.forEach((t) => {
       if (!t.assignee) return;
@@ -1134,7 +1206,7 @@ const getProjectStats = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// PERSONAL ARCHIVE / UNARCHIVE (any project member)
+// PERSONAL ARCHIVE / UNARCHIVE
 // ─────────────────────────────────────────────────────────────────────
 
 const archiveProject = async (req, res) => {
@@ -1145,18 +1217,12 @@ const archiveProject = async (req, res) => {
     const project = await Project.findById(projectId);
     if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
 
-    const workspace = await Workspace.findById(project.workspace);
-    const isOwner = isWorkspaceOwner(workspace, userId);
-    const isAdmin = workspace.members.some(
-      (m) => m.user.toString() === userId && m.role === 'Admin' && m.status === 'active'
-    );
-    const isPM = isProjectManager(project, userId);
-    const isMember = isProjectMember(project, userId);
-    if (!isOwner && !isAdmin && !isPM && !isMember) {
+    const access = await resolveProjectAccess(project, userId);
+    if (!access.canView) {
       return res.status(403).json({ success: false, message: 'You are not a member of this project.' });
     }
 
-    const alreadyArchived = project.archivedBy.some(a => a.user.toString() === userId);
+    const alreadyArchived = project.archivedBy.some((a) => a.user.toString() === userId);
     if (!alreadyArchived) {
       project.archivedBy.push({ user: userId, archivedAt: new Date() });
       await project.save();
@@ -1177,18 +1243,12 @@ const unarchiveProject = async (req, res) => {
     const project = await Project.findById(projectId);
     if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
 
-    const workspace = await Workspace.findById(project.workspace);
-    const isOwner = isWorkspaceOwner(workspace, userId);
-    const isAdmin = workspace.members.some(
-      (m) => m.user.toString() === userId && m.role === 'Admin' && m.status === 'active'
-    );
-    const isPM = isProjectManager(project, userId);
-    const isMember = isProjectMember(project, userId);
-    if (!isOwner && !isAdmin && !isPM && !isMember) {
+    const access = await resolveProjectAccess(project, userId);
+    if (!access.canView) {
       return res.status(403).json({ success: false, message: 'Not authorized.' });
     }
 
-    project.archivedBy = project.archivedBy.filter(a => a.user.toString() !== userId);
+    project.archivedBy = project.archivedBy.filter((a) => a.user.toString() !== userId);
     await project.save();
 
     res.status(200).json({ success: true, message: 'Project unarchived for you.' });
@@ -1199,8 +1259,7 @@ const unarchiveProject = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// DELETE PROJECT – Soft‑delete (workspace owner OR admin)
-// DELETE /api/projects/:projectId
+// DELETE / RESTORE / PERMANENT DELETE
 // ─────────────────────────────────────────────────────────────────────
 
 const deleteProject = async (req, res) => {
@@ -1219,14 +1278,15 @@ const deleteProject = async (req, res) => {
       });
     }
 
-    // Move to trash (soft‑delete)
     project.isTrash = true;
     project.trashedAt = new Date();
+    project.publicShareEnabled = false;
     await project.save();
 
     const recipients = [
-      ...project.projectManagers.map(pm => pm.toString()),
-      ...project.teamMembers.filter(tm => tm.status === 'active').map(tm => tm.user.toString()),
+      ...project.projectManagers.map((pm) => pm.toString()),
+      ...project.teamMembers.filter((tm) => tm.status === 'active').map((tm) => tm.user.toString()),
+      ...project.collaborators.filter((c) => c.status === 'active' && c.userId).map((c) => c.userId.toString()),
     ];
     notifyUsers(recipients, {
       title: `Project "${project.name}" moved to trash`,
@@ -1244,11 +1304,6 @@ const deleteProject = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
-
-// ─────────────────────────────────────────────────────────────────────
-// RESTORE PROJECT FROM TRASH (owner or admin)
-// PATCH /api/projects/:projectId/restore
-// ─────────────────────────────────────────────────────────────────────
 
 const restoreProject = async (req, res) => {
   try {
@@ -1277,11 +1332,6 @@ const restoreProject = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// PERMANENTLY DELETE PROJECT (owner or admin)
-// DELETE /api/projects/:projectId/permanent
-// ─────────────────────────────────────────────────────────────────────
-
 const permanentlyDeleteProject = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1298,9 +1348,8 @@ const permanentlyDeleteProject = async (req, res) => {
       });
     }
 
-    // Remove associated data
     const tasks = await Task.find({ project: projectId });
-    const taskIds = tasks.map(t => t._id);
+    const taskIds = tasks.map((t) => t._id);
     await Feedback.deleteMany({ task: { $in: taskIds } });
     await Task.deleteMany({ project: projectId });
     await Folder.deleteMany({ project: projectId });
@@ -1318,17 +1367,13 @@ const permanentlyDeleteProject = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// CRON: Auto‑purge projects in trash > 30 days
-// ─────────────────────────────────────────────────────────────────────
-
 const permanentlyDeleteOldTrashedProjects = async () => {
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const projects = await Project.find({ isTrash: true, trashedAt: { $lte: thirtyDaysAgo } });
 
   for (const project of projects) {
     const tasks = await Task.find({ project: project._id });
-    const taskIds = tasks.map(t => t._id);
+    const taskIds = tasks.map((t) => t._id);
     await Feedback.deleteMany({ task: { $in: taskIds } });
     await Task.deleteMany({ project: project._id });
     await Folder.deleteMany({ project: project._id });
@@ -1341,6 +1386,564 @@ const permanentlyDeleteOldTrashedProjects = async () => {
   console.log(`🧹 Permanently deleted ${projects.length} trashed projects.`);
 };
 
+// ═════════════════════════════════════════════════════════════════════
+// GUEST / COLLABORATOR MANAGEMENT
+// ═════════════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────────────────
+// ENABLE PROJECT-WIDE READ-ONLY SHARE LINK
+// POST /api/projects/:projectId/share-link
+// ─────────────────────────────────────────────────────────────────────
+
+const enableProjectShareLink = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { projectId } = req.params;
+
+    const project = await Project.findById(projectId);
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
+
+    const workspace = await Workspace.findById(project.workspace);
+    if (!canManageProject(workspace, project, userId)) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    if (!project.publicShareToken) {
+      project.publicShareToken = generateShareToken();
+    }
+    project.publicShareEnabled = true;
+    await project.save();
+
+    const url = `${process.env.CLIENT_URL}/public/project/${project.publicShareToken}`;
+
+    res.status(200).json({
+      success: true,
+      message: 'Public share link enabled.',
+      publicShareToken: project.publicShareToken,
+      publicShareUrl: url,
+    });
+  } catch (error) {
+    console.error('❌ Enable share link error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const disableProjectShareLink = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { projectId } = req.params;
+
+    const project = await Project.findById(projectId);
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
+
+    const workspace = await Workspace.findById(project.workspace);
+    if (!canManageProject(workspace, project, userId)) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    project.publicShareEnabled = false;
+    await project.save();
+
+    res.status(200).json({ success: true, message: 'Public share link disabled.' });
+  } catch (error) {
+    console.error('❌ Disable share link error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// ADD COLLABORATOR
+// POST /api/projects/:projectId/collaborators
+// Body: { email, name?, role: 'viewer' | 'editor' }
+// ─────────────────────────────────────────────────────────────────────
+
+const addCollaborator = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { projectId } = req.params;
+    const { email, name = '', role = 'viewer' } = req.body;
+
+    if (!email?.trim()) {
+      return res.status(400).json({ success: false, message: 'Email is required.' });
+    }
+    if (!['viewer', 'editor'].includes(role)) {
+      return res.status(400).json({ success: false, message: "Role must be 'viewer' or 'editor'." });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const project = await Project.findById(projectId);
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
+
+    const workspace = await Workspace.findById(project.workspace);
+    if (!canManageProject(workspace, project, userId)) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    // Already a collaborator?
+    const existing = (project.collaborators || []).find((c) => c.email === normalizedEmail);
+    if (existing && existing.status !== 'revoked') {
+      return res.status(400).json({
+        success: false,
+        message: 'This email is already a collaborator on this project.',
+      });
+    }
+
+    // Does a Xircle account already exist for this email?
+    const existingUser = await User.findOne({ email: normalizedEmail }).select('_id name');
+
+    const inviteToken = generateShareToken();
+
+    if (existing) {
+      // Re-invite a previously revoked collaborator
+      existing.name = name || existing.name;
+      existing.role = role;
+      existing.status = existingUser ? 'active' : 'invited';
+      existing.inviteToken = inviteToken;
+      existing.userId = existingUser?._id || null;
+      existing.invitedBy = userId;
+      existing.invitedAt = new Date();
+      existing.acceptedAt = existingUser ? new Date() : null;
+    } else {
+      project.collaborators.push({
+        email: normalizedEmail,
+        name,
+        role,
+        userId: existingUser?._id || null,
+        status: existingUser ? 'active' : 'invited',
+        inviteToken,
+        invitedBy: userId,
+        invitedAt: new Date(),
+        acceptedAt: existingUser ? new Date() : null,
+      });
+    }
+
+    await project.save();
+
+    const inviteUrl = `${process.env.CLIENT_URL}/collaborate/${inviteToken}`;
+
+    // Notify the collaborator (email always; push only if they have an account)
+    if (existingUser) {
+      notifyUsers(existingUser._id, {
+        title: `You've been invited to collaborate on "${project.name}"`,
+        body: `You have ${role === 'editor' ? 'editor' : 'view-only'} access. Tasks assigned to you can be completed once you sign in.`,
+        data: {
+          notificationType: 'project',
+          projectId: project._id.toString(),
+          workspaceId: project.workspace.toString(),
+          collaboratorInvite: 'true',
+        },
+        emailEventType: 'teamInvite',
+        emailHtml: `
+          <h3>You've been invited to collaborate</h3>
+          <p>${req.user.name || 'A project manager'} invited you to <strong>${project.name}</strong> with <strong>${role}</strong> access.</p>
+          <p><a href="${inviteUrl}">Open Project</a></p>
+        `,
+      });
+    } else {
+      // Send an email-only invite
+      createAndSendNotification({
+        recipient: null, // no user record
+        emailTo: normalizedEmail,
+        title: `You've been invited to collaborate on "${project.name}"`,
+        body: 'Sign up for Xircle to participate.',
+        sendPush: false,
+        emailEventType: 'teamInvite',
+        emailSubject: `Invitation to collaborate on ${project.name}`,
+        emailHtml: `
+          <h3>You've been invited to collaborate</h3>
+          <p>${req.user.name || 'A project manager'} invited you to <strong>${project.name}</strong> with <strong>${role}</strong> access.</p>
+          <p>You can view the project now, but you'll need a Xircle account to complete tasks assigned to you.</p>
+          <p><a href="${inviteUrl}">Open Project</a></p>
+        `,
+      }).catch((err) => console.error('Collaborator invite email failed:', err.message));
+    }
+
+    res.status(201).json({
+      success: true,
+      message: existingUser
+        ? 'Collaborator added and linked to their Xircle account.'
+        : 'Invitation sent. They will appear as view-only until they sign up.',
+      collaborator: project.collaborators.find((c) => c.email === normalizedEmail),
+      inviteUrl,
+    });
+  } catch (error) {
+    console.error('❌ Add collaborator error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// LIST COLLABORATORS
+// GET /api/projects/:projectId/collaborators
+// ─────────────────────────────────────────────────────────────────────
+
+const getCollaborators = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { projectId } = req.params;
+
+    const project = await Project.findById(projectId)
+      .populate('collaborators.userId', 'name email profile')
+      .populate('collaborators.invitedBy', 'name email profile');
+
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
+
+    const workspace = await Workspace.findById(project.workspace);
+    if (!canManageProject(workspace, project, userId)) {
+      return res.status(403).json({ success: false, message: 'Access denied.' });
+    }
+
+    res.status(200).json({
+      success: true,
+      collaborators: project.collaborators,
+      count: project.collaborators.length,
+    });
+  } catch (error) {
+    console.error('❌ Get collaborators error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// UPDATE COLLABORATOR (role change)
+// PATCH /api/projects/:projectId/collaborators/:collabId
+// ─────────────────────────────────────────────────────────────────────
+
+const updateCollaborator = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { projectId, collabId } = req.params;
+    const { role, name } = req.body;
+
+    const project = await Project.findById(projectId);
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
+
+    const workspace = await Workspace.findById(project.workspace);
+    if (!canManageProject(workspace, project, userId)) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    const collab = project.collaborators.id(collabId);
+    if (!collab) {
+      return res.status(404).json({ success: false, message: 'Collaborator not found.' });
+    }
+
+    if (role && !['viewer', 'editor'].includes(role)) {
+      return res.status(400).json({ success: false, message: "Role must be 'viewer' or 'editor'." });
+    }
+
+    if (role) collab.role = role;
+    if (name !== undefined) collab.name = name;
+
+    await project.save();
+
+    res.status(200).json({ success: true, message: 'Collaborator updated.', collaborator: collab });
+  } catch (error) {
+    console.error('❌ Update collaborator error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// REMOVE COLLABORATOR
+// DELETE /api/projects/:projectId/collaborators/:collabId
+// ─────────────────────────────────────────────────────────────────────
+
+const removeCollaborator = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { projectId, collabId } = req.params;
+
+    const project = await Project.findById(projectId);
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
+
+    const workspace = await Workspace.findById(project.workspace);
+    if (!canManageProject(workspace, project, userId)) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    const collab = project.collaborators.id(collabId);
+    if (!collab) {
+      return res.status(404).json({ success: false, message: 'Collaborator not found.' });
+    }
+
+    // Block if they still have open tasks assigned
+    if (collab.userId) {
+      const openTasks = await Task.countDocuments({
+        project: projectId,
+        assignees: collab.userId,
+        isDeleted: false,
+        isTrash: { $ne: true },
+        status: { $nin: ['completed', 'cancelled', 'confirmed_completed'] },
+      });
+      if (openTasks > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `This collaborator still has ${openTasks} open task(s). Reassign them first.`,
+        });
+      }
+    }
+
+    collab.status = 'revoked';
+    collab.inviteToken = null;
+    await project.save();
+
+    res.status(200).json({ success: true, message: 'Collaborator removed.' });
+  } catch (error) {
+    console.error('❌ Remove collaborator error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// REGENERATE COLLABORATOR INVITE TOKEN
+// POST /api/projects/:projectId/collaborators/:collabId/regenerate
+// ─────────────────────────────────────────────────────────────────────
+
+const regenerateCollaboratorToken = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { projectId, collabId } = req.params;
+
+    const project = await Project.findById(projectId);
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found.' });
+
+    const workspace = await Workspace.findById(project.workspace);
+    if (!canManageProject(workspace, project, userId)) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    const collab = project.collaborators.id(collabId);
+    if (!collab) {
+      return res.status(404).json({ success: false, message: 'Collaborator not found.' });
+    }
+
+    collab.inviteToken = generateShareToken();
+    await project.save();
+
+    const inviteUrl = `${process.env.CLIENT_URL}/collaborate/${collab.inviteToken}`;
+    res.status(200).json({ success: true, inviteUrl, inviteToken: collab.inviteToken });
+  } catch (error) {
+    console.error('❌ Regenerate collaborator token error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// PUBLIC: GET PROJECT BY SHARE OR INVITE TOKEN
+// GET /api/projects/public/:token
+// NO auth middleware required; pass-through optional auth to know req.user.
+// ─────────────────────────────────────────────────────────────────────
+
+const getPublicProjectByToken = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const userId = req.user?.id || null;
+
+    if (!token) {
+      return res.status(400).json({ success: false, message: 'Token is required.' });
+    }
+
+    // Try project-wide token first
+    let project = await Project.findOne({
+      publicShareToken: token,
+      publicShareEnabled: true,
+      isTrash: { $ne: true },
+    });
+
+    let mode = 'public';
+    let collaborator = null;
+
+    // If not, try collaborator invite token
+    if (!project) {
+      project = await Project.findOne({
+        'collaborators.inviteToken': token,
+        isTrash: { $ne: true },
+      });
+      if (project) {
+        collaborator = project.collaborators.find((c) => c.inviteToken === token);
+        if (collaborator && collaborator.status === 'revoked') {
+          return res.status(410).json({ success: false, message: 'This invite has been revoked.' });
+        }
+        mode = 'collaborator';
+      }
+    }
+
+    if (!project) {
+      return res.status(404).json({ success: false, message: 'Invalid or expired link.' });
+    }
+
+    await project.populate([
+      { path: 'projectManagers', select: 'name email profile' },
+      { path: 'teamMembers.user', select: 'name email profile' },
+      { path: 'createdBy', select: 'name email profile' },
+    ]);
+
+    // Determine permissions
+    const linkedUser =
+      collaborator && userId && collaborator.userId?.toString() === userId;
+
+    const access = await resolveProjectAccess(project, userId);
+
+    const permissions = {
+      canView: true,
+      canActOnAssignedTasks: !!linkedUser && collaborator.role === 'editor',
+      canComment: !!linkedUser && collaborator.role === 'editor',
+      requiresSignup: !userId && mode === 'collaborator',
+      role: collaborator?.role || 'viewer',
+    };
+
+    const payload = {
+      success: true,
+      mode,
+      permissions,
+      collaborator: collaborator
+        ? {
+            email: collaborator.email,
+            name: collaborator.name,
+            role: collaborator.role,
+            status: collaborator.status,
+            linkedToMe: !!linkedUser,
+          }
+        : null,
+      project: sanitizeProjectForPublic(project, mode),
+      // If caller happens to be a full member, surface that so the client
+      // can jump into the normal flow:
+      isFullMember: access.canView && access.role !== 'anonymous' && !access.role.startsWith('collaborator'),
+    };
+
+    res.status(200).json(payload);
+  } catch (error) {
+    console.error('❌ Public project fetch error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// PUBLIC: GET TASKS FOR PROJECT BY TOKEN
+// GET /api/projects/public/:token/tasks
+// ─────────────────────────────────────────────────────────────────────
+
+const getPublicProjectTasks = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const userId = req.user?.id || null;
+
+    let project = await Project.findOne({
+      publicShareToken: token,
+      publicShareEnabled: true,
+      isTrash: { $ne: true },
+    });
+    let collaborator = null;
+
+    if (!project) {
+      project = await Project.findOne({
+        'collaborators.inviteToken': token,
+        isTrash: { $ne: true },
+      });
+      if (project) {
+        collaborator = project.collaborators.find((c) => c.inviteToken === token);
+        if (collaborator?.status === 'revoked') {
+          return res.status(410).json({ success: false, message: 'This invite has been revoked.' });
+        }
+      }
+    }
+
+    if (!project) {
+      return res.status(404).json({ success: false, message: 'Invalid or expired link.' });
+    }
+
+    const linkedUser =
+      collaborator && userId && collaborator.userId?.toString() === userId;
+
+    const tasks = await Task.find({
+      project: project._id,
+      isDeleted: false,
+      isTrash: { $ne: true },
+      isArchived: { $ne: true },
+    })
+      .populate('assignees', 'name profile')
+      .sort({ order: 1, createdAt: -1 });
+
+    const sanitized = tasks.map((t) => {
+      const s = sanitizeTaskForPublic(t);
+      // Flag tasks the caller is allowed to complete (editor + assigned to them)
+      s.assignedToMe =
+        !!linkedUser &&
+        collaborator.role === 'editor' &&
+        (t.assignees || []).some((a) => (a._id || a).toString() === userId);
+      return s;
+    });
+
+    res.status(200).json({ success: true, tasks: sanitized, count: sanitized.length });
+  } catch (error) {
+    console.error('❌ Public project tasks error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// PUBLIC: GET SINGLE TASK BY TOKEN
+// GET /api/projects/public/:token/tasks/:taskId
+// ─────────────────────────────────────────────────────────────────────
+
+const getPublicTaskById = async (req, res) => {
+  try {
+    const { token, taskId } = req.params;
+    const userId = req.user?.id || null;
+
+    let project = await Project.findOne({
+      publicShareToken: token,
+      publicShareEnabled: true,
+      isTrash: { $ne: true },
+    });
+    let collaborator = null;
+
+    if (!project) {
+      project = await Project.findOne({
+        'collaborators.inviteToken': token,
+        isTrash: { $ne: true },
+      });
+      if (project) {
+        collaborator = project.collaborators.find((c) => c.inviteToken === token);
+        if (collaborator?.status === 'revoked') {
+          return res.status(410).json({ success: false, message: 'This invite has been revoked.' });
+        }
+      }
+    }
+
+    if (!project) {
+      return res.status(404).json({ success: false, message: 'Invalid or expired link.' });
+    }
+
+    const task = await Task.findOne({
+      _id: taskId,
+      project: project._id,
+      isDeleted: false,
+      isTrash: { $ne: true },
+    }).populate('assignees', 'name profile');
+
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found.' });
+    }
+
+    const linkedUser =
+      collaborator && userId && collaborator.userId?.toString() === userId;
+
+    const sanitized = sanitizeTaskForPublic(task);
+    sanitized.assignedToMe =
+      !!linkedUser &&
+      collaborator.role === 'editor' &&
+      (task.assignees || []).some((a) => (a._id || a).toString() === userId);
+
+    res.status(200).json({ success: true, task: sanitized });
+  } catch (error) {
+    console.error('❌ Public task fetch error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // ─────────────────────────────────────────────────────────────────────
 // EXPORTS
 // ─────────────────────────────────────────────────────────────────────
@@ -1348,6 +1951,7 @@ const permanentlyDeleteOldTrashedProjects = async () => {
 export {
   createProject,
   getWorkspaceProjects,
+  getMyCollaboratedProjects,
   getProjectById,
   updateProject,
   confirmProjectCompletion,
@@ -1363,4 +1967,18 @@ export {
   restoreProject,
   permanentlyDeleteProject,
   permanentlyDeleteOldTrashedProjects,
+  // ── Collaborators ──
+  enableProjectShareLink,
+  disableProjectShareLink,
+  addCollaborator,
+  getCollaborators,
+  updateCollaborator,
+  removeCollaborator,
+  regenerateCollaboratorToken,
+  // ── Public ──
+  getPublicProjectByToken,
+  getPublicProjectTasks,
+  getPublicTaskById,
+  // ── Access helper (re-exported so taskController can use it) ──
+  resolveProjectAccess,
 };

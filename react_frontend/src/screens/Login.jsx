@@ -1,6 +1,6 @@
 // pages/Login.jsx
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { Capacitor } from '@capacitor/core';
 import {
@@ -11,7 +11,7 @@ import {
 } from '../slices/userApiSlice';
 import { setCredentials } from '../slices/authSlice';
 import { toast } from 'react-hot-toast';
-import { FaEnvelope, FaLock, FaEye, FaEyeSlash, FaArrowLeft } from 'react-icons/fa';
+import { FaEnvelope, FaLock, FaEye, FaEyeSlash, FaArrowLeft, FaUserShield } from 'react-icons/fa';
 import { GoogleLogin } from '@react-oauth/google';
 
 const Login = () => {
@@ -28,6 +28,7 @@ const Login = () => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
 
   const { userInfo } = useSelector((state) => state.auth);
 
@@ -36,8 +37,25 @@ const Login = () => {
   const [verifyEmail, { isLoading: isVerifyLoading }] = useVerifyEmailMutation();
   const [resendOTP, { isLoading: isResendLoading }] = useResendOTPMutation();
 
-  // Redirect to my-workspaces after login
-  const from = location.state?.from?.pathname || '/today';
+  // ── Resolve the post-login destination ──
+  // Priority:
+  //   1. ?redirect= query param (used by collaborator invite flow)
+  //   2. location.state.from (used by RequireAuth wrappers)
+  //   3. sessionStorage pendingInviteToken (fallback if the param was lost)
+  //   4. /today (default)
+  const redirectParam = searchParams.get('redirect');
+  const pendingInviteToken = (() => {
+    try { return sessionStorage.getItem('pendingInviteToken'); } catch { return null; }
+  })();
+
+  const from =
+    redirectParam ||
+    location.state?.from?.pathname ||
+    (pendingInviteToken ? `/collaborate/${pendingInviteToken}` : null) ||
+    '/today';
+
+  // Was this login arrived at from a collaborator invite?
+  const isCollaboratorFlow = !!redirectParam && redirectParam.includes('/collaborate/');
 
   useEffect(() => {
     if (userInfo) {
@@ -55,6 +73,8 @@ const Login = () => {
       }).unwrap();
       dispatch(setCredentials({ ...res }));
       toast.success('Google login successful!');
+      // The server runs linkPendingCollaboratorInvites on login, so the
+      // invite (if any) is already linked by the time we navigate.
       navigate(from, { replace: true });
     } catch (err) {
       toast.error(err?.data?.message || 'Google login failed. Please try again.');
@@ -239,14 +259,20 @@ const Login = () => {
             <div className="max-w-lg mx-auto w-full">
               <div className="bg-white/10 dark:bg-white/5 backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-2xl p-8 shadow-2xl shadow-black/10">
                 <h2 className="text-4xl font-bold mb-4 leading-tight">
-                  {showOTPVerification ? 'Verify Your Email' : 'Welcome Back to Your Creative Hub'}
+                  {showOTPVerification
+                    ? 'Verify Your Email'
+                    : isCollaboratorFlow
+                      ? 'Continue to Your Invite'
+                      : 'Welcome Back to Your Creative Hub'}
                 </h2>
                 <p className="text-white/80 text-lg mb-6">
                   {showOTPVerification
                     ? 'Enter the OTP sent to your email to activate your account.'
-                    : 'Connect, collaborate, and create amazing projects with your team.'}
+                    : isCollaboratorFlow
+                      ? 'Sign in to continue to the project you were invited to.'
+                      : 'Connect, collaborate, and create amazing projects with your team.'}
                 </p>
-                {!showOTPVerification && (
+                {!showOTPVerification && !isCollaboratorFlow && (
                   <div className="flex flex-col gap-3">
                     <div className="flex items-center gap-3 text-white/90">
                       <div className="w-2 h-2 bg-white rounded-full"></div>
@@ -259,6 +285,22 @@ const Login = () => {
                     <div className="flex items-center gap-3 text-white/90">
                       <div className="w-2 h-2 bg-white rounded-full"></div>
                       <span>Team communication</span>
+                    </div>
+                  </div>
+                )}
+                {!showOTPVerification && isCollaboratorFlow && (
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-center gap-3 text-white/90">
+                      <FaUserShield className="text-white/70" />
+                      <span>Access tasks assigned to you</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-white/90">
+                      <div className="w-2 h-2 bg-white rounded-full"></div>
+                      <span>Read project updates</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-white/90">
+                      <div className="w-2 h-2 bg-white rounded-full"></div>
+                      <span>Collaborate with the team</span>
                     </div>
                   </div>
                 )}
@@ -293,9 +335,25 @@ const Login = () => {
             </div>
 
             <div className="mb-8">
-              <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">Welcome Back</h2>
-              <p className="text-gray-600 dark:text-gray-400 mt-1">Sign in to continue to your workspace</p>
+              <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">
+                {isCollaboratorFlow ? 'Sign in to your invite' : 'Welcome Back'}
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400 mt-1">
+                {isCollaboratorFlow
+                  ? 'Use the email that received the invite to continue.'
+                  : 'Sign in to continue to your workspace'}
+              </p>
             </div>
+
+            {/* Collaborator invite hint */}
+            {isCollaboratorFlow && (
+              <div className="mb-5 bg-teal-50 dark:bg-teal-900/20 border border-teal-200/70 dark:border-teal-800/40 rounded-xl p-3 flex items-start gap-2.5">
+                <FaUserShield className="text-teal-500 text-sm mt-0.5 shrink-0" />
+                <p className="text-xs text-teal-800 dark:text-teal-300 leading-relaxed">
+                  Once you sign in with the invited email, you'll be taken straight back to the project.
+                </p>
+              </div>
+            )}
 
             {/* Google Sign-In – only on web */}
             {!isNative && (
@@ -406,7 +464,7 @@ const Login = () => {
             <p className="mt-6 text-center text-sm text-gray-600 dark:text-gray-400">
               Don't have an account?{' '}
               <Link
-                to="/signup"
+                to={isCollaboratorFlow ? `/signup?redirect=${encodeURIComponent(redirectParam)}` : '/signup'}
                 className="font-medium text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 transition-colors duration-200"
               >
                 Create one now

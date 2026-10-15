@@ -1,3 +1,4 @@
+// routes/taskRoutes.js
 import express from 'express';
 import {
   createTask,
@@ -48,13 +49,13 @@ router.get('/my-tasks', protect, getMyTasks);
 
 // ── Folder management (project‑scoped) ──
 router.get('/project/:projectId/folders', protect, getProjectFolders);
-router.post('/folders', protect, createFolder);               // expects { projectId, name }
+router.post('/folders', protect, createFolder);
 router.put('/folders/:folderId', protect, updateFolder);
 router.delete('/folders/:folderId', protect, deleteFolder);
 
 // ── Folder read‑only access management ──
-router.post('/folders/:folderId/read-only', protect, addFolderReadOnly);   // body: { users: [userId] }
-router.delete('/folders/:folderId/read-only', protect, removeFolderReadOnly); // body: { users: [userId] }
+router.post('/folders/:folderId/read-only', protect, addFolderReadOnly);
+router.delete('/folders/:folderId/read-only', protect, removeFolderReadOnly);
 
 // ── Task reordering (project‑scoped, must be above /:taskId) ──
 router.patch('/project/:projectId/reorder', protect, reorderTasks);
@@ -76,19 +77,19 @@ router.put(
 );
 
 // ── Copy / Move tasks ──
-router.post('/:taskId/copy', protect, copyTask);          // body: { targetFolderId }
-router.patch('/:taskId/move', protect, moveTask);         // body: { targetFolderId }
+router.post('/:taskId/copy', protect, copyTask);
+router.patch('/:taskId/move', protect, moveTask);
 
 // ── Archive / Trash / Permanent delete ──
 router.patch('/:taskId/archive', protect, archiveTask);
 router.patch('/:taskId/restore', protect, restoreTask);
-router.delete('/:taskId', protect, deleteTask);             // soft‑delete (trash)
-router.delete('/:taskId/permanent', protect, permanentlyDeleteTask); // hard delete
+router.delete('/:taskId', protect, deleteTask);
+router.delete('/:taskId/permanent', protect, permanentlyDeleteTask);
 
-// ── Assign / Unassign task (PM/Owner only) ──
+// ── Assign / Unassign task (PM/Owner only — enforced in controller) ──
 router.patch('/:taskId/assign', protect, assignTask);
 
-// ── Sub‑task endpoints (for project tasks) ──
+// ── Sub‑task endpoints ──
 router.post(
   '/:taskId/subtasks',
   protect,
@@ -111,10 +112,12 @@ router.patch('/:taskId/subtasks/:subTaskIndex/confirm', protect, confirmSubTask)
 router.patch('/:taskId/subtasks/:subTaskIndex/reject', protect, rejectSubTask);
 router.delete('/:taskId/subtasks/:subTaskIndex', protect, deleteSubTask);
 
-// ── Sub‑task reordering (specific to a task) ──
+// ── Sub‑task reordering ──
 router.patch('/:taskId/subtasks/reorder', protect, reorderSubTasks);
 
 // ── Main task completion flow ──
+// markTaskCompleted is the endpoint collaborators use when they're the
+// task's assignee — the controller allows it via resolveTaskAccess.
 router.patch(
   '/:taskId/complete',
   protect,
@@ -122,7 +125,7 @@ router.patch(
   markTaskCompleted
 );
 
-// Confirm completion (approve) – parses text fields from FormData
+// Confirm completion (approve)
 router.patch(
   '/:taskId/confirm-completion',
   protect,
@@ -130,14 +133,16 @@ router.patch(
   confirmTaskCompletion
 );
 
-// ── Reject task completion (manager/owner) ──
-router.post('/:taskId/reject', protect, rejectTask);  // body: { reason }
+// ── Reject task completion ──
+router.post('/:taskId/reject', protect, rejectTask);
 
 // ── Reminder endpoints ──
 router.post('/reminders', protect, sendTaskReminders);
 router.post('/:taskId/remind', protect, sendManualReminder);
 
 // ── Comments & feedback history ──
+// Collaborators (editors) can comment ONLY on tasks they're assigned to —
+// enforced inside addComment via resolveTaskAccess.canComment.
 router.post('/:taskId/comments', protect, addComment);
 router.get('/:taskId/feedback', protect, getTaskFeedback);
 

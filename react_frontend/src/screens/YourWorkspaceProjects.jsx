@@ -14,6 +14,14 @@ import {
   usePermanentlyDeleteProjectMutation,
   useGetProjectByIdQuery,
   useUpdateProjectMutation,
+  // ── Collaborator / share-link hooks (all "Project"-prefixed) ──
+  useGetProjectCollaboratorsQuery,
+  useAddProjectCollaboratorMutation,
+  useUpdateProjectCollaboratorMutation,
+  useRemoveProjectCollaboratorMutation,
+  useRegenerateProjectCollaboratorTokenMutation,
+  useEnableProjectShareLinkMutation,
+  useDisableProjectShareLinkMutation,
 } from '../slices/projectApiSlice';
 import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
 import {
@@ -35,6 +43,8 @@ import {
   FaAngleDown, FaPalette, FaCalendarAlt, FaAngleLeft, FaAngleRight,
   FaThLarge, FaList,
   FaBolt, FaCube, FaStar, FaFire, FaFeather, FaCrown, FaGem, FaCompass, FaLayerGroup,
+  // ── collaborator UI icons ──
+  FaUserPlus, FaShareAlt, FaCopy, FaGlobe, FaUserShield, FaLink, FaEye,
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
@@ -109,8 +119,6 @@ const pickProjectIcon = (project) => {
 };
 
 // ─── Member normalization ─────────────────────────────────────────────
-// Server returns teamMembers as wrappers: { user: {...}, role, status }
-// and projectManagers as raw user objects. This makes both safe to render.
 const getTeamUser = (tm) => {
   if (!tm) return null;
   if (typeof tm === 'string') return { _id: tm, name: '', profile: '' };
@@ -1106,11 +1114,459 @@ const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor,
   );
 };
 
+// ═════════════════════════════════════════════════════════════════════
+//  Manage Access Modal (public link + collaborators)
+// ═════════════════════════════════════════════════════════════════════
+const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
+  const projectId = project?._id;
+
+  const { data, isLoading, refetch } = useGetProjectCollaboratorsQuery(projectId, {
+    skip: !isOpen || !projectId,
+  });
+  const [addCollaborator, { isLoading: isAdding }] = useAddProjectCollaboratorMutation();
+  const [updateCollaborator] = useUpdateProjectCollaboratorMutation();
+  const [removeCollaborator] = useRemoveProjectCollaboratorMutation();
+  const [regenerateToken] = useRegenerateProjectCollaboratorTokenMutation();
+  const [enableShareLink, { isLoading: isEnabling }] = useEnableProjectShareLinkMutation();
+  const [disableShareLink] = useDisableProjectShareLinkMutation();
+
+  // Also read the full project so we can show its current share-link state
+  const { data: projectData, refetch: refetchProject } = useGetProjectByIdQuery(projectId, {
+    skip: !isOpen || !projectId,
+  });
+  const fullProject = projectData?.project;
+
+  // Add form state
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+  const [role, setRole] = useState('viewer');
+
+  // Confirm removal
+  const [pendingRemove, setPendingRemove] = useState(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setEmail('');
+      setName('');
+      setRole('viewer');
+      setPendingRemove(null);
+    }
+  }, [isOpen, projectId]);
+
+  if (!isOpen || !project) return null;
+
+  const collaborators = data?.collaborators || [];
+  const activeCount = collaborators.filter((c) => c.status === 'active').length;
+  const invitedCount = collaborators.filter((c) => c.status === 'invited').length;
+  const publicEnabled = !!fullProject?.publicShareEnabled;
+  const publicToken = fullProject?.publicShareToken;
+
+  const shareUrl = publicToken
+    ? `${window.location.origin}/public/project/${publicToken}`
+    : '';
+
+  const collabInviteUrl = (token) =>
+    token ? `${window.location.origin}/collaborate/${token}` : '';
+
+  const copyToClipboard = async (text, label = 'Link') => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      toast.success(`${label} copied`);
+    } catch {
+      toast.error('Failed to copy');
+    }
+  };
+
+  const handleAdd = async (e) => {
+    e.preventDefault();
+    if (!email.trim()) return toast.error('Email is required');
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) return toast.error('Enter a valid email');
+    try {
+      const res = await addCollaborator({
+        projectId,
+        email: email.trim(),
+        name: name.trim(),
+        role,
+      }).unwrap();
+      toast.success(res.message || 'Collaborator added');
+      if (res.inviteUrl) {
+        copyToClipboard(res.inviteUrl, 'Invite link');
+      }
+      setEmail('');
+      setName('');
+      setRole('viewer');
+      refetch();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to add collaborator');
+    }
+  };
+
+  const handleChangeRole = async (collab, newRole) => {
+    try {
+      await updateCollaborator({
+        projectId,
+        collabId: collab._id,
+        role: newRole,
+      }).unwrap();
+      toast.success(`Role updated to ${newRole}`);
+      refetch();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to update role');
+    }
+  };
+
+  const handleRemove = async () => {
+    if (!pendingRemove) return;
+    try {
+      await removeCollaborator({
+        projectId,
+        collabId: pendingRemove._id,
+      }).unwrap();
+      toast.success('Collaborator removed');
+      setPendingRemove(null);
+      refetch();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to remove collaborator');
+      setPendingRemove(null);
+    }
+  };
+
+  const handleRegenerate = async (collab) => {
+    try {
+      const res = await regenerateToken({
+        projectId,
+        collabId: collab._id,
+      }).unwrap();
+      toast.success('New invite link generated');
+      if (res.inviteUrl) copyToClipboard(res.inviteUrl, 'Invite link');
+      refetch();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to regenerate link');
+    }
+  };
+
+  const handleEnableShare = async () => {
+    try {
+      const res = await enableShareLink(projectId).unwrap();
+      toast.success('Public link enabled');
+      refetchProject();
+      if (res.publicShareUrl) copyToClipboard(res.publicShareUrl, 'Public link');
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to enable share link');
+    }
+  };
+
+  const handleDisableShare = async () => {
+    try {
+      await disableShareLink(projectId).unwrap();
+      toast.success('Public link disabled');
+      refetchProject();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to disable share link');
+    }
+  };
+
+  const ROLE_OPTIONS = [
+    { value: 'viewer', label: 'Viewer — read-only' },
+    { value: 'editor', label: 'Editor — act on assigned tasks' },
+  ];
+
+  return (
+    <>
+      <div className="fixed inset-0 z-[70] flex items-end md:items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-0 md:p-4" onClick={onClose}>
+        <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-3xl md:rounded-2xl w-full md:max-w-lg max-h-[92vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+
+          <div className="shrink-0 flex justify-between items-center px-5 py-4 border-b border-gray-200 dark:border-gray-800/60">
+            <div className="min-w-0">
+              <h2 className="text-base font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
+                <FaUserShield className="text-[#0d9488]" /> Manage access
+              </h2>
+              <p className="text-[11px] text-gray-500 dark:text-gray-500 truncate mt-0.5">{project.name}</p>
+            </div>
+            <button onClick={onClose} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition shrink-0">
+              <FaTimes />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
+
+            {/* ── Public share link ──────────────────────────── */}
+            <section>
+              <div className="flex items-center gap-2 mb-2">
+                <FaGlobe className="text-xs text-[#0d9488]" />
+                <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">
+                  Public link
+                </h3>
+              </div>
+
+              <div className={`rounded-2xl border transition p-3 ${publicEnabled
+                ? 'bg-[#0d9488]/5 border-[#0d9488]/30'
+                : 'bg-gray-50 dark:bg-[#1a1a24] border-gray-200 dark:border-gray-800/40'}`}>
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                      {publicEnabled ? 'Anyone with the link can view' : 'Public link is off'}
+                    </p>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-500 mt-0.5 leading-relaxed">
+                      {publicEnabled
+                        ? 'Read-only access. No signup required. Turn off to revoke immediately.'
+                        : 'Generate a link anyone can open to view this project — no Xircle account needed.'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={publicEnabled ? handleDisableShare : handleEnableShare}
+                    disabled={isEnabling}
+                    className={`shrink-0 px-3 py-1.5 text-xs font-semibold rounded-lg transition ${
+                      publicEnabled
+                        ? 'bg-red-600/10 text-red-600 dark:text-red-400 hover:bg-red-600/20 border border-red-500/30'
+                        : 'bg-[#0d9488] text-white hover:bg-[#0f9e96] shadow-sm'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    {isEnabling ? <FaSpinner className="animate-spin" /> : publicEnabled ? 'Disable' : 'Enable'}
+                  </button>
+                </div>
+
+                {publicEnabled && shareUrl && (
+                  <div className="mt-3 flex items-center gap-2 bg-white dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800/60 rounded-lg px-2.5 py-1.5">
+                    <FaLink className="text-gray-400 text-[10px] shrink-0" />
+                    <span className="flex-1 truncate text-[11px] text-gray-600 dark:text-gray-400 font-mono">
+                      {shareUrl}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(shareUrl, 'Public link')}
+                      className="p-1 text-gray-500 hover:text-[#0d9488] transition shrink-0"
+                      title="Copy link"
+                    >
+                      <FaCopy className="text-[11px]" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {/* ── Add a collaborator ─────────────────────────── */}
+            <section>
+              <div className="flex items-center gap-2 mb-2">
+                <FaUserPlus className="text-xs text-[#0d9488]" />
+                <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">
+                  Invite a collaborator
+                </h3>
+              </div>
+
+              <form onSubmit={handleAdd} className="space-y-2">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="their@email.com"
+                  disabled={isAdding}
+                  className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 focus:border-[#0d9488] outline-none disabled:opacity-60"
+                />
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Name (optional)"
+                  disabled={isAdding}
+                  className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 focus:border-[#0d9488] outline-none disabled:opacity-60"
+                />
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <CustomDropdown
+                      value={role}
+                      onChange={setRole}
+                      options={ROLE_OPTIONS}
+                      placeholder="Role"
+                      disabled={isAdding}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isAdding || !email.trim()}
+                    className="px-4 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shrink-0"
+                    style={{ backgroundColor: brandColor }}
+                  >
+                    {isAdding ? <FaSpinner className="animate-spin text-xs" /> : <FaPaperPlane className="text-xs" />}
+                    <span>Invite</span>
+                  </button>
+                </div>
+                <p className="text-[10px] text-gray-500 dark:text-gray-500 leading-relaxed">
+                  If they don't have a Xircle account yet, they'll get a link to view the project. The moment they sign up with that email, they'll be linked and can act on tasks assigned to them.
+                </p>
+              </form>
+            </section>
+
+            {/* ── Current collaborators ──────────────────────── */}
+            <section>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <FaUsers className="text-xs text-[#0d9488]" />
+                  <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">
+                    Collaborators ({collaborators.length})
+                  </h3>
+                </div>
+                {(activeCount > 0 || invitedCount > 0) && (
+                  <span className="text-[10px] text-gray-500 dark:text-gray-500">
+                    {activeCount} active · {invitedCount} pending
+                  </span>
+                )}
+              </div>
+
+              {isLoading ? (
+                <div className="flex justify-center py-6">
+                  <FaSpinner className="animate-spin text-lg text-[#0d9488]" />
+                </div>
+              ) : collaborators.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-gray-300 dark:border-gray-800/60 px-4 py-6 text-center">
+                  <FaUserShield className="text-2xl text-gray-300 dark:text-gray-700 mx-auto mb-2" />
+                  <p className="text-xs text-gray-500 dark:text-gray-500">No collaborators yet</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {collaborators.map((c) => {
+                    const isInvited = c.status === 'invited';
+                    const isActive = c.status === 'active';
+                    const isRevoked = c.status === 'revoked';
+                    const displayName = c.name || c.email;
+                    const initials = getInitials(c.name || c.email);
+                    const inviteUrl = collabInviteUrl(c.inviteToken);
+
+                    return (
+                      <div
+                        key={c._id}
+                        className={`rounded-xl border p-3 transition ${
+                          isRevoked
+                            ? 'bg-gray-50 dark:bg-[#14141a] border-gray-200 dark:border-gray-800/40 opacity-60'
+                            : isActive
+                              ? 'bg-white dark:bg-[#0b0b10] border-gray-200 dark:border-gray-800/60'
+                              : 'bg-amber-50/60 dark:bg-amber-900/10 border-amber-200/70 dark:border-amber-700/30'
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <span className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0" style={{ backgroundColor: isRevoked ? '#94a3b8' : brandColor }}>
+                            {initials || <FaUser className="text-[10px]" />}
+                          </span>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+                                {displayName}
+                              </p>
+                              {isInvited && (
+                                <span className="text-[9px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">
+                                  Pending
+                                </span>
+                              )}
+                              {isRevoked && (
+                                <span className="text-[9px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+                                  Revoked
+                                </span>
+                              )}
+                            </div>
+                            {c.name && (
+                              <p className="text-[11px] text-gray-500 dark:text-gray-500 truncate">{c.email}</p>
+                            )}
+                            {!c.name && <p className="text-[11px] text-gray-400 dark:text-gray-600">—</p>}
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            {!isRevoked && (
+                              <>
+                                <select
+                                  value={c.role}
+                                  onChange={(e) => handleChangeRole(c, e.target.value)}
+                                  className="text-[11px] font-medium px-2 py-1 rounded-lg bg-gray-100 dark:bg-[#1a1a24] border border-gray-200 dark:border-gray-800/60 text-gray-700 dark:text-gray-300 outline-none cursor-pointer hover:border-[#0d9488]/50 transition"
+                                >
+                                  <option value="viewer">Viewer</option>
+                                  <option value="editor">Editor</option>
+                                </select>
+
+                                {isInvited && inviteUrl && (
+                                  <button
+                                    type="button"
+                                    onClick={() => copyToClipboard(inviteUrl, 'Invite link')}
+                                    className="p-1.5 text-gray-500 hover:text-[#0d9488] transition"
+                                    title="Copy invite link"
+                                  >
+                                    <FaCopy className="text-[11px]" />
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleRegenerate(c)}
+                                  className="p-1.5 text-gray-500 hover:text-[#0d9488] transition"
+                                  title="Rotate invite link"
+                                >
+                                  <FaLink className="text-[11px]" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setPendingRemove(c)}
+                                  className="p-1.5 text-gray-500 hover:text-red-500 transition"
+                                  title="Remove collaborator"
+                                >
+                                  <FaTrashAlt className="text-[11px]" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          </div>
+
+          <div className="shrink-0 flex gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-800/60">
+            <button
+              onClick={onClose}
+              className="flex-1 py-2.5 text-white rounded-xl text-sm font-medium hover:opacity-90 transition"
+              style={{ backgroundColor: brandColor }}
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <ConfirmModal
+        isOpen={!!pendingRemove}
+        onConfirm={handleRemove}
+        onCancel={() => setPendingRemove(null)}
+        title="Remove collaborator?"
+        message={
+          pendingRemove
+            ? `${pendingRemove.name || pendingRemove.email} will lose access to this project. If they still have open tasks assigned, you'll need to reassign them first.`
+            : ''
+        }
+        confirmLabel="Remove"
+      />
+    </>
+  );
+};
+
 // ─── Project Menu Modal ─────────────────────────────────────────────
 const ProjectMenuModal = ({
   isOpen, onClose, project, canManage,
   onEdit, onArchive, onUnarchive, onDelete, onPermanentDelete, onRestore,
   onAISummary, onAIReview, onAIDocs,
+  onManageAccess,
   brandColor,
 }) => {
   if (!isOpen || !project) return null;
@@ -1151,9 +1607,14 @@ const ProjectMenuModal = ({
             ) : (
               <>
                 {canManage && (
-                  <button onClick={() => handleAction(() => onEdit(project._id))} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
-                    <FaEdit className="text-sm text-[#0d9488]" /><span className="text-sm font-medium">Edit</span>
-                  </button>
+                  <>
+                    <button onClick={() => handleAction(() => onEdit(project._id))} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+                      <FaEdit className="text-sm text-[#0d9488]" /><span className="text-sm font-medium">Edit</span>
+                    </button>
+                    <button onClick={() => handleAction(() => onManageAccess(project))} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+                      <FaUserShield className="text-sm text-[#0d9488]" /><span className="text-sm font-medium">Manage access</span>
+                    </button>
+                  </>
                 )}
 
                 <div className="pt-2 mt-2 border-t border-gray-100 dark:border-gray-800/40">
@@ -1245,12 +1706,10 @@ const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen }
       onClick={handleCardClick}
       className="group relative flex flex-col bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/70 dark:border-gray-800/50 hover:border-gray-300/80 dark:hover:border-gray-700/70 hover:shadow-[0_12px_40px_-12px_rgba(13,148,136,0.28)] dark:hover:shadow-[0_12px_40px_-12px_rgba(13,148,136,0.35)] transition-all duration-300 active:scale-[0.985] cursor-pointer overflow-hidden"
     >
-      {/* Banner */}
       <div
         className="relative h-16 sm:h-20 md:h-24 flex items-center justify-center overflow-hidden shrink-0"
         style={{ background: bannerBg }}
       >
-        {/* Dot pattern */}
         <div
           className="absolute inset-0 opacity-[0.14] pointer-events-none"
           style={{
@@ -1258,18 +1717,15 @@ const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen }
             backgroundSize: '12px 12px',
           }}
         />
-        {/* Soft highlight */}
         <div
           className="absolute inset-0 pointer-events-none"
           style={{ background: 'radial-gradient(circle at 30% 15%, rgba(255,255,255,0.28), transparent 60%)' }}
         />
-        {/* Bottom inner shadow for depth */}
         <div
           className="absolute inset-x-0 bottom-0 h-8 pointer-events-none"
           style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.18), transparent)' }}
         />
 
-        {/* Cover image overrides the banner */}
         {project.coverImage && (
           <>
             <img
@@ -1281,17 +1737,14 @@ const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen }
           </>
         )}
 
-        {/* Fun project icon */}
         {!project.coverImage && (
           <Icon className="relative text-white text-[22px] sm:text-[26px] md:text-[32px] drop-shadow-[0_2px_6px_rgba(0,0,0,0.35)]" />
         )}
 
-        {/* Status pill */}
         <span className="absolute top-1.5 left-1.5 md:top-2 md:left-2 text-[8px] md:text-[9.5px] font-bold tracking-wider uppercase px-1.5 md:px-2 py-0.5 rounded-full bg-black/25 text-white backdrop-blur-md border border-white/15 pointer-events-none">
           {STATUS_LABELS[displayStatus] || 'Planning'}
         </span>
 
-        {/* Menu button */}
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onMenuOpen(project); }}
@@ -1302,7 +1755,6 @@ const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen }
         </button>
       </div>
 
-      {/* Body */}
       <div className="flex flex-col flex-1 p-2.5 md:p-3.5 min-w-0">
         <h3 className="text-[12.5px] sm:text-[13.5px] md:text-[15px] font-semibold text-gray-900 dark:text-gray-100 leading-snug line-clamp-2 break-words">
           {project.name}
@@ -1322,7 +1774,6 @@ const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen }
 
         {!project.isTrash && (
           <>
-            {/* Progress row */}
             <div className="flex items-center gap-2 mt-2">
               <div className="flex-1 h-[3px] md:h-1 bg-gray-100 dark:bg-gray-800/70 rounded-full overflow-hidden">
                 <div
@@ -1335,9 +1786,7 @@ const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen }
               </span>
             </div>
 
-            {/* Footer */}
             <div className="mt-2 flex items-center justify-between gap-2 min-w-0">
-              {/* Members */}
               <div className="flex -space-x-1.5 min-w-0 shrink">
                 {members.slice(0, 3).map((u, idx) => (
                   <MemberAvatar
@@ -1358,7 +1807,6 @@ const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen }
                 )}
               </div>
 
-              {/* Task counts */}
               <div className="flex items-center gap-1.5 md:gap-2 text-[9.5px] md:text-[10.5px] text-gray-500 dark:text-gray-500 shrink-0">
                 <span className="flex items-center gap-1">
                   <FaTasks className="text-[8.5px] md:text-[9.5px] text-[#0d9488]" />
@@ -1412,7 +1860,6 @@ const ProjectListItem = ({ project, brandColor, workspaceId, canManage, onMenuOp
     >
       <span className="absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-r-full" style={{ backgroundColor: cardColor }} />
 
-      {/* Icon tile */}
       <div
         className="w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center text-white shrink-0 overflow-hidden relative"
         style={{ background: tileBg }}
@@ -1444,7 +1891,6 @@ const ProjectListItem = ({ project, brandColor, workspaceId, canManage, onMenuOp
           <p className="text-xs text-gray-500 dark:text-gray-500 truncate mt-0.5">{project.description}</p>
         )}
 
-        {/* Mobile progress row */}
         {!project.isTrash && (
           <div className="flex md:hidden items-center gap-2 mt-1.5">
             <div className="flex-1 h-[3px] bg-gray-100 dark:bg-gray-800/70 rounded-full overflow-hidden">
@@ -1464,7 +1910,6 @@ const ProjectListItem = ({ project, brandColor, workspaceId, canManage, onMenuOp
         )}
       </div>
 
-      {/* Desktop meta */}
       {!project.isTrash && (
         <div className="hidden md:flex items-center gap-4 shrink-0">
           <div className="flex -space-x-1.5">
@@ -2439,6 +2884,9 @@ const YourWorkspaceProjects = () => {
   const [view, setView] = useState('active');
   const [optimisticArchivedIds, setOptimisticArchivedIds] = useState([]);
 
+  // Manage-access modal state
+  const [manageAccessProject, setManageAccessProject] = useState(null);
+
   // Grid / list layout
   const [layoutView, setLayoutView] = useState(() => {
     if (typeof window === 'undefined') return 'grid';
@@ -2624,6 +3072,8 @@ const YourWorkspaceProjects = () => {
   const handleEditSuccess = () => { refetchProjects(); setEditProjectId(null); };
   const handleMenuOpen = (project) => { setSelectedProject(project); setMenuModalOpen(true); };
   const handleMenuClose = () => { setMenuModalOpen(false); setSelectedProject(null); };
+
+  const handleManageAccess = (project) => setManageAccessProject(project);
 
   const gridCols = aiOpen && isDesktop
     ? 'grid-cols-1 sm:grid-cols-1'
@@ -2928,6 +3378,14 @@ const YourWorkspaceProjects = () => {
         onAISummary={(p) => setAiSummaryProject(p)}
         onAIReview={(p) => setAiReviewProject(p)}
         onAIDocs={(p) => setAiDocsProject(p)}
+        onManageAccess={handleManageAccess}
+        brandColor={brandColor}
+      />
+
+      <ManageAccessModal
+        isOpen={!!manageAccessProject}
+        onClose={() => setManageAccessProject(null)}
+        project={manageAccessProject}
         brandColor={brandColor}
       />
 

@@ -49,6 +49,8 @@ import WriteNote from './screens/WriteNote.jsx';
 import PublicNote from './screens/PublicNote.jsx';
 import AcceptTaskCollab from './screens/AcceptTaskCollab.jsx';
 import Sticker from './screens/Sticker.jsx';
+import PublicProject from './screens/PublicProject.jsx';
+import ProjectCollaborate from './screens/ProjectCollaborate.jsx';
 
 import AllTasks from './screens/AllTasks.jsx';
 
@@ -553,6 +555,8 @@ const router = createBrowserRouter([
       { path: 'forgot-password', element: <ForgotPassword /> },
       { path: 'app/download/:versionId', element: <AppDownload /> },
       {path: 'share/:link', element: <PublicNote />},
+      {path: 'public/project/:token', element: <PublicProject />},
+      {path: 'collaborate/:token', element: <ProjectCollaborate />},
       { path: '*', element: <NotFound /> },
 
       {

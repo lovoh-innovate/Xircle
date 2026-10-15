@@ -53,10 +53,105 @@ const isTaskAssignee = (task, userId) =>
     return id === userId;
   });
 
+// Managers = owner, admin, project creator, or PM
 const canManageTasks = (workspace, project, userId) =>
   isWorkspaceOwner(workspace, userId) ||
   (project.createdBy && project.createdBy.toString() === userId) ||
   isProjectManager(project, userId);
+
+// ─── NEW: collaborator resolver ─────────────────────────────────
+//
+// Given a project + userId, returns the collaborator record (if active).
+// Returns null when the caller is a normal member or has no collaborator role.
+
+const getActiveCollaborator = (project, userId) => {
+  if (!userId || !project.collaborators) return null;
+  return (
+    project.collaborators.find(
+      (c) => c.userId && c.userId.toString() === userId && c.status === 'active'
+    ) || null
+  );
+};
+
+// ─── Unified task access resolver ───────────────────────────────
+//
+// Returns:
+//   {
+//     role: 'owner' | 'admin' | 'pm' | 'member' | 'collaboratorEditor' | 'collaboratorViewer' | 'assignee' | 'none',
+//     canManage: bool,           // can edit/delete/assign/etc.
+//     canView: bool,             // can see the task
+//     canComplete: bool,         // can mark THIS task completed
+//     canComment: bool,
+//     collaborator: obj|null,
+//   }
+//
+// Note: canComplete is task-specific — for collaborators it returns true
+// only when the collaborator is an actual assignee of the task.
+
+const resolveTaskAccess = (workspace, project, task, userId) => {
+  if (!userId) {
+    return {
+      role: 'none',
+      canManage: false,
+      canView: false,
+      canComplete: false,
+      canComment: false,
+      collaborator: null,
+    };
+  }
+
+  if (isWorkspaceOwner(workspace, userId)) {
+    return { role: 'owner', canManage: true, canView: true, canComplete: true, canComment: true, collaborator: null };
+  }
+  if (isWorkspaceAdmin(workspace, userId)) {
+    return { role: 'admin', canManage: true, canView: true, canComplete: true, canComment: true, collaborator: null };
+  }
+  if (isProjectManager(project, userId) || project.createdBy?.toString() === userId) {
+    return { role: 'pm', canManage: true, canView: true, canComplete: true, canComment: true, collaborator: null };
+  }
+
+  if (isProjectMember(project, userId)) {
+    // Team members can view everything and complete their assigned tasks
+    const assigned = isTaskAssignee(task, userId);
+    return {
+      role: 'member',
+      canManage: false,
+      canView: true,
+      canComplete: assigned || !!task.allowAssigneeEditSubtasks,
+      canComment: true,
+      collaborator: null,
+    };
+  }
+
+  const collab = getActiveCollaborator(project, userId);
+  if (collab) {
+    const isEditor = collab.role === 'editor';
+    const assigned = isTaskAssignee(task, userId);
+    return {
+      role: isEditor ? 'collaboratorEditor' : 'collaboratorViewer',
+      canManage: false,
+      canView: true,
+      // Editors can only act on tasks they're assigned to
+      canComplete: isEditor && assigned,
+      canComment: isEditor && assigned,
+      collaborator: collab,
+    };
+  }
+
+  // Fallback — task assignee without team membership (edge case)
+  if (isTaskAssignee(task, userId)) {
+    return { role: 'assignee', canManage: false, canView: true, canComplete: true, canComment: true, collaborator: null };
+  }
+
+  return { role: 'none', canManage: false, canView: false, canComplete: false, canComment: false, collaborator: null };
+};
+
+const canViewTask = (workspace, project, userId, task) => {
+  const access = resolveTaskAccess(workspace, project, task, userId);
+  return access.canView;
+};
+
+// ─── Existing helpers (unchanged) ────────────────────────────────
 
 const getVisibleFolderIdsForUser = async (projectId, userId) => {
   const assignedFolders = await Task.distinct('folder', {
@@ -71,15 +166,6 @@ const getVisibleFolderIdsForUser = async (projectId, userId) => {
     readOnlyUsers: userId,
   });
   return Array.from(new Set([...assignedFolders, ...readOnlyFolders]));
-};
-
-const canViewTask = (workspace, project, userId, task) => {
-  if (canManageTasks(workspace, project, userId)) return true;
-  if (isWorkspaceAdmin(workspace, userId)) return true;
-  if (isTaskAssignee(task, userId)) return true;
-  if (task.createdBy?.toString() === userId) return true;
-  if (isProjectMember(project, userId)) return true;
-  return false;
 };
 
 const parseArrayField = (value) => {
@@ -107,6 +193,7 @@ const normalizeAttachments = (files) => {
   }));
 };
 
+// UPDATED: also allow editor collaborators as valid assignees
 const ensureProjectMembers = async (project, workspace, assigneeIds) => {
   let modified = false;
   for (const assigneeId of assigneeIds) {
@@ -118,25 +205,37 @@ const ensureProjectMembers = async (project, workspace, assigneeIds) => {
     const isWorkspaceMember = workspace.members.some(
       (m) => m.user.toString() === assigneeId && m.status === 'active'
     );
-    if (!isWorkspaceMember) {
-      throw new Error('Assignee must be an active member of the workspace.');
+
+    // NEW: allow active editor collaborators (even if not workspace members)
+    const collab = (project.collaborators || []).find(
+      (c) =>
+        c.userId &&
+        c.userId.toString() === assigneeId &&
+        c.status === 'active' &&
+        c.role === 'editor'
+    );
+
+    if (!isWorkspaceMember && !collab) {
+      throw new Error('Assignee must be an active workspace member or an editor collaborator.');
     }
 
-    const existing = project.teamMembers.find(
-      (tm) => tm.user.toString() === assigneeId
-    );
-    if (existing) {
-      existing.status = 'active';
-      existing.leftAt = null;
-    } else {
-      project.teamMembers.push({
-        user: assigneeId,
-        role: 'member',
-        status: 'active',
-        joinedAt: new Date(),
-      });
+    // Only add to teamMembers if they're an actual workspace member
+    if (isWorkspaceMember) {
+      const existing = project.teamMembers.find((tm) => tm.user.toString() === assigneeId);
+      if (existing) {
+        existing.status = 'active';
+        existing.leftAt = null;
+      } else {
+        project.teamMembers.push({
+          user: assigneeId,
+          role: 'member',
+          status: 'active',
+          joinedAt: new Date(),
+        });
+      }
+      modified = true;
     }
-    modified = true;
+    // Editor collaborators stay in `collaborators` — do NOT push into teamMembers
   }
   if (modified) await project.save();
 };
@@ -149,16 +248,8 @@ const extractAssigneeIds = (body) => {
   return [...new Set(raw.map(String).filter(Boolean))];
 };
 
-// ─── Linked notes (workspace + personal) ─────────────────────────
+// ─── Linked notes (unchanged) ────────────────────────────────────
 
-/**
- * Normalize whatever the client sends into a clean array of
- * `{ note: <id-string>, source: 'workspace' | 'personal' }` objects.
- * Accepts:
- *   - an array of `{ noteId|_id|note, source }` objects
- *   - a JSON-encoded array of the above
- * Silently drops malformed entries.
- */
 const parseLinkedNotes = (value) => {
   if (!value) return [];
   let arr = value;
@@ -187,13 +278,6 @@ const parseLinkedNotes = (value) => {
   return out;
 };
 
-/**
- * Verify the caller can actually attach each linked note.
- *  - personal → note must belong to the caller
- *  - workspace → note must belong to the same workspace as the task's project
- * Returns a fresh array of subdocuments ready to store, with `addedAt` set.
- * Invalid entries are dropped silently so a stale ID never fails the whole save.
- */
 const validateLinkedNotes = async (items, userId, workspaceId) => {
   if (!items || items.length === 0) return [];
 
@@ -205,10 +289,7 @@ const validateLinkedNotes = async (items, userId, workspaceId) => {
       ? PersonalNote.find({ _id: { $in: personalIds }, user: userId }).select('_id')
       : [],
     workspaceIds.length
-      ? WorkspaceNote.find({
-          _id: { $in: workspaceIds },
-          workspace: workspaceId,
-        }).select('_id')
+      ? WorkspaceNote.find({ _id: { $in: workspaceIds }, workspace: workspaceId }).select('_id')
       : [],
   ]);
 
@@ -227,13 +308,6 @@ const validateLinkedNotes = async (items, userId, workspaceId) => {
   return validated;
 };
 
-/**
- * Hydrate a task's `linkedNotes` with `{ _id, title, content, updatedAt }`
- * from the actual note documents so the client can render the full note
- * body inline without extra round-trips.
- * Returns a plain object (not a Mongoose doc). Deleted notes fall back to
- * `{ _id, title: '[Deleted]', content: '' }` so the reference is still visible.
- */
 const populateTaskLinkedNotes = async (task) => {
   if (!task) return task;
   const obj = typeof task.toObject === 'function' ? task.toObject() : task;
@@ -249,12 +323,10 @@ const populateTaskLinkedNotes = async (task) => {
 
   const [personalDocs, workspaceDocs] = await Promise.all([
     personalIds.length
-      ? PersonalNote.find({ _id: { $in: personalIds } })
-          .select('title content updatedAt')
+      ? PersonalNote.find({ _id: { $in: personalIds } }).select('title content updatedAt')
       : [],
     workspaceIds.length
-      ? WorkspaceNote.find({ _id: { $in: workspaceIds } })
-          .select('title content updatedAt')
+      ? WorkspaceNote.find({ _id: { $in: workspaceIds } }).select('title content updatedAt')
       : [],
   ]);
 
@@ -266,12 +338,7 @@ const populateTaskLinkedNotes = async (task) => {
     const doc = ln.source === 'personal' ? personalMap.get(idStr) : workspaceMap.get(idStr);
     return {
       note: doc
-        ? {
-            _id: doc._id,
-            title: doc.title,
-            content: doc.content,
-            updatedAt: doc.updatedAt,
-          }
+        ? { _id: doc._id, title: doc.title, content: doc.content, updatedAt: doc.updatedAt }
         : { _id: ln.note, title: '[Deleted]', content: '' },
       source: ln.source,
       addedAt: ln.addedAt,
@@ -281,7 +348,7 @@ const populateTaskLinkedNotes = async (task) => {
   return obj;
 };
 
-// ─── Google Calendar sync ─────────────────────────────────────────
+// ─── Google Calendar sync (unchanged) ───────────────────────────
 
 const syncTaskToGoogle = async (task, action = 'create') => {
   if (!task.syncToGoogleCalendar) return;
@@ -309,12 +376,12 @@ const syncTaskToGoogle = async (task, action = 'create') => {
   }
 };
 
-// ─── Recurrence helpers ──────────────────────────────────────────
+// ─── Recurrence helpers (unchanged) ─────────────────────────────
 
 const calculateNextDueDate = (item, fromDate = null) => {
   if (!item.recurrenceType || item.recurrenceType === 'none') return null;
 
-  const base = fromDate ? new Date(fromDate) : (item.dueDate ? new Date(item.dueDate) : new Date());
+  const base = fromDate ? new Date(fromDate) : item.dueDate ? new Date(item.dueDate) : new Date();
   if (!item.dueDate) base.setHours(0, 0, 0, 0);
 
   if (item.recurrenceEndDate && base >= new Date(item.recurrenceEndDate)) return null;
@@ -403,7 +470,6 @@ const spawnNextTaskOccurrence = async (task) => {
     rejectionReason: null,
     reminderSent: false,
   }));
-  // linkedNotes carries over automatically (just references).
 
   const newTask = await Task.create(data);
 
@@ -438,12 +504,9 @@ const spawnNextSubTaskOccurrence = (task, subTask, index) => {
   return true;
 };
 
-// ─── Notifications ────────────────────────────────────────────────
+// ─── Notifications (unchanged) ──────────────────────────────────
 
-const notifyUsers = async (
-  userIds,
-  { title, body, data = {}, emailEventType = null, emailHtml = null }
-) => {
+const notifyUsers = async (userIds, { title, body, data = {}, emailEventType = null, emailHtml = null }) => {
   if (!userIds) return;
   const recipients = Array.isArray(userIds) ? userIds : [userIds];
   for (const recipient of recipients) {
@@ -462,15 +525,13 @@ const notifyUsers = async (
 
 const getManagerRecipients = (project, workspace) => {
   const ids = new Set(project.projectManagers.map((pm) => pm.toString()));
-  const ownerId = workspace.owner?._id
-    ? workspace.owner._id.toString()
-    : workspace.owner?.toString();
+  const ownerId = workspace.owner?._id ? workspace.owner._id.toString() : workspace.owner?.toString();
   if (ownerId) ids.add(ownerId);
   if (project.createdBy) ids.add(project.createdBy.toString());
   return Array.from(ids);
 };
 
-// ─── Progress recomputation ──────────────────────────────────────
+// ─── Progress recomputation (unchanged) ─────────────────────────
 
 const updateTaskProgress = async (taskId, { preserveStatus = false } = {}) => {
   const task = await Task.findById(taskId);
@@ -535,7 +596,7 @@ const updateProjectProgress = async (projectId) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// CREATE TASK
+// CREATE TASK  (managers only — collaborators blocked)
 // ─────────────────────────────────────────────────────────────────────
 
 export const createTask = async (req, res) => {
@@ -602,7 +663,6 @@ export const createTask = async (req, res) => {
       return res.status(400).json({ success: false, message: err.message });
     }
 
-    // Validate the linked notes up-front (silently drops inaccessible IDs).
     const validatedLinkedNotes = await validateLinkedNotes(
       rawLinkedNotes,
       userId,
@@ -618,8 +678,7 @@ export const createTask = async (req, res) => {
     const initialStatus = hasAssignees ? 'ready_for_completion' : 'pending';
 
     const wantsGoogleSync =
-      req.body.syncToGoogleCalendar === 'true' ||
-      req.body.syncToGoogleCalendar === true;
+      req.body.syncToGoogleCalendar === 'true' || req.body.syncToGoogleCalendar === true;
 
     const task = await Task.create({
       project: projectId,
@@ -689,7 +748,7 @@ export const createTask = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// UPDATE TASK
+// UPDATE TASK  (managers only — collaborators blocked)
 // ─────────────────────────────────────────────────────────────────────
 
 export const updateTask = async (req, res) => {
@@ -705,6 +764,17 @@ export const updateTask = async (req, res) => {
 
     const isManager = canManageTasks(workspace, project, userId);
     const isAssignee = isTaskAssignee(task, userId);
+
+    // Assignee-with-allowEdit path stays, but explicitly disallow collaborators
+    const access = resolveTaskAccess(workspace, project, task, userId);
+    const isCollaborator = access.role === 'collaboratorEditor' || access.role === 'collaboratorViewer';
+
+    if (isCollaborator) {
+      return res.status(403).json({
+        success: false,
+        message: 'Collaborators cannot edit task details — you can only complete assigned tasks.',
+      });
+    }
 
     if (!isManager && !(isAssignee && task.allowAssigneeEditSubtasks)) {
       return res.status(403).json({
@@ -738,7 +808,14 @@ export const updateTask = async (req, res) => {
       }
     }
 
-    const validStatuses = ['pending', 'in-progress', 'ready_for_completion', 'completed', 'confirmed_completed', 'cancelled'];
+    const validStatuses = [
+      'pending',
+      'in-progress',
+      'ready_for_completion',
+      'completed',
+      'confirmed_completed',
+      'cancelled',
+    ];
     let statusExplicitlySet = false;
 
     if (isManager) {
@@ -778,7 +855,6 @@ export const updateTask = async (req, res) => {
         }
       }
 
-      // ─── Linked notes (replace whole list when provided) ────
       if (req.body.linkedNotes !== undefined) {
         const rawItems = parseLinkedNotes(req.body.linkedNotes);
         task.linkedNotes = await validateLinkedNotes(
@@ -788,11 +864,9 @@ export const updateTask = async (req, res) => {
         );
       }
 
-      // ─── Google Calendar opt-in toggle ────
       if (req.body.syncToGoogleCalendar !== undefined) {
         const wantsSync =
-          req.body.syncToGoogleCalendar === 'true' ||
-          req.body.syncToGoogleCalendar === true;
+          req.body.syncToGoogleCalendar === 'true' || req.body.syncToGoogleCalendar === true;
         const wasSync = task.syncToGoogleCalendar;
         task.syncToGoogleCalendar = wantsSync;
 
@@ -805,7 +879,6 @@ export const updateTask = async (req, res) => {
         }
       }
 
-      // ─── Assignees update ────
       if (req.body.assigneeIds !== undefined || req.body.assigneeId !== undefined) {
         const newIds = extractAssigneeIds(req.body);
         if (newIds.length > 0) {
@@ -837,7 +910,8 @@ export const updateTask = async (req, res) => {
       }
 
       if (req.body.links !== undefined) task.links = parseArrayField(req.body.links);
-      if (req.body.dependencies !== undefined) task.dependencies = parseArrayField(req.body.dependencies);
+      if (req.body.dependencies !== undefined)
+        task.dependencies = parseArrayField(req.body.dependencies);
     }
 
     if (req.files?.attachments && isManager) {
@@ -871,7 +945,7 @@ export const updateTask = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// ASSIGN / REASSIGN
+// ASSIGN / REASSIGN  (managers only)
 // ─────────────────────────────────────────────────────────────────────
 
 export const assignTask = async (req, res) => {
@@ -957,6 +1031,16 @@ export const addSubTask = async (req, res) => {
 
     const isManager = canManageTasks(workspace, project, userId);
     const isAssignee = isTaskAssignee(task, userId);
+    const access = resolveTaskAccess(workspace, project, task, userId);
+    const isCollaborator =
+      access.role === 'collaboratorEditor' || access.role === 'collaboratorViewer';
+
+    if (isCollaborator) {
+      return res.status(403).json({
+        success: false,
+        message: 'Collaborators cannot modify sub‑tasks.',
+      });
+    }
 
     if (!isManager && !(isAssignee && task.allowAssigneeEditSubtasks)) {
       return res.status(403).json({
@@ -1041,6 +1125,13 @@ export const updateSubTask = async (req, res) => {
 
     const isManager = canManageTasks(workspace, project, userId);
     const isAssignee = isTaskAssignee(task, userId);
+    const access = resolveTaskAccess(workspace, project, task, userId);
+    const isCollaborator =
+      access.role === 'collaboratorEditor' || access.role === 'collaboratorViewer';
+
+    if (isCollaborator) {
+      return res.status(403).json({ success: false, message: 'Collaborators cannot modify sub‑tasks.' });
+    }
 
     if (!isManager && !(isAssignee && task.allowAssigneeEditSubtasks)) {
       return res.status(403).json({ success: false, message: 'Not allowed.' });
@@ -1091,6 +1182,8 @@ export const updateSubTask = async (req, res) => {
   }
 };
 
+// ─── markSubTaskDone — collaborators allowed IF they're the assignee ───
+
 export const markSubTaskDone = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1108,10 +1201,18 @@ export const markSubTaskDone = async (req, res) => {
     const project = await Project.findById(task.project);
     const workspace = await Workspace.findById(project.workspace);
 
+    const access = resolveTaskAccess(workspace, project, task, userId);
     const isManager = canManageTasks(workspace, project, userId);
-    const isAssignee = isTaskAssignee(task, userId);
 
-    if (!isManager && !isAssignee) {
+    // Collaborators: only allow if editor AND assigned
+    if (access.role.startsWith('collaborator') && !access.canComplete) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only assignees can complete this sub‑task.',
+      });
+    }
+
+    if (!isManager && !access.canComplete) {
       return res.status(403).json({
         success: false,
         message: 'Only assignees or project managers can mark this sub‑task as done.',
@@ -1200,7 +1301,9 @@ export const markSubTaskDone = async (req, res) => {
     const hydrated = await populateTaskLinkedNotes(updated);
     res.status(200).json({
       success: true,
-      message: isManager ? 'Sub‑task completed and confirmed.' : 'Sub‑task marked done, awaiting confirmation.',
+      message: isManager
+        ? 'Sub‑task completed and confirmed.'
+        : 'Sub‑task marked done, awaiting confirmation.',
       task: hydrated,
     });
   } catch (error) {
@@ -1323,7 +1426,9 @@ export const rejectSubTask = async (req, res) => {
     if (targets.length > 0) {
       notifyUsers(targets, {
         title: `Sub‑task rejected: "${subTask.title}"`,
-        body: `Your sub‑task "${subTask.title}" was rejected by ${req.user.name}. ${reason ? `Reason: ${reason}` : ''}`,
+        body: `Your sub‑task "${subTask.title}" was rejected by ${req.user.name}. ${
+          reason ? `Reason: ${reason}` : ''
+        }`,
         data: {
           notificationType: 'task',
           taskId: task._id.toString(),
@@ -1365,6 +1470,13 @@ export const deleteSubTask = async (req, res) => {
 
     const isManager = canManageTasks(workspace, project, userId);
     const isAssignee = isTaskAssignee(task, userId);
+    const access = resolveTaskAccess(workspace, project, task, userId);
+    const isCollaborator =
+      access.role === 'collaboratorEditor' || access.role === 'collaboratorViewer';
+
+    if (isCollaborator) {
+      return res.status(403).json({ success: false, message: 'Collaborators cannot delete sub‑tasks.' });
+    }
 
     if (!isManager && !(isAssignee && task.allowAssigneeEditSubtasks)) {
       return res.status(403).json({ success: false, message: 'Not allowed.' });
@@ -1398,6 +1510,7 @@ export const deleteSubTask = async (req, res) => {
 // TASK COMPLETION
 // ─────────────────────────────────────────────────────────────────────
 
+// markTaskCompleted — collaborators allowed IF they're the task's assignee
 export const markTaskCompleted = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1410,10 +1523,17 @@ export const markTaskCompleted = async (req, res) => {
     const project = await Project.findById(task.project);
     const workspace = await Workspace.findById(project.workspace);
 
+    const access = resolveTaskAccess(workspace, project, task, userId);
     const isManager = canManageTasks(workspace, project, userId);
-    const isAssignee = isTaskAssignee(task, userId);
 
-    if (!isManager && !isAssignee) {
+    if (access.role.startsWith('collaborator') && !access.canComplete) {
+      return res.status(403).json({
+        success: false,
+        message: 'Collaborators can only complete tasks assigned to them.',
+      });
+    }
+
+    if (!isManager && !access.canComplete) {
       return res.status(403).json({
         success: false,
         message: 'Only assignees or project managers can mark this task as completed.',
@@ -1697,8 +1817,9 @@ export const getProjectTasks = async (req, res) => {
     const isAdmin = isWorkspaceAdmin(workspace, userId);
     const isPM = isProjectManager(project, userId);
     const isMember = isProjectMember(project, userId);
+    const collab = getActiveCollaborator(project, userId);
 
-    if (!isOwner && !isAdmin && !isPM && !isMember) {
+    if (!isOwner && !isAdmin && !isPM && !isMember && !collab) {
       return res.status(403).json({ success: false, message: 'Access denied.' });
     }
 
@@ -1718,12 +1839,12 @@ export const getProjectTasks = async (req, res) => {
 
     if (isOwner || isAdmin || isPM) {
       if (assigneeId) query.assignees = assigneeId;
-    } else {
+    } else if (isMember) {
       const visibleFolderIds = await getVisibleFolderIdsForUser(projectId, userId);
-      query.$or = [
-        { assignees: userId },
-        { folder: { $in: visibleFolderIds } },
-      ];
+      query.$or = [{ assignees: userId }, { folder: { $in: visibleFolderIds } }];
+    } else if (collab) {
+      // Collaborators: full read-only over all project tasks
+      if (assigneeId) query.assignees = assigneeId;
     }
 
     const tasks = await Task.find(query)
@@ -1732,10 +1853,7 @@ export const getProjectTasks = async (req, res) => {
       .populate('folder', 'name')
       .sort({ order: 1, createdAt: -1 });
 
-    // Hydrate linked notes for every task in parallel.
-    const hydratedTasks = await Promise.all(
-      tasks.map((t) => populateTaskLinkedNotes(t))
-    );
+    const hydratedTasks = await Promise.all(tasks.map((t) => populateTaskLinkedNotes(t)));
 
     res.status(200).json({ success: true, tasks: hydratedTasks, count: hydratedTasks.length });
   } catch (error) {
@@ -1760,9 +1878,7 @@ export const getMyTasks = async (req, res) => {
       .populate('createdBy', 'name email profile')
       .sort({ dueDate: 1, createdAt: -1 });
 
-    const hydratedTasks = await Promise.all(
-      tasks.map((t) => populateTaskLinkedNotes(t))
-    );
+    const hydratedTasks = await Promise.all(tasks.map((t) => populateTaskLinkedNotes(t)));
 
     res.status(200).json({ success: true, tasks: hydratedTasks, count: hydratedTasks.length });
   } catch (error) {
@@ -1795,6 +1911,16 @@ export const getTaskById = async (req, res) => {
     }
 
     const hydrated = await populateTaskLinkedNotes(task);
+    const access = resolveTaskAccess(workspace, project, task, userId);
+
+    // Attach per-task permissions so the frontend can hide/show buttons
+    hydrated.access = {
+      role: access.role,
+      canManage: access.canManage,
+      canComplete: access.canComplete,
+      canComment: access.canComment,
+    };
+
     res.status(200).json({ success: true, task: hydrated });
   } catch (error) {
     console.error('❌ Get task error:', error);
@@ -1871,7 +1997,6 @@ export const restoreTask = async (req, res) => {
     }
 
     const wasTrashed = task.isTrash;
-
     task.isArchived = false;
     task.isTrash = false;
     task.trashedAt = null;
@@ -1924,6 +2049,7 @@ export const permanentlyDeleteTask = async (req, res) => {
 // COMMENTS / FEEDBACK
 // ─────────────────────────────────────────────────────────────────────
 
+// addComment — collaborators allowed IF they're an assignee (per access.canComment)
 export const addComment = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -1942,18 +2068,33 @@ export const addComment = async (req, res) => {
     const project = await Project.findById(task.project);
     const workspace = await Workspace.findById(project.workspace);
 
-    if (!canViewTask(workspace, project, userId, task)) {
+    const access = resolveTaskAccess(workspace, project, task, userId);
+
+    if (!access.canView) {
       return res.status(403).json({ success: false, message: 'Access denied.' });
+    }
+
+    if (access.role.startsWith('collaborator') && !access.canComment) {
+      return res.status(403).json({
+        success: false,
+        message: 'Collaborators can only comment on tasks assigned to them.',
+      });
     }
 
     task.comments.push({ user: userId, comment: comment.trim(), mentions, attachments });
     await task.save();
 
     const assigneeIds = (task.assignees || []).map((a) => a.toString());
-    const validMentions = mentions.filter((mentionId) =>
-      project.teamMembers.some((tm) => tm.user.toString() === mentionId && tm.status === 'active') ||
-      project.projectManagers.some((pm) => pm.toString() === mentionId) ||
-      assigneeIds.includes(mentionId)
+    const validMentions = mentions.filter(
+      (mentionId) =>
+        project.teamMembers.some(
+          (tm) => tm.user.toString() === mentionId && tm.status === 'active'
+        ) ||
+        project.projectManagers.some((pm) => pm.toString() === mentionId) ||
+        (project.collaborators || []).some(
+          (c) => c.userId && c.userId.toString() === mentionId && c.status === 'active'
+        ) ||
+        assigneeIds.includes(mentionId)
     );
 
     if (validMentions.length > 0) {
@@ -2018,7 +2159,11 @@ export const getTaskFeedback = async (req, res) => {
 export const sendTaskReminders = async (req, res) => {
   try {
     const count = await checkAndSendReminders();
-    res.status(200).json({ success: true, message: `Reminders sent for ${count} tasks/sub‑tasks.`, count });
+    res.status(200).json({
+      success: true,
+      message: `Reminders sent for ${count} tasks/sub‑tasks.`,
+      count,
+    });
   } catch (error) {
     console.error('❌ Send reminders error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -2031,8 +2176,10 @@ export const sendManualReminder = async (req, res) => {
     const { taskId } = req.params;
     const { message } = req.body;
 
-    const task = await Task.findOne({ _id: taskId, isDeleted: false })
-      .populate('assignees', 'name email');
+    const task = await Task.findOne({ _id: taskId, isDeleted: false }).populate(
+      'assignees',
+      'name email'
+    );
 
     if (!task) return res.status(404).json({ success: false, message: 'Task not found.' });
 
@@ -2076,7 +2223,7 @@ export const sendManualReminder = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// FOLDERS
+// FOLDERS  (managers only)
 // ─────────────────────────────────────────────────────────────────────
 
 export const createFolder = async (req, res) => {
@@ -2171,9 +2318,13 @@ export const getProjectFolders = async (req, res) => {
     const isOwner = isWorkspaceOwner(workspace, userId);
     const isAdmin = isWorkspaceAdmin(workspace, userId);
     const isPM = isProjectManager(project, userId);
+    const collab = getActiveCollaborator(project, userId);
 
     let folders;
     if (isOwner || isAdmin || isPM) {
+      folders = await Folder.find({ project: projectId }).sort({ order: 1 });
+    } else if (collab) {
+      // Collaborators see all project folders (read-only)
       folders = await Folder.find({ project: projectId }).sort({ order: 1 });
     } else {
       const visibleFolderIds = await getVisibleFolderIdsForUser(projectId, userId);
@@ -2306,7 +2457,6 @@ export const copyTask = async (req, res) => {
     taskData.progress = 0;
     taskData.googleEventId = null;
     taskData.subTasks = taskData.subTasks.map((st) => ({ ...st, status: 'pending' }));
-    // linkedNotes carries over as-is (references only).
 
     const newTask = await Task.create(taskData);
 
@@ -2401,6 +2551,14 @@ export const reorderSubTasks = async (req, res) => {
 
     const isManager = canManageTasks(workspace, project, userId);
     const isAssignee = isTaskAssignee(task, userId);
+    const access = resolveTaskAccess(workspace, project, task, userId);
+    const isCollaborator =
+      access.role === 'collaboratorEditor' || access.role === 'collaboratorViewer';
+
+    if (isCollaborator) {
+      return res.status(403).json({ success: false, message: 'Collaborators cannot reorder sub‑tasks' });
+    }
+
     if (!isManager && !(isAssignee && task.allowAssigneeEditSubtasks)) {
       return res.status(403).json({ success: false, message: 'Not authorized to reorder sub‑tasks' });
     }
@@ -2428,6 +2586,7 @@ export const getAllUrgentTasks = async (req, res) => {
       $or: [
         { projectManagers: userId },
         { 'teamMembers.user': userId, 'teamMembers.status': 'active' },
+        { collaborators: { $elemMatch: { userId, status: 'active' } } },
       ],
     }).select('_id');
 
@@ -2564,3 +2723,6 @@ export const permanentlyDeleteTrashedTasks = async () => {
     await Task.findByIdAndDelete(task._id);
   }
 };
+
+// ─── Re-exports for other controllers ────────────────────────────
+export { resolveTaskAccess, getActiveCollaborator };

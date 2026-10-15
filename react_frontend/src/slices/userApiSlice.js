@@ -8,7 +8,6 @@ export const userApiSlice = apiSlice.injectEndpoints({
 
     // ─── AUTHENTICATION ─────────────────────────────────────────────
 
-    // Google Auth (Signup/Login)
     googleAuth: builder.mutation({
       query: (data) => ({
         url: `${USERS_URL}/google`,
@@ -18,7 +17,6 @@ export const userApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['User'],
     }),
 
-    // Local Signup (email/password)
     register: builder.mutation({
       query: (data) => ({
         url: `${USERS_URL}/register`,
@@ -28,7 +26,6 @@ export const userApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['User'],
     }),
 
-    // Verify Email with OTP
     verifyEmail: builder.mutation({
       query: (data) => ({
         url: `${USERS_URL}/verify-email`,
@@ -38,7 +35,6 @@ export const userApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['User'],
     }),
 
-    // Resend OTP
     resendOTP: builder.mutation({
       query: (data) => ({
         url: `${USERS_URL}/resend-otp`,
@@ -47,7 +43,6 @@ export const userApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
-    // Local Login (email/password)
     login: builder.mutation({
       query: (data) => ({
         url: `${USERS_URL}/login`,
@@ -57,7 +52,6 @@ export const userApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['User'],
     }),
 
-    // Forgot Password - Send OTP
     forgotPassword: builder.mutation({
       query: (data) => ({
         url: `${USERS_URL}/forgot-password`,
@@ -66,7 +60,6 @@ export const userApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
-    // Reset Password - Verify OTP & Set New Password
     resetPassword: builder.mutation({
       query: (data) => ({
         url: `${USERS_URL}/reset-password`,
@@ -75,7 +68,6 @@ export const userApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
-    // Change Password (authenticated user)
     changePassword: builder.mutation({
       query: (data) => ({
         url: `${USERS_URL}/change-password`,
@@ -85,7 +77,6 @@ export const userApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['User'],
     }),
 
-    // Logout
     logout: builder.mutation({
       query: () => ({
         url: `${USERS_URL}/logout`,
@@ -95,7 +86,6 @@ export const userApiSlice = apiSlice.injectEndpoints({
 
     // ─── PROFILE ─────────────────────────────────────────────────────
 
-    // Update Profile (name, phone, profile picture)
     updateProfile: builder.mutation({
       query: (data) => ({
         url: `${USERS_URL}/profile`,
@@ -107,7 +97,6 @@ export const userApiSlice = apiSlice.injectEndpoints({
 
     // ─── USER MANAGEMENT ─────────────────────────────────────────────
 
-    // Get All Users (Admin only)
     getUsers: builder.query({
       query: () => ({
         url: USERS_URL,
@@ -115,7 +104,6 @@ export const userApiSlice = apiSlice.injectEndpoints({
       providesTags: ['User'],
     }),
 
-    // Get User by ID
     getUserById: builder.query({
       query: (id) => ({
         url: `${USERS_URL}/${id}`,

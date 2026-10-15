@@ -161,6 +161,7 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    // 👇 now also invalidates PublicTask so a guest's public view refreshes
     markSubTaskDone: builder.mutation({
       query: ({ taskId, subTaskIndex, data }) => ({
         url: `${TASKS_URL}/${taskId}/subtasks/${subTaskIndex}/done`,
@@ -171,6 +172,7 @@ export const taskApiSlice = apiSlice.injectEndpoints({
         { type: 'Task', id: taskId },
         'Task',
         'Project',
+        'PublicTask', // 👈 NEW
       ],
     }),
 
@@ -213,6 +215,8 @@ export const taskApiSlice = apiSlice.injectEndpoints({
     }),
 
     // ─── Main task completion flow ────────────────────────────────
+    // 👇 now also invalidates PublicTask — this is the primary action
+    // a collaborator performs from the public share view.
     markTaskCompleted: builder.mutation({
       query: ({ taskId, data }) => ({
         url: `${TASKS_URL}/${taskId}/complete`,
@@ -223,6 +227,7 @@ export const taskApiSlice = apiSlice.injectEndpoints({
         { type: 'Task', id: taskId },
         'Task',
         'Project',
+        'PublicTask', // 👈 NEW
       ],
     }),
 
@@ -269,6 +274,8 @@ export const taskApiSlice = apiSlice.injectEndpoints({
     }),
 
     // ─── Comments & feedback history ──────────────────────────────
+    // 👇 now also invalidates PublicTask — collaborators can comment
+    // on tasks they're assigned to, and the public view should refresh.
     addComment: builder.mutation({
       query: ({ taskId, comment, mentions, attachments }) => ({
         url: `${TASKS_URL}/${taskId}/comments`,
@@ -277,6 +284,7 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (result, error, { taskId }) => [
         { type: 'Task', id: taskId },
+        'PublicTask', // 👈 NEW
       ],
     }),
 

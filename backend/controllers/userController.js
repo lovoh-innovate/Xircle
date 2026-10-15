@@ -1,10 +1,12 @@
 // controllers/userController.js
 
-import User from "../models/userModel.js";
-import asyncHandler from "express-async-handler";
-import generateToken from "../utils/generateToken.js";
-import { OAuth2Client } from "google-auth-library";
-import { sendOTPEmail, generateOTP } from "../utils/emailService.js";
+import User from '../models/userModel.js';
+import Project from '../models/projectModel.js';
+import asyncHandler from 'express-async-handler';
+import generateToken from '../utils/generateToken.js';
+import { OAuth2Client } from 'google-auth-library';
+import { sendOTPEmail, generateOTP } from '../utils/emailService.js';
+import { createAndSendNotification } from './notificationController.js';
 
 const googleClient = new OAuth2Client();
 
@@ -23,40 +25,110 @@ const generateUniqueUsername = async (baseUsername) => {
 
 const createUserObject = (data) => {
   return {
-    googleId: data.googleId || "",
-    name: data.name || "",
-    username: data.username || "",
-    email: data.email || "",
-    phone: data.phone || "",
-    profile: data.profile || "",
-    password: data.password || "",
+    googleId: data.googleId || '',
+    name: data.name || '',
+    username: data.username || '',
+    email: data.email || '',
+    phone: data.phone || '',
+    profile: data.profile || '',
+    password: data.password || '',
     isVerified: data.isVerified || false,
-    authMethod: data.authMethod || "local",
-    role: data.role || "user",
+    authMethod: data.authMethod || 'local',
+    role: data.role || 'user',
     acceptedTerms: data.acceptedTerms || false,
     ownedWorkspaces: data.ownedWorkspaces || [],
     joinedWorkspaces: data.joinedWorkspaces || [],
-    // ── feature toggles ──────────────────────────────────────────────
     isAiEnabled: data.isAiEnabled ?? true,
     isBibleEnabled: data.isBibleEnabled ?? false,
     isQuranEnabled: data.isQuranEnabled ?? false,
   };
 };
 
-// Coerce anything the client sends into a real boolean.
-// Accepts true/false, "true"/"false", 1/0, "1"/"0".
-// Returns undefined if the value is missing or unusable — callers
-// use that to mean "don't touch this field".
 const toBool = (v) => {
-  if (v === undefined || v === null || v === "") return undefined;
-  if (typeof v === "boolean") return v;
-  if (typeof v === "number") return v === 1 ? true : v === 0 ? false : undefined;
-  if (typeof v === "string") {
+  if (v === undefined || v === null || v === '') return undefined;
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'number') return v === 1 ? true : v === 0 ? false : undefined;
+  if (typeof v === 'string') {
     const s = v.trim().toLowerCase();
-    if (s === "true" || s === "1") return true;
-    if (s === "false" || s === "0") return false;
+    if (s === 'true' || s === '1') return true;
+    if (s === 'false' || s === '0') return false;
   }
   return undefined;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NEW: AUTO-LINK PENDING COLLABORATOR INVITES
+//
+// When a user signs up / logs in / verifies their email, look for any
+// project collaborator records whose email matches but whose userId is null.
+// Link them, mark them active, and send a "you've been added" notification.
+//
+// This is idempotent — safe to call on every auth event.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const linkPendingCollaboratorInvites = async (user) => {
+  if (!user?.email || !user?._id) return { linked: 0, projects: [] };
+
+  try {
+    const normalizedEmail = user.email.toLowerCase().trim();
+
+    // Find projects with a pending invite for this email
+    const projects = await Project.find({
+      'collaborators.email': normalizedEmail,
+      'collaborators.userId': null,
+      'collaborators.status': { $in: ['invited', 'active'] },
+      isTrash: { $ne: true },
+    }).select('_id name collaborators workspace');
+
+    if (projects.length === 0) return { linked: 0, projects: [] };
+
+    const now = new Date();
+    const linkedProjects = [];
+
+    for (const project of projects) {
+      let touched = false;
+      for (const collab of project.collaborators) {
+        if (
+          collab.email === normalizedEmail &&
+          !collab.userId &&
+          collab.status !== 'revoked'
+        ) {
+          collab.userId = user._id;
+          collab.status = 'active';
+          collab.acceptedAt = now;
+          touched = true;
+        }
+      }
+      if (touched) {
+        await project.save();
+        linkedProjects.push({ _id: project._id, name: project.name });
+      }
+    }
+
+    // Notify the user about each linked project
+    if (linkedProjects.length > 0) {
+      for (const p of linkedProjects) {
+        createAndSendNotification({
+          recipient: user._id,
+          title: `You're now collaborating on "${p.name}"`,
+          body: 'Your Xircle account has been linked. Tasks assigned to you are now actionable.',
+          data: {
+            notificationType: 'project',
+            projectId: p._id.toString(),
+          },
+          sendPush: true,
+          emailEventType: 'teamInvite',
+          emailSubject: `You're collaborating on ${p.name}`,
+          emailHtml: `<p>Your account is now linked to <strong>${p.name}</strong>.</p>`,
+        }).catch((err) => console.error('Collaborator link notify failed:', err.message));
+      }
+    }
+
+    return { linked: linkedProjects.length, projects: linkedProjects };
+  } catch (err) {
+    console.error('linkPendingCollaboratorInvites failed:', err.message);
+    return { linked: 0, projects: [] };
+  }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -69,20 +141,19 @@ const googleAuth = asyncHandler(async (req, res) => {
 
   if (!googleToken) {
     res.status(400);
-    throw new Error("Google token is required");
+    throw new Error('Google token is required');
   }
 
-  if (!mode || !["signup", "login"].includes(mode)) {
+  if (!mode || !['signup', 'login'].includes(mode)) {
     res.status(400);
-    throw new Error("Valid mode (signup or login) is required");
+    throw new Error('Valid mode (signup or login) is required');
   }
 
-  let googleId = "";
-  let email = "";
-  let name = "";
-  let picture = "";
+  let googleId = '';
+  let email = '';
+  let name = '';
+  let picture = '';
 
-  // Verify Google token
   try {
     const audiences = [process.env.GOOGLE_WEB_CLIENT_ID].filter(Boolean);
 
@@ -92,21 +163,21 @@ const googleAuth = asyncHandler(async (req, res) => {
     });
 
     const payload = ticket.getPayload();
-    googleId = payload?.sub || "";
-    email = payload?.email || "";
-    name = payload?.name || "";
-    picture = payload?.picture || "";
+    googleId = payload?.sub || '';
+    email = payload?.email || '';
+    name = payload?.name || '';
+    picture = payload?.picture || '';
 
-    console.log("[googleAuth] Token verified for:", email);
+    console.log('[googleAuth] Token verified for:', email);
   } catch (error) {
-    console.error("[googleAuth] Token verification failed:", error.message);
+    console.error('[googleAuth] Token verification failed:', error.message);
     res.status(401);
-    throw new Error("Invalid Google token. Please try again.");
+    throw new Error('Invalid Google token. Please try again.');
   }
 
   if (!email) {
     res.status(400);
-    throw new Error("Google account email is required");
+    throw new Error('Google account email is required');
   }
 
   let user = await User.findOne({
@@ -114,44 +185,47 @@ const googleAuth = asyncHandler(async (req, res) => {
   });
 
   // ── SIGNUP ────────────────────────────────────────────────────────────────
-  if (mode === "signup") {
+  if (mode === 'signup') {
     if (user) {
       res.status(400);
-      throw new Error("Account already exists. Please login instead.");
+      throw new Error('Account already exists. Please login instead.');
     }
 
-    const baseUsername = (email?.split("@")[0] || name || "user")
-      .toLowerCase()
-      .replace(/\s+/g, "")
-      .replace(/[^a-z0-9_]/g, "") || "user";
+    const baseUsername =
+      (email?.split('@')[0] || name || 'user')
+        .toLowerCase()
+        .replace(/\s+/g, '')
+        .replace(/[^a-z0-9_]/g, '') || 'user';
 
     const username = await generateUniqueUsername(baseUsername);
 
     user = await User.create(
       createUserObject({
         googleId,
-        name: name || "",
+        name: name || '',
         username,
         email,
-        phone: "",
-        profile: picture || "",
+        phone: '',
+        profile: picture || '',
         password: `google-auth-${googleId}`,
         isVerified: true,
-        authMethod: "google",
-        role: "user",
+        authMethod: 'google',
+        role: 'user',
         acceptedTerms: true,
         ownedWorkspaces: [],
         joinedWorkspaces: [],
-        // defaults: AI on, Bible off, Quran off
       })
     );
+
+    // NEW: link any pending collaborator invites that match this email
+    await linkPendingCollaboratorInvites(user);
   }
 
   // ── LOGIN ─────────────────────────────────────────────────────────────────
-  if (mode === "login") {
+  if (mode === 'login') {
     if (!user) {
       res.status(404);
-      throw new Error("No account found with this email. Please sign up first.");
+      throw new Error('No account found with this email. Please sign up first.');
     }
 
     if (!user.googleId) user.googleId = googleId;
@@ -159,8 +233,11 @@ const googleAuth = asyncHandler(async (req, res) => {
     if (!user.name && name) user.name = name;
 
     user.isVerified = true;
-    user.authMethod = "google";
+    user.authMethod = 'google';
     await user.save();
+
+    // NEW: also link pending collaborator invites on login
+    await linkPendingCollaboratorInvites(user);
   }
 
   const token = generateToken(res, user._id);
@@ -175,7 +252,6 @@ const googleAuth = asyncHandler(async (req, res) => {
     authMethod: user.authMethod,
     role: user.role,
     createdAt: user.createdAt,
-    // ── feature toggles ──
     isAiEnabled: user.isAiEnabled ?? true,
     isBibleEnabled: user.isBibleEnabled ?? false,
     isQuranEnabled: user.isQuranEnabled ?? false,
@@ -184,7 +260,7 @@ const googleAuth = asyncHandler(async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LOCAL SIGNUP (email/password)
+// LOCAL SIGNUP
 // POST /api/users/register
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -231,7 +307,6 @@ const registerUser = asyncHandler(async (req, res) => {
         acceptedTerms: true,
         resetPasswordOTP: otp,
         resetPasswordExpires: otpExpires,
-        // defaults: AI on, Bible off, Quran off
       })
     );
     console.log(`✅ User created: ${user._id}`);
@@ -240,6 +315,9 @@ const registerUser = asyncHandler(async (req, res) => {
     res.status(500);
     throw new Error('Failed to create user: ' + createError.message);
   }
+
+  // NOTE: We intentionally do NOT link collaborator invites here.
+  // We wait until email verification so unverified users don't get access.
 
   console.log('📧 Attempting to send OTP email...');
   try {
@@ -272,29 +350,29 @@ const verifyEmail = asyncHandler(async (req, res) => {
 
   if (!email || !otp) {
     res.status(400);
-    throw new Error("Email and OTP are required");
+    throw new Error('Email and OTP are required');
   }
 
   const user = await User.findOne({ email: email.toLowerCase().trim() });
 
   if (!user) {
     res.status(404);
-    throw new Error("User not found");
+    throw new Error('User not found');
   }
 
   if (user.isVerified) {
     res.status(400);
-    throw new Error("Email already verified");
+    throw new Error('Email already verified');
   }
 
   if (user.resetPasswordOTP !== otp) {
     res.status(400);
-    throw new Error("Invalid OTP");
+    throw new Error('Invalid OTP');
   }
 
   if (user.resetPasswordExpires < new Date()) {
     res.status(400);
-    throw new Error("OTP has expired. Please request a new one.");
+    throw new Error('OTP has expired. Please request a new one.');
   }
 
   user.isVerified = true;
@@ -302,11 +380,14 @@ const verifyEmail = asyncHandler(async (req, res) => {
   user.resetPasswordExpires = undefined;
   await user.save();
 
+  // NEW: link collaborator invites on successful verification
+  await linkPendingCollaboratorInvites(user);
+
   const token = generateToken(res, user._id);
 
   res.status(200).json({
     success: true,
-    message: "Email verified successfully",
+    message: 'Email verified successfully',
     _id: user._id,
     name: user.name,
     username: user.username,
@@ -316,7 +397,6 @@ const verifyEmail = asyncHandler(async (req, res) => {
     authMethod: user.authMethod,
     role: user.role,
     createdAt: user.createdAt,
-    // ── feature toggles ──
     isAiEnabled: user.isAiEnabled ?? true,
     isBibleEnabled: user.isBibleEnabled ?? false,
     isQuranEnabled: user.isQuranEnabled ?? false,
@@ -334,19 +414,19 @@ const resendOTP = asyncHandler(async (req, res) => {
 
   if (!email) {
     res.status(400);
-    throw new Error("Email is required");
+    throw new Error('Email is required');
   }
 
   const user = await User.findOne({ email: email.toLowerCase().trim() });
 
   if (!user) {
     res.status(404);
-    throw new Error("User not found");
+    throw new Error('User not found');
   }
 
   if (user.isVerified) {
     res.status(400);
-    throw new Error("Email already verified");
+    throw new Error('Email already verified');
   }
 
   const otp = generateOTP();
@@ -358,17 +438,17 @@ const resendOTP = asyncHandler(async (req, res) => {
     await sendOTPEmail(email, otp, 'verification');
   } catch (error) {
     res.status(500);
-    throw new Error("Failed to send verification email. Please try again.");
+    throw new Error('Failed to send verification email. Please try again.');
   }
 
   res.status(200).json({
     success: true,
-    message: "New OTP sent to your email",
+    message: 'New OTP sent to your email',
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LOCAL LOGIN (email/password)
+// LOCAL LOGIN
 // POST /api/users/login
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -394,7 +474,9 @@ const loginUser = asyncHandler(async (req, res) => {
     if (user.authMethod === 'google' && !user.hasPassword()) {
       console.warn(`❌ Google account with no password: ${email}`);
       res.status(401);
-      throw new Error('This account uses Google Sign-In. Please use Google to login, or reset your password.');
+      throw new Error(
+        'This account uses Google Sign-In. Please use Google to login, or reset your password.'
+      );
     }
 
     if (!user.isVerified) {
@@ -410,6 +492,10 @@ const loginUser = asyncHandler(async (req, res) => {
       throw new Error('Invalid email or password');
     }
 
+    // NEW: link collaborator invites on login (catches the case where an
+    // existing user was later invited by email)
+    await linkPendingCollaboratorInvites(user);
+
     const token = generateToken(res, user._id);
     console.log(`✅ Login successful: ${email}`);
 
@@ -423,7 +509,6 @@ const loginUser = asyncHandler(async (req, res) => {
       authMethod: user.authMethod,
       role: user.role,
       createdAt: user.createdAt,
-      // ── feature toggles ──
       isAiEnabled: user.isAiEnabled ?? true,
       isBibleEnabled: user.isBibleEnabled ?? false,
       isQuranEnabled: user.isQuranEnabled ?? false,
@@ -439,8 +524,7 @@ const loginUser = asyncHandler(async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FORGOT PASSWORD - Send OTP
-// POST /api/users/forgot-password
+// FORGOT PASSWORD
 // ─────────────────────────────────────────────────────────────────────────────
 
 const forgotPassword = asyncHandler(async (req, res) => {
@@ -448,14 +532,14 @@ const forgotPassword = asyncHandler(async (req, res) => {
 
   if (!email) {
     res.status(400);
-    throw new Error("Email is required");
+    throw new Error('Email is required');
   }
 
   const user = await User.findOne({ email: email.toLowerCase().trim() });
 
   if (!user) {
     res.status(404);
-    throw new Error("No account found with this email");
+    throw new Error('No account found with this email');
   }
 
   const otp = generateOTP();
@@ -467,18 +551,17 @@ const forgotPassword = asyncHandler(async (req, res) => {
     await sendOTPEmail(email, otp, 'reset');
   } catch (error) {
     res.status(500);
-    throw new Error("Failed to send reset email. Please try again.");
+    throw new Error('Failed to send reset email. Please try again.');
   }
 
   res.status(200).json({
     success: true,
-    message: "Password reset OTP sent to your email",
+    message: 'Password reset OTP sent to your email',
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RESET PASSWORD - Verify OTP and set new password
-// POST /api/users/reset-password
+// RESET PASSWORD
 // ─────────────────────────────────────────────────────────────────────────────
 
 const resetPassword = asyncHandler(async (req, res) => {
@@ -486,46 +569,45 @@ const resetPassword = asyncHandler(async (req, res) => {
 
   if (!email || !otp || !newPassword) {
     res.status(400);
-    throw new Error("Email, OTP, and new password are required");
+    throw new Error('Email, OTP, and new password are required');
   }
 
   if (newPassword.length < 6) {
     res.status(400);
-    throw new Error("Password must be at least 6 characters");
+    throw new Error('Password must be at least 6 characters');
   }
 
   const user = await User.findOne({ email: email.toLowerCase().trim() });
 
   if (!user) {
     res.status(404);
-    throw new Error("User not found");
+    throw new Error('User not found');
   }
 
   if (user.resetPasswordOTP !== otp) {
     res.status(400);
-    throw new Error("Invalid OTP");
+    throw new Error('Invalid OTP');
   }
 
   if (user.resetPasswordExpires < new Date()) {
     res.status(400);
-    throw new Error("OTP has expired. Please request a new one.");
+    throw new Error('OTP has expired. Please request a new one.');
   }
 
   user.password = newPassword;
-  user.authMethod = "local";
+  user.authMethod = 'local';
   user.resetPasswordOTP = undefined;
   user.resetPasswordExpires = undefined;
   await user.save();
 
   res.status(200).json({
     success: true,
-    message: "Password reset successfully. You can now login with your new password.",
+    message: 'Password reset successfully. You can now login with your new password.',
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CHANGE PASSWORD (authenticated user)
-// POST /api/users/change-password
+// CHANGE PASSWORD
 // ─────────────────────────────────────────────────────────────────────────────
 
 const changePassword = asyncHandler(async (req, res) => {
@@ -534,35 +616,35 @@ const changePassword = asyncHandler(async (req, res) => {
 
   if (!currentPassword || !newPassword) {
     res.status(400);
-    throw new Error("Current password and new password are required");
+    throw new Error('Current password and new password are required');
   }
 
   if (newPassword.length < 6) {
     res.status(400);
-    throw new Error("New password must be at least 6 characters");
+    throw new Error('New password must be at least 6 characters');
   }
 
   const user = await User.findById(userId);
 
   if (!user) {
     res.status(404);
-    throw new Error("User not found");
+    throw new Error('User not found');
   }
 
-  if (user.authMethod === "google" && !user.hasPassword()) {
+  if (user.authMethod === 'google' && !user.hasPassword()) {
     user.password = newPassword;
-    user.authMethod = "local";
+    user.authMethod = 'local';
     await user.save();
     return res.status(200).json({
       success: true,
-      message: "Password set successfully. You can now login with email and password.",
+      message: 'Password set successfully. You can now login with email and password.',
     });
   }
 
   const isMatch = await user.matchPassword(currentPassword);
   if (!isMatch) {
     res.status(401);
-    throw new Error("Current password is incorrect");
+    throw new Error('Current password is incorrect');
   }
 
   user.password = newPassword;
@@ -570,18 +652,12 @@ const changePassword = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     success: true,
-    message: "Password changed successfully",
+    message: 'Password changed successfully',
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UPDATE PROFILE
-// PUT /api/users/profile
-//
-// Body may include any of:
-//   name, phone, profile (file)
-//   isAiEnabled, isBibleEnabled, isQuranEnabled  ← booleans (opt-in toggles)
-// Fields not sent are left untouched.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const updateProfile = asyncHandler(async (req, res) => {
@@ -589,25 +665,16 @@ const updateProfile = asyncHandler(async (req, res) => {
 
   if (!user) {
     res.status(404);
-    throw new Error("User not found");
+    throw new Error('User not found');
   }
 
-  const {
-    name,
-    phone,
-    isAiEnabled,
-    isBibleEnabled,
-    isQuranEnabled,
-  } = req.body;
-
+  const { name, phone, isAiEnabled, isBibleEnabled, isQuranEnabled } = req.body;
   const profilePicture = req.file?.path;
 
   if (name) user.name = name.trim();
   if (phone) user.phone = phone.trim();
   if (profilePicture) user.profile = profilePicture;
 
-  // ── feature toggles ──────────────────────────────────────────────
-  // Only touch a field if the client actually sent a usable value.
   const ai = toBool(isAiEnabled);
   const bible = toBool(isBibleEnabled);
   const quran = toBool(isQuranEnabled);
@@ -628,7 +695,6 @@ const updateProfile = asyncHandler(async (req, res) => {
     authMethod: updatedUser.authMethod,
     role: updatedUser.role,
     createdAt: updatedUser.createdAt,
-    // ── feature toggles ──
     isAiEnabled: updatedUser.isAiEnabled ?? true,
     isBibleEnabled: updatedUser.isBibleEnabled ?? false,
     isQuranEnabled: updatedUser.isQuranEnabled ?? false,
@@ -637,28 +703,27 @@ const updateProfile = asyncHandler(async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET ALL USERS (Admin only)
-// GET /api/users
 // ─────────────────────────────────────────────────────────────────────────────
 
 const getUsers = asyncHandler(async (req, res) => {
   const users = await User.find({})
-    .select("-password -resetPasswordOTP -resetPasswordExpires")
+    .select('-password -resetPasswordOTP -resetPasswordExpires')
     .sort({ createdAt: -1 });
   res.status(200).json(users);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET USER BY ID
-// GET /api/users/:id
 // ─────────────────────────────────────────────────────────────────────────────
 
 const getUserById = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.params.id)
-    .select("-password -resetPasswordOTP -resetPasswordExpires");
+  const user = await User.findById(req.params.id).select(
+    '-password -resetPasswordOTP -resetPasswordExpires'
+  );
 
   if (!user) {
     res.status(404);
-    throw new Error("User not found");
+    throw new Error('User not found');
   }
 
   res.status(200).json(user);
@@ -666,21 +731,20 @@ const getUserById = asyncHandler(async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LOGOUT
-// POST /api/users/logout
 // ─────────────────────────────────────────────────────────────────────────────
 
 const logoutUser = asyncHandler(async (req, res) => {
-  const isProd = process.env.NODE_ENV === "production";
+  const isProd = process.env.NODE_ENV === 'production';
 
-  res.cookie("jwt", "", {
+  res.cookie('jwt', '', {
     httpOnly: true,
     expires: new Date(0),
     secure: isProd,
-    sameSite: isProd ? "none" : "lax",
-    path: "/",
+    sameSite: isProd ? 'none' : 'lax',
+    path: '/',
   });
 
-  res.status(200).json({ message: "Logged out successfully" });
+  res.status(200).json({ message: 'Logged out successfully' });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -698,4 +762,6 @@ export {
   getUsers,
   getUserById,
   logoutUser,
+  // NEW — optional export if you ever want to call it manually
+  linkPendingCollaboratorInvites,
 };

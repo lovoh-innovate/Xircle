@@ -1,6 +1,6 @@
 // pages/Signup.jsx
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useDispatch } from 'react-redux';
 import { Capacitor } from '@capacitor/core';
 import {
@@ -21,6 +21,7 @@ import {
   FaCheckCircle,
   FaArrowLeft,
   FaGoogle,
+  FaUserShield,
 } from 'react-icons/fa';
 import { GoogleLogin } from '@react-oauth/google';
 
@@ -41,6 +42,7 @@ const Signup = () => {
 
   const dispatch = useDispatch();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [register] = useRegisterMutation();
   const [verifyEmail] = useVerifyEmailMutation();
@@ -48,6 +50,23 @@ const Signup = () => {
   const [resendOTP] = useResendOTPMutation();
 
   const isNative = Capacitor.isNativePlatform();
+
+  // ── Resolve post-signup destination ──
+  // Priority:
+  //   1. ?redirect= query param (used by collaborator invite flow)
+  //   2. sessionStorage pendingInviteToken (fallback if the param was lost)
+  //   3. /my-workspaces (default)
+  const redirectParam = searchParams.get('redirect');
+  const pendingInviteToken = (() => {
+    try { return sessionStorage.getItem('pendingInviteToken'); } catch { return null; }
+  })();
+
+  const from =
+    redirectParam ||
+    (pendingInviteToken ? `/collaborate/${pendingInviteToken}` : null) ||
+    '/my-workspaces';
+
+  const isCollaboratorFlow = !!redirectParam && redirectParam.includes('/collaborate/');
 
   // ── Handle Registration ──
   const handleRegister = async (e) => {
@@ -73,7 +92,7 @@ const Signup = () => {
 
     try {
       setIsLoading(true);
-      const result = await register({ name, email, phone, password, acceptedTerms }).unwrap();
+      await register({ name, email, phone, password, acceptedTerms }).unwrap();
       toast.success('OTP sent to your email! Please verify.');
       setStep('verify');
     } catch (err) {
@@ -97,7 +116,10 @@ const Signup = () => {
       dispatch(setCredentials({ ...result }));
       toast.success('Email verified! Welcome to Xircle.');
       setStep('success');
-      setTimeout(() => navigate('/my-workspaces'), 3000);
+      // The server's verifyEmail endpoint already linked any pending
+      // collaborator invites matching this email. Navigate to `from`
+      // so the user lands straight on their invite (if any).
+      setTimeout(() => navigate(from, { replace: true }), 2000);
     } catch (err) {
       const msg = err?.data?.message || 'Verification failed. Please check your OTP.';
       toast.error(msg);
@@ -127,7 +149,8 @@ const Signup = () => {
       }).unwrap();
       dispatch(setCredentials({ ...res }));
       toast.success('Google signup successful!');
-      navigate('/my-workspaces');
+      // Server-side linkPendingCollaboratorInvites already ran during signup.
+      navigate(from, { replace: true });
     } catch (err) {
       const msg = err?.data?.message || 'Google signup failed. Please try again.';
       toast.error(msg);
@@ -161,13 +184,15 @@ const Signup = () => {
           </div>
           <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-200">Account Created!</h3>
           <p className="text-gray-600 dark:text-gray-400 mt-2">
-            Your email has been verified. You will be redirected to your workspaces.
+            {isCollaboratorFlow
+              ? "You're all set. Taking you to the project you were invited to…"
+              : 'Your email has been verified. You will be redirected to your workspaces.'}
           </p>
           <Link
-            to="/my-workspaces"
+            to={from}
             className="mt-4 inline-block text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] font-medium transition-colors"
           >
-            Go to My Workspaces →
+            {isCollaboratorFlow ? 'Go to your invite →' : 'Go to My Workspaces →'}
           </Link>
         </div>
       );
@@ -277,6 +302,12 @@ const Signup = () => {
               required
             />
           </div>
+          {isCollaboratorFlow && (
+            <p className="mt-1.5 text-[11px] text-teal-700 dark:text-teal-400 flex items-center gap-1.5">
+              <FaUserShield className="text-[10px]" />
+              Use the same email that received the invite to be linked automatically.
+            </p>
+          )}
         </div>
 
         <div>
@@ -400,6 +431,11 @@ const Signup = () => {
     );
   };
 
+  // Compose the "Back to Login" destination, forwarding the invite
+  const backToLoginPath = redirectParam
+    ? `/login?redirect=${encodeURIComponent(redirectParam)}`
+    : '/login';
+
   return (
     <div className="min-h-screen flex bg-gray-50 dark:bg-[#0b0b10] overflow-hidden">
       {/* ─── Left Panel – Fixed, Full Height ─── */}
@@ -412,7 +448,7 @@ const Signup = () => {
             backgroundPosition: 'center',
           }}
         />
-        {/* Overlay – exactly like Welcome */}
+        {/* Overlay */}
         <div className="absolute inset-0 bg-gradient-to-br from-teal-700/90 dark:from-[#0b0b10]/95 to-teal-500/80 dark:to-[#0d9488]/60" />
 
         {/* Decorative blobs */}
@@ -422,44 +458,62 @@ const Signup = () => {
         </div>
 
         <div className="relative z-10 flex flex-col justify-between h-full p-12 text-white">
-          {/* Logo – using logo.jpeg */}
           <div>
             <img src="/logo.jpeg" alt="Xircle" className="h-12 w-auto object-contain rounded-lg" />
           </div>
 
-          {/* Centered content */}
           <div className="max-w-lg mx-auto w-full">
             <div className="bg-white/10 dark:bg-white/5 backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-2xl p-8 shadow-2xl shadow-black/10">
               <h2 className="text-3xl font-bold mb-4 leading-tight">
                 {step === 'success'
                   ? 'Welcome Aboard!'
                   : step === 'verify'
-                  ? 'Verify Your Email'
-                  : 'Join the Xircle Community'}
+                    ? 'Verify Your Email'
+                    : isCollaboratorFlow
+                      ? 'Join the Project'
+                      : 'Join the Xircle Community'}
               </h2>
               <p className="text-white/80 text-base mb-4">
                 {step === 'success'
-                  ? 'Your account is ready. You’ll be redirected to your workspaces.'
+                  ? isCollaboratorFlow
+                    ? 'Taking you to the project you were invited to…'
+                    : 'Your account is ready. You’ll be redirected to your workspaces.'
                   : step === 'verify'
-                  ? 'Enter the OTP sent to your email to activate your account.'
-                  : 'Start collaborating with your team in minutes.'}
+                    ? 'Enter the OTP sent to your email to activate your account.'
+                    : isCollaboratorFlow
+                      ? 'Create your account to start working on your invited tasks.'
+                      : 'Start collaborating with your team in minutes.'}
               </p>
               {step === 'register' && (
                 <div className="flex flex-col gap-2 text-sm text-white/70">
-                  <div className="flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 bg-white rounded-full" />
-                    <span>Free to get started</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 bg-white rounded-full" />
-                    <span>All-in-one workspace</span>
-                  </div>
+                  {isCollaboratorFlow ? (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 bg-white rounded-full" />
+                        <span>Linked to your invite automatically</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 bg-white rounded-full" />
+                        <span>Act on tasks assigned to you</span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 bg-white rounded-full" />
+                        <span>Free to get started</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 bg-white rounded-full" />
+                        <span>All-in-one workspace</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </div>
           </div>
 
-          {/* Footer */}
           <div className="text-white/60 text-sm">
             <p>© 2026 Xircle. All rights reserved.</p>
             <p className="mt-1">
@@ -488,19 +542,31 @@ const Signup = () => {
           <div className="mb-8">
             <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">
               {step === 'register'
-                ? 'Create Account'
+                ? isCollaboratorFlow ? 'Create your account' : 'Create Account'
                 : step === 'verify'
-                ? 'Verify OTP'
-                : 'Success!'}
+                  ? 'Verify OTP'
+                  : 'Success!'}
             </h2>
             <p className="text-gray-600 dark:text-gray-400 mt-1">
               {step === 'register'
-                ? 'Fill in your details to get started'
+                ? isCollaboratorFlow
+                  ? 'Sign up to continue to the project you were invited to'
+                  : 'Fill in your details to get started'
                 : step === 'verify'
-                ? 'Check your email for the OTP'
-                : 'Your account is verified'}
+                  ? 'Check your email for the OTP'
+                  : 'Your account is verified'}
             </p>
           </div>
+
+          {/* Collaborator invite hint */}
+          {step === 'register' && isCollaboratorFlow && (
+            <div className="mb-5 bg-teal-50 dark:bg-teal-900/20 border border-teal-200/70 dark:border-teal-800/40 rounded-xl p-3 flex items-start gap-2.5">
+              <FaUserShield className="text-teal-500 text-sm mt-0.5 shrink-0" />
+              <p className="text-xs text-teal-800 dark:text-teal-300 leading-relaxed">
+                You're signing up to collaborate on a shared project. Use the email that received the invite and your account will be linked automatically.
+              </p>
+            </div>
+          )}
 
           {/* Google Sign-Up – only on web */}
           {step === 'register' && !isNative && (
@@ -537,7 +603,7 @@ const Signup = () => {
           {step !== 'success' && (
             <div className="mt-6 text-center">
               <Link
-                to="/login"
+                to={backToLoginPath}
                 className="text-sm text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] font-medium transition-colors duration-200 inline-flex items-center gap-1"
               >
                 <FaArrowLeft size={14} /> Back to Login

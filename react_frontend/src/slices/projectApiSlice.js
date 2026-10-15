@@ -193,10 +193,149 @@ export const projectApiSlice = apiSlice.injectEndpoints({
         "Project",
       ],
     }),
+
+    // ═══════════════════════════════════════════════════════════════
+    // Guest / Collaborator Management
+    //
+    // IMPORTANT: all endpoints here are prefixed with "Project" to
+    // avoid name collisions with other slices that also register
+    // endpoints like `addCollaborator`, `getCollaborators`, etc.
+    // (e.g. personalTaskApiSlice defines similarly-named endpoints.)
+    // RTK Query merges all injected endpoints into one API — if two
+    // slices register the same key, one silently overwrites the other.
+    // ═══════════════════════════════════════════════════════════════
+
+    // ─── My collaborated projects (guest dashboard) ────────────────
+    getMyCollaboratedProjects: builder.query({
+      query: () => ({
+        url: `${PROJECTS_URL}/collaborating`,
+      }),
+      providesTags: (result) =>
+        result
+          ? [
+              ...result.projects.map((p) => ({ type: "Project", id: p._id })),
+              { type: "CollaboratedProject", id: "LIST" },
+            ]
+          : [{ type: "CollaboratedProject", id: "LIST" }],
+    }),
+
+    // ─── List collaborators on a project ───────────────────────────
+    getProjectCollaborators: builder.query({
+      query: (projectId) => ({
+        url: `${PROJECTS_URL}/${projectId}/collaborators`,
+      }),
+      providesTags: (result, error, projectId) => [
+        { type: "Collaborator", id: projectId },
+      ],
+    }),
+
+    // ─── Invite a collaborator by email ────────────────────────────
+    addProjectCollaborator: builder.mutation({
+      query: ({ projectId, email, name = "", role = "viewer" }) => ({
+        url: `${PROJECTS_URL}/${projectId}/collaborators`,
+        method: "POST",
+        body: { email, name, role },
+      }),
+      invalidatesTags: (result, error, { projectId }) => [
+        { type: "Collaborator", id: projectId },
+        { type: "Project", id: projectId },
+      ],
+    }),
+
+    // ─── Update a collaborator (role / name) ───────────────────────
+    updateProjectCollaborator: builder.mutation({
+      query: ({ projectId, collabId, role, name }) => ({
+        url: `${PROJECTS_URL}/${projectId}/collaborators/${collabId}`,
+        method: "PATCH",
+        body: { role, name },
+      }),
+      invalidatesTags: (result, error, { projectId }) => [
+        { type: "Collaborator", id: projectId },
+      ],
+    }),
+
+    // ─── Revoke a collaborator ─────────────────────────────────────
+    removeProjectCollaborator: builder.mutation({
+      query: ({ projectId, collabId }) => ({
+        url: `${PROJECTS_URL}/${projectId}/collaborators/${collabId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: (result, error, { projectId }) => [
+        { type: "Collaborator", id: projectId },
+        { type: "Project", id: projectId },
+      ],
+    }),
+
+    // ─── Rotate a collaborator's invite token ──────────────────────
+    regenerateProjectCollaboratorToken: builder.mutation({
+      query: ({ projectId, collabId }) => ({
+        url: `${PROJECTS_URL}/${projectId}/collaborators/${collabId}/regenerate`,
+        method: "POST",
+      }),
+      invalidatesTags: (result, error, { projectId }) => [
+        { type: "Collaborator", id: projectId },
+      ],
+    }),
+
+    // ═══════════════════════════════════════════════════════════════
+    // Project-wide read-only share link
+    // ═══════════════════════════════════════════════════════════════
+
+    enableProjectShareLink: builder.mutation({
+      query: (projectId) => ({
+        url: `${PROJECTS_URL}/${projectId}/share-link`,
+        method: "POST",
+      }),
+      invalidatesTags: (result, error, projectId) => [
+        { type: "Project", id: projectId },
+      ],
+    }),
+
+    disableProjectShareLink: builder.mutation({
+      query: (projectId) => ({
+        url: `${PROJECTS_URL}/${projectId}/share-link`,
+        method: "DELETE",
+      }),
+      invalidatesTags: (result, error, projectId) => [
+        { type: "Project", id: projectId },
+      ],
+    }),
+
+    // ═══════════════════════════════════════════════════════════════
+    // Public token-scoped reads (used by guests, no auth required)
+    // ═══════════════════════════════════════════════════════════════
+
+    getPublicProjectByToken: builder.query({
+      query: (token) => ({
+        url: `${PROJECTS_URL}/public/${token}`,
+      }),
+      providesTags: (result, error, token) => [
+        { type: "PublicProject", id: token },
+      ],
+    }),
+
+    getPublicProjectTasks: builder.query({
+      query: (token) => ({
+        url: `${PROJECTS_URL}/public/${token}/tasks`,
+      }),
+      providesTags: (result, error, token) => [
+        { type: "PublicTask", id: token },
+      ],
+    }),
+
+    getPublicTaskById: builder.query({
+      query: ({ token, taskId }) => ({
+        url: `${PROJECTS_URL}/public/${token}/tasks/${taskId}`,
+      }),
+      providesTags: (result, error, { token, taskId }) => [
+        { type: "PublicTask", id: `${token}:${taskId}` },
+      ],
+    }),
   }),
 });
 
 export const {
+  // Existing
   useCreateProjectMutation,
   useGetWorkspaceProjectsQuery,
   useGetProjectByIdQuery,
@@ -213,4 +352,17 @@ export const {
   useGetTeamMemberDMQuery,
   useGetProjectStatsQuery,
   useConfirmProjectCompletionMutation,
+
+  // Collaborator / share-link hooks (all "Project"-prefixed)
+  useGetMyCollaboratedProjectsQuery,
+  useGetProjectCollaboratorsQuery,
+  useAddProjectCollaboratorMutation,
+  useUpdateProjectCollaboratorMutation,
+  useRemoveProjectCollaboratorMutation,
+  useRegenerateProjectCollaboratorTokenMutation,
+  useEnableProjectShareLinkMutation,
+  useDisableProjectShareLinkMutation,
+  useGetPublicProjectByTokenQuery,
+  useGetPublicProjectTasksQuery,
+  useGetPublicTaskByIdQuery,
 } = projectApiSlice;
