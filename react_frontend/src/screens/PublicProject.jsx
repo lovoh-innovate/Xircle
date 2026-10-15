@@ -13,17 +13,15 @@ import {
 import toast from 'react-hot-toast';
 import { formatDistanceToNow, format, isPast } from 'date-fns';
 import {
-  // project icon pool
   FaRocket, FaBolt, FaLightbulb, FaCube, FaStar, FaFire, FaFeather,
   FaCrown, FaGem, FaCompass, FaLayerGroup,
-  // UI
-  FaUser, FaLock, FaGlobe, FaUserShield, FaEye, FaCheckCircle, FaSpinner,
+  FaUser, FaGlobe, FaUserShield, FaEye, FaCheckCircle, FaSpinner,
   FaTimes, FaArrowLeft, FaTasks, FaClock, FaExclamationTriangle,
-  FaCheck, FaComment, FaSignInAlt, FaUserPlus, FaCalendarAlt, FaSearch,
-  FaExternalLinkAlt, FaChevronDown, FaRegCommentDots, FaRegClock,
+  FaCheck, FaComment, FaUserPlus, FaSearch,
+  FaRegCommentDots, FaRegClock,
 } from 'react-icons/fa';
 
-// ─── Color utilities (mirrors the internal app) ───────────────────────
+// ─── Color utilities ──────────────────────────────────────────────────
 const NAMED_TO_HEX = {
   red: '#ef4444', blue: '#3b82f6', green: '#22c55e', yellow: '#eab308',
   orange: '#f97316', purple: '#a855f7', pink: '#ec4899', teal: '#14b8a6',
@@ -82,9 +80,9 @@ const getInitials = (name) => {
 // ─── Member avatar ────────────────────────────────────────────────────
 const MemberAvatar = ({ user, size = 'sm', ring = false, fallbackColor = '#0d9488' }) => {
   const sizes = {
-    xs: 'w-6 h-6 text-[9px]',
-    sm: 'w-8 h-8 text-[11px]',
-    md: 'w-10 h-10 text-xs',
+    xs: 'w-5 h-5 text-[8px]',
+    sm: 'w-7 h-7 text-[10px]',
+    md: 'w-9 h-9 text-xs',
   };
   const cls = sizes[size] || sizes.sm;
   const hasPhoto = !!user?.profile;
@@ -92,7 +90,7 @@ const MemberAvatar = ({ user, size = 'sm', ring = false, fallbackColor = '#0d948
   return (
     <span
       title={user?.name || 'Member'}
-      className={`${cls} rounded-full overflow-hidden inline-flex items-center justify-center font-semibold text-white shrink-0 ${ring ? 'ring-2 ring-white dark:ring-[#0b0b10]' : ''}`}
+      className={`${cls} rounded-full overflow-hidden inline-flex items-center justify-center font-semibold text-white shrink-0 ${ring ? 'ring-2 ring-white dark:ring-[#111115]' : ''}`}
       style={{ backgroundColor: hasPhoto ? '#e5e7eb' : fallbackColor }}
     >
       {hasPhoto ? (
@@ -108,31 +106,31 @@ const MemberAvatar = ({ user, size = 'sm', ring = false, fallbackColor = '#0d948
 
 // ─── Status metadata ──────────────────────────────────────────────────
 const TASK_STATUS_META = {
-  pending:              { label: 'Pending',           color: 'text-gray-600 dark:text-gray-400',   bg: 'bg-gray-100 dark:bg-gray-800/60' },
-  'in-progress':        { label: 'In Progress',       color: 'text-blue-600 dark:text-blue-400',   bg: 'bg-blue-100 dark:bg-blue-900/30' },
-  ready_for_completion: { label: 'Ready',             color: 'text-teal-600 dark:text-teal-400',   bg: 'bg-teal-100 dark:bg-teal-900/30' },
-  completed:            { label: 'Awaiting review',   color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-100 dark:bg-amber-900/30' },
-  confirmed_completed:  { label: 'Completed',         color: 'text-green-600 dark:text-green-400', bg: 'bg-green-100 dark:bg-green-900/30' },
-  cancelled:            { label: 'Cancelled',         color: 'text-red-600 dark:text-red-400',     bg: 'bg-red-100 dark:bg-red-900/30' },
+  pending:              { label: 'Pending',         color: 'text-gray-500 dark:text-gray-400',   bg: 'bg-gray-100 dark:bg-white/[0.06]' },
+  'in-progress':        { label: 'In Progress',     color: 'text-blue-600 dark:text-blue-400',   bg: 'bg-blue-50 dark:bg-blue-500/10' },
+  ready_for_completion: { label: 'Ready',           color: 'text-teal-600 dark:text-teal-400',   bg: 'bg-teal-50 dark:bg-teal-500/10' },
+  completed:            { label: 'Awaiting review', color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-500/10' },
+  confirmed_completed:  { label: 'Completed',       color: 'text-green-600 dark:text-green-400', bg: 'bg-green-50 dark:bg-green-500/10' },
+  cancelled:            { label: 'Cancelled',       color: 'text-red-600 dark:text-red-400',     bg: 'bg-red-50 dark:bg-red-500/10' },
 };
 
 const PROJECT_STATUS_META = {
-  planning:     { label: 'Planning',    color: 'text-blue-600 dark:text-blue-400',     bg: 'bg-blue-100 dark:bg-blue-900/30' },
-  'in-progress':{ label: 'In Progress', color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-100 dark:bg-yellow-900/30' },
-  'on-hold':    { label: 'On Hold',     color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-100 dark:bg-orange-900/30' },
-  completed:    { label: 'Completed',   color: 'text-green-600 dark:text-green-400',   bg: 'bg-green-100 dark:bg-green-900/30' },
-  cancelled:    { label: 'Cancelled',   color: 'text-red-600 dark:text-red-400',       bg: 'bg-red-100 dark:bg-red-900/30' },
+  planning:      { label: 'Planning',    dot: 'bg-blue-500' },
+  'in-progress': { label: 'In Progress', dot: 'bg-yellow-500' },
+  'on-hold':     { label: 'On Hold',     dot: 'bg-orange-500' },
+  completed:     { label: 'Completed',   dot: 'bg-green-500' },
+  cancelled:     { label: 'Cancelled',   dot: 'bg-red-500' },
 };
 
 const PRIORITY_META = {
-  low:    { label: 'Low',    color: 'text-gray-500 dark:text-gray-400',   dot: 'bg-gray-400' },
-  medium: { label: 'Medium', color: 'text-blue-500 dark:text-blue-400',   dot: 'bg-blue-500' },
-  high:   { label: 'High',   color: 'text-orange-500 dark:text-orange-400', dot: 'bg-orange-500' },
-  urgent: { label: 'Urgent', color: 'text-red-500 dark:text-red-400',     dot: 'bg-red-500' },
+  low:    { label: 'Low',    color: 'text-gray-500 dark:text-gray-500',       dot: 'bg-gray-400' },
+  medium: { label: 'Medium', color: 'text-blue-600 dark:text-blue-400',       dot: 'bg-blue-500' },
+  high:   { label: 'High',   color: 'text-orange-600 dark:text-orange-400',   dot: 'bg-orange-500' },
+  urgent: { label: 'Urgent', color: 'text-red-600 dark:text-red-400',         dot: 'bg-red-500' },
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  Complete Task Modal (only for editors on their own tasks)
+//  Complete Task Modal
 // ═════════════════════════════════════════════════════════════════════
 const CompleteTaskModal = ({ isOpen, onClose, task, onComplete, busy }) => {
   const [notes, setNotes] = useState('');
@@ -149,17 +147,11 @@ const CompleteTaskModal = ({ isOpen, onClose, task, onComplete, busy }) => {
 
   if (!isOpen || !task) return null;
 
-  const handleFileChange = (e) => {
-    const selected = Array.from(e.target.files || []);
-    setFiles(selected);
-  };
+  const handleFileChange = (e) => setFiles(Array.from(e.target.files || []));
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    const parsedLinks = links
-      .split(/[\n,\s]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const parsedLinks = links.split(/[\n,\s]+/).map((s) => s.trim()).filter(Boolean);
     onComplete({ notes: notes.trim(), links: parsedLinks, files });
   };
 
@@ -168,82 +160,79 @@ const CompleteTaskModal = ({ isOpen, onClose, task, onComplete, busy }) => {
       className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm sm:p-4"
       onClick={(e) => e.target === e.currentTarget && !busy && onClose()}
     >
-      <div className="bg-white dark:bg-[#14141a] rounded-t-3xl sm:rounded-2xl w-full max-w-lg shadow-2xl border border-gray-200 dark:border-gray-800/60 flex flex-col max-h-[92dvh] sm:max-h-[90vh]">
-        <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-800/60">
+      <div className="bg-white dark:bg-[#111115] rounded-t-2xl sm:rounded-xl w-full max-w-lg shadow-2xl border border-gray-200 dark:border-white/[0.06] flex flex-col max-h-[92dvh] sm:max-h-[90vh]">
+        <div className="shrink-0 flex items-center justify-between px-5 py-3.5 border-b border-gray-100 dark:border-white/[0.05]">
           <div className="min-w-0">
-            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-              <FaCheckCircle className="text-teal-500 text-sm" />
+            <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               Mark complete
             </h2>
-            <p className="text-[11px] text-gray-500 dark:text-gray-500 truncate mt-0.5">{task.title}</p>
+            <p className="text-[11px] text-gray-500 truncate mt-0.5">{task.title}</p>
           </div>
           <button
             onClick={onClose}
             disabled={busy}
-            className="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-white rounded-lg transition shrink-0 disabled:opacity-40"
+            className="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-white rounded-md transition shrink-0 disabled:opacity-40"
           >
-            <FaTimes />
+            <FaTimes className="text-xs" />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">
-              Completion notes
+            <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-500 mb-1.5 uppercase tracking-wide">
+              Notes
             </label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={4}
-              placeholder="What did you do? Anything the team should know?"
-              className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 outline-none focus:border-teal-500 resize-none"
+              placeholder="What did you do?"
+              className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-200 dark:border-white/[0.08] rounded-lg text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 outline-none focus:border-teal-500 resize-none"
             />
           </div>
-
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">
-              Links (optional)
+            <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-500 mb-1.5 uppercase tracking-wide">
+              Links
             </label>
             <textarea
               value={links}
               onChange={(e) => setLinks(e.target.value)}
               rows={2}
-              placeholder="One URL per line, or comma separated"
-              className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 outline-none focus:border-teal-500 resize-none"
+              placeholder="One URL per line"
+              className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-200 dark:border-white/[0.08] rounded-lg text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 outline-none focus:border-teal-500 resize-none"
             />
           </div>
-
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">
-              Attachments (optional)
+            <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-500 mb-1.5 uppercase tracking-wide">
+              Attachments
             </label>
             <input
               type="file"
               multiple
               onChange={handleFileChange}
-              className="block w-full text-xs text-gray-600 dark:text-gray-400 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-teal-50 dark:file:bg-teal-900/20 file:text-teal-700 dark:file:text-teal-400 hover:file:bg-teal-100 dark:hover:file:bg-teal-900/30 file:cursor-pointer cursor-pointer bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl"
+              className="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-medium file:bg-gray-100 dark:file:bg-white/[0.06] file:text-gray-700 dark:file:text-gray-300 hover:file:bg-gray-200 dark:hover:file:bg-white/[0.1] cursor-pointer"
             />
             {files.length > 0 && (
-              <p className="text-[11px] text-gray-500 dark:text-gray-500 mt-1.5">
+              <p className="text-[11px] text-gray-500 mt-1.5">
                 {files.length} file{files.length === 1 ? '' : 's'} selected
               </p>
             )}
           </div>
         </form>
 
-        <div className="shrink-0 flex gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-800/60">
+        <div className="shrink-0 flex gap-2 px-5 py-3 border-t border-gray-100 dark:border-white/[0.05]">
           <button
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition disabled:opacity-50"
+            className="flex-1 py-2 border border-gray-200 dark:border-white/[0.08] rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.04] transition disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={busy}
-            className="flex-1 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition disabled:opacity-50"
+            className="flex-1 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition disabled:opacity-50"
           >
             {busy ? <FaSpinner className="animate-spin text-xs" /> : <FaCheck className="text-xs" />}
             {busy ? 'Submitting…' : 'Submit'}
@@ -280,21 +269,18 @@ const CommentModal = ({ isOpen, onClose, task, onSubmit, busy }) => {
       className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm sm:p-4"
       onClick={(e) => e.target === e.currentTarget && !busy && onClose()}
     >
-      <div className="bg-white dark:bg-[#14141a] rounded-t-3xl sm:rounded-2xl w-full max-w-lg shadow-2xl border border-gray-200 dark:border-gray-800/60">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-800/60">
+      <div className="bg-white dark:bg-[#111115] rounded-t-2xl sm:rounded-xl w-full max-w-lg shadow-2xl border border-gray-200 dark:border-white/[0.06]">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100 dark:border-white/[0.05]">
           <div className="min-w-0">
-            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-              <FaRegCommentDots className="text-teal-500 text-sm" />
-              Add comment
-            </h2>
-            <p className="text-[11px] text-gray-500 dark:text-gray-500 truncate mt-0.5">{task.title}</p>
+            <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Add comment</h2>
+            <p className="text-[11px] text-gray-500 truncate mt-0.5">{task.title}</p>
           </div>
           <button
             onClick={onClose}
             disabled={busy}
-            className="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-white rounded-lg transition shrink-0 disabled:opacity-40"
+            className="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-white rounded-md transition shrink-0 disabled:opacity-40"
           >
-            <FaTimes />
+            <FaTimes className="text-xs" />
           </button>
         </div>
 
@@ -305,16 +291,16 @@ const CommentModal = ({ isOpen, onClose, task, onSubmit, busy }) => {
             rows={4}
             autoFocus
             placeholder="Share an update, ask a question, or leave feedback…"
-            className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 outline-none focus:border-teal-500 resize-none"
+            className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-200 dark:border-white/[0.08] rounded-lg text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 outline-none focus:border-teal-500 resize-none"
           />
         </form>
 
-        <div className="flex gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-800/60">
+        <div className="flex gap-2 px-5 py-3 border-t border-gray-100 dark:border-white/[0.05]">
           <button
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition disabled:opacity-50"
+            className="flex-1 py-2 border border-gray-200 dark:border-white/[0.08] rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.04] transition disabled:opacity-50"
           >
             Cancel
           </button>
@@ -322,10 +308,10 @@ const CommentModal = ({ isOpen, onClose, task, onSubmit, busy }) => {
             type="button"
             onClick={handleSubmit}
             disabled={busy || !comment.trim()}
-            className="flex-1 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition disabled:opacity-50"
+            className="flex-1 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition disabled:opacity-50"
           >
             {busy ? <FaSpinner className="animate-spin text-xs" /> : <FaComment className="text-xs" />}
-            {busy ? 'Posting…' : 'Post comment'}
+            {busy ? 'Posting…' : 'Post'}
           </button>
         </div>
       </div>
@@ -336,14 +322,7 @@ const CommentModal = ({ isOpen, onClose, task, onSubmit, busy }) => {
 // ═════════════════════════════════════════════════════════════════════
 //  Task Card
 // ═════════════════════════════════════════════════════════════════════
-const TaskCard = ({
-  task,
-  brandHex,
-  canActOnIt,     // true when caller is editor AND assigned AND task not done
-  canCommentOnIt, // true when caller is editor AND assigned
-  onComplete,
-  onComment,
-}) => {
+const TaskCard = ({ task, brandHex, canActOnIt, canCommentOnIt, onComplete, onComment }) => {
   const statusMeta = TASK_STATUS_META[task.status] || TASK_STATUS_META.pending;
   const priorityMeta = PRIORITY_META[task.priority] || PRIORITY_META.medium;
   const isDone = task.status === 'confirmed_completed';
@@ -357,26 +336,25 @@ const TaskCard = ({
   ).length;
 
   return (
-    <article className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/70 dark:border-gray-800/50 p-4 transition hover:border-gray-300 dark:hover:border-gray-700/60">
-      {/* Header row */}
-      <div className="flex items-start justify-between gap-3 mb-2">
+    <article className="bg-white dark:bg-[#111115] rounded-lg border border-gray-200/80 dark:border-white/[0.06] p-3.5 hover:border-gray-300 dark:hover:border-white/[0.1] transition">
+      <div className="flex items-start justify-between gap-3 mb-1.5">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap mb-1">
-            <span className={`text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded-full ${statusMeta.bg} ${statusMeta.color}`}>
+          <div className="flex items-center gap-1.5 flex-wrap mb-1">
+            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${statusMeta.bg} ${statusMeta.color}`}>
               {statusMeta.label}
             </span>
             {task.assignedToMe && (
-              <span className="text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400">
-                Assigned to you
+              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-teal-50 dark:bg-teal-500/10 text-teal-700 dark:text-teal-400">
+                You
               </span>
             )}
             {isOverdue && (
-              <span className="text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
+              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400">
                 Overdue
               </span>
             )}
           </div>
-          <h3 className={`text-sm font-semibold leading-snug break-words ${isDone || isCancelled ? 'text-gray-500 dark:text-gray-500 line-through' : 'text-gray-900 dark:text-gray-100'}`}>
+          <h3 className={`text-[13px] font-medium leading-snug break-words ${isDone || isCancelled ? 'text-gray-400 dark:text-gray-500 line-through' : 'text-gray-900 dark:text-gray-100'}`}>
             {task.title}
           </h3>
         </div>
@@ -387,40 +365,35 @@ const TaskCard = ({
         </span>
       </div>
 
-      {/* Description */}
       {task.description && (
-        <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 mb-2 leading-relaxed">
+        <p className="text-xs text-gray-500 dark:text-gray-500 line-clamp-2 mb-2 leading-relaxed">
           {task.description}
         </p>
       )}
 
-      {/* Progress bar (only if > 0 and not done) */}
       {progress > 0 && !isDone && !isCancelled && (
         <div className="flex items-center gap-2 mb-2">
-          <div className="flex-1 h-1 bg-gray-100 dark:bg-gray-800/70 rounded-full overflow-hidden">
+          <div className="flex-1 h-1 bg-gray-100 dark:bg-white/[0.06] rounded-full overflow-hidden">
             <div
               className="h-full rounded-full transition-all duration-500"
               style={{ width: `${progress}%`, backgroundColor: brandHex }}
             />
           </div>
-          <span className="text-[10px] font-mono font-semibold text-gray-500 dark:text-gray-500 tabular-nums">
-            {progress}%
-          </span>
+          <span className="text-[10px] font-mono text-gray-500 tabular-nums">{progress}%</span>
         </div>
       )}
 
-      {/* Meta row */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-gray-500 dark:text-gray-500">
+      <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1.5 text-[11px] text-gray-500 dark:text-gray-500">
         {task.dueDate && (
           <span className={`flex items-center gap-1 ${isOverdue ? 'text-red-600 dark:text-red-400 font-medium' : ''}`}>
             <FaRegClock className="text-[9px]" />
-            {format(new Date(task.dueDate), 'MMM d, yyyy')}
+            {format(new Date(task.dueDate), 'MMM d')}
           </span>
         )}
         {subtaskTotal > 0 && (
           <span className="flex items-center gap-1">
             <FaTasks className="text-[9px]" />
-            {subtaskDone}/{subtaskTotal} subtasks
+            {subtaskDone}/{subtaskTotal}
           </span>
         )}
         {task.assignees?.length > 0 && (
@@ -431,20 +404,19 @@ const TaskCard = ({
               ))}
             </span>
             {task.assignees.length > 3 && (
-              <span className="text-[10px]">+{task.assignees.length - 3}</span>
+              <span className="text-[10px] text-gray-400">+{task.assignees.length - 3}</span>
             )}
           </span>
         )}
       </div>
 
-      {/* Actions */}
       {(canActOnIt || canCommentOnIt) && (
-        <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800/40 flex items-center gap-2 flex-wrap">
+        <div className="mt-3 pt-3 border-t border-gray-100 dark:border-white/[0.05] flex items-center gap-2 flex-wrap">
           {canActOnIt && (
             <button
               type="button"
               onClick={() => onComplete(task)}
-              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition"
+              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-md transition"
             >
               <FaCheck className="text-[10px]" />
               Mark complete
@@ -454,7 +426,7 @@ const TaskCard = ({
             <button
               type="button"
               onClick={() => onComment(task)}
-              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800/60 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-lg transition"
+              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-white/[0.08] hover:bg-gray-50 dark:hover:bg-white/[0.04] rounded-md transition"
             >
               <FaComment className="text-[10px]" />
               Comment
@@ -467,118 +439,60 @@ const TaskCard = ({
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  Access Banner (top) — explains what kind of visitor you are
+//  Access Banner — one-line visitor status
 // ═════════════════════════════════════════════════════════════════════
-const AccessBanner = ({ mode, permissions, collaborator, isLoggedIn, isFullMember, brandHex, workspaceId, projectId }) => {
+const AccessBanner = ({ mode, collaborator, isLoggedIn, isFullMember, workspaceId, projectId }) => {
   const navigate = useNavigate();
 
-  // Full workspace member — offer to jump into the app
+  let Icon = FaGlobe;
+  let text = '';
+  let toneCls = 'text-gray-500 dark:text-gray-500';
+  let action = null;
+
   if (isFullMember) {
-    return (
-      <div className="bg-teal-50 dark:bg-teal-900/20 border border-teal-200/70 dark:border-teal-800/40 rounded-2xl p-4 flex items-start gap-3">
-        <FaCheckCircle className="text-teal-500 text-base mt-0.5 shrink-0" />
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-teal-800 dark:text-teal-300">
-            You're a member of this workspace
-          </p>
-          <p className="text-xs text-teal-700/80 dark:text-teal-400/80 mt-0.5">
-            You have full access — open the project inside Xircle to edit, assign, and manage.
-          </p>
-        </div>
-        <button
-          onClick={() => navigate(`/workspace/${workspaceId}/project/${projectId}`)}
-          className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white rounded-lg transition hover:opacity-90"
-          style={{ backgroundColor: brandHex }}
-        >
-          <FaExternalLinkAlt className="text-[10px]" />
-          Open
-        </button>
-      </div>
+    Icon = FaCheckCircle;
+    toneCls = 'text-teal-600 dark:text-teal-400';
+    text = 'Workspace member · full access';
+    action = (
+      <button
+        onClick={() => navigate(`/workspace/${workspaceId}/project/${projectId}`)}
+        className="text-[11px] font-medium text-teal-600 dark:text-teal-400 hover:underline shrink-0"
+      >
+        Open →
+      </button>
     );
-  }
-
-  // Anonymous + collaborator invite
-  if (!isLoggedIn && mode === 'collaborator') {
-    return (
-      <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200/70 dark:border-amber-800/40 rounded-2xl p-4 flex items-start gap-3">
-        <FaUserPlus className="text-amber-500 text-base mt-0.5 shrink-0" />
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-            You've been invited to collaborate
-          </p>
-          <p className="text-xs text-amber-700/80 dark:text-amber-400/80 mt-0.5">
-            {collaborator?.role === 'editor'
-              ? "Sign in or create an account to complete tasks assigned to you."
-              : 'Sign in or create an account to participate.'}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // Anonymous + public share link
-  if (!isLoggedIn && mode === 'public') {
-    return (
-      <div className="bg-gray-50 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/40 rounded-2xl p-4 flex items-start gap-3">
-        <FaGlobe className="text-gray-400 text-base mt-0.5 shrink-0" />
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-            You're viewing a shared project
-          </p>
-          <p className="text-xs text-gray-500 dark:text-gray-500 mt-0.5">
-            Read-only access. Sign in to participate if you've been invited.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // Logged in but not linked as collaborator / not full member
-  if (isLoggedIn && !isFullMember && !collaborator?.linkedToMe) {
-    return (
-      <div className="bg-gray-50 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/40 rounded-2xl p-4 flex items-start gap-3">
-        <FaEye className="text-gray-400 text-base mt-0.5 shrink-0" />
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-            Read-only view
-          </p>
-          <p className="text-xs text-gray-500 dark:text-gray-500 mt-0.5">
-            You're signed in, but not linked to this project as a collaborator.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // Logged in + linked collaborator
-  if (isLoggedIn && collaborator?.linkedToMe) {
+  } else if (!isLoggedIn && mode === 'collaborator') {
+    Icon = FaUserPlus;
+    toneCls = 'text-amber-600 dark:text-amber-400';
+    text = collaborator?.role === 'editor'
+      ? 'Invited as editor · sign in to contribute'
+      : 'Invited to collaborate · sign in';
+  } else if (!isLoggedIn && mode === 'public') {
+    Icon = FaGlobe;
+    text = 'Shared project · read-only';
+  } else if (isLoggedIn && collaborator?.linkedToMe) {
     const isEditor = collaborator.role === 'editor';
-    return (
-      <div className={`rounded-2xl p-4 flex items-start gap-3 border ${
-        isEditor
-          ? 'bg-teal-50 dark:bg-teal-900/20 border-teal-200/70 dark:border-teal-800/40'
-          : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200/70 dark:border-blue-800/40'
-      }`}>
-        <FaUserShield className={`text-base mt-0.5 shrink-0 ${isEditor ? 'text-teal-500' : 'text-blue-500'}`} />
-        <div className="flex-1 min-w-0">
-          <p className={`text-sm font-semibold ${isEditor ? 'text-teal-800 dark:text-teal-300' : 'text-blue-800 dark:text-blue-300'}`}>
-            You're collaborating as {isEditor ? 'an Editor' : 'a Viewer'}
-          </p>
-          <p className={`text-xs mt-0.5 ${isEditor ? 'text-teal-700/80 dark:text-teal-400/80' : 'text-blue-700/80 dark:text-blue-400/80'}`}>
-            {isEditor
-              ? 'You can complete and comment on tasks assigned to you. Everything else is read-only.'
-              : 'You have read-only access to this project.'}
-          </p>
-        </div>
-      </div>
-    );
+    Icon = FaUserShield;
+    toneCls = isEditor ? 'text-teal-600 dark:text-teal-400' : 'text-blue-600 dark:text-blue-400';
+    text = isEditor ? 'Editor · complete assigned tasks' : 'Viewer · read-only';
+  } else if (isLoggedIn && !isFullMember) {
+    Icon = FaEye;
+    text = 'Read-only · not linked as collaborator';
+  } else {
+    return null;
   }
 
-  return null;
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-gray-50 dark:bg-white/[0.02] border border-gray-200/80 dark:border-white/[0.05]">
+      <Icon className={`text-[11px] shrink-0 ${toneCls}`} />
+      <p className={`flex-1 min-w-0 text-[11px] truncate ${toneCls}`}>{text}</p>
+      {action}
+    </div>
+  );
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  Signup Sticky Bar (anonymous guests only)
+//  Signup Sticky Bar
 // ═════════════════════════════════════════════════════════════════════
 const SignupStickyBar = ({ token, brandHex, mode }) => {
   const navigate = useNavigate();
@@ -586,7 +500,6 @@ const SignupStickyBar = ({ token, brandHex, mode }) => {
 
   const handleSignup = () => {
     try { sessionStorage.setItem('pendingInviteToken', token); } catch { /* noop */ }
-    // The signup route in this app is `/signup` (see Login.jsx "Create one now")
     navigate(`/signup?redirect=${encodeURIComponent(`/collaborate/${token}`)}`);
   };
   const handleLogin = () => {
@@ -595,31 +508,30 @@ const SignupStickyBar = ({ token, brandHex, mode }) => {
   };
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-40 border-t border-gray-200 dark:border-gray-800/60 bg-white/95 dark:bg-[#0b0b10]/95 backdrop-blur-xl"
-      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
-      <div className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-3">
+    <div
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-gray-200 dark:border-white/[0.06] bg-white/95 dark:bg-[#0b0b10]/95 backdrop-blur-xl"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+    >
+      <div className="max-w-5xl mx-auto px-4 py-2.5 flex items-center gap-3">
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate">
+          <p className="text-[13px] font-medium text-gray-800 dark:text-gray-200 truncate">
             {isInvite ? 'Sign in to contribute' : 'Sign in to Xircle'}
           </p>
-          <p className="text-[11px] text-gray-500 dark:text-gray-500 truncate">
-            {isInvite
-              ? 'Act on tasks assigned to you after signing in.'
-              : 'Get full access to your projects and tasks.'}
+          <p className="text-[11px] text-gray-500 truncate">
+            {isInvite ? 'Act on tasks assigned to you.' : 'Get full access to your projects.'}
           </p>
         </div>
         <button
           onClick={handleLogin}
-          className="shrink-0 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800/60 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-lg transition"
+          className="shrink-0 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/[0.05] rounded-md transition"
         >
           Sign in
         </button>
         <button
           onClick={handleSignup}
-          className="shrink-0 px-3 py-1.5 text-xs font-medium text-white rounded-lg transition hover:opacity-90 flex items-center gap-1.5"
+          className="shrink-0 px-3 py-1.5 text-xs font-medium text-white rounded-md transition hover:opacity-90"
           style={{ backgroundColor: brandHex }}
         >
-          <FaUserPlus className="text-[10px]" />
           Sign up
         </button>
       </div>
@@ -628,20 +540,17 @@ const SignupStickyBar = ({ token, brandHex, mode }) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  Loading skeleton
+//  Loading / Error
 // ═════════════════════════════════════════════════════════════════════
 const LoadingSkeleton = () => (
   <div className="min-h-dvh bg-gray-50 dark:bg-[#0b0b10] flex items-center justify-center">
     <div className="text-center">
-      <FaSpinner className="animate-spin text-3xl text-teal-500 mx-auto" />
-      <p className="mt-3 text-sm text-gray-500 dark:text-gray-500">Loading project…</p>
+      <FaSpinner className="animate-spin text-2xl text-teal-500 mx-auto" />
+      <p className="mt-3 text-xs text-gray-500">Loading project…</p>
     </div>
   </div>
 );
 
-// ═════════════════════════════════════════════════════════════════════
-//  Error state
-// ═════════════════════════════════════════════════════════════════════
 const ErrorState = ({ status, message }) => {
   const navigate = useNavigate();
   const isRevoked = status === 410;
@@ -649,27 +558,27 @@ const ErrorState = ({ status, message }) => {
 
   return (
     <div className="min-h-dvh bg-gray-50 dark:bg-[#0b0b10] flex items-center justify-center p-4">
-      <div className="max-w-md w-full bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/60 p-8 text-center">
-        <div className={`w-14 h-14 rounded-full mx-auto flex items-center justify-center mb-4 ${
-          isRevoked ? 'bg-amber-100 dark:bg-amber-900/30' : 'bg-red-100 dark:bg-red-900/30'
+      <div className="max-w-sm w-full bg-white dark:bg-[#111115] rounded-xl border border-gray-200 dark:border-white/[0.06] p-6 text-center">
+        <div className={`w-11 h-11 rounded-full mx-auto flex items-center justify-center mb-3 ${
+          isRevoked ? 'bg-amber-50 dark:bg-amber-500/10' : 'bg-red-50 dark:bg-red-500/10'
         }`}>
-          <FaExclamationTriangle className={`text-2xl ${isRevoked ? 'text-amber-500' : 'text-red-500'}`} />
+          <FaExclamationTriangle className={`text-lg ${isRevoked ? 'text-amber-500' : 'text-red-500'}`} />
         </div>
-        <h1 className="text-lg font-bold text-gray-800 dark:text-gray-100 mb-2">
+        <h1 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1.5">
           {isRevoked ? 'Access revoked' : isNotFound ? 'Link not found' : 'Something went wrong'}
         </h1>
-        <p className="text-sm text-gray-500 dark:text-gray-500 mb-6">
+        <p className="text-[13px] text-gray-500 dark:text-gray-500 mb-5 leading-relaxed">
           {isRevoked
             ? 'This invite has been revoked by the project owner. Ask them for a new link.'
             : isNotFound
-              ? "This link is invalid or has expired. Double-check the URL or ask for a fresh one."
+              ? 'This link is invalid or has expired.'
               : message || 'Please try again in a moment.'}
         </p>
         <button
           onClick={() => navigate('/')}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-xl transition"
+          className="inline-flex items-center gap-2 px-3.5 py-1.5 text-[13px] font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-md transition"
         >
-          <FaArrowLeft className="text-xs" />
+          <FaArrowLeft className="text-[10px]" />
           Go home
         </button>
       </div>
@@ -682,10 +591,8 @@ const ErrorState = ({ status, message }) => {
 // ═════════════════════════════════════════════════════════════════════
 const PublicProject = () => {
   const { token } = useParams();
-  const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
 
-  // ── Queries ──────────────────────────────────────────────────────
   const {
     data: projectRes,
     isLoading: projectLoading,
@@ -702,7 +609,6 @@ const PublicProject = () => {
   const [markTaskCompleted, { isLoading: isCompleting }] = useMarkTaskCompletedMutation();
   const [addComment, { isLoading: isCommenting }] = useAddCommentMutation();
 
-  // ── Derived state ────────────────────────────────────────────────
   const mode = projectRes?.mode || 'public';
   const permissions = projectRes?.permissions || {};
   const collaborator = projectRes?.collaborator || null;
@@ -711,33 +617,28 @@ const PublicProject = () => {
   const isFullMember = !!projectRes?.isFullMember;
   const isLoggedIn = !!userInfo?._id;
 
-  // ── Local UI state ───────────────────────────────────────────────
   const [filter, setFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [completeTarget, setCompleteTarget] = useState(null);
   const [commentTarget, setCommentTarget] = useState(null);
 
-  // Persist token so the user can come back after signup
   useEffect(() => {
     if (token) {
       try { sessionStorage.setItem('pendingInviteToken', token); } catch { /* noop */ }
     }
   }, [token]);
 
-  // Clean up the pending token once the invite has been successfully linked
   useEffect(() => {
     if (collaborator?.linkedToMe && token) {
       try { sessionStorage.removeItem('pendingInviteToken'); } catch { /* noop */ }
     }
   }, [collaborator?.linkedToMe, token]);
 
-  // Reset the toolbar when the underlying project changes
   useEffect(() => {
     setFilter('all');
     setSearchQuery('');
   }, [token]);
 
-  // ── Computed helpers ────────────────────────────────────────────
   const brandHex = toHex(project?.color || '#0d9488');
   const Icon = pickProjectIcon(project);
 
@@ -746,15 +647,28 @@ const PublicProject = () => {
     [tasks]
   );
 
+  const teamList = useMemo(() => {
+    const list = [];
+    project?.projectManagers?.forEach((pm) => pm && list.push(pm));
+    project?.teamMembers
+      ?.filter((tm) => tm.status === 'active')
+      .forEach((tm) => tm.user && list.push(tm.user));
+    const seen = new Set();
+    return list.filter((u) => {
+      const id = u?._id;
+      if (!id || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  }, [project]);
+
   const filteredTasks = useMemo(() => {
     let arr = [...tasks];
 
     if (filter === 'mine') {
       arr = arr.filter((t) => t.assignedToMe);
     } else if (filter === 'open') {
-      arr = arr.filter(
-        (t) => !['confirmed_completed', 'cancelled'].includes(t.status)
-      );
+      arr = arr.filter((t) => !['confirmed_completed', 'cancelled'].includes(t.status));
     } else if (filter === 'completed') {
       arr = arr.filter((t) => t.status === 'confirmed_completed');
     }
@@ -787,13 +701,10 @@ const PublicProject = () => {
     return { total, done, open, progress };
   }, [tasks, project]);
 
-  // ── Permissions per task ────────────────────────────────────────
   const canActOnTask = (task) => {
     if (!permissions.canActOnAssignedTasks) return false;
     if (!task.assignedToMe) return false;
-    if (task.status === 'confirmed_completed') return false;
-    if (task.status === 'completed') return false;
-    if (task.status === 'cancelled') return false;
+    if (['confirmed_completed', 'completed', 'cancelled'].includes(task.status)) return false;
     return true;
   };
 
@@ -803,7 +714,6 @@ const PublicProject = () => {
     return true;
   };
 
-  // ── Actions ─────────────────────────────────────────────────────
   const handleCompleteSubmit = async ({ notes, links, files }) => {
     if (!completeTarget) return;
     try {
@@ -817,10 +727,7 @@ const PublicProject = () => {
         payload = { notes, links };
       }
 
-      await markTaskCompleted({
-        taskId: completeTarget._id,
-        data: payload,
-      }).unwrap();
+      await markTaskCompleted({ taskId: completeTarget._id, data: payload }).unwrap();
 
       toast.success('Task marked complete — awaiting review');
       setCompleteTarget(null);
@@ -847,7 +754,6 @@ const PublicProject = () => {
     }
   };
 
-  // ── Early states ────────────────────────────────────────────────
   if (projectLoading) return <LoadingSkeleton />;
 
   if (projectError) {
@@ -857,34 +763,25 @@ const PublicProject = () => {
 
   if (!project) return <ErrorState status={404} />;
 
-  // ═══════════════════════════════════════════════════════════════
-  //  RENDER
-  // ═══════════════════════════════════════════════════════════════
   const showSignupBar = !isLoggedIn && !isFullMember;
   const hasEditRights = !!permissions.canActOnAssignedTasks;
-
   const statusMeta = PROJECT_STATUS_META[project.status] || PROJECT_STATUS_META.planning;
 
   return (
     <div className="min-h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col">
-      {/* Top bar */}
-      <header className="sticky top-0 z-30 bg-white/90 dark:bg-[#0b0b10]/90 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800/60">
-        <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
+      {/* Header */}
+      <header className="sticky top-0 z-30 bg-white/90 dark:bg-[#0b0b10]/90 backdrop-blur-xl border-b border-gray-200 dark:border-white/[0.06]">
+        <div className="max-w-5xl mx-auto px-4 h-12 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
             <div
-              className="w-8 h-8 rounded-xl flex items-center justify-center text-white shrink-0"
-              style={{ background: `linear-gradient(135deg, ${brandHex} 0%, ${shadeHex(brandHex, -22)} 100%)` }}
+              className="w-6 h-6 rounded-md flex items-center justify-center text-white shrink-0"
+              style={{ backgroundColor: brandHex }}
             >
-              <Icon className="text-sm" />
+              <Icon className="text-[11px]" />
             </div>
-            <div className="min-w-0">
-              <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-500 font-semibold">
-                Shared project
-              </p>
-              <h1 className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">
-                {project.name}
-              </h1>
-            </div>
+            <h1 className="text-[13px] font-medium text-gray-900 dark:text-gray-100 truncate">
+              {project.name}
+            </h1>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
@@ -893,7 +790,7 @@ const PublicProject = () => {
             ) : (
               <Link
                 to={`/login?redirect=${encodeURIComponent(`/collaborate/${token}`)}`}
-                className="text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-teal-600 dark:hover:text-teal-400 transition"
+                className="text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition"
               >
                 Sign in
               </Link>
@@ -903,207 +800,148 @@ const PublicProject = () => {
       </header>
 
       <main
-        className="flex-1 w-full max-w-5xl mx-auto px-4 py-5 space-y-5"
-        style={{ paddingBottom: showSignupBar ? 'calc(7rem + env(safe-area-inset-bottom, 0px))' : '4rem' }}
+        className="flex-1 w-full max-w-5xl mx-auto px-3 sm:px-4 py-3 sm:py-5 space-y-3"
+        style={{ paddingBottom: showSignupBar ? 'calc(6rem + env(safe-area-inset-bottom, 0px))' : '3rem' }}
       >
         {/* Access banner */}
         <AccessBanner
           mode={mode}
-          permissions={permissions}
           collaborator={collaborator}
           isLoggedIn={isLoggedIn}
           isFullMember={isFullMember}
-          brandHex={brandHex}
           workspaceId={project.workspaceId || project.workspace}
           projectId={project._id}
         />
 
-        {/* Hero card */}
-        <section className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/70 dark:border-gray-800/50 overflow-hidden">
-          {/* Banner — tall only when there's an actual cover image */}
-          {project.coverImage ? (
-            <div className="relative h-32 sm:h-40 flex items-end overflow-hidden">
-              <img
-                src={project.coverImage}
-                alt=""
-                className="absolute inset-0 w-full h-full object-cover"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
-              <div className="relative p-4 sm:p-5 w-full">
-                <span className={`inline-block text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded-full ${statusMeta.bg} ${statusMeta.color} backdrop-blur-md`}>
-                  {statusMeta.label}
-                </span>
-              </div>
+        {/* Hero card — slim */}
+        <section className="bg-white dark:bg-[#111115] rounded-lg border border-gray-200/80 dark:border-white/[0.06] overflow-hidden">
+          {project.coverImage && (
+            <div className="relative h-28 sm:h-36">
+              <img src={project.coverImage} alt="" className="absolute inset-0 w-full h-full object-cover" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
             </div>
-          ) : (
-            /* Slim brand accent strip when there's no cover photo */
-            <div
-              className="h-1.5 w-full"
-              style={{ background: `linear-gradient(90deg, ${brandHex} 0%, ${shadeHex(brandHex, -22)} 100%)` }}
-            />
           )}
 
-          {/* Body */}
-          <div className="p-4 sm:p-5 space-y-4">
-            <div>
-              {!project.coverImage && (
-                <span className={`inline-block text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded-full ${statusMeta.bg} ${statusMeta.color} mb-2`}>
-                  {statusMeta.label}
-                </span>
-              )}
-              <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 break-words">
-                {project.name}
-              </h2>
-              {project.description && (
-                <p className="text-sm text-gray-600 dark:text-gray-400 mt-2 break-words leading-relaxed">
-                  {project.description}
-                </p>
-              )}
-            </div>
-
-            {/* Meta row */}
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-gray-500 dark:text-gray-500">
-              {project.startDate && (
-                <span className="flex items-center gap-1.5">
-                  <FaCalendarAlt className="text-[10px]" />
-                  Started {format(new Date(project.startDate), 'MMM d, yyyy')}
-                </span>
-              )}
+          <div className="px-3.5 sm:px-5 py-3 sm:py-4">
+            {/* Status line */}
+            <div className="flex items-center gap-2 mb-1.5 text-[11px] text-gray-500 dark:text-gray-500">
+              <span className={`w-1.5 h-1.5 rounded-full ${statusMeta.dot}`} />
+              <span>{statusMeta.label}</span>
               {project.endDate && (
-                <span className="flex items-center gap-1.5">
-                  <FaClock className="text-[10px]" />
-                  Due {format(new Date(project.endDate), 'MMM d, yyyy')}
-                </span>
-              )}
-              {project.tags?.length > 0 && (
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {project.tags.slice(0, 4).map((tag, i) => (
-                    <span
-                      key={i}
-                      className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800/60 text-gray-600 dark:text-gray-400"
-                    >
-                      #{tag}
-                    </span>
-                  ))}
-                </div>
+                <>
+                  <span className="text-gray-300 dark:text-gray-700">·</span>
+                  <span>Due {format(new Date(project.endDate), 'MMM d, yyyy')}</span>
+                </>
               )}
             </div>
 
-            {/* Progress */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                  Overall progress
-                </span>
-                <span className="text-xs font-mono font-semibold text-gray-700 dark:text-gray-300 tabular-nums">
+            {/* Title */}
+            <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-gray-50 break-words leading-snug">
+              {project.name}
+            </h2>
+
+            {/* Description */}
+            {project.description && (
+              <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-1.5 break-words leading-relaxed line-clamp-2">
+                {project.description}
+              </p>
+            )}
+
+            {/* Tags */}
+            {project.tags?.length > 0 && (
+              <div className="flex items-center gap-1.5 flex-wrap mt-2">
+                {project.tags.slice(0, 4).map((tag, i) => (
+                  <span
+                    key={i}
+                    className="text-[10px] font-medium px-1.5 py-0.5 rounded text-gray-500 dark:text-gray-500 bg-gray-100 dark:bg-white/[0.05]"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Progress + stats — one compact block */}
+            <div className="mt-3 pt-3 border-t border-gray-100 dark:border-white/[0.05] space-y-2">
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-1 bg-gray-100 dark:bg-white/[0.06] rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{ width: `${projectStats.progress}%`, backgroundColor: brandHex }}
+                  />
+                </div>
+                <span className="text-[11px] font-mono tabular-nums text-gray-600 dark:text-gray-400 shrink-0">
                   {projectStats.progress}%
                 </span>
               </div>
-              <div className="h-2 bg-gray-100 dark:bg-gray-800/70 rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all duration-700"
-                  style={{ width: `${projectStats.progress}%`, backgroundColor: brandHex }}
-                />
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-500 dark:text-gray-500">
+                <span>{projectStats.total} tasks</span>
+                <span className="text-gray-300 dark:text-gray-700">·</span>
+                <span>{projectStats.open} open</span>
+                <span className="text-gray-300 dark:text-gray-700">·</span>
+                <span>{projectStats.done} done</span>
               </div>
             </div>
 
-            {/* Stats grid */}
-            <div className="grid grid-cols-3 gap-2 pt-2">
-              <div className="rounded-xl bg-gray-50 dark:bg-[#0b0b10] border border-gray-200/70 dark:border-gray-800/40 p-3 text-center">
-                <p className="text-lg font-bold text-gray-800 dark:text-gray-100 tabular-nums">
-                  {projectStats.total}
-                </p>
-                <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">
-                  Total tasks
-                </p>
-              </div>
-              <div className="rounded-xl bg-gray-50 dark:bg-[#0b0b10] border border-gray-200/70 dark:border-gray-800/40 p-3 text-center">
-                <p className="text-lg font-bold text-blue-600 dark:text-blue-400 tabular-nums">
-                  {projectStats.open}
-                </p>
-                <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">
-                  Open
-                </p>
-              </div>
-              <div className="rounded-xl bg-gray-50 dark:bg-[#0b0b10] border border-gray-200/70 dark:border-gray-800/40 p-3 text-center">
-                <p className="text-lg font-bold text-green-600 dark:text-green-400 tabular-nums">
-                  {projectStats.done}
-                </p>
-                <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">
-                  Completed
-                </p>
-              </div>
-            </div>
-
-            {/* Team */}
-            {(project.projectManagers?.length > 0 || project.teamMembers?.length > 0) && (
-              <div className="pt-3 border-t border-gray-100 dark:border-gray-800/40">
-                <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider mb-2">
-                  Team
-                </p>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {project.projectManagers?.slice(0, 5).map((pm, i) => (
-                    <span key={pm._id || i} className="inline-flex items-center gap-1.5 pl-0.5 pr-2.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800/60 text-xs text-gray-700 dark:text-gray-300">
-                      <MemberAvatar user={pm} size="xs" fallbackColor={brandHex} />
-                      <span className="truncate max-w-[100px]">{pm.name || 'Manager'}</span>
-                    </span>
-                  ))}
-                  {project.teamMembers?.filter((tm) => tm.status === 'active').slice(0, 5).map((tm, i) => (
-                    <span key={tm.user?._id || i} className="inline-flex items-center gap-1.5 pl-0.5 pr-2.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800/60 text-xs text-gray-700 dark:text-gray-300">
-                      <MemberAvatar user={tm.user} size="xs" fallbackColor={brandHex} />
-                      <span className="truncate max-w-[100px]">{tm.user?.name || 'Member'}</span>
-                    </span>
+            {/* Team — avatars only */}
+            {teamList.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-gray-100 dark:border-white/[0.05] flex items-center gap-2.5">
+                <div className="flex -space-x-1.5">
+                  {teamList.slice(0, 6).map((u, i) => (
+                    <MemberAvatar key={u._id || i} user={u} size="xs" ring fallbackColor={brandHex} />
                   ))}
                 </div>
+                <span className="text-[11px] text-gray-500 dark:text-gray-500">
+                  {teamList.length} {teamList.length === 1 ? 'member' : 'members'}
+                </span>
               </div>
             )}
           </div>
         </section>
 
-        {/* Tasks section */}
+        {/* Tasks */}
         <section>
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
-            <div>
-              <h3 className="text-base font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-                <FaTasks className="text-teal-500 text-sm" />
+          <div className="flex items-center justify-between gap-3 mb-2.5">
+            <div className="flex items-center gap-2 min-w-0">
+              <h3 className="text-[13px] font-semibold text-gray-900 dark:text-gray-100">
                 Tasks
-                <span className="text-xs font-normal text-gray-500 dark:text-gray-500">
-                  ({tasks.length})
-                </span>
               </h3>
+              <span className="text-[11px] text-gray-400 dark:text-gray-600 tabular-nums">
+                {tasks.length}
+              </span>
               {hasEditRights && myAssignedCount > 0 && (
-                <p className="text-[11px] text-teal-600 dark:text-teal-400 mt-0.5">
-                  {myAssignedCount} assigned to you
-                </p>
+                <span className="text-[11px] text-teal-600 dark:text-teal-400 truncate">
+                  · {myAssignedCount} assigned to you
+                </span>
               )}
             </div>
 
-            <div className="flex items-center gap-2 bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-xl px-3 py-1.5 focus-within:border-teal-500/50 transition w-full sm:w-64">
-              <FaSearch className="text-gray-400 text-xs shrink-0" />
+            <div className="flex items-center gap-1.5 bg-white dark:bg-[#111115] border border-gray-200 dark:border-white/[0.06] rounded-md px-2.5 py-1.5 focus-within:border-gray-300 dark:focus-within:border-white/[0.12] transition w-32 sm:w-56 shrink-0">
+              <FaSearch className="text-gray-400 text-[10px] shrink-0" />
               <input
                 type="text"
-                placeholder="Search tasks…"
+                placeholder="Search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="flex-1 min-w-0 bg-transparent outline-none text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600"
+                className="flex-1 min-w-0 bg-transparent outline-none text-xs text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600"
               />
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
                   className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 shrink-0"
                 >
-                  <FaTimes className="text-[10px]" />
+                  <FaTimes className="text-[9px]" />
                 </button>
               )}
             </div>
           </div>
 
           {/* Filter chips */}
-          <div className="flex items-center gap-1.5 mb-4 overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0">
+          <div className="flex items-center gap-1.5 mb-3 overflow-x-auto pb-0.5 -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-none">
             {[
               { id: 'all', label: 'All', count: tasks.length },
               ...(hasEditRights && myAssignedCount > 0
-                ? [{ id: 'mine', label: 'Assigned to me', count: myAssignedCount }]
+                ? [{ id: 'mine', label: 'Mine', count: myAssignedCount }]
                 : []),
               { id: 'open', label: 'Open', count: projectStats.open },
               { id: 'completed', label: 'Completed', count: projectStats.done },
@@ -1113,15 +951,14 @@ const PublicProject = () => {
                 <button
                   key={chip.id}
                   onClick={() => setFilter(chip.id)}
-                  className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border transition ${
+                  className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md border transition ${
                     active
-                      ? 'text-white border-transparent'
-                      : 'text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-800/60 hover:bg-gray-100 dark:hover:bg-gray-800/40'
+                      ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900 border-transparent'
+                      : 'text-gray-600 dark:text-gray-400 border-gray-200 dark:border-white/[0.06] hover:bg-gray-100 dark:hover:bg-white/[0.04]'
                   }`}
-                  style={active ? { backgroundColor: brandHex } : undefined}
                 >
                   {chip.label}
-                  <span className={`text-[10px] tabular-nums ${active ? 'opacity-80' : 'opacity-60'}`}>
+                  <span className={`text-[10px] tabular-nums ${active ? 'opacity-70' : 'opacity-60'}`}>
                     {chip.count}
                   </span>
                 </button>
@@ -1131,13 +968,13 @@ const PublicProject = () => {
 
           {/* Task list */}
           {tasksLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <FaSpinner className="animate-spin text-2xl text-teal-500" />
+            <div className="flex items-center justify-center py-10">
+              <FaSpinner className="animate-spin text-xl text-teal-500" />
             </div>
           ) : filteredTasks.length === 0 ? (
-            <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-dashed border-gray-300 dark:border-gray-800/60 p-8 text-center">
-              <FaTasks className="text-3xl text-gray-300 dark:text-gray-700 mx-auto mb-3" />
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">
+            <div className="bg-white dark:bg-[#111115] rounded-lg border border-dashed border-gray-200 dark:border-white/[0.06] p-6 text-center">
+              <FaTasks className="text-2xl text-gray-300 dark:text-gray-700 mx-auto mb-2" />
+              <p className="text-[13px] text-gray-500 dark:text-gray-500">
                 {searchQuery
                   ? `No tasks match "${searchQuery}"`
                   : filter === 'mine'
@@ -1150,7 +987,7 @@ const PublicProject = () => {
               </p>
             </div>
           ) : (
-            <div className="space-y-2.5">
+            <div className="space-y-2">
               {filteredTasks.map((task) => (
                 <TaskCard
                   key={task._id}
@@ -1166,15 +1003,14 @@ const PublicProject = () => {
           )}
         </section>
 
-        {/* Footer note */}
-        <div className="pt-6 pb-2 text-center">
-          <p className="text-[11px] text-gray-400 dark:text-gray-600">
-            Powered by <span className="font-semibold text-gray-500 dark:text-gray-500">Xircle</span>
+        {/* Footer */}
+        <div className="pt-4 pb-1 text-center">
+          <p className="text-[10px] text-gray-400 dark:text-gray-600">
+            Powered by <span className="font-medium text-gray-500">Xircle</span>
           </p>
         </div>
       </main>
 
-      {/* Modals */}
       <CompleteTaskModal
         isOpen={!!completeTarget}
         onClose={() => !isCompleting && setCompleteTarget(null)}
@@ -1191,7 +1027,6 @@ const PublicProject = () => {
         busy={isCommenting}
       />
 
-      {/* Sticky signup CTA */}
       {showSignupBar && <SignupStickyBar token={token} brandHex={brandHex} mode={mode} />}
     </div>
   );
