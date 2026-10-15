@@ -91,11 +91,11 @@ const STATUS_DOT = {
 };
 const StatusPill = ({ status }) => {
   const s = STATUS_MAP[status] || STATUS_MAP.pending;
-  return <span className={`text-[10px] font-medium px-2.5 py-0.5 rounded-full border ${s.c}`}>{s.label}</span>;
+  return <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border whitespace-nowrap ${s.c}`}>{s.label}</span>;
 };
 const PriorityPill = ({ priority }) => {
   const p = PRIORITY_MAP[priority] || PRIORITY_MAP.medium;
-  return <span className={`text-[10px] font-medium px-2.5 py-0.5 rounded-full border ${p.c}`}>{p.label}</span>;
+  return <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border whitespace-nowrap ${p.c}`}>{p.label}</span>;
 };
 
 const priorityOptions = [
@@ -129,10 +129,10 @@ const GlobalStyles = () => (
 const Skeleton = ({ className = '' }) => (<div className={`skeleton rounded-lg ${className}`} />);
 
 const TaskCardSkeleton = () => (
-  <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/40 p-4">
+  <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/40 p-3 sm:p-4">
     <div className="flex items-start justify-between gap-2">
       <div className="flex items-center gap-2 min-w-0 flex-1">
-        <Skeleton className="w-8 h-8 rounded-xl flex-shrink-0" />
+        <Skeleton className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex-shrink-0" />
         <Skeleton className="h-3.5 w-32 max-w-[60%]" />
       </div>
       <div className="flex items-center gap-1 shrink-0"><Skeleton className="w-5 h-5 rounded-md" /><Skeleton className="h-5 w-16 rounded-full" /></div>
@@ -192,7 +192,7 @@ const ProjectSkeleton = ({ brandColor = '#0d9488', hideWorkspaceChrome = false }
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-3 md:p-4 pb-24 md:pb-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3">
           {Array.from({ length: 6 }).map((_, i) => (<TaskCardSkeleton key={i} />))}
         </div>
       </div>
@@ -1069,77 +1069,83 @@ const TaskCard = React.memo(({
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
       onTouchMove={handleTouchMove}
-      className={`group bg-white dark:bg-[#14141a] rounded-2xl border p-4 cursor-pointer transition-all ${
+      className={`group bg-white dark:bg-[#14141a] rounded-2xl border p-2.5 sm:p-4 cursor-pointer transition-all ${
         dragOver ? 'border-teal-500 dark:border-[#0d9488] bg-teal-50/50 dark:bg-[#0d9488]/5' : 'border-gray-200/60 dark:border-gray-800/40 hover:border-teal-500/60 dark:hover:border-[#0d9488]/50'
       } ${isSelected ? 'ring-2 ring-teal-500/50 dark:ring-[#0d9488]/50 bg-teal-50/70 dark:bg-teal-900/30' : ''}`}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-start gap-2 min-w-0 flex-1">
-          {draggable && <FaGripVertical className="task-grip text-gray-300 dark:text-gray-700 text-xs shrink-0 mt-1.5 touch-none cursor-grab" />}
-          <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white font-bold text-sm shrink-0" style={{ backgroundColor: brandColor }}>
+      <div className="flex items-start justify-between gap-1.5">
+        <div className="flex items-start gap-1.5 sm:gap-2 min-w-0 flex-1">
+          {draggable && <FaGripVertical className="task-grip text-gray-300 dark:text-gray-700 text-xs shrink-0 mt-1.5 touch-none cursor-grab hidden sm:block" />}
+          <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl flex items-center justify-center text-white font-bold text-[11px] sm:text-sm shrink-0" style={{ backgroundColor: brandColor }}>
             {task.title.charAt(0).toUpperCase()}
           </div>
           <div className="flex-1 min-w-0">
-            <h4 className={`text-sm font-medium break-words min-w-0 ${isCompleted ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-800 dark:text-gray-200'}`}>
+            <h4 className={`text-xs sm:text-sm font-medium break-words min-w-0 ${isCompleted ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-800 dark:text-gray-200'}`}>
               {task.title}
-              {hasRecurrence && <FaRedo className="inline text-[10px] text-teal-600 dark:text-[#0d9488] ml-1.5 -mt-0.5" />}
+              {hasRecurrence && <FaRedo className="inline text-[9px] sm:text-[10px] text-teal-600 dark:text-[#0d9488] ml-1 -mt-0.5" />}
               {linkedNotesCount > 0 && (
-                <span className="inline-flex items-center gap-0.5 text-[10px] text-teal-600 dark:text-[#0d9488] ml-1.5" title={`${linkedNotesCount} linked note(s)`}>
-                  <FaStickyNote className="text-[10px]" /> {linkedNotesCount}
+                <span className="inline-flex items-center gap-0.5 text-[9px] sm:text-[10px] text-teal-600 dark:text-[#0d9488] ml-1" title={`${linkedNotesCount} linked note(s)`}>
+                  <FaStickyNote className="text-[9px] sm:text-[10px]" /> {linkedNotesCount}
                 </span>
               )}
             </h4>
             {assignedToMe && (
-              <span className="inline-flex items-center gap-1 mt-1 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400">
-                <FaUser className="text-[7px]" /> Assigned to you
+              <span className="inline-flex items-center gap-1 mt-1 text-[8px] sm:text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400">
+                <FaUser className="text-[7px]" /> You
               </span>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <button onClick={(e) => { e.stopPropagation(); onOpenModal(task); }} className="task-menu-btn md:hidden p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition" aria-label="More actions">
-            <FaAngleDown className="text-sm" />
+        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
+          <button onClick={(e) => { e.stopPropagation(); onOpenModal(task); }} className="task-menu-btn md:hidden p-1 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition" aria-label="More actions">
+            <FaAngleDown className="text-xs" />
           </button>
           <button onClick={(e) => { e.stopPropagation(); onOpenModal(task); }} className="task-menu-btn hidden md:flex p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition" aria-label="More actions">
             <FaEllipsisV className="text-sm" />
           </button>
-          <StatusPill status={task.status} />
         </div>
       </div>
 
-      <div className="mt-2 flex items-center gap-2 flex-wrap">
-        <PriorityPill priority={task.priority} />
-        {subCount > 0 && <span className="text-[10px] text-gray-500">• {confirmed}/{subCount} done</span>}
-        {overdue && <span className="text-[10px] text-red-500 flex items-center gap-1"><FaClock className="text-[8px]" /> Overdue</span>}
-        {task.folder?.name && (<span className="text-[10px] text-gray-500 flex items-center gap-1"><FaFolder className="text-[8px]" /> {task.folder.name}</span>)}
+      {/* Status pill on its own row on mobile so it doesn't squeeze the title */}
+      <div className="mt-1.5 flex items-center gap-1 flex-wrap">
+        <StatusPill status={task.status} />
       </div>
 
-      <div className="mt-3 flex items-center justify-between gap-2">
+      <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+        <PriorityPill priority={task.priority} />
+        {subCount > 0 && <span className="text-[9px] sm:text-[10px] text-gray-500">• {confirmed}/{subCount} done</span>}
+        {overdue && <span className="text-[9px] sm:text-[10px] text-red-500 flex items-center gap-1"><FaClock className="text-[8px]" /> Overdue</span>}
+        {task.folder?.name && (<span className="text-[9px] sm:text-[10px] text-gray-500 flex items-center gap-1 truncate max-w-[80px]"><FaFolder className="text-[8px] shrink-0" /> {task.folder.name}</span>)}
+      </div>
+
+      <div className="mt-2 flex items-center justify-between gap-1.5">
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
           {assignees.length === 0 ? (
-            <span className="text-xs text-gray-500">Unassigned</span>
+            <span className="text-[10px] sm:text-xs text-gray-500 truncate">Unassigned</span>
           ) : (
             <>
               <div className="flex -space-x-1.5 shrink-0">
-                {assignees.slice(0, 3).map((a, i) => (
+                {assignees.slice(0, 2).map((a, i) => (
                   <div key={a._id || i} className="w-5 h-5 rounded-full border border-white dark:border-[#14141a] flex items-center justify-center text-white text-[9px] font-semibold overflow-hidden" style={{ backgroundColor: brandColor }}>
                     {a.profile ? <img src={a.profile} className="w-full h-full object-cover" alt="" /> : (a.name || '?').charAt(0).toUpperCase()}
                   </div>
                 ))}
-                {assignees.length > 3 && (<div className="w-5 h-5 rounded-full border border-white dark:border-[#14141a] flex items-center justify-center bg-gray-500 text-white text-[8px]">+{assignees.length - 3}</div>)}
+                {assignees.length > 2 && (<div className="w-5 h-5 rounded-full border border-white dark:border-[#14141a] flex items-center justify-center bg-gray-500 text-white text-[8px]">+{assignees.length - 2}</div>)}
               </div>
-              <span className="text-xs text-gray-500 truncate">{assignees.length === 1 ? assignees[0].name : `${assignees.length} assignees`}</span>
+              <span className="text-[10px] sm:text-xs text-gray-500 truncate">
+                {assignees.length === 1 ? assignees[0].name : `${assignees.length} assignees`}
+              </span>
             </>
           )}
         </div>
-        <span className="text-xs text-gray-500 shrink-0">{fmtShortDate(task.dueDate) || 'No due'}</span>
+        <span className="text-[10px] sm:text-xs text-gray-500 shrink-0">{fmtShortDate(task.dueDate) || 'No due'}</span>
       </div>
 
-      <div className="mt-2 flex items-center gap-2">
+      <div className="mt-2 flex items-center gap-1.5">
         <div className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
           <div className="h-full rounded-full transition-all" style={{ width: `${progress}%`, backgroundColor: brandColor }} />
         </div>
-        <span className="text-xs font-mono text-gray-400">{progress}%</span>
+        <span className="text-[10px] sm:text-xs font-mono text-gray-400">{progress}%</span>
       </div>
     </div>
   );
@@ -3286,7 +3292,7 @@ const YourWorkspaceProjectId = () => {
           )}
 
           {/* Task list */}
-          <div className={`flex-1 overflow-y-auto ${viewMode === 'list' ? 'pb-24 md:pb-4' : 'p-3 md:p-4 pb-24 md:pb-4'}`}>
+          <div className={`flex-1 overflow-y-auto ${viewMode === 'list' ? 'pb-24 md:pb-4' : 'p-2 sm:p-3 md:p-4 pb-24 md:pb-4'}`}>
             {tErr ? (
               <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
                 <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-4 ${
@@ -3322,7 +3328,8 @@ const YourWorkspaceProjectId = () => {
                 )}
               </div>
             ) : viewMode === 'grid' ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              /* Two-per-row grid on all screens; gap tightens on small phones */
+              <div className="grid grid-cols-2 gap-2 sm:gap-3">
                 {tasks.map((task) => (
                   <TaskCard
                     key={task._id} task={task} view="grid" brandColor={brandColor}
