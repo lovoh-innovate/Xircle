@@ -2,10 +2,13 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import {
+  // CRUD
   createProject,
   getWorkspaceProjects,
-  getMyCollaboratedProjects,      // 👈 NEW
-  getProjectById,
+  getMyAssociateProjects,     // renamed from getMyCollaboratedProjects
+  getProject,                 // unified (project ID | public share token)
+  getProjectTasks,
+  getTask,
   updateProject,
   confirmProjectCompletion,
   manageProjectManagers,
@@ -19,18 +22,14 @@ import {
   permanentlyDeleteProject,
   archiveProject,
   unarchiveProject,
-  // ── NEW: Collaborator management ──
+  // Public share link (token-based, read-only)
   enableProjectShareLink,
   disableProjectShareLink,
-  addCollaborator,
-  getCollaborators,
-  updateCollaborator,
-  removeCollaborator,
-  regenerateCollaboratorToken,
-  // ── NEW: Public (token-scoped) reads ──
-  getPublicProjectByToken,
-  getPublicProjectTasks,
-  getPublicTaskById,
+  // Associates (workspace-level limited collaborators)
+  addAssociate,
+  getAssociates,
+  updateAssociate,
+  removeAssociate,
 } from '../controllers/projectController.js';
 import User from '../models/userModel.js';
 import { protect } from '../middleware/authMiddleware.js';
@@ -39,11 +38,12 @@ import upload from '../middleware/uploadMiddleware.js';
 const router = express.Router();
 
 // ═════════════════════════════════════════════════════════════════════
-// optionalAuth — inline middleware for public token routes
+// optionalAuth — inline middleware
 //
-// Populates req.user when a valid JWT is present, but NEVER blocks the
-// request. This lets a single endpoint serve both anonymous visitors
-// (public read-only view) and logged-in users (linked collaborator).
+// Populates req.user when a valid JWT is present, but NEVER blocks.
+// Lets a single endpoint serve:
+//   - workspace members / associates (via project ID, with JWT)
+//   - anonymous visitors (via public share token, no JWT)
 // ═════════════════════════════════════════════════════════════════════
 const optionalAuth = async (req, res, next) => {
   try {
@@ -64,21 +64,19 @@ const optionalAuth = async (req, res, next) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════
-// PUBLIC ROUTES — must be declared BEFORE '/:projectId' so they aren't
-// shadowed by the generic id matcher.
+// STATIC ROUTES — must be declared BEFORE '/:identifier' so they aren't
+// shadowed by the generic matcher.
 // ═════════════════════════════════════════════════════════════════════
 
-router.get('/public/:token', optionalAuth, getPublicProjectByToken);
-router.get('/public/:token/tasks', optionalAuth, getPublicProjectTasks);
-router.get('/public/:token/tasks/:taskId', optionalAuth, getPublicTaskById);
+// ── My associate projects (limited-access projects I'm on) ──
+router.get('/associating', protect, getMyAssociateProjects);
+
+// ── Workspace-scoped project list ──
+router.get('/workspace/:workspaceId', protect, getWorkspaceProjects);
 
 // ═════════════════════════════════════════════════════════════════════
-// MY COLLABORATED PROJECTS — also must be above '/:projectId'
+// CREATE PROJECT
 // ═════════════════════════════════════════════════════════════════════
-
-router.get('/collaborating', protect, getMyCollaboratedProjects);
-
-// ── Project CRUD ──
 router.post(
   '/',
   protect,
@@ -88,8 +86,30 @@ router.post(
   ]),
   createProject
 );
-router.get('/workspace/:workspaceId', protect, getWorkspaceProjects);
-router.get('/:projectId', protect, getProjectById);
+
+// ═════════════════════════════════════════════════════════════════════
+// UNIFIED READ ROUTES
+//
+// `:identifier` accepts any of:
+//   • Mongo ObjectId     → workspace mode (auth respected; associates
+//                          and members see what they're allowed to see)
+//   • public share token → public read-only mode (from /p/:token)
+//
+// Associates DO NOT use a token — they use the project ObjectId like
+// any other workspace member. Their access is scoped by their
+// workspace membership (memberType: 'associate') + project.associates.
+//
+// Response shape is unchanged:
+//   { project, viewer, permissions, associate, isFullMember }
+// ═════════════════════════════════════════════════════════════════════
+
+router.get('/:identifier', optionalAuth, getProject);
+router.get('/:identifier/tasks', optionalAuth, getProjectTasks);
+router.get('/:identifier/tasks/:taskId', optionalAuth, getTask);
+
+// ═════════════════════════════════════════════════════════════════════
+// UPDATE PROJECT (owner / admin / PM only — enforced in controller)
+// ═════════════════════════════════════════════════════════════════════
 router.put(
   '/:projectId',
   protect,
@@ -100,23 +120,20 @@ router.put(
   updateProject
 );
 
-// ── Soft‑delete (trash) ──
+// ═════════════════════════════════════════════════════════════════════
+// LIFECYCLE: trash / restore / permanent delete / archive
+// ═════════════════════════════════════════════════════════════════════
 router.delete('/:projectId', protect, deleteProject);
-
-// ── Restore from trash ──
 router.patch('/:projectId/restore', protect, restoreProject);
-
-// ── Permanent delete ──
 router.delete('/:projectId/permanent', protect, permanentlyDeleteProject);
 
-// ── Personal archive / unarchive ──
 router.patch('/:projectId/archive', protect, archiveProject);
 router.patch('/:projectId/unarchive', protect, unarchiveProject);
 
-// ── Confirm project completion ──
+// ═════════════════════════════════════════════════════════════════════
+// COMPLETION & MANAGEMENT
+// ═════════════════════════════════════════════════════════════════════
 router.patch('/:projectId/confirm-completion', protect, confirmProjectCompletion);
-
-// ── Managers ──
 router.patch('/:projectId/managers', protect, manageProjectManagers);
 
 // ── Team management ──
@@ -129,24 +146,30 @@ router.get('/:projectId/dm/:userId', protect, getTeamMemberDM);
 router.get('/:projectId/stats', protect, getProjectStats);
 
 // ═════════════════════════════════════════════════════════════════════
-// GUEST / COLLABORATOR MANAGEMENT  (owner / admin / PM only)
+// PUBLIC SHARE LINK  (token-based, read-only)
+//
+// The ONLY token-based project access path. Associates don't use this.
 // ═════════════════════════════════════════════════════════════════════
-
-// ── Project-wide read-only share link ──
 router.post('/:projectId/share-link', protect, enableProjectShareLink);
 router.delete('/:projectId/share-link', protect, disableProjectShareLink);
 
-// ── Collaborator CRUD ──
-router.get('/:projectId/collaborators', protect, getCollaborators);
-router.post('/:projectId/collaborators', protect, addCollaborator);
-router.patch('/:projectId/collaborators/:collabId', protect, updateCollaborator);
-router.delete('/:projectId/collaborators/:collabId', protect, removeCollaborator);
-
-// ── Regenerate a collaborator's invite token (rotate the link) ──
-router.post(
-  '/:projectId/collaborators/:collabId/regenerate',
-  protect,
-  regenerateCollaboratorToken
-);
+// ═════════════════════════════════════════════════════════════════════
+// ASSOCIATE MANAGEMENT  (owner / admin / PM only — enforced in controller)
+//
+// Associates are workspace-level limited collaborators added directly
+// from a project. They don't use invite tokens. When they accept, they
+// become workspace members with memberType: 'associate' and gain scoped
+// access to this project.
+//
+// Role can be: 'viewer' | 'editor' | 'projectManager'
+//   - 'projectManager' also adds them to the projectManagers array and
+//     gives them full PM powers on this project.
+//
+// `accessExpiresAt` is optional — omit to grant indefinite access.
+// ═════════════════════════════════════════════════════════════════════
+router.get('/:projectId/associates', protect, getAssociates);
+router.post('/:projectId/associates', protect, addAssociate);
+router.patch('/:projectId/associates/:associateId', protect, updateAssociate);
+router.delete('/:projectId/associates/:associateId', protect, removeAssociate);
 
 export default router;

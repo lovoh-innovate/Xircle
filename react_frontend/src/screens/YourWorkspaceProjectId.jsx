@@ -13,11 +13,12 @@ import {
   FaExclamationCircle, FaCheckCircle, FaSpinner,
   FaList, FaThLarge, FaCheckDouble, FaHandPointer, FaMousePointer,
   FaCalendarAlt, FaAngleLeft, FaAngleRight, FaStickyNote, FaFeather,
+  FaEye, FaUserShield, FaUserPlus, FaSignInAlt,
 } from 'react-icons/fa';
 import { jsPDF } from 'jspdf';
 import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
 import {
-  useGetProjectByIdQuery,
+  useGetProjectQuery,
   useArchiveProjectMutation,
   useUnarchiveProjectMutation,
   useDeleteProjectMutation,
@@ -152,19 +153,21 @@ const FolderChipSkeleton = ({ width = 'w-16' }) => (
   <Skeleton className={`h-6 ${width} rounded-full flex-shrink-0`} />
 );
 
-const ProjectSkeleton = ({ brandColor = '#0d9488' }) => (
-  <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
-    <div className="hidden lg:block lg:w-64 lg:h-full shrink-0 border-r border-gray-100 dark:border-gray-800/60 p-4 space-y-4">
-      <Skeleton className="h-9 w-36 rounded-xl" />
-      <div className="space-y-2 pt-4">
-        {Array.from({ length: 7 }).map((_, i) => (
-          <div key={i} className="flex items-center gap-3 px-2 py-2">
-            <Skeleton className="h-8 w-8 rounded-lg flex-shrink-0" />
-            <Skeleton className="h-3.5 flex-1 max-w-[110px]" />
-          </div>
-        ))}
+const ProjectSkeleton = ({ brandColor = '#0d9488', hideWorkspaceChrome = false }) => (
+  <div className={`h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col overflow-hidden ${hideWorkspaceChrome ? '' : 'lg:flex-row'}`}>
+    {!hideWorkspaceChrome && (
+      <div className="hidden lg:block lg:w-64 lg:h-full shrink-0 border-r border-gray-100 dark:border-gray-800/60 p-4 space-y-4">
+        <Skeleton className="h-9 w-36 rounded-xl" />
+        <div className="space-y-2 pt-4">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 px-2 py-2">
+              <Skeleton className="h-8 w-8 rounded-lg flex-shrink-0" />
+              <Skeleton className="h-3.5 flex-1 max-w-[110px]" />
+            </div>
+          ))}
+        </div>
       </div>
-    </div>
+    )}
     <div className="flex-1 flex flex-col h-full overflow-hidden">
       <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 shrink-0">
         <div className="flex items-center justify-between px-3 md:px-4 h-14 lg:h-16">
@@ -205,7 +208,9 @@ const ErrorScreen = ({
   tone = 'error',
   onBack,
   onRetry,
+  onSignup,
   backLabel = 'Back to projects',
+  signupLabel = 'Sign up to Xircle',
 }) => {
   const toneRing =
     tone === 'error'
@@ -222,15 +227,22 @@ const ErrorScreen = ({
         </div>
         <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200 mb-2">{title}</h2>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-6 break-words leading-relaxed">{message}</p>
-        <div className="flex gap-3">
-          {onRetry && (
-            <button onClick={onRetry} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
-              Try again
-            </button>
-          )}
-          {onBack && (
-            <button onClick={onBack} className="flex-1 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl text-sm font-medium hover:opacity-90 transition">
-              {backLabel}
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-3">
+            {onRetry && (
+              <button onClick={onRetry} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+                Try again
+              </button>
+            )}
+            {onBack && (
+              <button onClick={onBack} className="flex-1 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl text-sm font-medium hover:opacity-90 transition">
+                {backLabel}
+              </button>
+            )}
+          </div>
+          {onSignup && (
+            <button onClick={onSignup} className="w-full py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl text-sm font-medium hover:opacity-90 transition">
+              {signupLabel}
             </button>
           )}
         </div>
@@ -447,16 +459,11 @@ const MultiDropdown = ({ label, options, values = [], onChange, placeholder }) =
 };
 
 // ═══════════════════════════════════════════════════════════════
-// Custom DateTime Picker with optional quick shortcuts
+// Custom DateTime Picker
 // ═══════════════════════════════════════════════════════════════
 const QUICK_DUE_SHORTCUTS = [
-  ['1h', 'in an hour'],
-  ['12h', 'in 12 hours'],
-  ['today', 'today'],
-  ['2d', 'in 2 days'],
-  ['1w', 'in a week'],
-  ['2w', 'in 2 weeks'],
-  ['1m', 'in a month'],
+  ['1h', 'in an hour'], ['12h', 'in 12 hours'], ['today', 'today'],
+  ['2d', 'in 2 days'], ['1w', 'in a week'], ['2w', 'in 2 weeks'], ['1m', 'in a month'],
 ];
 
 const CustomDateTimePicker = ({
@@ -524,13 +531,9 @@ const CustomDateTimePicker = ({
   useEffect(() => {
     if (value) {
       const d = new Date(value);
-      setSelected(d);
-      setViewDate(d);
-      setHour(d.getHours());
-      setMinute(d.getMinutes());
-    } else {
-      setSelected(null);
-    }
+      setSelected(d); setViewDate(d);
+      setHour(d.getHours()); setMinute(d.getMinutes());
+    } else { setSelected(null); }
   }, [value]);
 
   const pad = (n) => String(n).padStart(2, '0');
@@ -556,27 +559,10 @@ const CustomDateTimePicker = ({
     onChange(`${dd.getFullYear()}-${pad(dd.getMonth() + 1)}-${pad(dd.getDate())}T${pad(dd.getHours())}:${pad(dd.getMinutes())}`);
   };
 
-  const pickDay = (d) => {
-    const nd = new Date(viewDate.getFullYear(), viewDate.getMonth(), d);
-    setSelected(nd);
-    commit(nd, hour, minute);
-  };
-  const pickHour = (h) => {
-    const v = Math.max(0, Math.min(23, h || 0));
-    setHour(v);
-    if (selected) commit(selected, v, minute);
-  };
-  const pickMinute = (m) => {
-    const v = Math.max(0, Math.min(59, m || 0));
-    setMinute(v);
-    if (selected) commit(selected, hour, v);
-  };
-  const handleToday = () => {
-    const t = new Date();
-    setSelected(t); setViewDate(t);
-    setHour(t.getHours()); setMinute(t.getMinutes());
-    commit(t, t.getHours(), t.getMinutes());
-  };
+  const pickDay = (d) => { const nd = new Date(viewDate.getFullYear(), viewDate.getMonth(), d); setSelected(nd); commit(nd, hour, minute); };
+  const pickHour = (h) => { const v = Math.max(0, Math.min(23, h || 0)); setHour(v); if (selected) commit(selected, v, minute); };
+  const pickMinute = (m) => { const v = Math.max(0, Math.min(59, m || 0)); setMinute(v); if (selected) commit(selected, hour, v); };
+  const handleToday = () => { const t = new Date(); setSelected(t); setViewDate(t); setHour(t.getHours()); setMinute(t.getMinutes()); commit(t, t.getHours(), t.getMinutes()); };
   const handleClear = () => { setSelected(null); onChange(''); };
 
   const applyQuick = (preset) => {
@@ -621,19 +607,10 @@ const CustomDateTimePicker = ({
         >
           {showShortcuts && (
             <div className="mb-3 pb-3 border-b border-gray-200 dark:border-gray-800/60">
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-500 mb-1.5">
-                Quick
-              </div>
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-500 mb-1.5">Quick</div>
               <div className="flex flex-wrap gap-1">
                 {QUICK_DUE_SHORTCUTS.map(([k, l]) => (
-                  <button
-                    key={k}
-                    type="button"
-                    onClick={() => applyQuick(k)}
-                    className="px-2 py-1 text-[10px] font-medium bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-md border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 transition"
-                  >
-                    {l}
-                  </button>
+                  <button key={k} type="button" onClick={() => applyQuick(k)} className="px-2 py-1 text-[10px] font-medium bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-md border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 transition">{l}</button>
                 ))}
               </div>
             </div>
@@ -656,20 +633,12 @@ const CustomDateTimePicker = ({
               const isSel = isSameDay(selected, cellDate);
               const isTod = isToday(d);
               return (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => pickDay(d)}
+                <button key={i} type="button" onClick={() => pickDay(d)}
                   className={`aspect-square text-xs rounded-lg transition flex items-center justify-center ${
-                    isSel
-                      ? 'bg-teal-600 dark:bg-[#0d9488] text-white font-semibold shadow-sm'
-                      : isTod
-                        ? 'text-teal-600 dark:text-[#0d9488] font-semibold hover:bg-teal-500/10'
-                        : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/60'
-                  }`}
-                >
-                  {d}
-                </button>
+                    isSel ? 'bg-teal-600 dark:bg-[#0d9488] text-white font-semibold shadow-sm'
+                    : isTod ? 'text-teal-600 dark:text-[#0d9488] font-semibold hover:bg-teal-500/10'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/60'
+                  }`}>{d}</button>
               );
             })}
           </div>
@@ -773,14 +742,23 @@ const DeleteTaskDialog = ({ isOpen, onClose, onConfirm, taskName }) => {
   );
 };
 
-// ─── Task Action Modal ──────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// Task Action Modal
+// ═══════════════════════════════════════════════════════════════
 const TaskActionModal = ({
-  isOpen, onClose, task, canManage, isTrash, isArchivedForMe,
+  isOpen, onClose, task, viewer, isTrash, isArchivedForMe,
   onEdit, onCopy, onMove, onDelete, onArchive, onRestore,
   onPermanentDelete, onSelect, onMarkComplete, onMarkInProgress,
   brandColor,
 }) => {
   if (!isOpen || !task) return null;
+
+  const canManage = !!viewer?.canManage;
+  const canAct = !!viewer?.canAct;
+
+  const taskAccess = task.access || {};
+  const taskCanManage = taskAccess.canManage ?? canManage;
+  const taskCanComplete = taskAccess.canComplete ?? (canAct && task.assignedToMe);
 
   const isCompleted = task.status === 'completed' || task.status === 'confirmed_completed';
 
@@ -792,6 +770,11 @@ const TaskActionModal = ({
           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
             <StatusPill status={task.status} />
             <PriorityPill priority={task.priority} />
+            {task.assignedToMe && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400">
+                <FaUser className="text-[8px]" /> Assigned to you
+              </span>
+            )}
             {isTrash && <span className="inline-flex items-center gap-1 text-xs text-red-500"><FaTrashAlt className="text-[10px]" /> In Trash</span>}
             {isArchivedForMe && <span className="inline-flex items-center gap-1 text-xs text-gray-500"><FaArchive className="text-[10px]" /> Archived</span>}
           </div>
@@ -799,46 +782,62 @@ const TaskActionModal = ({
 
         {isTrash ? (
           <div className="grid grid-cols-2 gap-2">
-            <button onClick={() => { onRestore(task._id); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-xl hover:bg-amber-100 dark:hover:bg-amber-900/30 transition">
-              <FaUndo /> Restore
-            </button>
-            <button onClick={() => { onPermanentDelete(task); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/30 transition">
-              <FaTrashAlt /> Delete Forever
-            </button>
-            <button onClick={() => { onSelect(task._id); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition col-span-2">
-              <FaMousePointer className="text-xs" /> Select
-            </button>
+            {canManage && (
+              <>
+                <button onClick={() => { onRestore(task._id); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-xl hover:bg-amber-100 dark:hover:bg-amber-900/30 transition">
+                  <FaUndo /> Restore
+                </button>
+                <button onClick={() => { onPermanentDelete(task); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/30 transition">
+                  <FaTrashAlt /> Delete Forever
+                </button>
+              </>
+            )}
+            {canManage && (
+              <button onClick={() => { onSelect(task._id); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition col-span-2">
+                <FaMousePointer className="text-xs" /> Select
+              </button>
+            )}
+            {!canManage && (
+              <p className="col-span-2 text-center text-sm text-gray-500 dark:text-gray-400 py-3">
+                You don't have permission to act on this task.
+              </p>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-2">
-            <button onClick={() => { onEdit(task); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-teal-400 rounded-xl hover:bg-teal-100 dark:hover:bg-teal-900/30 transition">
-              <FaEdit /> Edit
-            </button>
+            {taskCanManage && (
+              <button onClick={() => { onEdit(task); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-teal-400 rounded-xl hover:bg-teal-100 dark:hover:bg-teal-900/30 transition">
+                <FaEdit /> Edit
+              </button>
+            )}
 
-            {!isArchivedForMe && !isCompleted && onMarkComplete && (
+            {!isArchivedForMe && !isCompleted && taskCanComplete && onMarkComplete && (
               <button onClick={() => { onMarkComplete(task._id); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 rounded-xl hover:bg-green-100 dark:hover:bg-green-900/30 transition">
                 <FaCheck /> Complete
               </button>
             )}
-            {!isArchivedForMe && isCompleted && onMarkInProgress && (
+            {!isArchivedForMe && isCompleted && taskCanManage && onMarkInProgress && (
               <button onClick={() => { onMarkInProgress(task._id); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-xl hover:bg-amber-100 dark:hover:bg-amber-900/30 transition">
                 <FaUndo /> Reopen
               </button>
             )}
 
-            {!isArchivedForMe && (
+            {taskCanManage && !isArchivedForMe && (
               <button onClick={() => { onCopy(task); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-gray-100 dark:bg-[#2a2a2a] text-gray-700 dark:text-gray-300 rounded-xl hover:bg-gray-200 dark:hover:bg-[#333] transition">
                 <FaCopy /> Copy
               </button>
             )}
-            {!isArchivedForMe && (
+            {taskCanManage && !isArchivedForMe && (
               <button onClick={() => { onMove(task); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 rounded-xl hover:bg-purple-100 dark:hover:bg-purple-900/30 transition">
                 <FaFolderOpen /> Move
               </button>
             )}
-            <button onClick={() => { onSelect(task._id); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition">
-              <FaMousePointer className="text-xs" /> Select
-            </button>
+
+            {taskCanManage && (
+              <button onClick={() => { onSelect(task._id); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition">
+                <FaMousePointer className="text-xs" /> Select
+              </button>
+            )}
 
             {isArchivedForMe ? (
               <button onClick={() => { onRestore(task._id); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-xl hover:bg-amber-100 dark:hover:bg-amber-900/30 transition">
@@ -850,9 +849,11 @@ const TaskActionModal = ({
               </button>
             )}
 
-            <button onClick={() => { onDelete(task); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/30 transition">
-              <FaTrashAlt /> Delete
-            </button>
+            {taskCanManage && (
+              <button onClick={() => { onDelete(task); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/30 transition">
+                <FaTrashAlt /> Delete
+              </button>
+            )}
           </div>
         )}
 
@@ -911,12 +912,13 @@ const ViewToggle = ({ view, onChange }) => (
 );
 
 // ═══════════════════════════════════════════════════════════════
-// Task Card — grid + list, with mobile chevron menu
+// Task Card
 // ═══════════════════════════════════════════════════════════════
 const TaskCard = React.memo(({
   task, view = 'grid', brandColor, onClick, onOpenModal,
   draggable, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop, dragOver,
   onCopy, onMove, isSelected = false, onLongPress, isTouch, selectionMode, onTap,
+  allowSelection = true,
 }) => {
   const progress = task.progress || 0;
   const subCount = task.subTasks?.length || 0;
@@ -927,11 +929,13 @@ const TaskCard = React.memo(({
   const hasRecurrence = task.recurrenceType && task.recurrenceType !== 'none';
   const isCompleted = task.status === 'completed' || task.status === 'confirmed_completed';
   const linkedNotesCount = (task.linkedNotes || []).length;
+  const assignedToMe = !!task.assignedToMe;
 
   const lastTap = useRef(0);
   const longPressTimer = useRef(null);
 
   const handleTouchStart = (e) => {
+    if (!allowSelection) return;
     if (e.target.closest('.task-menu-btn') || e.target.closest('.task-grip')) return;
     longPressTimer.current = setTimeout(() => { if (onLongPress) onLongPress(task._id); }, 500);
   };
@@ -944,7 +948,7 @@ const TaskCard = React.memo(({
 
   const handleClick = (e) => {
     if (e.target.closest('.task-menu-btn') || e.target.closest('.task-grip')) return;
-    if (selectionMode) { onTap?.(task._id); return; }
+    if (selectionMode && allowSelection) { onTap?.(task._id); return; }
     if (isTouch) {
       const now = Date.now();
       const diff = now - lastTap.current;
@@ -982,7 +986,7 @@ const TaskCard = React.memo(({
         onTouchMove={handleTouchMove}
         className={`border-b border-gray-100 dark:border-gray-800 px-3 sm:px-4 py-2.5 sm:py-3 cursor-pointer transition ${
           dragOver ? 'bg-teal-50/60 dark:bg-[#0d9488]/10' : 'hover:bg-gray-50 dark:hover:bg-[#1e1e1e]'
-        } ${isSelected ? 'bg-teal-50/70 dark:bg-teal-900/30' : ''} ${selectionMode && !isSelected ? 'hover:ring-1 hover:ring-teal-300 dark:hover:ring-teal-700' : ''}`}
+        } ${isSelected ? 'bg-teal-50/70 dark:bg-teal-900/30' : ''}`}
       >
         <div className="flex items-start gap-2 sm:gap-3 w-full">
           {draggable && (
@@ -999,6 +1003,7 @@ const TaskCard = React.memo(({
           <div className="flex-1 min-w-0">
             <div className="flex items-start gap-1 sm:gap-2">
               <span className={`text-sm font-medium break-words flex-1 min-w-0 ${isCompleted ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-800 dark:text-white'}`}>{task.title}</span>
+              {assignedToMe && <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 shrink-0">You</span>}
               {hasRecurrence && <FaRedo className="text-[10px] text-teal-500 flex-shrink-0 mt-1" />}
               {linkedNotesCount > 0 && (
                 <span className="inline-flex items-center gap-0.5 text-[10px] text-teal-600 dark:text-[#0d9488] flex-shrink-0 mt-0.5" title={`${linkedNotesCount} linked note(s)`}>
@@ -1066,7 +1071,7 @@ const TaskCard = React.memo(({
       onTouchMove={handleTouchMove}
       className={`group bg-white dark:bg-[#14141a] rounded-2xl border p-4 cursor-pointer transition-all ${
         dragOver ? 'border-teal-500 dark:border-[#0d9488] bg-teal-50/50 dark:bg-[#0d9488]/5' : 'border-gray-200/60 dark:border-gray-800/40 hover:border-teal-500/60 dark:hover:border-[#0d9488]/50'
-      } ${isSelected ? 'ring-2 ring-teal-500/50 dark:ring-[#0d9488]/50 bg-teal-50/70 dark:bg-teal-900/30' : ''} ${selectionMode && !isSelected ? 'hover:ring-1 hover:ring-teal-300 dark:hover:ring-teal-700' : ''}`}
+      } ${isSelected ? 'ring-2 ring-teal-500/50 dark:ring-[#0d9488]/50 bg-teal-50/70 dark:bg-teal-900/30' : ''}`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-start gap-2 min-w-0 flex-1">
@@ -1074,22 +1079,25 @@ const TaskCard = React.memo(({
           <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white font-bold text-sm shrink-0" style={{ backgroundColor: brandColor }}>
             {task.title.charAt(0).toUpperCase()}
           </div>
-          <h4 className={`text-sm font-medium break-words min-w-0 flex-1 ${isCompleted ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-800 dark:text-gray-200'}`}>
-            {task.title}
-            {hasRecurrence && <FaRedo className="inline text-[10px] text-teal-600 dark:text-[#0d9488] ml-1.5 -mt-0.5" />}
-            {linkedNotesCount > 0 && (
-              <span className="inline-flex items-center gap-0.5 text-[10px] text-teal-600 dark:text-[#0d9488] ml-1.5" title={`${linkedNotesCount} linked note(s)`}>
-                <FaStickyNote className="text-[10px]" /> {linkedNotesCount}
+          <div className="flex-1 min-w-0">
+            <h4 className={`text-sm font-medium break-words min-w-0 ${isCompleted ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-800 dark:text-gray-200'}`}>
+              {task.title}
+              {hasRecurrence && <FaRedo className="inline text-[10px] text-teal-600 dark:text-[#0d9488] ml-1.5 -mt-0.5" />}
+              {linkedNotesCount > 0 && (
+                <span className="inline-flex items-center gap-0.5 text-[10px] text-teal-600 dark:text-[#0d9488] ml-1.5" title={`${linkedNotesCount} linked note(s)`}>
+                  <FaStickyNote className="text-[10px]" /> {linkedNotesCount}
+                </span>
+              )}
+            </h4>
+            {assignedToMe && (
+              <span className="inline-flex items-center gap-1 mt-1 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400">
+                <FaUser className="text-[7px]" /> Assigned to you
               </span>
             )}
-          </h4>
+          </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={(e) => { e.stopPropagation(); onOpenModal(task); }}
-            className="task-menu-btn md:hidden p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
-            aria-label="More actions"
-          >
+          <button onClick={(e) => { e.stopPropagation(); onOpenModal(task); }} className="task-menu-btn md:hidden p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition" aria-label="More actions">
             <FaAngleDown className="text-sm" />
           </button>
           <button onClick={(e) => { e.stopPropagation(); onOpenModal(task); }} className="task-menu-btn hidden md:flex p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition" aria-label="More actions">
@@ -1137,9 +1145,7 @@ const TaskCard = React.memo(({
   );
 });
 
-// ═══════════════════════════════════════════════════════════════
-// Notes Picker Modal — 3 sources including quick note creation
-// ═══════════════════════════════════════════════════════════════
+// ─── Notes Picker Modal ─────────────────────────────────────────
 const NotesPickerModal = ({ isOpen, onClose, workspaceId, alreadySelected, onConfirm }) => {
   const [stage, setStage] = useState('source');
   const [draft, setDraft] = useState([]);
@@ -1187,10 +1193,7 @@ const NotesPickerModal = ({ isOpen, onClose, workspaceId, alreadySelected, onCon
       }).unwrap();
       const newNote = res.note;
       const newEntry = { noteId: newNote._id, source: 'personal', title: newNote.title };
-      const next = [
-        ...draft.filter((d) => !(String(d.noteId) === String(newNote._id) && d.source === 'personal')),
-        newEntry,
-      ];
+      const next = [...draft.filter((d) => !(String(d.noteId) === String(newNote._id) && d.source === 'personal')), newEntry];
       setDraft(next);
       onConfirm(next);
       toast.success('Quick note created');
@@ -1204,45 +1207,27 @@ const NotesPickerModal = ({ isOpen, onClose, workspaceId, alreadySelected, onCon
 
   const renderNotesList = (notes, source, loading) => (
     <div className="space-y-2">
-      {loading && (
-        <div className="flex items-center justify-center py-10">
-          <FaSpinner className="animate-spin text-teal-500 text-xl" />
-        </div>
-      )}
+      {loading && (<div className="flex items-center justify-center py-10"><FaSpinner className="animate-spin text-teal-500 text-xl" /></div>)}
       {!loading && notes.length === 0 && (
         <div className="text-center py-10">
           <FaStickyNote className="text-3xl text-gray-300 dark:text-gray-700 mx-auto mb-2" />
-          <p className="text-sm text-gray-500 dark:text-gray-500">
-            {source === 'personal' ? 'No personal notes yet' : 'No workspace notes yet'}
-          </p>
+          <p className="text-sm text-gray-500 dark:text-gray-500">{source === 'personal' ? 'No personal notes yet' : 'No workspace notes yet'}</p>
         </div>
       )}
       {!loading && notes.map((n) => {
         const checked = isPicked(n._id, source);
         return (
-          <button
-            key={n._id}
-            type="button"
-            onClick={() => toggleNote(n, source)}
+          <button key={n._id} type="button" onClick={() => toggleNote(n, source)}
             className={`w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-xl border transition ${
-              checked
-                ? 'bg-teal-50 dark:bg-teal-900/20 border-teal-300 dark:border-[#0d9488]/50'
-                : 'bg-white dark:bg-[#0f0f12] border-gray-200 dark:border-gray-800/60 hover:border-gray-300 dark:hover:border-gray-700'
-            }`}
-          >
+              checked ? 'bg-teal-50 dark:bg-teal-900/20 border-teal-300 dark:border-[#0d9488]/50'
+              : 'bg-white dark:bg-[#0f0f12] border-gray-200 dark:border-gray-800/60 hover:border-gray-300 dark:hover:border-gray-700'
+            }`}>
             <span className={`w-4 h-4 mt-0.5 flex items-center justify-center border rounded shrink-0 ${checked ? 'bg-teal-500 border-teal-500 text-white' : 'border-gray-400 dark:border-gray-600'}`}>
               {checked && <FaCheck className="text-[8px]" />}
             </span>
             <span className="min-w-0 flex-1">
-              <p className={`text-sm font-medium truncate ${checked ? 'text-teal-700 dark:text-[#14b8a6]' : 'text-gray-800 dark:text-gray-200'}`}>
-                {n.title || 'Untitled'}
-              </p>
-              {n.content && (
-                <p className="text-[11px] text-gray-500 dark:text-gray-500 truncate mt-0.5">
-                  {n.content.replace(/\s+/g, ' ').trim().slice(0, 80)}
-                  {n.content.length > 80 ? '…' : ''}
-                </p>
-              )}
+              <p className={`text-sm font-medium truncate ${checked ? 'text-teal-700 dark:text-[#14b8a6]' : 'text-gray-800 dark:text-gray-200'}`}>{n.title || 'Untitled'}</p>
+              {n.content && (<p className="text-[11px] text-gray-500 dark:text-gray-500 truncate mt-0.5">{n.content.replace(/\s+/g, ' ').trim().slice(0, 80)}{n.content.length > 80 ? '…' : ''}</p>)}
             </span>
           </button>
         );
@@ -1250,95 +1235,50 @@ const NotesPickerModal = ({ isOpen, onClose, workspaceId, alreadySelected, onCon
     </div>
   );
 
-  const headerTitle =
-    stage === 'source' ? 'Add from notes'
-    : stage === 'workspace' ? 'Workspace notes'
-    : stage === 'personal' ? 'Personal notes'
-    : 'Quick note';
+  const headerTitle = stage === 'source' ? 'Add from notes' : stage === 'workspace' ? 'Workspace notes' : stage === 'personal' ? 'Personal notes' : 'Quick note';
 
   return (
-    <div
-      className="fixed inset-0 z-[90] flex items-end md:items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl md:rounded-2xl w-full md:max-w-lg flex flex-col max-h-[88vh]"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-[90] flex items-end md:items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl md:rounded-2xl w-full md:max-w-lg flex flex-col max-h-[88vh]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200/60 dark:border-gray-800/60">
           <div className="flex items-center gap-2 min-w-0">
             {stage !== 'source' && (
-              <button
-                onClick={() => setStage('source')}
-                className="p-1.5 text-gray-500 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/40 rounded-lg transition"
-                title="Back"
-              >
+              <button onClick={() => setStage('source')} className="p-1.5 text-gray-500 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/40 rounded-lg transition" title="Back">
                 <FaArrowLeft className="text-xs" />
               </button>
             )}
             <FaStickyNote className="text-teal-600 dark:text-[#0d9488] text-sm shrink-0" />
-            <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate">
-              {headerTitle}
-            </h3>
+            <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate">{headerTitle}</h3>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 text-gray-500 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"
-          >
-            <FaTimes className="text-sm" />
-          </button>
+          <button onClick={onClose} className="p-1.5 text-gray-500 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition"><FaTimes className="text-sm" /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
           {stage === 'source' && (
             <div className="space-y-2">
-              <button
-                type="button"
-                onClick={() => setStage('workspace')}
-                className="w-full flex items-start gap-3 px-4 py-3.5 rounded-xl border border-gray-200 dark:border-gray-800/60 hover:border-teal-400 dark:hover:border-[#0d9488]/50 hover:bg-teal-50/40 dark:hover:bg-[#0d9488]/5 transition text-left"
-              >
-                <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-[#0d9488]/15 flex items-center justify-center shrink-0">
-                  <FaUsers className="text-teal-600 dark:text-[#0d9488]" />
-                </div>
+              <button type="button" onClick={() => setStage('workspace')} className="w-full flex items-start gap-3 px-4 py-3.5 rounded-xl border border-gray-200 dark:border-gray-800/60 hover:border-teal-400 dark:hover:border-[#0d9488]/50 hover:bg-teal-50/40 dark:hover:bg-[#0d9488]/5 transition text-left">
+                <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-[#0d9488]/15 flex items-center justify-center shrink-0"><FaUsers className="text-teal-600 dark:text-[#0d9488]" /></div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Workspace notes</p>
-                  <p className="text-[11px] text-gray-500 dark:text-gray-500 mt-0.5">
-                    Team-shared notes from this workspace
-                  </p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-500 mt-0.5">Team-shared notes from this workspace</p>
                 </div>
                 <FaChevronRight className="text-xs text-gray-400 self-center shrink-0" />
               </button>
 
-              <button
-                type="button"
-                onClick={() => setStage('personal')}
-                className="w-full flex items-start gap-3 px-4 py-3.5 rounded-xl border border-gray-200 dark:border-gray-800/60 hover:border-teal-400 dark:hover:border-[#0d9488]/50 hover:bg-teal-50/40 dark:hover:bg-[#0d9488]/5 transition text-left"
-              >
-                <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-[#0d9488]/15 flex items-center justify-center shrink-0">
-                  <FaUser className="text-teal-600 dark:text-[#0d9488]" />
-                </div>
+              <button type="button" onClick={() => setStage('personal')} className="w-full flex items-start gap-3 px-4 py-3.5 rounded-xl border border-gray-200 dark:border-gray-800/60 hover:border-teal-400 dark:hover:border-[#0d9488]/50 hover:bg-teal-50/40 dark:hover:bg-[#0d9488]/5 transition text-left">
+                <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-[#0d9488]/15 flex items-center justify-center shrink-0"><FaUser className="text-teal-600 dark:text-[#0d9488]" /></div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Personal notes</p>
-                  <p className="text-[11px] text-gray-500 dark:text-gray-500 mt-0.5">
-                    Your private notes — only you can see them
-                  </p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-500 mt-0.5">Your private notes — only you can see them</p>
                 </div>
                 <FaChevronRight className="text-xs text-gray-400 self-center shrink-0" />
               </button>
 
-              <button
-                type="button"
-                onClick={() => setStage('quicknote')}
-                className="w-full flex items-start gap-3 px-4 py-3.5 rounded-xl border border-dashed border-teal-400/60 dark:border-[#0d9488]/50 hover:border-teal-500 dark:hover:border-[#0d9488] hover:bg-teal-50/40 dark:hover:bg-[#0d9488]/5 transition text-left"
-              >
-                <div className="w-10 h-10 rounded-xl bg-teal-600 dark:bg-[#0d9488] flex items-center justify-center shrink-0">
-                  <FaFeather className="text-white text-sm" />
-                </div>
+              <button type="button" onClick={() => setStage('quicknote')} className="w-full flex items-start gap-3 px-4 py-3.5 rounded-xl border border-dashed border-teal-400/60 dark:border-[#0d9488]/50 hover:border-teal-500 dark:hover:border-[#0d9488] hover:bg-teal-50/40 dark:hover:bg-[#0d9488]/5 transition text-left">
+                <div className="w-10 h-10 rounded-xl bg-teal-600 dark:bg-[#0d9488] flex items-center justify-center shrink-0"><FaFeather className="text-white text-sm" /></div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Quick note</p>
-                  <p className="text-[11px] text-gray-500 dark:text-gray-500 mt-0.5">
-                    Jot something down now — saves as a personal note
-                  </p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-500 mt-0.5">Jot something down now — saves as a personal note</p>
                 </div>
                 <FaChevronRight className="text-xs text-gray-400 self-center shrink-0" />
               </button>
@@ -1352,68 +1292,29 @@ const NotesPickerModal = ({ isOpen, onClose, workspaceId, alreadySelected, onCon
             <div className="space-y-3">
               <div>
                 <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Title *</label>
-                <input
-                  value={quickTitle}
-                  onChange={(e) => setQuickTitle(e.target.value)}
-                  placeholder="e.g. Site inspection notes"
-                  autoFocus
-                  className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none focus:border-teal-500 dark:focus:border-[#0d9488]"
-                />
+                <input value={quickTitle} onChange={(e) => setQuickTitle(e.target.value)} placeholder="e.g. Site inspection notes" autoFocus className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none focus:border-teal-500 dark:focus:border-[#0d9488]" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Content</label>
-                <textarea
-                  value={quickContent}
-                  onChange={(e) => setQuickContent(e.target.value)}
-                  rows={6}
-                  placeholder="Write whatever you need…"
-                  className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none focus:border-teal-500 dark:focus:border-[#0d9488] resize-none"
-                />
+                <textarea value={quickContent} onChange={(e) => setQuickContent(e.target.value)} rows={6} placeholder="Write whatever you need…" className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none focus:border-teal-500 dark:focus:border-[#0d9488] resize-none" />
               </div>
-              <p className="text-[11px] text-gray-500 dark:text-gray-500">
-                Saved as a personal note and immediately linked to this task.
-              </p>
+              <p className="text-[11px] text-gray-500 dark:text-gray-500">Saved as a personal note and immediately linked to this task.</p>
             </div>
           )}
         </div>
 
         {stage === 'quicknote' ? (
           <div className="shrink-0 flex items-center gap-2 px-5 py-3 border-t border-gray-200/60 dark:border-gray-800/60">
-            <button
-              type="button"
-              onClick={() => setStage('source')}
-              className="px-4 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition"
-            >
-              Back
-            </button>
-            <button
-              type="button"
-              onClick={handleSaveQuickNote}
-              disabled={creatingQuickNote || !quickTitle.trim()}
-              className="flex-1 px-4 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl text-sm font-medium hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2"
-            >
+            <button type="button" onClick={() => setStage('source')} className="px-4 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">Back</button>
+            <button type="button" onClick={handleSaveQuickNote} disabled={creatingQuickNote || !quickTitle.trim()} className="flex-1 px-4 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl text-sm font-medium hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2">
               {creatingQuickNote ? <><FaSpinner className="animate-spin text-xs" /> Creating…</> : <><FaCheck className="text-xs" /> Save & link</>}
             </button>
           </div>
         ) : stage !== 'source' ? (
           <div className="shrink-0 flex items-center gap-2 px-5 py-3 border-t border-gray-200/60 dark:border-gray-800/60">
-            <span className="text-xs text-gray-500 dark:text-gray-500 mr-auto">
-              {draft.length} selected
-            </span>
-            <button
-              type="button"
-              onClick={() => setStage('source')}
-              className="px-4 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition"
-            >
-              Back
-            </button>
-            <button
-              type="button"
-              onClick={() => { onConfirm(draft); onClose(); }}
-              className="px-4 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl text-sm font-medium hover:opacity-90 transition"
-            >
-              Add {draft.length > 0 ? `(${draft.length})` : ''}
-            </button>
+            <span className="text-xs text-gray-500 dark:text-gray-500 mr-auto">{draft.length} selected</span>
+            <button type="button" onClick={() => setStage('source')} className="px-4 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">Back</button>
+            <button type="button" onClick={() => { onConfirm(draft); onClose(); }} className="px-4 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl text-sm font-medium hover:opacity-90 transition">Add {draft.length > 0 ? `(${draft.length})` : ''}</button>
           </div>
         ) : null}
       </div>
@@ -1421,39 +1322,25 @@ const NotesPickerModal = ({ isOpen, onClose, workspaceId, alreadySelected, onCon
   );
 };
 
-// ─── Recurrence Field (shared) ──────────────────────────────────
+// ─── Recurrence Field ────────────────────────────────────────────
 const RecurrenceField = ({ recurrenceType, setRecurrenceType, recurrenceDays, setRecurrenceDays, recurrenceEndDate, setRecurrenceEndDate, brandColor }) => {
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   return (
     <div className="bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800/60 rounded-xl p-3 space-y-3">
       <div className="flex items-center justify-between">
         <label className="text-xs font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
-          <FaRedo className="text-[10px] text-teal-600 dark:text-[#0d9488]" />
-          Repeat task
+          <FaRedo className="text-[10px] text-teal-600 dark:text-[#0d9488]" /> Repeat task
         </label>
         <button
-          type="button"
-          role="switch"
-          aria-checked={recurrenceType !== 'none'}
+          type="button" role="switch" aria-checked={recurrenceType !== 'none'}
           onClick={() => {
-            if (recurrenceType === 'none') {
-              setRecurrenceType('daily');
-            } else {
-              setRecurrenceType('none');
-              setRecurrenceDays([]);
-              setRecurrenceEndDate('');
-            }
+            if (recurrenceType === 'none') setRecurrenceType('daily');
+            else { setRecurrenceType('none'); setRecurrenceDays([]); setRecurrenceEndDate(''); }
           }}
-          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-            recurrenceType !== 'none' ? '' : 'bg-gray-300 dark:bg-gray-700'
-          }`}
+          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${recurrenceType !== 'none' ? '' : 'bg-gray-300 dark:bg-gray-700'}`}
           style={recurrenceType !== 'none' ? { backgroundColor: brandColor } : undefined}
         >
-          <span
-            className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform ${
-              recurrenceType !== 'none' ? 'translate-x-[1.15rem]' : 'translate-x-0.5'
-            }`}
-          />
+          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform ${recurrenceType !== 'none' ? 'translate-x-[1.15rem]' : 'translate-x-0.5'}`} />
         </button>
       </div>
 
@@ -1463,17 +1350,10 @@ const RecurrenceField = ({ recurrenceType, setRecurrenceType, recurrenceDays, se
             {['daily', 'weekly'].map((opt) => {
               const active = recurrenceType === opt;
               return (
-                <button
-                  key={opt}
-                  type="button"
-                  onClick={() => {
-                    setRecurrenceType(opt);
-                    if (opt !== 'weekly') setRecurrenceDays([]);
-                  }}
+                <button key={opt} type="button"
+                  onClick={() => { setRecurrenceType(opt); if (opt !== 'weekly') setRecurrenceDays([]); }}
                   className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
-                    active
-                      ? 'text-white border-transparent shadow-sm'
-                      : 'bg-white dark:bg-[#14141a] text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700/60 hover:border-gray-400 dark:hover:border-gray-600'
+                    active ? 'text-white border-transparent shadow-sm' : 'bg-white dark:bg-[#14141a] text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700/60 hover:border-gray-400 dark:hover:border-gray-600'
                   }`}
                   style={active ? { backgroundColor: brandColor } : undefined}
                 >
@@ -1485,30 +1365,18 @@ const RecurrenceField = ({ recurrenceType, setRecurrenceType, recurrenceDays, se
 
           {recurrenceType === 'weekly' && (
             <div>
-              <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-500 mb-1.5">
-                On these days
-              </p>
+              <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-500 mb-1.5">On these days</p>
               <div className="flex flex-wrap gap-1.5">
                 {weekDays.map((d, i) => {
                   const on = recurrenceDays.includes(i);
                   return (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() =>
-                        setRecurrenceDays(
-                          on ? recurrenceDays.filter((x) => x !== i) : [...recurrenceDays, i].sort()
-                        )
-                      }
+                    <button key={i} type="button"
+                      onClick={() => setRecurrenceDays(on ? recurrenceDays.filter((x) => x !== i) : [...recurrenceDays, i].sort())}
                       className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition ${
-                        on
-                          ? 'text-white border-transparent shadow-sm'
-                          : 'bg-white dark:bg-[#14141a] text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700/60 hover:border-gray-400 dark:hover:border-gray-600'
+                        on ? 'text-white border-transparent shadow-sm' : 'bg-white dark:bg-[#14141a] text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700/60 hover:border-gray-400 dark:hover:border-gray-600'
                       }`}
                       style={on ? { backgroundColor: brandColor } : undefined}
-                    >
-                      {d}
-                    </button>
+                    >{d}</button>
                   );
                 })}
               </div>
@@ -1516,14 +1384,8 @@ const RecurrenceField = ({ recurrenceType, setRecurrenceType, recurrenceDays, se
           )}
 
           <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-              Ends on <span className="text-gray-400 dark:text-gray-500 font-normal">(optional)</span>
-            </label>
-            <CustomDateTimePicker
-              value={recurrenceEndDate}
-              onChange={setRecurrenceEndDate}
-              placeholder="Pick end date"
-            />
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Ends on <span className="text-gray-400 dark:text-gray-500 font-normal">(optional)</span></label>
+            <CustomDateTimePicker value={recurrenceEndDate} onChange={setRecurrenceEndDate} placeholder="Pick end date" />
           </div>
         </>
       )}
@@ -1531,49 +1393,28 @@ const RecurrenceField = ({ recurrenceType, setRecurrenceType, recurrenceDays, se
   );
 };
 
-// ─── Notes Field (shared) ───────────────────────────────────────
+// ─── Notes Field ────────────────────────────────────────────────
 const NotesField = ({ linkedNotes, onRemove, onOpenPicker }) => (
   <div>
     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-      <FaStickyNote className="inline mr-1 text-teal-600 dark:text-[#0d9488]" />
-      Notes
+      <FaStickyNote className="inline mr-1 text-teal-600 dark:text-[#0d9488]" /> Notes
     </label>
     <div className="space-y-2">
       {linkedNotes.map((n) => (
-        <div
-          key={`${n.source}:${n.noteId}`}
-          className="flex items-center gap-2 bg-teal-50/60 dark:bg-[#0d9488]/10 border border-teal-200/60 dark:border-[#0d9488]/30 rounded-xl px-3 py-2"
-        >
-          {n.source === 'workspace' ? (
-            <FaUsers className="text-teal-600 dark:text-[#0d9488] text-xs shrink-0" />
-          ) : (
-            <FaUser className="text-teal-600 dark:text-[#0d9488] text-xs shrink-0" />
-          )}
-          <span className="text-sm truncate flex-1 text-gray-800 dark:text-gray-200">
-            {n.title || 'Untitled'}
-          </span>
-          <button
-            type="button"
-            onClick={() => onRemove(n.noteId, n.source)}
-            className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded p-1 transition"
-            title="Remove"
-          >
-            <FaTimes className="text-[10px]" />
-          </button>
+        <div key={`${n.source}:${n.noteId}`} className="flex items-center gap-2 bg-teal-50/60 dark:bg-[#0d9488]/10 border border-teal-200/60 dark:border-[#0d9488]/30 rounded-xl px-3 py-2">
+          {n.source === 'workspace' ? <FaUsers className="text-teal-600 dark:text-[#0d9488] text-xs shrink-0" /> : <FaUser className="text-teal-600 dark:text-[#0d9488] text-xs shrink-0" />}
+          <span className="text-sm truncate flex-1 text-gray-800 dark:text-gray-200">{n.title || 'Untitled'}</span>
+          <button type="button" onClick={() => onRemove(n.noteId, n.source)} className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded p-1 transition" title="Remove"><FaTimes className="text-[10px]" /></button>
         </div>
       ))}
-      <button
-        type="button"
-        onClick={onOpenPicker}
-        className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] rounded-lg text-xs font-medium hover:bg-teal-100 dark:hover:bg-teal-900/30 transition"
-      >
+      <button type="button" onClick={onOpenPicker} className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] rounded-lg text-xs font-medium hover:bg-teal-100 dark:hover:bg-teal-900/30 transition">
         <FaPlus className="text-[10px]" /> Add from notes
       </button>
     </div>
   </div>
 );
 
-// ─── Folder Field (shared) with inline create ──────────────────
+// ─── Folder Field ───────────────────────────────────────────────
 const FolderField = ({ projectId, folderId, setFolderId, folders, onFolderCreated }) => {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
@@ -1590,13 +1431,10 @@ const FolderField = ({ projectId, folderId, setFolderId, folders, onFolderCreate
       const res = await createFolder({ projectId, name: name.trim() }).unwrap();
       const newId = res?.folder?._id || res?._id;
       if (newId) setFolderId(newId);
-      setName('');
-      setCreating(false);
+      setName(''); setCreating(false);
       onFolderCreated?.();
       toast.success('Folder created');
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to create folder');
-    }
+    } catch (err) { toast.error(err?.data?.message || 'Failed to create folder'); }
   };
 
   return (
@@ -1604,29 +1442,14 @@ const FolderField = ({ projectId, folderId, setFolderId, folders, onFolderCreate
       <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Folder</label>
       {creating ? (
         <div className="flex items-center gap-1">
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
+          <input value={name} onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreate(); } if (e.key === 'Escape') { setCreating(false); setName(''); } }}
-            placeholder="New folder name"
-            autoFocus
-            className="flex-1 min-w-0 px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-teal-500 dark:border-[#0d9488] rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none"
-          />
-          <button
-            type="button"
-            onClick={handleCreate}
-            disabled={isLoading}
-            className="p-2 rounded-xl bg-teal-600 dark:bg-[#0d9488] text-white disabled:opacity-50 hover:opacity-90 transition"
-            title="Save folder"
-          >
+            placeholder="New folder name" autoFocus
+            className="flex-1 min-w-0 px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-teal-500 dark:border-[#0d9488] rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
+          <button type="button" onClick={handleCreate} disabled={isLoading} className="p-2 rounded-xl bg-teal-600 dark:bg-[#0d9488] text-white disabled:opacity-50 hover:opacity-90 transition" title="Save folder">
             {isLoading ? <FaSpinner className="animate-spin text-xs" /> : <FaCheck className="text-xs" />}
           </button>
-          <button
-            type="button"
-            onClick={() => { setCreating(false); setName(''); }}
-            className="p-2 rounded-xl border border-gray-300 dark:border-gray-700/60 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/40 transition"
-            title="Cancel"
-          >
+          <button type="button" onClick={() => { setCreating(false); setName(''); }} className="p-2 rounded-xl border border-gray-300 dark:border-gray-700/60 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/40 transition" title="Cancel">
             <FaTimes className="text-xs" />
           </button>
         </div>
@@ -1635,12 +1458,7 @@ const FolderField = ({ projectId, folderId, setFolderId, folders, onFolderCreate
           <div className="flex-1 min-w-0">
             <Dropdown options={folderOpts} value={folderId} onChange={setFolderId} placeholder="Select folder" />
           </div>
-          <button
-            type="button"
-            onClick={() => setCreating(true)}
-            className="shrink-0 p-2 rounded-xl bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] hover:bg-teal-100 dark:hover:bg-teal-900/30 transition"
-            title="Create new folder"
-          >
+          <button type="button" onClick={() => setCreating(true)} className="shrink-0 p-2 rounded-xl bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] hover:bg-teal-100 dark:hover:bg-teal-900/30 transition" title="Create new folder">
             <FaPlus className="text-xs" />
           </button>
         </div>
@@ -1650,8 +1468,7 @@ const FolderField = ({ projectId, folderId, setFolderId, folders, onFolderCreate
 };
 
 // ═══════════════════════════════════════════════════════════════
-// Create Task Modal — no est hours/buffer, notes under description,
-// inline folder create, quick due shortcuts in calendar
+// Create Task Modal
 // ═══════════════════════════════════════════════════════════════
 const CreateTaskModal = ({
   isOpen, onClose, projectId, workspaceId, brandColor, assignableMembers, folders, onSubmit, onFolderCreated,
@@ -1700,9 +1517,8 @@ const CreateTaskModal = ({
       });
       reset();
       onClose();
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to create task');
-    } finally { setLoading(false); }
+    } catch (err) { toast.error(err?.data?.message || 'Failed to create task'); }
+    finally { setLoading(false); }
   };
 
   const addLink = () => setLinks((prev) => [...prev, '']);
@@ -1731,21 +1547,11 @@ const CreateTaskModal = ({
               <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none resize-none" />
             </div>
 
-            <NotesField
-              linkedNotes={linkedNotes}
-              onRemove={removeLinkedNote}
-              onOpenPicker={() => setNotesPickerOpen(true)}
-            />
+            <NotesField linkedNotes={linkedNotes} onRemove={removeLinkedNote} onOpenPicker={() => setNotesPickerOpen(true)} />
 
             <div className="grid grid-cols-2 gap-3">
               <MultiDropdown label="Assignees" options={assigneeOpts} values={assigneeIds} onChange={setAssigneeIds} placeholder="Select members..." />
-              <FolderField
-                projectId={projectId}
-                folderId={folderId}
-                setFolderId={setFolderId}
-                folders={folders}
-                onFolderCreated={onFolderCreated}
-              />
+              <FolderField projectId={projectId} folderId={folderId} setFolderId={setFolderId} folders={folders} onFolderCreated={onFolderCreated} />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -1766,12 +1572,9 @@ const CreateTaskModal = ({
             </label>
 
             <RecurrenceField
-              recurrenceType={recurrenceType}
-              setRecurrenceType={setRecurrenceType}
-              recurrenceDays={recurrenceDays}
-              setRecurrenceDays={setRecurrenceDays}
-              recurrenceEndDate={recurrenceEndDate}
-              setRecurrenceEndDate={setRecurrenceEndDate}
+              recurrenceType={recurrenceType} setRecurrenceType={setRecurrenceType}
+              recurrenceDays={recurrenceDays} setRecurrenceDays={setRecurrenceDays}
+              recurrenceEndDate={recurrenceEndDate} setRecurrenceEndDate={setRecurrenceEndDate}
               brandColor={brandColor}
             />
 
@@ -1780,28 +1583,11 @@ const CreateTaskModal = ({
               <div className="space-y-2">
                 {links.map((link, i) => (
                   <div key={i} className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={link}
-                      onChange={(e) => updateLink(i, e.target.value)}
-                      placeholder="https://..."
-                      className="flex-1 px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeLink(i)}
-                      className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition"
-                      title="Remove link"
-                    >
-                      <FaTrashAlt className="text-xs" />
-                    </button>
+                    <input type="text" value={link} onChange={(e) => updateLink(i, e.target.value)} placeholder="https://..." className="flex-1 px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
+                    <button type="button" onClick={() => removeLink(i)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition" title="Remove link"><FaTrashAlt className="text-xs" /></button>
                   </div>
                 ))}
-                <button
-                  type="button"
-                  onClick={addLink}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] rounded-lg text-xs font-medium hover:bg-teal-100 dark:hover:bg-teal-900/30 transition"
-                >
+                <button type="button" onClick={addLink} className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] rounded-lg text-xs font-medium hover:bg-teal-100 dark:hover:bg-teal-900/30 transition">
                   <FaPlus className="text-[10px]" /> Add link
                 </button>
               </div>
@@ -1826,20 +1612,13 @@ const CreateTaskModal = ({
         </div>
       </div>
 
-      <NotesPickerModal
-        isOpen={notesPickerOpen}
-        onClose={() => setNotesPickerOpen(false)}
-        workspaceId={workspaceId}
-        alreadySelected={linkedNotes}
-        onConfirm={setLinkedNotes}
-      />
+      <NotesPickerModal isOpen={notesPickerOpen} onClose={() => setNotesPickerOpen(false)} workspaceId={workspaceId} alreadySelected={linkedNotes} onConfirm={setLinkedNotes} />
     </>
   );
 };
 
 // ═══════════════════════════════════════════════════════════════
-// Edit Task Modal — priority+status on one line, notes under
-// description, media upload, quick due shortcuts, inline folder
+// Edit Task Modal
 // ═══════════════════════════════════════════════════════════════
 const EditTaskModal = ({
   isOpen, onClose, task, projectId, workspaceId, brandColor,
@@ -1887,13 +1666,7 @@ const EditTaskModal = ({
     setRecurrenceType(task.recurrenceType || 'none');
     setRecurrenceDays(Array.isArray(task.recurrenceDays) ? [...task.recurrenceDays] : []);
     setRecurrenceEndDate(toLocalInput(task.recurrenceEndDate));
-    setLinkedNotes(
-      (task.linkedNotes || []).map((ln) => ({
-        noteId: ln.note?._id || ln.note,
-        source: ln.source,
-        title: ln.note?.title || 'Untitled',
-      }))
-    );
+    setLinkedNotes((task.linkedNotes || []).map((ln) => ({ noteId: ln.note?._id || ln.note, source: ln.source, title: ln.note?.title || 'Untitled' })));
     setFiles([]);
   }, [isOpen, task]);
 
@@ -1902,11 +1675,9 @@ const EditTaskModal = ({
     return { value: u._id, label: u.name || 'Unknown', icon: u.profile ? <img src={u.profile} className="w-4 h-4 rounded-full object-cover" alt="" /> : <FaUser className="text-gray-400" /> };
   });
   const statusOpts = [
-    { value: 'pending', label: 'Pending' },
-    { value: 'in-progress', label: 'In Progress' },
+    { value: 'pending', label: 'Pending' }, { value: 'in-progress', label: 'In Progress' },
     { value: 'ready_for_completion', label: 'Ready for completion' },
-    { value: 'completed', label: 'Completed' },
-    { value: 'confirmed_completed', label: 'Confirmed completed' },
+    { value: 'completed', label: 'Completed' }, { value: 'confirmed_completed', label: 'Confirmed completed' },
     { value: 'cancelled', label: 'Cancelled' },
   ];
 
@@ -1916,27 +1687,19 @@ const EditTaskModal = ({
     setLoading(true);
     try {
       await onSubmit(task._id, {
-        title: title.trim(),
-        description,
-        detailedDescription: task.detailedDescription || '',
-        assigneeIds,
-        priority,
-        status,
-        startDate: startDate || '',
-        dueDate: dueDate || '',
-        allowAssigneeEditSubtasks,
-        folderId: folderId || null,
-        recurrenceType,
-        recurrenceDays: recurrenceType === 'weekly' ? recurrenceDays : [],
+        title: title.trim(), description, detailedDescription: task.detailedDescription || '',
+        assigneeIds, priority, status,
+        startDate: startDate || '', dueDate: dueDate || '',
+        allowAssigneeEditSubtasks, folderId: folderId || null,
+        recurrenceType, recurrenceDays: recurrenceType === 'weekly' ? recurrenceDays : [],
         recurrenceEndDate: recurrenceEndDate || '',
         links: links.map((l) => l.trim()).filter(Boolean),
         attachments: files,
         linkedNotes: linkedNotes.map(({ noteId, source }) => ({ noteId, source })),
       });
       onClose();
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to update task');
-    } finally { setLoading(false); }
+    } catch (err) { toast.error(err?.data?.message || 'Failed to update task'); }
+    finally { setLoading(false); }
   };
 
   const addLink = () => setLinks((prev) => [...prev, '']);
@@ -1951,9 +1714,7 @@ const EditTaskModal = ({
       <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
         <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto shadow-xl">
           <div className="flex justify-between mb-4">
-            <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">
-              <FaEdit className="inline mr-1 text-teal-600 dark:text-[#0d9488]" /> Edit Task
-            </h2>
+            <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200"><FaEdit className="inline mr-1 text-teal-600 dark:text-[#0d9488]" /> Edit Task</h2>
             <button onClick={onClose} className="p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg"><FaTimes /></button>
           </div>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -1967,21 +1728,11 @@ const EditTaskModal = ({
               <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none resize-none" />
             </div>
 
-            <NotesField
-              linkedNotes={linkedNotes}
-              onRemove={removeLinkedNote}
-              onOpenPicker={() => setNotesPickerOpen(true)}
-            />
+            <NotesField linkedNotes={linkedNotes} onRemove={removeLinkedNote} onOpenPicker={() => setNotesPickerOpen(true)} />
 
             <div className="grid grid-cols-2 gap-3">
               <MultiDropdown label="Assignees" options={assigneeOpts} values={assigneeIds} onChange={setAssigneeIds} placeholder="Select members..." />
-              <FolderField
-                projectId={projectId}
-                folderId={folderId}
-                setFolderId={setFolderId}
-                folders={folders}
-                onFolderCreated={onFolderCreated}
-              />
+              <FolderField projectId={projectId} folderId={folderId} setFolderId={setFolderId} folders={folders} onFolderCreated={onFolderCreated} />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -2005,12 +1756,9 @@ const EditTaskModal = ({
             </label>
 
             <RecurrenceField
-              recurrenceType={recurrenceType}
-              setRecurrenceType={setRecurrenceType}
-              recurrenceDays={recurrenceDays}
-              setRecurrenceDays={setRecurrenceDays}
-              recurrenceEndDate={recurrenceEndDate}
-              setRecurrenceEndDate={setRecurrenceEndDate}
+              recurrenceType={recurrenceType} setRecurrenceType={setRecurrenceType}
+              recurrenceDays={recurrenceDays} setRecurrenceDays={setRecurrenceDays}
+              recurrenceEndDate={recurrenceEndDate} setRecurrenceEndDate={setRecurrenceEndDate}
               brandColor={brandColor}
             />
 
@@ -2019,28 +1767,11 @@ const EditTaskModal = ({
               <div className="space-y-2">
                 {links.map((link, i) => (
                   <div key={i} className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={link}
-                      onChange={(e) => updateLink(i, e.target.value)}
-                      placeholder="https://..."
-                      className="flex-1 px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeLink(i)}
-                      className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition"
-                      title="Remove link"
-                    >
-                      <FaTrashAlt className="text-xs" />
-                    </button>
+                    <input type="text" value={link} onChange={(e) => updateLink(i, e.target.value)} placeholder="https://..." className="flex-1 px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" />
+                    <button type="button" onClick={() => removeLink(i)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition" title="Remove link"><FaTrashAlt className="text-xs" /></button>
                   </div>
                 ))}
-                <button
-                  type="button"
-                  onClick={addLink}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] rounded-lg text-xs font-medium hover:bg-teal-100 dark:hover:bg-teal-900/30 transition"
-                >
+                <button type="button" onClick={addLink} className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] rounded-lg text-xs font-medium hover:bg-teal-100 dark:hover:bg-teal-900/30 transition">
                   <FaPlus className="text-[10px]" /> Add link
                 </button>
               </div>
@@ -2055,11 +1786,7 @@ const EditTaskModal = ({
                   <button type="button" onClick={() => setFiles((p) => p.filter((_, idx) => idx !== i))} className="text-red-500"><FaTrashAlt className="text-xs" /></button>
                 </div>
               ))}
-              {(task.attachments || []).length > 0 && (
-                <p className="text-[10px] text-gray-400 mt-1">
-                  {task.attachments.length} existing attachment(s) — selecting new files replaces them.
-                </p>
-              )}
+              {(task.attachments || []).length > 0 && (<p className="text-[10px] text-gray-400 mt-1">{task.attachments.length} existing attachment(s) — selecting new files replaces them.</p>)}
             </div>
 
             <div className="flex gap-3 pt-2">
@@ -2070,13 +1797,7 @@ const EditTaskModal = ({
         </div>
       </div>
 
-      <NotesPickerModal
-        isOpen={notesPickerOpen}
-        onClose={() => setNotesPickerOpen(false)}
-        workspaceId={workspaceId}
-        alreadySelected={linkedNotes}
-        onConfirm={setLinkedNotes}
-      />
+      <NotesPickerModal isOpen={notesPickerOpen} onClose={() => setNotesPickerOpen(false)} workspaceId={workspaceId} alreadySelected={linkedNotes} onConfirm={setLinkedNotes} />
     </>
   );
 };
@@ -2243,12 +1964,11 @@ const SearchOverlay = ({ isOpen, onClose, tasks, brandColor, onSelect }) => {
 };
 
 // ══════════════════════════════════════════════════════════════
-// Professional PDF generator
+// PDF generator
 // ══════════════════════════════════════════════════════════════
 const downloadDocsPDF = (doc) => {
   if (!doc) return;
   const pdf = new jsPDF({ unit: 'pt', format: 'a4', compress: true });
-
   const PAGE_W = pdf.internal.pageSize.getWidth();
   const PAGE_H = pdf.internal.pageSize.getHeight();
   const MARGIN_X = 60;
@@ -2256,22 +1976,11 @@ const downloadDocsPDF = (doc) => {
   const MARGIN_BOTTOM = 72;
   const CONTENT_W = PAGE_W - MARGIN_X * 2;
 
-  const BODY_SIZE = 12;
-  const BODY_LINE_H = 18;
-  const TITLE_SIZE = 26;
-  const SUB_SIZE = 13;
-  const H1_SIZE = 16;
-  const TABLE_SIZE = 10;
-  const TABLE_LINE_H = 13;
-  const FOOTER_SIZE = 10;
+  const BODY_SIZE = 12, BODY_LINE_H = 18, TITLE_SIZE = 26, SUB_SIZE = 13, H1_SIZE = 16;
+  const TABLE_SIZE = 10, TABLE_LINE_H = 13, FOOTER_SIZE = 10;
+  const ACCENT = [13, 148, 136], TEXT_DARK = [17, 17, 17], TEXT_MUTED = [110, 110, 110];
 
-  const ACCENT = [13, 148, 136];
-  const TEXT_DARK = [17, 17, 17];
-  const TEXT_MUTED = [110, 110, 110];
-
-  let y = MARGIN_TOP;
-  let pageNum = 0;
-  let onCover = true;
+  let y = MARGIN_TOP, pageNum = 0, onCover = true;
 
   const setFont = (style = 'normal', size = BODY_SIZE, color = TEXT_DARK) => {
     pdf.setFont('times', style); pdf.setFontSize(size); pdf.setTextColor(...color);
@@ -2359,8 +2068,7 @@ const downloadDocsPDF = (doc) => {
     if (!headers?.length || !rows?.length) return;
     const cols = headers.length;
     const colW = CONTENT_W / cols;
-    const padX = 8;
-    const padY = 7;
+    const padX = 8, padY = 7;
     const headerH = TABLE_SIZE + padY * 2 + 2;
 
     const drawHeader = () => {
@@ -2709,48 +2417,9 @@ const AIReviewModal = ({ isOpen, onClose, projectId, brandColor }) => {
                   <p className="text-sm text-gray-700 dark:text-gray-300 mt-1 break-words">{result.overallAssessment}</p>
                 </div>
               </div>
-              {result.strengths?.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-2">Strengths</h4>
-                  <div className="space-y-1.5">{result.strengths.map((s, i) => (<div key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300"><FaCheckCircle className="text-green-500 text-xs mt-1 shrink-0" /><span className="break-words">{s}</span></div>))}</div>
-                </div>
-              )}
-              {result.issues?.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-2">Issues ({result.issues.length})</h4>
-                  <div className="space-y-2">
-                    {result.issues.map((it, i) => (
-                      <div key={i} className="bg-gray-50 dark:bg-[#1a1a24] rounded-xl p-3 border border-gray-200/60 dark:border-gray-800/40">
-                        <div className="flex items-start gap-2">
-                          <FaExclamationCircle className={`text-xs mt-1 shrink-0 ${sevColor[it.severity] || 'text-gray-400'}`} />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-gray-800 dark:text-gray-200 break-words">{it.title}<span className={`ml-2 text-[10px] uppercase font-semibold ${sevColor[it.severity] || ''}`}>{it.severity}</span></p>
-                            <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 break-words">{it.detail}</p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {result.recommendations?.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-2">Recommendations</h4>
-                  <div className="space-y-2">
-                    {result.recommendations.map((r, i) => (
-                      <div key={i} className="bg-teal-50/60 dark:bg-[#0d9488]/10 rounded-xl p-3 border border-teal-200/60 dark:border-[#0d9488]/20">
-                        <div className="flex items-start gap-2">
-                          <FaLightbulb className="text-teal-600 dark:text-[#0d9488] text-xs mt-1 shrink-0" />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-gray-800 dark:text-gray-200 break-words">{r.title}<span className="ml-2 text-[10px] uppercase font-semibold text-teal-700 dark:text-[#0d9488]">{r.impact}</span></p>
-                            <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 break-words">{r.detail}</p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {result.strengths?.length > 0 && (<div><h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-2">Strengths</h4><div className="space-y-1.5">{result.strengths.map((s, i) => (<div key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300"><FaCheckCircle className="text-green-500 text-xs mt-1 shrink-0" /><span className="break-words">{s}</span></div>))}</div></div>)}
+              {result.issues?.length > 0 && (<div><h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-2">Issues ({result.issues.length})</h4><div className="space-y-2">{result.issues.map((it, i) => (<div key={i} className="bg-gray-50 dark:bg-[#1a1a24] rounded-xl p-3 border border-gray-200/60 dark:border-gray-800/40"><div className="flex items-start gap-2"><FaExclamationCircle className={`text-xs mt-1 shrink-0 ${sevColor[it.severity] || 'text-gray-400'}`} /><div className="min-w-0 flex-1"><p className="text-sm font-medium text-gray-800 dark:text-gray-200 break-words">{it.title}<span className={`ml-2 text-[10px] uppercase font-semibold ${sevColor[it.severity] || ''}`}>{it.severity}</span></p><p className="text-xs text-gray-600 dark:text-gray-400 mt-1 break-words">{it.detail}</p></div></div></div>))}</div></div>)}
+              {result.recommendations?.length > 0 && (<div><h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-2">Recommendations</h4><div className="space-y-2">{result.recommendations.map((r, i) => (<div key={i} className="bg-teal-50/60 dark:bg-[#0d9488]/10 rounded-xl p-3 border border-teal-200/60 dark:border-[#0d9488]/20"><div className="flex items-start gap-2"><FaLightbulb className="text-teal-600 dark:text-[#0d9488] text-xs mt-1 shrink-0" /><div className="min-w-0 flex-1"><p className="text-sm font-medium text-gray-800 dark:text-gray-200 break-words">{r.title}<span className="ml-2 text-[10px] uppercase font-semibold text-teal-700 dark:text-[#0d9488]">{r.impact}</span></p><p className="text-xs text-gray-600 dark:text-gray-400 mt-1 break-words">{r.detail}</p></div></div></div>))}</div></div>)}
             </div>
           )}
         </div>
@@ -2960,15 +2629,64 @@ const AIProjectEditModal = ({ isOpen, onClose, projectId, brandColor, onApplied 
 };
 
 // ══════════════════════════════════════════════════════════════
+// Public viewer banner
+// ══════════════════════════════════════════════════════════════
+const PublicViewerBanner = ({ onSignup, onLogin }) => (
+  <div className="bg-gradient-to-r from-teal-50 to-emerald-50 dark:from-[#0d9488]/10 dark:to-[#0d9488]/5 border-b border-teal-200/60 dark:border-[#0d9488]/30 px-3 sm:px-4 py-2.5 flex items-center justify-between gap-3 shrink-0">
+    <div className="flex items-center gap-2 min-w-0">
+      <FaEye className="text-teal-600 dark:text-[#0d9488] shrink-0 text-sm" />
+      <p className="text-[11px] sm:text-xs text-teal-800 dark:text-teal-300 truncate">
+        <span className="font-semibold">Public view</span> · You're seeing this project as a guest. Sign up to interact.
+      </p>
+    </div>
+    <div className="flex items-center gap-1.5 shrink-0">
+      <button onClick={onLogin} className="px-2.5 py-1 text-[11px] font-medium rounded-lg border border-teal-500/40 text-teal-700 dark:text-teal-300 hover:bg-teal-100/60 dark:hover:bg-[#0d9488]/20 transition">
+        Sign in
+      </button>
+      <button onClick={onSignup} className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-teal-600 dark:bg-[#0d9488] text-white hover:opacity-90 transition">
+        Sign up
+      </button>
+    </div>
+  </div>
+);
+
+// ══════════════════════════════════════════════════════════════
 // MAIN SCREEN
 // ══════════════════════════════════════════════════════════════
 const YourWorkspaceProjectId = () => {
+  // ONE route, ONE URL. No token, no /p/ path. Everyone hits
+  // /workspace/:workspaceId/project/:projectId.
+  // The server decides what they can see (mode: 'public' | 'workspace').
   const { workspaceId, projectId } = useParams();
   const navigate = useNavigate();
 
-  const { data: wData, isLoading: wLoad, error: wErr } = useGetWorkspaceQuery(workspaceId, { skip: !workspaceId });
-  const { data: pData, isLoading: pLoad, error: pErr, refetch: refetchProject } = useGetProjectByIdQuery(projectId, { skip: !projectId });
-  const { data: foldersData, isLoading: foldersLoading, refetch: refetchFolders } = useGetProjectFoldersQuery(projectId, { skip: !projectId });
+  // ─── Unified project read ───────────────────────────────────
+  const { data: pData, isLoading: pLoad, error: pErr, refetch: refetchProject } =
+    useGetProjectQuery(projectId, { skip: !projectId });
+
+  const viewer = pData?.viewer;
+  const project = pData?.project;
+  const mode = pData?.mode || 'workspace';
+  const isPublicMode = mode === 'public';
+  const isFullMember = !!pData?.isFullMember;
+
+  // Server-driven permissions
+  const canManage = !!viewer?.canManage;
+  const canAct = !!viewer?.canAct;
+  const canEdit = !!viewer?.canEdit;
+  const canComment = !!viewer?.canComment;
+  const requiresSignup = !!viewer?.requiresSignup;
+
+  // Workspace fetch — members only, skip for public viewers.
+  const shouldFetchWorkspace = !!workspaceId && !isPublicMode;
+  const { data: wData, isLoading: wLoad, error: wErr } = useGetWorkspaceQuery(workspaceId, {
+    skip: !shouldFetchWorkspace,
+  });
+
+  // Tasks + folders. Same workspace URLs — server filters by role.
+  const { data: foldersData, isLoading: foldersLoading, refetch: refetchFolders } =
+    useGetProjectFoldersQuery(projectId, { skip: !projectId });
+
   const [selectedFolderId, setSelectedFolderId] = useState(null);
   const { data: tData, isLoading: tLoad, error: tErr, refetch: refetchTasks } = useGetProjectTasksQuery(
     { projectId, folderId: selectedFolderId || undefined },
@@ -3030,9 +2748,7 @@ const YourWorkspaceProjectId = () => {
   const [dragOverTaskId, setDragOverTaskId] = useState(null);
 
   const workspace = wData?.workspace;
-  const project = pData?.project;
-  const brandColor = workspace?.color || '#0d9488';
-  const canManage = !!project?.canManage;
+  const brandColor = workspace?.color || project?.color || '#0d9488';
   const isTrash = project?.isTrash || false;
   const isArchivedForMe = project?.isArchivedForMe || false;
 
@@ -3056,10 +2772,13 @@ const YourWorkspaceProjectId = () => {
   }, [workspace]);
 
   const canReorderTasks = canManage && !isTrash && !isArchivedForMe;
+  const allowBulkActions = canManage && !isTrash && !isArchivedForMe;
+  const allowSelection = allowBulkActions;
 
   const refreshAll = useCallback(() => { refetchTasks(); refetchProject(); refetchFolders(); }, [refetchTasks, refetchProject, refetchFolders]);
 
   const toggleSelection = (taskId) => {
+    if (!allowSelection) return;
     setSelectedIds(prev => {
       const next = new Set(prev);
       if (next.has(taskId)) next.delete(taskId); else next.add(taskId);
@@ -3068,9 +2787,14 @@ const YourWorkspaceProjectId = () => {
       return next;
     });
   };
-  const startSelection = (taskId) => { setSelectedIds(new Set([taskId])); setSelectionMode(true); };
+  const startSelection = (taskId) => {
+    if (!allowSelection) return;
+    setSelectedIds(new Set([taskId]));
+    setSelectionMode(true);
+  };
   const clearSelection = () => { setSelectedIds(new Set()); setSelectionMode(false); };
   const handleLongPress = (taskId) => {
+    if (!allowSelection) return;
     if (selectionMode) toggleSelection(taskId);
     else startSelection(taskId);
   };
@@ -3100,10 +2824,7 @@ const YourWorkspaceProjectId = () => {
   };
 
   const handleOpenTaskModal = (task) => setActionModal({ isOpen: true, task });
-
-  const handleEditFromModal = (task) => {
-    setEditingTask(task);
-  };
+  const handleEditFromModal = (task) => { setEditingTask(task); };
 
   const handleEditTaskSubmit = useCallback(async (taskId, data) => {
     const assigneeIds = data.assigneeIds || [];
@@ -3115,10 +2836,7 @@ const YourWorkspaceProjectId = () => {
         return u ? { _id: u._id, name: u.name, profile: u.profile } : { _id: id, name: 'Loading...' };
       }),
       folder: data.folderId
-        ? (() => {
-            const f = folders.find((x) => x._id === data.folderId);
-            return f ? { _id: f._id, name: f.name } : null;
-          })()
+        ? (() => { const f = folders.find((x) => x._id === data.folderId); return f ? { _id: f._id, name: f.name } : null; })()
         : null,
     };
     delete tempPatch.attachments;
@@ -3136,27 +2854,19 @@ const YourWorkspaceProjectId = () => {
     fd.append('dueDate', data.dueDate || '');
     fd.append('folderId', data.folderId || '');
     fd.append('recurrenceType', data.recurrenceType || 'none');
-    if (data.recurrenceType === 'weekly') {
-      fd.append('recurrenceDays', JSON.stringify(data.recurrenceDays || []));
-    }
+    if (data.recurrenceType === 'weekly') fd.append('recurrenceDays', JSON.stringify(data.recurrenceDays || []));
     if (data.recurrenceEndDate) fd.append('recurrenceEndDate', data.recurrenceEndDate);
     (data.links || []).forEach((l) => fd.append('links', l));
     fd.append('assigneeIds', JSON.stringify(assigneeIds));
     if (assigneeIds[0]) fd.append('assigneeId', assigneeIds[0]);
-    if (data.linkedNotes && data.linkedNotes.length > 0) {
-      fd.append('linkedNotes', JSON.stringify(data.linkedNotes));
-    } else {
-      fd.append('linkedNotes', JSON.stringify([]));
-    }
+    fd.append('linkedNotes', JSON.stringify(data.linkedNotes || []));
     if (data.attachments && data.attachments.length > 0) {
       data.attachments.forEach((f) => fd.append('attachments', f));
     }
 
     try {
       const result = await updateTask({ taskId, data: fd }).unwrap();
-      if (result?.task) {
-        setLocalTasks((prev) => prev.map((t) => (t._id === taskId ? result.task : t)));
-      }
+      if (result?.task) setLocalTasks((prev) => prev.map((t) => (t._id === taskId ? result.task : t)));
       toast.success('Task updated');
       refreshAll();
     } catch (err) {
@@ -3165,31 +2875,25 @@ const YourWorkspaceProjectId = () => {
     }
   }, [updateTask, refreshAll, assignableMembers, folders, localTasks]);
 
-  const handleCopyFromModal = (task) => setMoveCopy({ isOpen: true, task, mode: 'copy' });
-  const handleMoveFromModal = (task) => setMoveCopy({ isOpen: true, task, mode: 'move' });
+  const handleCopyFromModal = (task) => { if (!canManage) return; setMoveCopy({ isOpen: true, task, mode: 'copy' }); };
+  const handleMoveFromModal = (task) => { if (!canManage) return; setMoveCopy({ isOpen: true, task, mode: 'move' }); };
   const handleArchiveTask = async (taskId) => {
     const prev = [...localTasks];
     setLocalTasks(p => p.map(t => t._id === taskId ? { ...t, isArchived: true } : t));
-    try {
-      await updateTask({ taskId, data: { isArchived: true } }).unwrap();
-      toast.success('Archived'); refetchTasks();
-    } catch (e) { setLocalTasks(prev); toast.error(e?.data?.message || 'Failed'); }
+    try { await updateTask({ taskId, data: { isArchived: true } }).unwrap(); toast.success('Archived'); refetchTasks(); }
+    catch (e) { setLocalTasks(prev); toast.error(e?.data?.message || 'Failed'); }
   };
   const handleRestoreTask = async (taskId) => {
     const prev = [...localTasks];
     setLocalTasks(p => p.map(t => t._id === taskId ? { ...t, isArchived: false, isTrash: false } : t));
-    try {
-      await updateTask({ taskId, data: { isArchived: false, isTrash: false } }).unwrap();
-      toast.success('Restored'); refetchTasks();
-    } catch (e) { setLocalTasks(prev); toast.error(e?.data?.message || 'Failed'); }
+    try { await updateTask({ taskId, data: { isArchived: false, isTrash: false } }).unwrap(); toast.success('Restored'); refetchTasks(); }
+    catch (e) { setLocalTasks(prev); toast.error(e?.data?.message || 'Failed'); }
   };
   const bulkActionOne = async (taskId, patch, msg) => {
     const prev = [...localTasks];
     setLocalTasks(p => p.map(t => t._id === taskId ? { ...t, ...patch } : t));
-    try {
-      await updateTask({ taskId, data: patch }).unwrap();
-      toast.success(msg); refetchTasks(); refetchProject();
-    } catch (e) { setLocalTasks(prev); toast.error(e?.data?.message || 'Failed'); }
+    try { await updateTask({ taskId, data: patch }).unwrap(); toast.success(msg); refetchTasks(); refetchProject(); }
+    catch (e) { setLocalTasks(prev); toast.error(e?.data?.message || 'Failed'); }
   };
   const handleMarkComplete = (taskId) => bulkActionOne(taskId, { status: 'completed' }, 'Completed');
   const handleMarkInProgress = (taskId) => bulkActionOne(taskId, { status: 'in-progress' }, 'Reopened');
@@ -3208,7 +2912,7 @@ const YourWorkspaceProjectId = () => {
     setLocalTasks((prev) => [optimistic, ...prev]);
 
     const fd = new FormData();
-    fd.append('projectId', formData.projectId);
+    fd.append('projectId', projectId);
     fd.append('title', formData.title);
     fd.append('description', formData.description);
     if (assigneeIds.length > 0) { fd.append('assigneeIds', JSON.stringify(assigneeIds)); fd.append('assigneeId', assigneeIds[0]); }
@@ -3234,7 +2938,7 @@ const YourWorkspaceProjectId = () => {
       setLocalTasks((prev) => prev.filter((t) => t._id !== tempId));
       throw err;
     }
-  }, [createTask, refetchTasks, refetchProject, folders]);
+  }, [createTask, refetchTasks, refetchProject, folders, projectId]);
 
   const handleDeleteFolder = useCallback((folder) => {
     setConfirmDialog({
@@ -3252,16 +2956,48 @@ const YourWorkspaceProjectId = () => {
 
   const handleArchive = async () => { try { await archiveProject(projectId).unwrap(); toast.success('Archived for you'); refetchProject(); } catch (e) { toast.error(e?.data?.message || 'Failed'); } setMenuOpen(false); };
   const handleUnarchive = async () => { try { await unarchiveProject(projectId).unwrap(); toast.success('Unarchived'); refetchProject(); } catch (e) { toast.error(e?.data?.message || 'Failed'); } setMenuOpen(false); };
+
   const handleTrash = () => {
-    setConfirmDialog({ isOpen: true, title: 'Move to Trash', message: `Move "${project?.name}" to trash? You can restore it within 30 days.`, onConfirm: async () => { try { await deleteProject(projectId).unwrap(); toast.success('Moved to trash'); navigate(`/workspace/${workspaceId}/projects`); } catch (e) { toast.error(e?.data?.message || 'Failed'); } } });
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Move to Trash',
+      message: `Move "${project?.name}" to trash? You can restore it within 30 days.`,
+      onConfirm: async () => {
+        try {
+          await deleteProject(projectId).unwrap();
+          toast.success('Moved to trash');
+          navigate(`/workspace/${workspaceId}/projects`);
+        } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+      },
+    });
     setMenuOpen(false);
   };
   const handleRestore = () => {
-    setConfirmDialog({ isOpen: true, title: 'Restore Project', message: `Restore "${project?.name}" from trash?`, onConfirm: async () => { try { await restoreProject(projectId).unwrap(); toast.success('Restored'); refetchProject(); } catch (e) { toast.error(e?.data?.message || 'Failed'); } } });
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Restore Project',
+      message: `Restore "${project?.name}" from trash?`,
+      onConfirm: async () => {
+        try { await restoreProject(projectId).unwrap(); toast.success('Restored'); refetchProject(); }
+        catch (e) { toast.error(e?.data?.message || 'Failed'); }
+      },
+    });
     setMenuOpen(false);
   };
   const handlePermanentDelete = () => {
-    setConfirmDialog({ isOpen: true, title: 'Permanently Delete', danger: true, message: `Permanently delete "${project?.name}"? This cannot be undone.`, onConfirm: async () => { try { await permanentlyDeleteProject(projectId).unwrap(); toast.success('Deleted'); navigate(`/workspace/${workspaceId}/projects`); } catch (e) { toast.error(e?.data?.message || 'Failed'); } } });
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Permanently Delete',
+      danger: true,
+      message: `Permanently delete "${project?.name}"? This cannot be undone.`,
+      onConfirm: async () => {
+        try {
+          await permanentlyDeleteProject(projectId).unwrap();
+          toast.success('Deleted');
+          navigate(`/workspace/${workspaceId}/projects`);
+        } catch (e) { toast.error(e?.data?.message || 'Failed'); }
+      },
+    });
     setMenuOpen(false);
   };
 
@@ -3331,20 +3067,17 @@ const YourWorkspaceProjectId = () => {
   const clearTouch = () => clearTimeout(longPress.current);
 
   const errorInfo = useMemo(() => {
-    const err = wErr || pErr;
+    const err = pErr || wErr;
     if (!err) return null;
 
     const status = err?.status;
-    const serverMessage =
-      err?.data?.message ||
-      err?.error ||
-      'Something went wrong while loading this project.';
+    const serverMessage = err?.data?.message || err?.error || 'Something went wrong while loading this project.';
 
     if (status === 403) {
       return {
         kind: 'denied',
         title: 'Access Denied',
-        message: serverMessage || 'Only the workspace owner, admins, project managers, or project members can open this project.',
+        message: serverMessage || "You don't have permission to view this project.",
         icon: FaUserLock,
         tone: 'error',
       };
@@ -3358,6 +3091,15 @@ const YourWorkspaceProjectId = () => {
         tone: 'warn',
       };
     }
+    if (status === 410) {
+      return {
+        kind: 'revoked',
+        title: 'Invite no longer valid',
+        message: serverMessage || 'This project link has been revoked.',
+        icon: FaExclamationTriangle,
+        tone: 'warn',
+      };
+    }
     return {
       kind: 'error',
       title: 'Something went wrong',
@@ -3365,8 +3107,9 @@ const YourWorkspaceProjectId = () => {
       icon: FaExclamationTriangle,
       tone: 'error',
     };
-  }, [wErr, pErr]);
+  }, [pErr, wErr]);
 
+  // ─── Error screens ──────────────────────────────────────────
   if (errorInfo) {
     return (
       <>
@@ -3389,30 +3132,46 @@ const YourWorkspaceProjectId = () => {
         <GlobalStyles />
         <ErrorScreen
           title="Invalid project link"
-          message="This URL is missing a workspace or project id."
+          message="This URL is missing a project identifier."
           onBack={() => navigate(-1)}
         />
       </>
     );
   }
 
-  if (wLoad || pLoad || tLoad || foldersLoading) {
-    return (<><GlobalStyles /><ProjectSkeleton brandColor={brandColor} /></>);
+  if (pLoad || tLoad || foldersLoading || (shouldFetchWorkspace && wLoad)) {
+    return (
+      <>
+        <GlobalStyles />
+        <ProjectSkeleton brandColor={brandColor} hideWorkspaceChrome={isPublicMode} />
+      </>
+    );
   }
-  if (!workspace || !project) return null;
+  if (!project) return null;
 
+  // ─── Render ─────────────────────────────────────────────────
   return (
     <>
       <GlobalStyles />
 
-      <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
-        <div className="hidden md:block md:min-h-screen fixed top-0 left-0 z-20 workspace-shell-sidebar">
-          <YourWorkspaceSidebar workspace={workspace} chats={[]} />
-        </div>
+      <div className={`h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col overflow-hidden ${isPublicMode ? '' : 'lg:flex-row'}`}>
+        {/* Workspace sidebar only for workspace members */}
+        {!isPublicMode && workspace && (
+          <div className="hidden md:block md:min-h-screen fixed top-0 left-0 z-20 workspace-shell-sidebar">
+            <YourWorkspaceSidebar workspace={workspace} chats={[]} />
+          </div>
+        )}
 
-        <div className="flex-1 flex flex-col h-full overflow-hidden workspace-shell-main">
+        <div className={`flex-1 flex flex-col h-full overflow-hidden ${isPublicMode ? '' : 'workspace-shell-main'}`}>
+          {isPublicMode && (
+            <PublicViewerBanner
+              onSignup={() => navigate('/signup')}
+              onLogin={() => navigate('/login')}
+            />
+          )}
+
           <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 shrink-0">
-            {selectionMode ? (
+            {selectionMode && allowSelection ? (
               <BulkToolbar
                 selectedCount={selectedIds.size}
                 onCancel={clearSelection}
@@ -3422,64 +3181,85 @@ const YourWorkspaceProjectId = () => {
             ) : (
               <div className="flex items-center justify-between px-3 md:px-4 h-14 lg:h-16">
                 <div className="flex items-center gap-2 min-w-0">
-                  <button onClick={() => navigate(`/workspace/${workspaceId}/projects`)} className="p-1 lg:hidden text-gray-500 dark:text-gray-400"><FaArrowLeft className="text-sm" /></button>
-                  {project.coverImage ? <img src={project.coverImage} className="w-8 h-8 md:w-10 md:h-10 rounded-xl object-cover" alt="" /> : (
+                  {!isPublicMode && workspaceId && (
+                    <button onClick={() => navigate(`/workspace/${workspaceId}/projects`)} className="p-1 lg:hidden text-gray-500 dark:text-gray-400"><FaArrowLeft className="text-sm" /></button>
+                  )}
+                  {project.coverImage ? (
+                    <img src={project.coverImage} className="w-8 h-8 md:w-10 md:h-10 rounded-xl object-cover" alt="" />
+                  ) : (
                     <div className="w-8 h-8 md:w-10 md:h-10 rounded-xl flex items-center justify-center text-white" style={{ backgroundColor: brandColor }}><FaFolder /></div>
                   )}
                   <div className="min-w-0">
-                    <h1 className="text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 truncate max-w-[140px] md:max-w-xs flex items-center gap-1">
-                      {project.name}
+                    <h1 className="text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 truncate max-w-[140px] md:max-w-xs flex items-center gap-1.5 flex-wrap">
+                      <span className="truncate">{project.name}</span>
+                      {isPublicMode && (
+                        <span className="text-[10px] font-normal text-teal-600 dark:text-[#0d9488] bg-teal-50 dark:bg-[#0d9488]/15 px-1.5 py-0.5 rounded-full inline-flex items-center gap-1">
+                          <FaEye className="text-[8px]" /> Public
+                        </span>
+                      )}
+                      {!isPublicMode && viewer?.role?.startsWith('associate') && (
+                        <span className="text-[10px] font-normal text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded-full inline-flex items-center gap-1">
+                          <FaUserShield className="text-[8px]" /> Associate
+                        </span>
+                      )}
                       {isArchivedForMe && <span className="text-[10px] font-normal text-gray-400 bg-gray-100 dark:bg-gray-800/40 px-1.5 py-0.5 rounded-full">Archived</span>}
                       {isTrash && <span className="text-[10px] font-normal text-red-400 bg-red-50 dark:bg-red-900/20 px-1.5 py-0.5 rounded-full">Trash</span>}
                     </h1>
-                    <button onClick={() => navigate(`/workspace/${workspaceId}/project/${projectId}/team`)} className="flex items-center gap-1 text-[10px] md:text-xs text-gray-500 dark:text-gray-400 hover:text-teal-600 dark:hover:text-[#0d9488] transition">
-                      <FaUsers className="text-[9px]" /> Team <FaChevronRight className="text-[8px]" />
-                      <span className="w-0.5 h-0.5 bg-gray-300 dark:bg-gray-600 rounded-full ml-1" /> {project.progress || 0}% done
-                    </button>
+
+                    {!isPublicMode && workspaceId ? (
+                      <button onClick={() => navigate(`/workspace/${workspaceId}/project/${projectId}/team`)} className="flex items-center gap-1 text-[10px] md:text-xs text-gray-500 dark:text-gray-400 hover:text-teal-600 dark:hover:text-[#0d9488] transition">
+                        <FaUsers className="text-[9px]" /> Team <FaChevronRight className="text-[8px]" />
+                        <span className="w-0.5 h-0.5 bg-gray-300 dark:bg-gray-600 rounded-full ml-1" /> {project.progress || 0}% done
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-1 text-[10px] md:text-xs text-gray-500 dark:text-gray-400">
+                        <FaTasks className="text-[9px]" />
+                        <span>{project.progress || 0}% done</span>
+                        {project.taskStats && (
+                          <span className="ml-1">· {project.taskStats.totalTasks} tasks</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-1 md:gap-2">
                   <ViewToggle view={viewMode} onChange={setViewMode} />
                   <button onClick={() => setSearchOpen(true)} className="p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl"><FaSearch className="text-xs md:text-sm" /></button>
-                  {!isTrash && !isArchivedForMe && (
+                  {canManage && !isTrash && !isArchivedForMe && (
                     <button onClick={() => setAiMenuOpen(true)} className="p-1.5 text-teal-600 dark:text-[#0d9488] hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 rounded-xl" title="AI Assistant"><FaMagic className="text-xs md:text-sm" /></button>
                   )}
-                  {!isTrash && !isArchivedForMe && <button onClick={() => setShowCreateTask(true)} className="p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl"><FaPlus className="text-xs md:text-sm" /></button>}
+                  {canManage && !isTrash && !isArchivedForMe && (
+                    <button onClick={() => setShowCreateTask(true)} className="p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl"><FaPlus className="text-xs md:text-sm" /></button>
+                  )}
                   <button onClick={() => setMenuOpen(true)} className="p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl"><FaEllipsisV className="text-xs md:text-sm" /></button>
                 </div>
               </div>
             )}
           </header>
 
-          {!selectionMode && (
+          {/* Folders bar — workspace members only */}
+          {!selectionMode && !isPublicMode && (
             <div className="border-b border-gray-200/60 dark:border-gray-800/30 px-3 py-2 bg-gray-50 dark:bg-[#14141a]/60 shrink-0">
               <div className="flex items-center mb-1">
                 <span className="text-[10px] md:text-xs font-medium text-gray-500 uppercase">Folders</span>
               </div>
               <div className="flex flex-nowrap overflow-x-auto gap-1.5 pb-1 scrollbar-hide">
-                {/* New folder as tab-rectangle, BEFORE All */}
                 {canManage && !isTrash && !isArchivedForMe && (
-                  <button
-                    onClick={() => { setEditingFolder(null); setShowFolderForm(true); }}
+                  <button onClick={() => { setEditingFolder(null); setShowFolderForm(true); }}
                     className="text-[10px] md:text-xs px-2.5 py-1 rounded-md border border-dashed border-teal-500/70 text-teal-700 dark:text-[#0d9488] hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 flex items-center gap-1 whitespace-nowrap shrink-0 transition font-medium"
-                    title="Create new folder"
-                  >
+                    title="Create new folder">
                     <FaPlus className="text-[8px]" /> Folder
                   </button>
                 )}
-                <button
-                  onClick={() => setSelectedFolderId(null)}
-                  className={`text-[10px] md:text-xs px-2.5 py-1 rounded-md border whitespace-nowrap shrink-0 ${!selectedFolderId ? 'bg-teal-600 dark:bg-[#0d9488] text-white border-teal-600' : 'bg-gray-100 dark:bg-[#1e1e26] border-gray-300 dark:border-gray-700/60 text-gray-700 dark:text-gray-300'}`}
-                >
+                <button onClick={() => setSelectedFolderId(null)}
+                  className={`text-[10px] md:text-xs px-2.5 py-1 rounded-md border whitespace-nowrap shrink-0 ${!selectedFolderId ? 'bg-teal-600 dark:bg-[#0d9488] text-white border-teal-600' : 'bg-gray-100 dark:bg-[#1e1e26] border-gray-300 dark:border-gray-700/60 text-gray-700 dark:text-gray-300'}`}>
                   All
                 </button>
                 {folders.map((f) => (
                   <div key={f._id} className="relative flex items-center shrink-0">
-                    <button
-                      onClick={() => setSelectedFolderId(selectedFolderId === f._id ? null : f._id)}
+                    <button onClick={() => setSelectedFolderId(selectedFolderId === f._id ? null : f._id)}
                       onTouchStart={() => handleTouchStart(f._id)} onTouchEnd={clearTouch} onTouchMove={clearTouch}
-                      className={`text-[10px] md:text-xs px-2.5 py-1 rounded-md border flex items-center gap-1 whitespace-nowrap ${selectedFolderId === f._id ? 'bg-teal-600 dark:bg-[#0d9488] text-white border-teal-600' : 'bg-gray-100 dark:bg-[#1e1e26] border-gray-300 dark:border-gray-700/60 text-gray-700 dark:text-gray-300'}`}
-                    >
+                      className={`text-[10px] md:text-xs px-2.5 py-1 rounded-md border flex items-center gap-1 whitespace-nowrap ${selectedFolderId === f._id ? 'bg-teal-600 dark:bg-[#0d9488] text-white border-teal-600' : 'bg-gray-100 dark:bg-[#1e1e26] border-gray-300 dark:border-gray-700/60 text-gray-700 dark:text-gray-300'}`}>
                       <FaFolder className="text-[8px]" /><span className="truncate max-w-[60px] md:max-w-[100px]">{f.name}</span>
                     </button>
                     {canManage && !isTrash && !isArchivedForMe && (
@@ -3505,13 +3285,13 @@ const YourWorkspaceProjectId = () => {
             </div>
           )}
 
+          {/* Task list */}
           <div className={`flex-1 overflow-y-auto ${viewMode === 'list' ? 'pb-24 md:pb-4' : 'p-3 md:p-4 pb-24 md:pb-4'}`}>
             {tErr ? (
               <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
                 <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-4 ${
-                  tErr?.status === 403
-                    ? 'bg-red-50 dark:bg-red-900/20 text-red-500 dark:text-red-400'
-                    : 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400'
+                  tErr?.status === 403 ? 'bg-red-50 dark:bg-red-900/20 text-red-500 dark:text-red-400'
+                  : 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400'
                 }`}>
                   {tErr?.status === 403 ? <FaUserLock className="text-2xl" /> : <FaExclamationTriangle className="text-2xl" />}
                 </div>
@@ -3519,20 +3299,28 @@ const YourWorkspaceProjectId = () => {
                   {tErr?.status === 403 ? "You can't view these tasks" : "Couldn't load tasks"}
                 </h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm break-words mb-4">
-                  {tErr?.data?.message ||
-                    (tErr?.status === 403
-                      ? "You don't have permission to view tasks in this project."
-                      : 'Please try again in a moment.')}
+                  {tErr?.data?.message || (tErr?.status === 403 ? "You don't have permission to view tasks in this project." : 'Please try again in a moment.')}
                 </p>
-                <button
-                  onClick={() => refetchTasks()}
-                  className="px-4 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl text-sm font-medium hover:opacity-90 transition"
-                >
+                <button onClick={() => refetchTasks()} className="px-4 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl text-sm font-medium hover:opacity-90 transition">
                   Try again
                 </button>
               </div>
             ) : tasks.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-gray-400"><FaTasks className="text-3xl md:text-4xl mb-2 opacity-30" /><p className="text-xs md:text-sm">No tasks {selectedFolderId ? 'in this folder' : 'yet'}</p></div>
+              <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+                <FaTasks className="text-3xl md:text-4xl mb-2 opacity-30" />
+                <p className="text-xs md:text-sm">
+                  {viewer?.role?.startsWith('associate')
+                    ? "No tasks assigned to you yet"
+                    : isPublicMode
+                    ? 'No tasks to display'
+                    : `No tasks ${selectedFolderId ? 'in this folder' : 'yet'}`}
+                </p>
+                {viewer?.role?.startsWith('associate') && (
+                  <p className="text-[11px] text-gray-500 dark:text-gray-500 mt-1 max-w-xs text-center">
+                    When a manager assigns you work, it will appear here.
+                  </p>
+                )}
+              </div>
             ) : viewMode === 'grid' ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {tasks.map((task) => (
@@ -3543,13 +3331,14 @@ const YourWorkspaceProjectId = () => {
                     draggable={canReorderTasks} onDragStart={onTaskDragStart} onDragEnd={onTaskDragEnd}
                     onDragOver={onTaskDragOver} onDragLeave={() => setDragOverTaskId(null)} onDrop={onTaskDrop}
                     dragOver={dragOverTaskId === task._id}
-                    onCopy={(t) => setMoveCopy({ isOpen: true, task: t, mode: 'copy' })}
-                    onMove={(t) => setMoveCopy({ isOpen: true, task: t, mode: 'move' })}
+                    onCopy={handleCopyFromModal}
+                    onMove={handleMoveFromModal}
                     isSelected={selectedIds.has(task._id)}
                     onLongPress={handleLongPress}
                     isTouch={isTouch}
                     selectionMode={selectionMode}
                     onTap={toggleSelection}
+                    allowSelection={allowSelection}
                   />
                 ))}
               </div>
@@ -3563,13 +3352,14 @@ const YourWorkspaceProjectId = () => {
                     draggable={canReorderTasks} onDragStart={onTaskDragStart} onDragEnd={onTaskDragEnd}
                     onDragOver={onTaskDragOver} onDragLeave={() => setDragOverTaskId(null)} onDrop={onTaskDrop}
                     dragOver={dragOverTaskId === task._id}
-                    onCopy={(t) => setMoveCopy({ isOpen: true, task: t, mode: 'copy' })}
-                    onMove={(t) => setMoveCopy({ isOpen: true, task: t, mode: 'move' })}
+                    onCopy={handleCopyFromModal}
+                    onMove={handleMoveFromModal}
                     isSelected={selectedIds.has(task._id)}
                     onLongPress={handleLongPress}
                     isTouch={isTouch}
                     selectionMode={selectionMode}
                     onTap={toggleSelection}
+                    allowSelection={allowSelection}
                   />
                 ))}
               </div>
@@ -3577,139 +3367,151 @@ const YourWorkspaceProjectId = () => {
           </div>
         </div>
 
-        <YourWorkspaceBottombar workspace={workspace} />
+        {/* Workspace bottombar only for members */}
+        {!isPublicMode && workspace && <YourWorkspaceBottombar workspace={workspace} />}
 
-        <SearchOverlay isOpen={searchOpen} onClose={() => setSearchOpen(false)} tasks={tasks} brandColor={brandColor} onSelect={(id) => navigate(`/workspace/${workspaceId}/project/${projectId}/task/${id}`)} />
-
-        <CreateTaskModal
-          isOpen={showCreateTask}
-          onClose={() => setShowCreateTask(false)}
-          projectId={projectId}
-          workspaceId={workspaceId}
+        <SearchOverlay
+          isOpen={searchOpen}
+          onClose={() => setSearchOpen(false)}
+          tasks={tasks}
           brandColor={brandColor}
-          assignableMembers={assignableMembers}
-          folders={folders}
-          onSubmit={handleCreateTask}
-          onFolderCreated={refetchFolders}
+          onSelect={(id) => navigate(`/workspace/${workspaceId}/project/${projectId}/task/${id}`)}
         />
 
-        <EditTaskModal
-          isOpen={!!editingTask}
-          onClose={() => setEditingTask(null)}
-          task={editingTask}
-          projectId={projectId}
-          workspaceId={workspaceId}
-          brandColor={brandColor}
-          assignableMembers={assignableMembers}
-          folders={folders}
-          onSubmit={handleEditTaskSubmit}
-          onFolderCreated={refetchFolders}
-        />
+        {/* Modals — mounted for members only */}
+        {!isPublicMode && (
+          <>
+            <CreateTaskModal
+              isOpen={showCreateTask && canManage}
+              onClose={() => setShowCreateTask(false)}
+              projectId={projectId}
+              workspaceId={workspaceId}
+              brandColor={brandColor}
+              assignableMembers={assignableMembers}
+              folders={folders}
+              onSubmit={handleCreateTask}
+              onFolderCreated={refetchFolders}
+            />
 
-        <FolderFormModal isOpen={showFolderForm} onClose={() => { setShowFolderForm(false); setEditingFolder(null); }} onSuccess={refetchFolders} folder={editingFolder} brandColor={brandColor} projectId={projectId} />
-        <FolderReadOnlyModal isOpen={showReadOnly} onClose={() => { setShowReadOnly(false); setReadOnlyFolder(null); }} folder={readOnlyFolder} project={project} brandColor={brandColor} onSuccess={refetchFolders} />
-        <FolderSelectModal isOpen={moveCopy.isOpen} onClose={() => setMoveCopy({ isOpen: false, task: null, mode: 'move' })} folders={folders} onSelect={handleMoveCopyConfirm} title={moveCopy.mode === 'copy' ? 'Copy task to folder' : 'Move task to folder'} />
-        <ConfirmDialog isOpen={confirmDialog.isOpen} onClose={() => setConfirmDialog({ isOpen: false })} onConfirm={confirmDialog.onConfirm} title={confirmDialog.title} message={confirmDialog.message} danger={confirmDialog.danger} />
-        <DeleteTaskDialog isOpen={deleteTaskDialog.isOpen} onClose={() => setDeleteTaskDialog({ isOpen: false })} onConfirm={deleteTaskDialog.onConfirm} taskName={deleteTaskDialog.taskName} />
+            <EditTaskModal
+              isOpen={!!editingTask && canManage}
+              onClose={() => setEditingTask(null)}
+              task={editingTask}
+              projectId={projectId}
+              workspaceId={workspaceId}
+              brandColor={brandColor}
+              assignableMembers={assignableMembers}
+              folders={folders}
+              onSubmit={handleEditTaskSubmit}
+              onFolderCreated={refetchFolders}
+            />
 
-        <TaskActionModal
-          isOpen={actionModal.isOpen}
-          onClose={() => setActionModal({ isOpen: false, task: null })}
-          task={actionModal.task}
-          canManage={canManage}
-          isTrash={isTrash}
-          isArchivedForMe={isArchivedForMe}
-          onEdit={handleEditFromModal}
-          onCopy={handleCopyFromModal}
-          onMove={handleMoveFromModal}
-          onDelete={handleDeleteTask}
-          onArchive={handleArchiveTask}
-          onRestore={handleRestoreTask}
-          onPermanentDelete={handleDeleteTask}
-          onSelect={startSelection}
-          onMarkComplete={!isArchivedForMe ? handleMarkComplete : undefined}
-          onMarkInProgress={!isArchivedForMe ? handleMarkInProgress : undefined}
-          brandColor={brandColor}
-        />
+            <FolderFormModal isOpen={showFolderForm && canManage} onClose={() => { setShowFolderForm(false); setEditingFolder(null); }} onSuccess={refetchFolders} folder={editingFolder} brandColor={brandColor} projectId={projectId} />
+            <FolderReadOnlyModal isOpen={showReadOnly && canManage} onClose={() => { setShowReadOnly(false); setReadOnlyFolder(null); }} folder={readOnlyFolder} project={project} brandColor={brandColor} onSuccess={refetchFolders} />
+            <FolderSelectModal isOpen={moveCopy.isOpen && canManage} onClose={() => setMoveCopy({ isOpen: false, task: null, mode: 'move' })} folders={folders} onSelect={handleMoveCopyConfirm} title={moveCopy.mode === 'copy' ? 'Copy task to folder' : 'Move task to folder'} />
+            <ConfirmDialog isOpen={confirmDialog.isOpen} onClose={() => setConfirmDialog({ isOpen: false })} onConfirm={confirmDialog.onConfirm} title={confirmDialog.title} message={confirmDialog.message} danger={confirmDialog.danger} />
+            <DeleteTaskDialog isOpen={deleteTaskDialog.isOpen} onClose={() => setDeleteTaskDialog({ isOpen: false })} onConfirm={deleteTaskDialog.onConfirm} taskName={deleteTaskDialog.taskName} />
 
-        <AIMenu
-          isOpen={aiMenuOpen}
-          onClose={() => setAiMenuOpen(false)}
-          canManage={canManage}
-          brandColor={brandColor}
-          onPlan={() => setAiPlanOpen(true)}
-          onSummary={() => setAiSummaryOpen(true)}
-          onReview={() => setAiReviewOpen(true)}
-          onDocs={() => setAiDocsOpen(true)}
-          onEdit={() => setAiEditOpen(true)}
-        />
-        <AIPlanModal
-          isOpen={aiPlanOpen}
-          onClose={() => setAiPlanOpen(false)}
-          workspaceId={workspaceId}
-          workspaceMembers={workspaceMembers}
-          brandColor={brandColor}
-          onExecuted={(proj) => { refreshAll(); if (proj?._id) navigate(`/workspace/${workspaceId}/project/${proj._id}`); }}
-        />
-        <AISummaryModal isOpen={aiSummaryOpen} onClose={() => setAiSummaryOpen(false)} projectId={projectId} brandColor={brandColor} />
-        <AIReviewModal isOpen={aiReviewOpen} onClose={() => setAiReviewOpen(false)} projectId={projectId} brandColor={brandColor} />
-        <AIDocsModal isOpen={aiDocsOpen} onClose={() => setAiDocsOpen(false)} projectId={projectId} brandColor={brandColor} />
-        <AIProjectEditModal isOpen={aiEditOpen} onClose={() => setAiEditOpen(false)} projectId={projectId} brandColor={brandColor} onApplied={() => { refreshAll(); }} />
+            <TaskActionModal
+              isOpen={actionModal.isOpen}
+              onClose={() => setActionModal({ isOpen: false, task: null })}
+              task={actionModal.task}
+              viewer={viewer}
+              isTrash={isTrash}
+              isArchivedForMe={isArchivedForMe}
+              onEdit={handleEditFromModal}
+              onCopy={handleCopyFromModal}
+              onMove={handleMoveFromModal}
+              onDelete={handleDeleteTask}
+              onArchive={handleArchiveTask}
+              onRestore={handleRestoreTask}
+              onPermanentDelete={handleDeleteTask}
+              onSelect={startSelection}
+              onMarkComplete={!isArchivedForMe ? handleMarkComplete : undefined}
+              onMarkInProgress={!isArchivedForMe ? handleMarkInProgress : undefined}
+              brandColor={brandColor}
+            />
 
-        {menuOpen && (
-          <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setMenuOpen(false)}>
-            <div className="bg-white dark:bg-[#14141a] rounded-t-2xl md:rounded-2xl w-full md:max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 truncate pr-4">{project.name}</h3>
-                <button onClick={() => setMenuOpen(false)} className="p-1.5 text-gray-500"><FaTimes /></button>
-              </div>
-              <div className="space-y-1">
-                {isTrash ? (
-                  canManage && (
-                    <>
-                      <button onClick={handleRestore} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[#0d9488] hover:bg-[#0d9488]/10"><FaTrashRestore /> Restore</button>
-                      <button onClick={handlePermanentDelete} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-red-600 hover:bg-red-500/10"><FaTrashAlt /> Delete Permanently</button>
-                    </>
-                  )
-                ) : (
-                  <>
-                    {isArchivedForMe ? (
-                      <button onClick={handleUnarchive} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[#0d9488] hover:bg-[#0d9488]/10"><FaUndo /> Unarchive</button>
+            <AIMenu
+              isOpen={aiMenuOpen && canManage}
+              onClose={() => setAiMenuOpen(false)}
+              canManage={canManage}
+              brandColor={brandColor}
+              onPlan={() => setAiPlanOpen(true)}
+              onSummary={() => setAiSummaryOpen(true)}
+              onReview={() => setAiReviewOpen(true)}
+              onDocs={() => setAiDocsOpen(true)}
+              onEdit={() => setAiEditOpen(true)}
+            />
+            <AIPlanModal
+              isOpen={aiPlanOpen && canManage}
+              onClose={() => setAiPlanOpen(false)}
+              workspaceId={workspaceId}
+              workspaceMembers={workspaceMembers}
+              brandColor={brandColor}
+              onExecuted={(proj) => { refreshAll(); if (proj?._id) navigate(`/workspace/${workspaceId}/project/${proj._id}`); }}
+            />
+            <AISummaryModal isOpen={aiSummaryOpen} onClose={() => setAiSummaryOpen(false)} projectId={projectId} brandColor={brandColor} />
+            <AIReviewModal isOpen={aiReviewOpen && canManage} onClose={() => setAiReviewOpen(false)} projectId={projectId} brandColor={brandColor} />
+            <AIDocsModal isOpen={aiDocsOpen} onClose={() => setAiDocsOpen(false)} projectId={projectId} brandColor={brandColor} />
+            <AIProjectEditModal isOpen={aiEditOpen && canManage} onClose={() => setAiEditOpen(false)} projectId={projectId} brandColor={brandColor} onApplied={() => { refreshAll(); }} />
+
+            {menuOpen && (
+              <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setMenuOpen(false)}>
+                <div className="bg-white dark:bg-[#14141a] rounded-t-2xl md:rounded-2xl w-full md:max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 truncate pr-4">{project.name}</h3>
+                    <button onClick={() => setMenuOpen(false)} className="p-1.5 text-gray-500"><FaTimes /></button>
+                  </div>
+                  <div className="space-y-1">
+                    {isTrash ? (
+                      canManage && (
+                        <>
+                          <button onClick={handleRestore} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[#0d9488] hover:bg-[#0d9488]/10"><FaTrashRestore /> Restore</button>
+                          <button onClick={handlePermanentDelete} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-red-600 hover:bg-red-500/10"><FaTrashAlt /> Delete Permanently</button>
+                        </>
+                      )
                     ) : (
-                      <button onClick={handleArchive} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30"><FaArchive /> Archive for me</button>
+                      <>
+                        {isArchivedForMe ? (
+                          <button onClick={handleUnarchive} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[#0d9488] hover:bg-[#0d9488]/10"><FaUndo /> Unarchive</button>
+                        ) : (
+                          <button onClick={handleArchive} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30"><FaArchive /> Archive for me</button>
+                        )}
+                        {canManage && <button onClick={handleTrash} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-yellow-600 hover:bg-yellow-500/10"><FaTrashAlt /> Move to Trash</button>}
+                      </>
                     )}
-                    {canManage && <button onClick={handleTrash} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-yellow-600 hover:bg-yellow-500/10"><FaTrashAlt /> Move to Trash</button>}
-                  </>
-                )}
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-        )}
+            )}
 
-        {!selectionMode && !isTrash && !isArchivedForMe && (
-          <button
-            onClick={() => setShowCreateTask(true)}
-            className="fixed right-4 sm:right-6 bottom-20 md:bottom-6 z-20 w-12 h-12 text-white rounded-full shadow-lg flex items-center justify-center hover:opacity-90 transition active:scale-95"
-            style={{ backgroundColor: brandColor }}
-          >
-            <FaPlus className="text-xl" />
-          </button>
-        )}
+            {!selectionMode && canManage && !isTrash && !isArchivedForMe && (
+              <button
+                onClick={() => setShowCreateTask(true)}
+                className="fixed right-4 sm:right-6 bottom-20 md:bottom-6 z-20 w-12 h-12 text-white rounded-full shadow-lg flex items-center justify-center hover:opacity-90 transition active:scale-95"
+                style={{ backgroundColor: brandColor }}
+              >
+                <FaPlus className="text-xl" />
+              </button>
+            )}
 
-        {bulkLoading && (
-          <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 backdrop-blur-sm">
-            <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl p-6 shadow-xl flex flex-col items-center">
-              <FaSpinner className="animate-spin text-teal-500 text-4xl mb-3" />
-              <p className="text-sm text-gray-700 dark:text-gray-300">Processing bulk action...</p>
-            </div>
-          </div>
-        )}
+            {bulkLoading && (
+              <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+                <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl p-6 shadow-xl flex flex-col items-center">
+                  <FaSpinner className="animate-spin text-teal-500 text-4xl mb-3" />
+                  <p className="text-sm text-gray-700 dark:text-gray-300">Processing bulk action...</p>
+                </div>
+              </div>
+            )}
 
-        {isTouch && !selectionMode && tasks.length > 0 && !tErr && (
-          <div className="fixed bottom-24 md:bottom-6 left-1/2 -translate-x-1/2 z-10 bg-black/70 dark:bg-[#14141a]/90 backdrop-blur-md text-white text-[11px] px-3 py-1.5 rounded-full flex items-center gap-2 pointer-events-none shadow-lg">
-            <FaHandPointer className="text-[10px]" />
-            <span><strong>Tap ↓</strong> for options · <strong>Long-press</strong> to select</span>
-          </div>
+            {isTouch && allowSelection && !selectionMode && tasks.length > 0 && !tErr && (
+              <div className="fixed bottom-24 md:bottom-6 left-1/2 -translate-x-1/2 z-10 bg-black/70 dark:bg-[#14141a]/90 backdrop-blur-md text-white text-[11px] px-3 py-1.5 rounded-full flex items-center gap-2 pointer-events-none shadow-lg">
+                <FaHandPointer className="text-[10px]" />
+                <span><strong>Tap ↓</strong> for options · <strong>Long-press</strong> to select</span>
+              </div>
+            )}
+          </>
         )}
       </div>
     </>

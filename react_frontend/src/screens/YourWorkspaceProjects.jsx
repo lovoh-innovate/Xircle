@@ -14,12 +14,10 @@ import {
   usePermanentlyDeleteProjectMutation,
   useGetProjectByIdQuery,
   useUpdateProjectMutation,
-  // ── Collaborator / share-link hooks (all "Project"-prefixed) ──
-  useGetProjectCollaboratorsQuery,
-  useAddProjectCollaboratorMutation,
-  useUpdateProjectCollaboratorMutation,
-  useRemoveProjectCollaboratorMutation,
-  useRegenerateProjectCollaboratorTokenMutation,
+  useGetProjectAssociatesQuery,
+  useAddProjectAssociateMutation,
+  useUpdateProjectAssociateMutation,
+  useRemoveProjectAssociateMutation,
   useEnableProjectShareLinkMutation,
   useDisableProjectShareLinkMutation,
 } from '../slices/projectApiSlice';
@@ -43,7 +41,6 @@ import {
   FaAngleDown, FaPalette, FaCalendarAlt, FaAngleLeft, FaAngleRight,
   FaThLarge, FaList,
   FaBolt, FaCube, FaStar, FaFire, FaFeather, FaCrown, FaGem, FaCompass, FaLayerGroup,
-  // ── collaborator UI icons ──
   FaUserPlus, FaShareAlt, FaCopy, FaGlobe, FaUserShield, FaLink, FaEye,
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
@@ -1115,58 +1112,61 @@ const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor,
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  Manage Access Modal (public link + collaborators)
+//  Manage Access Modal
+//
+//  Two ways to grant access:
+//    1. Public link — token-based, read-only, no account needed
+//    2. Associates — workspace members with limited scope. Added by
+//       email + role, optional expiry. They can be promoted to
+//       Project Manager at any time.
 // ═════════════════════════════════════════════════════════════════════
 const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
   const projectId = project?._id;
 
-  const { data, isLoading, refetch } = useGetProjectCollaboratorsQuery(projectId, {
+  const { data, isLoading, refetch } = useGetProjectAssociatesQuery(projectId, {
     skip: !isOpen || !projectId,
   });
-  const [addCollaborator, { isLoading: isAdding }] = useAddProjectCollaboratorMutation();
-  const [updateCollaborator] = useUpdateProjectCollaboratorMutation();
-  const [removeCollaborator] = useRemoveProjectCollaboratorMutation();
-  const [regenerateToken] = useRegenerateProjectCollaboratorTokenMutation();
+  const [addAssociate, { isLoading: isAdding }] = useAddProjectAssociateMutation();
+  const [updateAssociate] = useUpdateProjectAssociateMutation();
+  const [removeAssociate] = useRemoveProjectAssociateMutation();
   const [enableShareLink, { isLoading: isEnabling }] = useEnableProjectShareLinkMutation();
   const [disableShareLink] = useDisableProjectShareLinkMutation();
 
-  // Also read the full project so we can show its current share-link state
   const { data: projectData, refetch: refetchProject } = useGetProjectByIdQuery(projectId, {
     skip: !isOpen || !projectId,
   });
   const fullProject = projectData?.project;
 
-  // Add form state
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
-  const [role, setRole] = useState('viewer');
-
-  // Confirm removal
+  const [role, setRole] = useState('editor');
+  const [accessExpiresAt, setAccessExpiresAt] = useState('');
   const [pendingRemove, setPendingRemove] = useState(null);
 
   useEffect(() => {
     if (isOpen) {
       setEmail('');
       setName('');
-      setRole('viewer');
+      setRole('editor');
+      setAccessExpiresAt('');
       setPendingRemove(null);
     }
   }, [isOpen, projectId]);
 
   if (!isOpen || !project) return null;
 
-  const collaborators = data?.collaborators || [];
-  const activeCount = collaborators.filter((c) => c.status === 'active').length;
-  const invitedCount = collaborators.filter((c) => c.status === 'invited').length;
+  const associates = data?.associates || [];
+  const activeCount = associates.filter((a) => a.status === 'active').length;
+  const invitedCount = associates.filter((a) => a.status === 'invited').length;
+  const pmCount = associates.filter((a) => a.role === 'projectManager' && a.status === 'active').length;
   const publicEnabled = !!fullProject?.publicShareEnabled;
   const publicToken = fullProject?.publicShareToken;
 
   const shareUrl = publicToken
-    ? `${window.location.origin}/public/project/${publicToken}`
+    ? `${window.location.origin}/p/${publicToken}`
     : '';
 
-  const collabInviteUrl = (token) =>
-    token ? `${window.location.origin}/collaborate/${token}` : '';
+  const projectUrl = `${window.location.origin}/workspace/${fullProject?.workspaceId || project.workspace}/project/${projectId}`;
 
   const copyToClipboard = async (text, label = 'Link') => {
     try {
@@ -1194,66 +1194,65 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email.trim())) return toast.error('Enter a valid email');
     try {
-      const res = await addCollaborator({
+      const res = await addAssociate({
         projectId,
         email: email.trim(),
         name: name.trim(),
         role,
+        accessExpiresAt: accessExpiresAt || null,
       }).unwrap();
-      toast.success(res.message || 'Collaborator added');
-      if (res.inviteUrl) {
-        copyToClipboard(res.inviteUrl, 'Invite link');
-      }
+      toast.success(res.message || 'Associate added');
       setEmail('');
       setName('');
-      setRole('viewer');
+      setRole('editor');
+      setAccessExpiresAt('');
       refetch();
     } catch (err) {
-      toast.error(err?.data?.message || 'Failed to add collaborator');
+      toast.error(err?.data?.message || 'Failed to add associate');
     }
   };
 
-  const handleChangeRole = async (collab, newRole) => {
+  const handleChangeRole = async (assoc, newRole) => {
     try {
-      await updateCollaborator({
+      await updateAssociate({
         projectId,
-        collabId: collab._id,
+        associateId: assoc._id,
         role: newRole,
       }).unwrap();
-      toast.success(`Role updated to ${newRole}`);
+      toast.success(`Role updated to ${roleLabel(newRole)}`);
       refetch();
     } catch (err) {
       toast.error(err?.data?.message || 'Failed to update role');
     }
   };
 
-  const handleRemove = async () => {
-    if (!pendingRemove) return;
+  const handleChangeExpiry = async (assoc, newDate) => {
     try {
-      await removeCollaborator({
+      await updateAssociate({
         projectId,
-        collabId: pendingRemove._id,
+        associateId: assoc._id,
+        accessExpiresAt: newDate || null,
       }).unwrap();
-      toast.success('Collaborator removed');
-      setPendingRemove(null);
+      toast.success(newDate ? 'Expiry updated' : 'Expiry removed');
       refetch();
     } catch (err) {
-      toast.error(err?.data?.message || 'Failed to remove collaborator');
-      setPendingRemove(null);
+      toast.error(err?.data?.message || 'Failed to update expiry');
     }
   };
 
-  const handleRegenerate = async (collab) => {
+  const handleRemove = async () => {
+    if (!pendingRemove) return;
     try {
-      const res = await regenerateToken({
+      await removeAssociate({
         projectId,
-        collabId: collab._id,
+        associateId: pendingRemove._id,
       }).unwrap();
-      toast.success('New invite link generated');
-      if (res.inviteUrl) copyToClipboard(res.inviteUrl, 'Invite link');
+      toast.success('Associate removed');
+      setPendingRemove(null);
       refetch();
     } catch (err) {
-      toast.error(err?.data?.message || 'Failed to regenerate link');
+      toast.error(err?.data?.message || 'Failed to remove associate');
+      setPendingRemove(null);
     }
   };
 
@@ -1281,7 +1280,39 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
   const ROLE_OPTIONS = [
     { value: 'viewer', label: 'Viewer — read-only' },
     { value: 'editor', label: 'Editor — act on assigned tasks' },
+    { value: 'projectManager', label: 'Project Manager — full control' },
   ];
+
+  const roleLabel = (r) => {
+    if (r === 'projectManager') return 'Project Manager';
+    if (r === 'editor') return 'Editor';
+    if (r === 'viewer') return 'Viewer';
+    return r;
+  };
+
+  const roleBadgeClass = (r) => {
+    if (r === 'projectManager') return 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400';
+    if (r === 'editor') return 'bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400';
+    return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400';
+  };
+
+  const isExpired = (assoc) => {
+    if (!assoc?.accessExpiresAt) return false;
+    return new Date(assoc.accessExpiresAt) < new Date();
+  };
+
+  const formatDate = (d) => {
+    if (!d) return null;
+    try {
+      return new Date(d).toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+    } catch {
+      return null;
+    }
+  };
 
   return (
     <>
@@ -1302,7 +1333,7 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
 
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
 
-            {/* ── Public share link ──────────────────────────── */}
+            {/* ── Public share link ── */}
             <section>
               <div className="flex items-center gap-2 mb-2">
                 <FaGlobe className="text-xs text-[#0d9488]" />
@@ -1358,12 +1389,12 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
               </div>
             </section>
 
-            {/* ── Add a collaborator ─────────────────────────── */}
+            {/* ── Add associate ── */}
             <section>
               <div className="flex items-center gap-2 mb-2">
                 <FaUserPlus className="text-xs text-[#0d9488]" />
                 <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">
-                  Invite a collaborator
+                  Add an associate
                 </h3>
               </div>
 
@@ -1384,44 +1415,71 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
                   disabled={isAdding}
                   className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 focus:border-[#0d9488] outline-none disabled:opacity-60"
                 />
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <CustomDropdown
-                      value={role}
-                      onChange={setRole}
-                      options={ROLE_OPTIONS}
-                      placeholder="Role"
-                      disabled={isAdding}
-                    />
-                  </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-500 mb-1">
+                    Role
+                  </label>
+                  <CustomDropdown
+                    value={role}
+                    onChange={setRole}
+                    options={ROLE_OPTIONS}
+                    placeholder="Select role"
+                    disabled={isAdding}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-500 mb-1">
+                    Access expires (optional)
+                  </label>
+                  <CustomDateTimePicker
+                    value={accessExpiresAt}
+                    onChange={setAccessExpiresAt}
+                    placeholder="No expiry"
+                    disabled={isAdding}
+                  />
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(projectUrl, 'Project link')}
+                    className="px-3 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition flex items-center gap-1.5"
+                    title="Copy project link to share manually"
+                  >
+                    <FaCopy className="text-[10px]" /> Copy project link
+                  </button>
                   <button
                     type="submit"
                     disabled={isAdding || !email.trim()}
-                    className="px-4 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shrink-0"
+                    className="flex-1 px-4 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     style={{ backgroundColor: brandColor }}
                   >
                     {isAdding ? <FaSpinner className="animate-spin text-xs" /> : <FaPaperPlane className="text-xs" />}
-                    <span>Invite</span>
+                    <span>Add</span>
                   </button>
                 </div>
                 <p className="text-[10px] text-gray-500 dark:text-gray-500 leading-relaxed">
-                  If they don't have a Xircle account yet, they'll get a link to view the project. The moment they sign up with that email, they'll be linked and can act on tasks assigned to them.
+                  Associates are workspace members with limited access. If they don't have a Xircle account yet,
+                  they'll get an email with a link to the project. The moment they sign up with that email, they'll
+                  be linked and can act on tasks assigned to them. Promote them to Project Manager if they need
+                  full control.
                 </p>
               </form>
             </section>
 
-            {/* ── Current collaborators ──────────────────────── */}
+            {/* ── Current associates ── */}
             <section>
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <FaUsers className="text-xs text-[#0d9488]" />
                   <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">
-                    Collaborators ({collaborators.length})
+                    Associates ({associates.length})
                   </h3>
                 </div>
-                {(activeCount > 0 || invitedCount > 0) && (
+                {(activeCount > 0 || invitedCount > 0 || pmCount > 0) && (
                   <span className="text-[10px] text-gray-500 dark:text-gray-500">
-                    {activeCount} active · {invitedCount} pending
+                    {activeCount} active
+                    {invitedCount > 0 && ` · ${invitedCount} pending`}
+                    {pmCount > 0 && ` · ${pmCount} PM`}
                   </span>
                 )}
               </div>
@@ -1430,34 +1488,41 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
                 <div className="flex justify-center py-6">
                   <FaSpinner className="animate-spin text-lg text-[#0d9488]" />
                 </div>
-              ) : collaborators.length === 0 ? (
+              ) : associates.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-gray-300 dark:border-gray-800/60 px-4 py-6 text-center">
                   <FaUserShield className="text-2xl text-gray-300 dark:text-gray-700 mx-auto mb-2" />
-                  <p className="text-xs text-gray-500 dark:text-gray-500">No collaborators yet</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-500">No associates yet</p>
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {collaborators.map((c) => {
-                    const isInvited = c.status === 'invited';
-                    const isActive = c.status === 'active';
-                    const isRevoked = c.status === 'revoked';
-                    const displayName = c.name || c.email;
-                    const initials = getInitials(c.name || c.email);
-                    const inviteUrl = collabInviteUrl(c.inviteToken);
+                  {associates.map((a) => {
+                    const isInvited = a.status === 'invited';
+                    const isActive = a.status === 'active';
+                    const isRevoked = a.status === 'revoked';
+                    const expired = isActive && isExpired(a);
+                    const displayName = a.name || a.email;
+                    const initials = getInitials(a.name || a.email);
+                    const expiryLabel = formatDate(a.accessExpiresAt);
+                    const isPM = a.role === 'projectManager';
 
                     return (
                       <div
-                        key={c._id}
+                        key={a._id}
                         className={`rounded-xl border p-3 transition ${
                           isRevoked
                             ? 'bg-gray-50 dark:bg-[#14141a] border-gray-200 dark:border-gray-800/40 opacity-60'
-                            : isActive
-                              ? 'bg-white dark:bg-[#0b0b10] border-gray-200 dark:border-gray-800/60'
-                              : 'bg-amber-50/60 dark:bg-amber-900/10 border-amber-200/70 dark:border-amber-700/30'
+                            : expired
+                              ? 'bg-red-50/40 dark:bg-red-900/10 border-red-200/70 dark:border-red-700/30'
+                              : isActive
+                                ? 'bg-white dark:bg-[#0b0b10] border-gray-200 dark:border-gray-800/60'
+                                : 'bg-amber-50/60 dark:bg-amber-900/10 border-amber-200/70 dark:border-amber-700/30'
                         }`}
                       >
                         <div className="flex items-start gap-3">
-                          <span className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0" style={{ backgroundColor: isRevoked ? '#94a3b8' : brandColor }}>
+                          <span
+                            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0"
+                            style={{ backgroundColor: isRevoked ? '#94a3b8' : brandColor }}
+                          >
                             {initials || <FaUser className="text-[10px]" />}
                           </span>
 
@@ -1466,9 +1531,19 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
                               <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
                                 {displayName}
                               </p>
+                              {isPM && !isRevoked && (
+                                <span className="text-[9px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 inline-flex items-center gap-1">
+                                  <FaCrown className="text-[7px]" /> PM
+                                </span>
+                              )}
                               {isInvited && (
                                 <span className="text-[9px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">
                                   Pending
+                                </span>
+                              )}
+                              {expired && (
+                                <span className="text-[9px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
+                                  Expired
                                 </span>
                               )}
                               {isRevoked && (
@@ -1477,47 +1552,35 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
                                 </span>
                               )}
                             </div>
-                            {c.name && (
-                              <p className="text-[11px] text-gray-500 dark:text-gray-500 truncate">{c.email}</p>
+                            {a.name && (
+                              <p className="text-[11px] text-gray-500 dark:text-gray-500 truncate">{a.email}</p>
                             )}
-                            {!c.name && <p className="text-[11px] text-gray-400 dark:text-gray-600">—</p>}
+                            {!a.name && <p className="text-[11px] text-gray-400 dark:text-gray-600">—</p>}
+                            {expiryLabel && !isRevoked && (
+                              <p className={`text-[10px] mt-0.5 inline-flex items-center gap-1 ${expired ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-500'}`}>
+                                <FaClock className="text-[8px]" />
+                                {expired ? 'Expired' : 'Expires'} {expiryLabel}
+                              </p>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-1 shrink-0">
                             {!isRevoked && (
                               <>
                                 <select
-                                  value={c.role}
-                                  onChange={(e) => handleChangeRole(c, e.target.value)}
+                                  value={a.role}
+                                  onChange={(e) => handleChangeRole(a, e.target.value)}
                                   className="text-[11px] font-medium px-2 py-1 rounded-lg bg-gray-100 dark:bg-[#1a1a24] border border-gray-200 dark:border-gray-800/60 text-gray-700 dark:text-gray-300 outline-none cursor-pointer hover:border-[#0d9488]/50 transition"
                                 >
                                   <option value="viewer">Viewer</option>
                                   <option value="editor">Editor</option>
+                                  <option value="projectManager">PM</option>
                                 </select>
-
-                                {isInvited && inviteUrl && (
-                                  <button
-                                    type="button"
-                                    onClick={() => copyToClipboard(inviteUrl, 'Invite link')}
-                                    className="p-1.5 text-gray-500 hover:text-[#0d9488] transition"
-                                    title="Copy invite link"
-                                  >
-                                    <FaCopy className="text-[11px]" />
-                                  </button>
-                                )}
                                 <button
                                   type="button"
-                                  onClick={() => handleRegenerate(c)}
-                                  className="p-1.5 text-gray-500 hover:text-[#0d9488] transition"
-                                  title="Rotate invite link"
-                                >
-                                  <FaLink className="text-[11px]" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setPendingRemove(c)}
+                                  onClick={() => setPendingRemove(a)}
                                   className="p-1.5 text-gray-500 hover:text-red-500 transition"
-                                  title="Remove collaborator"
+                                  title="Remove associate"
                                 >
                                   <FaTrashAlt className="text-[11px]" />
                                 </button>
@@ -1549,10 +1612,10 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
         isOpen={!!pendingRemove}
         onConfirm={handleRemove}
         onCancel={() => setPendingRemove(null)}
-        title="Remove collaborator?"
+        title="Remove associate?"
         message={
           pendingRemove
-            ? `${pendingRemove.name || pendingRemove.email} will lose access to this project. If they still have open tasks assigned, you'll need to reassign them first.`
+            ? `${pendingRemove.name || pendingRemove.email} will lose access to this project and this workspace. If they still have open tasks assigned, you'll need to reassign them first.`
             : ''
         }
         confirmLabel="Remove"
@@ -1967,7 +2030,7 @@ const ProjectListItem = ({ project, brandColor, workspaceId, canManage, onMenuOp
 };
 
 // ══════════════════════════════════════════════════════════════════
-// Professional PDF generator — Times, 12pt, justified body.
+// PDF generator (unchanged)
 // ══════════════════════════════════════════════════════════════════
 const downloadDocsPDF = (doc) => {
   if (!doc) return;
@@ -2223,7 +2286,7 @@ const downloadDocsPDF = (doc) => {
 };
 
 // ══════════════════════════════════════════════════════════════════
-// AI Project Panel — editable plan (two-stage)
+// AI Project Panel
 // ══════════════════════════════════════════════════════════════════
 const EXAMPLE_PROMPTS = [
   'Build a marketing website in 3 weeks with design, dev and QA phases.',
@@ -2525,7 +2588,7 @@ const AIProjectPanel = ({ workspaceId, brandColor, workspaceMembers = [], onClos
 };
 
 // ══════════════════════════════════════════════════════════════════
-// AI Summary / Review / Docs modals (project-scoped)
+// AI Summary / Review / Docs modals
 // ══════════════════════════════════════════════════════════════════
 const AISummaryModal = ({ isOpen, onClose, projectId, brandColor }) => {
   const [result, setResult] = useState(null);
@@ -2835,7 +2898,7 @@ const AIDocsModal = ({ isOpen, onClose, projectId, brandColor }) => {
   );
 };
 
-// ─── Layout Toggle (grid / list) ──────────────────────────────────────
+// ─── Layout Toggle ──────────────────────────────────────────────────
 const LayoutToggle = ({ value, onChange }) => (
   <div className="flex items-center bg-gray-100 dark:bg-[#1a1a24] border border-gray-300 dark:border-gray-800/60 rounded-full p-0.5 shrink-0">
     <button
@@ -2883,11 +2946,8 @@ const YourWorkspaceProjects = () => {
   const [filters, setFilters] = useState({ status: 'all', sort: 'newest', search: '' });
   const [view, setView] = useState('active');
   const [optimisticArchivedIds, setOptimisticArchivedIds] = useState([]);
-
-  // Manage-access modal state
   const [manageAccessProject, setManageAccessProject] = useState(null);
 
-  // Grid / list layout
   const [layoutView, setLayoutView] = useState(() => {
     if (typeof window === 'undefined') return 'grid';
     return window.localStorage.getItem('projects.layoutView') || 'grid';
@@ -2897,13 +2957,11 @@ const YourWorkspaceProjects = () => {
     try { window.localStorage.setItem('projects.layoutView', layoutView); } catch { /* noop */ }
   }, [layoutView]);
 
-  // AI mode state
   const [aiOpen, setAiOpen] = useState(false);
   const [leftWidthPercent, setLeftWidthPercent] = useState(60);
   const [isDraggingSplitter, setIsDraggingSplitter] = useState(false);
   const containerRef = useRef(null);
 
-  // AI modals
   const [aiSummaryProject, setAiSummaryProject] = useState(null);
   const [aiReviewProject, setAiReviewProject] = useState(null);
   const [aiDocsProject, setAiDocsProject] = useState(null);
@@ -2929,8 +2987,18 @@ const YourWorkspaceProjects = () => {
 
   const ownerId = workspace?.owner?._id || workspace?.owner;
   const isOwner = !!ownerId && !!userInfo?._id && String(ownerId) === String(userInfo._id);
-  const isAdmin = workspace?.members?.some(
-    (m) => m.user?._id?.toString() === userInfo?._id?.toString() && m.role === 'Admin' && m.status === 'active'
+
+  // Associates can never be workspace admins — the server enforces it,
+  // but we mirror the check here so the UI hides admin-only controls.
+  const myMembership = workspace?.members?.find(
+    (m) => (m.user?._id || m.user)?.toString() === userInfo?._id?.toString()
+  );
+  const isAssociate = myMembership?.memberType === 'associate';
+  const isAdmin = !isAssociate && workspace?.members?.some(
+    (m) =>
+      (m.user?._id || m.user)?.toString() === userInfo?._id?.toString() &&
+      m.role === 'Admin' &&
+      m.status === 'active'
   );
   const canManage = isOwner || isAdmin;
 
@@ -3160,38 +3228,57 @@ const YourWorkspaceProjects = () => {
             style={{ width: aiOpen && isDesktop ? `${leftWidthPercent}%` : '100%' }}>
 
             {view === 'active' && !aiOpen && (
-              <div className="md:hidden mb-4">
-                <div className="relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 p-4 overflow-hidden">
-                  <div className="absolute top-0 right-0 w-24 h-24 bg-[#0d9488]/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
-                  <div className="relative flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2"><FaChartPie className="text-[#0d9488]" /> Overview</h3>
-                    <span className="text-xs text-gray-500 dark:text-gray-500">{completedProjects}/{totalProjects} done</span>
+              <div className="md:hidden mb-3">
+                <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 px-3 py-2.5 overflow-hidden">
+                  <div className="flex items-center gap-1">
+                    <div className="flex-1 min-w-0 text-center">
+                      <p className="text-base font-bold text-gray-800 dark:text-gray-100 leading-none tabular-nums">
+                        {totalProjects}
+                      </p>
+                      <p className="text-[9px] text-gray-500 dark:text-gray-500 uppercase tracking-wider mt-1">
+                        Total
+                      </p>
+                    </div>
+
+                    <div className="w-px h-6 bg-gray-200 dark:bg-gray-800/60" />
+
+                    <div className="flex-1 min-w-0 text-center">
+                      <p className="text-base font-bold text-blue-600 dark:text-blue-400 leading-none tabular-nums">
+                        {planningProjects}
+                      </p>
+                      <p className="text-[9px] text-gray-500 dark:text-gray-500 uppercase tracking-wider mt-1">
+                        Plan
+                      </p>
+                    </div>
+
+                    <div className="w-px h-6 bg-gray-200 dark:bg-gray-800/60" />
+
+                    <div className="flex-1 min-w-0 text-center">
+                      <p className="text-base font-bold text-yellow-600 dark:text-yellow-400 leading-none tabular-nums">
+                        {inProgressProjects}
+                      </p>
+                      <p className="text-[9px] text-gray-500 dark:text-gray-500 uppercase tracking-wider mt-1">
+                        Doing
+                      </p>
+                    </div>
+
+                    <div className="w-px h-6 bg-gray-200 dark:bg-gray-800/60" />
+
+                    <div className="flex-1 min-w-0 text-center">
+                      <p className="text-base font-bold text-green-600 dark:text-green-400 leading-none tabular-nums">
+                        {completedProjects}
+                      </p>
+                      <p className="text-[9px] text-gray-500 dark:text-gray-500 uppercase tracking-wider mt-1">
+                        Done
+                      </p>
+                    </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-gray-100 dark:bg-[#1a1a24] rounded-xl p-3 border border-gray-200 dark:border-gray-800/30">
-                      <p className="text-2xl font-bold text-gray-800 dark:text-gray-100">{totalProjects}</p>
-                      <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1"><FaFolder className="text-[10px] text-[#0d9488]" /> Total</p>
-                    </div>
-                    <div className="bg-gray-100 dark:bg-[#1a1a24] rounded-xl p-3 border border-blue-200 dark:border-blue-500/20">
-                      <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{planningProjects}</p>
-                      <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1"><FaClock className="text-[10px] text-blue-600 dark:text-blue-400" /> Planning</p>
-                    </div>
-                    <div className="bg-gray-100 dark:bg-[#1a1a24] rounded-xl p-3 border border-yellow-200 dark:border-yellow-500/20">
-                      <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{inProgressProjects}</p>
-                      <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1"><FaSpinner className="text-[10px] text-yellow-600 dark:text-yellow-400" /> In Progress</p>
-                    </div>
-                    <div className="bg-gray-100 dark:bg-[#1a1a24] rounded-xl p-3 border border-green-200 dark:border-green-500/20">
-                      <p className="text-2xl font-bold text-green-600 dark:text-green-400">{completedProjects}</p>
-                      <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-1"><FaCheckCircle className="text-[10px] text-green-600 dark:text-green-400" /> Completed</p>
-                    </div>
-                  </div>
-                  <div className="mt-3">
-                    <div className="flex justify-between text-[10px] text-gray-500 dark:text-gray-500 mb-1">
-                      <span>Overall progress</span><span className="font-mono">{overallProgress}%</span>
-                    </div>
-                    <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full transition-all duration-700" style={{ width: `${overallProgress}%`, backgroundColor: brandColor }} />
-                    </div>
+
+                  <div className="mt-2 h-[2px] w-full bg-gray-100 dark:bg-gray-800/60 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-700 ease-out"
+                      style={{ width: `${overallProgress}%`, backgroundColor: brandColor }}
+                    />
                   </div>
                 </div>
               </div>

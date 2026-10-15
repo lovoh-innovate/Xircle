@@ -9,6 +9,7 @@ import {
   useRejectMemberMutation,
   useUpdateMemberMutation,
   useRemoveMemberMutation,
+  useConvertAssociateToMemberMutation,
 } from '../slices/teamApiSlice';
 import { useCreateDirectChatMutation } from '../slices/messagingApiSlice';
 import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
@@ -24,10 +25,12 @@ import {
   FaEdit,
   FaSearch,
   FaArrowLeft,
-  FaSpinner,
   FaEllipsisV,
   FaChevronDown,
   FaComment,
+  FaUserShield,
+  FaArrowUp,
+  FaClock,
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 import useWorkspacePresence from '../services/useWorkspacePresence';
@@ -38,7 +41,7 @@ const GlobalStyles = () => (
     .skeleton {
       position: relative;
       overflow: hidden;
-      background-color: rgb(229 231 235); /* gray-200 */
+      background-color: rgb(229 231 235);
     }
     .dark .skeleton {
       background-color: rgba(255, 255, 255, 0.07);
@@ -93,16 +96,13 @@ const MemberRowSkeleton = () => (
   </div>
 );
 
-// ─── Loading shell — sidebar & bottombar render normally (static) ──
 const MembersLoadingShell = () => (
   <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
-    {/* Sidebar — static, no skeleton */}
     <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
       <YourWorkspaceSidebar />
     </div>
 
     <div className="flex-1 flex flex-col h-full overflow-hidden">
-      {/* Header skeleton */}
       <header className="sticky top-0 z-10 bg-white/95 dark:bg-[#0f0f12]/95 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
         <div className="flex items-center justify-between px-3 sm:px-4 h-12 sm:h-14">
           <div className="flex items-center gap-2 min-w-0">
@@ -116,12 +116,12 @@ const MembersLoadingShell = () => (
           </div>
         </div>
         <div className="flex gap-4 px-3 sm:px-4 border-t border-gray-200/60 dark:border-gray-800/30">
-          <Skeleton className="h-4 w-20 my-2" />
+          <Skeleton className="h-4 w-16 my-2" />
+          <Skeleton className="h-4 w-16 my-2" />
           <Skeleton className="h-4 w-20 my-2" />
         </div>
       </header>
 
-      {/* Member list skeleton */}
       <div className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12] divide-y divide-gray-100 dark:divide-gray-800/30">
         {Array.from({ length: 8 }).map((_, i) => (
           <MemberRowSkeleton key={i} />
@@ -129,7 +129,6 @@ const MembersLoadingShell = () => (
       </div>
     </div>
 
-    {/* Bottombar — static, no skeleton */}
     <YourWorkspaceBottombar />
   </div>
 );
@@ -151,7 +150,7 @@ const useMediaQuery = (query) => {
   return matches;
 };
 
-// ─── Helper: get initials ──────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────
 const getInitials = (name) => {
   if (!name) return '?';
   return name
@@ -162,7 +161,29 @@ const getInitials = (name) => {
     .toUpperCase();
 };
 
-// ─── Custom Dropdown ─────────────────────────────────────────────────────
+const getUserId = (u) => (u?._id ? u._id.toString() : u?.toString());
+
+const isMemberAssociate = (m) => m?.memberType === 'associate';
+
+const isMemberExpired = (m) => {
+  if (!m?.accessExpiresAt) return false;
+  return new Date(m.accessExpiresAt) < new Date();
+};
+
+const formatExpiry = (date) => {
+  if (!date) return null;
+  try {
+    return new Date(date).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  } catch {
+    return null;
+  }
+};
+
+// ─── Custom Dropdown ─────────────────────────────────────────────────
 const CustomDropdown = ({ options, value, onChange, placeholder, label, brandColor }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -175,11 +196,15 @@ const CustomDropdown = ({ options, value, onChange, placeholder, label, brandCol
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const selected = options.find(o => o.value === value);
+  const selected = options.find((o) => o.value === value);
 
   return (
     <div className="relative" ref={ref}>
-      {label && <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">{label}</label>}
+      {label && (
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">
+          {label}
+        </label>
+      )}
       <button
         type="button"
         onClick={() => setOpen(!open)}
@@ -192,7 +217,7 @@ const CustomDropdown = ({ options, value, onChange, placeholder, label, brandCol
       </button>
       {open && (
         <div className="absolute z-10 w-full mt-1 bg-white dark:bg-[#1e1e26] border border-gray-300 dark:border-gray-700/60 rounded-xl overflow-hidden max-h-60 overflow-y-auto shadow-lg">
-          {options.map(o => (
+          {options.map((o) => (
             <button
               key={String(o.value)}
               type="button"
@@ -209,7 +234,7 @@ const CustomDropdown = ({ options, value, onChange, placeholder, label, brandCol
   );
 };
 
-// ─── Confirm Modal ──────────────────────────────────────────────────────
+// ─── Confirm Modal ───────────────────────────────────────────────────
 const ConfirmModal = ({ isOpen, onConfirm, onCancel, title, message, confirmLabel = 'Confirm', confirmColor = 'bg-red-600 hover:bg-red-700' }) => {
   if (!isOpen) return null;
   return (
@@ -230,19 +255,50 @@ const ConfirmModal = ({ isOpen, onConfirm, onCancel, title, message, confirmLabe
   );
 };
 
-// ─── Member Action Bottom Sheet (mobile) ──────────────────────────────
-const MemberActionSheet = ({ isOpen, onClose, member, canManage, isOwner, isAdmin, onMakeAdmin, onRemoveAdmin, onRemoveMember, onDirectMessage, onEditRole, brandColor }) => {
+// ─── Member Action Bottom Sheet (mobile) ─────────────────────────────
+const MemberActionSheet = ({
+  isOpen,
+  onClose,
+  member,
+  canManage,
+  isOwner,
+  onMakeAdmin,
+  onRemoveAdmin,
+  onRemoveMember,
+  onDirectMessage,
+  onEditRole,
+  onPromoteAssociate,
+  brandColor,
+}) => {
   if (!isOpen || !member) return null;
+
   const user = member.user || {};
   const memberName = user.name || 'Unknown';
-  const isSelf = user._id === member.currentUserId;
-  const isWorkspaceOwner = user._id === member.workspaceOwnerId;
+  const isSelf = getUserId(user) === String(member.currentUserId);
+  const isWorkspaceOwner = getUserId(user) === String(member.workspaceOwnerId);
+  const isTargetAssociate = isMemberAssociate(member);
+  const isTargetExpired = isTargetAssociate && isMemberExpired(member);
 
-  const showMakeAdmin = canManage && member.role !== 'admin' && !isSelf && !isWorkspaceOwner;
-  const showRemoveAdmin = canManage && member.role === 'admin' && !isSelf && !isWorkspaceOwner && !isOwner;
-  const showRemoveMember = canManage && !isSelf && !isWorkspaceOwner;
-  const showEditRole = canManage && !isSelf && !isWorkspaceOwner;
   const showDirectMessage = !isSelf;
+  const showRemoveMember = canManage && !isSelf && !isWorkspaceOwner;
+
+  const showMakeAdmin =
+    canManage && !isTargetAssociate && member.role !== 'Admin' && !isSelf && !isWorkspaceOwner;
+  const showRemoveAdmin =
+    canManage && !isTargetAssociate && member.role === 'Admin' && !isSelf && !isWorkspaceOwner && !isOwner;
+  const showEditRole =
+    canManage && !isTargetAssociate && !isSelf && !isWorkspaceOwner;
+
+  const showPromoteAssociate =
+    canManage && isTargetAssociate && !isSelf && !isWorkspaceOwner;
+
+  const roleLabel = isTargetAssociate
+    ? isTargetExpired
+      ? 'Associate (expired)'
+      : 'Associate'
+    : member.role === 'Admin'
+    ? 'Admin'
+    : member.role || 'Member';
 
   return (
     <div
@@ -259,8 +315,10 @@ const MemberActionSheet = ({ isOpen, onClose, member, canManage, isOwner, isAdmi
             {memberName.charAt(0).toUpperCase()}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{memberName}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">{member.role === 'admin' ? 'Admin' : 'Member'}</p>
+            <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+              {memberName}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{roleLabel}</p>
           </div>
         </div>
         <div className="space-y-1">
@@ -269,15 +327,18 @@ const MemberActionSheet = ({ isOpen, onClose, member, canManage, isOwner, isAdmi
               onClick={() => { onClose(); onDirectMessage(user._id); }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
             >
-              <FaComment className="text-sm" /> <span className="text-sm font-medium">Direct Message</span>
+              <FaComment className="text-sm" />
+              <span className="text-sm font-medium">Direct Message</span>
             </button>
           )}
+
           {showEditRole && (
             <button
               onClick={() => { onClose(); onEditRole(member); }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition"
             >
-              <FaEdit className="text-sm" /> <span className="text-sm font-medium">Edit Role/Dept</span>
+              <FaEdit className="text-sm" />
+              <span className="text-sm font-medium">Edit Role/Dept</span>
             </button>
           )}
           {showMakeAdmin && (
@@ -285,7 +346,8 @@ const MemberActionSheet = ({ isOpen, onClose, member, canManage, isOwner, isAdmi
               onClick={() => { onClose(); onMakeAdmin(user._id); }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition"
             >
-              <FaUserCog className="text-sm" /> <span className="text-sm font-medium">Make Admin</span>
+              <FaUserCog className="text-sm" />
+              <span className="text-sm font-medium">Make Admin</span>
             </button>
           )}
           {showRemoveAdmin && (
@@ -293,15 +355,30 @@ const MemberActionSheet = ({ isOpen, onClose, member, canManage, isOwner, isAdmi
               onClick={() => { onClose(); onRemoveAdmin(user._id); }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-500/10 transition"
             >
-              <FaUserCog className="text-sm" /> <span className="text-sm font-medium">Remove Admin</span>
+              <FaUserCog className="text-sm" />
+              <span className="text-sm font-medium">Remove Admin</span>
             </button>
           )}
+
+          {showPromoteAssociate && (
+            <button
+              onClick={() => { onClose(); onPromoteAssociate(user._id, memberName); }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition"
+            >
+              <FaArrowUp className="text-sm" />
+              <span className="text-sm font-medium">Promote to Member</span>
+            </button>
+          )}
+
           {showRemoveMember && (
             <button
-              onClick={() => { onClose(); onRemoveMember(user._id); }}
+              onClick={() => { onClose(); onRemoveMember(user._id, memberName); }}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition"
             >
-              <FaTrashAlt className="text-sm" /> <span className="text-sm font-medium">Remove Member</span>
+              <FaTrashAlt className="text-sm" />
+              <span className="text-sm font-medium">
+                {isTargetAssociate ? 'Remove Associate' : 'Remove Member'}
+              </span>
             </button>
           )}
         </div>
@@ -313,7 +390,7 @@ const MemberActionSheet = ({ isOpen, onClose, member, canManage, isOwner, isAdmi
   );
 };
 
-// ─── Search Members Modal ──────────────────────────────────────────────
+// ─── Search Members Modal ─────────────────────────────────────────────
 const SearchMembersModal = ({ isOpen, onClose, members, brandColor }) => {
   const [query, setQuery] = useState('');
 
@@ -366,6 +443,7 @@ const SearchMembersModal = ({ isOpen, onClose, members, brandColor }) => {
           <div className="space-y-1.5">
             {filtered.map((member) => {
               const user = member.user || member;
+              const isAssoc = isMemberAssociate(member);
               return (
                 <div
                   key={user._id}
@@ -384,9 +462,16 @@ const SearchMembersModal = ({ isOpen, onClose, members, brandColor }) => {
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-800 dark:text-gray-200 truncate">
-                      {user?.name || 'Unknown'}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-gray-800 dark:text-gray-200 truncate">
+                        {user?.name || 'Unknown'}
+                      </p>
+                      {isAssoc && (
+                        <span className="flex-shrink-0 text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+                          Associate
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{user?.email || 'No email'}</p>
                   </div>
                 </div>
@@ -399,7 +484,7 @@ const SearchMembersModal = ({ isOpen, onClose, members, brandColor }) => {
   );
 };
 
-// ─── Update Member Modal ──────────────────────────────────────────────
+// ─── Update Member Modal (permanent members only) ────────────────────
 const UpdateMemberModal = ({ isOpen, onClose, member, brandColor, onSuccess }) => {
   const [role, setRole] = useState(member?.role || 'Staff');
   const [department, setDepartment] = useState(member?.department || 'General');
@@ -418,7 +503,7 @@ const UpdateMemberModal = ({ isOpen, onClose, member, brandColor, onSuccess }) =
       setIsLoading(true);
       await updateMember({
         workspaceId: member?.workspaceId,
-        memberId: member?.user?._id || member?._id,
+        memberId: getUserId(member?.user) || member?._id,
         role,
         department,
       }).unwrap();
@@ -484,7 +569,7 @@ const UpdateMemberModal = ({ isOpen, onClose, member, brandColor, onSuccess }) =
   );
 };
 
-// ─── Approve Member Modal ──────────────────────────────────────────────
+// ─── Approve Member Modal ────────────────────────────────────────────
 const ApproveMemberModal = ({ isOpen, onClose, memberId, workspaceId, brandColor, onSuccess }) => {
   const [department, setDepartment] = useState('');
   const [role, setRole] = useState('Member');
@@ -574,7 +659,9 @@ const ApproveMemberModal = ({ isOpen, onClose, memberId, workspaceId, brandColor
   );
 };
 
-// ─── MemberItem (extracted to avoid re-creation) ───────────────────────
+// ═════════════════════════════════════════════════════════════════════
+// MemberItem
+// ═════════════════════════════════════════════════════════════════════
 const MemberItem = React.memo(({
   member,
   isPending,
@@ -596,6 +683,7 @@ const MemberItem = React.memo(({
   onRemoveMember,
   onDirectMessage,
   onEditRole,
+  onPromoteAssociate,
   isMobile,
   onMemberClick,
   isOnline,
@@ -612,6 +700,10 @@ const MemberItem = React.memo(({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const isTargetAssociate = isMemberAssociate(member);
+  const isTargetExpired = isTargetAssociate && isMemberExpired(member);
+  const expiryLabel = formatExpiry(member.accessExpiresAt);
 
   const memberForAction = {
     ...member,
@@ -634,6 +726,11 @@ const MemberItem = React.memo(({
     e.stopPropagation();
     setMenuOpen(!menuOpen);
   };
+
+  const showEditRole = canAct && !isTargetAssociate;
+  const showMakeAdmin = canAct && !isTargetAssociate && member.role !== 'Admin';
+  const showRemoveAdmin = canAct && !isTargetAssociate && member.role === 'Admin' && !isOwner;
+  const showPromote = canAct && isTargetAssociate;
 
   return (
     <div
@@ -677,7 +774,19 @@ const MemberItem = React.memo(({
                 Owner
               </span>
             )}
-            {!isPending && member.role && (
+            {!isPending && isTargetAssociate && (
+              <span
+                className={`text-[10px] px-1.5 py-0.5 rounded-full border inline-flex items-center gap-1 ${
+                  isTargetExpired
+                    ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border-red-200 dark:border-red-700/40'
+                    : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-700/40'
+                }`}
+              >
+                <FaUserShield className="text-[8px]" />
+                {isTargetExpired ? 'Expired' : 'Associate'}
+              </span>
+            )}
+            {!isPending && !isTargetAssociate && member.role && member.role !== 'Owner' && (
               <span className="text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-full border border-blue-200 dark:border-blue-700/40">
                 {member.role}
               </span>
@@ -686,7 +795,14 @@ const MemberItem = React.memo(({
         </div>
         <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
           <span className="truncate">{user?.email || 'No email'}</span>
-          {member.department && <span className="hidden sm:inline">· {member.department}</span>}
+          {!isTargetAssociate && member.department && (
+            <span className="hidden sm:inline">· {member.department}</span>
+          )}
+          {isTargetAssociate && expiryLabel && (
+            <span className="hidden sm:inline-flex items-center gap-1">
+              · <FaClock className="text-[9px]" /> Expires {expiryLabel}
+            </span>
+          )}
         </div>
       </div>
 
@@ -699,39 +815,54 @@ const MemberItem = React.memo(({
             <FaEllipsisV className="text-xs" />
           </button>
           {menuOpen && (
-            <div className="absolute right-0 top-8 bg-white dark:bg-[#1e1e26] rounded-xl shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[180px] z-10 py-1.5">
-              <button
-                onClick={() => {
-                  onEditRole({ ...member, user, workspaceId: workspaceId?._id });
-                  setMenuOpen(false);
-                }}
-                className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 hover:text-gray-900 dark:hover:text-white transition w-full"
-              >
-                <FaEdit className="text-xs text-teal-600 dark:text-[#0d9488]" /> Edit Role/Dept
-              </button>
+            <div className="absolute right-0 top-8 bg-white dark:bg-[#1e1e26] rounded-xl shadow-lg border border-gray-200 dark:border-gray-800/60 min-w-[200px] z-10 py-1.5">
+              {showEditRole && (
+                <button
+                  onClick={() => {
+                    onEditRole({ ...member, user, workspaceId: workspaceId?._id });
+                    setMenuOpen(false);
+                  }}
+                  className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 hover:text-gray-900 dark:hover:text-white transition w-full"
+                >
+                  <FaEdit className="text-xs text-teal-600 dark:text-[#0d9488]" /> Edit Role/Dept
+                </button>
+              )}
               <button
                 onClick={() => { onDirectMessage(user._id); setMenuOpen(false); }}
                 className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition w-full"
               >
                 <FaComment className="text-xs" /> Direct Message
               </button>
-              <button
-                onClick={() => { onMakeAdmin(user._id); setMenuOpen(false); }}
-                className="flex items-center gap-3 px-4 py-2.5 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition w-full"
-              >
-                <FaUserCog className="text-xs" /> Make Admin
-              </button>
-              <button
-                onClick={() => { onRemoveAdmin(user._id); setMenuOpen(false); }}
-                className="flex items-center gap-3 px-4 py-2.5 text-sm text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-500/10 transition w-full"
-              >
-                <FaUserCog className="text-xs" /> Remove Admin
-              </button>
+              {showMakeAdmin && (
+                <button
+                  onClick={() => { onMakeAdmin(user._id); setMenuOpen(false); }}
+                  className="flex items-center gap-3 px-4 py-2.5 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition w-full"
+                >
+                  <FaUserCog className="text-xs" /> Make Admin
+                </button>
+              )}
+              {showRemoveAdmin && (
+                <button
+                  onClick={() => { onRemoveAdmin(user._id); setMenuOpen(false); }}
+                  className="flex items-center gap-3 px-4 py-2.5 text-sm text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-500/10 transition w-full"
+                >
+                  <FaUserCog className="text-xs" /> Remove Admin
+                </button>
+              )}
+              {showPromote && (
+                <button
+                  onClick={() => { onPromoteAssociate(user._id, user?.name); setMenuOpen(false); }}
+                  className="flex items-center gap-3 px-4 py-2.5 text-sm text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition w-full"
+                >
+                  <FaArrowUp className="text-xs" /> Promote to Member
+                </button>
+              )}
               <button
                 onClick={() => { onRemoveMember(user._id, user?.name); setMenuOpen(false); }}
                 className="flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-700 dark:hover:text-red-300 transition w-full"
               >
-                <FaTrashAlt className="text-xs" /> Remove
+                <FaTrashAlt className="text-xs" />
+                {isTargetAssociate ? 'Remove Associate' : 'Remove'}
               </button>
             </div>
           )}
@@ -765,16 +896,14 @@ const MemberItem = React.memo(({
   );
 });
 
-// ─── Main Component ──────────────────────────────────────────────────────
+// ─── Main Component ──────────────────────────────────────────────────
 const YourWorkspaceMembers = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
 
-  // ─── All hooks must be called unconditionally at top ──────────────
   const isMobile = useMediaQuery('(max-width: 768px)');
 
-  // 👇 Get online user IDs from the socket presence hook
   const onlineUserIds = useWorkspacePresence(workspaceId);
 
   const [activeTab, setActiveTab] = useState('active');
@@ -785,9 +914,15 @@ const YourWorkspaceMembers = () => {
   const [approveMemberId, setApproveMemberId] = useState(null);
   const [actionSheetOpen, setActionSheetOpen] = useState(false);
 
-  const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null, confirmLabel: 'Confirm' });
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: null,
+    confirmLabel: 'Confirm',
+  });
 
-  // ─── Fetch workspace (includes members) ──────────────────────────────
+  // ─── Fetch workspace ─────────────────────────────────────────────
   const {
     data,
     isLoading: workspaceLoading,
@@ -798,15 +933,16 @@ const YourWorkspaceMembers = () => {
   });
   const workspace = data?.workspace;
 
-  // ─── Determine permissions ──────────────────────────────────────────
-  const isOwner = workspace?.owner?._id === userInfo?._id || workspace?.owner === userInfo?._id;
+  // ─── Permissions ─────────────────────────────────────────────────
+  const isOwner = getUserId(workspace?.owner) === String(userInfo?._id);
   const currentUserMembership = workspace?.members?.find(
-    (m) => m.user?._id === userInfo?._id || m.user === userInfo?._id
+    (m) => getUserId(m.user) === String(userInfo?._id)
   );
-  const isAdmin = currentUserMembership?.role === 'Admin';
+  const isAssociate = currentUserMembership?.memberType === 'associate';
+  const isAdmin = !isAssociate && currentUserMembership?.role === 'Admin';
   const canManagePending = isOwner || isAdmin;
 
-  // ─── Fetch pending requests ──────────────────────────────────────────
+  // ─── Pending requests ────────────────────────────────────────────
   const {
     data: pendingData,
     isLoading: pendingLoading,
@@ -816,24 +952,60 @@ const YourWorkspaceMembers = () => {
     skip: !canManagePending,
   });
 
-  // ─── Mutations ──────────────────────────────────────────────────────
+  // ─── Mutations ─────────────────────────────────────────────────────
   const [rejectMember] = useRejectMemberMutation();
   const [removeMember] = useRemoveMemberMutation();
   const [updateMember] = useUpdateMemberMutation();
+  const [promoteAssociate] = useConvertAssociateToMemberMutation();
   const [createDirectChat] = useCreateDirectChatMutation();
 
-  // ─── Redirect on error ──────────────────────────────────────────────
+  // ─── Redirect on error ────────────────────────────────────────────
   if (workspaceError) {
     navigate(`/workspace/${workspaceId}`);
     return null;
   }
 
-  // ─── Data extraction ────────────────────────────────────────────────
-  const activeMembers = workspace?.members?.filter((m) => m.status === 'active') || [];
+  // ─── Data extraction ──────────────────────────────────────────────
+  const allActiveMembers = workspace?.members?.filter((m) => m.status === 'active') || [];
+
+  // Permanent members (Owner + Admins + Members/Staff) — sorted by hierarchy
+  const permanentMembers = allActiveMembers
+    .filter((m) => !isMemberAssociate(m))
+    .sort((a, b) => {
+      const weight = (m) =>
+        m.role === 'Owner' ? 0 : m.role === 'Admin' ? 1 : 2;
+      const wa = weight(a);
+      const wb = weight(b);
+      if (wa !== wb) return wa - wb;
+      return (a.user?.name || '')
+        .toLowerCase()
+        .localeCompare((b.user?.name || '').toLowerCase());
+    });
+
+  // Associates — active first, then expired, both alphabetical
+  const associateMembers = allActiveMembers
+    .filter(isMemberAssociate)
+    .sort((a, b) => {
+      const ea = isMemberExpired(a) ? 1 : 0;
+      const eb = isMemberExpired(b) ? 1 : 0;
+      if (ea !== eb) return ea - eb;
+      return (a.user?.name || '')
+        .toLowerCase()
+        .localeCompare((b.user?.name || '').toLowerCase());
+    });
+
   const pendingRequests = pendingData?.pending || [];
   const brandColor = workspace?.color || '#0d9488';
 
-  // ─── Handlers ──────────────────────────────────────────────────────
+  // Count shown in the header badge — reflects the currently-active tab
+  const currentTabCount =
+    activeTab === 'active'
+      ? permanentMembers.length
+      : activeTab === 'pending'
+      ? pendingRequests.length
+      : associateMembers.length;
+
+  // ─── Handlers ─────────────────────────────────────────────────────
   const handleReject = async (memberId) => {
     if (!canManagePending) return toast.error('Only the owner or admin can reject requests.');
     setConfirmModal({
@@ -858,15 +1030,21 @@ const YourWorkspaceMembers = () => {
 
   const handleRemoveMember = async (memberId, memberName) => {
     if (!isOwner && !isAdmin) return toast.error('You do not have permission to remove members.');
+
+    const target = allActiveMembers.find((m) => getUserId(m.user) === memberId);
+    const targetIsAssociate = isMemberAssociate(target);
+
     setConfirmModal({
       isOpen: true,
-      title: 'Remove Member',
-      message: `Are you sure you want to remove ${memberName || 'this member'}?`,
+      title: targetIsAssociate ? 'Remove Associate' : 'Remove Member',
+      message: targetIsAssociate
+        ? `Remove ${memberName || 'this associate'}? They will lose access to all projects in this workspace.`
+        : `Are you sure you want to remove ${memberName || 'this member'}?`,
       confirmLabel: 'Remove',
       onConfirm: async () => {
         try {
           await removeMember({ workspaceId, memberId }).unwrap();
-          toast.success('Member removed');
+          toast.success(targetIsAssociate ? 'Associate removed' : 'Member removed');
           refetchPending();
           refetchWorkspace();
           setConfirmModal({ isOpen: false });
@@ -902,12 +1080,17 @@ const YourWorkspaceMembers = () => {
   };
 
   const handleMakeAdmin = async (userId) => {
+    const target = allActiveMembers.find((m) => getUserId(m.user) === userId);
+    if (isMemberAssociate(target)) {
+      toast.error('Associates cannot be made admins. Promote them to a permanent member first.');
+      return;
+    }
     try {
       await updateMember({
         workspaceId,
         memberId: userId,
         role: 'Admin',
-        department: selectedMember?.department || 'General',
+        department: target?.department || 'General',
       }).unwrap();
       toast.success('Member promoted to Admin');
       refetchPending();
@@ -918,12 +1101,13 @@ const YourWorkspaceMembers = () => {
   };
 
   const handleRemoveAdmin = async (userId) => {
+    const target = allActiveMembers.find((m) => getUserId(m.user) === userId);
     try {
       await updateMember({
         workspaceId,
         memberId: userId,
         role: 'Member',
-        department: selectedMember?.department || 'General',
+        department: target?.department || 'General',
       }).unwrap();
       toast.success('Admin rights removed');
       refetchPending();
@@ -938,13 +1122,38 @@ const YourWorkspaceMembers = () => {
     setShowUpdateModal(true);
   };
 
-  // ─── Member click handler for mobile ──────────────────────────────
+  const handlePromoteAssociate = (memberId, memberName) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Promote Associate',
+      message: `Promote ${memberName || 'this associate'} to a permanent member? They will be added to the General department as Staff, and you can update their role and department afterwards.`,
+      confirmLabel: 'Promote',
+      confirmColor: 'bg-teal-600 hover:bg-teal-700',
+      onConfirm: async () => {
+        try {
+          await promoteAssociate({
+            workspaceId,
+            memberId,
+            role: 'Staff',
+            department: 'General',
+          }).unwrap();
+          toast.success('Associate promoted to permanent member');
+          refetchWorkspace();
+          setConfirmModal({ isOpen: false });
+        } catch (err) {
+          toast.error(err?.data?.message || 'Failed to promote associate');
+          setConfirmModal({ isOpen: false });
+        }
+      },
+    });
+  };
+
   const handleMemberClick = (member) => {
     setSelectedMember(member);
     setActionSheetOpen(true);
   };
 
-  // ─── Loading state — sidebar & bottombar stay live, only content shimmers ──
+  // ─── Loading state ────────────────────────────────────────────────
   if (workspaceLoading || pendingLoading) {
     return (
       <>
@@ -954,17 +1163,22 @@ const YourWorkspaceMembers = () => {
     );
   }
 
-  // ─── Render member list ─────────────────────────────────────────────
+  // ─── Render member list ───────────────────────────────────────────
   const renderMemberList = (list, type = 'active') => {
     if (list.length === 0) {
+      const emptyMessage =
+        type === 'active'
+          ? 'No active members found.'
+          : type === 'associates'
+          ? 'No associates on this workspace yet.'
+          : 'No pending join requests.';
+
+      const EmptyIcon = type === 'associates' ? FaUserShield : FaUsers;
+
       return (
         <div className="flex flex-col items-center justify-center py-12 text-gray-400 dark:text-gray-500">
-          <FaUsers className="text-4xl mb-2 opacity-30" />
-          <p className="text-sm">
-            {type === 'active'
-              ? 'No active members found.'
-              : 'No pending join requests.'}
-          </p>
+          <EmptyIcon className="text-4xl mb-2 opacity-30" />
+          <p className="text-sm">{emptyMessage}</p>
         </div>
       );
     }
@@ -973,13 +1187,11 @@ const YourWorkspaceMembers = () => {
       const user = item.user || item;
       const member = item;
       const isPending = type === 'pending';
-      const memberId = user._id || item._id;
-      const isWorkspaceOwner = user._id === workspace?.owner?._id;
-      const isCurrentUser = user._id === userInfo?._id;
+      const memberId = getUserId(user) || item._id;
+      const isWorkspaceOwner = getUserId(user) === getUserId(workspace?.owner);
+      const isCurrentUser = getUserId(user) === String(userInfo?._id);
 
-      // 👇 Determine online status from the presence set
       const isOnline = onlineUserIds.has(memberId);
-
       const canAct = (isOwner || isAdmin) && !isCurrentUser && !isWorkspaceOwner;
 
       return (
@@ -1005,6 +1217,7 @@ const YourWorkspaceMembers = () => {
           onRemoveMember={handleRemoveMember}
           onDirectMessage={handleDirectMessage}
           onEditRole={handleEditRole}
+          onPromoteAssociate={handlePromoteAssociate}
           isMobile={isMobile}
           onMemberClick={handleMemberClick}
           isOnline={isOnline}
@@ -1013,7 +1226,7 @@ const YourWorkspaceMembers = () => {
     });
   };
 
-  // ─── Render ──────────────────────────────────────────────────────────
+  // ─── Render ────────────────────────────────────────────────────────
   return (
     <>
       <GlobalStyles />
@@ -1022,7 +1235,7 @@ const YourWorkspaceMembers = () => {
         <SearchMembersModal
           isOpen={searchOpen}
           onClose={() => setSearchOpen(false)}
-          members={activeMembers}
+          members={allActiveMembers}
           brandColor={brandColor}
         />
 
@@ -1034,7 +1247,7 @@ const YourWorkspaceMembers = () => {
           <header className="sticky top-0 z-10 bg-white/95 dark:bg-[#0f0f12]/95 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
             <div className="flex items-center justify-between px-3 sm:px-4 h-12 sm:h-14">
               <div className="flex items-center gap-2 min-w-0">
-                <button 
+                <button
                   onClick={() => navigate(`/workspace/${workspaceId}`)}
                   className="p-1.5 lg:hidden text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
                 >
@@ -1044,7 +1257,7 @@ const YourWorkspaceMembers = () => {
                   Members
                 </h1>
                 <span className="text-xs font-normal text-gray-500 dark:text-gray-500 bg-gray-100 dark:bg-[#1a1a24] px-1.5 py-0.5 rounded-full border border-gray-200 dark:border-gray-800/40 flex-shrink-0">
-                  {activeMembers.length}
+                  {currentTabCount}
                 </span>
               </div>
               <div className="flex items-center gap-1 sm:gap-2">
@@ -1066,21 +1279,22 @@ const YourWorkspaceMembers = () => {
               </div>
             </div>
 
-            <div className="flex gap-4 px-3 sm:px-4 border-t border-gray-200/60 dark:border-gray-800/30">
+            <div className="flex gap-4 px-3 sm:px-4 border-t border-gray-200/60 dark:border-gray-800/30 overflow-x-auto">
               <button
                 onClick={() => setActiveTab('active')}
-                className={`pb-2 text-xs sm:text-sm font-medium transition ${
+                className={`pb-2 text-xs sm:text-sm font-medium transition whitespace-nowrap ${
                   activeTab === 'active'
                     ? 'border-b-2 border-teal-600 dark:border-[#0d9488] text-teal-600 dark:text-[#0d9488]'
                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
                 }`}
               >
-                Active ({activeMembers.length})
+                Active ({permanentMembers.length})
               </button>
+
               {canManagePending && (
                 <button
                   onClick={() => setActiveTab('pending')}
-                  className={`pb-2 text-xs sm:text-sm font-medium transition ${
+                  className={`pb-2 text-xs sm:text-sm font-medium transition whitespace-nowrap ${
                     activeTab === 'pending'
                       ? 'border-b-2 border-teal-600 dark:border-[#0d9488] text-teal-600 dark:text-[#0d9488]'
                       : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
@@ -1089,12 +1303,26 @@ const YourWorkspaceMembers = () => {
                   Pending ({pendingRequests.length})
                 </button>
               )}
+
+              <button
+                onClick={() => setActiveTab('associates')}
+                className={`pb-2 text-xs sm:text-sm font-medium transition whitespace-nowrap ${
+                  activeTab === 'associates'
+                    ? 'border-b-2 border-teal-600 dark:border-[#0d9488] text-teal-600 dark:text-[#0d9488]'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                }`}
+              >
+                Associates ({associateMembers.length})
+              </button>
             </div>
           </header>
 
           <div className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12] divide-y divide-gray-100 dark:divide-gray-800/30">
-            {activeTab === 'active' && renderMemberList(activeMembers, 'active')}
-            {activeTab === 'pending' && canManagePending && renderMemberList(pendingRequests, 'pending')}
+            {activeTab === 'active' && renderMemberList(permanentMembers, 'active')}
+            {activeTab === 'pending' &&
+              canManagePending &&
+              renderMemberList(pendingRequests, 'pending')}
+            {activeTab === 'associates' && renderMemberList(associateMembers, 'associates')}
           </div>
         </div>
 
@@ -1115,6 +1343,7 @@ const YourWorkspaceMembers = () => {
           onRemoveMember={handleRemoveMember}
           onDirectMessage={handleDirectMessage}
           onEditRole={handleEditRole}
+          onPromoteAssociate={handlePromoteAssociate}
           brandColor={brandColor}
         />
 
@@ -1129,6 +1358,7 @@ const YourWorkspaceMembers = () => {
           onSuccess={() => {
             setShowUpdateModal(false);
             setSelectedMember(null);
+            refetchWorkspace();
           }}
         />
 
@@ -1151,7 +1381,7 @@ const YourWorkspaceMembers = () => {
           title={confirmModal.title}
           message={confirmModal.message}
           confirmLabel={confirmModal.confirmLabel || 'Confirm'}
-          confirmColor="bg-red-600 hover:bg-red-700"
+          confirmColor={confirmModal.confirmColor || 'bg-red-600 hover:bg-red-700'}
         />
       </div>
     </>

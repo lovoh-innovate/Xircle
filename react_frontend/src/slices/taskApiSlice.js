@@ -5,7 +5,13 @@ const TASKS_URL = '/tasks';
 
 export const taskApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
-    // ─── All urgent tasks (project only) ──────────────────────────
+    // ═════════════════════════════════════════════════════════════
+    // All urgent tasks
+    //
+    // Includes tasks across every project the user has access to —
+    // permanent member, associate, or project manager (associate-PMs
+    // included). Backend handles scope.
+    // ═════════════════════════════════════════════════════════════
     getAllUrgentTasks: builder.query({
       query: () => ({
         url: `${TASKS_URL}/all-urgent`,
@@ -13,14 +19,22 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       providesTags: [{ type: 'Task', id: 'URGENT' }],
     }),
 
-    // ─── CRUD ──────────────────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════
+    // CRUD
+    // ═════════════════════════════════════════════════════════════
     createTask: builder.mutation({
-      query: (data) => ({
-        url: TASKS_URL,
-        method: 'POST',
-        body: data,
-      }),
-      invalidatesTags: ['Task', 'Project'],
+      query: (data) => {
+        const isFormData = data instanceof FormData;
+        return {
+          url: TASKS_URL,
+          method: 'POST',
+          body: data,
+          headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
+        };
+      },
+      // Assigning an associate auto-adds them to project.associates
+      // server-side, so invalidate both Task and Associate caches.
+      invalidatesTags: ['Task', 'Project', 'PublicTask', 'Associate'],
     }),
 
     getProjectTasks: builder.query({
@@ -36,13 +50,17 @@ export const taskApiSlice = apiSlice.injectEndpoints({
         url: `${TASKS_URL}/project/${projectId}`,
         params: { status, priority, assigneeId, taskType, folderId, archived },
       }),
-      providesTags: (result) =>
-        result
-          ? [
-              ...(result.tasks || []).map((t) => ({ type: 'Task', id: t._id })),
-              { type: 'Task', id: 'LIST' },
-            ]
-          : [{ type: 'Task', id: 'LIST' }],
+      // Associates (non-PM) only see tasks assigned to them —
+      // filtering is handled server-side.
+      providesTags: (result) => {
+        const tags = [{ type: 'Task', id: 'LIST' }];
+        if (result?.tasks?.length) {
+          tags.unshift(
+            ...result.tasks.map((t) => ({ type: 'Task', id: t._id }))
+          );
+        }
+        return tags;
+      },
     }),
 
     getTaskById: builder.query({
@@ -51,20 +69,26 @@ export const taskApiSlice = apiSlice.injectEndpoints({
     }),
 
     updateTask: builder.mutation({
-      query: ({ taskId, data }) => ({
-        url: `${TASKS_URL}/${taskId}`,
-        method: 'PUT',
-        body: data,
-      }),
+      query: ({ taskId, data }) => {
+        const isFormData = data instanceof FormData;
+        return {
+          url: `${TASKS_URL}/${taskId}`,
+          method: 'PUT',
+          body: data,
+          headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
+        };
+      },
       invalidatesTags: (result, error, { taskId }) => [
         { type: 'Task', id: taskId },
         'Task',
+        'PublicTask',
+        'Associate',
       ],
     }),
 
     deleteTask: builder.mutation({
       query: (taskId) => ({ url: `${TASKS_URL}/${taskId}`, method: 'DELETE' }),
-      invalidatesTags: ['Task', 'Project'],
+      invalidatesTags: ['Task', 'Project', 'PublicTask'],
     }),
 
     permanentlyDeleteTask: builder.mutation({
@@ -121,58 +145,120 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    // ── Assign / Reassign whole task ──────────────────────────────
+    // Permission: workspace owner, admin, or PM (associate-PMs included)
+    // Server auto-adds new assignees to project.associates/teamMembers.
     assignTask: builder.mutation({
-      query: ({ taskId, assigneeId }) => ({
+      query: ({ taskId, assigneeIds }) => ({
         url: `${TASKS_URL}/${taskId}/assign`,
+        method: 'PATCH',
+        body: { assigneeIds },
+      }),
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'Task', id: taskId },
+        'Task',
+        'Project',
+        'PublicTask',
+        'Associate',
+      ],
+    }),
+
+    // ═════════════════════════════════════════════════════════════
+    // SUB-TASKS
+    //
+    // Subtask assignee must be one of the task's assignees. This is
+    // validated server-side.
+    //
+    // Permissions:
+    //   - Managers (owner/admin/PM incl. associate-PM): full control
+    //   - Associate editor: can act on subtasks of tasks assigned to
+    //     them (if allowAssigneeEditSubtasks is on)
+    //   - Associate viewer: read-only
+    // ═════════════════════════════════════════════════════════════
+
+    addSubTask: builder.mutation({
+      query: ({ taskId, data }) => {
+        const isFormData = data instanceof FormData;
+        return {
+          url: `${TASKS_URL}/${taskId}/subtasks`,
+          method: 'POST',
+          body: data,
+          headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
+        };
+      },
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'Task', id: taskId },
+        'Task',
+        'Project',
+        'PublicTask',
+      ],
+    }),
+
+    updateSubTask: builder.mutation({
+      query: ({ taskId, subTaskIndex, data }) => {
+        const isFormData = data instanceof FormData;
+        return {
+          url: `${TASKS_URL}/${taskId}/subtasks/${subTaskIndex}`,
+          method: 'PUT',
+          body: data,
+          headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
+        };
+      },
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'Task', id: taskId },
+        'Task',
+        'Project',
+        'PublicTask',
+      ],
+    }),
+
+    // Assign a single subtask to one of the task's assignees
+    assignSubTask: builder.mutation({
+      query: ({ taskId, subTaskIndex, assigneeId }) => ({
+        url: `${TASKS_URL}/${taskId}/subtasks/${subTaskIndex}/assign`,
         method: 'PATCH',
         body: { assigneeId },
       }),
       invalidatesTags: (result, error, { taskId }) => [
         { type: 'Task', id: taskId },
         'Task',
-        'Project',
+        'PublicTask',
       ],
     }),
 
-    // ─── Sub‑tasks (for project tasks) ────────────────────────────
-    addSubTask: builder.mutation({
-      query: ({ taskId, data }) => ({
-        url: `${TASKS_URL}/${taskId}/subtasks`,
+    // Bulk assign many subtasks in one request
+    // body: { assignments: [{ index, assigneeId }, ...] }
+    bulkAssignSubTasks: builder.mutation({
+      query: ({ taskId, assignments }) => ({
+        url: `${TASKS_URL}/${taskId}/subtasks/bulk-assign`,
         method: 'POST',
-        body: data,
+        body: { assignments },
       }),
       invalidatesTags: (result, error, { taskId }) => [
         { type: 'Task', id: taskId },
         'Task',
-        'Project',
+        'PublicTask',
       ],
     }),
 
-    updateSubTask: builder.mutation({
-      query: ({ taskId, subTaskIndex, data }) => ({
-        url: `${TASKS_URL}/${taskId}/subtasks/${subTaskIndex}`,
-        method: 'PUT',
-        body: data,
-      }),
-      invalidatesTags: (result, error, { taskId }) => [
-        { type: 'Task', id: taskId },
-        'Task',
-        'Project',
-      ],
-    }),
-
-    // 👇 now also invalidates PublicTask so a guest's public view refreshes
+    // ── Mark subtask done ─────────────────────────────────────────
+    // Called by the assignee (subtask or task level) OR a manager.
+    // If a manager calls it, the subtask is confirmed immediately.
     markSubTaskDone: builder.mutation({
-      query: ({ taskId, subTaskIndex, data }) => ({
-        url: `${TASKS_URL}/${taskId}/subtasks/${subTaskIndex}/done`,
-        method: 'PATCH',
-        body: data,
-      }),
+      query: ({ taskId, subTaskIndex, data }) => {
+        const isFormData = data instanceof FormData;
+        return {
+          url: `${TASKS_URL}/${taskId}/subtasks/${subTaskIndex}/done`,
+          method: 'PATCH',
+          body: data,
+          headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
+        };
+      },
       invalidatesTags: (result, error, { taskId }) => [
         { type: 'Task', id: taskId },
         'Task',
         'Project',
-        'PublicTask', // 👈 NEW
+        'PublicTask',
       ],
     }),
 
@@ -186,6 +272,7 @@ export const taskApiSlice = apiSlice.injectEndpoints({
         { type: 'Task', id: taskId },
         'Task',
         'Project',
+        'PublicTask',
       ],
     }),
 
@@ -199,6 +286,7 @@ export const taskApiSlice = apiSlice.injectEndpoints({
         { type: 'Task', id: taskId },
         'Task',
         'Project',
+        'PublicTask',
       ],
     }),
 
@@ -211,23 +299,49 @@ export const taskApiSlice = apiSlice.injectEndpoints({
         { type: 'Task', id: taskId },
         'Task',
         'Project',
+        'PublicTask',
       ],
     }),
 
-    // ─── Main task completion flow ────────────────────────────────
-    // 👇 now also invalidates PublicTask — this is the primary action
-    // a collaborator performs from the public share view.
-    markTaskCompleted: builder.mutation({
-      query: ({ taskId, data }) => ({
-        url: `${TASKS_URL}/${taskId}/complete`,
+    reorderSubTasks: builder.mutation({
+      query: ({ taskId, orderedSubTaskIndices }) => ({
+        url: `${TASKS_URL}/${taskId}/subtasks/reorder`,
         method: 'PATCH',
-        body: data,
+        body: { orderedSubTaskIndices },
       }),
       invalidatesTags: (result, error, { taskId }) => [
         { type: 'Task', id: taskId },
         'Task',
+      ],
+    }),
+
+    // ═════════════════════════════════════════════════════════════
+    // MAIN TASK COMPLETION
+    //
+    // markTaskCompleted:
+    //   - Manager → confirmed_completed (instant)
+    //   - Assignee (permanent OR associate editor) → completed
+    //     (awaiting manager confirmation)
+    //
+    // confirmTaskCompletion / rejectTask: managers only
+    // (associate-PMs count as managers; associate editors do not)
+    // ═════════════════════════════════════════════════════════════
+
+    markTaskCompleted: builder.mutation({
+      query: ({ taskId, data }) => {
+        const isFormData = data instanceof FormData;
+        return {
+          url: `${TASKS_URL}/${taskId}/complete`,
+          method: 'PATCH',
+          body: data,
+          headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
+        };
+      },
+      invalidatesTags: (result, error, { taskId }) => [
+        { type: 'Task', id: taskId },
+        'Task',
         'Project',
-        'PublicTask', // 👈 NEW
+        'PublicTask',
       ],
     }),
 
@@ -241,6 +355,7 @@ export const taskApiSlice = apiSlice.injectEndpoints({
         { type: 'Task', id: taskId },
         'Task',
         'Project',
+        'PublicTask',
       ],
     }),
 
@@ -254,10 +369,13 @@ export const taskApiSlice = apiSlice.injectEndpoints({
         { type: 'Task', id: taskId },
         'Task',
         'Project',
+        'PublicTask',
       ],
     }),
 
-    // ─── Reminders ─────────────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════
+    // REMINDERS
+    // ═════════════════════════════════════════════════════════════
     triggerTaskReminders: builder.mutation({
       query: () => ({
         url: `${TASKS_URL}/reminders`,
@@ -273,9 +391,13 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
-    // ─── Comments & feedback history ──────────────────────────────
-    // 👇 now also invalidates PublicTask — collaborators can comment
-    // on tasks they're assigned to, and the public view should refresh.
+    // ═════════════════════════════════════════════════════════════
+    // COMMENTS & FEEDBACK
+    //
+    // Associates (editors) can comment ONLY on tasks assigned to them.
+    // Associate-PMs can comment on any task (manager-equivalent).
+    // Enforced server-side via resolveTaskAccess.canComment.
+    // ═════════════════════════════════════════════════════════════
     addComment: builder.mutation({
       query: ({ taskId, comment, mentions, attachments }) => ({
         url: `${TASKS_URL}/${taskId}/comments`,
@@ -284,7 +406,7 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (result, error, { taskId }) => [
         { type: 'Task', id: taskId },
-        'PublicTask', // 👈 NEW
+        'PublicTask',
       ],
     }),
 
@@ -293,6 +415,9 @@ export const taskApiSlice = apiSlice.injectEndpoints({
         url: `${TASKS_URL}/my-tasks`,
         params: { status, priority, workspaceId, projectId },
       }),
+      // This includes tasks assigned to the caller — works the same
+      // for permanent members and associates. Backend filters to
+      // what the caller is actually assigned.
       providesTags: [{ type: 'Task', id: 'MY_TASKS' }],
     }),
 
@@ -306,7 +431,12 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // ─── Folder management (project‑scoped) ──────────────────────
+    // ═════════════════════════════════════════════════════════════
+    // FOLDERS
+    //
+    // Folder read-only lists accept any active workspace member —
+    // permanent OR associate. Server validates.
+    // ═════════════════════════════════════════════════════════════
     getProjectFolders: builder.query({
       query: (projectId) => ({
         url: `${TASKS_URL}/project/${projectId}/folders`,
@@ -378,7 +508,9 @@ export const taskApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // ─── Task & Sub‑task reordering ────────────────────────────────
+    // ═════════════════════════════════════════════════════════════
+    // REORDER
+    // ═════════════════════════════════════════════════════════════
     reorderTasks: builder.mutation({
       query: ({ projectId, orderedTaskIds }) => ({
         url: `${TASKS_URL}/project/${projectId}/reorder`,
@@ -386,18 +518,6 @@ export const taskApiSlice = apiSlice.injectEndpoints({
         body: { orderedTaskIds },
       }),
       invalidatesTags: ['Task', 'Project'],
-    }),
-
-    reorderSubTasks: builder.mutation({
-      query: ({ taskId, orderedSubTaskIndices }) => ({
-        url: `${TASKS_URL}/${taskId}/subtasks/reorder`,
-        method: 'PATCH',
-        body: { orderedSubTaskIndices },
-      }),
-      invalidatesTags: (result, error, { taskId }) => [
-        { type: 'Task', id: taskId },
-        'Task',
-      ],
     }),
   }),
 });
@@ -415,26 +535,40 @@ export const {
   useCopyTaskMutation,
   useMoveTaskMutation,
   useAssignTaskMutation,
+
+  // ─── Subtasks ───
   useAddSubTaskMutation,
   useUpdateSubTaskMutation,
+  useAssignSubTaskMutation,
+  useBulkAssignSubTasksMutation,
   useMarkSubTaskDoneMutation,
   useConfirmSubTaskMutation,
   useRejectSubTaskMutation,
   useDeleteSubTaskMutation,
+  useReorderSubTasksMutation,
+
+  // ─── Task completion ───
   useMarkTaskCompletedMutation,
   useConfirmTaskCompletionMutation,
   useRejectTaskMutation,
+
+  // ─── Reminders ───
   useTriggerTaskRemindersMutation,
   useSendManualReminderMutation,
+
+  // ─── Comments / feedback ───
   useAddCommentMutation,
   useGetMyTasksQuery,
   useGetTaskFeedbackQuery,
+
+  // ─── Folders ───
   useGetProjectFoldersQuery,
   useCreateFolderMutation,
   useUpdateFolderMutation,
   useDeleteFolderMutation,
   useAddFolderReadOnlyMutation,
   useRemoveFolderReadOnlyMutation,
+
+  // ─── Reorder ───
   useReorderTasksMutation,
-  useReorderSubTasksMutation,
 } = taskApiSlice;

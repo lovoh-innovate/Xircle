@@ -1,5 +1,5 @@
 // pages/MyWorkspaces.jsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import {
@@ -19,84 +19,76 @@ import {
   FaTrashAlt,
   FaClock,
   FaRocket,
-  FaUserFriends,
   FaSpinner,
   FaUserCircle,
   FaChevronRight,
   FaCheckCircle,
+  FaUserShield,
 } from 'react-icons/fa';
 import { motion } from 'framer-motion';
-import JoinedWorkspaces from '../components/JoinedWorkspaces';
 import GeneralSidebar from '../components/GeneralSidebar';
 import GeneralBottombar from '../components/GeneralBottombar';
 
-// ─── Global Styles (scrollbar + skeleton shimmer) ───────────────────
+// ─── Helpers ────────────────────────────────────────────────────────
+const getInitials = (name) => {
+  if (!name) return '?';
+  return String(name)
+    .split(' ')
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join('')
+    .toUpperCase();
+};
+
+const getUserId = (u) => (u?._id ? u._id.toString() : u?.toString());
+
+const formatExpiry = (date) => {
+  if (!date) return null;
+  try {
+    return new Date(date).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  } catch {
+    return null;
+  }
+};
+
+// ─── Global Styles ───────────────────────────────────────────────────
 const GlobalStyles = () => (
   <style>{`
-    .scrollbar-hide {
-      -ms-overflow-style: none;
-      scrollbar-width: none;
-    }
-    .scrollbar-hide::-webkit-scrollbar {
-      display: none;
-    }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
 
-    /* ── Skeleton shimmer ───────────────────────────────────────── */
-    .skeleton {
-      position: relative;
-      overflow: hidden;
-      background-color: rgb(229 231 235); /* gray-200 */
-    }
-    .dark .skeleton {
-      background-color: rgba(255, 255, 255, 0.07);
-    }
+    .skeleton { position: relative; overflow: hidden; background-color: rgb(229 231 235); }
+    .dark .skeleton { background-color: rgba(255, 255, 255, 0.07); }
     .skeleton::after {
-      content: '';
-      position: absolute;
-      inset: 0;
-      transform: translateX(-100%);
-      background: linear-gradient(
-        90deg,
-        transparent,
-        rgba(255, 255, 255, 0.55),
-        transparent
-      );
+      content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.55), transparent);
       animation: skeletonShimmer 1.5s ease-in-out infinite;
     }
     .dark .skeleton::after {
-      background: linear-gradient(
-        90deg,
-        transparent,
-        rgba(255, 255, 255, 0.07),
-        transparent
-      );
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.07), transparent);
     }
-    @keyframes skeletonShimmer {
-      100% {
-        transform: translateX(100%);
-      }
-    }
-    @media (prefers-reduced-motion: reduce) {
-      .skeleton::after {
-        animation: none;
-      }
-    }
+    @keyframes skeletonShimmer { 100% { transform: translateX(100%); } }
+    @media (prefers-reduced-motion: reduce) { .skeleton::after { animation: none; } }
   `}</style>
 );
 
-// ─── Skeleton Primitives ────────────────────────────────────────────
+// ─── Skeletons ──────────────────────────────────────────────────────
 const Skeleton = ({ className = '' }) => (
-  <div className={`skeleton rounded-lg ${className}`} />
+  <div className={`skeleton rounded-md ${className}`} />
 );
 
 const WorkspaceRowSkeleton = () => (
-  <div className="flex items-center gap-3 px-3 sm:px-4 min-h-[60px]">
-    <Skeleton className="w-10 h-10 rounded-full flex-shrink-0" />
+  <div className="flex items-center gap-3 px-3 sm:px-4 min-h-[58px]">
+    <Skeleton className="w-9 h-9 flex-shrink-0" />
     <div className="flex-1 min-w-0 space-y-2">
       <Skeleton className="h-3.5 w-28 sm:w-40" />
       <Skeleton className="h-2.5 w-20 sm:w-32" />
     </div>
-    <Skeleton className="h-3 w-3 rounded-full flex-shrink-0" />
+    <Skeleton className="h-3 w-3 flex-shrink-0" />
   </div>
 );
 
@@ -108,89 +100,56 @@ const WorkspaceListSkeleton = ({ rows = 3 }) => (
   </div>
 );
 
-const QuickStatsSkeleton = () => (
-  <div className="grid grid-cols-3 gap-3 mb-6">
-    {Array.from({ length: 3 }).map((_, i) => (
-      <div
-        key={i}
-        className="bg-white dark:bg-[#161619] rounded-2xl p-4 text-center border border-gray-100 dark:border-gray-800"
-      >
-        <Skeleton className="h-7 w-10 mx-auto mb-2" />
-        <Skeleton className="h-2.5 w-12 mx-auto" />
-      </div>
-    ))}
-  </div>
-);
-
-const ColumnHeaderSkeleton = () => (
-  <div className="flex items-center gap-2 mb-3">
-    <Skeleton className="h-4 w-4 rounded-full" />
-    <Skeleton className="h-4 w-16" />
-    <Skeleton className="ml-auto h-3.5 w-5" />
-  </div>
-);
-
-// ─── Full Page Skeleton ─────────────────────────────────────────────
 const MyWorkspacesSkeleton = () => (
   <div className="min-h-screen bg-gray-50 dark:bg-[#0b0b10] flex flex-col md:flex-row">
-    {/* Sidebar placeholder (desktop) */}
     <div className="hidden md:block md:w-72 md:flex-shrink-0 border-r border-gray-100 dark:border-gray-800/60 p-4 space-y-4">
-      <Skeleton className="h-9 w-36 rounded-xl" />
+      <Skeleton className="h-9 w-36" />
       <div className="space-y-2 pt-4">
         {Array.from({ length: 6 }).map((_, i) => (
           <div key={i} className="flex items-center gap-3 px-2 py-2">
-            <Skeleton className="h-8 w-8 rounded-lg flex-shrink-0" />
+            <Skeleton className="h-8 w-8 flex-shrink-0" />
             <Skeleton className="h-3.5 flex-1 max-w-[110px]" />
           </div>
         ))}
       </div>
     </div>
 
-    <div className="flex-1 flex flex-col min-h-screen relative">
-      {/* Header */}
+    <div className="flex-1 flex flex-col min-h-screen">
       <header className="bg-white dark:bg-[#0f0f12] border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10 px-4 sm:px-6 h-14 flex items-center justify-between">
         <Skeleton className="h-5 w-28" />
         <div className="flex items-center gap-3">
-          <Skeleton className="h-8 w-20 rounded-xl" />
-          <Skeleton className="h-8 w-24 rounded-xl" />
+          <Skeleton className="h-8 w-20" />
+          <Skeleton className="h-8 w-24" />
         </div>
       </header>
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-4 pb-24 md:pb-6 flex flex-col">
-        <QuickStatsSkeleton />
-
-        {/* Desktop: two equal columns */}
-        <div className="hidden md:flex md:flex-row md:items-stretch md:gap-6 flex-1">
-          <div className="flex-1 flex flex-col min-h-0">
-            <ColumnHeaderSkeleton />
-            <div className="flex-1 bg-white dark:bg-[#161619] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
-              <WorkspaceListSkeleton rows={4} />
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-4 pb-24 md:pb-6">
+        <div className="grid grid-cols-3 gap-3 mb-6">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div
+              key={i}
+              className="bg-white dark:bg-[#161619] rounded-lg p-4 text-center border border-gray-100 dark:border-gray-800"
+            >
+              <Skeleton className="h-7 w-10 mx-auto mb-2" />
+              <Skeleton className="h-2.5 w-12 mx-auto" />
             </div>
-          </div>
-
-          <div className="flex-1 flex flex-col min-h-0">
-            <ColumnHeaderSkeleton />
-            <div className="flex-1 bg-white dark:bg-[#161619] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
-              <WorkspaceListSkeleton rows={4} />
-            </div>
-          </div>
+          ))}
         </div>
 
-        {/* Mobile: tabs */}
-        <div className="md:hidden">
-          <div className="flex bg-gray-100 dark:bg-[#1c1c20] rounded-xl p-1 mb-4">
-            <Skeleton className="flex-1 h-9 rounded-lg mr-1" />
-            <Skeleton className="flex-1 h-9 rounded-lg ml-1" />
-          </div>
-
-          <div className="bg-white dark:bg-[#161619] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
-            <WorkspaceListSkeleton rows={5} />
-          </div>
+        <div className="hidden md:flex md:flex-row md:items-stretch md:gap-4 flex-1">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex-1 flex flex-col min-h-0">
+              <div className="flex items-center gap-2 mb-3">
+                <Skeleton className="h-4 w-4 rounded" />
+                <Skeleton className="h-4 w-16" />
+              </div>
+              <div className="flex-1 bg-white dark:bg-[#161619] rounded-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
+                <WorkspaceListSkeleton rows={4} />
+              </div>
+            </div>
+          ))}
         </div>
       </main>
-
-      {/* FAB placeholder */}
-      <Skeleton className="fixed right-4 sm:right-6 bottom-20 md:bottom-6 z-20 w-14 h-14 rounded-full" />
     </div>
   </div>
 );
@@ -222,7 +181,7 @@ const BottomSheet = ({ isOpen, onClose, children }) => {
         initial={{ y: '100%', opacity: 0 }}
         animate={{ y: animating ? 0 : '100%', opacity: animating ? 1 : 0 }}
         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-        className="w-full md:max-w-md md:rounded-2xl rounded-t-2xl bg-white dark:bg-[#1a1a1a] shadow-xl max-h-[90vh] overflow-y-auto"
+        className="w-full md:max-w-md md:rounded-lg rounded-t-lg bg-white dark:bg-[#1a1a1a] shadow-xl max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {children}
@@ -274,7 +233,12 @@ const CreateWorkspaceContent = ({ onClose, onSuccess }) => {
 
       await createWorkspace(formData).unwrap();
       toast.success('Workspace created!');
-      resetForm();
+      setName('');
+      setIndustry('');
+      setDescription('');
+      setColor('#0d9488');
+      setLogoFile(null);
+      setLogoPreview('');
       onSuccess();
       onClose();
     } catch (err) {
@@ -282,15 +246,6 @@ const CreateWorkspaceContent = ({ onClose, onSuccess }) => {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const resetForm = () => {
-    setName('');
-    setIndustry('');
-    setDescription('');
-    setColor('#0d9488');
-    setLogoFile(null);
-    setLogoPreview('');
   };
 
   return (
@@ -310,7 +265,7 @@ const CreateWorkspaceContent = ({ onClose, onSuccess }) => {
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-900 dark:text-white placeholder-gray-400"
+            className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-lg focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-900 dark:text-white placeholder-gray-400"
             placeholder="Acme Corp"
             required
           />
@@ -321,7 +276,7 @@ const CreateWorkspaceContent = ({ onClose, onSuccess }) => {
             type="text"
             value={industry}
             onChange={(e) => setIndustry(e.target.value)}
-            className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-900 dark:text-white placeholder-gray-400"
+            className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-lg focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-900 dark:text-white placeholder-gray-400"
             placeholder="Technology"
             required
           />
@@ -333,7 +288,7 @@ const CreateWorkspaceContent = ({ onClose, onSuccess }) => {
               type="color"
               value={color}
               onChange={(e) => setColor(e.target.value)}
-              className="w-12 h-12 rounded-xl border border-gray-200 dark:border-gray-700 cursor-pointer p-1 bg-white dark:bg-[#2a2a2a]"
+              className="w-12 h-12 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer p-1 bg-white dark:bg-[#2a2a2a]"
             />
             <span className="text-sm text-gray-500 dark:text-gray-400">{color}</span>
           </div>
@@ -346,7 +301,7 @@ const CreateWorkspaceContent = ({ onClose, onSuccess }) => {
                 <img
                   src={logoPreview}
                   alt="Logo"
-                  className="w-16 h-16 rounded-xl object-cover border border-gray-200 dark:border-gray-700"
+                  className="w-16 h-16 rounded-lg object-cover border border-gray-200 dark:border-gray-700"
                 />
                 <button
                   type="button"
@@ -357,15 +312,10 @@ const CreateWorkspaceContent = ({ onClose, onSuccess }) => {
                 </button>
               </div>
             ) : (
-              <label className="flex items-center gap-3 px-4 py-2 border border-dashed border-gray-300 dark:border-gray-600 rounded-xl cursor-pointer hover:border-teal-500 transition bg-gray-50 dark:bg-[#2a2a2a]">
+              <label className="flex items-center gap-3 px-4 py-2 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer hover:border-teal-500 transition bg-gray-50 dark:bg-[#2a2a2a]">
                 <FaImage className="text-gray-400 dark:text-gray-500" />
                 <span className="text-sm text-gray-500 dark:text-gray-400">Upload Logo</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleLogoChange}
-                  className="hidden"
-                />
+                <input type="file" accept="image/*" onChange={handleLogoChange} className="hidden" />
               </label>
             )}
           </div>
@@ -376,19 +326,23 @@ const CreateWorkspaceContent = ({ onClose, onSuccess }) => {
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-900 dark:text-white placeholder-gray-400"
+            className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-lg focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-900 dark:text-white placeholder-gray-400"
             rows="3"
             placeholder="What's this workspace about?"
           />
         </div>
         <div className="flex gap-3 pt-2">
-          <button type="button" onClick={onClose} className="flex-1 py-3 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-[#2a2a2a] transition text-gray-700 dark:text-gray-300">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 py-3 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-[#2a2a2a] transition text-gray-700 dark:text-gray-300"
+          >
             Cancel
           </button>
           <button
             type="submit"
             disabled={isLoading}
-            className="flex-1 py-3 bg-teal-600 dark:bg-teal-500 text-white rounded-xl hover:bg-teal-700 dark:hover:bg-teal-600 disabled:opacity-50 transition"
+            className="flex-1 py-3 bg-teal-600 dark:bg-teal-500 text-white rounded-lg hover:bg-teal-700 dark:hover:bg-teal-600 disabled:opacity-50 transition"
           >
             {isLoading ? <FaSpinner className="animate-spin mx-auto" /> : 'Create'}
           </button>
@@ -407,7 +361,6 @@ const JoinWorkspaceContent = ({ onClose, onSuccess }) => {
   const [checkError, setCheckError] = useState('');
   const [debouncedCode, setDebouncedCode] = useState('');
 
-  // ─── Debounce invite code input ────────────────────────────────
   useEffect(() => {
     const timer = setTimeout(() => {
       const code = inviteCode.trim().toUpperCase();
@@ -418,34 +371,26 @@ const JoinWorkspaceContent = ({ onClose, onSuccess }) => {
         setPreviewWorkspace(null);
         setCheckError('');
       }
-    }, 500); // 500ms debounce
-
+    }, 500);
     return () => clearTimeout(timer);
   }, [inviteCode]);
 
-  // ─── Fetch workspace by invite code ─────────────────────────────
-  const { data: workspaceData, isLoading: workspaceLoading, error: workspaceError } = useGetWorkspaceByInviteCodeQuery(
-    debouncedCode,
-    { skip: !debouncedCode || debouncedCode.length < 4 }
-  );
+  const {
+    data: workspaceData,
+    isLoading: workspaceLoading,
+    error: workspaceError,
+  } = useGetWorkspaceByInviteCodeQuery(debouncedCode, {
+    skip: !debouncedCode || debouncedCode.length < 4,
+  });
 
-  // ─── Update preview when workspace data changes ──────────────────
   useEffect(() => {
-    if (workspaceLoading) {
-      // Still loading, keep existing state
-      return;
-    }
+    if (workspaceLoading) return;
     if (workspaceData?.workspace) {
       setPreviewWorkspace(workspaceData.workspace);
       setCheckError('');
     } else if (workspaceError) {
       setPreviewWorkspace(null);
       setCheckError('Invalid invite code');
-    } else if (debouncedCode && debouncedCode.length >= 4) {
-      // If we have a code but no data and no error, it's still checking
-      // But if the query finished and there's no data, it's invalid
-      // However, if the query is not loading, and we have a code, but no error and no data,
-      // it might be that the query hasn't run yet (skip condition). We'll handle by checking loading.
     }
   }, [workspaceData, workspaceError, workspaceLoading, debouncedCode]);
 
@@ -492,37 +437,38 @@ const JoinWorkspaceContent = ({ onClose, onSuccess }) => {
             type="text"
             value={inviteCode}
             onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-            className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 outline-none text-gray-900 dark:text-white placeholder-gray-400 uppercase"
+            className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-lg focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 outline-none text-gray-900 dark:text-white placeholder-gray-400 uppercase"
             placeholder="e.g. ABCD1234"
             required
           />
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Enter the invite code to preview the workspace before joining.</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+            Enter the invite code to preview the workspace before joining.
+          </p>
         </div>
 
-        {/* ─── Workspace Preview ─────────────────────────────────────── */}
         {debouncedCode && debouncedCode.length >= 4 && (
           <div className="min-h-[60px]">
             {workspaceLoading ? (
-              <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-[#2a2a2a] rounded-xl border border-gray-200 dark:border-gray-700">
+              <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-[#2a2a2a] rounded-lg border border-gray-200 dark:border-gray-700">
                 <FaSpinner className="animate-spin text-purple-500 text-lg" />
                 <span className="text-sm text-gray-500 dark:text-gray-400">Looking up workspace...</span>
               </div>
             ) : checkError ? (
-              <div className="flex items-center gap-3 p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-700/40">
+              <div className="flex items-center gap-3 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-700/40">
                 <FaTimes className="text-red-500 text-sm" />
                 <span className="text-sm text-red-600 dark:text-red-400">{checkError}</span>
               </div>
             ) : previewWorkspace ? (
-              <div className="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-xl border border-green-200 dark:border-green-700/40">
+              <div className="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-700/40">
                 {previewWorkspace.logo ? (
                   <img
                     src={previewWorkspace.logo}
                     alt={previewWorkspace.name}
-                    className="w-10 h-10 rounded-xl object-cover flex-shrink-0"
+                    className="w-10 h-10 rounded-md object-cover flex-shrink-0"
                   />
                 ) : (
                   <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
+                    className="w-10 h-10 rounded-md flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
                     style={{ backgroundColor: previewWorkspace.color || '#0d9488' }}
                   >
                     {previewWorkspace.name?.charAt(0).toUpperCase() || '?'}
@@ -543,13 +489,17 @@ const JoinWorkspaceContent = ({ onClose, onSuccess }) => {
         )}
 
         <div className="flex gap-3 pt-2">
-          <button type="button" onClick={onClose} className="flex-1 py-3 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-[#2a2a2a] transition text-gray-700 dark:text-gray-300">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 py-3 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-[#2a2a2a] transition text-gray-700 dark:text-gray-300"
+          >
             Cancel
           </button>
           <button
             type="submit"
             disabled={isLoading || !previewWorkspace}
-            className="flex-1 py-3 bg-purple-600 dark:bg-purple-500 text-white rounded-xl hover:bg-purple-700 dark:hover:bg-purple-600 disabled:opacity-50 transition"
+            className="flex-1 py-3 bg-purple-600 dark:bg-purple-500 text-white rounded-lg hover:bg-purple-700 dark:hover:bg-purple-600 disabled:opacity-50 transition"
           >
             {isLoading ? <FaSpinner className="animate-spin mx-auto" /> : 'Request Join'}
           </button>
@@ -565,26 +515,20 @@ const FabOptionsSheet = ({ isOpen, onClose, onCreateWorkspace, onJoinWorkspace }
     <div className="p-6">
       <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">What would you like to do?</h3>
       <button
-        onClick={() => {
-          onClose();
-          onCreateWorkspace();
-        }}
-        className="flex items-center gap-4 w-full px-4 py-3 rounded-xl hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition"
+        onClick={() => { onClose(); onCreateWorkspace(); }}
+        className="flex items-center gap-4 w-full px-4 py-3 rounded-lg hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition"
       >
-        <div className="w-12 h-12 rounded-full bg-teal-100 dark:bg-teal-900/30 flex items-center justify-center text-teal-600 dark:text-teal-400">
-          <FaPlus className="text-xl" />
+        <div className="w-11 h-11 rounded-md bg-teal-100 dark:bg-teal-900/30 flex items-center justify-center text-teal-600 dark:text-teal-400">
+          <FaPlus className="text-lg" />
         </div>
         <span className="font-medium text-gray-700 dark:text-gray-200">Create Workspace</span>
       </button>
       <button
-        onClick={() => {
-          onClose();
-          onJoinWorkspace();
-        }}
-        className="flex items-center gap-4 w-full px-4 py-3 rounded-xl hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition"
+        onClick={() => { onClose(); onJoinWorkspace(); }}
+        className="flex items-center gap-4 w-full px-4 py-3 rounded-lg hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition"
       >
-        <div className="w-12 h-12 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center text-purple-600 dark:text-purple-400">
-          <FaSignInAlt className="text-xl" />
+        <div className="w-11 h-11 rounded-md bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center text-purple-600 dark:text-purple-400">
+          <FaSignInAlt className="text-lg" />
         </div>
         <span className="font-medium text-gray-700 dark:text-gray-200">Join Workspace</span>
       </button>
@@ -592,39 +536,37 @@ const FabOptionsSheet = ({ isOpen, onClose, onCreateWorkspace, onJoinWorkspace }
   </BottomSheet>
 );
 
-// ─── Workspace Card ────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════
+//  Workspace Card — used for Owned and Joined lists
+// ═════════════════════════════════════════════════════════════════════
 const WorkspaceCard = ({ workspace, isOwner, userInfo }) => {
   const memberCount = workspace.members?.length || 0;
-  const initials =
-    workspace.initials ||
-    workspace.name
-      .split(' ')
-      .slice(0, 2)
-      .map((w) => w[0])
-      .join('')
-      .toUpperCase();
+  const initials = workspace.initials || getInitials(workspace.name);
 
   const currentUserMembership = workspace.members?.find(
-    (m) => m.user?._id === userInfo?._id || m.user === userInfo?._id
+    (m) => getUserId(m.user) === String(userInfo?._id)
   );
   const membershipStatus = currentUserMembership?.status || 'active';
   const isPending = membershipStatus === 'pending';
+  const isClickable = !isPending;
   const routePath = isOwner
     ? `/my-workspace/${workspace._id}`
     : `/workspace/${workspace._id}`;
-  const isClickable = !isPending;
 
   const CardWrapper = isClickable ? Link : 'div';
   const cardProps = isClickable ? { to: routePath } : {};
 
-  const subtitle = [workspace.industry, `${memberCount} ${memberCount === 1 ? 'member' : 'members'}`]
+  const subtitle = [
+    workspace.industry,
+    `${memberCount} ${memberCount === 1 ? 'member' : 'members'}`,
+  ]
     .filter(Boolean)
     .join(' · ');
 
   return (
     <CardWrapper
       {...cardProps}
-      className={`group flex items-center gap-3 px-3 sm:px-4 min-h-[60px] transition-colors ${
+      className={`group flex items-center gap-3 px-3 sm:px-4 min-h-[58px] transition-colors ${
         isClickable
           ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-white/[0.04]'
           : 'opacity-60 cursor-default'
@@ -634,11 +576,11 @@ const WorkspaceCard = ({ workspace, isOwner, userInfo }) => {
         <img
           src={workspace.logo}
           alt={workspace.name}
-          className="w-10 h-10 rounded-full object-cover flex-shrink-0 ring-1 ring-gray-200 dark:ring-gray-700"
+          className="w-9 h-9 rounded-md object-cover flex-shrink-0 ring-1 ring-gray-200 dark:ring-gray-700"
         />
       ) : (
         <div
-          className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold text-sm flex-shrink-0 shadow-sm"
+          className="w-9 h-9 rounded-md flex items-center justify-center text-white font-semibold text-[12px] flex-shrink-0"
           style={{ backgroundColor: workspace.color || '#0d9488' }}
         >
           {initials}
@@ -646,8 +588,8 @@ const WorkspaceCard = ({ workspace, isOwner, userInfo }) => {
       )}
 
       <div className="flex-1 min-w-0 overflow-hidden">
-        <div className="flex items-center gap-2">
-          <p className="font-semibold text-sm text-gray-900 dark:text-white truncate max-w-[120px] sm:max-w-[200px]">
+        <div className="flex items-center gap-2 min-w-0">
+          <p className="font-semibold text-sm text-gray-900 dark:text-white truncate">
             {workspace.name}
           </p>
           {isOwner && (
@@ -655,39 +597,138 @@ const WorkspaceCard = ({ workspace, isOwner, userInfo }) => {
               Owner
             </span>
           )}
+          {isPending && (
+            <span className="flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300">
+              <FaClock className="text-[9px]" /> Pending
+            </span>
+          )}
         </div>
-        <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5 max-w-[160px] sm:max-w-full">
+        <p className="text-[11.5px] text-gray-500 dark:text-gray-400 truncate mt-0.5">
           {subtitle}
         </p>
       </div>
 
-      {isPending ? (
-        <span className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300">
-          <FaClock className="text-[10px]" /> Pending
-        </span>
-      ) : (
-        isClickable && (
-          <FaChevronRight className="flex-shrink-0 text-gray-300 dark:text-gray-600 text-[10px] group-hover:text-gray-400 dark:group-hover:text-gray-500 group-hover:translate-x-0.5 transition-all" />
-        )
+      {isClickable && (
+        <FaChevronRight className="flex-shrink-0 text-gray-300 dark:text-gray-600 text-[10px] group-hover:text-gray-400 dark:group-hover:text-gray-500 group-hover:translate-x-0.5 transition-all" />
       )}
     </CardWrapper>
   );
 };
 
-// ─── Quick Stats ──────────────────────────────────────────────────
-const QuickStats = ({ ownedCount, joinedCount, pendingCount }) => (
+// ═════════════════════════════════════════════════════════════════════
+//  Associate Card — workspaces where the user is an associate.
+//
+//  Associates enter the workspace shell just like permanent members.
+//  Inside the workspace they only see:
+//    - Projects they've been added to
+//    - Chats they're part of
+//    - Tasks assigned to them
+//
+//  The "Associate" badge + optional expiry come from their membership
+//  record on this workspace.
+// ═════════════════════════════════════════════════════════════════════
+const AssociateCard = ({ workspace, userInfo }) => {
+  const memberCount = workspace.members?.length || 0;
+  const initials = workspace.initials || getInitials(workspace.name);
+
+  const myMembership = workspace.members?.find(
+    (m) => getUserId(m.user) === String(userInfo?._id)
+  );
+
+  const expiryLabel = myMembership?.accessExpiresAt
+    ? `Expires ${formatExpiry(myMembership.accessExpiresAt)}`
+    : null;
+
+  const routePath = `/workspace/${workspace._id}`;
+
+  const subtitle = [
+    workspace.industry,
+    `${memberCount} ${memberCount === 1 ? 'member' : 'members'}`,
+    expiryLabel,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  return (
+    <Link
+      to={routePath}
+      className="group flex items-center gap-3 px-3 sm:px-4 min-h-[58px] transition-colors cursor-pointer hover:bg-gray-50 dark:hover:bg-white/[0.04]"
+    >
+      {workspace.logo ? (
+        <img
+          src={workspace.logo}
+          alt={workspace.name}
+          className="w-9 h-9 rounded-md object-cover flex-shrink-0 ring-1 ring-gray-200 dark:ring-gray-700"
+        />
+      ) : (
+        <div
+          className="w-9 h-9 rounded-md flex items-center justify-center text-white font-semibold text-[12px] flex-shrink-0"
+          style={{ backgroundColor: workspace.color || '#0d9488' }}
+        >
+          {initials}
+        </div>
+      )}
+
+      <div className="flex-1 min-w-0 overflow-hidden">
+        <div className="flex items-center gap-2 min-w-0">
+          <p className="font-semibold text-sm text-gray-900 dark:text-white truncate">
+            {workspace.name}
+          </p>
+          <span className="flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">
+            <FaUserShield className="text-[9px]" />
+            Associate
+          </span>
+        </div>
+        <p className="text-[11.5px] text-gray-500 dark:text-gray-400 truncate mt-0.5">
+          {subtitle}
+        </p>
+      </div>
+
+      <FaChevronRight className="flex-shrink-0 text-gray-300 dark:text-gray-600 text-[10px] group-hover:text-gray-400 dark:group-hover:text-gray-500 group-hover:translate-x-0.5 transition-all" />
+    </Link>
+  );
+};
+
+// ═════════════════════════════════════════════════════════════════════
+//  Quick Stats — Owned / Joined / Associates
+// ═════════════════════════════════════════════════════════════════════
+const QuickStats = ({ ownedCount, joinedCount, associatesCount }) => (
   <div className="grid grid-cols-3 gap-3 mb-6">
-    <div className="bg-white dark:bg-[#161619] rounded-2xl p-4 text-center border border-gray-100 dark:border-gray-800">
-      <p className="text-2xl font-bold text-gray-900 dark:text-white">{ownedCount}</p>
+    <div className="bg-white dark:bg-[#161619] rounded-lg p-4 text-center border border-gray-100 dark:border-gray-800">
+      <p className="text-2xl font-bold text-gray-900 dark:text-white tabular-nums">{ownedCount}</p>
       <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Owned</p>
     </div>
-    <div className="bg-white dark:bg-[#161619] rounded-2xl p-4 text-center border border-gray-100 dark:border-gray-800">
-      <p className="text-2xl font-bold text-gray-900 dark:text-white">{joinedCount}</p>
+    <div className="bg-white dark:bg-[#161619] rounded-lg p-4 text-center border border-gray-100 dark:border-gray-800">
+      <p className="text-2xl font-bold text-gray-900 dark:text-white tabular-nums">{joinedCount}</p>
       <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Joined</p>
     </div>
-    <div className="bg-white dark:bg-[#161619] rounded-2xl p-4 text-center border border-gray-100 dark:border-gray-800">
-      <p className="text-2xl font-bold text-gray-900 dark:text-white">{pendingCount}</p>
-      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Pending</p>
+    <div className="bg-white dark:bg-[#161619] rounded-lg p-4 text-center border border-gray-100 dark:border-gray-800">
+      <p className="text-2xl font-bold text-gray-900 dark:text-white tabular-nums">{associatesCount}</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Associates</p>
+    </div>
+  </div>
+);
+
+// ─── Empty state ────────────────────────────────────────────────────
+const EmptyList = ({ icon: Icon = FaUsers, message = 'Nothing here yet.' }) => (
+  <div className="flex flex-col items-center justify-center min-h-[120px] text-gray-400 dark:text-gray-500 px-4 py-8">
+    <Icon className="text-3xl mb-2 opacity-30" />
+    <p className="text-sm text-center">{message}</p>
+  </div>
+);
+
+// ─── Column (desktop) ───────────────────────────────────────────────
+const Column = ({ title, icon: Icon, iconColor = 'text-teal-500', count, children }) => (
+  <div className="flex-1 flex flex-col min-h-0">
+    <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-3 flex items-center gap-2">
+      <Icon className={iconColor} />
+      {title}
+      <span className="ml-auto text-xs font-normal text-gray-400 dark:text-gray-500 tabular-nums">
+        {count}
+      </span>
+    </h2>
+    <div className="flex-1 bg-white dark:bg-[#161619] rounded-lg border border-gray-100 dark:border-gray-800 overflow-hidden flex flex-col">
+      <div className="flex-1 overflow-y-auto">{children}</div>
     </div>
   </div>
 );
@@ -696,6 +737,11 @@ const QuickStats = ({ ownedCount, joinedCount, pendingCount }) => (
 const MyWorkspaces = () => {
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
+
+  // One query, three buckets:
+  //   myBusinesses        → owned
+  //   joinedBusinesses    → permanent member
+  //   associateBusinesses → associate (already filtered for expiry server-side)
   const { data, isLoading, refetch } = useGetMyWorkspacesQuery(undefined, {
     pollingInterval: 30000,
   });
@@ -703,35 +749,16 @@ const MyWorkspaces = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [showFabOptions, setShowFabOptions] = useState(false);
+  const [activeTab, setActiveTab] = useState('owned');
 
   const myWorkspaces = data?.myBusinesses || [];
   const joinedWorkspaces = data?.joinedBusinesses || [];
-  const pendingCount = data?.pendingInvites || 0;
+  const associateWorkspaces = data?.associateBusinesses || [];
 
   const handleCreateSuccess = () => refetch();
   const handleJoinSuccess = () => refetch();
 
-  const [activeTab, setActiveTab] = useState('owned');
-
-  const renderWorkspaceList = (list, isOwner) => {
-    if (list.length === 0) {
-      return (
-        <div className="flex flex-col items-center justify-center min-h-[120px] text-gray-400 dark:text-gray-500">
-          <FaUsers className="text-3xl mb-2 opacity-30" />
-          <p className="text-sm">No workspaces here yet.</p>
-        </div>
-      );
-    }
-    return (
-      <div className="divide-y divide-gray-100 dark:divide-white/[0.06]">
-        {list.map((ws) => (
-          <WorkspaceCard key={ws._id} workspace={ws} isOwner={isOwner} userInfo={userInfo} />
-        ))}
-      </div>
-    );
-  };
-
-  // ─── Initial load: skeleton ──────────────────────────────────────
+  // ─── Loading skeleton ────────────────────────────────────────────
   if (isLoading) {
     return (
       <>
@@ -740,6 +767,50 @@ const MyWorkspaces = () => {
       </>
     );
   }
+
+  const renderOwnedList = () => {
+    if (myWorkspaces.length === 0) {
+      return <EmptyList icon={FaUsers} message="No owned workspaces yet." />;
+    }
+    return (
+      <div className="divide-y divide-gray-100 dark:divide-white/[0.06]">
+        {myWorkspaces.map((ws) => (
+          <WorkspaceCard key={ws._id} workspace={ws} isOwner userInfo={userInfo} />
+        ))}
+      </div>
+    );
+  };
+
+  const renderJoinedList = () => {
+    if (joinedWorkspaces.length === 0) {
+      return <EmptyList icon={FaUsers} message="No joined workspaces yet." />;
+    }
+    return (
+      <div className="divide-y divide-gray-100 dark:divide-white/[0.06]">
+        {joinedWorkspaces.map((ws) => (
+          <WorkspaceCard key={ws._id} workspace={ws} isOwner={false} userInfo={userInfo} />
+        ))}
+      </div>
+    );
+  };
+
+  const renderAssociatesList = () => {
+    if (associateWorkspaces.length === 0) {
+      return (
+        <EmptyList
+          icon={FaUserShield}
+          message="No associate workspaces yet. When someone adds you to a project, its workspace will show up here."
+        />
+      );
+    }
+    return (
+      <div className="divide-y divide-gray-100 dark:divide-white/[0.06]">
+        {associateWorkspaces.map((ws) => (
+          <AssociateCard key={ws._id} workspace={ws} userInfo={userInfo} />
+        ))}
+      </div>
+    );
+  };
 
   return (
     <>
@@ -756,14 +827,14 @@ const MyWorkspaces = () => {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setShowJoinModal(true)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400 hover:bg-teal-100 dark:hover:bg-teal-900/50 transition text-sm font-medium"
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400 hover:bg-teal-100 dark:hover:bg-teal-900/50 transition text-sm font-medium"
               >
                 <FaSignInAlt className="text-sm" />
                 <span className="hidden sm:inline">Join</span>
               </button>
               <button
                 onClick={() => navigate('/profile')}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-gray-100 dark:bg-gray-800/50 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700/50 transition text-sm font-medium"
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800/50 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700/50 transition text-sm font-medium"
               >
                 <FaUserCircle className="text-lg" />
                 <span className="hidden sm:inline">Profile</span>
@@ -775,42 +846,28 @@ const MyWorkspaces = () => {
             <QuickStats
               ownedCount={myWorkspaces.length}
               joinedCount={joinedWorkspaces.length}
-              pendingCount={pendingCount}
+              associatesCount={associateWorkspaces.length}
             />
 
-            {/* ─── Desktop: equal-height columns ───────────────────── */}
-            <div className="hidden md:flex md:flex-row md:items-stretch md:gap-6 flex-1">
-              <div className="flex-1 flex flex-col min-h-0">
-                <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200 mb-3 flex items-center gap-2">
-                  <FaUserCheck className="text-teal-500" /> Owned
-                  <span className="ml-auto text-sm font-normal text-gray-400 dark:text-gray-500">{myWorkspaces.length}</span>
-                </h2>
-                <div className="flex-1 bg-white dark:bg-[#161619] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden flex flex-col">
-                  <div className="flex-1 overflow-y-auto">
-                    {renderWorkspaceList(myWorkspaces, true)}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex-1 flex flex-col min-h-0">
-                <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200 mb-3 flex items-center gap-2">
-                  <FaUsers className="text-purple-500" /> Joined
-                  <span className="ml-auto text-sm font-normal text-gray-400 dark:text-gray-500">{joinedWorkspaces.length}</span>
-                </h2>
-                <div className="flex-1 bg-white dark:bg-[#161619] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden flex flex-col">
-                  <div className="flex-1 overflow-y-auto">
-                    <JoinedWorkspaces />
-                  </div>
-                </div>
-              </div>
+            {/* ─── Desktop: three equal columns ─────────────────── */}
+            <div className="hidden md:flex md:flex-row md:items-stretch md:gap-4 flex-1 min-h-0">
+              <Column title="Owned" icon={FaUserCheck} iconColor="text-teal-500" count={myWorkspaces.length}>
+                {renderOwnedList()}
+              </Column>
+              <Column title="Joined" icon={FaUsers} iconColor="text-purple-500" count={joinedWorkspaces.length}>
+                {renderJoinedList()}
+              </Column>
+              <Column title="Associates" icon={FaUserShield} iconColor="text-amber-500" count={associateWorkspaces.length}>
+                {renderAssociatesList()}
+              </Column>
             </div>
 
-            {/* ─── Mobile: tabs ────────────────────────────────────── */}
+            {/* ─── Mobile: tabs ─────────────────────────────────── */}
             <div className="md:hidden">
-              <div className="flex bg-gray-100 dark:bg-[#1c1c20] rounded-xl p-1 mb-4">
+              <div className="flex bg-gray-100 dark:bg-[#1c1c20] rounded-lg p-1 mb-4">
                 <button
                   onClick={() => setActiveTab('owned')}
-                  className={`flex-1 py-2 text-sm font-medium rounded-lg transition ${
+                  className={`flex-1 py-2 text-xs font-medium rounded-md transition ${
                     activeTab === 'owned'
                       ? 'bg-white dark:bg-[#0f0f12] text-gray-900 dark:text-white shadow-sm'
                       : 'text-gray-500 dark:text-gray-400'
@@ -820,7 +877,7 @@ const MyWorkspaces = () => {
                 </button>
                 <button
                   onClick={() => setActiveTab('joined')}
-                  className={`flex-1 py-2 text-sm font-medium rounded-lg transition ${
+                  className={`flex-1 py-2 text-xs font-medium rounded-md transition ${
                     activeTab === 'joined'
                       ? 'bg-white dark:bg-[#0f0f12] text-gray-900 dark:text-white shadow-sm'
                       : 'text-gray-500 dark:text-gray-400'
@@ -828,13 +885,22 @@ const MyWorkspaces = () => {
                 >
                   Joined ({joinedWorkspaces.length})
                 </button>
+                <button
+                  onClick={() => setActiveTab('associates')}
+                  className={`flex-1 py-2 text-xs font-medium rounded-md transition ${
+                    activeTab === 'associates'
+                      ? 'bg-white dark:bg-[#0f0f12] text-gray-900 dark:text-white shadow-sm'
+                      : 'text-gray-500 dark:text-gray-400'
+                  }`}
+                >
+                  Associates ({associateWorkspaces.length})
+                </button>
               </div>
 
-              <div className="bg-white dark:bg-[#161619] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
-                {activeTab === 'owned'
-                  ? renderWorkspaceList(myWorkspaces, true)
-                  : <JoinedWorkspaces />
-                }
+              <div className="bg-white dark:bg-[#161619] rounded-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
+                {activeTab === 'owned' && renderOwnedList()}
+                {activeTab === 'joined' && renderJoinedList()}
+                {activeTab === 'associates' && renderAssociatesList()}
               </div>
             </div>
           </main>

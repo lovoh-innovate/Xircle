@@ -2,6 +2,7 @@
 
 import User from '../models/userModel.js';
 import Project from '../models/projectModel.js';
+import Workspace from '../models/workspaceModel.js';
 import asyncHandler from 'express-async-handler';
 import generateToken from '../utils/generateToken.js';
 import { OAuth2Client } from 'google-auth-library';
@@ -57,51 +58,143 @@ const toBool = (v) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// NEW: AUTO-LINK PENDING COLLABORATOR INVITES
+// AUTO-LINK PENDING ASSOCIATE INVITES
 //
 // When a user signs up / logs in / verifies their email, look for any
-// project collaborator records whose email matches but whose userId is null.
-// Link them, mark them active, and send a "you've been added" notification.
+// project.associates records whose email matches but whose userId is null.
+// Link them, mark them active, add them to the workspace as an associate
+// member, and send a "you've been added" notification.
 //
 // This is idempotent — safe to call on every auth event.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const linkPendingCollaboratorInvites = async (user) => {
+const linkPendingAssociateInvites = async (user) => {
   if (!user?.email || !user?._id) return { linked: 0, projects: [] };
 
   try {
     const normalizedEmail = user.email.toLowerCase().trim();
+    const now = new Date();
 
-    // Find projects with a pending invite for this email
+    // Find projects with a pending associate invite for this email.
+    // Status can be 'invited' (normal new-user case) or 'active' with
+    // no userId (edge case after a previous partial failure).
     const projects = await Project.find({
-      'collaborators.email': normalizedEmail,
-      'collaborators.userId': null,
-      'collaborators.status': { $in: ['invited', 'active'] },
+      'associates.email': normalizedEmail,
+      'associates.userId': null,
+      'associates.status': { $in: ['invited', 'active'] },
       isTrash: { $ne: true },
-    }).select('_id name collaborators workspace');
+    }).select('_id name workspace associates');
 
     if (projects.length === 0) return { linked: 0, projects: [] };
 
-    const now = new Date();
     const linkedProjects = [];
 
     for (const project of projects) {
       let touched = false;
-      for (const collab of project.collaborators) {
+      let becamePM = false;
+
+      for (const assoc of project.associates) {
         if (
-          collab.email === normalizedEmail &&
-          !collab.userId &&
-          collab.status !== 'revoked'
+          assoc.email === normalizedEmail &&
+          !assoc.userId &&
+          assoc.status !== 'revoked'
         ) {
-          collab.userId = user._id;
-          collab.status = 'active';
-          collab.acceptedAt = now;
+          // Skip expired invites
+          if (assoc.accessExpiresAt && new Date(assoc.accessExpiresAt) < now) {
+            assoc.status = 'revoked';
+            assoc.revokedAt = now;
+            touched = true;
+            continue;
+          }
+
+          assoc.userId = user._id;
+          assoc.status = 'active';
+          assoc.acceptedAt = now;
           touched = true;
+
+          // Promote to PM if the invite was as a project manager
+          if (assoc.role === 'projectManager') {
+            const alreadyPM = (project.projectManagers || []).some(
+              (pm) => pm.toString() === user._id.toString()
+            );
+            if (!alreadyPM) {
+              project.projectManagers.push(user._id);
+              becamePM = true;
+            }
+          }
         }
       }
+
       if (touched) {
         await project.save();
-        linkedProjects.push({ _id: project._id, name: project.name });
+
+        // Ensure the user is a workspace associate member
+        const workspace = await Workspace.findById(project.workspace);
+        if (workspace) {
+          const existingMember = workspace.members.find(
+            (m) =>
+              (m.user?._id ? m.user._id.toString() : m.user?.toString()) ===
+              user._id.toString()
+          );
+
+          if (!existingMember) {
+            // Find the matching associate record to pull accessExpiresAt
+            const assocRecord = project.associates.find(
+              (a) =>
+                a.userId &&
+                a.userId.toString() === user._id.toString() &&
+                a.status === 'active'
+            );
+
+            workspace.members.push({
+              user: user._id,
+              role: 'Associate',
+              memberType: 'associate',
+              department: null,
+              status: 'active',
+              joinedAt: now,
+              addedBy: assocRecord?.addedBy || null,
+              accessExpiresAt: assocRecord?.accessExpiresAt || null,
+            });
+
+            await workspace.save();
+
+            await User.findByIdAndUpdate(user._id, {
+              $addToSet: { joinedWorkspaces: workspace._id },
+            });
+          } else if (
+            existingMember.memberType === 'permanent' ||
+            existingMember.status !== 'active'
+          ) {
+            // They're already a permanent member (or somehow inactive).
+            // Permanent members shouldn't get downgraded — just make sure
+            // they're on joinedWorkspaces.
+            await User.findByIdAndUpdate(user._id, {
+              $addToSet: { joinedWorkspaces: workspace._id },
+            });
+          } else {
+            // Already an associate member — refresh expiry from the invite
+            const assocRecord = project.associates.find(
+              (a) =>
+                a.userId &&
+                a.userId.toString() === user._id.toString() &&
+                a.status === 'active'
+            );
+            if (assocRecord?.accessExpiresAt) {
+              existingMember.accessExpiresAt = assocRecord.accessExpiresAt;
+              await workspace.save();
+            }
+            await User.findByIdAndUpdate(user._id, {
+              $addToSet: { joinedWorkspaces: workspace._id },
+            });
+          }
+        }
+
+        linkedProjects.push({
+          _id: project._id,
+          name: project.name,
+          becameProjectManager: becamePM,
+        });
       }
     }
 
@@ -110,8 +203,12 @@ const linkPendingCollaboratorInvites = async (user) => {
       for (const p of linkedProjects) {
         createAndSendNotification({
           recipient: user._id,
-          title: `You're now collaborating on "${p.name}"`,
-          body: 'Your Xircle account has been linked. Tasks assigned to you are now actionable.',
+          title: p.becameProjectManager
+            ? `You're now a Project Manager on "${p.name}"`
+            : `You've been added to "${p.name}"`,
+          body: p.becameProjectManager
+            ? 'Your Xircle account has been linked. You can now manage this project.'
+            : 'Your Xircle account has been linked. Tasks assigned to you are now actionable.',
           data: {
             notificationType: 'project',
             projectId: p._id.toString(),
@@ -120,13 +217,15 @@ const linkPendingCollaboratorInvites = async (user) => {
           emailEventType: 'teamInvite',
           emailSubject: `You're collaborating on ${p.name}`,
           emailHtml: `<p>Your account is now linked to <strong>${p.name}</strong>.</p>`,
-        }).catch((err) => console.error('Collaborator link notify failed:', err.message));
+        }).catch((err) =>
+          console.error('Associate link notify failed:', err.message)
+        );
       }
     }
 
     return { linked: linkedProjects.length, projects: linkedProjects };
   } catch (err) {
-    console.error('linkPendingCollaboratorInvites failed:', err.message);
+    console.error('linkPendingAssociateInvites failed:', err.message);
     return { linked: 0, projects: [] };
   }
 };
@@ -217,8 +316,8 @@ const googleAuth = asyncHandler(async (req, res) => {
       })
     );
 
-    // NEW: link any pending collaborator invites that match this email
-    await linkPendingCollaboratorInvites(user);
+    // Link any pending associate invites that match this email
+    await linkPendingAssociateInvites(user);
   }
 
   // ── LOGIN ─────────────────────────────────────────────────────────────────
@@ -236,8 +335,8 @@ const googleAuth = asyncHandler(async (req, res) => {
     user.authMethod = 'google';
     await user.save();
 
-    // NEW: also link pending collaborator invites on login
-    await linkPendingCollaboratorInvites(user);
+    // Also link pending associate invites on login
+    await linkPendingAssociateInvites(user);
   }
 
   const token = generateToken(res, user._id);
@@ -316,7 +415,7 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new Error('Failed to create user: ' + createError.message);
   }
 
-  // NOTE: We intentionally do NOT link collaborator invites here.
+  // NOTE: We intentionally do NOT link associate invites here.
   // We wait until email verification so unverified users don't get access.
 
   console.log('📧 Attempting to send OTP email...');
@@ -380,8 +479,8 @@ const verifyEmail = asyncHandler(async (req, res) => {
   user.resetPasswordExpires = undefined;
   await user.save();
 
-  // NEW: link collaborator invites on successful verification
-  await linkPendingCollaboratorInvites(user);
+  // Link associate invites on successful verification
+  await linkPendingAssociateInvites(user);
 
   const token = generateToken(res, user._id);
 
@@ -492,9 +591,9 @@ const loginUser = asyncHandler(async (req, res) => {
       throw new Error('Invalid email or password');
     }
 
-    // NEW: link collaborator invites on login (catches the case where an
-    // existing user was later invited by email)
-    await linkPendingCollaboratorInvites(user);
+    // Link pending associate invites on login (catches the case where an
+    // existing user was later invited as an associate)
+    await linkPendingAssociateInvites(user);
 
     const token = generateToken(res, user._id);
     console.log(`✅ Login successful: ${email}`);
@@ -748,6 +847,52 @@ const logoutUser = asyncHandler(async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// OPTIONAL CRON HELPER — EXPIRE PENDING ASSOCIATE INVITES
+//
+// Revokes project.associates records whose email was never claimed and
+// whose accessExpiresAt has passed. Call from your cron runner alongside
+// expireAssociates() in workspaceController.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const revokeExpiredAssociateInvites = async () => {
+  try {
+    const now = new Date();
+
+    const projects = await Project.find({
+      'associates.userId': null,
+      'associates.status': { $in: ['invited', 'active'] },
+      'associates.accessExpiresAt': { $lt: now, $ne: null },
+    }).select('_id associates');
+
+    let count = 0;
+
+    for (const project of projects) {
+      let touched = false;
+      for (const assoc of project.associates) {
+        if (
+          !assoc.userId &&
+          assoc.status !== 'revoked' &&
+          assoc.accessExpiresAt &&
+          new Date(assoc.accessExpiresAt) < now
+        ) {
+          assoc.status = 'revoked';
+          assoc.revokedAt = now;
+          touched = true;
+          count++;
+        }
+      }
+      if (touched) await project.save();
+    }
+
+    console.log(`🧹 Revoked ${count} expired associate invite(s).`);
+    return count;
+  } catch (err) {
+    console.error('revokeExpiredAssociateInvites failed:', err.message);
+    return 0;
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export {
   googleAuth,
@@ -762,6 +907,7 @@ export {
   getUsers,
   getUserById,
   logoutUser,
-  // NEW — optional export if you ever want to call it manually
-  linkPendingCollaboratorInvites,
+  // Exported for optional manual / cron use
+  linkPendingAssociateInvites,
+  revokeExpiredAssociateInvites,
 };

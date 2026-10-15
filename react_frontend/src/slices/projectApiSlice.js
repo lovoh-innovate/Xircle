@@ -1,27 +1,27 @@
 // features/project/projectApiSlice.js
-import { apiSlice } from "./apiSlice";
+import { apiSlice } from './apiSlice';
 
-const PROJECTS_URL = "/projects";
+const PROJECTS_URL = '/projects';
 
 export const projectApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
-    // ─── Project CRUD ──────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════
+    // Project CRUD
+    // ═══════════════════════════════════════════════════════════════
 
     createProject: builder.mutation({
       query: ({ workspaceId, data }) => {
         const isFormData = data instanceof FormData;
         let url = PROJECTS_URL;
-        if (workspaceId) {
-          url += `?workspaceId=${workspaceId}`;
-        }
+        if (workspaceId) url += `?workspaceId=${workspaceId}`;
         return {
           url,
-          method: "POST",
+          method: 'POST',
           body: data,
-          headers: isFormData ? undefined : { "Content-Type": "application/json" },
+          headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
         };
       },
-      invalidatesTags: ["Project"],
+      invalidatesTags: ['Project'],
     }),
 
     getWorkspaceProjects: builder.query({
@@ -32,18 +32,65 @@ export const projectApiSlice = apiSlice.injectEndpoints({
       providesTags: (result) =>
         result
           ? [
-              ...result.projects.map((p) => ({ type: "Project", id: p._id })),
-              { type: "Project", id: "LIST" },
+              ...result.projects.map((p) => ({ type: 'Project', id: p._id })),
+              { type: 'Project', id: 'LIST' },
             ]
-          : [{ type: "Project", id: "LIST" }],
+          : [{ type: 'Project', id: 'LIST' }],
     }),
 
-    getProjectById: builder.query({
-      query: (projectId) => ({
-        url: `${PROJECTS_URL}/${projectId}`,
+    // ═══════════════════════════════════════════════════════════════
+    // UNIFIED PROJECT READ
+    //
+    // `identifier` accepts:
+    //   • Mongo ObjectId       (workspace mode — members + associates)
+    //   • public share token   (public read-only)
+    //
+    // Associates do NOT use a token. They hit the project ObjectId
+    // like any other member — their role is resolved server-side from
+    // workspace membership + project.associates.
+    //
+    // Server returns:
+    //   { project, viewer, permissions, associate, isFullMember }
+    // ═══════════════════════════════════════════════════════════════
+
+    getProject: builder.query({
+      query: (identifier) => ({
+        url: `${PROJECTS_URL}/${identifier}`,
       }),
-      providesTags: (result, error, projectId) => [
-        { type: "Project", id: projectId },
+      providesTags: (result, error, identifier) => [
+        { type: 'Project', id: identifier },
+        // Keep the project's real _id as a secondary cache key so
+        // mutations that invalidate by projectId also refresh this view.
+        ...(result?.project?._id
+          ? [{ type: 'Project', id: result.project._id }]
+          : []),
+        { type: 'PublicProject', id: identifier },
+      ],
+    }),
+
+    // Unified task list for a project (workspace / public)
+    getProjectTasksByProject: builder.query({
+      query: (identifier) => ({
+        url: `${PROJECTS_URL}/${identifier}/tasks`,
+      }),
+      providesTags: (result, error, identifier) =>
+        result
+          ? [
+              ...(result.tasks || []).map((t) => ({ type: 'Task', id: t._id })),
+              { type: 'PublicTask', id: identifier },
+              { type: 'Task', id: `LIST:${identifier}` },
+            ]
+          : [{ type: 'PublicTask', id: identifier }],
+    }),
+
+    // Unified single task read
+    getProjectTaskById: builder.query({
+      query: ({ identifier, taskId }) => ({
+        url: `${PROJECTS_URL}/${identifier}/tasks/${taskId}`,
+      }),
+      providesTags: (result, error, { identifier, taskId }) => [
+        { type: 'Task', id: taskId },
+        { type: 'PublicTask', id: `${identifier}:${taskId}` },
       ],
     }),
 
@@ -52,105 +99,101 @@ export const projectApiSlice = apiSlice.injectEndpoints({
         const isFormData = data instanceof FormData;
         return {
           url: `${PROJECTS_URL}/${projectId}`,
-          method: "PUT",
+          method: 'PUT',
           body: data,
-          headers: isFormData
-            ? undefined
-            : { "Content-Type": "application/json" },
+          headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
         };
       },
       invalidatesTags: (result, error, { projectId }) => [
-        { type: "Project", id: projectId },
+        { type: 'Project', id: projectId },
       ],
     }),
 
-    // Soft‑delete → trash (owner only)
+    // ─── Lifecycle ─────────────────────────────────────────────────
+
     deleteProject: builder.mutation({
       query: (projectId) => ({
         url: `${PROJECTS_URL}/${projectId}`,
-        method: "DELETE",
+        method: 'DELETE',
       }),
-      invalidatesTags: ["Project"],
+      invalidatesTags: ['Project'],
     }),
 
-    // Permanent delete (owner only)
     permanentlyDeleteProject: builder.mutation({
       query: (projectId) => ({
         url: `${PROJECTS_URL}/${projectId}/permanent`,
-        method: "DELETE",
+        method: 'DELETE',
       }),
-      invalidatesTags: ["Project"],
+      invalidatesTags: ['Project'],
     }),
 
-    // Restore from trash (owner only)
     restoreProject: builder.mutation({
       query: (projectId) => ({
         url: `${PROJECTS_URL}/${projectId}/restore`,
-        method: "PATCH",
+        method: 'PATCH',
       }),
       invalidatesTags: (result, error, projectId) => [
-        { type: "Project", id: projectId },
-        "Project",
+        { type: 'Project', id: projectId },
+        'Project',
       ],
     }),
 
-    // Personal archive (any member)
     archiveProject: builder.mutation({
       query: (projectId) => ({
         url: `${PROJECTS_URL}/${projectId}/archive`,
-        method: "PATCH",
+        method: 'PATCH',
       }),
       invalidatesTags: (result, error, projectId) => [
-        { type: "Project", id: projectId },
-        "Project",
+        { type: 'Project', id: projectId },
+        'Project',
       ],
     }),
 
-    // Personal unarchive (any member)
     unarchiveProject: builder.mutation({
       query: (projectId) => ({
         url: `${PROJECTS_URL}/${projectId}/unarchive`,
-        method: "PATCH",
+        method: 'PATCH',
       }),
       invalidatesTags: (result, error, projectId) => [
-        { type: "Project", id: projectId },
-        "Project",
+        { type: 'Project', id: projectId },
+        'Project',
       ],
     }),
 
-    // ─── Project Managers Management ──────────────────────────────
+    // ─── Managers ──────────────────────────────────────────────────
 
     manageProjectManagers: builder.mutation({
       query: ({ projectId, action, managerId }) => ({
         url: `${PROJECTS_URL}/${projectId}/managers`,
-        method: "PATCH",
+        method: 'PATCH',
         body: { action, managerId },
       }),
       invalidatesTags: (result, error, { projectId }) => [
-        { type: "Project", id: projectId },
+        { type: 'Project', id: projectId },
+        { type: 'Associate', id: projectId },
       ],
     }),
 
-    // ─── Team Member Management ─────────────────────────────────────
+    // ─── Team members ──────────────────────────────────────────────
 
     addTeamMember: builder.mutation({
-      query: ({ projectId, userId, role = "member" }) => ({
+      query: ({ projectId, userId, role = 'member' }) => ({
         url: `${PROJECTS_URL}/${projectId}/team`,
-        method: "POST",
+        method: 'POST',
         body: { userId, role },
       }),
       invalidatesTags: (result, error, { projectId }) => [
-        { type: "Project", id: projectId },
+        { type: 'Project', id: projectId },
       ],
     }),
 
     removeTeamMember: builder.mutation({
       query: ({ projectId, memberId }) => ({
         url: `${PROJECTS_URL}/${projectId}/team/${memberId}`,
-        method: "DELETE",
+        method: 'DELETE',
       }),
       invalidatesTags: (result, error, { projectId }) => [
-        { type: "Project", id: projectId },
+        { type: 'Project', id: projectId },
       ],
     }),
 
@@ -159,192 +202,293 @@ export const projectApiSlice = apiSlice.injectEndpoints({
         url: `${PROJECTS_URL}/${projectId}/team`,
       }),
       providesTags: (result, error, projectId) => [
-        { type: "Project", id: projectId },
+        { type: 'Project', id: projectId },
       ],
     }),
 
-    // ─── Direct Message Link ────────────────────────────────────────
+    // ─── DM & stats ────────────────────────────────────────────────
 
     getTeamMemberDM: builder.query({
       query: ({ projectId, userId }) => ({
         url: `${PROJECTS_URL}/${projectId}/dm/${userId}`,
       }),
-      providesTags: ["Chat"],
+      providesTags: ['Chat'],
     }),
-
-    // ─── Project Statistics ────────────────────────────────────────
 
     getProjectStats: builder.query({
       query: (projectId) => ({
         url: `${PROJECTS_URL}/${projectId}/stats`,
       }),
       providesTags: (result, error, projectId) => [
-        { type: "Project", id: projectId },
+        { type: 'Project', id: projectId },
       ],
     }),
 
     confirmProjectCompletion: builder.mutation({
       query: (projectId) => ({
-        url: `/projects/${projectId}/confirm-completion`,
-        method: "PATCH",
+        url: `${PROJECTS_URL}/${projectId}/confirm-completion`,
+        method: 'PATCH',
       }),
       invalidatesTags: (result, error, projectId) => [
-        { type: "Project", id: projectId },
-        "Project",
+        { type: 'Project', id: projectId },
+        'Project',
       ],
     }),
 
     // ═══════════════════════════════════════════════════════════════
-    // Guest / Collaborator Management
+    // ASSOCIATE MANAGEMENT
     //
-    // IMPORTANT: all endpoints here are prefixed with "Project" to
-    // avoid name collisions with other slices that also register
-    // endpoints like `addCollaborator`, `getCollaborators`, etc.
-    // (e.g. personalTaskApiSlice defines similarly-named endpoints.)
-    // RTK Query merges all injected endpoints into one API — if two
-    // slices register the same key, one silently overwrites the other.
+    // Associates are workspace-level limited collaborators added
+    // directly from a project. They don't use invite tokens — adding
+    // them emails a project link (if they have no account) or links
+    // them immediately (if they do).
+    //
+    // Role can be: 'viewer' | 'editor' | 'projectManager'
+    //   - 'projectManager' also adds them to the projectManagers array
+    //     and gives them full PM powers on this project.
+    //
+    // `accessExpiresAt` is optional — omit for indefinite access.
     // ═══════════════════════════════════════════════════════════════
 
-    // ─── My collaborated projects (guest dashboard) ────────────────
-    getMyCollaboratedProjects: builder.query({
+    getMyAssociateProjects: builder.query({
       query: () => ({
-        url: `${PROJECTS_URL}/collaborating`,
+        url: `${PROJECTS_URL}/associating`,
       }),
       providesTags: (result) =>
         result
           ? [
-              ...result.projects.map((p) => ({ type: "Project", id: p._id })),
-              { type: "CollaboratedProject", id: "LIST" },
+              ...result.projects.map((p) => ({ type: 'Project', id: p._id })),
+              { type: 'AssociateProject', id: 'LIST' },
             ]
-          : [{ type: "CollaboratedProject", id: "LIST" }],
+          : [{ type: 'AssociateProject', id: 'LIST' }],
     }),
 
-    // ─── List collaborators on a project ───────────────────────────
-    getProjectCollaborators: builder.query({
+    getProjectAssociates: builder.query({
       query: (projectId) => ({
-        url: `${PROJECTS_URL}/${projectId}/collaborators`,
+        url: `${PROJECTS_URL}/${projectId}/associates`,
       }),
       providesTags: (result, error, projectId) => [
-        { type: "Collaborator", id: projectId },
+        { type: 'Associate', id: projectId },
       ],
     }),
 
-    // ─── Invite a collaborator by email ────────────────────────────
-    addProjectCollaborator: builder.mutation({
-      query: ({ projectId, email, name = "", role = "viewer" }) => ({
-        url: `${PROJECTS_URL}/${projectId}/collaborators`,
-        method: "POST",
-        body: { email, name, role },
+    addProjectAssociate: builder.mutation({
+      query: ({ projectId, email, name = '', role = 'editor', accessExpiresAt = null }) => ({
+        url: `${PROJECTS_URL}/${projectId}/associates`,
+        method: 'POST',
+        body: { email, name, role, accessExpiresAt },
       }),
       invalidatesTags: (result, error, { projectId }) => [
-        { type: "Collaborator", id: projectId },
-        { type: "Project", id: projectId },
+        { type: 'Associate', id: projectId },
+        { type: 'Project', id: projectId },
       ],
     }),
 
-    // ─── Update a collaborator (role / name) ───────────────────────
-    updateProjectCollaborator: builder.mutation({
-      query: ({ projectId, collabId, role, name }) => ({
-        url: `${PROJECTS_URL}/${projectId}/collaborators/${collabId}`,
-        method: "PATCH",
-        body: { role, name },
-      }),
+    updateProjectAssociate: builder.mutation({
+      query: ({ projectId, associateId, role, name, accessExpiresAt }) => {
+        const body = {};
+        if (role !== undefined) body.role = role;
+        if (name !== undefined) body.name = name;
+        if (accessExpiresAt !== undefined) body.accessExpiresAt = accessExpiresAt;
+        return {
+          url: `${PROJECTS_URL}/${projectId}/associates/${associateId}`,
+          method: 'PATCH',
+          body,
+        };
+      },
       invalidatesTags: (result, error, { projectId }) => [
-        { type: "Collaborator", id: projectId },
+        { type: 'Associate', id: projectId },
+        { type: 'Project', id: projectId },
       ],
     }),
 
-    // ─── Revoke a collaborator ─────────────────────────────────────
-    removeProjectCollaborator: builder.mutation({
-      query: ({ projectId, collabId }) => ({
-        url: `${PROJECTS_URL}/${projectId}/collaborators/${collabId}`,
-        method: "DELETE",
+    removeProjectAssociate: builder.mutation({
+      query: ({ projectId, associateId }) => ({
+        url: `${PROJECTS_URL}/${projectId}/associates/${associateId}`,
+        method: 'DELETE',
       }),
       invalidatesTags: (result, error, { projectId }) => [
-        { type: "Collaborator", id: projectId },
-        { type: "Project", id: projectId },
-      ],
-    }),
-
-    // ─── Rotate a collaborator's invite token ──────────────────────
-    regenerateProjectCollaboratorToken: builder.mutation({
-      query: ({ projectId, collabId }) => ({
-        url: `${PROJECTS_URL}/${projectId}/collaborators/${collabId}/regenerate`,
-        method: "POST",
-      }),
-      invalidatesTags: (result, error, { projectId }) => [
-        { type: "Collaborator", id: projectId },
+        { type: 'Associate', id: projectId },
+        { type: 'Project', id: projectId },
       ],
     }),
 
     // ═══════════════════════════════════════════════════════════════
-    // Project-wide read-only share link
+    // Project-wide read-only share link (unchanged)
     // ═══════════════════════════════════════════════════════════════
 
     enableProjectShareLink: builder.mutation({
       query: (projectId) => ({
         url: `${PROJECTS_URL}/${projectId}/share-link`,
-        method: "POST",
+        method: 'POST',
       }),
       invalidatesTags: (result, error, projectId) => [
-        { type: "Project", id: projectId },
+        { type: 'Project', id: projectId },
       ],
     }),
 
     disableProjectShareLink: builder.mutation({
       query: (projectId) => ({
         url: `${PROJECTS_URL}/${projectId}/share-link`,
-        method: "DELETE",
+        method: 'DELETE',
       }),
       invalidatesTags: (result, error, projectId) => [
-        { type: "Project", id: projectId },
+        { type: 'Project', id: projectId },
       ],
     }),
 
     // ═══════════════════════════════════════════════════════════════
-    // Public token-scoped reads (used by guests, no auth required)
+    // BACK-COMPAT ALIASES
+    //
+    // Old hook names still used by some components. Use the new
+    // *Associate variants in new code. The aliases exist only so
+    // existing call sites don't break during the migration.
+    //
+    // ⚠️ These will be removed in a follow-up release.
     // ═══════════════════════════════════════════════════════════════
+
+    getProjectById: builder.query({
+      query: (identifier) => ({
+        url: `${PROJECTS_URL}/${identifier}`,
+      }),
+      providesTags: (result, error, identifier) => [
+        { type: 'Project', id: identifier },
+        ...(result?.project?._id ? [{ type: 'Project', id: result.project._id }] : []),
+      ],
+    }),
 
     getPublicProjectByToken: builder.query({
       query: (token) => ({
-        url: `${PROJECTS_URL}/public/${token}`,
+        url: `${PROJECTS_URL}/${token}`,
       }),
       providesTags: (result, error, token) => [
-        { type: "PublicProject", id: token },
+        { type: 'PublicProject', id: token },
       ],
     }),
 
     getPublicProjectTasks: builder.query({
       query: (token) => ({
-        url: `${PROJECTS_URL}/public/${token}/tasks`,
+        url: `${PROJECTS_URL}/${token}/tasks`,
       }),
       providesTags: (result, error, token) => [
-        { type: "PublicTask", id: token },
+        { type: 'PublicTask', id: token },
       ],
     }),
 
     getPublicTaskById: builder.query({
       query: ({ token, taskId }) => ({
-        url: `${PROJECTS_URL}/public/${token}/tasks/${taskId}`,
+        url: `${PROJECTS_URL}/${token}/tasks/${taskId}`,
       }),
       providesTags: (result, error, { token, taskId }) => [
-        { type: "PublicTask", id: `${token}:${taskId}` },
+        { type: 'PublicTask', id: `${token}:${taskId}` },
       ],
+    }),
+
+    // Old collaborator hooks → redirect to associate endpoints.
+    // This keeps existing components working while you migrate them.
+    getMyCollaboratedProjects: builder.query({
+      query: () => ({
+        url: `${PROJECTS_URL}/associating`,
+      }),
+      providesTags: (result) =>
+        result
+          ? [
+              ...result.projects.map((p) => ({ type: 'Project', id: p._id })),
+              { type: 'AssociateProject', id: 'LIST' },
+            ]
+          : [{ type: 'AssociateProject', id: 'LIST' }],
+    }),
+
+    getProjectCollaborators: builder.query({
+      query: (projectId) => ({
+        url: `${PROJECTS_URL}/${projectId}/associates`,
+      }),
+      providesTags: (result, error, projectId) => [
+        { type: 'Associate', id: projectId },
+      ],
+    }),
+
+    addProjectCollaborator: builder.mutation({
+      query: ({ projectId, email, name = '', role = 'editor', accessExpiresAt = null }) => ({
+        url: `${PROJECTS_URL}/${projectId}/associates`,
+        method: 'POST',
+        body: { email, name, role, accessExpiresAt },
+      }),
+      invalidatesTags: (result, error, { projectId }) => [
+        { type: 'Associate', id: projectId },
+        { type: 'Project', id: projectId },
+      ],
+    }),
+
+    updateProjectCollaborator: builder.mutation({
+      query: ({ projectId, collabId, associateId, role, name, accessExpiresAt }) => {
+        const id = associateId || collabId;
+        const body = {};
+        if (role !== undefined) body.role = role;
+        if (name !== undefined) body.name = name;
+        if (accessExpiresAt !== undefined) body.accessExpiresAt = accessExpiresAt;
+        return {
+          url: `${PROJECTS_URL}/${projectId}/associates/${id}`,
+          method: 'PATCH',
+          body,
+        };
+      },
+      invalidatesTags: (result, error, { projectId }) => [
+        { type: 'Associate', id: projectId },
+      ],
+    }),
+
+    removeProjectCollaborator: builder.mutation({
+      query: ({ projectId, collabId, associateId }) => {
+        const id = associateId || collabId;
+        return {
+          url: `${PROJECTS_URL}/${projectId}/associates/${id}`,
+          method: 'DELETE',
+        };
+      },
+      invalidatesTags: (result, error, { projectId }) => [
+        { type: 'Associate', id: projectId },
+        { type: 'Project', id: projectId },
+      ],
+    }),
+
+    // No-op alias — the regenerate-token flow is gone. Kept so any
+    // lingering import doesn't crash the build. Remove once the last
+    // caller is deleted.
+    regenerateProjectCollaboratorToken: builder.mutation({
+      queryFn: async () => ({
+        error: {
+          status: 'CUSTOM_ERROR',
+          error: 'Regenerate-token flow has been removed. Associates no longer use invite tokens.',
+        },
+      }),
     }),
   }),
 });
 
 export const {
-  // Existing
+  // ─── Project CRUD ───
   useCreateProjectMutation,
   useGetWorkspaceProjectsQuery,
-  useGetProjectByIdQuery,
   useUpdateProjectMutation,
   useDeleteProjectMutation,
   usePermanentlyDeleteProjectMutation,
   useRestoreProjectMutation,
   useArchiveProjectMutation,
   useUnarchiveProjectMutation,
+
+  // ─── Unified reads (use these for new code) ───
+  useGetProjectQuery,
+  useGetProjectTasksByProjectQuery,
+  useGetProjectTaskByIdQuery,
+
+  // ─── Back-compat reads ───
+  useGetProjectByIdQuery,
+  useGetPublicProjectByTokenQuery,
+  useGetPublicProjectTasksQuery,
+  useGetPublicTaskByIdQuery,
+
+  // ─── Managers / Team / DM / Stats ───
   useManageProjectManagersMutation,
   useAddTeamMemberMutation,
   useRemoveTeamMemberMutation,
@@ -353,16 +497,23 @@ export const {
   useGetProjectStatsQuery,
   useConfirmProjectCompletionMutation,
 
-  // Collaborator / share-link hooks (all "Project"-prefixed)
+  // ─── Associates (new names) ───
+  useGetMyAssociateProjectsQuery,
+  useGetProjectAssociatesQuery,
+  useAddProjectAssociateMutation,
+  useUpdateProjectAssociateMutation,
+  useRemoveProjectAssociateMutation,
+
+  // ─── Associate back-compat aliases ───
+  // These will be removed in a follow-up release.
   useGetMyCollaboratedProjectsQuery,
   useGetProjectCollaboratorsQuery,
   useAddProjectCollaboratorMutation,
   useUpdateProjectCollaboratorMutation,
   useRemoveProjectCollaboratorMutation,
   useRegenerateProjectCollaboratorTokenMutation,
+
+  // ─── Share link ───
   useEnableProjectShareLinkMutation,
   useDisableProjectShareLinkMutation,
-  useGetPublicProjectByTokenQuery,
-  useGetPublicProjectTasksQuery,
-  useGetPublicTaskByIdQuery,
 } = projectApiSlice;

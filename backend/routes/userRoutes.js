@@ -46,10 +46,15 @@ const upload = multer({
 // Public routes — no authentication required
 //
 // NOTE: registerUser / verifyEmail / loginUser / googleAuth all call
-// linkPendingCollaboratorInvites() internally. This auto-links any
-// pending collaborator invitations that match the user's email, so
-// guests who sign up with their invited email gain access without
-// any frontend cooperation.
+// linkPendingAssociateInvites() internally. This auto-links any
+// pending associate invitations that match the user's email — both at
+// the project level (project.associates) and the workspace level
+// (workspace.members with memberType: 'associate').
+//
+// Result: someone invited as an associate with no Xircle account can
+// sign up normally with the invited email, and the project + tasks
+// assigned to them appear on their dashboard without any frontend
+// cooperation.
 // ═════════════════════════════════════════════════════════════════════
 router.post('/google', googleAuth);
 router.post('/register', registerUser);

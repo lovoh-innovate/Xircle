@@ -7,6 +7,15 @@
 // parent layout — this file does NOT import MyWorkspaceSidebar / Bottombar.
 //
 // Route params: accepts `:id` OR `:noteId`.
+//
+// CALLOUTS:
+//   • setCallout wraps top-level blocks (depth 1). This is what makes
+//     "wrap a numbered list" work: the *list* is wrapped whole, instead of
+//     trying to wrap a single listItem (which isn't a valid child of a
+//     callout and silently failed under the old wrapIn() approach).
+//   • unsetCallout swaps the callout node with its own children — lifting
+//     its content one level up. This always works, regardless of what's
+//     inside (paragraphs, lists, tables, nested callouts).
 
 import React, {
   useState,
@@ -311,6 +320,9 @@ ${S} [data-callout] > :last-child { margin-bottom: 0; }
 ${S} [data-callout] p { margin: 0.35rem 0; }
 ${S} [data-callout] p:first-child { margin-top: 0; }
 ${S} [data-callout] p:last-child { margin-bottom: 0; }
+${S} [data-callout] ul,
+${S} [data-callout] ol { margin: 0.35rem 0; padding-left: 1.5rem; }
+${S} [data-callout] li { margin: 0.125rem 0; }
 ${S} [data-callout].ProseMirror-selectednode {
   outline: 2px solid #14b8a6;
   outline-offset: 2px;
@@ -619,6 +631,21 @@ const CustomTableCell = TableCell.extend({ addAttributes() { return { ...(this.p
 const CustomTableHeader = TableHeader.extend({ addAttributes() { return { ...(this.parent?.() || {}), ...cellExtraAttributes() }; } });
 
 // ─── CALLOUT NODE ─────────────────────────────────────────────────────
+//
+// setCallout / unsetCallout are custom (not using wrapIn / lift) because
+// the built-in helpers don't behave well with a `block+` container that
+// also has `isolating: true`:
+//
+//   • wrapIn targets the deepest block-level ancestor of the selection.
+//     Inside a list that's a `listItem`, which is *not* a valid child of a
+//     callout — so wrapping silently failed. We now wrap at depth 1
+//     (top-level blocks), so a list, table, heading, or run of paragraphs
+//     all wrap cleanly.
+//
+//   • lift had trouble finding a lift target under `isolating`. We now
+//     just swap the callout node for its own content, which always works
+//     and lifts the children up one level.
+//
 const Callout = Node.create({
   name: 'callout',
   group: 'block',
@@ -636,11 +663,119 @@ const Callout = Node.create({
   parseHTML() { return [{ tag: 'div[data-callout]' }]; },
   renderHTML({ HTMLAttributes }) { return ['div', mergeAttributes(HTMLAttributes, { 'data-callout': 'true' }), 0]; },
   addCommands() {
+    // ── Helper used by setCallout / toggleCallout ────────────────────
+    // Finds the range of top-level blocks (depth 1) the selection touches
+    // and returns { startPos, endPos, slice } or null.
+    const topLevelRange = (state) => {
+      const { $from, $to } = state.selection;
+      let startPos, endPos;
+      try {
+        startPos = $from.before(1);
+        endPos = $to.after(1);
+      } catch {
+        return null;
+      }
+      if (startPos == null || endPos == null || startPos >= endPos) return null;
+      const slice = state.doc.slice(startPos, endPos);
+      if (!slice.content.size) return null;
+      return { startPos, endPos, slice };
+    };
+
+    const findCalloutDepth = (state) => {
+      const calloutType = state.schema.nodes.callout;
+      const { $from } = state.selection;
+      for (let d = $from.depth; d > 0; d--) {
+        if ($from.node(d).type === calloutType) return d;
+      }
+      return -1;
+    };
+
     return {
-      setCallout: (attrs = {}) => ({ commands }) => commands.wrapIn(this.name, attrs),
-      toggleCallout: (attrs = {}) => ({ commands }) => commands.toggleWrap(this.name, attrs),
-      unsetCallout: () => ({ commands }) => commands.lift(this.name),
-      updateCallout: (attrs) => ({ commands }) => commands.updateAttributes(this.name, attrs),
+      setCallout:
+        (attrs = {}) =>
+        ({ state, dispatch }) => {
+          const calloutType = state.schema.nodes.callout;
+          if (!calloutType) return false;
+
+          // Already inside a callout → toolbar uses updateCallout for that.
+          if (findCalloutDepth(state) !== -1) return false;
+
+          const range = topLevelRange(state);
+          if (!range) return false;
+
+          const calloutNode = calloutType.create(attrs, range.slice.content);
+          const tr = state.tr.replaceWith(range.startPos, range.endPos, calloutNode);
+
+          if (dispatch) dispatch(tr.scrollIntoView());
+          return true;
+        },
+
+      unsetCallout:
+        () =>
+        ({ state, dispatch }) => {
+          const calloutType = state.schema.nodes.callout;
+          if (!calloutType) return false;
+
+          const calloutDepth = findCalloutDepth(state);
+          if (calloutDepth === -1) return false;
+
+          const $from = state.selection.$from;
+          const calloutPos = $from.before(calloutDepth);
+          const calloutNode = $from.node(calloutDepth);
+          const calloutEnd = calloutPos + calloutNode.nodeSize;
+
+          // Swap the callout for its own children — this lifts the
+          // content one level up regardless of what it contains
+          // (paragraphs, lists, tables, even nested callouts).
+          const tr = state.tr.replaceWith(
+            calloutPos,
+            calloutEnd,
+            calloutNode.content
+          );
+
+          if (dispatch) dispatch(tr.scrollIntoView());
+          return true;
+        },
+
+      toggleCallout:
+        (attrs = {}) =>
+        ({ state, dispatch }) => {
+          const calloutType = state.schema.nodes.callout;
+          if (!calloutType) return false;
+
+          const calloutDepth = findCalloutDepth(state);
+
+          // ── Unset ──────────────────────────────────────────────────
+          if (calloutDepth !== -1) {
+            const $from = state.selection.$from;
+            const calloutPos = $from.before(calloutDepth);
+            const calloutNode = $from.node(calloutDepth);
+            const calloutEnd = calloutPos + calloutNode.nodeSize;
+
+            const tr = state.tr.replaceWith(
+              calloutPos,
+              calloutEnd,
+              calloutNode.content
+            );
+            if (dispatch) dispatch(tr.scrollIntoView());
+            return true;
+          }
+
+          // ── Set ────────────────────────────────────────────────────
+          const range = topLevelRange(state);
+          if (!range) return false;
+
+          const calloutNode = calloutType.create(attrs, range.slice.content);
+          const tr = state.tr.replaceWith(range.startPos, range.endPos, calloutNode);
+
+          if (dispatch) dispatch(tr.scrollIntoView());
+          return true;
+        },
+
+      updateCallout:
+        (attrs) =>
+        ({ commands }) =>
+          commands.updateAttributes(this.name, attrs),
     };
   },
   addKeyboardShortcuts() {

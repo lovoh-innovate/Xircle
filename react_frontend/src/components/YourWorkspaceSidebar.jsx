@@ -7,7 +7,7 @@ import React, {
   useLayoutEffect,
   useCallback,
 } from 'react';
-import { Link, useParams, useLocation } from 'react-router-dom';
+import { Link, useParams, useLocation, useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import {
   FiHome,
@@ -24,6 +24,7 @@ import {
   FiMonitor,
   FiUser,
   FiFileText, // 👈 NEW — Notes icon
+  FiLock,     // 👈 NEW — guest CTA icon
 } from 'react-icons/fi';
 import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
 import { useGetWorkspaceProjectsQuery } from '../slices/projectApiSlice';
@@ -74,7 +75,7 @@ const belongsToWorkspace = (chat, workspaceId) => {
   return chat.scope === 'workspace' && String(chatWorkspaceId) === String(workspaceId);
 };
 
-// ─── Sidebar width constraints (shared with GeneralSidebar) ────────
+// ─── Sidebar width constraints ─────────────────────────────────────
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 480;
 const DEFAULT_WIDTH = 288;
@@ -95,26 +96,60 @@ const readSavedWidth = () => {
 const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   const { workspaceId } = useParams();
   const location = useLocation();
+  const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
   const { theme, toggleTheme, isDarkMode } = useTheme();
   const [isCollapsed, setIsCollapsed] = useState(false);
 
-  const onlineUserIds = useWorkspacePresence(workspaceId);
+  // ─── Identity & role ─────────────────────────────────────────
+  const isLoggedIn = !!userInfo;
+  const myId = String(userInfo?._id || '');
+
+  // Look up caller's membership on this workspace.
+  // If found → full member (owner / admin / manager / member).
+  // If logged in but not in the list → associate / guest collaborator.
+  const members = useMemo(() => workspace?.members || [], [workspace]);
+  const myMembership = useMemo(
+    () => (isLoggedIn ? members.find((m) => String(m.user?._id || m.user) === myId) : null),
+    [members, isLoggedIn, myId]
+  );
+  const isMember = !!myMembership;
+  const isAssociate = isLoggedIn && !isMember;
+  const isGuest = !isLoggedIn;
+
+  // ─── Feature gating ──────────────────────────────────────────
+  // Guests: nothing but the workspace header + login CTA.
+  // Associates: dashboard, projects, tasks, notes — no chats,
+  //             no members, no clock-in.
+  // Members: everything.
+  const canSeeProjects = isLoggedIn;
+  const canSeeAllTasks = isLoggedIn;
+  const canSeeNotes    = isLoggedIn;
+  const canSeeChats    = isMember;
+  const canSeeMembers  = isMember;
+  const canSeeClockin  = isMember;
+
+  const onlineUserIds = useWorkspacePresence(canSeeChats ? workspaceId : null);
   const onlineCount = onlineUserIds.size;
 
+  // ─── Queries (skipped when not permitted) ────────────────────
   const { data: chatsData, isLoading: chatsLoading } = useGetUserChatsQuery(workspaceId, {
-    skip: !!propChats,
+    skip: !!propChats || !canSeeChats,
   });
   const rawChats = propChats || chatsData?.chats || [];
 
   const chats = useMemo(
-    () => rawChats.filter((chat) => belongsToWorkspace(chat, workspaceId)),
-    [rawChats, workspaceId]
+    () =>
+      canSeeChats
+        ? rawChats.filter((chat) => belongsToWorkspace(chat, workspaceId))
+        : [],
+    [rawChats, workspaceId, canSeeChats]
   );
 
-  const { data: projectsData, isLoading: projectsLoading } = useGetWorkspaceProjectsQuery({
-    workspaceId,
-  });
+  const { data: projectsData, isLoading: projectsLoading } = useGetWorkspaceProjectsQuery(
+    { workspaceId },
+    { skip: !canSeeProjects }
+  );
   const projects = projectsData?.projects || [];
 
   const [expandedSections, setExpandedSections] = useState({
@@ -126,10 +161,7 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   const brandColor = workspace?.color || '#4F46E5';
 
   const toggleSection = (section) => {
-    setExpandedSections((prev) => ({
-      ...prev,
-      [section]: !prev[section],
-    }));
+    setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
   const getInitials = (name) => {
@@ -142,7 +174,7 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
       .toUpperCase();
   };
 
-  // ─── Resizable sidebar state ───────────────────────────────────
+  // ─── Resizable sidebar state ─────────────────────────────────
   const asideRef = useRef(null);
   const handleRef = useRef(null);
 
@@ -169,11 +201,7 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
 
   useEffect(() => {
     if (isResizing) return;
-    try {
-      localStorage.setItem(STORAGE_KEY, String(sidebarWidth));
-    } catch {
-      /* ignore */
-    }
+    try { localStorage.setItem(STORAGE_KEY, String(sidebarWidth)); } catch {}
   }, [sidebarWidth, isResizing]);
 
   useEffect(() => {
@@ -194,8 +222,7 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
       isResizingRef.current = true;
       setIsResizing(true);
 
-      const liveWidth =
-        asideRef.current?.getBoundingClientRect().width ?? sidebarWidth;
+      const liveWidth = asideRef.current?.getBoundingClientRect().width ?? sidebarWidth;
       startWidthRef.current = liveWidth;
       startXRef.current = e.clientX;
       pendingWidthRef.current = liveWidth;
@@ -210,18 +237,12 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   useEffect(() => {
     const onMove = (e) => {
       if (!isResizingRef.current) return;
-
-      const next = clampWidth(
-        startWidthRef.current + (e.clientX - startXRef.current)
-      );
+      const next = clampWidth(startWidthRef.current + (e.clientX - startXRef.current));
       pendingWidthRef.current = next;
-
       if (rafRef.current == null) {
         rafRef.current = requestAnimationFrame(() => {
           rafRef.current = null;
-          if (pendingWidthRef.current != null) {
-            applyWidth(pendingWidthRef.current);
-          }
+          if (pendingWidthRef.current != null) applyWidth(pendingWidthRef.current);
         });
       }
     };
@@ -230,16 +251,13 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
       if (!isResizingRef.current) return;
       isResizingRef.current = false;
       setIsResizing(false);
-
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       document.body.style.touchAction = '';
-
       if (rafRef.current != null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
-
       if (pendingWidthRef.current != null) {
         const finalWidth = pendingWidthRef.current;
         pendingWidthRef.current = null;
@@ -286,32 +304,27 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
     [sidebarWidth, applyWidth, resetWidth]
   );
 
-  // ─── Navigation ──────────────────────────────────────────────────
+  // ─── Navigation (filtered per role) ──────────────────────────
   const navOptions = [
-    { id: 'home', label: 'Dashboard', icon: FiHome, path: `/workspace/${workspaceId}` },
-    { id: 'projects', label: 'Projects', icon: FiFolder, path: `/workspace/${workspaceId}/projects` },
-    { id: 'all-tasks', label: 'All Tasks', icon: FiCheckSquare, path: `/workspace/${workspaceId}/tasks` },
-    { id: 'notes', label: 'Notes', icon: FiFileText, path: `/workspace/${workspaceId}/notes` }, // 👈 NEW
-    { id: 'channels', label: 'Channels', icon: ChatIcon, path: `/workspace/${workspaceId}/channels` },
-    { id: 'dms', label: 'Direct Messages', icon: FiMail, path: `/workspace/${workspaceId}/dms` },
-    { id: 'members', label: 'Members', icon: FiUsers, path: `/workspace/${workspaceId}/members` },
-    { id: 'clockin', label: 'Clock‑in', icon: FiClock, path: `/workspace/${workspaceId}/clockin` },
-  ];
-
-  const members = workspace?.members || [];
+    { id: 'home',      label: 'Dashboard',       icon: FiHome,        path: `/workspace/${workspaceId}`,          show: isLoggedIn },
+    { id: 'projects',  label: 'Projects',        icon: FiFolder,      path: `/workspace/${workspaceId}/projects`, show: canSeeProjects },
+    { id: 'all-tasks', label: 'All Tasks',       icon: FiCheckSquare, path: `/workspace/${workspaceId}/tasks`,    show: canSeeAllTasks },
+    { id: 'notes',     label: 'Notes',           icon: FiFileText,    path: `/workspace/${workspaceId}/notes`,    show: canSeeNotes },
+    { id: 'channels',  label: 'Channels',        icon: ChatIcon,      path: `/workspace/${workspaceId}/channels`, show: canSeeChats },
+    { id: 'dms',       label: 'Direct Messages', icon: FiMail,        path: `/workspace/${workspaceId}/dms`,      show: canSeeChats },
+    { id: 'members',   label: 'Members',         icon: FiUsers,       path: `/workspace/${workspaceId}/members`,  show: canSeeMembers },
+    { id: 'clockin',   label: 'Clock‑in',        icon: FiClock,       path: `/workspace/${workspaceId}/clockin`,  show: canSeeClockin },
+  ].filter((o) => o.show);
 
   const channels = chats.filter((chat) => chat.type === 'group') || [];
 
-  const myId = String(userInfo?._id);
   const rawDirectMessages = chats.filter((chat) => chat.type === 'direct') || [];
   const directMessages = useMemo(() => {
     const uniqueById = forceUniqueById(rawDirectMessages, (c) => c?._id);
     const byParticipant = new Map();
 
     for (const chat of uniqueById) {
-      const other = chat.participants?.find(
-        (p) => String(p.user?._id || p.user) !== myId
-      );
+      const other = chat.participants?.find((p) => String(p.user?._id || p.user) !== myId);
       const participantId = String(other?.user?._id || other?.user);
       if (!participantId || participantId === 'undefined') continue;
 
@@ -324,27 +337,20 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   }, [rawDirectMessages, myId]);
 
   const isActive = (path) => {
-    if (path === `/workspace/${workspaceId}`) {
-      return location.pathname === path;
-    }
+    if (path === `/workspace/${workspaceId}`) return location.pathname === path;
     return location.pathname.includes(path.split('/').pop());
   };
 
   const getDMParticipant = (chat) => {
-    const other = chat.participants.find(
-      (p) => String(p.user?._id || p.user) !== myId
-    );
+    const other = chat.participants.find((p) => String(p.user?._id || p.user) !== myId);
     return other?.user || other;
   };
 
   const getDMUnread = (chat) => chat.unreadCount || 0;
 
-  const userMembership = members.find(
-    (m) => String(m.user?._id || m.user) === myId
-  );
-  const userRole = userMembership?.role || 'Member';
+  const userRole = isMember ? (myMembership?.role || 'Member') : (isAssociate ? 'Associate' : '');
 
-  // ─── Project Item ──────────────────────────────────────────────
+  // ─── Project Item ─────────────────────────────────────────────
   const ProjectItem = ({ project }) => {
     const progress = project.progress || 0;
     const statusColor =
@@ -375,9 +381,7 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
             <span className="truncate text-sm text-gray-700 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-gray-200">
               {project.name}
             </span>
-            <span className={`text-[10px] font-medium ${statusColor}`}>
-              {progress}%
-            </span>
+            <span className={`text-[10px] font-medium ${statusColor}`}>{progress}%</span>
           </div>
           <div className="w-full h-1 bg-gray-200 dark:bg-gray-800 rounded-full mt-0.5 overflow-hidden">
             <div
@@ -425,6 +429,80 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
     );
   };
 
+  // ═══════════════════════════════════════════════════════════════
+  // GUEST VIEW — no userInfo
+  // ═══════════════════════════════════════════════════════════════
+  if (isGuest) {
+    return (
+      <>
+        <div
+          ref={asideRef}
+          style={{ width: `var(${CSS_VAR}, ${DEFAULT_WIDTH}px)` }}
+          className="sticky top-0 h-screen bg-white dark:bg-[#18181b] border-r border-gray-200 dark:border-gray-800 flex flex-col overflow-hidden transition-all duration-300 ease-in-out"
+        >
+          {/* Header */}
+          <div className="flex items-center gap-3 px-4 border-b border-gray-200 dark:border-gray-800 min-h-[56px] flex-shrink-0">
+            {workspace?.logo ? (
+              <img
+                src={workspace.logo}
+                alt={workspace.name}
+                className="w-9 h-9 rounded-lg object-cover flex-shrink-0"
+              />
+            ) : (
+              <div
+                className="w-9 h-9 rounded-lg flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
+                style={{ backgroundColor: brandColor }}
+              >
+                {workspace?.initials || getInitials(workspace?.name)}
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-gray-800 dark:text-gray-100 truncate text-sm">
+                {workspace?.name}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-500 truncate">
+                Public view
+              </p>
+            </div>
+          </div>
+
+          {/* Login / Signup CTA */}
+          <div className="flex-1 flex flex-col items-center justify-center px-5 py-6 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-teal-50 dark:bg-teal-900/20 flex items-center justify-center mb-3">
+              <FiLock className="text-teal-600 dark:text-teal-400 text-xl" />
+            </div>
+            <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-1">
+              Sign in to unlock
+            </h3>
+            <p className="text-xs text-gray-500 dark:text-gray-500 mb-4 max-w-[210px] leading-relaxed">
+              Get full access to projects, tasks, notes and chats.
+            </p>
+            <button
+              onClick={() => navigate('/login')}
+              className="w-full py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-sm font-medium transition mb-2"
+            >
+              Sign in
+            </button>
+            <button
+              onClick={() => navigate('/signup')}
+              className="w-full py-2 border border-gray-300 dark:border-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition"
+            >
+              Create account
+            </button>
+          </div>
+
+          {/* Theme toggle only */}
+          <div className="border-t border-gray-200 dark:border-gray-800 p-3 flex items-center justify-center gap-2 flex-shrink-0">
+            <ThemeToggleIcon />
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // LOGGED-IN VIEW — full member or associate
+  // ═══════════════════════════════════════════════════════════════
   return (
     <>
       <div
@@ -461,13 +539,15 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
                 {workspace?.name}
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-500 truncate">
-                {members.length} members · {onlineCount} online
+                {isMember
+                  ? `${members.length} members · ${onlineCount} online`
+                  : 'Associate access'}
               </p>
             </div>
           )}
         </div>
 
-        {/* ─── Navigation ── */}
+        {/* ─── Navigation (filtered per role) ── */}
         <div
           className={`py-2 border-b border-gray-200 dark:border-gray-800 flex-shrink-0 ${
             isCollapsed ? 'px-2' : 'px-3'
@@ -482,9 +562,7 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
                 to={opt.path}
                 title={isCollapsed ? opt.label : undefined}
                 className={`flex items-center rounded-lg transition-all text-sm ${
-                  isCollapsed
-                    ? 'justify-center p-2.5 mb-1'
-                    : 'gap-3 px-3 py-1.5 mb-0.5'
+                  isCollapsed ? 'justify-center p-2.5 mb-1' : 'gap-3 px-3 py-1.5 mb-0.5'
                 } ${
                   active
                     ? 'text-white'
@@ -493,9 +571,7 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
                 style={active ? { backgroundColor: brandColor } : {}}
               >
                 <Icon
-                  className={`${active ? 'text-white' : ''} ${
-                    isCollapsed ? 'text-lg' : ''
-                  }`}
+                  className={`${active ? 'text-white' : ''} ${isCollapsed ? 'text-lg' : ''}`}
                 />
                 {!isCollapsed && <span className="font-medium">{opt.label}</span>}
               </Link>
@@ -506,285 +582,305 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
         {/* ─── Scrollable Content ─── */}
         {isCollapsed ? (
           <div className="flex-1 overflow-y-auto scrollbar-hide py-3 px-2 flex flex-col items-center gap-3">
-            <Link
-              to={`/workspace/${workspaceId}/projects`}
-              title="Projects"
-              className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
-            >
-              <FiFolder className="text-lg" />
-              {projects.some((p) => p.progress < 100) && (
-                <span
-                  className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full"
-                  style={{ backgroundColor: brandColor }}
-                />
-              )}
-            </Link>
+            {canSeeProjects && (
+              <Link
+                to={`/workspace/${workspaceId}/projects`}
+                title="Projects"
+                className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+              >
+                <FiFolder className="text-lg" />
+                {projects.some((p) => p.progress < 100) && (
+                  <span
+                    className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full"
+                    style={{ backgroundColor: brandColor }}
+                  />
+                )}
+              </Link>
+            )}
 
-            <Link
-              to={`/workspace/${workspaceId}/tasks`}
-              title="All Tasks"
-              className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
-            >
-              <FiCheckSquare className="text-lg" />
-            </Link>
+            {canSeeAllTasks && (
+              <Link
+                to={`/workspace/${workspaceId}/tasks`}
+                title="All Tasks"
+                className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+              >
+                <FiCheckSquare className="text-lg" />
+              </Link>
+            )}
 
-            {/* 👇 NEW — Notes (collapsed state) */}
-            <Link
-              to={`/workspace/${workspaceId}/notes`}
-              title="Notes"
-              className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
-            >
-              <FiFileText className="text-lg" />
-            </Link>
+            {canSeeNotes && (
+              <Link
+                to={`/workspace/${workspaceId}/notes`}
+                title="Notes"
+                className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+              >
+                <FiFileText className="text-lg" />
+              </Link>
+            )}
 
-            <Link
-              to={`/workspace/${workspaceId}/channels`}
-              title="Channels"
-              className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
-            >
-              <ChatIcon className="text-lg" />
-              {channels.some((c) => c.unreadCount > 0) && (
-                <span
-                  className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full"
-                  style={{ backgroundColor: brandColor }}
-                />
-              )}
-            </Link>
+            {canSeeChats && (
+              <>
+                <Link
+                  to={`/workspace/${workspaceId}/channels`}
+                  title="Channels"
+                  className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+                >
+                  <ChatIcon className="text-lg" />
+                  {channels.some((c) => c.unreadCount > 0) && (
+                    <span
+                      className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full"
+                      style={{ backgroundColor: brandColor }}
+                    />
+                  )}
+                </Link>
 
-            <Link
-              to={`/workspace/${workspaceId}/dms`}
-              title="Direct Messages"
-              className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
-            >
-              <FiMail className="text-lg" />
-              {directMessages.some((c) => c.unreadCount > 0) && (
-                <span
-                  className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full"
-                  style={{ backgroundColor: brandColor }}
-                />
-              )}
-            </Link>
+                <Link
+                  to={`/workspace/${workspaceId}/dms`}
+                  title="Direct Messages"
+                  className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+                >
+                  <FiMail className="text-lg" />
+                  {directMessages.some((c) => c.unreadCount > 0) && (
+                    <span
+                      className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full"
+                      style={{ backgroundColor: brandColor }}
+                    />
+                  )}
+                </Link>
+              </>
+            )}
 
-            <Link
-              to={`/workspace/${workspaceId}/members`}
-              title="Members"
-              className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
-            >
-              <FiUsers className="text-lg" />
-            </Link>
+            {canSeeMembers && (
+              <Link
+                to={`/workspace/${workspaceId}/members`}
+                title="Members"
+                className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+              >
+                <FiUsers className="text-lg" />
+              </Link>
+            )}
 
-            <Link
-              to={`/workspace/${workspaceId}/clockin`}
-              title="Clock‑in"
-              className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
-            >
-              <FiClock className="text-lg" />
-            </Link>
+            {canSeeClockin && (
+              <Link
+                to={`/workspace/${workspaceId}/clockin`}
+                title="Clock‑in"
+                className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+              >
+                <FiClock className="text-lg" />
+              </Link>
+            )}
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto scrollbar-hide pb-2">
             {/* Projects Section */}
-            <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-800/50">
-              <button
-                onClick={() => toggleSection('projects')}
-                className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider"
-              >
-                {expandedSections.projects ? (
-                  <FiChevronDown className="text-[10px]" />
-                ) : (
-                  <FiChevronRight className="text-[10px]" />
-                )}
-                <span>Projects</span>
-                <span className="ml-auto text-xs text-gray-400 dark:text-gray-600">
-                  {projects.length}
-                </span>
-              </button>
-              {expandedSections.projects && (
-                <div className="mt-1 space-y-0.5">
-                  <Link
-                    to={`/workspace/${workspaceId}/tasks`}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group text-sm text-gray-700 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
-                  >
-                    <FiCheckSquare className="text-xs text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300" />
-                    <span className="font-medium">All Tasks</span>
-                  </Link>
-
-                  {/* 👇 NEW — Notes shortcut under Projects (expanded state) */}
-                  <Link
-                    to={`/workspace/${workspaceId}/notes`}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group text-sm text-gray-700 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
-                  >
-                    <FiFileText className="text-xs text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300" />
-                    <span className="font-medium">Workspace Notes</span>
-                  </Link>
-
-                  {projectsLoading ? (
-                    <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-500">
-                      Loading projects...
-                    </div>
-                  ) : projects.length === 0 ? (
-                    <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-600">
-                      No projects yet
-                    </div>
+            {canSeeProjects && (
+              <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-800/50">
+                <button
+                  onClick={() => toggleSection('projects')}
+                  className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider"
+                >
+                  {expandedSections.projects ? (
+                    <FiChevronDown className="text-[10px]" />
                   ) : (
-                    projects.slice(0, 6).map((project) => (
-                      <ProjectItem key={project._id} project={project} />
-                    ))
+                    <FiChevronRight className="text-[10px]" />
                   )}
-                  {projects.length > 6 && (
+                  <span>Projects</span>
+                  <span className="ml-auto text-xs text-gray-400 dark:text-gray-600">
+                    {projects.length}
+                  </span>
+                </button>
+                {expandedSections.projects && (
+                  <div className="mt-1 space-y-0.5">
                     <Link
-                      to={`/workspace/${workspaceId}/projects`}
-                      className="block px-3 py-1 text-xs text-gray-500 dark:text-gray-600 hover:text-gray-800 dark:hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
+                      to={`/workspace/${workspaceId}/tasks`}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group text-sm text-gray-700 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
                     >
-                      +{projects.length - 6} more
+                      <FiCheckSquare className="text-xs text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300" />
+                      <span className="font-medium">All Tasks</span>
                     </Link>
-                  )}
-                </div>
-              )}
-            </div>
 
-            {/* Channels */}
-            <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-800/50">
-              <button
-                onClick={() => toggleSection('channels')}
-                className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider"
-              >
-                {expandedSections.channels ? (
-                  <FiChevronDown className="text-[10px]" />
-                ) : (
-                  <FiChevronRight className="text-[10px]" />
-                )}
-                <span>Channels</span>
-                <span className="ml-auto text-xs text-gray-400 dark:text-gray-600">
-                  {channels.length}
-                </span>
-              </button>
-              {expandedSections.channels && (
-                <div className="mt-1 space-y-0.5">
-                  {chatsLoading ? (
-                    <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-500">
-                      Loading channels...
-                    </div>
-                  ) : channels.length === 0 ? (
-                    <p className="px-3 py-2 text-xs text-gray-500 dark:text-gray-600">No channels yet</p>
-                  ) : (
-                    channels.slice(0, 6).map((chat) => (
+                    <Link
+                      to={`/workspace/${workspaceId}/notes`}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group text-sm text-gray-700 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+                    >
+                      <FiFileText className="text-xs text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300" />
+                      <span className="font-medium">Workspace Notes</span>
+                    </Link>
+
+                    {projectsLoading ? (
+                      <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-500">
+                        Loading projects...
+                      </div>
+                    ) : projects.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-600">
+                        No projects yet
+                      </div>
+                    ) : (
+                      projects.slice(0, 6).map((project) => (
+                        <ProjectItem key={project._id} project={project} />
+                      ))
+                    )}
+                    {projects.length > 6 && (
                       <Link
-                        key={chat._id}
-                        to={`/workspace/${workspaceId}/chat/${chat._id}`}
-                        className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-sm group"
+                        to={`/workspace/${workspaceId}/projects`}
+                        className="block px-3 py-1 text-xs text-gray-500 dark:text-gray-600 hover:text-gray-800 dark:hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
                       >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <ChatIcon className="text-gray-400 dark:text-gray-500 text-xs" />
-                          <span className="truncate text-gray-700 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-gray-200">
-                            {chat.name || 'Unnamed'}
-                          </span>
-                        </div>
-                        {chat.unreadCount > 0 && (
-                          <span
-                            className="text-white text-xs rounded-full px-2 py-0.5 min-w-[20px] text-center font-medium"
-                            style={{ backgroundColor: brandColor }}
-                          >
-                            {chat.unreadCount}
-                          </span>
-                        )}
+                        +{projects.length - 6} more
                       </Link>
-                    ))
-                  )}
-                  {channels.length > 6 && (
-                    <Link
-                      to={`/workspace/${workspaceId}/channels`}
-                      className="block px-3 py-1 text-xs text-gray-500 dark:text-gray-600 hover:text-gray-800 dark:hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
-                    >
-                      +{channels.length - 6} more
-                    </Link>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Direct Messages */}
-            <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-800/50">
-              <button
-                onClick={() => toggleSection('dms')}
-                className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider"
-              >
-                {expandedSections.dms ? (
-                  <FiChevronDown className="text-[10px]" />
-                ) : (
-                  <FiChevronRight className="text-[10px]" />
+                    )}
+                  </div>
                 )}
-                <span>Direct Messages</span>
-                <span className="ml-auto text-xs text-gray-400 dark:text-gray-600">
-                  {directMessages.length}
-                </span>
-              </button>
-              {expandedSections.dms && (
-                <div className="mt-1 space-y-0.5">
-                  {chatsLoading ? (
-                    <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-500">
-                      Loading DMs...
-                    </div>
-                  ) : directMessages.length === 0 ? (
-                    <p className="px-3 py-2 text-xs text-gray-500 dark:text-gray-600">No DMs</p>
+              </div>
+            )}
+
+            {/* Channels — members only */}
+            {canSeeChats && (
+              <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-800/50">
+                <button
+                  onClick={() => toggleSection('channels')}
+                  className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider"
+                >
+                  {expandedSections.channels ? (
+                    <FiChevronDown className="text-[10px]" />
                   ) : (
-                    directMessages.slice(0, 6).map((chat) => {
-                      const participant = getDMParticipant(chat);
-                      const unread = getDMUnread(chat);
-                      const isOnline = onlineUserIds.has(participant?._id);
-                      return (
+                    <FiChevronRight className="text-[10px]" />
+                  )}
+                  <span>Channels</span>
+                  <span className="ml-auto text-xs text-gray-400 dark:text-gray-600">
+                    {channels.length}
+                  </span>
+                </button>
+                {expandedSections.channels && (
+                  <div className="mt-1 space-y-0.5">
+                    {chatsLoading ? (
+                      <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-500">
+                        Loading channels...
+                      </div>
+                    ) : channels.length === 0 ? (
+                      <p className="px-3 py-2 text-xs text-gray-500 dark:text-gray-600">
+                        No channels yet
+                      </p>
+                    ) : (
+                      channels.slice(0, 6).map((chat) => (
                         <Link
                           key={chat._id}
                           to={`/workspace/${workspaceId}/chat/${chat._id}`}
-                          className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group"
+                          className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-sm group"
                         >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className="relative flex-shrink-0">
-                              {participant?.profile ? (
-                                <img
-                                  src={participant.profile}
-                                  alt={participant.name}
-                                  className="w-6 h-6 rounded-full object-cover"
-                                />
-                              ) : (
-                                <div
-                                  className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold"
-                                  style={{ backgroundColor: brandColor }}
-                                >
-                                  {getInitials(participant?.name)}
-                                </div>
-                              )}
-                              {isOnline && (
-                                <span className="absolute bottom-0 right-0 w-2 h-2 bg-green-500 rounded-full border-2 border-white dark:border-[#18181b]" />
-                              )}
-                            </div>
-                            <span className="truncate text-gray-700 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-gray-200 text-sm">
-                              {participant?.name || 'Unknown'}
+                          <div className="flex items-center gap-2 min-w-0">
+                            <ChatIcon className="text-gray-400 dark:text-gray-500 text-xs" />
+                            <span className="truncate text-gray-700 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-gray-200">
+                              {chat.name || 'Unnamed'}
                             </span>
                           </div>
-                          {unread > 0 && (
+                          {chat.unreadCount > 0 && (
                             <span
                               className="text-white text-xs rounded-full px-2 py-0.5 min-w-[20px] text-center font-medium"
                               style={{ backgroundColor: brandColor }}
                             >
-                              {unread}
+                              {chat.unreadCount}
                             </span>
                           )}
                         </Link>
-                      );
-                    })
+                      ))
+                    )}
+                    {channels.length > 6 && (
+                      <Link
+                        to={`/workspace/${workspaceId}/channels`}
+                        className="block px-3 py-1 text-xs text-gray-500 dark:text-gray-600 hover:text-gray-800 dark:hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
+                      >
+                        +{channels.length - 6} more
+                      </Link>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Direct Messages — members only */}
+            {canSeeChats && (
+              <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-800/50">
+                <button
+                  onClick={() => toggleSection('dms')}
+                  className="flex items-center gap-2 px-2 py-1 w-full hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider"
+                >
+                  {expandedSections.dms ? (
+                    <FiChevronDown className="text-[10px]" />
+                  ) : (
+                    <FiChevronRight className="text-[10px]" />
                   )}
-                  {directMessages.length > 6 && (
-                    <Link
-                      to={`/workspace/${workspaceId}/dms`}
-                      className="block px-3 py-1 text-xs text-gray-500 dark:text-gray-600 hover:text-gray-800 dark:hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
-                    >
-                      +{directMessages.length - 6} more
-                    </Link>
-                  )}
-                </div>
-              )}
-            </div>
+                  <span>Direct Messages</span>
+                  <span className="ml-auto text-xs text-gray-400 dark:text-gray-600">
+                    {directMessages.length}
+                  </span>
+                </button>
+                {expandedSections.dms && (
+                  <div className="mt-1 space-y-0.5">
+                    {chatsLoading ? (
+                      <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-500">
+                        Loading DMs...
+                      </div>
+                    ) : directMessages.length === 0 ? (
+                      <p className="px-3 py-2 text-xs text-gray-500 dark:text-gray-600">No DMs</p>
+                    ) : (
+                      directMessages.slice(0, 6).map((chat) => {
+                        const participant = getDMParticipant(chat);
+                        const unread = getDMUnread(chat);
+                        const isOnline = onlineUserIds.has(participant?._id);
+                        return (
+                          <Link
+                            key={chat._id}
+                            to={`/workspace/${workspaceId}/chat/${chat._id}`}
+                            className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="relative flex-shrink-0">
+                                {participant?.profile ? (
+                                  <img
+                                    src={participant.profile}
+                                    alt={participant.name}
+                                    className="w-6 h-6 rounded-full object-cover"
+                                  />
+                                ) : (
+                                  <div
+                                    className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold"
+                                    style={{ backgroundColor: brandColor }}
+                                  >
+                                    {getInitials(participant?.name)}
+                                  </div>
+                                )}
+                                {isOnline && (
+                                  <span className="absolute bottom-0 right-0 w-2 h-2 bg-green-500 rounded-full border-2 border-white dark:border-[#18181b]" />
+                                )}
+                              </div>
+                              <span className="truncate text-gray-700 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-gray-200 text-sm">
+                                {participant?.name || 'Unknown'}
+                              </span>
+                            </div>
+                            {unread > 0 && (
+                              <span
+                                className="text-white text-xs rounded-full px-2 py-0.5 min-w-[20px] text-center font-medium"
+                                style={{ backgroundColor: brandColor }}
+                              >
+                                {unread}
+                              </span>
+                            )}
+                          </Link>
+                        );
+                      })
+                    )}
+                    {directMessages.length > 6 && (
+                      <Link
+                        to={`/workspace/${workspaceId}/dms`}
+                        className="block px-3 py-1 text-xs text-gray-500 dark:text-gray-600 hover:text-gray-800 dark:hover:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
+                      >
+                        +{directMessages.length - 6} more
+                      </Link>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

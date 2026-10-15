@@ -13,8 +13,6 @@ const attachmentSchema = new mongoose.Schema(
 );
 
 // ─── Linked notes (workspace + personal) ──────────────────────────
-// A task can reference existing notes without copying their content.
-// `source` tells us which collection to look the note up in.
 const linkedNoteSchema = new mongoose.Schema(
   {
     note: {
@@ -40,6 +38,21 @@ const subTaskSchema = new mongoose.Schema(
     bufferTime: { type: Number, default: 0 }, // minutes
     links: [String],
     attachments: [attachmentSchema],
+
+    // ─── NEW: per-subtask assignee ────────────────────────────────
+    // A subtask can be assigned to one person. The value MUST be one
+    // of the parent task's `assignees`. Enforced at the controller
+    // level (`isValidSubTaskAssignee`), NOT at the schema level, so
+    // that removing an assignee from the task doesn't silently break
+    // historical subtasks — the resolver handles dangling references
+    // gracefully (the assignee just doesn't match anyone anymore).
+    assignee: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+      index: true,
+    },
+
     status: {
       type: String,
       enum: ['pending', 'done', 'confirmed'],
@@ -116,7 +129,8 @@ const taskSchema = new mongoose.Schema(
     },
 
     // ─── MULTI-ASSIGNEE ────────────────────────────────────────────
-    // Multiple people can now own a task. Empty array = unassigned.
+    // Multiple people can own a task. Empty array = unassigned.
+    // Subtasks can ONLY be assigned to someone in this list.
     assignees: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -157,7 +171,7 @@ const taskSchema = new mongoose.Schema(
     },
     bufferTime: {
       type: Number,
-      default: 0, // minutes
+      default: 0,
     },
     estimatedHours: {
       type: Number,
@@ -188,8 +202,6 @@ const taskSchema = new mongoose.Schema(
     attachments: [attachmentSchema],
 
     // ─── LINKED NOTES ──────────────────────────────────────────────
-    // Pointers to existing workspace or personal notes. The controller
-    // hydrates the `note` id into `{ _id, title }` on the way out.
     linkedNotes: {
       type: [linkedNoteSchema],
       default: [],
@@ -200,7 +212,7 @@ const taskSchema = new mongoose.Schema(
       default: false,
     },
     dailyReminderTime: {
-      type: String, // e.g., "09:00" (HH:MM)
+      type: String, // "HH:MM"
       default: null,
     },
     lastDailyReminderSent: {
@@ -215,7 +227,7 @@ const taskSchema = new mongoose.Schema(
       default: 'none',
     },
     recurrenceDays: {
-      type: [Number], // 0=Sunday, 6=Saturday
+      type: [Number],
       default: [],
     },
     recurrenceEndDate: {
@@ -246,9 +258,6 @@ const taskSchema = new mongoose.Schema(
     },
 
     // ─── COMPLETION / CONFIRMATION ─────────────────────────────────
-    // completedBy = whoever clicked "mark done" (assignee OR manager)
-    // confirmedBy = whoever confirmed. For manager-marked-as-done,
-    //               completedBy === confirmedBy.
     completedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
@@ -291,7 +300,7 @@ const taskSchema = new mongoose.Schema(
     finalLinks: [String],
     finalAttachments: [attachmentSchema],
 
-    // ─── LEGACY FIELDS (keep if anything still reads them) ─────────
+    // ─── LEGACY FIELDS ─────────────────────────────────────────────
     submittedProgress: {
       type: Number,
       default: 0,
@@ -365,11 +374,13 @@ const taskSchema = new mongoose.Schema(
 
 // ─── Indexes ───────────────────────────────────────────────────────
 taskSchema.index({ project: 1, status: 1 });
-taskSchema.index({ assignees: 1, status: 1 }); // multi-assignee queries
+taskSchema.index({ assignees: 1, status: 1 });
 taskSchema.index({ dueDate: 1 });
 taskSchema.index({ isTrash: 1, trashedAt: 1 });
 taskSchema.index({ project: 1, order: 1 });
 taskSchema.index({ 'linkedNotes.note': 1, 'linkedNotes.source': 1 });
+taskSchema.index({ 'subTasks.assignee': 1, 'subTasks.status': 1 }); // 👈 NEW
+taskSchema.index({ assignees: 1, 'subTasks.status': 1 });           // 👈 NEW
 
 const Task = mongoose.model('Task', taskSchema);
 export default Task;

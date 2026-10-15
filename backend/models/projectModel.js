@@ -9,6 +9,81 @@ const NAMED_COLORS = [
   'emerald', 'rose', 'amber', 'cyan', 'violet',
 ];
 
+// ─── Associate sub-schema ─────────────────────────────────────────
+// Associates are limited external collaborators added to a project.
+// They are also mirrored as workspace members with
+// memberType: 'associate' (see workspaceModel).
+//
+// Roles:
+//   'viewer'          – read-only on tasks assigned to them
+//   'editor'          – can act on tasks assigned to them
+//   'projectManager'  – full project control (also added to
+//                       projectManagers array by the controller)
+const associateSchema = new mongoose.Schema(
+  {
+    email: {
+      type: String,
+      required: true,
+      lowercase: true,
+      trim: true,
+    },
+    name: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    role: {
+      type: String,
+      enum: ['viewer', 'editor', 'projectManager'],
+      default: 'editor',
+    },
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    status: {
+      type: String,
+      enum: ['invited', 'active', 'revoked'],
+      default: 'invited',
+    },
+
+    // Who added them (workspace owner, admin, or a PM on the project)
+    addedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    addedAt: {
+      type: Date,
+      default: Date.now,
+    },
+    acceptedAt: {
+      type: Date,
+      default: null,
+    },
+
+    // Optional access window. When set and elapsed, the cron sweeps
+    // and revokes the associate (both here and at the workspace level).
+    accessExpiresAt: {
+      type: Date,
+      default: null,
+    },
+
+    // Revocation audit
+    revokedAt: {
+      type: Date,
+      default: null,
+    },
+    revokedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+  },
+  { _id: true }
+);
+
 const projectSchema = new mongoose.Schema(
   {
     workspace: {
@@ -31,15 +106,14 @@ const projectSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
-    // ── Project color ─────────────────────────────────────────────
     color: {
       type: String,
-      default: '#6366F1', // indigo fallback
+      default: '#6366F1',
       trim: true,
       lowercase: true,
       validate: {
         validator: (v) => {
-          if (!v) return true; // allow empty → default applies
+          if (!v) return true;
           const value = String(v).trim().toLowerCase();
           return HEX_RE.test(value) || NAMED_COLORS.includes(value);
         },
@@ -47,11 +121,7 @@ const projectSchema = new mongoose.Schema(
           `"${props.value}" is not a valid color. Use a hex code like #3B82F6 or one of: ${NAMED_COLORS.join(', ')}.`,
       },
     },
-    links: [
-      {
-        type: String,
-      },
-    ],
+    links: [{ type: String }],
     documents: [
       {
         name: String,
@@ -107,64 +177,14 @@ const projectSchema = new mongoose.Schema(
       },
     ],
 
-    // ── NEW: Guests / external collaborators ──────────────────────
-    // People invited by email who are NOT workspace members.
-    // - role 'viewer'  → read-only, no actions
-    // - role 'editor'  → can complete/comment on tasks they are assigned to
-    // userId is null until they sign up with the matching email;
-    // then it gets auto-linked by linkPendingCollaboratorInvites().
-    collaborators: [
-      {
-        email: {
-          type: String,
-          required: true,
-          lowercase: true,
-          trim: true,
-        },
-        name: {
-          type: String,
-          default: '',
-          trim: true,
-        },
-        role: {
-          type: String,
-          enum: ['viewer', 'editor'],
-          default: 'viewer',
-        },
-        userId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'User',
-          default: null,
-        },
-        status: {
-          type: String,
-          enum: ['invited', 'active', 'revoked'],
-          default: 'invited',
-        },
-        inviteToken: {
-          type: String,
-          default: null,
-        },
-        invitedBy: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'User',
-          default: null,
-        },
-        invitedAt: {
-          type: Date,
-          default: Date.now,
-        },
-        acceptedAt: {
-          type: Date,
-          default: null,
-        },
-      },
-    ],
+    // ── Associates (external limited collaborators) ──────────────
+    // No invite tokens — associates are added by project ID / email
+    // and, once linked, access is scoped via their workspace
+    // membership (memberType: 'associate').
+    associates: [associateSchema],
 
-    // ── NEW: Project-wide read-only share link ────────────────────
-    // Anyone with this token can view the project (sanitized) but
-    // cannot perform any action until they sign up AND are linked
-    // as a collaborator above.
+    // ── Project-wide read-only public share link ─────────────────
+    // This is the ONLY token-based access path remaining.
     publicShareToken: {
       type: String,
       default: null,
@@ -205,7 +225,7 @@ const projectSchema = new mongoose.Schema(
     },
     dailyReportTime: {
       type: String,
-      default: '17:00', // Format: HH:mm (24-hour)
+      default: '17:00',
     },
     tags: [
       {
@@ -245,7 +265,6 @@ const projectSchema = new mongoose.Schema(
       ref: 'User',
       default: null,
     },
-    // ── Per‑user archive ──────────────────────────────────────────
     archivedBy: [
       {
         user: {
@@ -258,11 +277,10 @@ const projectSchema = new mongoose.Schema(
         },
       },
     ],
-    // ── Global soft‑delete (trash) ────────────────────────────────
     isTrash: {
       type: Boolean,
       default: false,
-      index: true, // quick filter
+      index: true,
     },
     trashedAt: {
       type: Date,
@@ -274,59 +292,67 @@ const projectSchema = new mongoose.Schema(
   }
 );
 
-// ─────────────────────────────────────────────────────────────────────
-// Indexes for performance
-// ─────────────────────────────────────────────────────────────────────
+// ─── Indexes ───────────────────────────────────────────────────────
 projectSchema.index({ workspace: 1, status: 1 });
 projectSchema.index({ projectManagers: 1 });
 projectSchema.index({ 'teamMembers.user': 1 });
 projectSchema.index({ projectType: 1 });
-// Additional index for trash queries
 projectSchema.index({ isTrash: 1, trashedAt: 1 });
 
-// ── NEW: indexes for guest / collaborator lookups ─────────────────────
-// Fast lookup for auto-linking on signup (find projects with a pending
-// invite for this email) and for the "my collaborated projects" query.
-projectSchema.index({ 'collaborators.email': 1, 'collaborators.status': 1 });
-projectSchema.index({ 'collaborators.userId': 1, 'collaborators.status': 1 });
-projectSchema.index({ 'collaborators.inviteToken': 1 }, { sparse: true });
+// Associate lookups
+projectSchema.index({ 'associates.email': 1, 'associates.status': 1 });
+projectSchema.index({ 'associates.userId': 1, 'associates.status': 1 });
 
-// Fast lookup for the project-wide share link endpoint
+// Expiry sweep (used by expireAssociates cron in workspaceController
+// and revokeExpiredAssociateInvites in userController)
+projectSchema.index({ 'associates.accessExpiresAt': 1 });
+
+// Public share link lookup (still the only token-based access)
 projectSchema.index(
   { publicShareToken: 1 },
   { sparse: true, partialFilterExpression: { publicShareToken: { $type: 'string' } } }
 );
 
-// ─────────────────────────────────────────────────────────────────────
-// Virtuals / small helpers
-// ─────────────────────────────────────────────────────────────────────
+// ─── Helpers ───────────────────────────────────────────────────────
 
 /**
- * Returns the effective permission set for a given user on this project.
- * NOT the full access resolver — that lives in projectController.js and
- * takes a populated workspace into account. This is only used for quick
- * internal checks (e.g. guards in middleware).
+ * Return the active associate record for this user on this project,
+ * or null. Safe against populated user documents.
  */
-projectSchema.methods.getCollaboratorFor = function (userId) {
-  if (!userId || !this.collaborators?.length) return null;
+projectSchema.methods.getAssociateFor = function (userId) {
+  if (!userId || !this.associates?.length) return null;
   const uid = userId.toString();
   return (
-    this.collaborators.find(
-      (c) => c.userId && c.userId.toString() === uid && c.status === 'active'
+    this.associates.find(
+      (a) => a.userId && a.userId.toString() === uid && a.status === 'active'
     ) || null
   );
 };
 
 /**
- * Convenience helper — is this email already a collaborator (any status
- * except revoked)?
+ * Check whether an email is already an associate on this project
+ * (invited or active — not revoked).
  */
-projectSchema.methods.hasCollaboratorEmail = function (email) {
-  if (!email || !this.collaborators?.length) return false;
+projectSchema.methods.hasAssociateEmail = function (email) {
+  if (!email || !this.associates?.length) return false;
   const normalized = email.toLowerCase().trim();
-  return this.collaborators.some(
-    (c) => c.email === normalized && c.status !== 'revoked'
+  return this.associates.some(
+    (a) => a.email === normalized && a.status !== 'revoked'
   );
+};
+
+/**
+ * True if this user is both an associate AND a project manager.
+ * (Associate who has been promoted — they get full PM powers.)
+ */
+projectSchema.methods.isAssociatePM = function (userId) {
+  if (!userId) return false;
+  const uid = userId.toString();
+  const isPM = (this.projectManagers || []).some(
+    (pm) => pm.toString() === uid
+  );
+  if (!isPM) return false;
+  return !!this.getAssociateFor(userId);
 };
 
 const Project = mongoose.model('Project', projectSchema);

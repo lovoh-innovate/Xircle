@@ -6,7 +6,9 @@ const WORKSPACES_URL = '/workspaces';
 export const workspaceApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
 
-    // ─── CRUD Operations ────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════
+    // CRUD Operations
+    // ═══════════════════════════════════════════════════════════════
 
     // Create a new workspace
     createWorkspace: builder.mutation({
@@ -18,7 +20,16 @@ export const workspaceApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['Workspace'],
     }),
 
-    // Get all workspaces the user owns or has joined
+    // Get all workspaces the user has any relationship with.
+    //
+    // Response now has THREE buckets:
+    //   myBusinesses        – workspaces the user owns
+    //   joinedBusinesses    – workspaces the user is a PERMANENT member of
+    //   associateBusinesses – workspaces where the user is only an associate
+    //                         (limited access — non-expired only)
+    //
+    // Backend already filters out expired associate memberships from
+    // associateBusinesses, so the frontend doesn't need to re-filter.
     getMyWorkspaces: builder.query({
       query: () => ({
         url: `${WORKSPACES_URL}/my`,
@@ -26,7 +37,9 @@ export const workspaceApiSlice = apiSlice.injectEndpoints({
       providesTags: ['Workspace'],
     }),
 
-    // Get a single workspace by ID
+    // Get a single workspace by ID.
+    // Response includes `myMembership` with `isAssociate` so the UI can
+    // render limited view for associates. Backend rejects expired associates.
     getWorkspace: builder.query({
       query: (id) => ({
         url: `${WORKSPACES_URL}/${id}`,
@@ -34,7 +47,8 @@ export const workspaceApiSlice = apiSlice.injectEndpoints({
       providesTags: (result, error, id) => [{ type: 'Workspace', id }],
     }),
 
-    // 🆕 Get workspace by invite code (public preview, no auth required)
+    // Get workspace by invite code (public preview, no auth required).
+    // Invite codes are for permanent members only.
     getWorkspaceByInviteCode: builder.query({
       query: (inviteCode) => ({
         url: `${WORKSPACES_URL}/by-code/${inviteCode}`,
@@ -42,17 +56,14 @@ export const workspaceApiSlice = apiSlice.injectEndpoints({
       providesTags: ['Workspace'],
     }),
 
-    // Update a workspace (owner only) – supports logo upload via FormData
+    // Update a workspace (owner or admin) — supports logo upload via FormData
     updateWorkspace: builder.mutation({
       query: ({ id, data }) => {
-        // If data is FormData, don't set Content-Type header (let the browser set it)
         const isFormData = data instanceof FormData;
-        
         return {
           url: `${WORKSPACES_URL}/${id}`,
           method: 'PUT',
           body: data,
-          // Only set Content-Type if it's NOT FormData
           headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
         };
       },
@@ -68,9 +79,13 @@ export const workspaceApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['Workspace'],
     }),
 
-    // ─── Membership Actions ─────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════
+    // Membership Actions
+    // ═══════════════════════════════════════════════════════════════
 
-    // Leave a workspace (cannot be owner)
+    // Leave a workspace (owner cannot leave).
+    // Works for permanent members AND associates. When an associate
+    // leaves, their project ties are revoked automatically server-side.
     leaveWorkspace: builder.mutation({
       query: (id) => ({
         url: `${WORKSPACES_URL}/${id}/leave`,
@@ -79,16 +94,23 @@ export const workspaceApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['Workspace'],
     }),
 
-    // Remove a member from a workspace (owner only)
+    // Remove a member from a workspace (owner or admin).
+    // Works for permanent members AND associates. Server cleans up
+    // project ties if the removed member was an associate.
     removeMember: builder.mutation({
       query: ({ workspaceId, memberId }) => ({
         url: `${WORKSPACES_URL}/${workspaceId}/members/${memberId}`,
         method: 'DELETE',
       }),
-      invalidatesTags: ['Workspace'],
+      invalidatesTags: (result, error, { workspaceId }) => [
+        'Workspace',
+        { type: 'Associate', id: workspaceId },
+      ],
     }),
 
-    // ─── Invite Code ─────────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════
+    // Invite Code
+    // ═══════════════════════════════════════════════════════════════
 
     // Regenerate invite code (owner only)
     regenerateInviteCode: builder.mutation({
@@ -99,23 +121,53 @@ export const workspaceApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (result, error, id) => [{ type: 'Workspace', id }],
     }),
 
-    // ─── Member Role Management ─────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════
+    // Member Role Management
+    // ═══════════════════════════════════════════════════════════════
 
-    // Update a member's role (owner only)
+    // Update a member's role (owner only).
+    // Server refuses to promote an associate to 'Admin' — promote them
+    // to permanent member first (see teamApiSlice.convertAssociateToMember).
     updateMemberRole: builder.mutation({
       query: ({ workspaceId, memberId, role }) => ({
         url: `${WORKSPACES_URL}/${workspaceId}/members/${memberId}/role`,
         method: 'PATCH',
-        body: { role }, // role: 'Admin' | 'Member'
+        body: { role }, // 'Admin' | 'Member' | 'Staff'
       }),
       invalidatesTags: (result, error, { workspaceId }) => [
         { type: 'Workspace', id: workspaceId },
       ],
     }),
 
-    // ─── Migration Utility ──────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════
+    // ASSOCIATES (read-only listing at the workspace level)
+    //
+    // Returns all associates of the workspace with an `isExpired` flag.
+    // Full management lives in teamApiSlice:
+    //   useUpdateAssociateMutation
+    //   useRemoveAssociateMutation
+    //   useConvertAssociateToMemberMutation
+    //
+    // This hook exists so workspace pages can show associates without
+    // routing through the team-scoped endpoints.
+    // ═══════════════════════════════════════════════════════════════
 
-    // Run migration to update workspace members schema (admin/utility)
+    getWorkspaceAssociates: builder.query({
+      query: (workspaceId) => ({
+        url: `${WORKSPACES_URL}/${workspaceId}/associates`,
+      }),
+      providesTags: (result, error, workspaceId) => [
+        { type: 'Associate', id: workspaceId },
+        { type: 'Associate', id: 'LIST' },
+      ],
+    }),
+
+    // ═══════════════════════════════════════════════════════════════
+    // Migration Utility
+    // ═══════════════════════════════════════════════════════════════
+
+    // Runs schema migrations for workspace members.
+    // Now also backfills memberType: 'permanent' on old records.
     migrateWorkspaces: builder.mutation({
       query: () => ({
         url: `${WORKSPACES_URL}/migrate`,
@@ -128,15 +180,25 @@ export const workspaceApiSlice = apiSlice.injectEndpoints({
 });
 
 export const {
+  // ── CRUD ──
   useCreateWorkspaceMutation,
   useGetMyWorkspacesQuery,
   useGetWorkspaceQuery,
-  useGetWorkspaceByInviteCodeQuery, // 👈 NEW hook
+  useGetWorkspaceByInviteCodeQuery,
   useUpdateWorkspaceMutation,
   useDeleteWorkspaceMutation,
+
+  // ── Membership ──
   useLeaveWorkspaceMutation,
   useRemoveMemberMutation,
-  useRegenerateInviteCodeMutation,
-  useMigrateWorkspacesMutation,
   useUpdateMemberRoleMutation,
+
+  // ── Invite code ──
+  useRegenerateInviteCodeMutation,
+
+  // ── Associates ──
+  useGetWorkspaceAssociatesQuery,
+
+  // ── Utility ──
+  useMigrateWorkspacesMutation,
 } = workspaceApiSlice;

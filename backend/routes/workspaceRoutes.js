@@ -5,7 +5,7 @@ import {
   createWorkspace,
   getMyWorkspaces,
   getWorkspace,
-  getWorkspaceByInviteCode,  // 👈 new import
+  getWorkspaceByInviteCode,
   updateWorkspace,
   deleteWorkspace,
   leaveWorkspace,
@@ -13,6 +13,9 @@ import {
   regenerateInviteCode,
   migrateWorkspaces,
   updateMemberRole,
+
+  // ── Associate listing (read-only) ──
+  getWorkspaceAssociates,
 } from '../controllers/workspaceController.js';
 
 import multer from 'multer';
@@ -43,28 +46,57 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
 });
 
-// ─── Public Routes ─────────────────────────────────────────────────────────
-// Preview workspace by invite code – no authentication required
+// ═══════════════════════════════════════════════════════════════════════════
+// PUBLIC ROUTES
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Preview workspace by invite code — no auth required.
+// Invite codes are for permanent members only.
 router.get('/by-code/:inviteCode', getWorkspaceByInviteCode);
 
-// ─── Protected Routes ─────────────────────────────────────────────────────
-// Create workspace with optional logo upload
+// ═══════════════════════════════════════════════════════════════════════════
+// PROTECTED ROUTES
+//
+// Order matters — declare static paths ('/my', '/migrate') before the
+// generic '/:id' matcher so they don't get shadowed.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── Static ──
+router.get('/my', protect, getMyWorkspaces);
+router.post('/migrate', protect, migrateWorkspaces);
+
+// ── Create ──
 router.post('/', protect, upload.single('logo'), createWorkspace);
 
-router.get('/my', protect, getMyWorkspaces);
+// ── Read ──
 router.get('/:id', protect, getWorkspace);
 
-// Update workspace with optional logo upload
+// ── Update (logo optional) ──
 router.put('/:id', protect, upload.single('logo'), updateWorkspace);
 
+// ── Lifecycle ──
 router.delete('/:id', protect, deleteWorkspace);
 router.post('/:id/leave', protect, leaveWorkspace);
-router.delete('/:id/members/:memberId', protect, removeMember);
-router.patch('/:id/invite-code', protect, regenerateInviteCode);
 
-// ─── NEW: Update member role (Owner only) ──────────────────────────────
+// ── Member management ──
+router.delete('/:id/members/:memberId', protect, removeMember);
 router.patch('/:id/members/:memberId/role', protect, updateMemberRole);
 
-router.post('/migrate', protect, migrateWorkspaces);
+// ── Invite code ──
+router.patch('/:id/invite-code', protect, regenerateInviteCode);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ASSOCIATES  (read-only listing)
+//
+// The full associate management surface lives in teamRoutes:
+//   GET    /api/team/:workspaceId/associates
+//   PATCH  /api/team/:workspaceId/associate/:memberId
+//   DELETE /api/team/:workspaceId/associate/:memberId
+//   PATCH  /api/team/:workspaceId/associate/:memberId/promote
+//
+// This one exists so the workspace-level UI can fetch associates without
+// hitting a team-scoped route.
+// ═══════════════════════════════════════════════════════════════════════════
+router.get('/:id/associates', protect, getWorkspaceAssociates);
 
 export default router;
