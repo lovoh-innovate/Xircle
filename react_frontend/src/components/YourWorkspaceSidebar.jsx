@@ -23,14 +23,14 @@ import {
   FiMoon,
   FiMonitor,
   FiUser,
-  FiFileText, // 👈 NEW — Notes icon
-  FiLock,     // 👈 NEW — guest CTA icon
+  FiFileText, // 👈 Notes icon
+  FiLock,     // 👈 guest CTA icon
 } from 'react-icons/fi';
 import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
 import { useGetWorkspaceProjectsQuery } from '../slices/projectApiSlice';
 import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
 import { useTheme } from '../contexts/ThemeContext';
-import { FaSpinner } from 'react-icons/fa';
+import { FaSpinner, FaLayerGroup } from 'react-icons/fa'; // 👈 FaLayerGroup = project icon
 import useWorkspacePresence from '../services/useWorkspacePresence';
 
 // ─── Custom WhatsApp‑style Chat Icon ──────────────────────────────
@@ -105,9 +105,6 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   const isLoggedIn = !!userInfo;
   const myId = String(userInfo?._id || '');
 
-  // Look up caller's membership on this workspace.
-  // If found → full member (owner / admin / manager / member).
-  // If logged in but not in the list → associate / guest collaborator.
   const members = useMemo(() => workspace?.members || [], [workspace]);
   const myMembership = useMemo(
     () => (isLoggedIn ? members.find((m) => String(m.user?._id || m.user) === myId) : null),
@@ -118,10 +115,6 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   const isGuest = !isLoggedIn;
 
   // ─── Feature gating ──────────────────────────────────────────
-  // Guests: nothing but the workspace header + login CTA.
-  // Associates: dashboard, projects, tasks, notes — no chats,
-  //             no members, no clock-in.
-  // Members: everything.
   const canSeeProjects = isLoggedIn;
   const canSeeAllTasks = isLoggedIn;
   const canSeeNotes    = isLoggedIn;
@@ -307,7 +300,7 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   // ─── Navigation (filtered per role) ──────────────────────────
   const navOptions = [
     { id: 'home',      label: 'Dashboard',       icon: FiHome,        path: `/workspace/${workspaceId}`,          show: isLoggedIn },
-    { id: 'projects',  label: 'Projects',        icon: FiFolder,      path: `/workspace/${workspaceId}/projects`, show: canSeeProjects },
+    { id: 'projects',  label: 'Projects',        icon: FaLayerGroup,  path: `/workspace/${workspaceId}/projects`, show: canSeeProjects }, // 👈 stacked-layers icon
     { id: 'all-tasks', label: 'All Tasks',       icon: FiCheckSquare, path: `/workspace/${workspaceId}/tasks`,    show: canSeeAllTasks },
     { id: 'notes',     label: 'Notes',           icon: FiFileText,    path: `/workspace/${workspaceId}/notes`,    show: canSeeNotes },
     { id: 'channels',  label: 'Channels',        icon: ChatIcon,      path: `/workspace/${workspaceId}/channels`, show: canSeeChats },
@@ -375,7 +368,8 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
         to={`/workspace/${workspaceId}/project/${project._id}`}
         className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group"
       >
-        <FiFolder className="text-xs text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300 flex-shrink-0" />
+        {/* 👇 Same stacked-layers "book" icon used across the app */}
+        <FaLayerGroup className="text-xs text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300 flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between">
             <span className="truncate text-sm text-gray-700 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-gray-200">
@@ -588,7 +582,8 @@ const YourWorkspaceSidebar = ({ workspace, chats: propChats }) => {
                 title="Projects"
                 className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
               >
-                <FiFolder className="text-lg" />
+                {/* 👇 stacked-layers icon in collapsed state */}
+                <FaLayerGroup className="text-lg" />
                 {projects.some((p) => p.progress < 100) && (
                   <span
                     className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full"

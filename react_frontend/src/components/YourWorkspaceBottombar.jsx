@@ -12,11 +12,11 @@ import {
   FiUser,
   FiMenu,
   FiX,
-  FiFolder,
   FiLogOut,
   FiClock,
-  FiFileText, // 👈 NEW — Notes icon
+  FiFileText, // 👈 Notes icon
 } from 'react-icons/fi';
+import { FaLayerGroup } from 'react-icons/fa'; // 👈 FaLayerGroup = project icon
 import { useGetUserChatsQuery, messagingApiSlice } from '../slices/messagingApiSlice';
 import { useSocket } from '../components/SocketContext.jsx';
 
@@ -126,13 +126,13 @@ const YourWorkspaceBottombar = ({ workspace }) => {
     { id: 'home', label: 'Home', icon: FiHome, path: `/workspace/${workspaceId}`, activeCheck: 'home' },
     { id: 'dms', label: 'Messages', icon: FiMessageCircle, path: `/workspace/${workspaceId}/dms`, activeCheck: '/dms' },
     { id: 'channels', label: 'Channels', icon: FiUsers, path: `/workspace/${workspaceId}/channels`, activeCheck: '/channels' },
-    { id: 'projects', label: 'Projects', icon: FiFolder, path: `/workspace/${workspaceId}/projects`, activeCheck: '/projects' },
+    { id: 'projects', label: 'Projects', icon: FaLayerGroup, path: `/workspace/${workspaceId}/projects`, activeCheck: '/projects' }, // 👈 stacked-layers icon
     { id: 'members', label: 'Members', icon: FiUser, path: `/workspace/${workspaceId}/members`, activeCheck: '/members' },
   ];
 
   const menuItems = [
     { id: 'clockin', label: 'Clock‑in', icon: FiClock, path: `/workspace/${workspaceId}/clockin` },
-    { id: 'notes', label: 'Notes', icon: FiFileText, path: `/workspace/${workspaceId}/notes` }, // 👈 NEW
+    { id: 'notes', label: 'Notes', icon: FiFileText, path: `/workspace/${workspaceId}/notes` },
     { id: 'profile', label: 'Profile', icon: FiUser, path: '/profile' },
     { id: 'logout', label: 'Logout', icon: FiLogOut, action: handleLogout },
   ];

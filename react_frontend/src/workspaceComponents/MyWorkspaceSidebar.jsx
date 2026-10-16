@@ -17,9 +17,9 @@ import {
   FiSun,
   FiMoon,
   FiMonitor,
-  FiFileText, // 👈 NEW — Notes icon
+  FiFileText, // Notes icon
 } from 'react-icons/fi';
-import { FaSpinner } from 'react-icons/fa';
+import { FaSpinner, FaLayerGroup } from 'react-icons/fa'; // 👈 FaLayerGroup = project icon
 import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
 import { useGetWorkspaceProjectsQuery } from '../slices/projectApiSlice';
 import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
@@ -108,9 +108,9 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
   // ─── Navigation ──────────────────────────────────────────────────
   const navOptions = [
     { id: 'home', label: 'Dashboard', icon: FiHome, path: `/my-workspace/${workspaceId}` },
-    { id: 'projects', label: 'Projects', icon: FiFolder, path: `/my-workspace/${workspaceId}/projects` },
+    { id: 'projects', label: 'Projects', icon: FaLayerGroup, path: `/my-workspace/${workspaceId}/projects` }, // 👈 stacked-layers icon
     { id: 'all-tasks', label: 'All Tasks', icon: FiCheckSquare, path: `/my-workspace/${workspaceId}/tasks` },
-    { id: 'notes', label: 'Notes', icon: FiFileText, path: `/my-workspace/${workspaceId}/notes` }, // 👈 NEW
+    { id: 'notes', label: 'Notes', icon: FiFileText, path: `/my-workspace/${workspaceId}/notes` },
     { id: 'channels', label: 'Channels', icon: ChatIcon, path: `/my-workspace/${workspaceId}/channels` },
     { id: 'dms', label: 'Direct Messages', icon: FiMail, path: `/my-workspace/${workspaceId}/dms` },
     { id: 'members', label: 'Members', icon: FiUsers, path: `/my-workspace/${workspaceId}/members` },
@@ -192,7 +192,7 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
         to={`/my-workspace/${workspaceId}/project/${project._id}`}
         className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group"
       >
-        <FiFolder className="text-xs text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300 flex-shrink-0" />
+        <FaLayerGroup className="text-xs text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300 flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between">
             <span className="truncate text-sm text-gray-700 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-gray-200">
@@ -327,12 +327,13 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
       {/* ─── Scrollable Content ─── */}
       {isCollapsed ? (
         <div className="flex-1 overflow-y-auto scrollbar-hide py-3 px-2 flex flex-col items-center gap-3">
+          {/* Projects (collapsed state) — stacked-layers icon */}
           <Link
             to={`/my-workspace/${workspaceId}/projects`}
             title="Projects"
             className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
           >
-            <FiFolder className="text-lg" />
+            <FaLayerGroup className="text-lg" />
             {projects.some((p) => p.progress < 100) && (
               <span
                 className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full"
@@ -349,7 +350,7 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
             <FiCheckSquare className="text-lg" />
           </Link>
 
-          {/* 👇 NEW — Notes (collapsed state) */}
+          {/* Notes (collapsed state) */}
           <Link
             to={`/my-workspace/${workspaceId}/notes`}
             title="Notes"
@@ -422,7 +423,7 @@ const MyWorkspaceSidebar = ({ workspace, chats: propChats }) => {
                   <span className="font-medium">All Tasks</span>
                 </Link>
 
-                {/* 👇 NEW — Notes shortcut under Projects (expanded state) */}
+                {/* Notes shortcut under Projects (expanded state) */}
                 <Link
                   to={`/my-workspace/${workspaceId}/notes`}
                   className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group text-sm text-gray-700 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"

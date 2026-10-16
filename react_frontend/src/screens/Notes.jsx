@@ -173,7 +173,7 @@ const extractFolderId = (note) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  Confirm Modal
+//  Confirm Modal  (centered on all screens)
 // ═════════════════════════════════════════════════════════════════════
 const ConfirmModal = ({
   isOpen,
@@ -190,7 +190,7 @@ const ConfirmModal = ({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
       onClick={(e) => e.target === e.currentTarget && !busy && onClose()}
     >
-      <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl max-w-md w-full p-6 shadow-xl border border-gray-200 dark:border-gray-700">
+      <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl max-w-md w-full max-h-[85vh] overflow-y-auto notes-scroll p-6 shadow-xl border border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-800 dark:text-white">{title}</h3>
           <button
@@ -225,7 +225,7 @@ const ConfirmModal = ({
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  Prompt Modal
+//  Prompt Modal  (centered on all screens)
 // ═════════════════════════════════════════════════════════════════════
 const PromptModal = ({
   isOpen,
@@ -263,7 +263,7 @@ const PromptModal = ({
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl max-w-sm w-full shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl max-w-sm w-full max-h-[85vh] overflow-y-auto notes-scroll shadow-xl border border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between p-5 pb-4">
           <h3 className="text-base font-semibold text-gray-800 dark:text-white">{title}</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-white">
@@ -318,7 +318,7 @@ const PromptModal = ({
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  Move Note → Folder Modal (single or bulk)
+//  Move Note → Folder Modal (single or bulk)  (centered on all screens)
 // ═════════════════════════════════════════════════════════════════════
 const FolderPickerModal = ({
   isOpen,
@@ -338,11 +338,11 @@ const FolderPickerModal = ({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm sm:p-4"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
       onClick={(e) => e.target === e.currentTarget && !busy && onClose()}
     >
-      <div className="bg-white dark:bg-[#1a1a1a] rounded-t-2xl sm:rounded-2xl max-w-sm w-full max-h-[70vh] shadow-xl border border-gray-200 dark:border-gray-700 flex flex-col">
-        <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-800">
+      <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl max-w-sm w-full max-h-[80vh] shadow-xl border border-gray-200 dark:border-gray-700 flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-800 flex-shrink-0">
           <h3 className="text-base font-semibold text-gray-800 dark:text-white">{heading}</h3>
           <button
             onClick={onClose}
@@ -352,7 +352,7 @@ const FolderPickerModal = ({
             <FaTimes />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-2 notes-scroll">
+        <div className="flex-1 min-h-0 overflow-y-auto p-2 notes-scroll">
           <button
             onClick={() => !busy && onMove(null)}
             disabled={busy}

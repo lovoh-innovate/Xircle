@@ -34,7 +34,8 @@ import {
   FaHeartbeat, FaLightbulb, FaFileAlt, FaDownload, FaExclamationCircle,
   FaAngleDown, FaPalette, FaCalendarAlt, FaAngleLeft, FaAngleRight,
   FaThLarge, FaList,
-  FaBolt, FaCube, FaStar, FaFire, FaFeather, FaCrown, FaGem, FaCompass, FaLayerGroup,
+  FaLayerGroup, // 👈 project icon
+  FaEye,
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 
@@ -89,24 +90,10 @@ const shadeHex = (hex, percent) => {
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
 };
 
-// ─── Fun per-project icon ─────────────────────────────────────────────
-const PROJECT_ICONS = [
-  FaRocket, FaBolt, FaLightbulb, FaCube, FaStar,
-  FaFire, FaFeather, FaCrown, FaGem, FaCompass, FaLayerGroup,
-];
-
-const hashString = (str) => {
-  let h = 0;
-  const s = String(str || '');
-  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
-};
-
-const pickProjectIcon = (project) => {
-  const seed = project?._id || project?.name || '';
-  if (!seed) return PROJECT_ICONS[0];
-  return PROJECT_ICONS[hashString(seed) % PROJECT_ICONS.length];
-};
+// ─── Unified project icon (book / stacked layers) ─────────────────────
+// All projects use the same icon — a stacked-layers "book" glyph.
+const PROJECT_ICON = FaLayerGroup;
+const pickProjectIcon = () => PROJECT_ICON;
 
 // ─── Member normalization ─────────────────────────────────────────────
 const getTeamUser = (tm) => {
@@ -1196,6 +1183,211 @@ const ProjectMenuModal = ({
   );
 };
 
+// ═════════════════════════════════════════════════════════════════════
+// Project Context Menu (right-click on desktop)
+// ═════════════════════════════════════════════════════════════════════
+const ProjectContextMenu = ({
+  isOpen, x, y, project, canManage,
+  onClose,
+  onOpen, onEdit,
+  onAISummary, onAIReview, onAIDocs,
+  onArchive, onUnarchive, onDelete, onPermanentDelete, onRestore,
+  brandColor,
+}) => {
+  const menuRef = useRef(null);
+  const [pos, setPos] = useState({ left: x, top: y });
+
+  // Position the menu so it never leaves the viewport
+  useEffect(() => {
+    if (!isOpen || !menuRef.current) return;
+    const MENU_W = 230;
+    const MENU_H = menuRef.current.offsetHeight || 320;
+    const EDGE = 8;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    let left = x;
+    let top = y;
+
+    if (left + MENU_W > vw - EDGE) left = vw - MENU_W - EDGE;
+    if (left < EDGE) left = EDGE;
+
+    if (top + MENU_H > vh - EDGE) top = vh - MENU_H - EDGE;
+    if (top < EDGE) top = EDGE;
+
+    setPos({ left, top });
+  }, [isOpen, x, y]);
+
+  // Close on outside click, escape, scroll, resize
+  useEffect(() => {
+    if (!isOpen) return;
+    const onDown = (e) => {
+      if (menuRef.current && menuRef.current.contains(e.target)) return;
+      onClose();
+    };
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    const onScroll = () => onClose();
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('contextmenu', onDown);
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('contextmenu', onDown);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [isOpen, onClose]);
+
+  if (!isOpen || !project) return null;
+
+  const cardColor = project.color || brandColor;
+  const cardHex = toHex(cardColor);
+  const Icon = pickProjectIcon(project);
+  const isTrashed = project.isTrash;
+  const isArchivedForMe = project.isArchivedForMe;
+
+  const handleAction = (action) => {
+    onClose();
+    // Defer so the menu can unmount cleanly before the action runs
+    setTimeout(() => action && action(), 0);
+  };
+
+  const Item = ({ icon, label, onClick, tone = 'default', disabled = false }) => {
+    const toneClass =
+      tone === 'danger'
+        ? 'text-red-600 dark:text-red-400 hover:bg-red-500/10'
+        : tone === 'warn'
+          ? 'text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/10'
+          : tone === 'accent'
+            ? 'text-[#0d9488] hover:bg-[#0d9488]/10'
+            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/40';
+    return (
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onClick}
+        className={`w-full flex items-center gap-2.5 px-3 py-2 text-left text-[13px] font-medium rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed ${toneClass}`}
+      >
+        <span className="w-4 flex items-center justify-center shrink-0">{icon}</span>
+        <span className="truncate">{label}</span>
+      </button>
+    );
+  };
+
+  const SectionLabel = ({ children }) => (
+    <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-600 font-semibold">
+      {children}
+    </div>
+  );
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      onContextMenu={(e) => e.preventDefault()}
+      style={{ position: 'fixed', left: pos.left, top: pos.top, width: 230 }}
+      className="z-[120] rounded-xl border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-[#1a1a24] shadow-2xl shadow-black/20 backdrop-blur-md py-1.5 px-1.5"
+    >
+      {/* Header: project name */}
+      <div className="px-2 py-1.5 flex items-center gap-2 min-w-0">
+        <span
+          className="w-6 h-6 rounded-lg flex items-center justify-center text-white shrink-0"
+          style={{ background: `linear-gradient(135deg, ${cardHex} 0%, ${shadeHex(cardHex, -18)} 100%)` }}
+        >
+          <Icon className="text-[10px]" />
+        </span>
+        <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate min-w-0">
+          {project.name}
+        </span>
+      </div>
+
+      <div className="my-1 h-px bg-gray-100 dark:bg-gray-800/60" />
+
+      {isTrashed ? (
+        <>
+          <Item
+            icon={<FaTrashRestore className="text-[11px]" />}
+            label="Restore"
+            tone="accent"
+            onClick={() => handleAction(onRestore)}
+          />
+          <Item
+            icon={<FaTrashAlt className="text-[11px]" />}
+            label="Delete permanently"
+            tone="danger"
+            onClick={() => handleAction(onPermanentDelete)}
+          />
+        </>
+      ) : (
+        <>
+          <Item
+            icon={<FaEye className="text-[11px]" />}
+            label="Open"
+            onClick={() => handleAction(onOpen)}
+          />
+
+          {canManage && (
+            <Item
+              icon={<FaEdit className="text-[11px]" />}
+              label="Edit"
+              onClick={() => handleAction(() => onEdit(project._id))}
+            />
+          )}
+
+          <div className="my-1 h-px bg-gray-100 dark:bg-gray-800/60" />
+          <SectionLabel>AI</SectionLabel>
+          <Item
+            icon={<FaLightbulb className="text-[11px]" />}
+            label="Summarize"
+            onClick={() => handleAction(() => onAISummary(project))}
+          />
+          {canManage && (
+            <Item
+              icon={<FaHeartbeat className="text-[11px]" />}
+              label="Review"
+              onClick={() => handleAction(() => onAIReview(project))}
+            />
+          )}
+          <Item
+            icon={<FaFileAlt className="text-[11px]" />}
+            label="Documentation"
+            onClick={() => handleAction(() => onAIDocs(project))}
+          />
+
+          <div className="my-1 h-px bg-gray-100 dark:bg-gray-800/60" />
+
+          {isArchivedForMe ? (
+            <Item
+              icon={<FaUndo className="text-[11px]" />}
+              label="Unarchive"
+              tone="accent"
+              onClick={() => handleAction(onUnarchive)}
+            />
+          ) : (
+            <Item
+              icon={<FaArchive className="text-[11px]" />}
+              label="Archive for me"
+              onClick={() => handleAction(onArchive)}
+            />
+          )}
+
+          {canManage && (
+            <Item
+              icon={<FaTrashAlt className="text-[11px]" />}
+              label="Move to trash"
+              tone="warn"
+              onClick={() => handleAction(onDelete)}
+            />
+          )}
+        </>
+      )}
+    </div>,
+    document.body
+  );
+};
+
 // ─── Shared card helpers ──────────────────────────────────────────────
 const STATUS_LABELS = {
   planning: 'Planning',
@@ -1211,7 +1403,7 @@ const STATUS_TEXT_COLOR = {
 };
 
 // ─── Project Card (grid view) ─────────────────────────────────────────
-const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen }) => {
+const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen, onContextMenu }) => {
   const navigate = useNavigate();
   const progress = project.progress || 0;
   const completed = isProjectCompleted(project);
@@ -1238,9 +1430,17 @@ const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen }
     navigate(`/my-workspace/${workspaceId}/project/${project._id}`);
   };
 
+  const handleContextMenu = (e) => {
+    if (!onContextMenu) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onContextMenu(project, e.clientX, e.clientY);
+  };
+
   return (
     <article
       onClick={handleCardClick}
+      onContextMenu={handleContextMenu}
       className="group relative flex flex-col bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/70 dark:border-gray-800/50 hover:border-gray-300/80 dark:hover:border-gray-700/70 hover:shadow-[0_12px_40px_-12px_rgba(13,148,136,0.28)] dark:hover:shadow-[0_12px_40px_-12px_rgba(13,148,136,0.35)] transition-all duration-300 active:scale-[0.985] cursor-pointer overflow-hidden"
     >
       {/* Banner */}
@@ -1365,7 +1565,7 @@ const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen }
 };
 
 // ─── Project List Item (list view) ────────────────────────────────────
-const ProjectListItem = ({ project, brandColor, workspaceId, canManage, onMenuOpen }) => {
+const ProjectListItem = ({ project, brandColor, workspaceId, canManage, onMenuOpen, onContextMenu }) => {
   const navigate = useNavigate();
   const progress = project.progress || 0;
   const completed = isProjectCompleted(project);
@@ -1380,7 +1580,9 @@ const ProjectListItem = ({ project, brandColor, workspaceId, canManage, onMenuOp
   );
   const tasks = taskData?.tasks || [];
   const totalTasks = tasks.length;
-  const completedTasks = tasks.filter((t) => t.status === 'completed' || t.status === 'confirmed_completed').length;
+  const completedTasks = tasks.filter(
+    (t) => t.status === 'completed' || t.status === 'confirmed_completed'
+  ).length;
 
   const members = useMemo(
     () => (project.teamMembers || []).map(getTeamUser).filter(Boolean),
@@ -1392,15 +1594,28 @@ const ProjectListItem = ({ project, brandColor, workspaceId, canManage, onMenuOp
     navigate(`/my-workspace/${workspaceId}/project/${project._id}`);
   };
 
+  const handleContextMenu = (e) => {
+    if (!onContextMenu) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onContextMenu(project, e.clientX, e.clientY);
+  };
+
   return (
     <div
       onClick={handleClick}
-      className="group relative bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/70 dark:border-gray-800/50 hover:border-gray-300/80 dark:hover:border-gray-700/70 hover:shadow-md dark:hover:shadow-[0_4px_20px_rgba(13,148,136,0.12)] transition-all cursor-pointer pl-3 pr-2 py-2.5 md:pl-3.5 md:pr-3 md:py-3 flex items-center gap-3 md:gap-3.5 overflow-hidden"
+      onContextMenu={handleContextMenu}
+      className="group relative bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/70 dark:border-gray-800/50 hover:border-gray-300/80 dark:hover:border-gray-700/70 hover:shadow-md dark:hover:shadow-[0_4px_20px_rgba(13,148,136,0.12)] transition-all cursor-pointer pl-3 pr-2 py-3 md:pl-3.5 md:pr-3 md:py-3.5 flex items-start gap-3 md:gap-3.5 overflow-hidden"
     >
-      <span className="absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-r-full" style={{ backgroundColor: cardColor }} />
+      {/* Colored accent bar */}
+      <span
+        className="absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full"
+        style={{ backgroundColor: cardColor }}
+      />
 
+      {/* Icon tile */}
       <div
-        className="w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center text-white shrink-0 overflow-hidden relative"
+        className="w-11 h-11 md:w-12 md:h-12 rounded-xl flex items-center justify-center text-white shrink-0 overflow-hidden relative"
         style={{ background: tileBg }}
       >
         <div
@@ -1417,86 +1632,92 @@ const ProjectListItem = ({ project, brandColor, workspaceId, canManage, onMenuOp
         )}
       </div>
 
+      {/* Main content — everything stacks vertically */}
       <div className="flex-1 min-w-0">
+        {/* Name + status badge (name truncates, badge stays) */}
         <div className="flex items-center gap-2 min-w-0">
-          <h3 className="text-sm md:text-[15px] font-semibold text-gray-900 dark:text-gray-100 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">
+          <h3 className="text-sm md:text-[15px] font-semibold text-gray-900 dark:text-gray-100 truncate min-w-0">
             {project.name}
           </h3>
-          <span className={`hidden sm:inline-flex text-[10px] font-medium px-2 py-0.5 rounded-full border ${STATUS_TEXT_COLOR[displayStatus]} bg-white/60 dark:bg-black/20 border-gray-200 dark:border-gray-700/50 shrink-0`}>
+          <span
+            className={`inline-flex text-[10px] font-medium px-2 py-0.5 rounded-full border ${STATUS_TEXT_COLOR[displayStatus]} bg-white/60 dark:bg-black/20 border-gray-200 dark:border-gray-700/50 shrink-0`}
+          >
             {STATUS_LABELS[displayStatus] || 'Planning'}
           </span>
         </div>
-        {project.description && (
-          <p className="text-xs text-gray-500 dark:text-gray-500 truncate mt-0.5">{project.description}</p>
+
+        {/* Description */}
+        {project.description ? (
+          <p className="text-xs text-gray-500 dark:text-gray-500 truncate mt-0.5">
+            {project.description}
+          </p>
+        ) : (
+          <p className="text-xs text-gray-400 dark:text-gray-600 italic truncate mt-0.5">
+            No description
+          </p>
         )}
 
         {!project.isTrash && (
-          <div className="flex md:hidden items-center gap-2 mt-1.5">
-            <div className="flex-1 h-[3px] bg-gray-100 dark:bg-gray-800/70 rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all"
-                style={{ width: `${progress}%`, backgroundColor: cardColor }}
-              />
+          <>
+            {/* Progress bar — under the text, full width */}
+            <div className="flex items-center gap-2 mt-2">
+              <div className="flex-1 h-1 bg-gray-100 dark:bg-gray-800/70 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-700 ease-out"
+                  style={{ width: `${progress}%`, backgroundColor: cardColor }}
+                />
+              </div>
+              <span className="text-[10px] md:text-[10.5px] font-mono font-semibold text-gray-500 dark:text-gray-500 tabular-nums shrink-0 w-8 text-right">
+                {progress}%
+              </span>
             </div>
-            <span className="text-[10px] font-mono font-semibold text-gray-500 shrink-0 w-8 text-right tabular-nums">
-              {progress}%
-            </span>
-            <span className="flex items-center gap-1 text-[10px] text-gray-500 shrink-0">
-              <FaTasks className="text-[9px] text-[#0d9488]" />
-              {taskLoading ? '…' : `${completedTasks}/${totalTasks}`}
-            </span>
-          </div>
+
+            {/* Bottom row — members on the left, task counts on the right */}
+            <div className="flex items-center justify-between gap-2 mt-2 min-w-0">
+              <div className="flex -space-x-1.5 min-w-0 shrink">
+                {members.slice(0, 3).map((u, idx) => (
+                  <MemberAvatar
+                    key={u._id || idx}
+                    user={u}
+                    size="xs"
+                    fallbackColor={cardHex}
+                    ring
+                  />
+                ))}
+                {members.length > 3 && (
+                  <span className="w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-[8px] font-semibold flex items-center justify-center ring-2 ring-white dark:ring-[#14141a]">
+                    +{members.length - 3}
+                  </span>
+                )}
+                {members.length === 0 && (
+                  <span className="text-[10px] text-gray-400 dark:text-gray-600">
+                    No members
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2.5 md:gap-3 text-[10.5px] text-gray-500 dark:text-gray-500 shrink-0">
+                <span className="flex items-center gap-1">
+                  <FaTasks className="text-[9.5px] text-[#0d9488]" />
+                  <span className="tabular-nums">
+                    {taskLoading ? <FaSpinner className="animate-spin text-[9px]" /> : totalTasks}
+                  </span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <FaCheckCircle className="text-[9.5px] text-green-500" />
+                  <span className="tabular-nums">{taskLoading ? '…' : completedTasks}</span>
+                </span>
+              </div>
+            </div>
+          </>
         )}
       </div>
 
-      {!project.isTrash && (
-        <div className="hidden md:flex items-center gap-4 shrink-0">
-          <div className="flex -space-x-1.5">
-            {members.slice(0, 3).map((u, i) => (
-              <MemberAvatar
-                key={u._id || i}
-                user={u}
-                size="sm"
-                fallbackColor={cardHex}
-                ring
-              />
-            ))}
-            {members.length > 3 && (
-              <span className="w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-[9px] font-semibold flex items-center justify-center ring-2 ring-white dark:ring-[#14141a]">
-                +{members.length - 3}
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-500 w-20">
-            <span className="flex items-center gap-1">
-              <FaTasks className="text-[10px] text-[#0d9488]" />
-              <span className="tabular-nums">{taskLoading ? '…' : totalTasks}</span>
-            </span>
-            <span className="flex items-center gap-1">
-              <FaCheckCircle className="text-[10px] text-green-500" />
-              <span className="tabular-nums">{taskLoading ? '…' : completedTasks}</span>
-            </span>
-          </div>
-
-          <div className="w-28 flex items-center gap-2">
-            <div className="flex-1 h-1 bg-gray-100 dark:bg-gray-800/70 rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all"
-                style={{ width: `${progress}%`, backgroundColor: cardColor }}
-              />
-            </div>
-            <span className="text-xs font-mono font-semibold text-gray-500 w-9 text-right tabular-nums">
-              {progress}%
-            </span>
-          </div>
-        </div>
-      )}
-
+      {/* Menu button */}
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); onMenuOpen(project); }}
-        className="p-1.5 md:p-2 text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/40 rounded-lg transition shrink-0"
+        className="p-1.5 md:p-2 text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/40 rounded-lg transition shrink-0 self-start"
         aria-label="Project menu"
       >
         <FaEllipsisV className="text-[11px] md:text-xs" />
@@ -2423,6 +2644,9 @@ const MyWorkspaceProjects = () => {
   const [view, setView] = useState('active');
   const [optimisticArchivedIds, setOptimisticArchivedIds] = useState([]);
 
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, project: null });
+
   // Grid / list layout
   const [layoutView, setLayoutView] = useState(() => {
     if (typeof window === 'undefined') return 'grid';
@@ -2606,6 +2830,18 @@ const MyWorkspaceProjects = () => {
   const handleMenuOpen = (project) => { setSelectedProject(project); setMenuModalOpen(true); };
   const handleMenuClose = () => { setMenuModalOpen(false); setSelectedProject(null); };
 
+  // ── Context menu handlers ──
+  const handleContextMenu = useCallback((project, x, y) => {
+    // Only enable on non-touch (desktop-ish) devices
+    if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) {
+      return;
+    }
+    setContextMenu({ open: true, x, y, project });
+  }, []);
+  const closeContextMenu = useCallback(() => {
+    setContextMenu((prev) => (prev.open ? { ...prev, open: false, project: null } : prev));
+  }, []);
+
   const gridCols = aiOpen && isDesktop
     ? 'grid-cols-1 sm:grid-cols-1'
     : 'grid-cols-2';
@@ -2764,13 +3000,29 @@ const MyWorkspaceProjects = () => {
                 ) : layoutView === 'grid' ? (
                   <div className={`grid ${gridCols} gap-3 md:gap-4`}>
                     {filteredProjects.map((project) => (
-                      <ProjectCard key={project._id} project={project} brandColor={brandColor} workspaceId={workspaceId} canManage={canManage} onMenuOpen={handleMenuOpen} />
+                      <ProjectCard
+                        key={project._id}
+                        project={project}
+                        brandColor={brandColor}
+                        workspaceId={workspaceId}
+                        canManage={canManage}
+                        onMenuOpen={handleMenuOpen}
+                        onContextMenu={handleContextMenu}
+                      />
                     ))}
                   </div>
                 ) : (
                   <div className="space-y-2">
                     {filteredProjects.map((project) => (
-                      <ProjectListItem key={project._id} project={project} brandColor={brandColor} workspaceId={workspaceId} canManage={canManage} onMenuOpen={handleMenuOpen} />
+                      <ProjectListItem
+                        key={project._id}
+                        project={project}
+                        brandColor={brandColor}
+                        workspaceId={workspaceId}
+                        canManage={canManage}
+                        onMenuOpen={handleMenuOpen}
+                        onContextMenu={handleContextMenu}
+                      />
                     ))}
                   </div>
                 )}
@@ -2909,6 +3161,27 @@ const MyWorkspaceProjects = () => {
         onAISummary={(p) => setAiSummaryProject(p)}
         onAIReview={(p) => setAiReviewProject(p)}
         onAIDocs={(p) => setAiDocsProject(p)}
+        brandColor={brandColor}
+      />
+
+      {/* Right-click context menu (desktop) */}
+      <ProjectContextMenu
+        isOpen={contextMenu.open}
+        x={contextMenu.x}
+        y={contextMenu.y}
+        project={contextMenu.project}
+        canManage={canManage}
+        onClose={closeContextMenu}
+        onOpen={() => contextMenu.project && navigate(`/my-workspace/${workspaceId}/project/${contextMenu.project._id}`)}
+        onEdit={handleEdit}
+        onAISummary={(p) => setAiSummaryProject(p)}
+        onAIReview={(p) => setAiReviewProject(p)}
+        onAIDocs={(p) => setAiDocsProject(p)}
+        onArchive={() => contextMenu.project && handleArchive(contextMenu.project._id)}
+        onUnarchive={() => contextMenu.project && handleUnarchive(contextMenu.project._id)}
+        onDelete={() => contextMenu.project && handleDeleteProject(contextMenu.project._id)}
+        onPermanentDelete={() => contextMenu.project && handlePermanentDelete(contextMenu.project._id)}
+        onRestore={() => contextMenu.project && handleRestore(contextMenu.project._id)}
         brandColor={brandColor}
       />
 
