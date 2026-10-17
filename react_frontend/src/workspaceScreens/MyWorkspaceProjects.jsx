@@ -34,7 +34,7 @@ import {
   FaHeartbeat, FaLightbulb, FaFileAlt, FaDownload, FaExclamationCircle,
   FaAngleDown, FaPalette, FaCalendarAlt, FaAngleLeft, FaAngleRight,
   FaThLarge, FaList,
-  FaLayerGroup, // 👈 project icon
+  FaLayerGroup,
   FaEye,
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
@@ -91,7 +91,6 @@ const shadeHex = (hex, percent) => {
 };
 
 // ─── Unified project icon (book / stacked layers) ─────────────────────
-// All projects use the same icon — a stacked-layers "book" glyph.
 const PROJECT_ICON = FaLayerGroup;
 const pickProjectIcon = () => PROJECT_ICON;
 
@@ -1197,7 +1196,6 @@ const ProjectContextMenu = ({
   const menuRef = useRef(null);
   const [pos, setPos] = useState({ left: x, top: y });
 
-  // Position the menu so it never leaves the viewport
   useEffect(() => {
     if (!isOpen || !menuRef.current) return;
     const MENU_W = 230;
@@ -1218,7 +1216,6 @@ const ProjectContextMenu = ({
     setPos({ left, top });
   }, [isOpen, x, y]);
 
-  // Close on outside click, escape, scroll, resize
   useEffect(() => {
     if (!isOpen) return;
     const onDown = (e) => {
@@ -1251,7 +1248,6 @@ const ProjectContextMenu = ({
 
   const handleAction = (action) => {
     onClose();
-    // Defer so the menu can unmount cleanly before the action runs
     setTimeout(() => action && action(), 0);
   };
 
@@ -1290,7 +1286,6 @@ const ProjectContextMenu = ({
       style={{ position: 'fixed', left: pos.left, top: pos.top, width: 230 }}
       className="z-[120] rounded-xl border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-[#1a1a24] shadow-2xl shadow-black/20 backdrop-blur-md py-1.5 px-1.5"
     >
-      {/* Header: project name */}
       <div className="px-2 py-1.5 flex items-center gap-2 min-w-0">
         <span
           className="w-6 h-6 rounded-lg flex items-center justify-center text-white shrink-0"
@@ -1443,7 +1438,6 @@ const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen, 
       onContextMenu={handleContextMenu}
       className="group relative flex flex-col bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/70 dark:border-gray-800/50 hover:border-gray-300/80 dark:hover:border-gray-700/70 hover:shadow-[0_12px_40px_-12px_rgba(13,148,136,0.28)] dark:hover:shadow-[0_12px_40px_-12px_rgba(13,148,136,0.35)] transition-all duration-300 active:scale-[0.985] cursor-pointer overflow-hidden"
     >
-      {/* Banner */}
       <div
         className="relative h-16 sm:h-20 md:h-24 flex items-center justify-center overflow-hidden shrink-0"
         style={{ background: bannerBg }}
@@ -1493,7 +1487,6 @@ const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen, 
         </button>
       </div>
 
-      {/* Body */}
       <div className="flex flex-col flex-1 p-2.5 md:p-3.5 min-w-0">
         <h3 className="text-[12.5px] sm:text-[13.5px] md:text-[15px] font-semibold text-gray-900 dark:text-gray-100 leading-snug line-clamp-2 break-words">
           {project.name}
@@ -1607,13 +1600,11 @@ const ProjectListItem = ({ project, brandColor, workspaceId, canManage, onMenuOp
       onContextMenu={handleContextMenu}
       className="group relative bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/70 dark:border-gray-800/50 hover:border-gray-300/80 dark:hover:border-gray-700/70 hover:shadow-md dark:hover:shadow-[0_4px_20px_rgba(13,148,136,0.12)] transition-all cursor-pointer pl-3 pr-2 py-3 md:pl-3.5 md:pr-3 md:py-3.5 flex items-start gap-3 md:gap-3.5 overflow-hidden"
     >
-      {/* Colored accent bar */}
       <span
         className="absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full"
         style={{ backgroundColor: cardColor }}
       />
 
-      {/* Icon tile */}
       <div
         className="w-11 h-11 md:w-12 md:h-12 rounded-xl flex items-center justify-center text-white shrink-0 overflow-hidden relative"
         style={{ background: tileBg }}
@@ -1632,9 +1623,7 @@ const ProjectListItem = ({ project, brandColor, workspaceId, canManage, onMenuOp
         )}
       </div>
 
-      {/* Main content — everything stacks vertically */}
       <div className="flex-1 min-w-0">
-        {/* Name + status badge (name truncates, badge stays) */}
         <div className="flex items-center gap-2 min-w-0">
           <h3 className="text-sm md:text-[15px] font-semibold text-gray-900 dark:text-gray-100 truncate min-w-0">
             {project.name}
@@ -1646,7 +1635,6 @@ const ProjectListItem = ({ project, brandColor, workspaceId, canManage, onMenuOp
           </span>
         </div>
 
-        {/* Description */}
         {project.description ? (
           <p className="text-xs text-gray-500 dark:text-gray-500 truncate mt-0.5">
             {project.description}
@@ -1659,7 +1647,6 @@ const ProjectListItem = ({ project, brandColor, workspaceId, canManage, onMenuOp
 
         {!project.isTrash && (
           <>
-            {/* Progress bar — under the text, full width */}
             <div className="flex items-center gap-2 mt-2">
               <div className="flex-1 h-1 bg-gray-100 dark:bg-gray-800/70 rounded-full overflow-hidden">
                 <div
@@ -1672,7 +1659,6 @@ const ProjectListItem = ({ project, brandColor, workspaceId, canManage, onMenuOp
               </span>
             </div>
 
-            {/* Bottom row — members on the left, task counts on the right */}
             <div className="flex items-center justify-between gap-2 mt-2 min-w-0">
               <div className="flex -space-x-1.5 min-w-0 shrink">
                 {members.slice(0, 3).map((u, idx) => (
@@ -1713,7 +1699,6 @@ const ProjectListItem = ({ project, brandColor, workspaceId, canManage, onMenuOp
         )}
       </div>
 
-      {/* Menu button */}
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); onMenuOpen(project); }}
@@ -1727,7 +1712,7 @@ const ProjectListItem = ({ project, brandColor, workspaceId, canManage, onMenuOp
 };
 
 // ══════════════════════════════════════════════════════════════════
-// Professional PDF generator — Times, 12pt, justified body.
+// Professional PDF generator
 // ══════════════════════════════════════════════════════════════════
 const downloadDocsPDF = (doc) => {
   if (!doc) return;
@@ -1983,7 +1968,7 @@ const downloadDocsPDF = (doc) => {
 };
 
 // ══════════════════════════════════════════════════════════════════
-// AI Project Panel — editable plan (two-stage)
+// AI Project Panel
 // ══════════════════════════════════════════════════════════════════
 const EXAMPLE_PROMPTS = [
   'Build a marketing website in 3 weeks with design, dev and QA phases.',
@@ -2644,10 +2629,8 @@ const MyWorkspaceProjects = () => {
   const [view, setView] = useState('active');
   const [optimisticArchivedIds, setOptimisticArchivedIds] = useState([]);
 
-  // Context menu state
   const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, project: null });
 
-  // Grid / list layout
   const [layoutView, setLayoutView] = useState(() => {
     if (typeof window === 'undefined') return 'grid';
     return window.localStorage.getItem('projects.layoutView') || 'grid';
@@ -2657,13 +2640,11 @@ const MyWorkspaceProjects = () => {
     try { window.localStorage.setItem('projects.layoutView', layoutView); } catch { /* noop */ }
   }, [layoutView]);
 
-  // AI mode state
   const [aiOpen, setAiOpen] = useState(false);
   const [leftWidthPercent, setLeftWidthPercent] = useState(60);
   const [isDraggingSplitter, setIsDraggingSplitter] = useState(false);
   const containerRef = useRef(null);
 
-  // AI modals
   const [aiSummaryProject, setAiSummaryProject] = useState(null);
   const [aiReviewProject, setAiReviewProject] = useState(null);
   const [aiDocsProject, setAiDocsProject] = useState(null);
@@ -2748,7 +2729,28 @@ const MyWorkspaceProjects = () => {
     refetchProjects();
   }, [refetchProjects]);
 
-  if (workspaceError) { navigate('/my-workspaces'); return null; }
+  // ⭐ HOISTED HERE — above every early return below. Having these two
+  //    useCallback calls *after* the loading/error early returns was the
+  //    cause of React error #310 (rendered more hooks than during the
+  //    previous render).
+  const handleContextMenu = useCallback((project, x, y) => {
+    // Only enable on non-touch (desktop-ish) devices
+    if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) {
+      return;
+    }
+    setContextMenu({ open: true, x, y, project });
+  }, []);
+
+  const closeContextMenu = useCallback(() => {
+    setContextMenu((prev) => (prev.open ? { ...prev, open: false, project: null } : prev));
+  }, []);
+
+  // Navigate via effect so we don't call navigate() during render
+  useEffect(() => {
+    if (workspaceError) navigate('/my-workspaces', { replace: true });
+  }, [workspaceError, navigate]);
+
+  // ────────── ALL HOOKS ARE ABOVE THIS LINE ──────────
   if (workspaceLoading || projectsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
@@ -2829,18 +2831,6 @@ const MyWorkspaceProjects = () => {
   const handleEditSuccess = () => { refetchProjects(); setEditProjectId(null); };
   const handleMenuOpen = (project) => { setSelectedProject(project); setMenuModalOpen(true); };
   const handleMenuClose = () => { setMenuModalOpen(false); setSelectedProject(null); };
-
-  // ── Context menu handlers ──
-  const handleContextMenu = useCallback((project, x, y) => {
-    // Only enable on non-touch (desktop-ish) devices
-    if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) {
-      return;
-    }
-    setContextMenu({ open: true, x, y, project });
-  }, []);
-  const closeContextMenu = useCallback(() => {
-    setContextMenu((prev) => (prev.open ? { ...prev, open: false, project: null } : prev));
-  }, []);
 
   const gridCols = aiOpen && isDesktop
     ? 'grid-cols-1 sm:grid-cols-1'
@@ -3164,7 +3154,6 @@ const MyWorkspaceProjects = () => {
         brandColor={brandColor}
       />
 
-      {/* Right-click context menu (desktop) */}
       <ProjectContextMenu
         isOpen={contextMenu.open}
         x={contextMenu.x}

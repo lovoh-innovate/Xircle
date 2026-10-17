@@ -3273,7 +3273,28 @@ const YourWorkspaceProjects = () => {
     refetchProjects();
   }, [refetchProjects]);
 
-  if (workspaceError) { navigate('/workspaces'); return null; }
+  // ⭐ IMPORTANT: these hooks must live ABOVE the early returns below.
+  //    Having them below caused React error #310 (rendered more hooks
+  //    than during the previous render) whenever projects finished
+  //    loading after the initial spinner render.
+  const handleContextMenu = useCallback((project, x, y) => {
+    // Only enable on non-touch (desktop-ish) devices
+    if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) {
+      return;
+    }
+    setContextMenu({ open: true, x, y, project });
+  }, []);
+
+  const closeContextMenu = useCallback(() => {
+    setContextMenu((prev) => (prev.open ? { ...prev, open: false, project: null } : prev));
+  }, []);
+
+  // Navigate via effect so we don't call navigate() during render
+  useEffect(() => {
+    if (workspaceError) navigate('/workspaces', { replace: true });
+  }, [workspaceError, navigate]);
+
+  // ────────── ALL HOOKS ARE ABOVE THIS LINE ──────────
   if (workspaceLoading || projectsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
@@ -3356,18 +3377,6 @@ const YourWorkspaceProjects = () => {
   const handleMenuClose = () => { setMenuModalOpen(false); setSelectedProject(null); };
 
   const handleManageAccess = (project) => setManageAccessProject(project);
-
-  // ── Context menu handlers ──
-  const handleContextMenu = useCallback((project, x, y) => {
-    // Only enable on non-touch (desktop-ish) devices
-    if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) {
-      return;
-    }
-    setContextMenu({ open: true, x, y, project });
-  }, []);
-  const closeContextMenu = useCallback(() => {
-    setContextMenu((prev) => (prev.open ? { ...prev, open: false, project: null } : prev));
-  }, []);
 
   const gridCols = aiOpen && isDesktop
     ? 'grid-cols-1 sm:grid-cols-1'
