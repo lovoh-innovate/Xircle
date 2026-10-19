@@ -1,8 +1,8 @@
-// src/workspaceScreens/MyWorkspaceClockin.jsx
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { useSelector } from 'react-redux';
-import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
+// src/screens/workspace/WorkspaceClockin.jsx
+import React, { useState, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { useSelector } from "react-redux";
+import { useGetWorkspaceQuery } from "../../slices/workspaceApiSlice";
 import {
   useGetClockInSettingsQuery,
   useSetClockInSettingsMutation,
@@ -13,9 +13,9 @@ import {
   useGetClockInLeaderboardQuery,
   useTriggerMonthlyLeaderboardMutation,
   useGetAttendanceSummaryQuery,
-} from '../slices/clockinApiSlice';
-import MyWorkspaceSidebar from '../workspaceComponents/MyWorkspaceSidebar';
-import MyWorkspaceBottombar from '../workspaceComponents/MyWorkspaceBottombar';
+} from "../../slices/clockinApiSlice";
+import WorkspaceSidebar from "../../components/WorkspaceSidebar";
+import WorkspaceBottombar from "../../components/WorkspaceBottombar";
 import {
   FaClock,
   FaCog,
@@ -32,25 +32,27 @@ import {
   FaUserCheck,
   FaUserTimes,
   FaLock,
-  FaPlus,
-} from 'react-icons/fa';
-import { toast } from 'react-hot-toast';
-import { motion } from 'framer-motion';
+} from "react-icons/fa";
+import { toast } from "react-toastify";
+import { motion } from "framer-motion";
+
+// ─── Base path (keep in sync with WorkspaceChatId / WorkspaceMembers / WorkspaceSidebar / WorkspaceBottombar / WorkspaceId / WorkspaceProjects / WorkspaceChannels / WorkspaceDMs / WorkspaceNotes) ──
+const WORKSPACE_BASE_PATH = "/workspace";
 
 // ─── Format "HH:MM" (24h) into friendly 12-hour time ──────────────
 const formatTime = (time24) => {
-  if (!time24) return '';
-  const [h, m] = time24.split(':').map(Number);
-  const period = h >= 12 ? 'PM' : 'AM';
+  if (!time24) return "";
+  const [h, m] = time24.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
   const hour12 = h % 12 === 0 ? 12 : h % 12;
-  return `${hour12}:${String(m).padStart(2, '0')} ${period}`;
+  return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
 };
 
 // ─── Check if current time is past closingTime ──────────────────────
 const isPastClosing = (closingTime) => {
   if (!closingTime) return false;
   const now = new Date();
-  const [hours, minutes] = closingTime.split(':').map(Number);
+  const [hours, minutes] = closingTime.split(":").map(Number);
   const closingDate = new Date(now);
   closingDate.setHours(hours, minutes, 0, 0);
   return now > closingDate;
@@ -60,7 +62,7 @@ const isPastClosing = (closingTime) => {
 const isBeforeClosing = (closingTime) => {
   if (!closingTime) return false;
   const now = new Date();
-  const [hours, minutes] = closingTime.split(':').map(Number);
+  const [hours, minutes] = closingTime.split(":").map(Number);
   const closingDate = new Date(now);
   closingDate.setHours(hours, minutes, 0, 0);
   return now < closingDate;
@@ -75,36 +77,55 @@ const CustomDropdown = ({ options, value, onChange, placeholder, label, brandCol
     const handler = (e) => {
       if (ref.current && !ref.current.contains(e.target)) setOpen(false);
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const selected = options.find(o => o.value === value);
+  const selected = options.find((o) => o.value === value);
 
   return (
     <div className="relative" ref={ref}>
-      {label && <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">{label}</label>}
+      {label && (
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">
+          {label}
+        </label>
+      )}
       <button
         type="button"
         onClick={() => setOpen(!open)}
         className="w-full flex items-center justify-between px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 dark:focus:ring-[#0d9488] text-sm text-gray-800 dark:text-gray-200 hover:border-gray-400 dark:hover:border-gray-600 transition"
       >
-        <span className={selected ? 'text-gray-800 dark:text-gray-200' : 'text-gray-400 dark:text-gray-500'}>
-          {selected ? selected.label : placeholder || 'Select...'}
+        <span
+          className={
+            selected ? "text-gray-800 dark:text-gray-200" : "text-gray-400 dark:text-gray-500"
+          }
+        >
+          {selected ? selected.label : placeholder || "Select..."}
         </span>
-        <FaChevronDown className={`text-gray-500 dark:text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <FaChevronDown
+          className={`text-gray-500 dark:text-gray-400 transition-transform ${
+            open ? "rotate-180" : ""
+          }`}
+        />
       </button>
       {open && (
         <div className="absolute z-10 w-full mt-1 bg-white dark:bg-[#1e1e26] border border-gray-300 dark:border-gray-700/60 rounded-xl overflow-hidden max-h-60 overflow-y-auto shadow-lg">
-          {options.map(o => (
+          {options.map((o) => (
             <button
               key={String(o.value)}
               type="button"
-              onClick={() => { onChange(o.value); setOpen(false); }}
-              className={`w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 transition text-left text-gray-700 dark:text-gray-300 ${o.value === value ? 'bg-teal-50 dark:bg-[#0d9488]/10' : ''}`}
+              onClick={() => {
+                onChange(o.value);
+                setOpen(false);
+              }}
+              className={`w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 transition text-left text-gray-700 dark:text-gray-300 ${
+                o.value === value ? "bg-teal-50 dark:bg-[#0d9488]/10" : ""
+              }`}
             >
               <span>{o.label}</span>
-              {o.value === value && <FaCheck className="ml-auto text-xs" style={{ color: brandColor }} />}
+              {o.value === value && (
+                <FaCheck className="ml-auto text-xs" style={{ color: brandColor }} />
+              )}
             </button>
           ))}
         </div>
@@ -114,7 +135,15 @@ const CustomDropdown = ({ options, value, onChange, placeholder, label, brandCol
 };
 
 // ─── Confirm Modal ──────────────────────────────────────────────────────
-const ConfirmModal = ({ isOpen, onConfirm, onCancel, title, message, confirmLabel = 'Confirm', confirmColor = 'bg-red-600 hover:bg-red-700' }) => {
+const ConfirmModal = ({
+  isOpen,
+  onConfirm,
+  onCancel,
+  title,
+  message,
+  confirmLabel = "Confirm",
+  confirmColor = "bg-red-600 hover:bg-red-700",
+}) => {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
@@ -122,10 +151,16 @@ const ConfirmModal = ({ isOpen, onConfirm, onCancel, title, message, confirmLabe
         <h3 className="text-lg font-bold text-gray-800 dark:text-gray-200 mb-2">{title}</h3>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{message}</p>
         <div className="flex gap-3">
-          <button onClick={onCancel} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+          <button
+            onClick={onCancel}
+            className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+          >
             Cancel
           </button>
-          <button onClick={onConfirm} className={`flex-1 py-2 text-white rounded-xl text-sm font-medium transition ${confirmColor}`}>
+          <button
+            onClick={onConfirm}
+            className={`flex-1 py-2 text-white rounded-xl text-sm font-medium transition ${confirmColor}`}
+          >
             {confirmLabel}
           </button>
         </div>
@@ -135,18 +170,26 @@ const ConfirmModal = ({ isOpen, onConfirm, onCancel, title, message, confirmLabe
 };
 
 // ─── Reason Modal (for early clock‑out) ──────────────────────────────
-const ReasonModal = ({ isOpen, onConfirm, onCancel, title, message, confirmLabel = 'Confirm', confirmColor = 'bg-teal-600 hover:bg-teal-700' }) => {
-  const [reason, setReason] = useState('');
+const ReasonModal = ({
+  isOpen,
+  onConfirm,
+  onCancel,
+  title,
+  message,
+  confirmLabel = "Confirm",
+  confirmColor = "bg-teal-600 hover:bg-teal-700",
+}) => {
+  const [reason, setReason] = useState("");
 
   useEffect(() => {
-    if (!isOpen) setReason('');
+    if (!isOpen) setReason("");
   }, [isOpen]);
 
   if (!isOpen) return null;
 
   const handleConfirm = () => {
     if (!reason.trim()) {
-      toast.error('Please provide a reason.');
+      toast.error("Please provide a reason.");
       return;
     }
     onConfirm(reason.trim());
@@ -164,10 +207,16 @@ const ReasonModal = ({ isOpen, onConfirm, onCancel, title, message, confirmLabel
           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700/60 rounded-lg bg-white dark:bg-[#0b0b10] text-sm text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-teal-500 outline-none resize-none h-20"
         />
         <div className="flex gap-3 mt-4">
-          <button onClick={onCancel} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+          <button
+            onClick={onCancel}
+            className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
+          >
             Cancel
           </button>
-          <button onClick={handleConfirm} className={`flex-1 py-2 text-white rounded-xl text-sm font-medium transition ${confirmColor}`}>
+          <button
+            onClick={handleConfirm}
+            className={`flex-1 py-2 text-white rounded-xl text-sm font-medium transition ${confirmColor}`}
+          >
             {confirmLabel}
           </button>
         </div>
@@ -200,9 +249,9 @@ const BottomSheet = ({ isOpen, onClose, children }) => {
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <motion.div
-        initial={{ y: '100%', opacity: 0 }}
-        animate={{ y: animating ? 0 : '100%', opacity: animating ? 1 : 0 }}
-        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+        initial={{ y: "100%", opacity: 0 }}
+        animate={{ y: animating ? 0 : "100%", opacity: animating ? 1 : 0 }}
+        transition={{ type: "spring", damping: 25, stiffness: 300 }}
         className="w-full md:max-w-md md:rounded-2xl rounded-t-2xl bg-white dark:bg-[#1a1a1a] shadow-xl max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
@@ -213,32 +262,35 @@ const BottomSheet = ({ isOpen, onClose, children }) => {
 };
 
 // ─── Settings Modal Content ──────────────────────────────────────────
-const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
-  const { data: settingsData, isLoading: settingsLoading, refetch: refetchSettings } = useGetClockInSettingsQuery(workspaceId);
+const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess, refetchSettings }) => {
+  const {
+    data: settingsData,
+    isLoading: settingsLoading,
+    refetch: localRefetch,
+  } = useGetClockInSettingsQuery(workspaceId);
   const [setSettings, { isLoading: isSaving }] = useSetClockInSettingsMutation();
 
-  const [clockInStart, setClockInStart] = useState('');
-  const [clockInEnd, setClockInEnd] = useState('');
-  const [closingTime, setClosingTime] = useState('');
+  const [clockInStart, setClockInStart] = useState("");
+  const [clockInEnd, setClockInEnd] = useState("");
+  const [closingTime, setClosingTime] = useState("");
   const [clockInEnabled, setClockInEnabled] = useState(false);
-  const [autoClockoutEnabled, setAutoClockoutEnabled] = useState(false); // new
+  const [autoClockoutEnabled, setAutoClockoutEnabled] = useState(false);
 
   useEffect(() => {
     if (settingsData?.settings) {
-      setClockInStart(settingsData.settings.clockInStart || '');
-      setClockInEnd(settingsData.settings.clockInEnd || '');
-      setClosingTime(settingsData.settings.closingTime || '');
+      setClockInStart(settingsData.settings.clockInStart || "");
+      setClockInEnd(settingsData.settings.clockInEnd || "");
+      setClosingTime(settingsData.settings.closingTime || "");
       setClockInEnabled(settingsData.settings.clockInEnabled || false);
       setAutoClockoutEnabled(settingsData.settings.autoClockoutEnabled || false);
     }
   }, [settingsData]);
 
-  const brandColor = workspace?.color || '#0d9488';
+  const brandColor = workspace?.color || "#0d9488";
 
-  // Validate that start < end
   const validateTimes = () => {
     if (clockInStart && clockInEnd && clockInStart >= clockInEnd) {
-      toast.error('Clock‑in start must be before clock‑in end.');
+      toast.error("Clock‑in start must be before clock‑in end.");
       return false;
     }
     return true;
@@ -256,12 +308,13 @@ const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
         clockInEnabled,
         autoClockoutEnabled,
       }).unwrap();
-      toast.success('Clock-in settings updated!');
-      await refetchSettings();
-      onSuccess();
+      toast.success("Clock-in settings updated!");
+      await localRefetch();
+      if (refetchSettings) await refetchSettings();
+      if (onSuccess) onSuccess();
       onClose();
     } catch (err) {
-      toast.error(err?.data?.message || 'Failed to update settings.');
+      toast.error(err?.data?.message || "Failed to update settings.");
     }
   };
 
@@ -279,7 +332,10 @@ const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
         <h2 className="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
           <FaCog className="text-teal-500" /> Clock-in Settings
         </h2>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-white transition">
+        <button
+          onClick={onClose}
+          className="text-gray-400 hover:text-gray-600 dark:hover:text-white transition"
+        >
           <FaTimes />
         </button>
       </div>
@@ -287,7 +343,9 @@ const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Clock‑in Start</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Clock‑in Start
+            </label>
             <input
               type="time"
               value={clockInStart}
@@ -298,7 +356,9 @@ const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
             <p className="text-xs text-gray-400 mt-1">Clocking in before this time = Not allowed</p>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Clock‑in End</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Clock‑in End
+            </label>
             <input
               type="time"
               value={clockInEnd}
@@ -306,12 +366,16 @@ const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
               className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
               step="60"
             />
-            <p className="text-xs text-gray-400 mt-1">Clocking in after this time = Late (up to and including this time is on-time)</p>
+            <p className="text-xs text-gray-400 mt-1">
+              Clocking in after this time = Late (up to and including this time is on-time)
+            </p>
           </div>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Closing Time</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Closing Time
+          </label>
           <input
             type="time"
             value={closingTime}
@@ -319,21 +383,27 @@ const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
             className="w-full px-4 py-3 bg-gray-50 dark:bg-[#2a2a2a] border border-gray-200 dark:border-gray-700 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-white"
             step="60"
           />
-          <p className="text-xs text-gray-400 mt-1">Clock‑in not allowed after this time. Clock‑out before this time requires a reason.</p>
+          <p className="text-xs text-gray-400 mt-1">
+            Clock‑in not allowed after this time. Clock‑out before this time requires a reason.
+          </p>
         </div>
 
         <div className="flex items-center gap-3 py-2">
           <button
             type="button"
             onClick={() => setClockInEnabled(!clockInEnabled)}
-            className={`relative w-12 h-7 rounded-full transition-colors ${clockInEnabled ? 'bg-teal-600' : 'bg-gray-300 dark:bg-gray-700'}`}
+            className={`relative w-12 h-7 rounded-full transition-colors ${
+              clockInEnabled ? "bg-teal-600" : "bg-gray-300 dark:bg-gray-700"
+            }`}
           >
             <span
-              className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white transition-transform ${clockInEnabled ? 'translate-x-5' : ''}`}
+              className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white transition-transform ${
+                clockInEnabled ? "translate-x-5" : ""
+              }`}
             />
           </button>
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-            {clockInEnabled ? 'Clock‑in enabled' : 'Clock‑in disabled'}
+            {clockInEnabled ? "Clock‑in enabled" : "Clock‑in disabled"}
           </span>
         </div>
 
@@ -341,28 +411,36 @@ const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
           <button
             type="button"
             onClick={() => setAutoClockoutEnabled(!autoClockoutEnabled)}
-            className={`relative w-12 h-7 rounded-full transition-colors ${autoClockoutEnabled ? 'bg-teal-600' : 'bg-gray-300 dark:bg-gray-700'}`}
+            className={`relative w-12 h-7 rounded-full transition-colors ${
+              autoClockoutEnabled ? "bg-teal-600" : "bg-gray-300 dark:bg-gray-700"
+            }`}
           >
             <span
-              className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white transition-transform ${autoClockoutEnabled ? 'translate-x-5' : ''}`}
+              className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white transition-transform ${
+                autoClockoutEnabled ? "translate-x-5" : ""
+              }`}
             />
           </button>
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-            {autoClockoutEnabled ? 'Auto clock‑out enabled' : 'Auto clock‑out disabled'}
+            {autoClockoutEnabled ? "Auto clock‑out enabled" : "Auto clock‑out disabled"}
           </span>
         </div>
 
         <div className="flex gap-3 pt-2">
-          <button type="button" onClick={onClose} className="flex-1 py-3 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-[#2a2a2a] transition text-gray-700 dark:text-gray-300">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 py-3 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-[#2a2a2a] transition text-gray-700 dark:text-gray-300"
+          >
             Cancel
           </button>
           <button
             type="submit"
             disabled={isSaving}
-            className="flex-1 py-3 bg-teal-600 dark:bg-teal-500 text-white rounded-xl hover:bg-teal-700 dark:hover:bg-teal-600 disabled:opacity-50 transition"
+            className="flex-1 py-3 text-white rounded-xl hover:opacity-90 disabled:opacity-50 transition"
             style={{ backgroundColor: brandColor }}
           >
-            {isSaving ? <FaSpinner className="animate-spin mx-auto" /> : 'Save Settings'}
+            {isSaving ? <FaSpinner className="animate-spin mx-auto" /> : "Save Settings"}
           </button>
         </div>
       </form>
@@ -371,28 +449,26 @@ const SettingsContent = ({ workspaceId, workspace, onClose, onSuccess }) => {
 };
 
 // ─── Status Badge ──────────────────────────────────────────────────────
-// Uses clockIn.autoClockedOut flag to indicate auto clock-out (not overriding status)
 const StatusBadge = ({ clockIn }) => {
   if (!clockIn) return null;
 
-  const isAuto = clockIn.autoClockedOut || clockIn.status === 'auto-clocked-out';
+  const isAuto = clockIn.autoClockedOut || clockIn.status === "auto-clocked-out";
 
   if (clockIn.isEarly && !clockIn.isLate) {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-medium text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-1.5 sm:px-2 py-0.5 rounded-full">
-        <FaCheck className="text-[10px]" /> On Time{isAuto ? ' · Auto Out' : ''}
+        <FaCheck className="text-[10px]" /> On Time{isAuto ? " · Auto Out" : ""}
       </span>
     );
   }
   if (clockIn.isLate) {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-medium text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30 px-1.5 sm:px-2 py-0.5 rounded-full">
-        <FaTimes className="text-[10px]" /> Late{isAuto ? ' · Auto Out' : ''}
+        <FaTimes className="text-[10px]" /> Late{isAuto ? " · Auto Out" : ""}
       </span>
     );
   }
-  // Fallback if neither flag is set but status might be 'on-time' or legacy 'early'
-  if (clockIn.status === 'on-time' || clockIn.status === 'early') {
+  if (clockIn.status === "on-time" || clockIn.status === "early") {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-medium text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-1.5 sm:px-2 py-0.5 rounded-full">
         <FaCheck className="text-[10px]" /> On Time
@@ -408,13 +484,13 @@ const StatusBadge = ({ clockIn }) => {
   }
   return (
     <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700/30 px-1.5 sm:px-2 py-0.5 rounded-full">
-      {clockIn.status || 'Unknown'}
+      {clockIn.status || "Unknown"}
     </span>
   );
 };
 
 // ─── Leaderboard Table ──────────────────────────────────────────────
-const LeaderboardTable = ({ data, period }) => {
+const LeaderboardTable = ({ data }) => {
   if (!data || data.length === 0) {
     return (
       <div className="text-center py-8 text-gray-400 dark:text-gray-500">
@@ -425,9 +501,9 @@ const LeaderboardTable = ({ data, period }) => {
   }
 
   const getMedal = (index) => {
-    if (index === 0) return '🥇';
-    if (index === 1) return '🥈';
-    if (index === 2) return '🥉';
+    if (index === 0) return "🥇";
+    if (index === 1) return "🥈";
+    if (index === 2) return "🥉";
     return `#${index + 1}`;
   };
 
@@ -436,26 +512,43 @@ const LeaderboardTable = ({ data, period }) => {
       <table className="w-full min-w-[280px] text-xs sm:text-sm">
         <thead>
           <tr className="border-b border-gray-200 dark:border-gray-800">
-            <th className="text-left py-1.5 px-1 sm:py-2 sm:px-2 text-[10px] sm:text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">Rank</th>
-            <th className="text-left py-1.5 px-1 sm:py-2 sm:px-2 text-[10px] sm:text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">Member</th>
-            <th className="text-center py-1.5 px-1 sm:py-2 sm:px-2 text-[10px] sm:text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">On Time</th>
-            <th className="text-center py-1.5 px-1 sm:py-2 sm:px-2 text-[10px] sm:text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider hidden sm:table-cell">Avg Late</th>
-            <th className="text-center py-1.5 px-1 sm:py-2 sm:px-2 text-[10px] sm:text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">Score</th>
+            <th className="text-left py-1.5 px-1 sm:py-2 sm:px-2 text-[10px] sm:text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">
+              Rank
+            </th>
+            <th className="text-left py-1.5 px-1 sm:py-2 sm:px-2 text-[10px] sm:text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">
+              Member
+            </th>
+            <th className="text-center py-1.5 px-1 sm:py-2 sm:px-2 text-[10px] sm:text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">
+              On Time
+            </th>
+            <th className="text-center py-1.5 px-1 sm:py-2 sm:px-2 text-[10px] sm:text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider hidden sm:table-cell">
+              Avg Late
+            </th>
+            <th className="text-center py-1.5 px-1 sm:py-2 sm:px-2 text-[10px] sm:text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">
+              Score
+            </th>
           </tr>
         </thead>
         <tbody>
           {data.map((item, index) => (
-            <tr key={item.user._id} className="border-b border-gray-100 dark:border-gray-800/30 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition">
+            <tr
+              key={item.user._id}
+              className="border-b border-gray-100 dark:border-gray-800/30 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition"
+            >
               <td className="py-1.5 px-1 sm:py-2 sm:px-2 font-medium text-gray-700 dark:text-gray-300 text-center text-xs sm:text-sm">
                 {getMedal(index)}
               </td>
               <td className="py-1.5 px-1 sm:py-2 sm:px-2">
                 <div className="flex items-center gap-1.5 sm:gap-2">
                   {item.user.profile ? (
-                    <img src={item.user.profile} alt={item.user.name} className="w-5 h-5 sm:w-7 sm:h-7 rounded-full object-cover" />
+                    <img
+                      src={item.user.profile}
+                      alt={item.user.name}
+                      className="w-5 h-5 sm:w-7 sm:h-7 rounded-full object-cover"
+                    />
                   ) : (
                     <div className="w-5 h-5 sm:w-7 sm:h-7 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-[8px] sm:text-xs font-bold text-gray-600 dark:text-gray-300">
-                      {item.user.name?.charAt(0).toUpperCase() || '?'}
+                      {item.user.name?.charAt(0).toUpperCase() || "?"}
                     </div>
                   )}
                   <span className="text-gray-800 dark:text-gray-200 text-[10px] sm:text-sm truncate max-w-[60px] sm:max-w-[120px]">
@@ -463,9 +556,15 @@ const LeaderboardTable = ({ data, period }) => {
                   </span>
                 </div>
               </td>
-              <td className="text-center py-1.5 px-1 sm:py-2 sm:px-2 text-gray-600 dark:text-gray-400 text-[10px] sm:text-sm">{item.earlyCount}</td>
-              <td className="text-center py-1.5 px-1 sm:py-2 sm:px-2 text-gray-600 dark:text-gray-400 text-[10px] sm:text-sm hidden sm:table-cell">{item.avgLateMinutes} min</td>
-              <td className="text-center py-1.5 px-1 sm:py-2 sm:px-2 font-semibold text-teal-600 dark:text-teal-400 text-[10px] sm:text-sm">{Math.round(item.score)}</td>
+              <td className="text-center py-1.5 px-1 sm:py-2 sm:px-2 text-gray-600 dark:text-gray-400 text-[10px] sm:text-sm">
+                {item.earlyCount}
+              </td>
+              <td className="text-center py-1.5 px-1 sm:py-2 sm:px-2 text-gray-600 dark:text-gray-400 text-[10px] sm:text-sm hidden sm:table-cell">
+                {item.avgLateMinutes} min
+              </td>
+              <td className="text-center py-1.5 px-1 sm:py-2 sm:px-2 font-semibold text-teal-600 dark:text-teal-400 text-[10px] sm:text-sm">
+                {Math.round(item.score)}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -474,9 +573,11 @@ const LeaderboardTable = ({ data, period }) => {
   );
 };
 
-// ─── Attendance Summary View ──────────────────────────────────────────
-const AttendanceSummaryView = ({ workspaceId, brandColor }) => {
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+// ─── Attendance Summary View (admin / owner only) ────────────────────
+const AttendanceSummaryView = ({ workspaceId }) => {
+  const [selectedDate, setSelectedDate] = useState(
+    new Date().toISOString().split("T")[0]
+  );
   const { data, isLoading, refetch } = useGetAttendanceSummaryQuery({
     workspaceId,
     date: selectedDate,
@@ -520,19 +621,31 @@ const AttendanceSummaryView = ({ workspaceId, brandColor }) => {
               </h3>
             </div>
             {summary.clockedIn?.length === 0 ? (
-              <p className="text-xs text-gray-400 dark:text-gray-500 italic">No one has clocked in yet today.</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 italic">
+                No one has clocked in yet today.
+              </p>
             ) : (
               <div className="divide-y divide-gray-100 dark:divide-gray-800/30 border border-gray-100 dark:border-gray-800/30 rounded-xl overflow-hidden">
                 {summary.clockedIn.map((user) => (
-                  <div key={user._id} className="flex items-center justify-between px-4 py-2 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition">
+                  <div
+                    key={user._id}
+                    className="flex items-center justify-between px-4 py-2 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition"
+                  >
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-xs font-bold text-gray-600 dark:text-gray-300">
-                        {user.name?.charAt(0).toUpperCase() || '?'}
+                        {user.name?.charAt(0).toUpperCase() || "?"}
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{user.name}</p>
+                        <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                          {user.name}
+                        </p>
                         <p className="text-xs text-gray-500 dark:text-gray-400">
-                          {user.clockInTime ? new Date(user.clockInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                          {user.clockInTime
+                            ? new Date(user.clockInTime).toLocaleTimeString([], {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })
+                            : ""}
                         </p>
                       </div>
                     </div>
@@ -552,15 +665,22 @@ const AttendanceSummaryView = ({ workspaceId, brandColor }) => {
               </h3>
             </div>
             {summary.notClockedIn?.length === 0 ? (
-              <p className="text-xs text-gray-400 dark:text-gray-500 italic">Everyone has clocked in today!</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 italic">
+                Everyone has clocked in today!
+              </p>
             ) : (
               <div className="divide-y divide-gray-100 dark:divide-gray-800/30 border border-gray-100 dark:border-gray-800/30 rounded-xl overflow-hidden">
                 {summary.notClockedIn.map((user) => (
-                  <div key={user._id} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition">
+                  <div
+                    key={user._id}
+                    className="flex items-center gap-2 px-4 py-2 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition"
+                  >
                     <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-xs font-bold text-gray-600 dark:text-gray-300">
-                      {user.name?.charAt(0).toUpperCase() || '?'}
+                      {user.name?.charAt(0).toUpperCase() || "?"}
                     </div>
-                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{user.name}</p>
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                      {user.name}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -572,92 +692,135 @@ const AttendanceSummaryView = ({ workspaceId, brandColor }) => {
   );
 };
 
-// ─── Main Component ──────────────────────────────────────────────────────
-const MyWorkspaceClockin = () => {
+// ═════════════════════════════════════════════════════════════════════
+//  MAIN
+// ═════════════════════════════════════════════════════════════════════
+const WorkspaceClockin = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
-  const [activeTab, setActiveTab] = useState('summary');
+
+  const [activeTab, setActiveTab] = useState("summary");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [leaderboardPeriod, setLeaderboardPeriod] = useState('month');
-  const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
+  const [leaderboardPeriod, setLeaderboardPeriod] = useState("month");
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: null,
+  });
   const [reasonModal, setReasonModal] = useState({ isOpen: false, onConfirm: null });
 
-  // ─── Workspace data ──────────────────────────────────────────────────
+  // ─── Workspace ─────────────────────────────────────────────────
   const { data: workspaceData, isLoading: workspaceLoading } = useGetWorkspaceQuery(workspaceId);
   const workspace = workspaceData?.workspace;
 
+  // ─── Permissions ───────────────────────────────────────────────
   const userId = userInfo?._id;
   const isOwner = workspace?.owner?._id === userId || workspace?.owner === userId;
-  const isAdmin = workspace?.members?.some(
-    (m) => (m.user?._id === userId || m.user === userId) && m.role === 'Admin' && m.status === 'active'
+  const isActiveMember = !!workspace?.members?.some(
+    (m) => (m.user?._id === userId || m.user === userId) && m.status === "active"
+  );
+  const isAdmin = !!workspace?.members?.some(
+    (m) =>
+      (m.user?._id === userId || m.user === userId) &&
+      m.role === "Admin" &&
+      m.status === "active"
   );
   const canManage = isOwner || isAdmin;
+  const brandColor = workspace?.color || "#0d9488";
 
-  if (!canManage) {
-    navigate(`/my-workspace/${workspaceId}`);
-    return null;
-  }
-
-  const brandColor = workspace?.color || '#0d9488';
-
-  // ─── Queries ────────────────────────────────────────────────────────
-  const { data: settingsData } = useGetClockInSettingsQuery(workspaceId);
-  const clockInStart = settingsData?.settings?.clockInStart || null;
+  // ─── Settings ──────────────────────────────────────────────────
+  const { data: settingsData, refetch: refetchSettings } =
+    useGetClockInSettingsQuery(workspaceId, { skip: !workspaceId });
+  const clockInStart =
+    settingsData?.settings?.clockInStart || settingsData?.settings?.clockInTime || null;
   const clockInEnd = settingsData?.settings?.clockInEnd || null;
   const closingTime = settingsData?.settings?.closingTime || null;
   const autoClockoutEnabled = settingsData?.settings?.autoClockoutEnabled || false;
+  const isClockInEnabled = settingsData?.settings?.clockInEnabled || false;
   const hasScheduledTime = clockInStart !== null;
 
   const pastClosing = isPastClosing(closingTime);
-  const beforeClosing = isBeforeClosing(closingTime); // true if now < closingTime
+  const beforeClosing = isBeforeClosing(closingTime);
 
-  // History
-  const [historyPage, setHistoryPage] = useState(1);
-  const { data: historyData, isLoading: historyLoading } = useGetWorkspaceClockInsQuery(
-    { workspaceId, page: historyPage, limit: 20 },
-    { skip: activeTab !== 'history' }
-  );
-
-  // Leaderboard
-  const { data: leaderboardData, isLoading: leaderboardLoading } = useGetClockInLeaderboardQuery(
-    { workspaceId, period: leaderboardPeriod },
-    { skip: activeTab !== 'leaderboard' }
-  );
-
-  // ─── Current user's clock-in status ──────────────────────────────
-  const { data: userHistoryData, refetch: refetchUserHistory } = useGetUserClockInHistoryQuery(
+  // ─── Current user's status ────────────────────────────────────
+  const {
+    data: userStatusData,
+    refetch: refetchUserStatus,
+  } = useGetUserClockInHistoryQuery(
     { workspaceId, page: 1, limit: 1 },
     { skip: !workspaceId }
   );
-  const userTodayClockIn = userHistoryData?.history?.[0] || null;
+  const userTodayClockIn = userStatusData?.history?.[0] || null;
   const isClockedIn = userTodayClockIn && !userTodayClockIn.clockOutTime;
 
-  // ─── Mutations ──────────────────────────────────────────────────────
+  // ─── History (paginated) ──────────────────────────────────────
+  const [historyPage, setHistoryPage] = useState(1);
+
+  // Workspace history (admin/owner)
+  const {
+    data: workspaceHistoryData,
+    isLoading: workspaceHistoryLoading,
+  } = useGetWorkspaceClockInsQuery(
+    { workspaceId, page: historyPage, limit: 20 },
+    { skip: activeTab !== "history" || !canManage }
+  );
+
+  // Personal history (regular member)
+  const {
+    data: personalHistoryData,
+    isLoading: personalHistoryLoading,
+  } = useGetUserClockInHistoryQuery(
+    { workspaceId, page: historyPage, limit: 20 },
+    { skip: activeTab !== "history" || canManage }
+  );
+
+  const historyData = canManage ? workspaceHistoryData : personalHistoryData;
+  const historyLoading = canManage ? workspaceHistoryLoading : personalHistoryLoading;
+  const historyItems = canManage
+    ? workspaceHistoryData?.clockIns || []
+    : personalHistoryData?.history || [];
+  const historyPages = historyData?.pagination?.pages || 0;
+
+  // ─── Leaderboard ──────────────────────────────────────────────
+  const { data: leaderboardData, isLoading: leaderboardLoading } =
+    useGetClockInLeaderboardQuery(
+      { workspaceId, period: leaderboardPeriod },
+      { skip: activeTab !== "leaderboard" }
+    );
+
+  // ─── Mutations ────────────────────────────────────────────────
   const [clockInMutation, { isLoading: isClockInLoading }] = useClockInMutation();
   const [clockOutMutation, { isLoading: isClockOutLoading }] = useClockOutMutation();
   const [triggerMonthly] = useTriggerMonthlyLeaderboardMutation();
 
-  // ─── Handlers ──────────────────────────────────────────────────────
+  // ─── Redirect if not a member ─────────────────────────────────
+  useEffect(() => {
+    if (!workspaceLoading && (!workspace || !isActiveMember)) {
+      navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}`);
+    }
+  }, [workspaceLoading, workspace, isActiveMember, navigate, workspaceId]);
+
+  // ─── Handlers ─────────────────────────────────────────────────
   const handleClockIn = async () => {
     try {
       await clockInMutation(workspaceId).unwrap();
-      toast.success('Clocked in successfully!');
-      refetchUserHistory();
+      toast.success("Clocked in successfully!");
+      refetchUserStatus();
     } catch (err) {
-      toast.error(err?.data?.message || 'Failed to clock in.');
+      toast.error(err?.data?.message || "Failed to clock in.");
     }
   };
 
   const handleClockOut = async (providedReason = null) => {
     try {
       await clockOutMutation({ workspaceId, reason: providedReason || undefined }).unwrap();
-      toast.success('Clocked out successfully!');
-      refetchUserHistory();
+      toast.success("Clocked out successfully!");
+      refetchUserStatus();
       setReasonModal({ isOpen: false, onConfirm: null });
     } catch (err) {
-      // If the error is about missing reason, open the modal
-      if (err?.data?.message?.toLowerCase().includes('reason')) {
+      if (err?.data?.message?.toLowerCase().includes("reason")) {
         if (!reasonModal.isOpen) {
           setReasonModal({
             isOpen: true,
@@ -667,15 +830,13 @@ const MyWorkspaceClockin = () => {
           });
         }
       } else {
-        toast.error(err?.data?.message || 'Failed to clock out.');
+        toast.error(err?.data?.message || "Failed to clock out.");
       }
     }
   };
 
-  // Wrap clock-out to check if before closing time (requires reason)
   const onClockOutClick = () => {
     if (beforeClosing && closingTime) {
-      // Before closing time – require reason
       setReasonModal({
         isOpen: true,
         onConfirm: async (reason) => {
@@ -683,32 +844,68 @@ const MyWorkspaceClockin = () => {
         },
       });
     } else {
-      // After closing time – no reason needed
       handleClockOut(null);
     }
   };
 
   const handleSendMonthlyReport = async () => {
+    if (!canManage) return;
     setConfirmModal({
       isOpen: true,
-      title: 'Send Monthly Report',
-      message: 'This will email the leaderboard to the top 5 members and workspace owner. Continue?',
+      title: "Send Monthly Report",
+      message:
+        "This will email the leaderboard to the top 5 members and workspace owner. Continue?",
       onConfirm: async () => {
         try {
           await triggerMonthly(workspaceId).unwrap();
-          toast.success('Monthly report sent!');
+          toast.success("Monthly report sent!");
           setConfirmModal({ isOpen: false });
         } catch (err) {
-          toast.error(err?.data?.message || 'Failed to send report');
+          toast.error(err?.data?.message || "Failed to send report");
           setConfirmModal({ isOpen: false });
         }
       },
     });
   };
 
-  // ─── Render helpers ──────────────────────────────────────────────
-  const renderHistoryList = (history) => {
-    if (!history || history.length === 0) {
+  // ─── Loading state ────────────────────────────────────────────
+  if (workspaceLoading) {
+    return (
+      <div className="min-h-screen bg-white dark:bg-[#0b0b10] flex flex-col md:flex-row">
+        <div className="hidden md:block md:min-h-screen fixed top-0 left-0 z-20 workspace-shell-sidebar">
+          <WorkspaceSidebar workspace={undefined} chats={[]} />
+        </div>
+        <div className="flex-1 flex items-center justify-center md:ml-[260px] workspace-shell-main">
+          <div className="text-center">
+            <FaSpinner className="animate-spin text-teal-500 text-3xl mx-auto" />
+            <p className="mt-3 text-gray-500 dark:text-gray-400 text-sm">Loading...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Redirect effect above will fire; render nothing while it navigates
+  if (!workspace || !isActiveMember) return null;
+
+  // ─── Derived clock-in state ───────────────────────────────────
+  const canClockIn = isClockInEnabled && !isClockedIn && !pastClosing;
+
+  // ─── Tabs by role ─────────────────────────────────────────────
+  const tabs = canManage
+    ? [
+        { id: "summary", label: "Attendance", icon: FaUsers },
+        { id: "history", label: "History", icon: FaHistory },
+        { id: "leaderboard", label: "Leaderboard", icon: FaChartBar },
+      ]
+    : [
+        { id: "history", label: "My History", icon: FaHistory },
+        { id: "leaderboard", label: "Leaderboard", icon: FaChartBar },
+      ];
+
+  // ─── History rendering (workspace or personal) ───────────────
+  const renderHistoryList = () => {
+    if (!historyItems || historyItems.length === 0) {
       return (
         <div className="text-center py-12 text-gray-400 dark:text-gray-500">
           <FaHistory className="text-4xl mx-auto mb-2 opacity-30" />
@@ -717,29 +914,65 @@ const MyWorkspaceClockin = () => {
       );
     }
 
-    return history.map((item) => {
+    const workspaceView = canManage;
+
+    return historyItems.map((item) => {
       const user = item.user || {};
-      const time = new Date(item.clockInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const date = new Date(item.clockInTime).toLocaleDateString([], { month: 'short', day: 'numeric' });
+      const time = new Date(item.clockInTime).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      const date = new Date(item.clockInTime).toLocaleDateString([], {
+        month: "short",
+        day: "numeric",
+      });
+
       return (
-        <div key={item._id} className="flex items-start gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 border-b border-gray-100 dark:border-gray-800/30 last:border-0 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition">
+        <div
+          key={item._id}
+          className="flex items-start gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 border-b border-gray-100 dark:border-gray-800/30 last:border-0 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition"
+        >
           <div className="relative flex-shrink-0">
-            {user.profile ? (
-              <img src={user.profile} alt={user.name} className="w-8 h-8 sm:w-10 sm:h-10 rounded-full object-cover" />
+            {workspaceView ? (
+              user.profile ? (
+                <img
+                  src={user.profile}
+                  alt={user.name}
+                  className="w-8 h-8 sm:w-10 sm:h-10 rounded-full object-cover"
+                />
+              ) : (
+                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-gray-600 dark:text-gray-300 font-bold text-xs sm:text-sm">
+                  {user.name?.charAt(0).toUpperCase() || "?"}
+                </div>
+              )
             ) : (
-              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-gray-600 dark:text-gray-300 font-bold text-xs sm:text-sm">
-                {user.name?.charAt(0).toUpperCase() || '?'}
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-gray-600 dark:text-gray-300">
+                <FaClock className="text-teal-500" />
               </div>
             )}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-semibold text-sm sm:text-base text-gray-800 dark:text-gray-200 truncate">{user.name || 'Unknown'}</p>
-            <div className="flex items-center gap-1 sm:gap-2 text-xs text-gray-500 dark:text-gray-400">
-              <span>{date} {time}</span>
+            {workspaceView ? (
+              <p className="font-semibold text-sm sm:text-base text-gray-800 dark:text-gray-200 truncate">
+                {user.name || "Unknown"}
+              </p>
+            ) : (
+              <p className="font-semibold text-sm sm:text-base text-gray-800 dark:text-gray-200">
+                {date}
+              </p>
+            )}
+            <div className="flex items-center gap-1 sm:gap-2 text-xs text-gray-500 dark:text-gray-400 flex-wrap">
+              <span>{workspaceView ? `${date} ${time}` : `In: ${time}`}</span>
               {item.clockOutTime && (
                 <>
                   <span>·</span>
-                  <span>Out: {new Date(item.clockOutTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  <span>
+                    Out:{" "}
+                    {new Date(item.clockOutTime).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
                 </>
               )}
               {item.autoClockedOut && (
@@ -748,7 +981,8 @@ const MyWorkspaceClockin = () => {
             </div>
             {item.clockOutReason && (
               <p className="text-[11px] sm:text-xs text-amber-600 dark:text-amber-400 mt-1 bg-amber-50 dark:bg-amber-900/20 rounded-md px-2 py-1 inline-block">
-                📝 Reason: {item.clockOutReason}
+                📝 {workspaceView ? "Reason: " : ""}
+                {item.clockOutReason}
               </p>
             )}
           </div>
@@ -760,40 +994,21 @@ const MyWorkspaceClockin = () => {
     });
   };
 
-  // ─── Loading state ──────────────────────────────────────────────────
-  if (workspaceLoading) {
-    return (
-      <div className="min-h-screen bg-white dark:bg-[#0b0b10] flex flex-col md:flex-row">
-        <div className="hidden md:block md:w-72 md:flex-shrink-0">
-          <MyWorkspaceSidebar workspace={workspace} />
-        </div>
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <FaSpinner className="animate-spin text-teal-500 text-3xl mx-auto" />
-            <p className="mt-3 text-gray-500 dark:text-gray-400 text-sm">Loading...</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const isClockInEnabled = settingsData?.settings?.clockInEnabled || false;
-  const canClockIn = isClockInEnabled && !isClockedIn && !pastClosing;
-
+  // ─── Render ───────────────────────────────────────────────────
   return (
     <>
       <div className="min-h-screen bg-gray-50 dark:bg-[#0b0b10] flex flex-col md:flex-row">
-        <div className="hidden md:block md:w-72 md:flex-shrink-0">
-          <MyWorkspaceSidebar workspace={workspace} />
+        <div className="hidden md:block md:min-h-screen fixed top-0 left-0 z-20 workspace-shell-sidebar">
+          <WorkspaceSidebar workspace={workspace} chats={[]} />
         </div>
 
-        <div className="flex-1 flex flex-col h-screen md:h-auto md:min-h-screen overflow-hidden">
+        <div className="flex-1 flex flex-col h-screen md:h-auto md:min-h-screen overflow-hidden md:ml-[260px] workspace-shell-main">
           {/* ─── Header ────────────────────────────────────────────────── */}
           <header className="bg-white/95 dark:bg-[#0f0f12]/95 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0 sticky top-0 z-10">
             <div className="flex items-center justify-between px-3 sm:px-6 h-12 sm:h-14">
               <div className="flex items-center gap-2 min-w-0 flex-1">
                 <button
-                  onClick={() => navigate(`/my-workspace/${workspaceId}`)}
+                  onClick={() => navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}`)}
                   className="p-1 lg:hidden text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
                 >
                   <FaArrowLeft className="text-sm" />
@@ -811,28 +1026,38 @@ const MyWorkspaceClockin = () => {
                     Disabled
                   </span>
                 )}
-                {userTodayClockIn && isClockedIn && (
+                {isClockInEnabled && userTodayClockIn && isClockedIn && (
                   <span className="text-[10px] sm:text-xs text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-1.5 sm:px-2 py-0.5 rounded-full border border-green-200 dark:border-green-700/40 whitespace-nowrap hidden xs:inline">
-                    In: {new Date(userTodayClockIn.clockInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    In:{" "}
+                    {new Date(userTodayClockIn.clockInTime).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
                   </span>
                 )}
               </div>
               <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
-                <button
-                  onClick={() => setSettingsOpen(true)}
-                  className="p-1.5 sm:p-2 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
-                  title="Settings"
-                >
-                  <FaCog className="text-base sm:text-lg" />
-                </button>
-                {isClockInEnabled && (
-                  isClockedIn ? (
+                {canManage && (
+                  <button
+                    onClick={() => setSettingsOpen(true)}
+                    className="p-1.5 sm:p-2 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
+                    title="Settings"
+                  >
+                    <FaCog className="text-base sm:text-lg" />
+                  </button>
+                )}
+                {isClockInEnabled &&
+                  (isClockedIn ? (
                     <button
                       onClick={onClockOutClick}
                       disabled={isClockOutLoading}
                       className="px-2 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-sm bg-red-600 dark:bg-red-500 text-white rounded-xl hover:bg-red-700 dark:hover:bg-red-600 transition disabled:opacity-50 flex items-center gap-1 sm:gap-2 whitespace-nowrap"
                     >
-                      {isClockOutLoading ? <FaSpinner className="animate-spin text-xs sm:text-sm" /> : <FaTimes className="text-xs sm:text-sm" />}
+                      {isClockOutLoading ? (
+                        <FaSpinner className="animate-spin text-xs sm:text-sm" />
+                      ) : (
+                        <FaTimes className="text-xs sm:text-sm" />
+                      )}
                       <span>Clock Out</span>
                     </button>
                   ) : (
@@ -840,16 +1065,25 @@ const MyWorkspaceClockin = () => {
                       onClick={handleClockIn}
                       disabled={!canClockIn || isClockInLoading}
                       className={`px-2 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-sm text-white rounded-xl transition disabled:opacity-50 flex items-center gap-1 sm:gap-2 whitespace-nowrap ${
-                        canClockIn ? 'bg-teal-600 dark:bg-teal-500 hover:bg-teal-700 dark:hover:bg-teal-600' : 'bg-gray-400 dark:bg-gray-600 cursor-not-allowed'
+                        canClockIn
+                          ? "hover:brightness-110"
+                          : "bg-gray-400 dark:bg-gray-600 cursor-not-allowed"
                       }`}
                       style={canClockIn ? { backgroundColor: brandColor } : {}}
-                      title={!canClockIn && pastClosing ? 'Clock-in is closed for today' : ''}
+                      title={
+                        !canClockIn && pastClosing
+                          ? "Clock-in is closed for today"
+                          : ""
+                      }
                     >
-                      {isClockInLoading ? <FaSpinner className="animate-spin text-xs sm:text-sm" /> : <FaCheck className="text-xs sm:text-sm" />}
+                      {isClockInLoading ? (
+                        <FaSpinner className="animate-spin text-xs sm:text-sm" />
+                      ) : (
+                        <FaCheck className="text-xs sm:text-sm" />
+                      )}
                       <span>Clock In</span>
                     </button>
-                  )
-                )}
+                  ))}
               </div>
             </div>
 
@@ -857,7 +1091,9 @@ const MyWorkspaceClockin = () => {
             {isClockInEnabled && (
               <div
                 className={`px-3 sm:px-6 py-2 border-t border-gray-200/60 dark:border-gray-800/30 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:text-sm ${
-                  pastClosing ? 'bg-red-50 dark:bg-red-900/20' : 'bg-teal-50/30 dark:bg-teal-900/10'
+                  pastClosing
+                    ? "bg-red-50 dark:bg-red-900/20"
+                    : "bg-teal-50/30 dark:bg-teal-900/10"
                 }`}
                 style={!pastClosing ? { backgroundColor: `${brandColor}0d` } : {}}
               >
@@ -867,33 +1103,48 @@ const MyWorkspaceClockin = () => {
                     Clock‑in is closed for today
                   </span>
                 ) : hasScheduledTime ? (
-                  <span className="flex items-center gap-1.5 font-medium" style={{ color: brandColor }}>
+                  <span
+                    className="flex items-center gap-1.5 font-medium"
+                    style={{ color: brandColor }}
+                  >
                     <FaClock className="text-[11px] sm:text-xs" />
-                    Clock in between{' '}
+                    Clock in between{" "}
                     <span className="font-mono font-semibold text-gray-800 dark:text-gray-200">
-                      {formatTime(clockInStart)}{clockInEnd ? ` – ${formatTime(clockInEnd)}` : ''}
+                      {formatTime(clockInStart)}
+                      {clockInEnd ? ` – ${formatTime(clockInEnd)}` : ""}
                     </span>
                   </span>
                 ) : (
                   <span className="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
                     <FaExclamationTriangle className="text-yellow-500 text-[11px] sm:text-xs" />
-                    No clock-in schedule set yet —{' '}
-                    <button
-                      type="button"
-                      onClick={() => setSettingsOpen(true)}
-                      className="underline font-medium hover:opacity-80 transition"
-                      style={{ color: brandColor }}
-                    >
-                      set it now
-                    </button>
+                    No clock-in schedule set yet
+                    {canManage && (
+                      <>
+                        {" — "}
+                        <button
+                          type="button"
+                          onClick={() => setSettingsOpen(true)}
+                          className="underline font-medium hover:opacity-80 transition"
+                          style={{ color: brandColor }}
+                        >
+                          set it now
+                        </button>
+                      </>
+                    )}
                   </span>
                 )}
                 {closingTime && (
                   <span className="flex items-center gap-1.5 text-gray-600 dark:text-gray-400">
                     <FaTimes className="text-[11px] sm:text-xs" />
-                    Closes at <span className="font-mono font-semibold text-gray-800 dark:text-gray-200">{formatTime(closingTime)}</span>
+                    Closes at{" "}
+                    <span className="font-mono font-semibold text-gray-800 dark:text-gray-200">
+                      {formatTime(closingTime)}
+                    </span>
                     {beforeClosing && (
-                      <span className="text-amber-600 dark:text-amber-400 text-[10px] sm:text-xs"> (reason required if out before)</span>
+                      <span className="text-amber-600 dark:text-amber-400 text-[10px] sm:text-xs">
+                        {" "}
+                        (reason required if out before)
+                      </span>
                     )}
                   </span>
                 )}
@@ -908,46 +1159,32 @@ const MyWorkspaceClockin = () => {
 
             {/* ─── Tabs ────────────────────────────────────────────────── */}
             <div className="flex gap-2 sm:gap-4 px-3 sm:px-6 border-t border-gray-200/60 dark:border-gray-800/30">
-              <button
-                onClick={() => setActiveTab('summary')}
-                className={`pb-2 text-[11px] sm:text-sm font-medium transition flex items-center gap-1 sm:gap-2 ${
-                  activeTab === 'summary'
-                    ? 'border-b-2 border-teal-600 dark:border-[#0d9488] text-teal-600 dark:text-[#0d9488]'
-                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                }`}
-              >
-                <FaUsers className="text-[10px] sm:text-xs" /> Attendance
-              </button>
-              <button
-                onClick={() => setActiveTab('history')}
-                className={`pb-2 text-[11px] sm:text-sm font-medium transition flex items-center gap-1 sm:gap-2 ${
-                  activeTab === 'history'
-                    ? 'border-b-2 border-teal-600 dark:border-[#0d9488] text-teal-600 dark:text-[#0d9488]'
-                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                }`}
-              >
-                <FaHistory className="text-[10px] sm:text-xs" /> History
-              </button>
-              <button
-                onClick={() => setActiveTab('leaderboard')}
-                className={`pb-2 text-[11px] sm:text-sm font-medium transition flex items-center gap-1 sm:gap-2 ${
-                  activeTab === 'leaderboard'
-                    ? 'border-b-2 border-teal-600 dark:border-[#0d9488] text-teal-600 dark:text-[#0d9488]'
-                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                }`}
-              >
-                <FaChartBar className="text-[10px] sm:text-xs" /> Leaderboard
-              </button>
+              {tabs.map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`pb-2 text-[11px] sm:text-sm font-medium transition flex items-center gap-1 sm:gap-2 ${
+                      activeTab === tab.id
+                        ? "border-b-2 border-teal-600 dark:border-[#0d9488] text-teal-600 dark:text-[#0d9488]"
+                        : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                    }`}
+                  >
+                    <Icon className="text-[10px] sm:text-xs" /> {tab.label}
+                  </button>
+                );
+              })}
             </div>
           </header>
 
           {/* ─── Content ───────────────────────────────────────────────── */}
           <main className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12]">
-            {activeTab === 'summary' && (
-              <AttendanceSummaryView workspaceId={workspaceId} brandColor={brandColor} />
+            {canManage && activeTab === "summary" && (
+              <AttendanceSummaryView workspaceId={workspaceId} />
             )}
 
-            {activeTab === 'history' && (
+            {activeTab === "history" && (
               <div>
                 {historyLoading ? (
                   <div className="flex justify-center py-8">
@@ -956,23 +1193,25 @@ const MyWorkspaceClockin = () => {
                 ) : (
                   <>
                     <div className="divide-y divide-gray-100 dark:divide-gray-800/30">
-                      {renderHistoryList(historyData?.clockIns || [])}
+                      {renderHistoryList()}
                     </div>
-                    {historyData?.pagination && historyData.pagination.pages > 1 && (
+                    {historyPages > 1 && (
                       <div className="flex items-center justify-center gap-2 py-4 border-t border-gray-100 dark:border-gray-800/30">
                         <button
-                          onClick={() => setHistoryPage(p => Math.max(1, p - 1))}
+                          onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
                           disabled={historyPage <= 1}
                           className="px-3 py-1 text-xs sm:text-sm border border-gray-200 dark:border-gray-700/60 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/30 disabled:opacity-50 disabled:cursor-not-allowed transition"
                         >
                           Previous
                         </button>
                         <span className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                          Page {historyPage} of {historyData.pagination.pages}
+                          Page {historyPage} of {historyPages}
                         </span>
                         <button
-                          onClick={() => setHistoryPage(p => Math.min(historyData.pagination.pages, p + 1))}
-                          disabled={historyPage >= historyData.pagination.pages}
+                          onClick={() =>
+                            setHistoryPage((p) => Math.min(historyPages, p + 1))
+                          }
+                          disabled={historyPage >= historyPages}
                           className="px-3 py-1 text-xs sm:text-sm border border-gray-200 dark:border-gray-700/60 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/30 disabled:opacity-50 disabled:cursor-not-allowed transition"
                         >
                           Next
@@ -984,30 +1223,32 @@ const MyWorkspaceClockin = () => {
               </div>
             )}
 
-            {activeTab === 'leaderboard' && (
+            {activeTab === "leaderboard" && (
               <div className="p-3 sm:p-6">
                 <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3 mb-4">
                   <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
                     <CustomDropdown
                       options={[
-                        { value: 'week', label: 'This Week' },
-                        { value: 'month', label: 'This Month' },
-                        { value: 'all', label: 'All Time' },
+                        { value: "week", label: "This Week" },
+                        { value: "month", label: "This Month" },
+                        { value: "all", label: "All Time" },
                       ]}
                       value={leaderboardPeriod}
                       onChange={setLeaderboardPeriod}
                       brandColor={brandColor}
                     />
                   </div>
-                  <button
-                    onClick={handleSendMonthlyReport}
-                    className="px-3 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-sm bg-teal-600 dark:bg-teal-500 text-white rounded-xl hover:bg-teal-700 dark:hover:bg-teal-600 transition flex items-center gap-1 sm:gap-2 whitespace-nowrap"
-                    style={{ backgroundColor: brandColor }}
-                  >
-                    <FaCalendarAlt className="text-[11px] sm:text-sm" />
-                    <span className="hidden xs:inline">Send Monthly Report</span>
-                    <span className="xs:hidden">Report</span>
-                  </button>
+                  {canManage && (
+                    <button
+                      onClick={handleSendMonthlyReport}
+                      className="px-3 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-sm text-white rounded-xl hover:opacity-90 transition flex items-center gap-1 sm:gap-2 whitespace-nowrap"
+                      style={{ backgroundColor: brandColor }}
+                    >
+                      <FaCalendarAlt className="text-[11px] sm:text-sm" />
+                      <span className="hidden xs:inline">Send Monthly Report</span>
+                      <span className="xs:hidden">Report</span>
+                    </button>
+                  )}
                 </div>
 
                 {leaderboardLoading ? (
@@ -1015,10 +1256,7 @@ const MyWorkspaceClockin = () => {
                     <FaSpinner className="animate-spin text-teal-500 text-2xl" />
                   </div>
                 ) : (
-                  <LeaderboardTable
-                    data={leaderboardData?.leaderboard || []}
-                    period={leaderboardPeriod}
-                  />
+                  <LeaderboardTable data={leaderboardData?.leaderboard || []} />
                 )}
               </div>
             )}
@@ -1027,7 +1265,7 @@ const MyWorkspaceClockin = () => {
       </div>
 
       {/* ─── Bottom Bar (mobile) ────────────────────────────────────── */}
-      <MyWorkspaceBottombar workspace={workspace} />
+      <WorkspaceBottombar workspace={workspace} />
 
       {/* ─── Floating Clock In/Out Button (mobile only) ──────────────── */}
       {isClockInEnabled && (
@@ -1047,10 +1285,14 @@ const MyWorkspaceClockin = () => {
                 onClick={handleClockIn}
                 disabled={!canClockIn || isClockInLoading}
                 className={`w-full py-3 px-4 text-sm font-semibold text-white rounded-2xl shadow-lg transition disabled:opacity-50 flex items-center justify-center gap-2 ${
-                  canClockIn ? 'hover:brightness-110' : 'bg-gray-400 dark:bg-gray-600 cursor-not-allowed'
+                  canClockIn
+                    ? "hover:brightness-110"
+                    : "bg-gray-400 dark:bg-gray-600 cursor-not-allowed"
                 }`}
                 style={canClockIn ? { backgroundColor: brandColor } : {}}
-                title={!canClockIn && pastClosing ? 'Clock-in is closed for today' : ''}
+                title={
+                  !canClockIn && pastClosing ? "Clock-in is closed for today" : ""
+                }
               >
                 {isClockInLoading ? <FaSpinner className="animate-spin" /> : <FaCheck />}
                 Clock In
@@ -1060,23 +1302,29 @@ const MyWorkspaceClockin = () => {
         </div>
       )}
 
-      {/* ─── Settings Modal ───────────────────────────────────────────── */}
-      <BottomSheet isOpen={settingsOpen} onClose={() => setSettingsOpen(false)}>
-        <SettingsContent
-          workspaceId={workspaceId}
-          workspace={workspace}
-          onClose={() => setSettingsOpen(false)}
-          onSuccess={() => {
-            refetchUserHistory();
-          }}
-        />
-      </BottomSheet>
+      {/* ─── Settings Modal (admin/owner only) ───────────────────────── */}
+      {canManage && (
+        <BottomSheet isOpen={settingsOpen} onClose={() => setSettingsOpen(false)}>
+          <SettingsContent
+            workspaceId={workspaceId}
+            workspace={workspace}
+            onClose={() => setSettingsOpen(false)}
+            onSuccess={() => {
+              refetchUserStatus();
+              refetchSettings();
+            }}
+            refetchSettings={refetchSettings}
+          />
+        </BottomSheet>
+      )}
 
       {/* ─── Confirm Modal ───────────────────────────────────────────── */}
       <ConfirmModal
         isOpen={confirmModal.isOpen}
         onConfirm={confirmModal.onConfirm || (() => {})}
-        onCancel={() => setConfirmModal({ isOpen: false, title: '', message: '', onConfirm: null })}
+        onCancel={() =>
+          setConfirmModal({ isOpen: false, title: "", message: "", onConfirm: null })
+        }
         title={confirmModal.title}
         message={confirmModal.message}
         confirmLabel="Send"
@@ -1089,7 +1337,9 @@ const MyWorkspaceClockin = () => {
         onConfirm={reasonModal.onConfirm || (() => {})}
         onCancel={() => setReasonModal({ isOpen: false, onConfirm: null })}
         title="Clock‑out Reason Required"
-        message={`You are clocking out before the closing time (${formatTime(closingTime)}). Please provide a reason.`}
+        message={`You are clocking out before the closing time (${formatTime(
+          closingTime
+        )}). Please provide a reason.`}
         confirmLabel="Confirm Clock‑out"
         confirmColor="bg-red-600 hover:bg-red-700"
       />
@@ -1097,4 +1347,4 @@ const MyWorkspaceClockin = () => {
   );
 };
 
-export default MyWorkspaceClockin;
+export default WorkspaceClockin;

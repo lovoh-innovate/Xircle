@@ -1,11 +1,20 @@
-// src/workspaceScreens/YourWorkspaceWriteNote.jsx
+// src/screens/workspace/WorkspaceWriteNote.jsx
 //
-// Workspace-scoped note editor. Same UX/layout language as pages/WriteNote.jsx:
+// Workspace-scoped note editor. Same UX/layout as pages/WriteNote.jsx:
 //   [ notes list (desktop) ] [ editor ]
-// The outer workspace chrome (nav sidebar, bottombar) is provided by the parent
-// layout — this file does NOT import YourWorkspaceSidebar or YourWorkspaceBottombar.
+// The outer workspace chrome (nav sidebar, bottombar) is provided by the
+// parent layout — this file does NOT import WorkspaceSidebar / Bottombar.
 //
-// Route params: accepts `:id` OR `:noteId`.
+// Route params: `:workspaceId` and `:noteId` (also accepts `:id`).
+//
+// CALLOUTS:
+//   • setCallout wraps top-level blocks (depth 1). This is what makes
+//     "wrap a numbered list" work: the *list* is wrapped whole, instead of
+//     trying to wrap a single listItem (which isn't a valid child of a
+//     callout and silently failed under the old wrapIn() approach).
+//   • unsetCallout swaps the callout node with its own children — lifting
+//     its content one level up. This always works, regardless of what's
+//     inside (paragraphs, lists, tables, nested callouts).
 
 import React, {
   useState,
@@ -33,14 +42,14 @@ import Image from '@tiptap/extension-image';
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table';
 import { Placeholder } from '@tiptap/extensions';
 
-import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
+import { useGetWorkspaceQuery } from '../../slices/workspaceApiSlice';
 import {
   useGetWorkspaceNoteQuery,
   useGetWorkspaceNotesQuery,
   useCreateWorkspaceNoteMutation,
   useUpdateWorkspaceNoteMutation,
   useDeleteWorkspaceNoteMutation,
-} from '../slices/workspaceNoteApiSlice';
+} from '../../slices/workspaceNoteApiSlice';
 
 // AI hooks stay on personalNoteApiSlice — backend accepts raw { content, title }.
 import {
@@ -50,9 +59,9 @@ import {
   useProofreadNoteMutation,
   useCompleteNoteMutation,
   useRewriteNoteMutation,
-} from '../slices/personalNoteApiSlice';
+} from '../../slices/personalNoteApiSlice';
 
-import toast from 'react-hot-toast';
+import { toast } from 'react-toastify';
 import {
   FaFillDrip, FaArrowLeft, FaSpinner, FaTrashAlt, FaTimes, FaEdit, FaCheck,
   FaCloudUploadAlt, FaFileAlt, FaFile, FaPlus,
@@ -310,6 +319,9 @@ ${S} [data-callout] > :last-child { margin-bottom: 0; }
 ${S} [data-callout] p { margin: 0.35rem 0; }
 ${S} [data-callout] p:first-child { margin-top: 0; }
 ${S} [data-callout] p:last-child { margin-bottom: 0; }
+${S} [data-callout] ul,
+${S} [data-callout] ol { margin: 0.35rem 0; padding-left: 1.5rem; }
+${S} [data-callout] li { margin: 0.125rem 0; }
 ${S} [data-callout].ProseMirror-selectednode {
   outline: 2px solid #14b8a6;
   outline-offset: 2px;
@@ -618,6 +630,21 @@ const CustomTableCell = TableCell.extend({ addAttributes() { return { ...(this.p
 const CustomTableHeader = TableHeader.extend({ addAttributes() { return { ...(this.parent?.() || {}), ...cellExtraAttributes() }; } });
 
 // ─── CALLOUT NODE ─────────────────────────────────────────────────────
+//
+// setCallout / unsetCallout are custom (not using wrapIn / lift) because
+// the built-in helpers don't behave well with a `block+` container that
+// also has `isolating: true`:
+//
+//   • wrapIn targets the deepest block-level ancestor of the selection.
+//     Inside a list that's a `listItem`, which is *not* a valid child of a
+//     callout — so wrapping silently failed. We now wrap at depth 1
+//     (top-level blocks), so a list, table, heading, or run of paragraphs
+//     all wrap cleanly.
+//
+//   • lift had trouble finding a lift target under `isolating`. We now
+//     just swap the callout node for its own content, which always works
+//     and lifts the children up one level.
+//
 const Callout = Node.create({
   name: 'callout',
   group: 'block',
@@ -635,11 +662,110 @@ const Callout = Node.create({
   parseHTML() { return [{ tag: 'div[data-callout]' }]; },
   renderHTML({ HTMLAttributes }) { return ['div', mergeAttributes(HTMLAttributes, { 'data-callout': 'true' }), 0]; },
   addCommands() {
+    const topLevelRange = (state) => {
+      const { $from, $to } = state.selection;
+      let startPos, endPos;
+      try {
+        startPos = $from.before(1);
+        endPos = $to.after(1);
+      } catch {
+        return null;
+      }
+      if (startPos == null || endPos == null || startPos >= endPos) return null;
+      const slice = state.doc.slice(startPos, endPos);
+      if (!slice.content.size) return null;
+      return { startPos, endPos, slice };
+    };
+
+    const findCalloutDepth = (state) => {
+      const calloutType = state.schema.nodes.callout;
+      const { $from } = state.selection;
+      for (let d = $from.depth; d > 0; d--) {
+        if ($from.node(d).type === calloutType) return d;
+      }
+      return -1;
+    };
+
     return {
-      setCallout: (attrs = {}) => ({ commands }) => commands.wrapIn(this.name, attrs),
-      toggleCallout: (attrs = {}) => ({ commands }) => commands.toggleWrap(this.name, attrs),
-      unsetCallout: () => ({ commands }) => commands.lift(this.name),
-      updateCallout: (attrs) => ({ commands }) => commands.updateAttributes(this.name, attrs),
+      setCallout:
+        (attrs = {}) =>
+        ({ state, dispatch }) => {
+          const calloutType = state.schema.nodes.callout;
+          if (!calloutType) return false;
+
+          if (findCalloutDepth(state) !== -1) return false;
+
+          const range = topLevelRange(state);
+          if (!range) return false;
+
+          const calloutNode = calloutType.create(attrs, range.slice.content);
+          const tr = state.tr.replaceWith(range.startPos, range.endPos, calloutNode);
+
+          if (dispatch) dispatch(tr.scrollIntoView());
+          return true;
+        },
+
+      unsetCallout:
+        () =>
+        ({ state, dispatch }) => {
+          const calloutType = state.schema.nodes.callout;
+          if (!calloutType) return false;
+
+          const calloutDepth = findCalloutDepth(state);
+          if (calloutDepth === -1) return false;
+
+          const $from = state.selection.$from;
+          const calloutPos = $from.before(calloutDepth);
+          const calloutNode = $from.node(calloutDepth);
+          const calloutEnd = calloutPos + calloutNode.nodeSize;
+
+          const tr = state.tr.replaceWith(
+            calloutPos,
+            calloutEnd,
+            calloutNode.content
+          );
+
+          if (dispatch) dispatch(tr.scrollIntoView());
+          return true;
+        },
+
+      toggleCallout:
+        (attrs = {}) =>
+        ({ state, dispatch }) => {
+          const calloutType = state.schema.nodes.callout;
+          if (!calloutType) return false;
+
+          const calloutDepth = findCalloutDepth(state);
+
+          if (calloutDepth !== -1) {
+            const $from = state.selection.$from;
+            const calloutPos = $from.before(calloutDepth);
+            const calloutNode = $from.node(calloutDepth);
+            const calloutEnd = calloutPos + calloutNode.nodeSize;
+
+            const tr = state.tr.replaceWith(
+              calloutPos,
+              calloutEnd,
+              calloutNode.content
+            );
+            if (dispatch) dispatch(tr.scrollIntoView());
+            return true;
+          }
+
+          const range = topLevelRange(state);
+          if (!range) return false;
+
+          const calloutNode = calloutType.create(attrs, range.slice.content);
+          const tr = state.tr.replaceWith(range.startPos, range.endPos, calloutNode);
+
+          if (dispatch) dispatch(tr.scrollIntoView());
+          return true;
+        },
+
+      updateCallout:
+        (attrs) =>
+        ({ commands }) =>
+          commands.updateAttributes(this.name, attrs),
     };
   },
   addKeyboardShortcuts() {
@@ -2185,7 +2311,7 @@ const MOBILE_TOOLBAR_BASE_GAP = 110;
 const MANUAL_VERSE_WINDOW = 10;
 const MANUAL_VERSE_STEP = 10;
 
-const YourWorkspaceWriteNote = () => {
+const WorkspaceWriteNote = () => {
   const params = useParams();
   const workspaceId = params.workspaceId;
   const noteId = params.noteId || params.id;
@@ -2423,7 +2549,7 @@ const YourWorkspaceWriteNote = () => {
       (editorRef.current && isEditing && editorRef.current.getHTML?.()) || content || '';
     const safeName =
       (title || 'Untitled').replace(/[^a-z0-9\-_. ]/gi, '_').trim().slice(0, 80) || 'WorkspaceNote';
-    toast.loading('Generating PDF…', { id: 'pdf-export' });
+    toast.loading('Generating PDF…', { toastId: 'pdf-export' });
     try {
       const blob = await generatePdfFromNote(title, liveHtml);
       if (!blob) throw new Error('PDF generation returned no data');
@@ -2436,7 +2562,7 @@ const YourWorkspaceWriteNote = () => {
         link.click();
         document.body.removeChild(link);
         window.URL.revokeObjectURL(url);
-        toast.success('PDF downloaded', { id: 'pdf-export' });
+        toast.success('PDF downloaded', { toastId: 'pdf-export' });
         return;
       }
       const base64 = await blobToBase64(blob);
@@ -2448,17 +2574,17 @@ const YourWorkspaceWriteNote = () => {
         const Share = shareModule?.Share;
         if (Share && typeof Share.share === 'function') {
           await Share.share({ title: title || 'Note', text: 'Your workspace note PDF', url: writeResult.uri, dialogTitle: 'Share PDF' });
-          toast.success('PDF ready', { id: 'pdf-export' });
+          toast.success('PDF ready', { toastId: 'pdf-export' });
           return;
         }
       } catch (shareErr) {
         const msg = String(shareErr?.message || '');
-        if (/cancel/i.test(msg)) { toast.success('PDF ready', { id: 'pdf-export' }); return; }
+        if (/cancel/i.test(msg)) { toast.success('PDF ready', { toastId: 'pdf-export' }); return; }
       }
-      toast.success('PDF saved', { id: 'pdf-export' });
+      toast.success('PDF saved', { toastId: 'pdf-export' });
     } catch (err) {
       console.error('PDF export failed:', err);
-      toast.error('Failed to export PDF', { id: 'pdf-export' });
+      toast.error('Failed to export PDF', { toastId: 'pdf-export' });
     }
   };
 
@@ -2642,6 +2768,14 @@ const YourWorkspaceWriteNote = () => {
   // ═════════════════════════════════════════════════════════════════
   //  EARLY STATES  (all use h-screen so the frame is locked)
   // ═════════════════════════════════════════════════════════════════
+  if (!workspaceId) {
+    return (
+      <div className="flex items-center justify-center h-screen w-full bg-white dark:bg-[#0f0f12]">
+        <FaSpinner className="animate-spin text-teal-500 text-3xl" />
+      </div>
+    );
+  }
+
   if (isWsLoading) {
     return (
       <div className="flex items-center justify-center h-screen w-full bg-white dark:bg-[#0f0f12]">
@@ -2654,7 +2788,7 @@ const YourWorkspaceWriteNote = () => {
     return (
       <div className="flex flex-col items-center justify-center h-screen w-full bg-white dark:bg-[#0f0f12] gap-3 p-6 text-center">
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          We couldn't load that workspace.
+          We couldn't load this workspace.
         </p>
         <button
           onClick={() => navigate('/my-workspaces', { replace: true })}
@@ -2884,9 +3018,6 @@ const YourWorkspaceWriteNote = () => {
   );
 
   // ── Render ───────────────────────────────────────────────────────
-  // h-screen locks the frame so the header stays fixed at the top, the
-  // notes sidebar stays fixed on the left, and only the editor body
-  // scrolls — identical behavior to WriteNote.jsx.
   return (
     <div className="h-screen w-full bg-white dark:bg-[#0f0f12] flex overflow-hidden">
       <style>{NOTE_RICH_CSS}</style>
@@ -2967,4 +3098,4 @@ const YourWorkspaceWriteNote = () => {
   );
 };
 
-export default YourWorkspaceWriteNote;
+export default WorkspaceWriteNote;

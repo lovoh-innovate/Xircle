@@ -1,30 +1,32 @@
-// src/workspaceScreens/MyWorkspaceDMs.jsx
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+// src/screens/workspace/WorkspaceDMs.jsx
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
-import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
-import { useGetMembersQuery } from '../slices/teamApiSlice';
+import { useGetWorkspaceQuery } from '../../slices/workspaceApiSlice';
 import {
   useGetUserChatsQuery,
   useCreateDirectChatMutation,
   messagingApiSlice,
-} from '../slices/messagingApiSlice';
-import { useSocket } from '../components/SocketContext.jsx';
-import MyWorkspaceSidebar from '../workspaceComponents/MyWorkspaceSidebar';
-import MyWorkspaceBottombar from '../workspaceComponents/MyWorkspaceBottombar';
+} from '../../slices/messagingApiSlice';
+import { useSocket } from '../../components/SocketContext.jsx';
+import WorkspaceSidebar from '../../components/WorkspaceSidebar';
+import WorkspaceBottombar from '../../components/WorkspaceBottombar';
 import {
   FaArrowLeft,
   FaSearch,
   FaComment,
-  FaPlus,
   FaTimes,
+  FaPlus,
 } from 'react-icons/fa';
-import { toast } from 'react-hot-toast';
+import { toast } from 'react-toastify';
 
-// ─── Helper: get initials ──────────────────────────────────────────────
+// ─── Base path (keep in sync with WorkspaceSidebar / WorkspaceBottombar / WorkspaceId / WorkspaceChannels) ──
+const WORKSPACE_BASE_PATH = '/workspace';
+
+// ─── Helper: get initials ────────────────────────────────────────────
 const getInitials = (name) => {
   if (!name) return '?';
-  return name
+  return String(name)
     .split(' ')
     .slice(0, 2)
     .map((w) => w[0])
@@ -32,7 +34,7 @@ const getInitials = (name) => {
     .toUpperCase();
 };
 
-// ─── Helper: format last message preview (copied from YourWorkspaceDMs) ──
+// ─── Helper: format last message preview ─────────────────────────────
 const getLastMessagePreview = (message, currentUserId) => {
   if (!message) return 'No messages yet';
 
@@ -42,17 +44,17 @@ const getLastMessagePreview = (message, currentUserId) => {
   else if (message.messageType === 'audio') preview = '🎤 Voice note';
   else if (message.messageType === 'video') preview = '🎬 Video';
   else if (message.messageType === 'file') preview = `📎 ${message.mediaName || 'File'}`;
+  else if (message.messageType === 'sticker') preview = '📌 Sticker';
   else preview = 'Message';
 
-  // Check if the message was sent by the current user
-  const senderId = message.sender?._id || message.sender;
-  if (senderId && senderId === currentUserId) {
+  const senderId = String(message.sender?._id || message.sender || '');
+  if (senderId && senderId === String(currentUserId)) {
     preview = `You: ${preview}`;
   }
   return preview;
 };
 
-// ─── Helper: format last message time (copied from YourWorkspaceDMs) ──
+// ─── Helper: format last message time ────────────────────────────────
 const formatLastMessageTime = (timestamp) => {
   if (!timestamp) return '';
   const now = new Date();
@@ -68,23 +70,24 @@ const formatLastMessageTime = (timestamp) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
   if (diffDays === 1) return 'Yesterday';
-  // Format as MM/DD (e.g., 02/07)
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${month}/${day}`;
 };
 
-// ─── Helper: belongs to workspace ─────────────────────────────────────
+// ─── Helper: belongs to workspace ────────────────────────────────────
 const belongsToWorkspace = (chat, workspaceId) => {
   if (!chat) return false;
-  const chatWorkspaceId =
+  const chatWsId =
     typeof chat.workspace === 'object' && chat.workspace !== null
       ? chat.workspace._id
       : chat.workspace;
-  return chat.scope === 'workspace' && String(chatWorkspaceId) === String(workspaceId);
+  if (chat.scope && chat.scope !== 'workspace') return false;
+  if (chatWsId) return String(chatWsId) === String(workspaceId);
+  return true;
 };
 
-// ─── FORCE DEDUPLICATION HELPER ────────────────────────────────────────
+// ─── Helper: force unique by id ──────────────────────────────────────
 const forceUniqueById = (arr, getId = (item) => item?._id) => {
   if (!Array.isArray(arr)) return [];
   const seen = new Set();
@@ -99,22 +102,22 @@ const forceUniqueById = (arr, getId = (item) => item?._id) => {
   return out;
 };
 
-// ─── Search DM Modal ────────────────────────────────────────────────────
-const SearchDMModal = ({ isOpen, onClose, dms, brandColor, workspaceId, userInfo }) => {
+// ═════════════════════════════════════════════════════════════════════
+//  Search-existing-DMs modal
+// ═════════════════════════════════════════════════════════════════════
+const SearchDMModal = ({ isOpen, onClose, dms, brandColor, workspaceId }) => {
   const [query, setQuery] = useState('');
-
   if (!isOpen) return null;
 
   const filtered = dms.filter((dm) => {
-    const name = dm.participant?.name?.toLowerCase() || '';
-    const msg = dm.lastMessagePreview?.toLowerCase() || '';
+    const name = (dm.participant?.name || '').toLowerCase();
+    const msg = (dm.lastMessagePreview || '').toLowerCase();
     const q = query.toLowerCase();
     return name.includes(q) || msg.includes(q);
   });
 
   return (
     <div className="fixed inset-0 z-50 bg-white dark:bg-[#0b0b10]/90 backdrop-blur-xl flex flex-col">
-      {/* Modal Header */}
       <div className="flex items-center gap-3 px-4 h-16 border-b border-gray-200/60 dark:border-gray-800/60 bg-gray-50 dark:bg-[#14141a]/80">
         <button onClick={onClose} className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition">
           <FaArrowLeft />
@@ -137,7 +140,6 @@ const SearchDMModal = ({ isOpen, onClose, dms, brandColor, workspaceId, userInfo
         </div>
       </div>
 
-      {/* Results */}
       <div className="flex-1 overflow-y-auto p-4">
         {!query && (
           <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
@@ -145,19 +147,17 @@ const SearchDMModal = ({ isOpen, onClose, dms, brandColor, workspaceId, userInfo
             <p className="text-sm">Search conversations</p>
           </div>
         )}
-
         {query && filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
             <p className="text-sm">No results for "{query}"</p>
           </div>
         )}
-
         {query && filtered.length > 0 && (
           <div className="space-y-1">
             {filtered.map((dm) => (
               <Link
                 key={dm.chatId}
-                to={`/my-workspace/${workspaceId}/chat/${dm.chatId}`}
+                to={`${WORKSPACE_BASE_PATH}/${workspaceId}/chat/${dm.chatId}`}
                 onClick={onClose}
                 className="flex items-center gap-4 px-4 py-3 bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/40 hover:border-teal-500 dark:hover:border-[#0d9488]/40 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition cursor-pointer group"
               >
@@ -181,7 +181,9 @@ const SearchDMModal = ({ isOpen, onClose, dms, brandColor, workspaceId, userInfo
                     <p className="text-sm font-medium text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">
                       {dm.participant?.name || 'Unknown'}
                     </p>
-                    <span className="text-xs text-gray-500 dark:text-gray-500">{formatLastMessageTime(dm.lastMessageAt)}</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-500">
+                      {formatLastMessageTime(dm.lastMessageAt)}
+                    </span>
                   </div>
                   <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{dm.lastMessagePreview}</p>
                 </div>
@@ -194,29 +196,38 @@ const SearchDMModal = ({ isOpen, onClose, dms, brandColor, workspaceId, userInfo
   );
 };
 
-// ─── New Chat Modal ──────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════
+//  New DM modal — pick any workspace member
+// ═════════════════════════════════════════════════════════════════════
 const NewChatModal = ({ isOpen, onClose, members, brandColor, currentUserId, onStartDM }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const filteredMembers = members
+  useEffect(() => {
+    if (isOpen) setSearchQuery('');
+  }, [isOpen]);
+
+  const filteredMembers = (members || [])
     .filter((m) => {
       const user = m.user || m;
       return String(user._id) !== String(currentUserId);
     })
     .filter((m) => {
       const user = m.user || m;
-      const name = user?.name?.toLowerCase() || '';
-      const email = user?.email?.toLowerCase() || '';
-      const query = searchQuery.toLowerCase();
-      return name.includes(query) || email.includes(query);
+      const name = (user?.name || '').toLowerCase();
+      const email = (user?.email || '').toLowerCase();
+      const q = searchQuery.toLowerCase();
+      return !q || name.includes(q) || email.includes(q);
     });
 
   const handleSelect = async (userId) => {
     setIsLoading(true);
-    await onStartDM(userId);
-    setIsLoading(false);
-    onClose();
+    try {
+      await onStartDM(userId);
+    } finally {
+      setIsLoading(false);
+      onClose();
+    }
   };
 
   if (!isOpen) return null;
@@ -240,6 +251,7 @@ const NewChatModal = ({ isOpen, onClose, members, brandColor, currentUserId, onS
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none"
+              autoFocus
             />
           </div>
         </div>
@@ -258,7 +270,7 @@ const NewChatModal = ({ isOpen, onClose, members, brandColor, currentUserId, onS
                   key={user._id}
                   onClick={() => handleSelect(user._id)}
                   disabled={isLoading}
-                  className="flex items-center gap-3 w-full px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/30 rounded-xl transition"
+                  className="flex items-center gap-3 w-full px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/30 rounded-xl transition disabled:opacity-50"
                 >
                   <div className="relative flex-shrink-0">
                     {user?.profile ? (
@@ -292,18 +304,18 @@ const NewChatModal = ({ isOpen, onClose, members, brandColor, currentUserId, onS
   );
 };
 
-// ─── Main Component ──────────────────────────────────────────────────────
-const MyWorkspaceDMs = () => {
+// ═════════════════════════════════════════════════════════════════════
+//  Main
+// ═════════════════════════════════════════════════════════════════════
+const WorkspaceDMs = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const { userInfo } = useSelector((state) => state.auth);
   const { socket, isConnected } = useSocket();
+
   const [searchOpen, setSearchOpen] = useState(false);
   const [showNewChatModal, setShowNewChatModal] = useState(false);
-
-  // ─── Query argument must match exactly what MyWorkspaceChatId uses ──
-  const chatsQueryArg = workspaceId;
 
   const {
     data: workspaceData,
@@ -311,44 +323,36 @@ const MyWorkspaceDMs = () => {
     error: workspaceError,
   } = useGetWorkspaceQuery(workspaceId);
 
-  const { data: membersData, isLoading: membersLoading } = useGetMembersQuery(workspaceId);
-
   const {
     data: chatsData,
     isLoading: chatsLoading,
     refetch: refetchChats,
-  } = useGetUserChatsQuery(chatsQueryArg, {
+  } = useGetUserChatsQuery(workspaceId, {
+    skip: !workspaceId,
     pollingInterval: 25000,
     refetchOnFocus: true,
     refetchOnReconnect: true,
   });
 
-  const [createDirectChat, { isLoading: creatingChat }] = useCreateDirectChatMutation();
+  const [createDirectChat] = useCreateDirectChatMutation();
 
-  // ─── Instant, targeted cache patch ──────────────────────────────────
+  // ─── Instant cache patch ──────────────────────────────────────────
   const patchChatInCache = useCallback(
     (chatId, patch) => {
       dispatch(
-        messagingApiSlice.util.updateQueryData(
-          'getUserChats',
-          chatsQueryArg,
-          (draft) => {
-            if (!draft?.chats) return;
-            const chat = draft.chats.find((c) => c._id === chatId);
-            if (chat) {
-              Object.assign(chat, patch);
-            }
-          }
-        )
+        messagingApiSlice.util.updateQueryData('getUserChats', workspaceId, (draft) => {
+          if (!draft?.chats) return;
+          const chat = draft.chats.find((c) => c._id === chatId);
+          if (chat) Object.assign(chat, patch);
+        })
       );
     },
-    [dispatch, chatsQueryArg]
+    [dispatch, workspaceId]
   );
 
-  // ─── Socket listeners ──────────────────────────────────────────────────
+  // ─── Socket listeners ─────────────────────────────────────────────
   useEffect(() => {
     if (!socket || !isConnected) return;
-
     const handleChatListUpdate = ({ chatId, lastMessage, lastMessageAt, unreadCount }) => {
       if (!chatId) return;
       patchChatInCache(chatId, {
@@ -357,48 +361,45 @@ const MyWorkspaceDMs = () => {
         ...(typeof unreadCount === 'number' ? { unreadCount } : {}),
       });
     };
-
     socket.on('chat-list-update', handleChatListUpdate);
-
-    return () => {
-      socket.off('chat-list-update', handleChatListUpdate);
-    };
+    return () => socket.off('chat-list-update', handleChatListUpdate);
   }, [socket, isConnected, patchChatInCache]);
 
-  // ─── If socket reconnects, do a quiet refetch ───────────────────────
   useEffect(() => {
     if (isConnected) refetchChats();
   }, [isConnected, refetchChats]);
 
-  // ─── FORCE: deduplicate raw chats by _id first ─────────────────────────
+  useEffect(() => {
+    if (workspaceError) navigate('/my-workspaces', { replace: true });
+  }, [workspaceError, navigate]);
+
+  // ─── Dedupe raw chats → workspace DMs by participant ─────────────
   const rawChats = useMemo(() => {
-    const list = chatsData?.chats || [];
-    const unique = forceUniqueById(list, (c) => c?._id);
-    return unique;
+    return forceUniqueById(chatsData?.chats || [], (c) => c?._id);
   }, [chatsData]);
 
-  // ─── Filter workspace DMs and deduplicate per participant ────────────
   const dms = useMemo(() => {
     if (!rawChats.length) return [];
-
-    const myId = String(userInfo?._id);
+    const myId = String(userInfo?._id || '');
     const byParticipant = new Map();
 
     for (const chat of rawChats) {
-      // ─── Only workspace chats and direct type ────────────────────────
       if (!belongsToWorkspace(chat, workspaceId)) continue;
       if (chat.type !== 'direct') continue;
 
       const other = chat.participants?.find(
         (p) => String(p.user?._id || p.user) !== myId
       );
+      const pid = String(other?.user?._id || other?.user);
+      if (!pid || pid === 'undefined') continue;
 
-      const participantId = String(other?.user?._id || other?.user);
-      if (!participantId || participantId === 'undefined') continue;
-
-      const existing = byParticipant.get(participantId);
-      if (!existing || new Date(chat.lastMessageAt) > new Date(existing.lastMessageAt)) {
-        byParticipant.set(participantId, chat);
+      const existing = byParticipant.get(pid);
+      const chatTs = new Date(chat.lastMessageAt || chat.updatedAt || 0);
+      const existingTs = existing
+        ? new Date(existing.lastMessageAt || existing.updatedAt || 0)
+        : 0;
+      if (!existing || chatTs > existingTs) {
+        byParticipant.set(pid, chat);
       }
     }
 
@@ -409,74 +410,69 @@ const MyWorkspaceDMs = () => {
         );
         const participant = other?.user || other;
         const lastMessage = chat.lastMessage || null;
-        const lastMessagePreview = getLastMessagePreview(lastMessage, userInfo?._id);
         return {
           chatId: chat._id,
           participant,
           lastMessageAt: chat.lastMessageAt || chat.updatedAt,
-          lastMessagePreview,
+          lastMessagePreview: getLastMessagePreview(lastMessage, userInfo?._id),
           unreadCount: chat.unreadCount || 0,
-          isOnline: participant?.online || false,
+          isOnline: !!participant?.online,
         };
       })
-      .sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
+      .sort((a, b) => new Date(b.lastMessageAt || 0) - new Date(a.lastMessageAt || 0));
   }, [rawChats, userInfo, workspaceId]);
 
-  // ─── Handle starting a new DM ──────────────────────────────────────
+  // ─── Start DM ──────────────────────────────────────────────────────
   const handleStartDM = async (targetUserId) => {
     if (String(targetUserId) === String(userInfo?._id)) {
       toast.info("You can't start a DM with yourself");
       return;
     }
     try {
-      // Check existing DM in the current workspace (via rawChats filter)
       const existing = rawChats.find(
         (chat) =>
           chat.type === 'direct' &&
           belongsToWorkspace(chat, workspaceId) &&
-          chat.participants.some((p) => String(p.user?._id || p.user) === String(targetUserId))
+          chat.participants?.some(
+            (p) => String(p.user?._id || p.user) === String(targetUserId)
+          )
       );
       if (existing) {
-        navigate(`/my-workspace/${workspaceId}/chat/${existing._id}`);
+        navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}/chat/${existing._id}`);
         return;
       }
 
-      // ─── Create the DM ──────────────────────────────────────────────
-      const result = await createDirectChat({
-        workspaceId,
-        targetUserId,
-      }).unwrap();
+      const result = await createDirectChat({ workspaceId, targetUserId }).unwrap();
       const newChat = result.chat;
 
-      // ─── 🔥 INSTANT CACHE UPDATE – prevents "Chat not found" ────────
+      // Instant cache update — prevents "Chat not found" on first navigation
       dispatch(
-        messagingApiSlice.util.updateQueryData(
-          'getUserChats',
-          workspaceId,
-          (draft) => {
-            if (!draft?.chats) draft.chats = [];
-            if (!draft.chats.some(c => c._id === newChat._id)) {
-              draft.chats.unshift(newChat);
-            }
+        messagingApiSlice.util.updateQueryData('getUserChats', workspaceId, (draft) => {
+          if (!draft?.chats) draft.chats = [];
+          if (!draft.chats.some((c) => c._id === newChat._id)) {
+            draft.chats.unshift(newChat);
           }
-        )
+        })
       );
 
-      toast.success('Direct chat created!');
-      navigate(`/my-workspace/${workspaceId}/chat/${newChat._id}`);
+      toast.success('Chat started!');
+      navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}/chat/${newChat._id}`);
     } catch (err) {
-      toast.error(err?.data?.message || 'Failed to start DM');
+      toast.error(err?.data?.message || 'Failed to start chat');
     }
   };
 
-  // ─── Loading / error states ──────────────────────────────────────────
-  if (workspaceLoading || membersLoading || chatsLoading) {
+  // ─── Loading / error states ───────────────────────────────────────
+  if (workspaceLoading || chatsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
         <div className="text-center">
           <div
             className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin mx-auto"
-            style={{ borderColor: workspaceData?.workspace?.color || '#0d9488', borderTopColor: 'transparent' }}
+            style={{
+              borderColor: workspaceData?.workspace?.color || '#0d9488',
+              borderTopColor: 'transparent',
+            }}
           />
           <p className="mt-3 text-gray-500 dark:text-gray-500 text-sm">Loading messages...</p>
         </div>
@@ -484,31 +480,27 @@ const MyWorkspaceDMs = () => {
     );
   }
 
-  if (workspaceError) {
-    navigate(`/my-workspace/${workspaceId}`);
-    return null;
-  }
-
   const workspace = workspaceData?.workspace;
-  const members = membersData?.members || [];
-  const brandColor = workspace?.color || '#0d9488';
+  if (!workspace) return null;
+
+  const brandColor = workspace.color || '#0d9488';
+  const members = workspace.members || [];
 
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
-      {/* ── Left Sidebar (desktop) ── */}
-      <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
-        <MyWorkspaceSidebar workspace={workspace} chats={rawChats} />
+      {/* Desktop sidebar */}
+      <div className="hidden md:block md:w-[260px] md:min-h-screen md:flex-shrink-0 fixed top-0 left-0 z-20">
+        <WorkspaceSidebar workspace={workspace} chats={rawChats} />
       </div>
 
-      {/* ── Main Content ── */}
-      <div className="flex-1 flex flex-col bg-white dark:bg-[#0f0f12] lg:bg-gray-50 dark:lg:bg-[#0b0b10] h-full overflow-hidden">
-        {/* ── Fixed Header ── */}
+      {/* Main content */}
+      <div className="flex-1 flex flex-col bg-white dark:bg-[#0f0f12] lg:bg-gray-50 dark:lg:bg-[#0b0b10] h-full overflow-hidden md:ml-[260px] workspace-shell-main">
         <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
           <div className="flex items-center justify-between px-4 h-14">
             <div className="flex items-center gap-3">
               <button
-                onClick={() => navigate(`/my-workspace/${workspaceId}`)}
-                className="lg:hidden p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
+                onClick={() => navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}`)}
+                className="md:hidden p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
               >
                 <FaArrowLeft />
               </button>
@@ -521,12 +513,14 @@ const MyWorkspaceDMs = () => {
               <button
                 onClick={() => setSearchOpen(true)}
                 className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
+                aria-label="Search messages"
               >
                 <FaSearch className="text-sm" />
               </button>
               <button
                 onClick={() => setShowNewChatModal(true)}
                 className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
+                aria-label="New message"
               >
                 <FaPlus className="text-sm" />
               </button>
@@ -534,7 +528,6 @@ const MyWorkspaceDMs = () => {
           </div>
         </header>
 
-        {/* ── DM List (scrollable) ── */}
         <div className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12] divide-y divide-gray-100 dark:divide-gray-800/30">
           {dms.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-gray-400 dark:text-gray-500">
@@ -555,7 +548,7 @@ const MyWorkspaceDMs = () => {
               return (
                 <Link
                   key={dm.chatId}
-                  to={`/my-workspace/${workspaceId}/chat/${dm.chatId}`}
+                  to={`${WORKSPACE_BASE_PATH}/${workspaceId}/chat/${dm.chatId}`}
                   className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition group"
                 >
                   <div className="relative flex-shrink-0">
@@ -603,8 +596,8 @@ const MyWorkspaceDMs = () => {
         </div>
       </div>
 
-      {/* ── Bottom Navigation (mobile) ── */}
-      <MyWorkspaceBottombar workspace={workspace} />
+      {/* Mobile bottombar */}
+      <WorkspaceBottombar workspace={workspace} />
 
       {/* Modals */}
       <SearchDMModal
@@ -613,7 +606,6 @@ const MyWorkspaceDMs = () => {
         dms={dms}
         brandColor={brandColor}
         workspaceId={workspaceId}
-        userInfo={userInfo}
       />
 
       <NewChatModal
@@ -628,4 +620,4 @@ const MyWorkspaceDMs = () => {
   );
 };
 
-export default MyWorkspaceDMs;
+export default WorkspaceDMs;

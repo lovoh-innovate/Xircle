@@ -1,15 +1,15 @@
-// src/workspaceScreens/MyWorkspaceSettings.jsx
-import React, { useState, useRef, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { useSelector } from 'react-redux';
+// src/screens/workspace/WorkspaceSettings.jsx
+import React, { useState, useRef, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { useSelector } from "react-redux";
 import {
   useGetWorkspaceQuery,
   useUpdateWorkspaceMutation,
   useDeleteWorkspaceMutation,
   useRegenerateInviteCodeMutation,
-} from '../slices/workspaceApiSlice';
-import MyWorkspaceSidebar from '../workspaceComponents/MyWorkspaceSidebar';
-import MyWorkspaceBottombar from '../workspaceComponents/MyWorkspaceBottombar';
+} from "../../slices/workspaceApiSlice";
+import WorkspaceSidebar from "../../components/WorkspaceSidebar";
+import WorkspaceBottombar from "../../components/WorkspaceBottombar";
 import {
   FaArrowLeft,
   FaSave,
@@ -21,35 +21,45 @@ import {
   FaSpinner,
   FaExclamationTriangle,
   FaUsers,
-  FaCalendarAlt,
-  FaCog,
   FaPalette,
   FaInfoCircle,
   FaRedo,
   FaRocket,
-  FaChevronRight,
-} from 'react-icons/fa';
-import { toast } from 'react-hot-toast';
+} from "react-icons/fa";
+import { toast } from "react-toastify";
 
-// ─── Helper: get initials ──────────────────────────────────────────────
+// ─── Base path (keep in sync with WorkspaceChatId / WorkspaceMembers / WorkspaceClockin / WorkspaceProjectTeam / WorkspaceTaskId / WorkspaceSidebar / WorkspaceBottombar / WorkspaceId / WorkspaceProjects / WorkspaceChannels / WorkspaceDMs / WorkspaceNotes) ──
+const WORKSPACE_BASE_PATH = "/workspace";
+
+// ─── Helper: get initials ──────────────────────────────────────────
 const getInitials = (name) => {
-  if (!name) return '?';
+  if (!name) return "?";
   return name
-    .split(' ')
+    .split(" ")
     .slice(0, 2)
     .map((w) => w[0])
-    .join('')
+    .join("")
     .toUpperCase();
 };
 
-// ─── Image Preview Modal ──────────────────────────────────────────────
+// ─── Image Preview Modal ──────────────────────────────────────────
 const ImagePreviewModal = ({ imageUrl, onClose }) => {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
       <div className="relative max-w-4xl w-full max-h-[90vh]">
-        <img src={imageUrl} alt="Preview" className="w-full h-auto max-h-[90vh] object-contain rounded-2xl shadow-2xl" />
+        <img
+          src={imageUrl}
+          alt="Preview"
+          className="w-full h-auto max-h-[90vh] object-contain rounded-2xl shadow-2xl"
+        />
         <button
-          onClick={(e) => { e.stopPropagation(); onClose(); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
           className="absolute top-4 right-4 text-white bg-black/50 hover:bg-black/70 rounded-full p-2 transition"
         >
           <FaTimes className="text-xl" />
@@ -59,19 +69,19 @@ const ImagePreviewModal = ({ imageUrl, onClose }) => {
   );
 };
 
-// ─── Main Component ──────────────────────────────────────────────────────
-const MyWorkspaceSettings = () => {
+// ─── Main Component ────────────────────────────────────────────────
+const WorkspaceSettings = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
   const fileInputRef = useRef(null);
 
-  const [name, setName] = useState('');
-  const [industry, setIndustry] = useState('');
-  const [description, setDescription] = useState('');
-  const [color, setColor] = useState('#0d9488');
+  const [name, setName] = useState("");
+  const [industry, setIndustry] = useState("");
+  const [description, setDescription] = useState("");
+  const [color, setColor] = useState("#0d9488");
   const [logoFile, setLogoFile] = useState(null);
-  const [logoPreview, setLogoPreview] = useState('');
+  const [logoPreview, setLogoPreview] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
@@ -87,10 +97,10 @@ const MyWorkspaceSettings = () => {
   useEffect(() => {
     if (workspaceData?.workspace) {
       const w = workspaceData.workspace;
-      setName(w.name || '');
-      setIndustry(w.industry || '');
-      setDescription(w.description || '');
-      setColor(w.color || '#0d9488');
+      setName(w.name || "");
+      setIndustry(w.industry || "");
+      setDescription(w.description || "");
+      setColor(w.color || "#0d9488");
       if (w.logo) setLogoPreview(w.logo);
     }
   }, [workspaceData]);
@@ -99,7 +109,7 @@ const MyWorkspaceSettings = () => {
   const isOwner = workspace?.owner?._id === userInfo?._id || workspace?.owner === userInfo?._id;
 
   if (error || (workspace && !isOwner)) {
-    navigate(`/my-workspace/${workspaceId}`);
+    navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}`);
     return null;
   }
 
@@ -109,7 +119,10 @@ const MyWorkspaceSettings = () => {
         <div className="text-center">
           <div
             className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin mx-auto"
-            style={{ borderColor: workspaceData?.workspace?.color || '#0d9488', borderTopColor: 'transparent' }}
+            style={{
+              borderColor: workspaceData?.workspace?.color || "#0d9488",
+              borderTopColor: "transparent",
+            }}
           />
           <p className="mt-3 text-gray-500 dark:text-gray-500 text-sm">Loading settings...</p>
         </div>
@@ -119,9 +132,8 @@ const MyWorkspaceSettings = () => {
 
   if (!workspace) return null;
 
-  const brandColor = workspace.color || '#0d9488';
+  const brandColor = workspace.color || "#0d9488";
   const memberCount = workspace.members?.length || 0;
-  const createdDate = new Date(workspace.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
   const handleLogoChange = (e) => {
     const file = e.target.files[0];
@@ -135,7 +147,7 @@ const MyWorkspaceSettings = () => {
 
   const removeLogo = () => {
     setLogoFile(null);
-    setLogoPreview('');
+    setLogoPreview("");
   };
 
   const handleSave = async (e) => {
@@ -143,33 +155,34 @@ const MyWorkspaceSettings = () => {
     setIsSaving(true);
     try {
       const formData = new FormData();
-      formData.append('name', name.trim());
-      formData.append('industry', industry.trim());
-      formData.append('description', description.trim());
-      formData.append('color', color);
-      if (logoFile) formData.append('logo', logoFile);
-      else if (logoPreview === '' && workspace.logo) formData.append('logo', '');
+      formData.append("name", name.trim());
+      formData.append("industry", industry.trim());
+      formData.append("description", description.trim());
+      formData.append("color", color);
+      if (logoFile) formData.append("logo", logoFile);
+      else if (logoPreview === "" && workspace.logo) formData.append("logo", "");
 
       await updateWorkspace({ id: workspaceId, data: formData }).unwrap();
-      toast.success('Workspace settings updated!');
+      toast.success("Workspace settings updated!");
       refetch();
     } catch (err) {
-      toast.error(err?.data?.message || 'Failed to update settings');
+      toast.error(err?.data?.message || "Failed to update settings");
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleRegenerateInvite = async () => {
-    if (!window.confirm('Regenerating the invite code will invalidate the previous code. Continue?')) return;
+    if (!window.confirm("Regenerating the invite code will invalidate the previous code. Continue?"))
+      return;
     setIsRegenerating(true);
     try {
       await regenerateInviteCode(workspaceId).unwrap();
-      toast.success('Invite code regenerated!');
+      toast.success("Invite code regenerated!");
       refetch();
       setCopied(false);
     } catch (err) {
-      toast.error(err?.data?.message || 'Failed to regenerate invite code');
+      toast.error(err?.data?.message || "Failed to regenerate invite code");
     } finally {
       setIsRegenerating(false);
     }
@@ -179,7 +192,7 @@ const MyWorkspaceSettings = () => {
     if (workspace.inviteCode) {
       navigator.clipboard.writeText(workspace.inviteCode);
       setCopied(true);
-      toast.success('Invite code copied!');
+      toast.success("Invite code copied!");
       setTimeout(() => setCopied(false), 3000);
     }
   };
@@ -188,10 +201,10 @@ const MyWorkspaceSettings = () => {
     setIsDeleting(true);
     try {
       await deleteWorkspace(workspaceId).unwrap();
-      toast.success('Workspace deleted!');
-      navigate('/my-workspaces');
+      toast.success("Workspace deleted!");
+      navigate("/my-workspaces");
     } catch (err) {
-      toast.error(err?.data?.message || 'Failed to delete workspace');
+      toast.error(err?.data?.message || "Failed to delete workspace");
       setIsDeleting(false);
     }
   };
@@ -199,18 +212,18 @@ const MyWorkspaceSettings = () => {
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
       {/* Desktop Sidebar */}
-      <div className="hidden lg:block lg:w-64 lg:h-full flex-shrink-0">
-        <MyWorkspaceSidebar workspace={workspace} chats={[]} />
+      <div className="hidden md:block md:min-h-screen fixed top-0 left-0 z-20 workspace-shell-sidebar">
+        <WorkspaceSidebar workspace={workspace} chats={[]} />
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
+      <div className="flex-1 flex flex-col h-full overflow-hidden md:ml-[260px] workspace-shell-main">
         {/* Fixed Header */}
         <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800/40 flex-shrink-0">
           <div className="flex items-center justify-between px-4 h-14">
             <div className="flex items-center gap-3 min-w-0">
               <button
-                onClick={() => navigate(`/my-workspace/${workspaceId}`)}
+                onClick={() => navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}`)}
                 className="p-1 lg:hidden text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
               >
                 <FaArrowLeft />
@@ -218,7 +231,9 @@ const MyWorkspaceSettings = () => {
               <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Settings</h1>
             </div>
             <div className="flex items-center gap-2">
-              <span className="hidden sm:inline text-xs text-gray-500 dark:text-gray-400">{memberCount} members</span>
+              <span className="hidden sm:inline text-xs text-gray-500 dark:text-gray-400">
+                {memberCount} members
+              </span>
               <FaUsers className="hidden sm:block text-sm text-gray-500 dark:text-gray-400" />
             </div>
           </div>
@@ -234,7 +249,9 @@ const MyWorkspaceSettings = () => {
               </h2>
               <form onSubmit={handleSave} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Workspace Name *</label>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    Workspace Name *
+                  </label>
                   <input
                     type="text"
                     value={name}
@@ -244,7 +261,9 @@ const MyWorkspaceSettings = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Industry</label>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    Industry
+                  </label>
                   <input
                     type="text"
                     value={industry}
@@ -254,7 +273,9 @@ const MyWorkspaceSettings = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    Description
+                  </label>
                   <textarea
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
@@ -271,22 +292,23 @@ const MyWorkspaceSettings = () => {
                     style={{ backgroundColor: brandColor }}
                   >
                     {isSaving ? <FaSpinner className="animate-spin" /> : <FaSave className="text-sm" />}
-                    {isSaving ? 'Saving...' : 'Save Changes'}
+                    {isSaving ? "Saving..." : "Save Changes"}
                   </button>
                 </div>
               </form>
             </div>
 
-            {/* ─── Branding Card (with improved color input) ─── */}
+            {/* ─── Branding Card ─── */}
             <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/60 p-5">
               <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2 mb-4">
                 <FaPalette className="text-[#0d9488]" /> Branding
               </h2>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Brand Color</label>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    Brand Color
+                  </label>
                   <div className="flex items-center gap-3">
-                    {/* Color picker + preview */}
                     <div className="relative w-14 h-14 rounded-xl border-2 border-gray-300 dark:border-gray-700/60 overflow-hidden flex-shrink-0">
                       <input
                         type="color"
@@ -296,29 +318,32 @@ const MyWorkspaceSettings = () => {
                       />
                       <div className="w-full h-full" style={{ backgroundColor: color }} />
                     </div>
-                    {/* Editable text input – accepts hex with or without #, and other CSS colors */}
                     <input
                       type="text"
                       value={color}
                       onChange={(e) => {
                         let val = e.target.value.trim();
-                        // Remove leading # for detection, then check if it's a valid hex
-                        const hex = val.replace(/^#/, '');
-                        if (/^[0-9a-fA-F]{6}$/.test(hex) || /^[0-9a-fA-F]{3}$/.test(hex)) {
-                          // It's a valid hex (3 or 6 chars) → ensure it has a #
-                          val = '#' + hex;
+                        const hex = val.replace(/^#/, "");
+                        if (
+                          /^[0-9a-fA-F]{6}$/.test(hex) ||
+                          /^[0-9a-fA-F]{3}$/.test(hex)
+                        ) {
+                          val = "#" + hex;
                         }
-                        // else keep as typed (allows rgb, hsl, named colors)
                         setColor(val);
                       }}
                       className="flex-1 px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 font-mono focus:outline-none focus:ring-1 focus:ring-[#0d9488]"
                       placeholder="#0d9488"
                     />
                   </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">Any valid CSS color (hex, rgb, hsl, name)</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                    Any valid CSS color (hex, rgb, hsl, name)
+                  </p>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Workspace Logo</label>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    Workspace Logo
+                  </label>
                   <div className="flex items-center gap-3">
                     {logoPreview ? (
                       <div className="relative">
@@ -350,7 +375,9 @@ const MyWorkspaceSettings = () => {
                       </label>
                     )}
                   </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">PNG, JPG, WebP (max 5MB)</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                    PNG, JPG, WebP (max 5MB)
+                  </p>
                 </div>
               </div>
             </div>
@@ -363,14 +390,20 @@ const MyWorkspaceSettings = () => {
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-3 w-full sm:w-auto">
                   <div className="flex-1 bg-gray-100 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl px-4 py-2.5">
-                    <span className="text-lg font-mono font-bold text-gray-800 dark:text-gray-200 tracking-wider">{workspace.inviteCode}</span>
+                    <span className="text-lg font-mono font-bold text-gray-800 dark:text-gray-200 tracking-wider">
+                      {workspace.inviteCode}
+                    </span>
                   </div>
                   <button
                     type="button"
                     onClick={copyInviteCode}
                     className="p-2.5 bg-gray-100 dark:bg-[#0b0b10] hover:bg-gray-200 dark:hover:bg-gray-800/60 rounded-xl transition border border-gray-300 dark:border-gray-700/60 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white"
                   >
-                    {copied ? <FaCheck className="text-green-500 dark:text-green-400" /> : <FaCopy className="text-sm" />}
+                    {copied ? (
+                      <FaCheck className="text-green-500 dark:text-green-400" />
+                    ) : (
+                      <FaCopy className="text-sm" />
+                    )}
                   </button>
                 </div>
                 <button
@@ -381,7 +414,7 @@ const MyWorkspaceSettings = () => {
                   style={{ backgroundColor: brandColor }}
                 >
                   {isRegenerating ? <FaSpinner className="animate-spin" /> : <FaRedo className="text-sm" />}
-                  {isRegenerating ? 'Generating...' : 'Regenerate'}
+                  {isRegenerating ? "Generating..." : "Regenerate"}
                 </button>
               </div>
             </div>
@@ -391,7 +424,9 @@ const MyWorkspaceSettings = () => {
               <h2 className="text-sm font-semibold text-red-700 dark:text-red-400 flex items-center gap-2 mb-4">
                 <FaExclamationTriangle className="text-red-500" /> Danger Zone
               </h2>
-              <p className="text-xs text-red-600/70 dark:text-red-400/70 mb-3">Deleting this workspace is irreversible.</p>
+              <p className="text-xs text-red-600/70 dark:text-red-400/70 mb-3">
+                Deleting this workspace is irreversible.
+              </p>
               {!showDeleteConfirm ? (
                 <button
                   type="button"
@@ -402,14 +437,16 @@ const MyWorkspaceSettings = () => {
                 </button>
               ) : (
                 <div className="flex flex-wrap items-center gap-3">
-                  <span className="text-sm text-red-800 dark:text-red-300 font-medium">Are you sure?</span>
+                  <span className="text-sm text-red-800 dark:text-red-300 font-medium">
+                    Are you sure?
+                  </span>
                   <button
                     type="button"
                     onClick={handleDeleteWorkspace}
                     disabled={isDeleting}
                     className="px-4 py-2 bg-red-700 text-white rounded-xl text-sm font-medium hover:bg-red-800 transition disabled:opacity-50"
                   >
-                    {isDeleting ? <FaSpinner className="animate-spin" /> : 'Yes, Delete'}
+                    {isDeleting ? <FaSpinner className="animate-spin" /> : "Yes, Delete"}
                   </button>
                   <button
                     type="button"
@@ -426,7 +463,7 @@ const MyWorkspaceSettings = () => {
       </div>
 
       {/* Bottom Navigation (mobile) */}
-      <MyWorkspaceBottombar workspace={workspace} />
+      <WorkspaceBottombar workspace={workspace} />
 
       {/* Image Preview Modal */}
       {previewImage && (
@@ -436,4 +473,4 @@ const MyWorkspaceSettings = () => {
   );
 };
 
-export default MyWorkspaceSettings;
+export default WorkspaceSettings;

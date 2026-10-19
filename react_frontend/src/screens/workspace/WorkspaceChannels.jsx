@@ -1,0 +1,1222 @@
+// src/screens/workspace/WorkspaceChannels.jsx
+import React, { useState, useEffect, useRef } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useSelector } from 'react-redux';
+import { useGetWorkspaceQuery } from '../../slices/workspaceApiSlice';
+import {
+  useGetUserChatsQuery,
+  useLazyGetUserChatsQuery,
+  useCreateGroupChatMutation,
+  useAddParticipantMutation,
+  useArchiveChatMutation,
+  useUnarchiveChatMutation,
+  useExitGroupChatMutation,
+  useDeleteGroupChatMutation,
+} from '../../slices/messagingApiSlice';
+import { useGetMembersQuery } from '../../slices/teamApiSlice';
+import WorkspaceSidebar from '../../components/WorkspaceSidebar';
+import WorkspaceBottombar from '../../components/WorkspaceBottombar';
+import useWorkspacePresence from '../../services/useWorkspacePresence';
+import {
+  FaUsers,
+  FaPlus,
+  FaSearch,
+  FaArrowLeft,
+  FaTimes,
+  FaEllipsisV,
+  FaArchive,
+  FaUndo,
+  FaSignOutAlt,
+  FaTrashAlt,
+  FaExclamationTriangle,
+  FaUserPlus,
+  FaCheck,
+  FaSpinner,
+} from 'react-icons/fa';
+import { toast } from 'react-toastify';
+
+// ─── Base path (keep in sync with WorkspaceSidebar / WorkspaceBottombar / WorkspaceId / WorkspaceProjects / WorkspaceProjectId / WorkspaceNotes) ──
+const WORKSPACE_BASE_PATH = '/workspace';
+
+// ─── Helpers ──────────────────────────────────────────────────────────
+const getFirstName = (fullName) => {
+  if (!fullName) return 'Someone';
+  const trimmed = String(fullName).trim();
+  const firstSpace = trimmed.indexOf(' ');
+  return firstSpace > 0 ? trimmed.substring(0, firstSpace) : trimmed;
+};
+
+const getLastMessagePreview = (message, currentUserId) => {
+  if (!message) return 'No messages yet';
+
+  let preview = '';
+  if (message.messageType === 'text') preview = message.content || 'Message';
+  else if (message.messageType === 'image') preview = '📷 Photo';
+  else if (message.messageType === 'audio') preview = '🎤 Voice note';
+  else if (message.messageType === 'video') preview = '🎬 Video';
+  else if (message.messageType === 'file') preview = `📎 ${message.mediaName || 'File'}`;
+  else if (message.messageType === 'sticker') preview = '📌 Sticker';
+  else preview = 'Message';
+
+  const senderId = message.sender?._id || message.sender;
+  if (senderId && senderId === currentUserId) preview = `You: ${preview}`;
+  return preview;
+};
+
+const formatLastMessageTime = (timestamp) => {
+  if (!timestamp) return '';
+  const now = new Date();
+  const date = new Date(timestamp);
+  const diffMs = now - date;
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMin < 1) return 'Just now';
+  if (diffMin < 60) return `${diffMin}m`;
+  if (diffHours < 24) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  if (diffDays === 1) return 'Yesterday';
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${month}/${day}`;
+};
+
+// Mentions: handles "id", { _id: "id" }, { user: "id" }, { user: { _id: "id" } }
+const extractMentionUserId = (entry) => {
+  if (!entry) return null;
+  if (typeof entry === 'string') return entry;
+  if (typeof entry === 'object') {
+    if (typeof entry._id === 'string') return entry._id;
+    if (entry._id && typeof entry._id === 'object' && typeof entry._id._id === 'string') {
+      return entry._id._id;
+    }
+    if (entry.user) {
+      if (typeof entry.user === 'string') return entry.user;
+      if (entry.user._id) return entry.user._id;
+    }
+  }
+  return null;
+};
+
+const hasUnreadMention = (chat, userId) => {
+  if (!chat || !userId) return false;
+  const uid = String(userId);
+
+  const explicit =
+    chat.unreadMentions ??
+    chat.unreadMentionCount ??
+    chat.mentionCount ??
+    chat.mentionsCount;
+  if (typeof explicit === 'number' && explicit > 0) return true;
+
+  const lm = chat.lastMessage;
+  if (!lm || lm.isDeleted) return false;
+
+  const senderId = lm.sender?._id || lm.sender;
+  if (senderId && String(senderId) === uid) return false;
+
+  if (typeof chat.unreadCount === 'number' && chat.unreadCount <= 0) return false;
+
+  const mentions = lm.mentions || lm.mentionedUsers || [];
+  if (!Array.isArray(mentions) || mentions.length === 0) return false;
+
+  return mentions.some((m) => extractMentionUserId(m) === uid);
+};
+
+// ─── Global styles ────────────────────────────────────────────────────
+const GlobalStyles = () => (
+  <style>{`
+    .skeleton {
+      position: relative;
+      overflow: hidden;
+      background-color: rgb(229 231 235);
+    }
+    .dark .skeleton { background-color: rgba(255, 255, 255, 0.07); }
+    .skeleton::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      transform: translateX(-100%);
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.55), transparent);
+      animation: skeletonShimmer 1.5s ease-in-out infinite;
+    }
+    .dark .skeleton::after {
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.07), transparent);
+    }
+    @keyframes skeletonShimmer { 100% { transform: translateX(100%); } }
+    @media (prefers-reduced-motion: reduce) { .skeleton::after { animation: none; } }
+  `}</style>
+);
+
+// ─── Skeleton primitives ──────────────────────────────────────────────
+const Skeleton = ({ className = '', style }) => (
+  <div className={`skeleton rounded-lg ${className}`} style={style} />
+);
+
+const ChannelRowSkeleton = () => (
+  <div className="flex items-center gap-3 px-4 py-3">
+    <Skeleton className="w-12 h-12 rounded-2xl flex-shrink-0" />
+    <div className="flex-1 min-w-0 space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <Skeleton className="h-3.5 w-32 max-w-[60%]" />
+        <Skeleton className="h-2.5 w-8 flex-shrink-0" />
+      </div>
+      <div className="flex items-center gap-2">
+        <Skeleton className="h-2.5 flex-1 max-w-[70%]" />
+        <Skeleton className="h-4 w-5 rounded-full flex-shrink-0" />
+      </div>
+    </div>
+    <Skeleton className="w-6 h-6 rounded-lg flex-shrink-0" />
+  </div>
+);
+
+const ChannelsLoadingShell = () => (
+  <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
+    <div className="hidden md:block md:w-[260px] md:min-h-screen md:flex-shrink-0 fixed top-0 left-0 z-20">
+      <WorkspaceSidebar />
+    </div>
+    <div className="flex-1 flex flex-col h-full overflow-hidden md:ml-[260px]">
+      <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
+        <div className="flex items-center justify-between px-4 h-14">
+          <div className="flex items-center gap-3">
+            <Skeleton className="w-6 h-6 rounded-lg md:hidden" />
+            <Skeleton className="h-5 w-24" />
+            <Skeleton className="h-5 w-8 rounded-full" />
+          </div>
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-8 w-16 rounded-xl" />
+            <Skeleton className="w-8 h-8 rounded-xl" />
+          </div>
+        </div>
+        <div className="flex border-b border-gray-200/60 dark:border-gray-800/30 px-4 gap-1">
+          <Skeleton className="h-4 w-20 my-2 mx-3" />
+          <Skeleton className="h-4 w-20 my-2 mx-3" />
+        </div>
+      </header>
+      <div className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12] divide-y divide-gray-100 dark:divide-gray-800/30">
+        {Array.from({ length: 7 }).map((_, i) => (<ChannelRowSkeleton key={i} />))}
+      </div>
+      <div className="border-t border-gray-200/60 dark:border-gray-800/40 px-4 py-3 bg-white dark:bg-[#0f0f12] flex-shrink-0">
+        <div className="grid grid-cols-3 gap-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="text-center space-y-1.5">
+              <Skeleton className="h-4 w-8 mx-auto" />
+              <Skeleton className="h-2.5 w-14 mx-auto" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+    <WorkspaceBottombar />
+  </div>
+);
+
+// ─── Confirm Modal ────────────────────────────────────────────────────
+const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = 'Confirm', danger = false }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl">
+        <div className="flex items-center gap-3 mb-4">
+          {danger && <FaExclamationTriangle className="text-red-500 text-xl" />}
+          <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">{title}</h3>
+        </div>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">{message}</p>
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+            Cancel
+          </button>
+          <button
+            onClick={() => { onConfirm(); onClose(); }}
+            className={`flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80 ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-teal-600 dark:bg-[#0d9488] hover:bg-teal-700 dark:hover:bg-[#0f9e96]'}`}
+          >
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Action Sheet (mobile long-press) ─────────────────────────────────
+const ActionSheet = ({ isOpen, onClose, actions, title }) => {
+  if (!isOpen) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-[#14141a] w-full max-w-md rounded-t-3xl p-4 pb-8 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {title && (
+          <div className="text-center text-sm font-medium text-gray-500 dark:text-gray-400 pb-3 border-b border-gray-200 dark:border-gray-800/60 mb-2">
+            {title}
+          </div>
+        )}
+        <div className="space-y-2">
+          {actions.map((action, idx) => (
+            <button
+              key={idx}
+              onClick={() => { action.onPress(); onClose(); }}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+                action.danger
+                  ? 'text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30'
+              }`}
+            >
+              {action.icon}
+              {action.label}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={onClose}
+          className="w-full mt-3 py-3 text-sm font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ─── Create Channel Modal (with member selection) ─────────────────────
+const CreateChannelModal = ({ isOpen, onClose, workspaceId, brandColor, workspaceMembers, onSuccess }) => {
+  const { userInfo } = useSelector((state) => state.auth);
+  const [name, setName] = useState('');
+  const [selectedMembers, setSelectedMembers] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [createGroupChat] = useCreateGroupChatMutation();
+
+  useEffect(() => {
+    if (isOpen) { setName(''); setSelectedMembers([]); }
+  }, [isOpen]);
+
+  const memberOptions = (workspaceMembers || [])
+    .filter((m) => String(m.user?._id || m._id) !== String(userInfo?._id))
+    .map((m) => ({
+      value: String(m.user?._id || m._id),
+      label: m.user?.name || m.name || 'Unknown',
+      profile: m.user?.profile || m.profile,
+    }));
+
+  const toggleMember = (memberId) => {
+    setSelectedMembers((prev) =>
+      prev.includes(memberId) ? prev.filter((id) => id !== memberId) : [...prev, memberId]
+    );
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed) return toast.error('Channel name is required');
+    setLoading(true);
+    try {
+      await createGroupChat({
+        workspaceId,
+        name: trimmed,
+        memberIds: selectedMembers,
+      }).unwrap();
+      toast.success('Channel created!');
+      onSuccess?.();
+      onClose();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to create channel');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
+            <FaPlus className="text-teal-600 dark:text-[#0d9488]" /> Create Channel
+          </h2>
+          <button onClick={onClose} className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg transition">
+            <FaTimes />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Channel Name *</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none"
+              placeholder="e.g. general, design"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">Add Members</label>
+            <div className="max-h-48 overflow-y-auto space-y-1 border border-gray-300 dark:border-gray-700/60 rounded-xl p-2 bg-white dark:bg-[#0b0b10]">
+              {memberOptions.length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-500 text-center py-2">No other members to add</p>
+              ) : (
+                memberOptions.map((opt) => (
+                  <label key={opt.value} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/30 cursor-pointer transition">
+                    <input
+                      type="checkbox"
+                      checked={selectedMembers.includes(opt.value)}
+                      onChange={() => toggleMember(opt.value)}
+                      className="accent-teal-600 dark:accent-[#0d9488]"
+                    />
+                    <span className="text-sm text-gray-700 dark:text-gray-300 truncate">{opt.label}</span>
+                  </label>
+                ))
+              )}
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">You will be added automatically.</p>
+          </div>
+
+          <div className="flex gap-3">
+            <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-80 disabled:opacity-50"
+              style={{ backgroundColor: brandColor }}
+            >
+              {loading ? <FaSpinner className="animate-spin mx-auto" /> : 'Create'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ─── Add Participant Modal ────────────────────────────────────────────
+const AddParticipantModal = ({ isOpen, onClose, workspaceId, chatId, brandColor, existingParticipantIds = [], onSuccess }) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedUsers, setSelectedUsers] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [addParticipant] = useAddParticipantMutation();
+
+  const { data: membersData, isLoading: membersLoading } = useGetMembersQuery(workspaceId, {
+    skip: !isOpen || !workspaceId,
+  });
+
+  useEffect(() => {
+    if (isOpen) { setSearchQuery(''); setSelectedUsers([]); }
+  }, [isOpen]);
+
+  const availableMembers = (membersData?.members || [])
+    .filter((m) => {
+      const userId = String(m.user?._id || m._id);
+      return !existingParticipantIds.map(String).includes(userId);
+    })
+    .filter((m) => {
+      const user = m.user || m;
+      const name = (user?.name || '').toLowerCase();
+      const email = (user?.email || '').toLowerCase();
+      const q = searchQuery.toLowerCase();
+      return !q || name.includes(q) || email.includes(q);
+    });
+
+  const toggleUser = (userId) => {
+    setSelectedUsers((prev) =>
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
+    );
+  };
+
+  const handleSubmit = async () => {
+    if (selectedUsers.length === 0) return toast.info('Select at least one member to add.');
+    try {
+      setIsLoading(true);
+      await addParticipant({ chatId, userIds: selectedUsers }).unwrap();
+      toast.success(`${selectedUsers.length} member(s) added!`);
+      onSuccess?.();
+      onClose();
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to add participants');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-gray-200/60 dark:border-gray-800/60">
+          <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Add Members</h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800/60 rounded-lg text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-white transition">
+            <FaTimes className="text-sm" />
+          </button>
+        </div>
+
+        <div className="p-4 border-b border-gray-200/60 dark:border-gray-800/60">
+          <div className="relative">
+            <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 text-xs" />
+            <input
+              type="text"
+              placeholder="Search members..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-teal-500 dark:focus:border-[#0d9488] outline-none"
+            />
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-500 mt-1.5">{availableMembers.length} available</p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
+          {membersLoading ? (
+            <div className="text-center py-8 text-gray-500 dark:text-gray-500">
+              <FaSpinner className="animate-spin mx-auto text-lg" />
+              <p className="text-xs mt-1">Loading...</p>
+            </div>
+          ) : availableMembers.length === 0 ? (
+            <div className="text-center py-8 text-gray-500 dark:text-gray-500 text-sm">
+              {searchQuery ? 'No members found' : 'All members are already in this channel'}
+            </div>
+          ) : (
+            availableMembers.map((member) => {
+              const user = member.user || member;
+              const uid = String(user._id);
+              const isSelected = selectedUsers.includes(uid);
+              return (
+                <button
+                  key={uid}
+                  onClick={() => toggleUser(uid)}
+                  className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-xl transition ${
+                    isSelected ? 'bg-teal-50 dark:bg-[#0d9488]/20' : 'hover:bg-gray-50 dark:hover:bg-gray-800/30'
+                  }`}
+                >
+                  {user?.profile ? (
+                    <img src={user.profile} alt={user.name} className="w-9 h-9 rounded-full object-cover" />
+                  ) : (
+                    <div
+                      className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold"
+                      style={{ backgroundColor: brandColor }}
+                    >
+                      {user?.name?.charAt(0).toUpperCase() || '?'}
+                    </div>
+                  )}
+                  <div className="flex-1 text-left min-w-0">
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{user?.name || 'Unknown'}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-500 truncate">{user?.email}</p>
+                  </div>
+                  {isSelected && <FaCheck className="text-sm text-teal-600 dark:text-[#0d9488]" />}
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        <div className="flex gap-3 p-4 border-t border-gray-200/60 dark:border-gray-800/60">
+          <button onClick={onClose} className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+            Cancel
+          </button>
+          <button
+            disabled={isLoading || selectedUsers.length === 0}
+            onClick={handleSubmit}
+            className="flex-1 py-2.5 text-white rounded-xl text-sm font-medium transition hover:opacity-80 disabled:opacity-50"
+            style={{ backgroundColor: brandColor }}
+          >
+            {isLoading ? <FaSpinner className="animate-spin mx-auto" /> : `Add ${selectedUsers.length}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Search Channels Modal ────────────────────────────────────────────
+const SearchChannelsModal = ({ isOpen, onClose, channels, brandColor, workspaceId }) => {
+  const [query, setQuery] = useState('');
+  if (!isOpen) return null;
+
+  const filtered = channels.filter((c) =>
+    c.name?.toLowerCase().includes(query.toLowerCase())
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 bg-white dark:bg-[#0b0b10]/90 backdrop-blur-xl flex flex-col">
+      <div className="flex items-center gap-3 px-4 h-16 border-b border-gray-200/60 dark:border-gray-800/60 bg-gray-50 dark:bg-[#14141a]/80">
+        <button onClick={onClose} className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition">
+          <FaArrowLeft />
+        </button>
+        <div className="flex-1 bg-gray-100 dark:bg-[#1e1e26] rounded-2xl px-4 py-2 flex items-center gap-3 border border-gray-200 dark:border-gray-800/40 focus-within:border-teal-500 dark:focus-within:border-[#0d9488]/50 transition">
+          <FaSearch className="text-gray-400 dark:text-gray-500 text-xs" />
+          <input
+            type="text"
+            placeholder="Search channels..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="bg-transparent w-full outline-none text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500"
+            autoFocus
+          />
+          {query && (
+            <button onClick={() => setQuery('')} className="text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+              <FaTimes className="text-xs" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4">
+        {!query && (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
+            <FaSearch className="text-5xl mb-3 opacity-20" />
+            <p className="text-sm">Search channels</p>
+          </div>
+        )}
+        {query && filtered.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
+            <p className="text-sm">No channels found for "{query}"</p>
+          </div>
+        )}
+        {query && filtered.length > 0 && (
+          <div className="space-y-1">
+            {filtered.map((ch) => (
+              <Link
+                key={ch._id}
+                to={`${WORKSPACE_BASE_PATH}/${workspaceId}/chat/${ch._id}`}
+                onClick={onClose}
+                className="flex items-center gap-4 px-4 py-3 bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/40 hover:border-teal-500 dark:hover:border-[#0d9488]/40 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition cursor-pointer group"
+              >
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center"
+                  style={{ backgroundColor: `${brandColor}20`, color: brandColor }}
+                >
+                  <FaUsers className="text-sm" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-800 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition">
+                    {ch.name}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-500">{ch.participants?.length} members</p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ─── Channel Menu (dropdown) ──────────────────────────────────────────
+const ChannelMenu = ({ chat, userInfo, canManage, onArchive, onUnarchive, onExit, onDelete, isArchived = false }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setIsOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const uid = String(userInfo?._id || '');
+  const isChannelAdmin = chat.participants?.some(
+    (p) => String(p.user?._id || p.user) === uid && p.role === 'admin'
+  );
+  const isCreator = String(chat.createdBy?._id || chat.createdBy || '') === uid;
+  const canDelete = canManage || isChannelAdmin;
+  const canExit = !isCreator && !canManage && !isChannelAdmin;
+
+  return (
+    <div className="relative flex-shrink-0" ref={menuRef}>
+      <button
+        onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }}
+        className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition"
+      >
+        <FaEllipsisV className="text-sm" />
+      </button>
+      {isOpen && (
+        <div className="absolute right-0 top-full mt-1 bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-800/60 rounded-xl min-w-[180px] z-30 py-1 shadow-lg">
+          {isArchived ? (
+            <button
+              onClick={() => { setIsOpen(false); onUnarchive(chat._id); }}
+              className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 w-full transition"
+            >
+              <FaUndo className="text-xs" /> Unarchive
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={() => { setIsOpen(false); onArchive(chat._id); }}
+                className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 w-full transition"
+              >
+                <FaArchive className="text-xs" /> Archive
+              </button>
+              {canExit && (
+                <button
+                  onClick={() => { setIsOpen(false); onExit(chat._id); }}
+                  className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 w-full transition"
+                >
+                  <FaSignOutAlt className="text-xs" /> Exit Group
+                </button>
+              )}
+              {canDelete && (
+                <button
+                  onClick={() => { setIsOpen(false); onDelete(chat._id); }}
+                  className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 w-full transition"
+                >
+                  <FaTrashAlt className="text-xs" /> Delete Group
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Channel Row (handles click + long-press) ─────────────────────────
+const ChannelRow = ({
+  chat,
+  isArchived,
+  brandColor,
+  workspaceId,
+  userInfo,
+  canManage,
+  lastMsgTime,
+  lastMsgPreview,
+  onArchive,
+  onUnarchive,
+  onExit,
+  onDelete,
+  onAddMember,
+  openActionSheet,
+}) => {
+  const longPressTimer = useRef(null);
+  const isLongPress = useRef(false);
+
+  const uid = String(userInfo?._id || '');
+  const isChannelAdmin = chat.participants?.some(
+    (p) => String(p.user?._id || p.user) === uid && p.role === 'admin'
+  );
+  const isCreator = String(chat.createdBy?._id || chat.createdBy || '') === uid;
+  const canDelete = canManage || isChannelAdmin;
+  const canExit = !isCreator && !canManage && !isChannelAdmin;
+  const canAddMembers = canManage || isChannelAdmin;
+
+  const mentionFlag = !isArchived && hasUnreadMention(chat, userInfo?._id);
+
+  const chatLink = `${WORKSPACE_BASE_PATH}/${workspaceId}/chat/${chat._id}`;
+
+  const getActions = () => {
+    const actions = [];
+    if (isArchived) {
+      actions.push({
+        label: 'Unarchive',
+        icon: <FaUndo className="text-sm" />,
+        onPress: () => onUnarchive(chat._id),
+        danger: false,
+      });
+    } else {
+      if (canAddMembers) {
+        actions.push({
+          label: 'Add Members',
+          icon: <FaUserPlus className="text-sm" />,
+          onPress: () => onAddMember(chat._id),
+          danger: false,
+        });
+      }
+      actions.push({
+        label: 'Archive',
+        icon: <FaArchive className="text-sm" />,
+        onPress: () => onArchive(chat._id),
+        danger: false,
+      });
+      if (canExit) {
+        actions.push({
+          label: 'Exit Group',
+          icon: <FaSignOutAlt className="text-sm" />,
+          onPress: () => onExit(chat._id),
+          danger: true,
+        });
+      }
+      if (canDelete) {
+        actions.push({
+          label: 'Delete Group',
+          icon: <FaTrashAlt className="text-sm" />,
+          onPress: () => onDelete(chat._id),
+          danger: true,
+        });
+      }
+    }
+    return actions;
+  };
+
+  const handleTouchStart = () => {
+    isLongPress.current = false;
+    longPressTimer.current = setTimeout(() => {
+      isLongPress.current = true;
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try { navigator.vibrate(15); } catch { /* noop */ }
+      }
+      const actions = getActions();
+      if (actions.length > 0) openActionSheet(chat, actions);
+    }, 500);
+  };
+
+  const clearLongPress = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const handleLinkClick = (e) => {
+    if (isLongPress.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      isLongPress.current = false;
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition group">
+      <Link
+        to={chatLink}
+        onClick={handleLinkClick}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={clearLongPress}
+        onTouchMove={clearLongPress}
+        className="flex items-center gap-3 flex-1 min-w-0"
+      >
+        <div className="relative flex-shrink-0">
+          <div
+            className="w-12 h-12 rounded-2xl flex items-center justify-center text-xl"
+            style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
+          >
+            <FaUsers className="text-lg" />
+          </div>
+          {mentionFlag && (
+            <span
+              className="absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-white text-[11px] font-bold leading-none ring-2 ring-white dark:ring-[#0f0f12] shadow-sm"
+              style={{ backgroundColor: brandColor }}
+              title="You were mentioned"
+            >
+              @
+            </span>
+          )}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
+              {chat.name}
+            </span>
+            <span className="text-xs text-gray-500 dark:text-gray-500 flex-shrink-0">{lastMsgTime}</span>
+          </div>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span
+              className={`text-xs truncate flex-1 ${
+                mentionFlag
+                  ? 'text-teal-600 dark:text-[#0d9488] font-medium'
+                  : 'text-gray-500 dark:text-gray-400'
+              }`}
+            >
+              {lastMsgPreview}
+            </span>
+            {!isArchived && chat.unreadCount > 0 && (
+              <span
+                className="text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center flex-shrink-0"
+                style={{ backgroundColor: brandColor }}
+              >
+                {chat.unreadCount}
+              </span>
+            )}
+          </div>
+        </div>
+      </Link>
+
+      <div className="hidden md:flex items-center gap-1">
+        {!isArchived && canAddMembers && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onAddMember(chat._id); }}
+            className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-teal-600 dark:hover:text-[#0d9488] rounded-lg hover:bg-teal-50 dark:hover:bg-[#0d9488]/10 transition"
+            title="Add members"
+          >
+            <FaUserPlus className="text-sm" />
+          </button>
+        )}
+        <ChannelMenu
+          chat={chat}
+          userInfo={userInfo}
+          canManage={canManage}
+          onArchive={onArchive}
+          onUnarchive={onUnarchive}
+          onExit={onExit}
+          onDelete={onDelete}
+          isArchived={isArchived}
+        />
+      </div>
+    </div>
+  );
+};
+
+// ─── Main component ───────────────────────────────────────────────────
+const WorkspaceChannels = () => {
+  const { workspaceId } = useParams();
+  const navigate = useNavigate();
+  const { userInfo } = useSelector((state) => state.auth);
+
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [selectedChatId, setSelectedChatId] = useState(null);
+  const [showAddParticipantModal, setShowAddParticipantModal] = useState(false);
+  const [activeTab, setActiveTab] = useState('channels');
+  const [actionSheet, setActionSheet] = useState({ isOpen: false, chat: null, actions: [] });
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+    danger: false,
+  });
+
+  const { data: workspaceData, isLoading: workspaceLoading, error } = useGetWorkspaceQuery(workspaceId);
+
+  const { data: chatsData, isLoading: chatsLoading, refetch: refetchChats } =
+    useGetUserChatsQuery({ workspaceId, archived: false }, { skip: !workspaceId });
+
+  const [getArchivedChats, { data: archivedData, isLoading: archivedLoading }] =
+    useLazyGetUserChatsQuery();
+
+  useEffect(() => {
+    if (activeTab === 'archived' && workspaceId) {
+      getArchivedChats({ workspaceId, archived: true });
+    }
+  }, [activeTab, workspaceId, getArchivedChats]);
+
+  const onlineUserIds = useWorkspacePresence(workspaceId);
+
+  const [archiveChat] = useArchiveChatMutation();
+  const [unarchiveChat] = useUnarchiveChatMutation();
+  const [exitGroupChat] = useExitGroupChatMutation();
+  const [deleteGroupChat] = useDeleteGroupChatMutation();
+
+  useEffect(() => {
+    if (error) navigate('/my-workspaces', { replace: true });
+  }, [error, navigate]);
+
+  const refreshAll = () => {
+    refetchChats();
+    if (activeTab === 'archived') {
+      getArchivedChats({ workspaceId, archived: true });
+    }
+  };
+
+  const handleArchive = (chatId) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Archive Channel',
+      message: 'This will hide the channel from your main list. You can find it in Archived.',
+      onConfirm: async () => {
+        try {
+          await archiveChat(chatId).unwrap();
+          toast.success('Channel archived');
+          refreshAll();
+        } catch (err) {
+          toast.error(err?.data?.message || 'Failed to archive');
+        }
+      },
+      danger: false,
+    });
+  };
+
+  const handleUnarchive = (chatId) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Unarchive Channel',
+      message: 'This will move the channel back to your main list.',
+      onConfirm: async () => {
+        try {
+          await unarchiveChat(chatId).unwrap();
+          toast.success('Channel unarchived');
+          refreshAll();
+        } catch (err) {
+          toast.error(err?.data?.message || 'Failed to unarchive');
+        }
+      },
+      danger: false,
+    });
+  };
+
+  const handleExit = (chatId) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Exit Group',
+      message: 'You will leave this group and no longer receive messages.',
+      onConfirm: async () => {
+        try {
+          await exitGroupChat(chatId).unwrap();
+          toast.success('You left the group');
+          refreshAll();
+        } catch (err) {
+          toast.error(err?.data?.message || 'Failed to exit');
+        }
+      },
+      danger: true,
+    });
+  };
+
+  const handleDelete = (chatId) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Group',
+      message: 'This will permanently delete the group and all its messages. This cannot be undone.',
+      onConfirm: async () => {
+        try {
+          await deleteGroupChat(chatId).unwrap();
+          toast.success('Group deleted');
+          refreshAll();
+        } catch (err) {
+          toast.error(err?.data?.message || 'Failed to delete');
+        }
+      },
+      danger: true,
+    });
+  };
+
+  const openActionSheet = (chat, actions) => {
+    setActionSheet({ isOpen: true, chat, actions });
+  };
+  const closeActionSheet = () => {
+    setActionSheet({ isOpen: false, chat: null, actions: [] });
+  };
+  const handleAddMemberFromAction = (chatId) => {
+    setSelectedChatId(chatId);
+    setShowAddParticipantModal(true);
+  };
+
+  if (workspaceLoading || chatsLoading || (activeTab === 'archived' && archivedLoading)) {
+    return (<><GlobalStyles /><ChannelsLoadingShell /></>);
+  }
+
+  const workspace = workspaceData?.workspace;
+  const chats = chatsData?.chats || [];
+  const archivedChats = archivedData?.chats || [];
+  if (!workspace) return null;
+
+  const brandColor = workspace.color || '#0d9488';
+  const allChannels = chats.filter((c) => c.type === 'group');
+  const archivedChannels = archivedChats.filter((c) => c.type === 'group');
+  const displayChannels = activeTab === 'channels' ? allChannels : archivedChannels;
+  const isArchivedView = activeTab === 'archived';
+
+  // ─── Role ──────────────────────────────────────────────────────
+  const myId = String(userInfo?._id || '');
+  const ownerId = workspace?.owner?._id || workspace?.owner;
+  const isWorkspaceOwner = !!ownerId && String(ownerId) === myId;
+
+  const myMembership = (workspace.members || []).find(
+    (m) => String(m.user?._id || m.user) === myId
+  );
+  const memberRole = String(myMembership?.role || '').toLowerCase();
+  const isWorkspaceAdmin = memberRole === 'admin';
+  const canManage = isWorkspaceOwner || isWorkspaceAdmin;
+
+  const activeMembers = (workspace.members || []).filter((m) => m.status === 'active');
+  const onlineCount = activeMembers.filter((m) => {
+    const uid = String(m.user?._id || m.user);
+    return onlineUserIds.has(uid);
+  }).length;
+
+  return (
+    <>
+      <GlobalStyles />
+
+      <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
+        <div className="hidden md:block md:w-[260px] md:min-h-screen md:flex-shrink-0 fixed top-0 left-0 z-20">
+          <WorkspaceSidebar workspace={workspace} chats={chats} />
+        </div>
+
+        <div className="flex-1 flex flex-col h-full overflow-hidden md:ml-[260px] workspace-shell-main">
+          <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
+            <div className="flex items-center justify-between px-4 h-14">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}`)}
+                  className="p-1 md:hidden text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"
+                >
+                  <FaArrowLeft />
+                </button>
+                <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Channels</h1>
+                <span className="text-xs font-normal text-gray-500 dark:text-gray-500 bg-gray-100 dark:bg-[#1a1a24] px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-800/40">
+                  {allChannels.length}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                {canManage && (
+                  <button
+                    onClick={() => setShowCreateModal(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white rounded-xl transition hover:opacity-80"
+                    style={{ backgroundColor: brandColor }}
+                  >
+                    <FaPlus className="text-xs" /> New
+                  </button>
+                )}
+                <button
+                  onClick={() => setSearchOpen(true)}
+                  className="p-1.5 text-gray-400 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition"
+                >
+                  <FaSearch className="text-sm" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex border-b border-gray-200/60 dark:border-gray-800/30 px-4">
+              <button
+                onClick={() => setActiveTab('channels')}
+                className={`py-2 px-3 text-sm font-medium transition ${
+                  activeTab === 'channels'
+                    ? 'border-b-2 border-teal-600 dark:border-[#0d9488] text-teal-600 dark:text-[#0d9488]'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                }`}
+              >
+                Channels
+              </button>
+              <button
+                onClick={() => setActiveTab('archived')}
+                className={`py-2 px-3 text-sm font-medium transition ${
+                  activeTab === 'archived'
+                    ? 'border-b-2 border-teal-600 dark:border-[#0d9488] text-teal-600 dark:text-[#0d9488]'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                }`}
+              >
+                Archived
+              </button>
+            </div>
+          </header>
+
+          <div className="flex-1 overflow-y-auto bg-white dark:bg-[#0f0f12] divide-y divide-gray-100 dark:divide-gray-800/30">
+            {displayChannels.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 text-gray-400 dark:text-gray-500">
+                <FaUsers className="text-4xl mb-2 opacity-30" />
+                <p className="text-sm">{isArchivedView ? 'No archived channels' : 'No channels yet'}</p>
+              </div>
+            ) : (
+              displayChannels.map((channel) => {
+                const lastMessage = channel.lastMessage;
+                let preview = getLastMessagePreview(lastMessage, userInfo?._id);
+                const senderId = lastMessage?.sender?._id || lastMessage?.sender;
+                if (senderId && senderId !== userInfo?._id && lastMessage) {
+                  const firstName = getFirstName(lastMessage.sender?.name || 'Someone');
+                  preview = `${firstName}: ${preview}`;
+                }
+                const time = formatLastMessageTime(
+                  lastMessage?.createdAt || channel.lastMessageAt || channel.updatedAt
+                );
+
+                return (
+                  <ChannelRow
+                    key={channel._id}
+                    chat={channel}
+                    isArchived={isArchivedView}
+                    brandColor={brandColor}
+                    workspaceId={workspaceId}
+                    userInfo={userInfo}
+                    canManage={canManage}
+                    lastMsgTime={time}
+                    lastMsgPreview={preview}
+                    onArchive={handleArchive}
+                    onUnarchive={handleUnarchive}
+                    onExit={handleExit}
+                    onDelete={handleDelete}
+                    onAddMember={handleAddMemberFromAction}
+                    openActionSheet={openActionSheet}
+                  />
+                );
+              })
+            )}
+          </div>
+
+          <div className="border-t border-gray-200/60 dark:border-gray-800/40 px-4 py-3 bg-white dark:bg-[#0f0f12] flex-shrink-0">
+            <div className="grid grid-cols-3 gap-2">
+              <div className="text-center">
+                <p className="text-sm font-bold text-gray-800 dark:text-gray-100">{allChannels.length}</p>
+                <p className="text-[10px] text-gray-500 dark:text-gray-500">Channels</p>
+              </div>
+              <div className="text-center">
+                <p className="text-sm font-bold text-gray-800 dark:text-gray-100">{activeMembers.length}</p>
+                <p className="text-[10px] text-gray-500 dark:text-gray-500">Members</p>
+              </div>
+              <div className="text-center">
+                <p className="text-sm font-bold text-gray-800 dark:text-gray-100">{onlineCount}</p>
+                <p className="text-[10px] text-gray-500 dark:text-gray-500">Online</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <WorkspaceBottombar workspace={workspace} />
+
+        <SearchChannelsModal
+          isOpen={searchOpen}
+          onClose={() => setSearchOpen(false)}
+          channels={allChannels}
+          brandColor={brandColor}
+          workspaceId={workspaceId}
+        />
+
+        <CreateChannelModal
+          isOpen={showCreateModal}
+          onClose={() => setShowCreateModal(false)}
+          workspaceId={workspaceId}
+          brandColor={brandColor}
+          workspaceMembers={workspace.members || []}
+          onSuccess={refreshAll}
+        />
+
+        <AddParticipantModal
+          isOpen={showAddParticipantModal}
+          onClose={() => {
+            setShowAddParticipantModal(false);
+            setSelectedChatId(null);
+          }}
+          workspaceId={workspaceId}
+          chatId={selectedChatId}
+          brandColor={brandColor}
+          existingParticipantIds={
+            selectedChatId
+              ? allChannels
+                  .find((c) => c._id === selectedChatId)
+                  ?.participants?.map((p) => String(p.user?._id || p.user)) || []
+              : []
+          }
+          onSuccess={refreshAll}
+        />
+
+        <ActionSheet
+          isOpen={actionSheet.isOpen}
+          onClose={closeActionSheet}
+          actions={actionSheet.actions}
+          title={actionSheet.chat ? `#${actionSheet.chat.name}` : ''}
+        />
+
+        <ConfirmModal
+          isOpen={confirmModal.isOpen}
+          onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })}
+          onConfirm={confirmModal.onConfirm}
+          title={confirmModal.title}
+          message={confirmModal.message}
+          danger={confirmModal.danger}
+        />
+      </div>
+    </>
+  );
+};
+
+export default WorkspaceChannels;

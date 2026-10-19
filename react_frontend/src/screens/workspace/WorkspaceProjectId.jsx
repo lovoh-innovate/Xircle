@@ -1,8 +1,9 @@
+// src/screens/workspace/WorkspaceProjectId.jsx
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
-import toast from 'react-hot-toast';
 import { motion } from 'framer-motion';
+import { toast } from 'react-toastify';
 import {
   FaArrowLeft, FaSearch, FaPlus, FaEllipsisV, FaFolder, FaFolderOpen,
   FaEdit, FaUserLock, FaTrashAlt, FaTasks, FaTimes, FaGripVertical,
@@ -16,7 +17,7 @@ import {
   FaEye, FaUserShield, FaUserPlus, FaSignInAlt,
 } from 'react-icons/fa';
 import { jsPDF } from 'jspdf';
-import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
+import { useGetWorkspaceQuery } from '../../slices/workspaceApiSlice';
 import {
   useGetProjectQuery,
   useArchiveProjectMutation,
@@ -24,7 +25,7 @@ import {
   useDeleteProjectMutation,
   useRestoreProjectMutation,
   usePermanentlyDeleteProjectMutation,
-} from '../slices/projectApiSlice';
+} from '../../slices/projectApiSlice';
 import {
   useGetProjectTasksQuery,
   useCreateTaskMutation,
@@ -37,7 +38,7 @@ import {
   useDeleteFolderMutation,
   useAddFolderReadOnlyMutation,
   useRemoveFolderReadOnlyMutation,
-} from '../slices/taskApiSlice';
+} from '../../slices/taskApiSlice';
 import {
   usePlanWithAIMutation,
   useExecuteAIPlanMutation,
@@ -46,12 +47,15 @@ import {
   useGenerateProjectDocsMutation,
   useEditProjectWithAIMutation,
   useApplyProjectEditsMutation,
-} from '../slices/aiApiSlice';
-import { useGetNotesQuery, useCreateNoteMutation } from '../slices/personalNoteApiSlice';
-import { useGetWorkspaceNotesQuery } from '../slices/workspaceNoteApiSlice';
-import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
-import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
-import { useMediaPicker } from '../hooks/useMediaPicker';
+} from '../../slices/aiApiSlice';
+import { useGetNotesQuery, useCreateNoteMutation } from '../../slices/personalNoteApiSlice';
+import { useGetWorkspaceNotesQuery } from '../../slices/workspaceNoteApiSlice';
+import WorkspaceSidebar from '../../components/WorkspaceSidebar';
+import WorkspaceBottombar from '../../components/WorkspaceBottombar';
+import { useMediaPicker } from '../../hooks/useMediaPicker';
+
+// ─── Base path (keep in sync with WorkspaceSidebar / WorkspaceBottombar / WorkspaceId / WorkspaceProjects) ──
+const WORKSPACE_BASE_PATH = '/workspace';
 
 // ─── format helpers ─────────────────────────────────────────────
 const fmtDate = (d) => (!d ? 'N/A' : new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
@@ -742,9 +746,7 @@ const DeleteTaskDialog = ({ isOpen, onClose, onConfirm, taskName }) => {
   );
 };
 
-// ═══════════════════════════════════════════════════════════════
-// Task Action Modal
-// ═══════════════════════════════════════════════════════════════
+// ─── Task Action Modal ──────────────────────────────────────────
 const TaskActionModal = ({
   isOpen, onClose, task, viewer, isTrash, isArchivedForMe,
   onEdit, onCopy, onMove, onDelete, onArchive, onRestore,
@@ -755,11 +757,9 @@ const TaskActionModal = ({
 
   const canManage = !!viewer?.canManage;
   const canAct = !!viewer?.canAct;
-
   const taskAccess = task.access || {};
   const taskCanManage = taskAccess.canManage ?? canManage;
   const taskCanComplete = taskAccess.canComplete ?? (canAct && task.assignedToMe);
-
   const isCompleted = task.status === 'completed' || task.status === 'confirmed_completed';
 
   return (
@@ -784,82 +784,31 @@ const TaskActionModal = ({
           <div className="grid grid-cols-2 gap-2">
             {canManage && (
               <>
-                <button onClick={() => { onRestore(task._id); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-xl hover:bg-amber-100 dark:hover:bg-amber-900/30 transition">
-                  <FaUndo /> Restore
-                </button>
-                <button onClick={() => { onPermanentDelete(task); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/30 transition">
-                  <FaTrashAlt /> Delete Forever
-                </button>
+                <button onClick={() => { onRestore(task._id); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-xl hover:bg-amber-100 dark:hover:bg-amber-900/30 transition"><FaUndo /> Restore</button>
+                <button onClick={() => { onPermanentDelete(task); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/30 transition"><FaTrashAlt /> Delete Forever</button>
+                <button onClick={() => { onSelect(task._id); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition col-span-2"><FaMousePointer className="text-xs" /> Select</button>
               </>
             )}
-            {canManage && (
-              <button onClick={() => { onSelect(task._id); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition col-span-2">
-                <FaMousePointer className="text-xs" /> Select
-              </button>
-            )}
-            {!canManage && (
-              <p className="col-span-2 text-center text-sm text-gray-500 dark:text-gray-400 py-3">
-                You don't have permission to act on this task.
-              </p>
-            )}
+            {!canManage && (<p className="col-span-2 text-center text-sm text-gray-500 dark:text-gray-400 py-3">You don't have permission to act on this task.</p>)}
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-2">
-            {taskCanManage && (
-              <button onClick={() => { onEdit(task); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-teal-400 rounded-xl hover:bg-teal-100 dark:hover:bg-teal-900/30 transition">
-                <FaEdit /> Edit
-              </button>
-            )}
-
-            {!isArchivedForMe && !isCompleted && taskCanComplete && onMarkComplete && (
-              <button onClick={() => { onMarkComplete(task._id); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 rounded-xl hover:bg-green-100 dark:hover:bg-green-900/30 transition">
-                <FaCheck /> Complete
-              </button>
-            )}
-            {!isArchivedForMe && isCompleted && taskCanManage && onMarkInProgress && (
-              <button onClick={() => { onMarkInProgress(task._id); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-xl hover:bg-amber-100 dark:hover:bg-amber-900/30 transition">
-                <FaUndo /> Reopen
-              </button>
-            )}
-
-            {taskCanManage && !isArchivedForMe && (
-              <button onClick={() => { onCopy(task); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-gray-100 dark:bg-[#2a2a2a] text-gray-700 dark:text-gray-300 rounded-xl hover:bg-gray-200 dark:hover:bg-[#333] transition">
-                <FaCopy /> Copy
-              </button>
-            )}
-            {taskCanManage && !isArchivedForMe && (
-              <button onClick={() => { onMove(task); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 rounded-xl hover:bg-purple-100 dark:hover:bg-purple-900/30 transition">
-                <FaFolderOpen /> Move
-              </button>
-            )}
-
-            {taskCanManage && (
-              <button onClick={() => { onSelect(task._id); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition">
-                <FaMousePointer className="text-xs" /> Select
-              </button>
-            )}
-
+            {taskCanManage && (<button onClick={() => { onEdit(task); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-teal-400 rounded-xl hover:bg-teal-100 dark:hover:bg-teal-900/30 transition"><FaEdit /> Edit</button>)}
+            {!isArchivedForMe && !isCompleted && taskCanComplete && onMarkComplete && (<button onClick={() => { onMarkComplete(task._id); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 rounded-xl hover:bg-green-100 dark:hover:bg-green-900/30 transition"><FaCheck /> Complete</button>)}
+            {!isArchivedForMe && isCompleted && taskCanManage && onMarkInProgress && (<button onClick={() => { onMarkInProgress(task._id); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-xl hover:bg-amber-100 dark:hover:bg-amber-900/30 transition"><FaUndo /> Reopen</button>)}
+            {taskCanManage && !isArchivedForMe && (<button onClick={() => { onCopy(task); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-gray-100 dark:bg-[#2a2a2a] text-gray-700 dark:text-gray-300 rounded-xl hover:bg-gray-200 dark:hover:bg-[#333] transition"><FaCopy /> Copy</button>)}
+            {taskCanManage && !isArchivedForMe && (<button onClick={() => { onMove(task); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 rounded-xl hover:bg-purple-100 dark:hover:bg-purple-900/30 transition"><FaFolderOpen /> Move</button>)}
+            {taskCanManage && (<button onClick={() => { onSelect(task._id); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition"><FaMousePointer className="text-xs" /> Select</button>)}
             {isArchivedForMe ? (
-              <button onClick={() => { onRestore(task._id); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-xl hover:bg-amber-100 dark:hover:bg-amber-900/30 transition">
-                <FaUndo /> Restore
-              </button>
+              <button onClick={() => { onRestore(task._id); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-xl hover:bg-amber-100 dark:hover:bg-amber-900/30 transition"><FaUndo /> Restore</button>
             ) : (
-              <button onClick={() => { onArchive(task._id); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-xl hover:bg-blue-100 dark:hover:bg-blue-900/30 transition">
-                <FaArchive /> Archive
-              </button>
+              <button onClick={() => { onArchive(task._id); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-xl hover:bg-blue-100 dark:hover:bg-blue-900/30 transition"><FaArchive /> Archive</button>
             )}
-
-            {taskCanManage && (
-              <button onClick={() => { onDelete(task); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/30 transition">
-                <FaTrashAlt /> Delete
-              </button>
-            )}
+            {taskCanManage && (<button onClick={() => { onDelete(task); onClose(); }} className="flex items-center justify-center gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/30 transition"><FaTrashAlt /> Delete</button>)}
           </div>
         )}
 
-        <button onClick={onClose} className="w-full py-2 text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition">
-          Cancel
-        </button>
+        <button onClick={onClose} className="w-full py-2 text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition">Cancel</button>
       </div>
     </BottomSheet>
   );
@@ -878,15 +827,9 @@ const BulkToolbar = ({ selectedCount, onCancel, onComplete, onDelete }) => (
       <span className="font-semibold">{selectedCount}</span> selected
     </div>
     <div className="flex flex-wrap items-center gap-1.5">
-      <button onClick={onComplete} className="px-2.5 sm:px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition flex items-center gap-1">
-        <FaCheckDouble className="text-[10px]" /> Done
-      </button>
-      <button onClick={onDelete} className="px-2.5 sm:px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-700 transition flex items-center gap-1">
-        <FaTrashAlt className="text-[10px]" /> Delete
-      </button>
-      <button onClick={onCancel} className="px-2.5 sm:px-3 py-1.5 border border-gray-300 dark:border-gray-700 rounded-lg text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">
-        Cancel
-      </button>
+      <button onClick={onComplete} className="px-2.5 sm:px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition flex items-center gap-1"><FaCheckDouble className="text-[10px]" /> Done</button>
+      <button onClick={onDelete} className="px-2.5 sm:px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-700 transition flex items-center gap-1"><FaTrashAlt className="text-[10px]" /> Delete</button>
+      <button onClick={onCancel} className="px-2.5 sm:px-3 py-1.5 border border-gray-300 dark:border-gray-700 rounded-lg text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Cancel</button>
     </div>
   </motion.div>
 );
@@ -894,20 +837,8 @@ const BulkToolbar = ({ selectedCount, onCancel, onComplete, onDelete }) => (
 // ─── View Toggle ────────────────────────────────────────────────
 const ViewToggle = ({ view, onChange }) => (
   <div className="inline-flex rounded-lg bg-gray-100 dark:bg-[#1e1e26] p-0.5 border border-gray-200 dark:border-gray-700/60">
-    <button
-      onClick={() => onChange('grid')}
-      className={`px-2 py-1 rounded-md text-xs transition flex items-center gap-1 ${view === 'grid' ? 'bg-white dark:bg-[#14141a] text-teal-600 dark:text-[#0d9488] shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
-      title="Grid view"
-    >
-      <FaThLarge className="text-[10px]" />
-    </button>
-    <button
-      onClick={() => onChange('list')}
-      className={`px-2 py-1 rounded-md text-xs transition flex items-center gap-1 ${view === 'list' ? 'bg-white dark:bg-[#14141a] text-teal-600 dark:text-[#0d9488] shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
-      title="List view"
-    >
-      <FaList className="text-[10px]" />
-    </button>
+    <button onClick={() => onChange('grid')} className={`px-2 py-1 rounded-md text-xs transition flex items-center gap-1 ${view === 'grid' ? 'bg-white dark:bg-[#14141a] text-teal-600 dark:text-[#0d9488] shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`} title="Grid view"><FaThLarge className="text-[10px]" /></button>
+    <button onClick={() => onChange('list')} className={`px-2 py-1 rounded-md text-xs transition flex items-center gap-1 ${view === 'list' ? 'bg-white dark:bg-[#14141a] text-teal-600 dark:text-[#0d9488] shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`} title="List view"><FaList className="text-[10px]" /></button>
   </div>
 );
 
@@ -939,12 +870,8 @@ const TaskCard = React.memo(({
     if (e.target.closest('.task-menu-btn') || e.target.closest('.task-grip')) return;
     longPressTimer.current = setTimeout(() => { if (onLongPress) onLongPress(task._id); }, 500);
   };
-  const handleTouchEnd = () => {
-    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
-  };
-  const handleTouchMove = () => {
-    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
-  };
+  const handleTouchEnd = () => { if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; } };
+  const handleTouchMove = () => { if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; } };
 
   const handleClick = (e) => {
     if (e.target.closest('.task-menu-btn') || e.target.closest('.task-grip')) return;
@@ -960,11 +887,7 @@ const TaskCard = React.memo(({
     }
   };
 
-  const handleContextMenu = (e) => {
-    e.preventDefault();
-    if (selectionMode) return;
-    onOpenModal(task);
-  };
+  const handleContextMenu = (e) => { e.preventDefault(); if (selectionMode) return; onOpenModal(task); };
 
   const gripProps = draggable
     ? { onDragStart: (ev) => { ev.dataTransfer.setData('text/plain', task._id); onDragStart?.(ev, task); } }
@@ -989,27 +912,16 @@ const TaskCard = React.memo(({
         } ${isSelected ? 'bg-teal-50/70 dark:bg-teal-900/30' : ''}`}
       >
         <div className="flex items-start gap-2 sm:gap-3 w-full">
-          {draggable && (
-            <div className="task-grip flex-shrink-0 text-gray-400 p-1 -ml-1 mt-0.5 touch-none cursor-grab">
-              <FaGripVertical className="text-sm" />
-            </div>
-          )}
+          {draggable && (<div className="task-grip flex-shrink-0 text-gray-400 p-1 -ml-1 mt-0.5 touch-none cursor-grab"><FaGripVertical className="text-sm" /></div>)}
           <div className="flex-shrink-0 w-5 h-5 flex items-center justify-center mt-0.5" title={task.status}>
-            <span
-              className="w-2.5 h-2.5 rounded-full ring-2 ring-offset-1 ring-offset-white dark:ring-offset-[#0f0f12]"
-              style={{ backgroundColor: STATUS_DOT[task.status] || '#9ca3af', '--tw-ring-color': `${STATUS_DOT[task.status] || '#9ca3af'}33` }}
-            />
+            <span className="w-2.5 h-2.5 rounded-full ring-2 ring-offset-1 ring-offset-white dark:ring-offset-[#0f0f12]" style={{ backgroundColor: STATUS_DOT[task.status] || '#9ca3af', '--tw-ring-color': `${STATUS_DOT[task.status] || '#9ca3af'}33` }} />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-start gap-1 sm:gap-2">
               <span className={`text-sm font-medium break-words flex-1 min-w-0 ${isCompleted ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-800 dark:text-white'}`}>{task.title}</span>
               {assignedToMe && <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 shrink-0">You</span>}
               {hasRecurrence && <FaRedo className="text-[10px] text-teal-500 flex-shrink-0 mt-1" />}
-              {linkedNotesCount > 0 && (
-                <span className="inline-flex items-center gap-0.5 text-[10px] text-teal-600 dark:text-[#0d9488] flex-shrink-0 mt-0.5" title={`${linkedNotesCount} linked note(s)`}>
-                  <FaStickyNote className="text-[10px]" /> {linkedNotesCount}
-                </span>
-              )}
+              {linkedNotesCount > 0 && (<span className="inline-flex items-center gap-0.5 text-[10px] text-teal-600 dark:text-[#0d9488] flex-shrink-0 mt-0.5" title={`${linkedNotesCount} linked note(s)`}><FaStickyNote className="text-[10px]" /> {linkedNotesCount}</span>)}
               {overdue && <FaExclamationCircle className="text-xs text-red-500 flex-shrink-0 mt-0.5" />}
             </div>
             <div className="flex flex-wrap items-center gap-1.5 sm:gap-3 text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -1020,9 +932,7 @@ const TaskCard = React.memo(({
               {due && <span className={overdue ? 'text-red-500' : ''}>{fmtShortDate(task.dueDate)}</span>}
             </div>
             <div className="flex items-center gap-2 mt-1.5">
-              {assignees.length === 0 ? (
-                <span className="text-[11px] text-gray-400 dark:text-gray-500">Unassigned</span>
-              ) : (
+              {assignees.length === 0 ? (<span className="text-[11px] text-gray-400 dark:text-gray-500">Unassigned</span>) : (
                 <>
                   <div className="flex -space-x-1.5 shrink-0">
                     {assignees.slice(0, 4).map((a, i) => (
@@ -1032,24 +942,16 @@ const TaskCard = React.memo(({
                     ))}
                     {assignees.length > 4 && (<div className="w-5 h-5 rounded-full border border-white dark:border-[#14141a] flex items-center justify-center bg-gray-500 text-white text-[8px]">+{assignees.length - 4}</div>)}
                   </div>
-                  <span className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
-                    {assignees.length === 1 ? assignees[0].name : `${assignees.length} assignees`}
-                  </span>
+                  <span className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{assignees.length === 1 ? assignees[0].name : `${assignees.length} assignees`}</span>
                 </>
               )}
-              <div className="flex-1 h-1 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden ml-2 min-w-[40px] max-w-[120px]">
-                <div className="h-full rounded-full transition-all" style={{ width: `${progress}%`, backgroundColor: brandColor }} />
-              </div>
+              <div className="flex-1 h-1 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden ml-2 min-w-[40px] max-w-[120px]"><div className="h-full rounded-full transition-all" style={{ width: `${progress}%`, backgroundColor: brandColor }} /></div>
               <span className="text-[10px] font-mono text-gray-400">{progress}%</span>
             </div>
           </div>
           <div className="flex-shrink-0 flex items-center gap-1">
-            <button onClick={(e) => { e.stopPropagation(); onOpenModal(task); }} className="task-menu-btn md:hidden p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition" aria-label="More actions">
-              <FaAngleDown className="text-sm" />
-            </button>
-            <button onClick={(e) => { e.stopPropagation(); onOpenModal(task); }} className="task-menu-btn hidden md:flex p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition" aria-label="More actions">
-              <FaEllipsisV className="text-sm" />
-            </button>
+            <button onClick={(e) => { e.stopPropagation(); onOpenModal(task); }} className="task-menu-btn md:hidden p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition" aria-label="More actions"><FaAngleDown className="text-sm" /></button>
+            <button onClick={(e) => { e.stopPropagation(); onOpenModal(task); }} className="task-menu-btn hidden md:flex p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition" aria-label="More actions"><FaEllipsisV className="text-sm" /></button>
           </div>
         </div>
       </div>
@@ -1076,40 +978,23 @@ const TaskCard = React.memo(({
       <div className="flex items-start justify-between gap-1.5">
         <div className="flex items-start gap-1.5 sm:gap-2 min-w-0 flex-1">
           {draggable && <FaGripVertical className="task-grip text-gray-300 dark:text-gray-700 text-xs shrink-0 mt-1.5 touch-none cursor-grab hidden sm:block" />}
-          <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl flex items-center justify-center text-white font-bold text-[11px] sm:text-sm shrink-0" style={{ backgroundColor: brandColor }}>
-            {task.title.charAt(0).toUpperCase()}
-          </div>
+          <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl flex items-center justify-center text-white font-bold text-[11px] sm:text-sm shrink-0" style={{ backgroundColor: brandColor }}>{task.title.charAt(0).toUpperCase()}</div>
           <div className="flex-1 min-w-0">
             <h4 className={`text-xs sm:text-sm font-medium break-words min-w-0 ${isCompleted ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-800 dark:text-gray-200'}`}>
               {task.title}
               {hasRecurrence && <FaRedo className="inline text-[9px] sm:text-[10px] text-teal-600 dark:text-[#0d9488] ml-1 -mt-0.5" />}
-              {linkedNotesCount > 0 && (
-                <span className="inline-flex items-center gap-0.5 text-[9px] sm:text-[10px] text-teal-600 dark:text-[#0d9488] ml-1" title={`${linkedNotesCount} linked note(s)`}>
-                  <FaStickyNote className="text-[9px] sm:text-[10px]" /> {linkedNotesCount}
-                </span>
-              )}
+              {linkedNotesCount > 0 && (<span className="inline-flex items-center gap-0.5 text-[9px] sm:text-[10px] text-teal-600 dark:text-[#0d9488] ml-1" title={`${linkedNotesCount} linked note(s)`}><FaStickyNote className="text-[9px] sm:text-[10px]" /> {linkedNotesCount}</span>)}
             </h4>
-            {assignedToMe && (
-              <span className="inline-flex items-center gap-1 mt-1 text-[8px] sm:text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400">
-                <FaUser className="text-[7px]" /> You
-              </span>
-            )}
+            {assignedToMe && (<span className="inline-flex items-center gap-1 mt-1 text-[8px] sm:text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400"><FaUser className="text-[7px]" /> You</span>)}
           </div>
         </div>
         <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
-          <button onClick={(e) => { e.stopPropagation(); onOpenModal(task); }} className="task-menu-btn md:hidden p-1 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition" aria-label="More actions">
-            <FaAngleDown className="text-xs" />
-          </button>
-          <button onClick={(e) => { e.stopPropagation(); onOpenModal(task); }} className="task-menu-btn hidden md:flex p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition" aria-label="More actions">
-            <FaEllipsisV className="text-sm" />
-          </button>
+          <button onClick={(e) => { e.stopPropagation(); onOpenModal(task); }} className="task-menu-btn md:hidden p-1 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition" aria-label="More actions"><FaAngleDown className="text-xs" /></button>
+          <button onClick={(e) => { e.stopPropagation(); onOpenModal(task); }} className="task-menu-btn hidden md:flex p-1.5 text-gray-400 hover:text-teal-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition" aria-label="More actions"><FaEllipsisV className="text-sm" /></button>
         </div>
       </div>
 
-      {/* Status pill on its own row on mobile so it doesn't squeeze the title */}
-      <div className="mt-1.5 flex items-center gap-1 flex-wrap">
-        <StatusPill status={task.status} />
-      </div>
+      <div className="mt-1.5 flex items-center gap-1 flex-wrap"><StatusPill status={task.status} /></div>
 
       <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
         <PriorityPill priority={task.priority} />
@@ -1120,9 +1005,7 @@ const TaskCard = React.memo(({
 
       <div className="mt-2 flex items-center justify-between gap-1.5">
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
-          {assignees.length === 0 ? (
-            <span className="text-[10px] sm:text-xs text-gray-500 truncate">Unassigned</span>
-          ) : (
+          {assignees.length === 0 ? (<span className="text-[10px] sm:text-xs text-gray-500 truncate">Unassigned</span>) : (
             <>
               <div className="flex -space-x-1.5 shrink-0">
                 {assignees.slice(0, 2).map((a, i) => (
@@ -1132,9 +1015,7 @@ const TaskCard = React.memo(({
                 ))}
                 {assignees.length > 2 && (<div className="w-5 h-5 rounded-full border border-white dark:border-[#14141a] flex items-center justify-center bg-gray-500 text-white text-[8px]">+{assignees.length - 2}</div>)}
               </div>
-              <span className="text-[10px] sm:text-xs text-gray-500 truncate">
-                {assignees.length === 1 ? assignees[0].name : `${assignees.length} assignees`}
-              </span>
+              <span className="text-[10px] sm:text-xs text-gray-500 truncate">{assignees.length === 1 ? assignees[0].name : `${assignees.length} assignees`}</span>
             </>
           )}
         </div>
@@ -1142,9 +1023,7 @@ const TaskCard = React.memo(({
       </div>
 
       <div className="mt-2 flex items-center gap-1.5">
-        <div className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden">
-          <div className="h-full rounded-full transition-all" style={{ width: `${progress}%`, backgroundColor: brandColor }} />
-        </div>
+        <div className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-800/60 rounded-full overflow-hidden"><div className="h-full rounded-full transition-all" style={{ width: `${progress}%`, backgroundColor: brandColor }} /></div>
         <span className="text-[10px] sm:text-xs font-mono text-gray-400">{progress}%</span>
       </div>
     </div>
@@ -1155,17 +1034,12 @@ const TaskCard = React.memo(({
 const NotesPickerModal = ({ isOpen, onClose, workspaceId, alreadySelected, onConfirm }) => {
   const [stage, setStage] = useState('source');
   const [draft, setDraft] = useState([]);
-
   const [quickTitle, setQuickTitle] = useState('');
   const [quickContent, setQuickContent] = useState('');
   const [createNote, { isLoading: creatingQuickNote }] = useCreateNoteMutation();
 
-  const { data: pData, isLoading: pLoading } = useGetNotesQuery(undefined, {
-    skip: !isOpen || stage !== 'personal',
-  });
-  const { data: wData, isLoading: wLoading } = useGetWorkspaceNotesQuery(workspaceId, {
-    skip: !isOpen || stage !== 'workspace' || !workspaceId,
-  });
+  const { data: pData, isLoading: pLoading } = useGetNotesQuery(undefined, { skip: !isOpen || stage !== 'personal' });
+  const { data: wData, isLoading: wLoading } = useGetWorkspaceNotesQuery(workspaceId, { skip: !isOpen || stage !== 'workspace' || !workspaceId });
 
   const personalNotes = pData?.notes || [];
   const workspaceNotes = wData?.notes || [];
@@ -1179,24 +1053,16 @@ const NotesPickerModal = ({ isOpen, onClose, workspaceId, alreadySelected, onCon
     }
   }, [isOpen]);
 
-  const isPicked = (noteId, source) =>
-    draft.some((d) => String(d.noteId) === String(noteId) && d.source === source);
-
+  const isPicked = (noteId, source) => draft.some((d) => String(d.noteId) === String(noteId) && d.source === source);
   const toggleNote = (note, source) => {
-    if (isPicked(note._id, source)) {
-      setDraft((prev) => prev.filter((d) => !(String(d.noteId) === String(note._id) && d.source === source)));
-    } else {
-      setDraft((prev) => [...prev, { noteId: note._id, source, title: note.title }]);
-    }
+    if (isPicked(note._id, source)) setDraft((prev) => prev.filter((d) => !(String(d.noteId) === String(note._id) && d.source === source)));
+    else setDraft((prev) => [...prev, { noteId: note._id, source, title: note.title }]);
   };
 
   const handleSaveQuickNote = async () => {
     if (!quickTitle.trim()) { toast.error('Give your note a title'); return; }
     try {
-      const res = await createNote({
-        title: quickTitle.trim(),
-        content: quickContent.trim() || 'Write your note here...',
-      }).unwrap();
+      const res = await createNote({ title: quickTitle.trim(), content: quickContent.trim() || 'Write your note here...' }).unwrap();
       const newNote = res.note;
       const newEntry = { noteId: newNote._id, source: 'personal', title: newNote.title };
       const next = [...draft.filter((d) => !(String(d.noteId) === String(newNote._id) && d.source === 'personal')), newEntry];
@@ -1204,9 +1070,7 @@ const NotesPickerModal = ({ isOpen, onClose, workspaceId, alreadySelected, onCon
       onConfirm(next);
       toast.success('Quick note created');
       onClose();
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to create note');
-    }
+    } catch (err) { toast.error(err?.data?.message || 'Failed to create note'); }
   };
 
   if (!isOpen) return null;
@@ -1224,10 +1088,7 @@ const NotesPickerModal = ({ isOpen, onClose, workspaceId, alreadySelected, onCon
         const checked = isPicked(n._id, source);
         return (
           <button key={n._id} type="button" onClick={() => toggleNote(n, source)}
-            className={`w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-xl border transition ${
-              checked ? 'bg-teal-50 dark:bg-teal-900/20 border-teal-300 dark:border-[#0d9488]/50'
-              : 'bg-white dark:bg-[#0f0f12] border-gray-200 dark:border-gray-800/60 hover:border-gray-300 dark:hover:border-gray-700'
-            }`}>
+            className={`w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-xl border transition ${checked ? 'bg-teal-50 dark:bg-teal-900/20 border-teal-300 dark:border-[#0d9488]/50' : 'bg-white dark:bg-[#0f0f12] border-gray-200 dark:border-gray-800/60 hover:border-gray-300 dark:hover:border-gray-700'}`}>
             <span className={`w-4 h-4 mt-0.5 flex items-center justify-center border rounded shrink-0 ${checked ? 'bg-teal-500 border-teal-500 text-white' : 'border-gray-400 dark:border-gray-600'}`}>
               {checked && <FaCheck className="text-[8px]" />}
             </span>
@@ -1248,11 +1109,7 @@ const NotesPickerModal = ({ isOpen, onClose, workspaceId, alreadySelected, onCon
       <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl md:rounded-2xl w-full md:max-w-lg flex flex-col max-h-[88vh]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200/60 dark:border-gray-800/60">
           <div className="flex items-center gap-2 min-w-0">
-            {stage !== 'source' && (
-              <button onClick={() => setStage('source')} className="p-1.5 text-gray-500 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/40 rounded-lg transition" title="Back">
-                <FaArrowLeft className="text-xs" />
-              </button>
-            )}
+            {stage !== 'source' && (<button onClick={() => setStage('source')} className="p-1.5 text-gray-500 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/40 rounded-lg transition" title="Back"><FaArrowLeft className="text-xs" /></button>)}
             <FaStickyNote className="text-teal-600 dark:text-[#0d9488] text-sm shrink-0" />
             <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate">{headerTitle}</h3>
           </div>
@@ -1270,7 +1127,6 @@ const NotesPickerModal = ({ isOpen, onClose, workspaceId, alreadySelected, onCon
                 </div>
                 <FaChevronRight className="text-xs text-gray-400 self-center shrink-0" />
               </button>
-
               <button type="button" onClick={() => setStage('personal')} className="w-full flex items-start gap-3 px-4 py-3.5 rounded-xl border border-gray-200 dark:border-gray-800/60 hover:border-teal-400 dark:hover:border-[#0d9488]/50 hover:bg-teal-50/40 dark:hover:bg-[#0d9488]/5 transition text-left">
                 <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-[#0d9488]/15 flex items-center justify-center shrink-0"><FaUser className="text-teal-600 dark:text-[#0d9488]" /></div>
                 <div className="min-w-0 flex-1">
@@ -1279,7 +1135,6 @@ const NotesPickerModal = ({ isOpen, onClose, workspaceId, alreadySelected, onCon
                 </div>
                 <FaChevronRight className="text-xs text-gray-400 self-center shrink-0" />
               </button>
-
               <button type="button" onClick={() => setStage('quicknote')} className="w-full flex items-start gap-3 px-4 py-3.5 rounded-xl border border-dashed border-teal-400/60 dark:border-[#0d9488]/50 hover:border-teal-500 dark:hover:border-[#0d9488] hover:bg-teal-50/40 dark:hover:bg-[#0d9488]/5 transition text-left">
                 <div className="w-10 h-10 rounded-xl bg-teal-600 dark:bg-[#0d9488] flex items-center justify-center shrink-0"><FaFeather className="text-white text-sm" /></div>
                 <div className="min-w-0 flex-1">
@@ -1334,15 +1189,10 @@ const RecurrenceField = ({ recurrenceType, setRecurrenceType, recurrenceDays, se
   return (
     <div className="bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800/60 rounded-xl p-3 space-y-3">
       <div className="flex items-center justify-between">
-        <label className="text-xs font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
-          <FaRedo className="text-[10px] text-teal-600 dark:text-[#0d9488]" /> Repeat task
-        </label>
+        <label className="text-xs font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1.5"><FaRedo className="text-[10px] text-teal-600 dark:text-[#0d9488]" /> Repeat task</label>
         <button
           type="button" role="switch" aria-checked={recurrenceType !== 'none'}
-          onClick={() => {
-            if (recurrenceType === 'none') setRecurrenceType('daily');
-            else { setRecurrenceType('none'); setRecurrenceDays([]); setRecurrenceEndDate(''); }
-          }}
+          onClick={() => { if (recurrenceType === 'none') setRecurrenceType('daily'); else { setRecurrenceType('none'); setRecurrenceDays([]); setRecurrenceEndDate(''); } }}
           className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${recurrenceType !== 'none' ? '' : 'bg-gray-300 dark:bg-gray-700'}`}
           style={recurrenceType !== 'none' ? { backgroundColor: brandColor } : undefined}
         >
@@ -1356,15 +1206,10 @@ const RecurrenceField = ({ recurrenceType, setRecurrenceType, recurrenceDays, se
             {['daily', 'weekly'].map((opt) => {
               const active = recurrenceType === opt;
               return (
-                <button key={opt} type="button"
-                  onClick={() => { setRecurrenceType(opt); if (opt !== 'weekly') setRecurrenceDays([]); }}
-                  className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
-                    active ? 'text-white border-transparent shadow-sm' : 'bg-white dark:bg-[#14141a] text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700/60 hover:border-gray-400 dark:hover:border-gray-600'
-                  }`}
+                <button key={opt} type="button" onClick={() => { setRecurrenceType(opt); if (opt !== 'weekly') setRecurrenceDays([]); }}
+                  className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition ${active ? 'text-white border-transparent shadow-sm' : 'bg-white dark:bg-[#14141a] text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700/60 hover:border-gray-400 dark:hover:border-gray-600'}`}
                   style={active ? { backgroundColor: brandColor } : undefined}
-                >
-                  {opt === 'daily' ? 'Daily' : 'Weekly'}
-                </button>
+                >{opt === 'daily' ? 'Daily' : 'Weekly'}</button>
               );
             })}
           </div>
@@ -1376,11 +1221,8 @@ const RecurrenceField = ({ recurrenceType, setRecurrenceType, recurrenceDays, se
                 {weekDays.map((d, i) => {
                   const on = recurrenceDays.includes(i);
                   return (
-                    <button key={i} type="button"
-                      onClick={() => setRecurrenceDays(on ? recurrenceDays.filter((x) => x !== i) : [...recurrenceDays, i].sort())}
-                      className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition ${
-                        on ? 'text-white border-transparent shadow-sm' : 'bg-white dark:bg-[#14141a] text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700/60 hover:border-gray-400 dark:hover:border-gray-600'
-                      }`}
+                    <button key={i} type="button" onClick={() => setRecurrenceDays(on ? recurrenceDays.filter((x) => x !== i) : [...recurrenceDays, i].sort())}
+                      className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition ${on ? 'text-white border-transparent shadow-sm' : 'bg-white dark:bg-[#14141a] text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700/60 hover:border-gray-400 dark:hover:border-gray-600'}`}
                       style={on ? { backgroundColor: brandColor } : undefined}
                     >{d}</button>
                   );
@@ -1402,9 +1244,7 @@ const RecurrenceField = ({ recurrenceType, setRecurrenceType, recurrenceDays, se
 // ─── Notes Field ────────────────────────────────────────────────
 const NotesField = ({ linkedNotes, onRemove, onOpenPicker }) => (
   <div>
-    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-      <FaStickyNote className="inline mr-1 text-teal-600 dark:text-[#0d9488]" /> Notes
-    </label>
+    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaStickyNote className="inline mr-1 text-teal-600 dark:text-[#0d9488]" /> Notes</label>
     <div className="space-y-2">
       {linkedNotes.map((n) => (
         <div key={`${n.source}:${n.noteId}`} className="flex items-center gap-2 bg-teal-50/60 dark:bg-[#0d9488]/10 border border-teal-200/60 dark:border-[#0d9488]/30 rounded-xl px-3 py-2">
@@ -1461,12 +1301,8 @@ const FolderField = ({ projectId, folderId, setFolderId, folders, onFolderCreate
         </div>
       ) : (
         <div className="flex items-center gap-1">
-          <div className="flex-1 min-w-0">
-            <Dropdown options={folderOpts} value={folderId} onChange={setFolderId} placeholder="Select folder" />
-          </div>
-          <button type="button" onClick={() => setCreating(true)} className="shrink-0 p-2 rounded-xl bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] hover:bg-teal-100 dark:hover:bg-teal-900/30 transition" title="Create new folder">
-            <FaPlus className="text-xs" />
-          </button>
+          <div className="flex-1 min-w-0"><Dropdown options={folderOpts} value={folderId} onChange={setFolderId} placeholder="Select folder" /></div>
+          <button type="button" onClick={() => setCreating(true)} className="shrink-0 p-2 rounded-xl bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] hover:bg-teal-100 dark:hover:bg-teal-900/30 transition" title="Create new folder"><FaPlus className="text-xs" /></button>
         </div>
       )}
     </div>
@@ -1476,14 +1312,11 @@ const FolderField = ({ projectId, folderId, setFolderId, folders, onFolderCreate
 // ═══════════════════════════════════════════════════════════════
 // Create Task Modal
 // ═══════════════════════════════════════════════════════════════
-const CreateTaskModal = ({
-  isOpen, onClose, projectId, workspaceId, brandColor, assignableMembers, folders, onSubmit, onFolderCreated,
-}) => {
+const CreateTaskModal = ({ isOpen, onClose, projectId, workspaceId, brandColor, assignableMembers, folders, onSubmit, onFolderCreated }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [linkedNotes, setLinkedNotes] = useState([]);
   const [notesPickerOpen, setNotesPickerOpen] = useState(false);
-
   const [assigneeIds, setAssigneeIds] = useState([]);
   const [folderId, setFolderId] = useState('');
   const [priority, setPriority] = useState('medium');
@@ -1515,14 +1348,12 @@ const CreateTaskModal = ({
     try {
       await onSubmit({
         projectId, title: title.trim(), description, assigneeIds, priority,
-        allowAssigneeEditSubtasks, startDate, dueDate,
-        folderId, recurrenceType, recurrenceDays, recurrenceEndDate,
+        allowAssigneeEditSubtasks, startDate, dueDate, folderId, recurrenceType, recurrenceDays, recurrenceEndDate,
         links: links.map((l) => l.trim()).filter(Boolean),
         attachments: files,
         linkedNotes: linkedNotes.map(({ noteId, source }) => ({ noteId, source })),
       });
-      reset();
-      onClose();
+      reset(); onClose();
     } catch (err) { toast.error(err?.data?.message || 'Failed to create task'); }
     finally { setLoading(false); }
   };
@@ -1530,8 +1361,7 @@ const CreateTaskModal = ({
   const addLink = () => setLinks((prev) => [...prev, '']);
   const updateLink = (i, v) => setLinks((prev) => { const n = [...prev]; n[i] = v; return n; });
   const removeLink = (i) => setLinks((prev) => prev.filter((_, idx) => idx !== i));
-  const removeLinkedNote = (noteId, source) =>
-    setLinkedNotes((prev) => prev.filter((d) => !(String(d.noteId) === String(noteId) && d.source === source)));
+  const removeLinkedNote = (noteId, source) => setLinkedNotes((prev) => prev.filter((d) => !(String(d.noteId) === String(noteId) && d.source === source)));
 
   if (!isOpen) return null;
   return (
@@ -1547,19 +1377,15 @@ const CreateTaskModal = ({
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Title *</label>
               <input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" required />
             </div>
-
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
               <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none resize-none" />
             </div>
-
             <NotesField linkedNotes={linkedNotes} onRemove={removeLinkedNote} onOpenPicker={() => setNotesPickerOpen(true)} />
-
             <div className="grid grid-cols-2 gap-3">
               <MultiDropdown label="Assignees" options={assigneeOpts} values={assigneeIds} onChange={setAssigneeIds} placeholder="Select members..." />
               <FolderField projectId={projectId} folderId={folderId} setFolderId={setFolderId} folders={folders} onFolderCreated={onFolderCreated} />
             </div>
-
             <div className="grid grid-cols-2 gap-3">
               <Dropdown label="Priority" options={priorityOptions} value={priority} onChange={setPriority} />
               <div>
@@ -1567,23 +1393,14 @@ const CreateTaskModal = ({
                 <CustomDateTimePicker value={startDate} onChange={setStartDate} placeholder="Pick start" />
               </div>
             </div>
-
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Due</label>
               <CustomDateTimePicker value={dueDate} onChange={setDueDate} placeholder="Pick due" showShortcuts />
             </div>
-
             <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
               <input type="checkbox" checked={allowAssigneeEditSubtasks} onChange={(e) => setAllowAssigneeEditSubtasks(e.target.checked)} className="accent-teal-600" /> Allow assignee to edit sub‑tasks
             </label>
-
-            <RecurrenceField
-              recurrenceType={recurrenceType} setRecurrenceType={setRecurrenceType}
-              recurrenceDays={recurrenceDays} setRecurrenceDays={setRecurrenceDays}
-              recurrenceEndDate={recurrenceEndDate} setRecurrenceEndDate={setRecurrenceEndDate}
-              brandColor={brandColor}
-            />
-
+            <RecurrenceField recurrenceType={recurrenceType} setRecurrenceType={setRecurrenceType} recurrenceDays={recurrenceDays} setRecurrenceDays={setRecurrenceDays} recurrenceEndDate={recurrenceEndDate} setRecurrenceEndDate={setRecurrenceEndDate} brandColor={brandColor} />
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaLink className="inline mr-1" />Links</label>
               <div className="space-y-2">
@@ -1593,12 +1410,9 @@ const CreateTaskModal = ({
                     <button type="button" onClick={() => removeLink(i)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition" title="Remove link"><FaTrashAlt className="text-xs" /></button>
                   </div>
                 ))}
-                <button type="button" onClick={addLink} className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] rounded-lg text-xs font-medium hover:bg-teal-100 dark:hover:bg-teal-900/30 transition">
-                  <FaPlus className="text-[10px]" /> Add link
-                </button>
+                <button type="button" onClick={addLink} className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] rounded-lg text-xs font-medium hover:bg-teal-100 dark:hover:bg-teal-900/30 transition"><FaPlus className="text-[10px]" /> Add link</button>
               </div>
             </div>
-
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaPaperclip className="inline mr-1" />Attachments</label>
               <button type="button" onClick={() => pickMedia({ multiple: true })} className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-300"><FaCamera className="text-xs" /> Choose Files</button>
@@ -1609,7 +1423,6 @@ const CreateTaskModal = ({
                 </div>
               ))}
             </div>
-
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400">Cancel</button>
               <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium" style={{ backgroundColor: brandColor }}>{loading ? 'Creating...' : 'Create Task'}</button>
@@ -1617,7 +1430,6 @@ const CreateTaskModal = ({
           </form>
         </div>
       </div>
-
       <NotesPickerModal isOpen={notesPickerOpen} onClose={() => setNotesPickerOpen(false)} workspaceId={workspaceId} alreadySelected={linkedNotes} onConfirm={setLinkedNotes} />
     </>
   );
@@ -1626,15 +1438,11 @@ const CreateTaskModal = ({
 // ═══════════════════════════════════════════════════════════════
 // Edit Task Modal
 // ═══════════════════════════════════════════════════════════════
-const EditTaskModal = ({
-  isOpen, onClose, task, projectId, workspaceId, brandColor,
-  assignableMembers, folders, onSubmit, onFolderCreated,
-}) => {
+const EditTaskModal = ({ isOpen, onClose, task, projectId, workspaceId, brandColor, assignableMembers, folders, onSubmit, onFolderCreated }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [linkedNotes, setLinkedNotes] = useState([]);
   const [notesPickerOpen, setNotesPickerOpen] = useState(false);
-
   const [assigneeIds, setAssigneeIds] = useState([]);
   const [folderId, setFolderId] = useState('');
   const [priority, setPriority] = useState('medium');
@@ -1711,8 +1519,7 @@ const EditTaskModal = ({
   const addLink = () => setLinks((prev) => [...prev, '']);
   const updateLink = (i, v) => setLinks((prev) => { const n = [...prev]; n[i] = v; return n; });
   const removeLink = (i) => setLinks((prev) => prev.filter((_, idx) => idx !== i));
-  const removeLinkedNote = (noteId, source) =>
-    setLinkedNotes((prev) => prev.filter((d) => !(String(d.noteId) === String(noteId) && d.source === source)));
+  const removeLinkedNote = (noteId, source) => setLinkedNotes((prev) => prev.filter((d) => !(String(d.noteId) === String(noteId) && d.source === source)));
 
   if (!isOpen || !task) return null;
   return (
@@ -1728,24 +1535,19 @@ const EditTaskModal = ({
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Title *</label>
               <input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none" required />
             </div>
-
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
               <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none resize-none" />
             </div>
-
             <NotesField linkedNotes={linkedNotes} onRemove={removeLinkedNote} onOpenPicker={() => setNotesPickerOpen(true)} />
-
             <div className="grid grid-cols-2 gap-3">
               <MultiDropdown label="Assignees" options={assigneeOpts} values={assigneeIds} onChange={setAssigneeIds} placeholder="Select members..." />
               <FolderField projectId={projectId} folderId={folderId} setFolderId={setFolderId} folders={folders} onFolderCreated={onFolderCreated} />
             </div>
-
             <div className="grid grid-cols-2 gap-3">
               <Dropdown label="Priority" options={priorityOptions} value={priority} onChange={setPriority} />
               <Dropdown label="Status" options={statusOpts} value={status} onChange={setStatus} />
             </div>
-
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Start</label>
@@ -1756,18 +1558,10 @@ const EditTaskModal = ({
                 <CustomDateTimePicker value={dueDate} onChange={setDueDate} placeholder="Pick due" showShortcuts />
               </div>
             </div>
-
             <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
               <input type="checkbox" checked={allowAssigneeEditSubtasks} onChange={(e) => setAllowAssigneeEditSubtasks(e.target.checked)} className="accent-teal-600" /> Allow assignee to edit sub‑tasks
             </label>
-
-            <RecurrenceField
-              recurrenceType={recurrenceType} setRecurrenceType={setRecurrenceType}
-              recurrenceDays={recurrenceDays} setRecurrenceDays={setRecurrenceDays}
-              recurrenceEndDate={recurrenceEndDate} setRecurrenceEndDate={setRecurrenceEndDate}
-              brandColor={brandColor}
-            />
-
+            <RecurrenceField recurrenceType={recurrenceType} setRecurrenceType={setRecurrenceType} recurrenceDays={recurrenceDays} setRecurrenceDays={setRecurrenceDays} recurrenceEndDate={recurrenceEndDate} setRecurrenceEndDate={setRecurrenceEndDate} brandColor={brandColor} />
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaLink className="inline mr-1" />Links</label>
               <div className="space-y-2">
@@ -1777,12 +1571,9 @@ const EditTaskModal = ({
                     <button type="button" onClick={() => removeLink(i)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition" title="Remove link"><FaTrashAlt className="text-xs" /></button>
                   </div>
                 ))}
-                <button type="button" onClick={addLink} className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] rounded-lg text-xs font-medium hover:bg-teal-100 dark:hover:bg-teal-900/30 transition">
-                  <FaPlus className="text-[10px]" /> Add link
-                </button>
+                <button type="button" onClick={addLink} className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-[#0d9488] rounded-lg text-xs font-medium hover:bg-teal-100 dark:hover:bg-teal-900/30 transition"><FaPlus className="text-[10px]" /> Add link</button>
               </div>
             </div>
-
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1"><FaPaperclip className="inline mr-1" />Attachments</label>
               <button type="button" onClick={() => pickMedia({ multiple: true })} className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-300"><FaCamera className="text-xs" /> Choose Files</button>
@@ -1794,7 +1585,6 @@ const EditTaskModal = ({
               ))}
               {(task.attachments || []).length > 0 && (<p className="text-[10px] text-gray-400 mt-1">{task.attachments.length} existing attachment(s) — selecting new files replaces them.</p>)}
             </div>
-
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400">Cancel</button>
               <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium" style={{ backgroundColor: brandColor }}>{loading ? 'Saving...' : 'Save changes'}</button>
@@ -1802,7 +1592,6 @@ const EditTaskModal = ({
           </form>
         </div>
       </div>
-
       <NotesPickerModal isOpen={notesPickerOpen} onClose={() => setNotesPickerOpen(false)} workspaceId={workspaceId} alreadySelected={linkedNotes} onConfirm={setLinkedNotes} />
     </>
   );
@@ -2195,6 +1984,13 @@ const AIMenu = ({ isOpen, onClose, canManage, brandColor, onPlan, onSummary, onR
   );
 };
 
+const EXAMPLE_PROMPTS = [
+  'Build a marketing website in 3 weeks with design, dev and QA phases.',
+  'Launch a new mobile app feature. Need a designer, backend dev and tester.',
+  'Plan a 2-day team offsite with logistics and activities.',
+  'Create a content calendar for our social media for the next month.',
+];
+
 const AIPlanModal = ({ isOpen, onClose, workspaceId, workspaceMembers, brandColor, onExecuted }) => {
   const [stage, setStage] = useState('prompt');
   const [prompt, setPrompt] = useState('');
@@ -2210,10 +2006,8 @@ const AIPlanModal = ({ isOpen, onClose, workspaceId, workspaceMembers, brandColo
   const handleGenerate = async () => {
     if (!prompt.trim()) return toast.error('Describe your project first');
     setBusy(true);
-    try {
-      const res = await planWithAI({ workspaceId, prompt: prompt.trim() }).unwrap();
-      setPlan(res.plan); setStage('edit');
-    } catch (err) { toast.error(err?.data?.message || 'Failed to generate plan'); }
+    try { const res = await planWithAI({ workspaceId, prompt: prompt.trim() }).unwrap(); setPlan(res.plan); setStage('edit'); }
+    catch (err) { toast.error(err?.data?.message || 'Failed to generate plan'); }
     finally { setBusy(false); }
   };
 
@@ -2263,17 +2057,19 @@ const AIPlanModal = ({ isOpen, onClose, workspaceId, workspaceMembers, brandColo
           {stage === 'prompt' && (
             <div className="space-y-4">
               <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={6} placeholder="e.g. Plan a 3-week launch for our new mobile app..." className="w-full px-4 py-3 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-2xl text-sm text-gray-800 dark:text-gray-200 outline-none focus:border-teal-500 dark:focus:border-[#0d9488] resize-none" />
-              <p className="text-[11px] text-gray-500 dark:text-gray-500">Tip: mention who's on the team and any deadlines or phases.</p>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-500 mb-2">Try an example</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {EXAMPLE_PROMPTS.map((ex, i) => (
+                    <button key={i} type="button" onClick={() => setPrompt(ex)} className="text-[10px] px-2.5 py-1 rounded-full bg-gray-100 dark:bg-[#1a1a24] hover:bg-[#0d9488]/10 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-800/40 hover:border-[#0d9488]/40 transition text-left max-w-full truncate">{ex.length > 45 ? `${ex.slice(0, 45)}…` : ex}</button>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
           {stage === 'edit' && plan && (
             <div className="space-y-5">
-              {plan.warnings?.length > 0 && (
-                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 rounded-xl p-3 flex gap-2">
-                  <FaExclamationTriangle className="text-amber-600 dark:text-amber-400 text-sm mt-0.5 shrink-0" />
-                  <div className="text-xs text-amber-800 dark:text-amber-300 space-y-0.5">{plan.warnings.map((w, i) => <div key={i}>{w}</div>)}</div>
-                </div>
-              )}
+              {plan.warnings?.length > 0 && (<div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 rounded-xl p-3 flex gap-2"><FaExclamationTriangle className="text-amber-600 dark:text-amber-400 text-sm mt-0.5 shrink-0" /><div className="text-xs text-amber-800 dark:text-amber-300 space-y-0.5">{plan.warnings.map((w, i) => <div key={i}>{w}</div>)}</div></div>)}
               <section>
                 <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-2">Project</h3>
                 <div className="space-y-2">
@@ -2284,21 +2080,23 @@ const AIPlanModal = ({ isOpen, onClose, workspaceId, workspaceMembers, brandColo
                     <select value={plan.project.priority} onChange={(e) => updateProject({ priority: e.target.value })} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none">{PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}</select>
                     <select value={plan.project.projectType} onChange={(e) => updateProject({ projectType: e.target.value })} className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none">{PROJECT_TYPES.map((p) => <option key={p} value={p}>{p}</option>)}</select>
                   </div>
-                  <div>
-                    <div className="text-[11px] text-gray-500 dark:text-gray-500 mb-1.5">Team members</div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {(workspaceMembers || []).map((u) => {
-                        const selected = (plan.project.teamMemberIds || []).includes(u._id);
-                        return (
-                          <button key={u._id} type="button" onClick={() => toggleTeamMember(u._id)} className={`flex items-center gap-1.5 text-[11px] pl-0.5 pr-2.5 py-0.5 rounded-full border transition ${selected ? 'bg-teal-50 dark:bg-[#0d9488]/15 border-teal-500/50 dark:border-[#0d9488]/50 text-teal-700 dark:text-[#14b8a6]' : 'bg-gray-50 dark:bg-[#1a1a24] border-gray-200 dark:border-gray-800/40 text-gray-600 dark:text-gray-400 hover:border-gray-300'}`}>
-                            <span className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold overflow-hidden shrink-0" style={{ backgroundColor: brandColor }}>{u.profile ? <img src={u.profile} alt="" className="w-full h-full object-cover" /> : (u.name || '?').charAt(0).toUpperCase()}</span>
-                            {u.name || 'Unknown'}
-                            {selected && <FaCheck className="text-[8px]" />}
-                          </button>
-                        );
-                      })}
+                  {workspaceMembers?.length > 0 && (
+                    <div>
+                      <div className="text-[11px] text-gray-500 dark:text-gray-500 mb-1.5">Team members</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {workspaceMembers.map((u) => {
+                          const selected = (plan.project.teamMemberIds || []).includes(u._id);
+                          return (
+                            <button key={u._id} type="button" onClick={() => toggleTeamMember(u._id)} className={`flex items-center gap-1.5 text-[11px] pl-0.5 pr-2.5 py-0.5 rounded-full border transition ${selected ? 'bg-teal-50 dark:bg-[#0d9488]/15 border-teal-500/50 dark:border-[#0d9488]/50 text-teal-700 dark:text-[#14b8a6]' : 'bg-gray-50 dark:bg-[#1a1a24] border-gray-200 dark:border-gray-800/40 text-gray-600 dark:text-gray-400 hover:border-gray-300'}`}>
+                              <span className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold overflow-hidden shrink-0" style={{ backgroundColor: brandColor }}>{u.profile ? <img src={u.profile} alt="" className="w-full h-full object-cover" /> : (u.name || '?').charAt(0).toUpperCase()}</span>
+                              {u.name || 'Unknown'}
+                              {selected && <FaCheck className="text-[8px]" />}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               </section>
               <section>
@@ -2319,17 +2117,19 @@ const AIPlanModal = ({ isOpen, onClose, workspaceId, workspaceMembers, brandColo
                               <input type="number" min={0} value={t.dueDateOffsetDays ?? ''} onChange={(e) => updateTask(idx, { dueDateOffsetDays: e.target.value === '' ? null : parseInt(e.target.value, 10) })} placeholder="due in N days" className="w-32 px-2 py-1 bg-white dark:bg-[#0f0f12] border border-gray-200 dark:border-gray-800/60 rounded-md text-[11px] text-gray-700 dark:text-gray-300 outline-none" />
                               <span className="px-2 py-1 text-[11px] text-gray-500 dark:text-gray-500">{(t.subtasks || []).length} subtask{(t.subtasks || []).length !== 1 ? 's' : ''}</span>
                             </div>
-                            <div className="flex flex-wrap gap-1">
-                              {(workspaceMembers || []).map((u) => {
-                                const sel = (t.assigneeIds || []).includes(u._id);
-                                return (
-                                  <button key={u._id} type="button" onClick={() => toggleAssignee(idx, u._id)} title={u.name} className={`flex items-center gap-1 text-[10px] pl-0.5 pr-1.5 py-0.5 rounded-full border transition ${sel ? 'bg-teal-50 dark:bg-[#0d9488]/15 border-teal-500/50 text-teal-700 dark:text-[#14b8a6]' : 'bg-white dark:bg-[#0f0f12] border-gray-200 dark:border-gray-800/40 text-gray-500 dark:text-gray-500 hover:border-gray-300'}`}>
-                                    <span className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[8px] font-bold overflow-hidden" style={{ backgroundColor: brandColor }}>{u.profile ? <img src={u.profile} alt="" className="w-full h-full object-cover" /> : (u.name || '?').charAt(0).toUpperCase()}</span>
-                                    {(u.name || '').split(' ')[0] || 'Unknown'}
-                                  </button>
-                                );
-                              })}
-                            </div>
+                            {workspaceMembers?.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {workspaceMembers.map((u) => {
+                                  const sel = (t.assigneeIds || []).includes(u._id);
+                                  return (
+                                    <button key={u._id} type="button" onClick={() => toggleAssignee(idx, u._id)} title={u.name} className={`flex items-center gap-1 text-[10px] pl-0.5 pr-1.5 py-0.5 rounded-full border transition ${sel ? 'bg-teal-50 dark:bg-[#0d9488]/15 border-teal-500/50 text-teal-700 dark:text-[#14b8a6]' : 'bg-white dark:bg-[#0f0f12] border-gray-200 dark:border-gray-800/40 text-gray-500 dark:text-gray-500 hover:border-gray-300'}`}>
+                                      <span className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[8px] font-bold overflow-hidden" style={{ backgroundColor: brandColor }}>{u.profile ? <img src={u.profile} alt="" className="w-full h-full object-cover" /> : (u.name || '?').charAt(0).toUpperCase()}</span>
+                                      {(u.name || '').split(' ')[0] || 'Unknown'}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
                           <div className="flex flex-col items-center gap-1 shrink-0">
                             <button onClick={() => setExpandedTask(expanded ? null : idx)} className="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-white rounded"><FaAngleDown className={`text-xs transition-transform ${expanded ? 'rotate-180' : ''}`} /></button>
@@ -2367,16 +2167,12 @@ const AIPlanModal = ({ isOpen, onClose, workspaceId, workspaceMembers, brandColo
           {stage === 'prompt' ? (
             <>
               <button onClick={onClose} className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">Cancel</button>
-              <button onClick={handleGenerate} disabled={busy || !prompt.trim()} className="flex-1 py-2.5 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 transition disabled:opacity-50" style={{ backgroundColor: brandColor }}>
-                {busy ? <><FaSpinner className="animate-spin text-xs" /> Generating…</> : <><FaMagic className="text-xs" /> Generate plan</>}
-              </button>
+              <button onClick={handleGenerate} disabled={busy || !prompt.trim()} className="flex-1 py-2.5 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 transition disabled:opacity-50" style={{ backgroundColor: brandColor }}>{busy ? <><FaSpinner className="animate-spin text-xs" /> Generating…</> : <><FaMagic className="text-xs" /> Generate plan</>}</button>
             </>
           ) : (
             <>
               <button onClick={() => setStage('prompt')} className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">Back</button>
-              <button onClick={handleExecute} disabled={busy} className="flex-1 py-2.5 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 transition disabled:opacity-50" style={{ backgroundColor: brandColor }}>
-                {busy ? <><FaSpinner className="animate-spin text-xs" /> Creating…</> : <><FaCheck className="text-xs" /> Create project</>}
-              </button>
+              <button onClick={handleExecute} disabled={busy} className="flex-1 py-2.5 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 transition disabled:opacity-50" style={{ backgroundColor: brandColor }}>{busy ? <><FaSpinner className="animate-spin text-xs" /> Creating…</> : <><FaCheck className="text-xs" /> Create project</>}</button>
             </>
           )}
         </div>
@@ -2646,23 +2442,17 @@ const PublicViewerBanner = ({ onSignup, onLogin }) => (
       </p>
     </div>
     <div className="flex items-center gap-1.5 shrink-0">
-      <button onClick={onLogin} className="px-2.5 py-1 text-[11px] font-medium rounded-lg border border-teal-500/40 text-teal-700 dark:text-teal-300 hover:bg-teal-100/60 dark:hover:bg-[#0d9488]/20 transition">
-        Sign in
-      </button>
-      <button onClick={onSignup} className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-teal-600 dark:bg-[#0d9488] text-white hover:opacity-90 transition">
-        Sign up
-      </button>
+      <button onClick={onLogin} className="px-2.5 py-1 text-[11px] font-medium rounded-lg border border-teal-500/40 text-teal-700 dark:text-teal-300 hover:bg-teal-100/60 dark:hover:bg-[#0d9488]/20 transition">Sign in</button>
+      <button onClick={onSignup} className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-teal-600 dark:bg-[#0d9488] text-white hover:opacity-90 transition">Sign up</button>
     </div>
   </div>
 );
 
 // ══════════════════════════════════════════════════════════════
-// MAIN SCREEN
+// MAIN SCREEN — one route, one URL, server-driven visibility
 // ══════════════════════════════════════════════════════════════
-const YourWorkspaceProjectId = () => {
-  // ONE route, ONE URL. No token, no /p/ path. Everyone hits
-  // /workspace/:workspaceId/project/:projectId.
-  // The server decides what they can see (mode: 'public' | 'workspace').
+const WorkspaceProjectId = () => {
+  // Single URL for everyone. The server decides what they can see.
   const { workspaceId, projectId } = useParams();
   const navigate = useNavigate();
 
@@ -2689,7 +2479,7 @@ const YourWorkspaceProjectId = () => {
     skip: !shouldFetchWorkspace,
   });
 
-  // Tasks + folders. Same workspace URLs — server filters by role.
+  // Tasks + folders. Same URLs — server filters by role.
   const { data: foldersData, isLoading: foldersLoading, refetch: refetchFolders } =
     useGetProjectFoldersQuery(projectId, { skip: !projectId });
 
@@ -2795,8 +2585,7 @@ const YourWorkspaceProjectId = () => {
   };
   const startSelection = (taskId) => {
     if (!allowSelection) return;
-    setSelectedIds(new Set([taskId]));
-    setSelectionMode(true);
+    setSelectedIds(new Set([taskId])); setSelectionMode(true);
   };
   const clearSelection = () => { setSelectedIds(new Set()); setSelectionMode(false); };
   const handleLongPress = (taskId) => {
@@ -2820,10 +2609,7 @@ const YourWorkspaceProjectId = () => {
     refetchTasks(); refetchProject();
   };
 
-  const bulkComplete = () => bulkAction(
-    (id) => updateTask({ taskId: id, data: { status: 'completed' } }).unwrap(),
-    'Completed'
-  );
+  const bulkComplete = () => bulkAction((id) => updateTask({ taskId: id, data: { status: 'completed' } }).unwrap(), 'Completed');
   const bulkDelete = () => {
     if (!window.confirm(`Delete ${selectedIds.size} task(s)?`)) return;
     bulkAction((id) => deleteTask(id).unwrap(), 'Deleted');
@@ -2965,14 +2751,13 @@ const YourWorkspaceProjectId = () => {
 
   const handleTrash = () => {
     setConfirmDialog({
-      isOpen: true,
-      title: 'Move to Trash',
+      isOpen: true, title: 'Move to Trash',
       message: `Move "${project?.name}" to trash? You can restore it within 30 days.`,
       onConfirm: async () => {
         try {
           await deleteProject(projectId).unwrap();
           toast.success('Moved to trash');
-          navigate(`/workspace/${workspaceId}/projects`);
+          navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}/projects`);
         } catch (e) { toast.error(e?.data?.message || 'Failed'); }
       },
     });
@@ -2980,27 +2765,21 @@ const YourWorkspaceProjectId = () => {
   };
   const handleRestore = () => {
     setConfirmDialog({
-      isOpen: true,
-      title: 'Restore Project',
+      isOpen: true, title: 'Restore Project',
       message: `Restore "${project?.name}" from trash?`,
-      onConfirm: async () => {
-        try { await restoreProject(projectId).unwrap(); toast.success('Restored'); refetchProject(); }
-        catch (e) { toast.error(e?.data?.message || 'Failed'); }
-      },
+      onConfirm: async () => { try { await restoreProject(projectId).unwrap(); toast.success('Restored'); refetchProject(); } catch (e) { toast.error(e?.data?.message || 'Failed'); } },
     });
     setMenuOpen(false);
   };
   const handlePermanentDelete = () => {
     setConfirmDialog({
-      isOpen: true,
-      title: 'Permanently Delete',
-      danger: true,
+      isOpen: true, title: 'Permanently Delete', danger: true,
       message: `Permanently delete "${project?.name}"? This cannot be undone.`,
       onConfirm: async () => {
         try {
           await permanentlyDeleteProject(projectId).unwrap();
           toast.success('Deleted');
-          navigate(`/workspace/${workspaceId}/projects`);
+          navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}/projects`);
         } catch (e) { toast.error(e?.data?.message || 'Failed'); }
       },
     });
@@ -3079,43 +2858,12 @@ const YourWorkspaceProjectId = () => {
     const status = err?.status;
     const serverMessage = err?.data?.message || err?.error || 'Something went wrong while loading this project.';
 
-    if (status === 403) {
-      return {
-        kind: 'denied',
-        title: 'Access Denied',
-        message: serverMessage || "You don't have permission to view this project.",
-        icon: FaUserLock,
-        tone: 'error',
-      };
-    }
-    if (status === 404) {
-      return {
-        kind: 'notfound',
-        title: 'Project Not Found',
-        message: serverMessage || 'This project may have been deleted or moved.',
-        icon: FaExclamationTriangle,
-        tone: 'warn',
-      };
-    }
-    if (status === 410) {
-      return {
-        kind: 'revoked',
-        title: 'Invite no longer valid',
-        message: serverMessage || 'This project link has been revoked.',
-        icon: FaExclamationTriangle,
-        tone: 'warn',
-      };
-    }
-    return {
-      kind: 'error',
-      title: 'Something went wrong',
-      message: serverMessage,
-      icon: FaExclamationTriangle,
-      tone: 'error',
-    };
+    if (status === 403) return { kind: 'denied', title: 'Access Denied', message: serverMessage || "You don't have permission to view this project.", icon: FaUserLock, tone: 'error' };
+    if (status === 404) return { kind: 'notfound', title: 'Project Not Found', message: serverMessage || 'This project may have been deleted or moved.', icon: FaExclamationTriangle, tone: 'warn' };
+    if (status === 410) return { kind: 'revoked', title: 'Invite no longer valid', message: serverMessage || 'This project link has been revoked.', icon: FaExclamationTriangle, tone: 'warn' };
+    return { kind: 'error', title: 'Something went wrong', message: serverMessage, icon: FaExclamationTriangle, tone: 'error' };
   }, [pErr, wErr]);
 
-  // ─── Error screens ──────────────────────────────────────────
   if (errorInfo) {
     return (
       <>
@@ -3126,7 +2874,7 @@ const YourWorkspaceProjectId = () => {
           icon={errorInfo.icon}
           tone={errorInfo.tone}
           onRetry={errorInfo.kind !== 'denied' ? () => { refetchProject(); } : undefined}
-          onBack={() => navigate(`/workspace/${workspaceId}/projects`, { replace: true })}
+          onBack={() => navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}/projects`, { replace: true })}
         />
       </>
     );
@@ -3136,39 +2884,29 @@ const YourWorkspaceProjectId = () => {
     return (
       <>
         <GlobalStyles />
-        <ErrorScreen
-          title="Invalid project link"
-          message="This URL is missing a project identifier."
-          onBack={() => navigate(-1)}
-        />
+        <ErrorScreen title="Invalid project link" message="This URL is missing a project identifier." onBack={() => navigate(-1)} />
       </>
     );
   }
 
   if (pLoad || tLoad || foldersLoading || (shouldFetchWorkspace && wLoad)) {
-    return (
-      <>
-        <GlobalStyles />
-        <ProjectSkeleton brandColor={brandColor} hideWorkspaceChrome={isPublicMode} />
-      </>
-    );
+    return (<><GlobalStyles /><ProjectSkeleton brandColor={brandColor} hideWorkspaceChrome={isPublicMode} /></>);
   }
   if (!project) return null;
 
-  // ─── Render ─────────────────────────────────────────────────
   return (
     <>
       <GlobalStyles />
 
       <div className={`h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col overflow-hidden ${isPublicMode ? '' : 'lg:flex-row'}`}>
-        {/* Workspace sidebar only for workspace members */}
+        {/* Workspace sidebar only for members */}
         {!isPublicMode && workspace && (
           <div className="hidden md:block md:min-h-screen fixed top-0 left-0 z-20 workspace-shell-sidebar">
-            <YourWorkspaceSidebar workspace={workspace} chats={[]} />
+            <WorkspaceSidebar workspace={workspace} chats={[]} />
           </div>
         )}
 
-        <div className={`flex-1 flex flex-col h-full overflow-hidden ${isPublicMode ? '' : 'workspace-shell-main'}`}>
+        <div className={`flex-1 flex flex-col h-full overflow-hidden ${isPublicMode ? '' : 'md:ml-[260px] workspace-shell-main'}`}>
           {isPublicMode && (
             <PublicViewerBanner
               onSignup={() => navigate('/signup')}
@@ -3188,7 +2926,7 @@ const YourWorkspaceProjectId = () => {
               <div className="flex items-center justify-between px-3 md:px-4 h-14 lg:h-16">
                 <div className="flex items-center gap-2 min-w-0">
                   {!isPublicMode && workspaceId && (
-                    <button onClick={() => navigate(`/workspace/${workspaceId}/projects`)} className="p-1 lg:hidden text-gray-500 dark:text-gray-400"><FaArrowLeft className="text-sm" /></button>
+                    <button onClick={() => navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}/projects`)} className="p-1 lg:hidden text-gray-500 dark:text-gray-400"><FaArrowLeft className="text-sm" /></button>
                   )}
                   {project.coverImage ? (
                     <img src={project.coverImage} className="w-8 h-8 md:w-10 md:h-10 rounded-xl object-cover" alt="" />
@@ -3198,22 +2936,13 @@ const YourWorkspaceProjectId = () => {
                   <div className="min-w-0">
                     <h1 className="text-sm md:text-base font-semibold text-gray-800 dark:text-gray-200 truncate max-w-[140px] md:max-w-xs flex items-center gap-1.5 flex-wrap">
                       <span className="truncate">{project.name}</span>
-                      {isPublicMode && (
-                        <span className="text-[10px] font-normal text-teal-600 dark:text-[#0d9488] bg-teal-50 dark:bg-[#0d9488]/15 px-1.5 py-0.5 rounded-full inline-flex items-center gap-1">
-                          <FaEye className="text-[8px]" /> Public
-                        </span>
-                      )}
-                      {!isPublicMode && viewer?.role?.startsWith('associate') && (
-                        <span className="text-[10px] font-normal text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded-full inline-flex items-center gap-1">
-                          <FaUserShield className="text-[8px]" /> Associate
-                        </span>
-                      )}
+                      {isPublicMode && (<span className="text-[10px] font-normal text-teal-600 dark:text-[#0d9488] bg-teal-50 dark:bg-[#0d9488]/15 px-1.5 py-0.5 rounded-full inline-flex items-center gap-1"><FaEye className="text-[8px]" /> Public</span>)}
+                      {!isPublicMode && viewer?.role?.startsWith('associate') && (<span className="text-[10px] font-normal text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded-full inline-flex items-center gap-1"><FaUserShield className="text-[8px]" /> Associate</span>)}
                       {isArchivedForMe && <span className="text-[10px] font-normal text-gray-400 bg-gray-100 dark:bg-gray-800/40 px-1.5 py-0.5 rounded-full">Archived</span>}
                       {isTrash && <span className="text-[10px] font-normal text-red-400 bg-red-50 dark:bg-red-900/20 px-1.5 py-0.5 rounded-full">Trash</span>}
                     </h1>
-
                     {!isPublicMode && workspaceId ? (
-                      <button onClick={() => navigate(`/workspace/${workspaceId}/project/${projectId}/team`)} className="flex items-center gap-1 text-[10px] md:text-xs text-gray-500 dark:text-gray-400 hover:text-teal-600 dark:hover:text-[#0d9488] transition">
+                      <button onClick={() => navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}/project/${projectId}/team`)} className="flex items-center gap-1 text-[10px] md:text-xs text-gray-500 dark:text-gray-400 hover:text-teal-600 dark:hover:text-[#0d9488] transition">
                         <FaUsers className="text-[9px]" /> Team <FaChevronRight className="text-[8px]" />
                         <span className="w-0.5 h-0.5 bg-gray-300 dark:bg-gray-600 rounded-full ml-1" /> {project.progress || 0}% done
                       </button>
@@ -3221,9 +2950,7 @@ const YourWorkspaceProjectId = () => {
                       <div className="flex items-center gap-1 text-[10px] md:text-xs text-gray-500 dark:text-gray-400">
                         <FaTasks className="text-[9px]" />
                         <span>{project.progress || 0}% done</span>
-                        {project.taskStats && (
-                          <span className="ml-1">· {project.taskStats.totalTasks} tasks</span>
-                        )}
+                        {project.taskStats && (<span className="ml-1">· {project.taskStats.totalTasks} tasks</span>)}
                       </div>
                     )}
                   </div>
@@ -3296,8 +3023,7 @@ const YourWorkspaceProjectId = () => {
             {tErr ? (
               <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
                 <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-4 ${
-                  tErr?.status === 403 ? 'bg-red-50 dark:bg-red-900/20 text-red-500 dark:text-red-400'
-                  : 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400'
+                  tErr?.status === 403 ? 'bg-red-50 dark:bg-red-900/20 text-red-500 dark:text-red-400' : 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400'
                 }`}>
                   {tErr?.status === 403 ? <FaUserLock className="text-2xl" /> : <FaExclamationTriangle className="text-2xl" />}
                 </div>
@@ -3307,33 +3033,24 @@ const YourWorkspaceProjectId = () => {
                 <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm break-words mb-4">
                   {tErr?.data?.message || (tErr?.status === 403 ? "You don't have permission to view tasks in this project." : 'Please try again in a moment.')}
                 </p>
-                <button onClick={() => refetchTasks()} className="px-4 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl text-sm font-medium hover:opacity-90 transition">
-                  Try again
-                </button>
+                <button onClick={() => refetchTasks()} className="px-4 py-2 bg-teal-600 dark:bg-[#0d9488] text-white rounded-xl text-sm font-medium hover:opacity-90 transition">Try again</button>
               </div>
             ) : tasks.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-gray-400">
                 <FaTasks className="text-3xl md:text-4xl mb-2 opacity-30" />
                 <p className="text-xs md:text-sm">
-                  {viewer?.role?.startsWith('associate')
-                    ? "No tasks assigned to you yet"
-                    : isPublicMode
-                    ? 'No tasks to display'
-                    : `No tasks ${selectedFolderId ? 'in this folder' : 'yet'}`}
+                  {viewer?.role?.startsWith('associate') ? "No tasks assigned to you yet" : isPublicMode ? 'No tasks to display' : `No tasks ${selectedFolderId ? 'in this folder' : 'yet'}`}
                 </p>
                 {viewer?.role?.startsWith('associate') && (
-                  <p className="text-[11px] text-gray-500 dark:text-gray-500 mt-1 max-w-xs text-center">
-                    When a manager assigns you work, it will appear here.
-                  </p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-500 mt-1 max-w-xs text-center">When a manager assigns you work, it will appear here.</p>
                 )}
               </div>
             ) : viewMode === 'grid' ? (
-              /* Two-per-row grid on all screens; gap tightens on small phones */
               <div className="grid grid-cols-2 gap-2 sm:gap-3">
                 {tasks.map((task) => (
                   <TaskCard
                     key={task._id} task={task} view="grid" brandColor={brandColor}
-                    onClick={() => navigate(`/workspace/${workspaceId}/project/${projectId}/task/${task._id}`)}
+                    onClick={() => navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}/project/${projectId}/task/${task._id}`)}
                     onOpenModal={handleOpenTaskModal}
                     draggable={canReorderTasks} onDragStart={onTaskDragStart} onDragEnd={onTaskDragEnd}
                     onDragOver={onTaskDragOver} onDragLeave={() => setDragOverTaskId(null)} onDrop={onTaskDrop}
@@ -3354,7 +3071,7 @@ const YourWorkspaceProjectId = () => {
                 {tasks.map((task) => (
                   <TaskCard
                     key={task._id} task={task} view="list" brandColor={brandColor}
-                    onClick={() => navigate(`/workspace/${workspaceId}/project/${projectId}/task/${task._id}`)}
+                    onClick={() => navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}/project/${projectId}/task/${task._id}`)}
                     onOpenModal={handleOpenTaskModal}
                     draggable={canReorderTasks} onDragStart={onTaskDragStart} onDragEnd={onTaskDragEnd}
                     onDragOver={onTaskDragOver} onDragLeave={() => setDragOverTaskId(null)} onDrop={onTaskDrop}
@@ -3375,17 +3092,16 @@ const YourWorkspaceProjectId = () => {
         </div>
 
         {/* Workspace bottombar only for members */}
-        {!isPublicMode && workspace && <YourWorkspaceBottombar workspace={workspace} />}
+        {!isPublicMode && workspace && <WorkspaceBottombar workspace={workspace} />}
 
         <SearchOverlay
           isOpen={searchOpen}
           onClose={() => setSearchOpen(false)}
           tasks={tasks}
           brandColor={brandColor}
-          onSelect={(id) => navigate(`/workspace/${workspaceId}/project/${projectId}/task/${id}`)}
+          onSelect={(id) => navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}/project/${projectId}/task/${id}`)}
         />
 
-        {/* Modals — mounted for members only */}
         {!isPublicMode && (
           <>
             <CreateTaskModal
@@ -3456,7 +3172,7 @@ const YourWorkspaceProjectId = () => {
               workspaceId={workspaceId}
               workspaceMembers={workspaceMembers}
               brandColor={brandColor}
-              onExecuted={(proj) => { refreshAll(); if (proj?._id) navigate(`/workspace/${workspaceId}/project/${proj._id}`); }}
+              onExecuted={(proj) => { refreshAll(); if (proj?._id) navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}/project/${proj._id}`); }}
             />
             <AISummaryModal isOpen={aiSummaryOpen} onClose={() => setAiSummaryOpen(false)} projectId={projectId} brandColor={brandColor} />
             <AIReviewModal isOpen={aiReviewOpen && canManage} onClose={() => setAiReviewOpen(false)} projectId={projectId} brandColor={brandColor} />
@@ -3525,4 +3241,4 @@ const YourWorkspaceProjectId = () => {
   );
 };
 
-export default YourWorkspaceProjectId;
+export default WorkspaceProjectId;

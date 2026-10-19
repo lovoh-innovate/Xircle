@@ -1,38 +1,44 @@
-// src/components/MyWorkspaceBottombar.jsx
-import React, { useState, useEffect, useRef } from 'react';
+// src/components/WorkspaceBottombar.jsx
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link, useParams, useLocation, useNavigate } from 'react-router-dom';
-import {
-  FiHome,
-  FiUsers,
-  FiSettings,
-  FiMenu,
-  FiX,
-  FiUserPlus,
-  FiLogOut,
-  FiUser,
-  FiCopy,
-  FiCheck,
-  FiClock,
-  FiFileText, // 👈 Notes icon
-} from 'react-icons/fi';
-import { FaLayerGroup } from 'react-icons/fa'; // 👈 FaLayerGroup = project icon
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { useLogoutMutation } from '../slices/userApiSlice';
 import { logout } from '../slices/authSlice';
 import { toast } from 'react-toastify';
+import {
+  FiHome,
+  FiMessageCircle,
+  FiUsers,
+  FiUser,
+  FiMenu,
+  FiX,
+  FiLogOut,
+  FiClock,
+  FiFileText,
+  FiSettings,
+  FiUserPlus,
+  FiCopy,
+  FiCheck,
+  FiLock,
+} from 'react-icons/fi';
+import { FaLayerGroup } from 'react-icons/fa';
 import { useGetUserChatsQuery, messagingApiSlice } from '../slices/messagingApiSlice';
 import { useSocket } from '../components/SocketContext.jsx';
 
-// ─── Custom WhatsApp‑style Chat Icon ──
-const ChatIcon = ({ className }) => (
+// ─── Base path (keep in sync with WorkspaceSidebar) ──────────────
+const WORKSPACE_BASE_PATH = '/workspace';
+
+// ─── Custom WhatsApp-style Chat Icon ─────────────────────────────
+const ChatIcon = ({ className, style, strokeWidth = 1.9 }) => (
   <svg
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
-    strokeWidth="1.9"
+    strokeWidth={strokeWidth}
     strokeLinecap="round"
     strokeLinejoin="round"
     className={className}
+    style={style}
   >
     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
     <path d="M8 10h8" />
@@ -40,7 +46,7 @@ const ChatIcon = ({ className }) => (
   </svg>
 );
 
-// ─── Invite Modal ──────────────────────────────────────────────────────
+// ─── Invite Modal ────────────────────────────────────────────────
 const InviteModal = ({ isOpen, onClose, inviteCode, brandColor, workspaceName }) => {
   const [copied, setCopied] = useState(false);
 
@@ -71,7 +77,9 @@ const InviteModal = ({ isOpen, onClose, inviteCode, brandColor, workspaceName })
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Invite Members</h2>
+          <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
+            Invite Members
+          </h2>
           <button
             onClick={onClose}
             aria-label="Close"
@@ -88,8 +96,12 @@ const InviteModal = ({ isOpen, onClose, inviteCode, brandColor, workspaceName })
         <div className="bg-gray-50 dark:bg-[#0b0b10] rounded-2xl border border-gray-200 dark:border-white/[0.06] p-4 mb-4">
           <div className="flex items-center justify-between">
             <div className="min-w-0 flex-1">
-              <p className="text-xs text-gray-500 dark:text-gray-500 uppercase tracking-wider">Invite Code</p>
-              <p className="text-xl font-mono font-bold text-gray-800 dark:text-gray-100 mt-1 truncate">{inviteCode}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-500 uppercase tracking-wider">
+                Invite Code
+              </p>
+              <p className="text-xl font-mono font-bold text-gray-800 dark:text-gray-100 mt-1 truncate">
+                {inviteCode}
+              </p>
             </div>
             <button
               onClick={handleCopy}
@@ -118,51 +130,83 @@ const InviteModal = ({ isOpen, onClose, inviteCode, brandColor, workspaceName })
   );
 };
 
-// ─── Helper: filter chats belonging to this workspace ──────────────
+// ─── Helper: filter chats belonging to this workspace ────────────
 const belongsToWorkspace = (chat, workspaceId) => {
   if (!chat) return false;
-  const chatWorkspaceId =
+  if (chat.scope && chat.scope !== 'workspace') return false;
+  const chatWsId =
     typeof chat.workspace === 'object' && chat.workspace !== null
       ? chat.workspace._id
       : chat.workspace;
-  return chat.scope === 'workspace' && String(chatWorkspaceId) === String(workspaceId);
+  if (chatWsId) return String(chatWsId) === String(workspaceId);
+  return true;
 };
 
-// ─── Main Component ──────────────────────────────────────────────
-const MyWorkspaceBottombar = ({ workspace }) => {
+const WorkspaceBottombar = ({ workspace }) => {
   const { workspaceId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
   const dispatch = useDispatch();
+  const { userInfo } = useSelector((state) => state.auth);
+  const { socket, isConnected } = useSocket();
+
   const [menuOpen, setMenuOpen] = useState(false);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const refetchTimeoutRef = useRef(null);
 
-  const brandColor = workspace?.color || '#0d9488';
   const [logoutUser] = useLogoutMutation();
-  const { socket, isConnected } = useSocket();
+  const brandColor = workspace?.color || '#0d9488';
 
-  // ── Query with aggressive refresh options ──
+  // ─── Role detection (same as WorkspaceSidebar) ───────────────
+  const isLoggedIn = !!userInfo;
+  const myId = String(userInfo?._id || '');
+
+  const members = useMemo(() => workspace?.members || [], [workspace]);
+  const myMembership = useMemo(
+    () => (isLoggedIn ? members.find((m) => String(m.user?._id || m.user) === myId) : null),
+    [members, isLoggedIn, myId]
+  );
+
+  const isMember = !!myMembership;
+  const isAssociate = isLoggedIn && !isMember;
+  const isGuest = !isLoggedIn;
+  const memberRole = String(myMembership?.role || '').toLowerCase();
+  const isOwnerOrAdmin = isMember && ['owner', 'admin'].includes(memberRole);
+
+  // ─── Feature gating ──────────────────────────────────────────
+  const canSeeProjects = isLoggedIn;
+  const canSeeNotes = isLoggedIn;
+  const canSeeChats = isMember;
+  const canSeeMembers = isMember;
+  const canSeeClockin = isMember;
+  const canSeeSettings = isOwnerOrAdmin;
+  const canInvite = isOwnerOrAdmin;
+
+  // ─── Chats query ─────────────────────────────────────────────
   const { data: chatsData, refetch: refetchChats } = useGetUserChatsQuery(workspaceId, {
+    skip: !canSeeChats,
     pollingInterval: 15000,
     refetchOnFocus: true,
     refetchOnReconnect: true,
   });
 
   const allChats = chatsData?.chats || [];
-  const workspaceChats = allChats.filter(chat => belongsToWorkspace(chat, workspaceId));
+  const workspaceChats = useMemo(
+    () => (canSeeChats ? allChats.filter((chat) => belongsToWorkspace(chat, workspaceId)) : []),
+    [allChats, workspaceId, canSeeChats]
+  );
 
-  // ── Socket listener for real‑time unread updates ──
+  // ─── Socket listener for real-time unread updates ────────────
   useEffect(() => {
-    if (!socket || !isConnected || !workspaceId) return;
+    if (!socket || !isConnected || !workspaceId || !canSeeChats) return;
 
     const handleChatListUpdate = ({ chatId, unreadCount }) => {
       if (!chatId) return;
 
       dispatch(
-        messagingApiSlice.util.updateQueryData('getUserChats', workspaceId, draft => {
+        messagingApiSlice.util.updateQueryData('getUserChats', workspaceId, (draft) => {
           if (!draft?.chats) return;
-          const chat = draft.chats.find(c => c._id === chatId);
+          const chat = draft.chats.find((c) => c._id === chatId);
           if (chat && typeof unreadCount === 'number') chat.unreadCount = unreadCount;
         })
       );
@@ -180,35 +224,35 @@ const MyWorkspaceBottombar = ({ workspace }) => {
       socket.off('chat-list-update', handleChatListUpdate);
       if (refetchTimeoutRef.current) clearTimeout(refetchTimeoutRef.current);
     };
-  }, [socket, isConnected, workspaceId, dispatch, refetchChats]);
+  }, [socket, isConnected, workspaceId, dispatch, refetchChats, canSeeChats]);
 
-  // ── Refetch when page becomes visible ──
+  // ─── Refetch on visible / reconnect ──────────────────────────
   useEffect(() => {
+    if (!canSeeChats) return;
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') refetchChats();
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [refetchChats]);
+  }, [refetchChats, canSeeChats]);
 
-  // ── Refetch when socket connects ──
   useEffect(() => {
-    if (isConnected) refetchChats();
-  }, [isConnected, refetchChats]);
+    if (isConnected && canSeeChats) refetchChats();
+  }, [isConnected, refetchChats, canSeeChats]);
 
-  // ── Totals ──
+  // ─── Unread totals ───────────────────────────────────────────
   const unreadChannels = workspaceChats
-    .filter(c => c.type === 'group')
+    .filter((c) => c.type === 'group')
     .reduce((acc, c) => acc + (c.unreadCount || 0), 0);
 
   const unreadDMs = workspaceChats
-    .filter(c => c.type === 'direct')
+    .filter((c) => c.type === 'direct')
     .reduce((acc, c) => acc + (c.unreadCount || 0), 0);
 
-  // ── Navigation helpers ──
-  const isActive = pathPattern => {
-    if (pathPattern === 'home') return location.pathname === `/my-workspace/${workspaceId}`;
-    return location.pathname.includes(pathPattern);
+  // ─── Nav helpers ─────────────────────────────────────────────
+  const isActive = (pattern) => {
+    if (pattern === 'home') return location.pathname === `${WORKSPACE_BASE_PATH}/${workspaceId}`;
+    return location.pathname.includes(pattern);
   };
 
   const handleLogout = async () => {
@@ -222,24 +266,92 @@ const MyWorkspaceBottombar = ({ workspace }) => {
     }
   };
 
+  // ─── Tabs (role-filtered) ────────────────────────────────────
   const navItems = [
-    { id: 'home', label: 'Home', icon: FiHome, path: `/my-workspace/${workspaceId}`, activeCheck: 'home' },
-    { id: 'chat', label: 'Chat', icon: ChatIcon, path: `/my-workspace/${workspaceId}/dms`, activeCheck: '/dms' },
-    { id: 'channels', label: 'Channels', icon: FiUser, path: `/my-workspace/${workspaceId}/channels`, activeCheck: '/channels' },
-    { id: 'projects', label: 'Projects', icon: FaLayerGroup, path: `/my-workspace/${workspaceId}/projects`, activeCheck: '/projects' }, // 👈 stacked-layers icon
-    { id: 'members', label: 'Members', icon: FiUsers, path: `/my-workspace/${workspaceId}/members`, activeCheck: '/members' },
-  ];
+    {
+      id: 'home',
+      label: 'Home',
+      icon: FiHome,
+      path: `${WORKSPACE_BASE_PATH}/${workspaceId}`,
+      activeCheck: 'home',
+      show: true,
+    },
+    {
+      id: 'dms',
+      label: 'Messages',
+      icon: ChatIcon,
+      path: `${WORKSPACE_BASE_PATH}/${workspaceId}/dms`,
+      activeCheck: '/dms',
+      show: canSeeChats,
+      badge: unreadDMs,
+    },
+    {
+      id: 'channels',
+      label: 'Channels',
+      icon: FiMessageCircle,
+      path: `${WORKSPACE_BASE_PATH}/${workspaceId}/channels`,
+      activeCheck: '/channels',
+      show: canSeeChats,
+      badge: unreadChannels,
+    },
+    {
+      id: 'projects',
+      label: 'Projects',
+      icon: FaLayerGroup,
+      path: `${WORKSPACE_BASE_PATH}/${workspaceId}/projects`,
+      activeCheck: '/projects',
+      show: canSeeProjects,
+    },
+    {
+      id: 'members',
+      label: 'Members',
+      icon: FiUsers,
+      path: `${WORKSPACE_BASE_PATH}/${workspaceId}/members`,
+      activeCheck: '/members',
+      show: canSeeMembers,
+    },
+  ].filter((i) => i.show);
 
+  // ─── Menu items (role-filtered) ──────────────────────────────
   const menuItems = [
-    // 👇 NEW — Notes
-    { id: 'notes', label: 'Notes', icon: FiFileText, path: `/my-workspace/${workspaceId}/notes` },
-    { id: 'clockin', label: 'Clock‑in', icon: FiClock, path: `/my-workspace/${workspaceId}/clockin` },
-    { id: 'invite', label: 'Invite Members', icon: FiUserPlus, action: () => setInviteModalOpen(true) },
-    { id: 'settings', label: 'Settings', icon: FiSettings, path: `/my-workspace/${workspaceId}/settings` },
-    { id: 'profile', label: 'Profile', icon: FiUser, path: '/profile' },
-  ];
+    {
+      id: 'notes',
+      label: 'Notes',
+      icon: FiFileText,
+      path: `${WORKSPACE_BASE_PATH}/${workspaceId}/notes`,
+      show: canSeeNotes,
+    },
+    {
+      id: 'clockin',
+      label: 'Clock-in',
+      icon: FiClock,
+      path: `${WORKSPACE_BASE_PATH}/${workspaceId}/clockin`,
+      show: canSeeClockin,
+    },
+    {
+      id: 'invite',
+      label: 'Invite Members',
+      icon: FiUserPlus,
+      action: () => setInviteModalOpen(true),
+      show: canInvite,
+    },
+    {
+      id: 'settings',
+      label: 'Settings',
+      icon: FiSettings,
+      path: `${WORKSPACE_BASE_PATH}/${workspaceId}/settings`,
+      show: canSeeSettings,
+    },
+    {
+      id: 'profile',
+      label: 'Profile',
+      icon: FiUser,
+      path: '/profile',
+      show: isLoggedIn,
+    },
+  ].filter((i) => i.show);
 
-  // ─── Reusable renderer for a single bottom-bar tab ───
+  // ─── Reusable tab renderer ───────────────────────────────────
   const renderTab = ({ key, icon: Icon, label, active, badgeCount = 0, onClick, to }) => {
     const content = (
       <>
@@ -297,25 +409,50 @@ const MyWorkspaceBottombar = ({ workspace }) => {
     );
   };
 
+  // ═════════════════════════════════════════════════════════════
+  // GUEST VIEW — minimal bar with Home + Sign-in
+  // ═════════════════════════════════════════════════════════════
+  if (isGuest) {
+    return (
+      <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-white/85 dark:bg-[#0f0f12]/85 backdrop-blur-xl border-t border-gray-200/70 dark:border-white/[0.06] shadow-[0_-6px_24px_-8px_rgba(0,0,0,0.12)] pb-[env(safe-area-inset-bottom)]">
+        <div className="flex items-stretch justify-around h-[62px] px-2 max-w-lg mx-auto">
+          {renderTab({
+            key: 'home',
+            icon: FiHome,
+            label: 'Home',
+            active: isActive('home'),
+            to: `${WORKSPACE_BASE_PATH}/${workspaceId}`,
+          })}
+          {renderTab({
+            key: 'login',
+            icon: FiLock,
+            label: 'Sign in',
+            active: false,
+            onClick: () => navigate('/login'),
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // ═════════════════════════════════════════════════════════════
+  // LOGGED-IN VIEW — associate / member / admin / owner
+  // ═════════════════════════════════════════════════════════════
   return (
     <>
-      {/* ── Bottom Bar (mobile only) ── */}
+      {/* ─── Bottom Bar (mobile only) ─── */}
       <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-white/85 dark:bg-[#0f0f12]/85 backdrop-blur-xl border-t border-gray-200/70 dark:border-white/[0.06] shadow-[0_-6px_24px_-8px_rgba(0,0,0,0.12)] pb-[env(safe-area-inset-bottom)]">
         <div className="flex items-stretch justify-around h-[62px] px-1 max-w-lg mx-auto">
-          {navItems.map(item => {
-            let badgeCount = 0;
-            if (item.id === 'channels') badgeCount = unreadChannels;
-            if (item.id === 'chat') badgeCount = unreadDMs;
-
-            return renderTab({
+          {navItems.map((item) =>
+            renderTab({
               key: item.id,
               icon: item.icon,
               label: item.label,
               active: isActive(item.activeCheck),
-              badgeCount,
+              badgeCount: item.badge || 0,
               to: item.path,
-            });
-          })}
+            })
+          )}
 
           {renderTab({
             key: 'menu',
@@ -327,7 +464,7 @@ const MyWorkspaceBottombar = ({ workspace }) => {
         </div>
       </div>
 
-      {/* ─── Slide-out overlay ── */}
+      {/* ─── Slide-out overlay ─── */}
       {menuOpen && (
         <div
           className="fixed inset-0 z-50 bg-black/40 dark:bg-black/60 backdrop-blur-sm md:hidden"
@@ -335,7 +472,7 @@ const MyWorkspaceBottombar = ({ workspace }) => {
         />
       )}
 
-      {/* ─── Slide-out panel ── */}
+      {/* ─── Slide-out panel ─── */}
       <div
         aria-hidden={!menuOpen}
         className={`fixed top-0 left-0 z-50 h-full w-[300px] max-w-[85vw] overflow-hidden bg-white dark:bg-[#14141a] border-r border-gray-200/70 dark:border-white/[0.06] shadow-2xl transition-all duration-300 ease-out md:hidden ${
@@ -367,7 +504,9 @@ const MyWorkspaceBottombar = ({ workspace }) => {
               >
                 {workspace?.name || 'Workspace'}
               </p>
-              <p className="text-xs text-gray-500 dark:text-gray-500">Owner</p>
+              <p className="text-xs text-gray-500 dark:text-gray-500 capitalize">
+                {isMember ? myMembership?.role || 'Member' : 'Associate'}
+              </p>
             </div>
           </div>
           <button
@@ -381,7 +520,7 @@ const MyWorkspaceBottombar = ({ workspace }) => {
 
         {/* Menu Items */}
         <div className="py-3 px-3 overflow-y-auto" style={{ maxHeight: 'calc(100% - 190px)' }}>
-          {menuItems.map(item => {
+          {menuItems.map((item) => {
             const Icon = item.icon;
             const rowClass =
               'group flex items-center gap-3 px-3 py-3 rounded-2xl hover:bg-gray-100 dark:hover:bg-white/[0.05] transition w-full active:scale-[0.98]';
@@ -428,9 +567,12 @@ const MyWorkspaceBottombar = ({ workspace }) => {
 
           <div className="h-px bg-gray-200/70 dark:bg-white/[0.06] my-2 mx-3" />
 
-          {/* Logout */}
+          {/* Logout (always visible for logged-in users) */}
           <button
-            onClick={handleLogout}
+            onClick={() => {
+              setMenuOpen(false);
+              handleLogout();
+            }}
             className="group flex items-center gap-3 px-3 py-3 rounded-2xl hover:bg-red-50 dark:hover:bg-red-500/10 transition w-full active:scale-[0.98]"
           >
             <div className="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-500/10 flex items-center justify-center transition-transform group-hover:scale-105 flex-shrink-0">
@@ -450,14 +592,16 @@ const MyWorkspaceBottombar = ({ workspace }) => {
         </div>
       </div>
 
-      {/* ─── Invite Modal ── */}
-      <InviteModal
-        isOpen={inviteModalOpen}
-        onClose={() => setInviteModalOpen(false)}
-        inviteCode={workspace?.inviteCode || 'N/A'}
-        brandColor={brandColor}
-        workspaceName={workspace?.name}
-      />
+      {/* ─── Invite Modal (owner / admin only) ─── */}
+      {canInvite && (
+        <InviteModal
+          isOpen={inviteModalOpen}
+          onClose={() => setInviteModalOpen(false)}
+          inviteCode={workspace?.inviteCode || 'N/A'}
+          brandColor={brandColor}
+          workspaceName={workspace?.name}
+        />
+      )}
 
       <style>{`
         @keyframes slideUp {
@@ -478,4 +622,4 @@ const MyWorkspaceBottombar = ({ workspace }) => {
   );
 };
 
-export default MyWorkspaceBottombar;
+export default WorkspaceBottombar;

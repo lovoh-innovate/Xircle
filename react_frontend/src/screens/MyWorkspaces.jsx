@@ -124,8 +124,14 @@ const MyWorkspacesSkeleton = () => (
       </header>
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-4 pb-24 md:pb-6">
-        <div className="grid grid-cols-3 gap-3 mb-6">
-          {Array.from({ length: 3 }).map((_, i) => (
+        {/* Mobile slim stats skeleton */}
+        <div className="md:hidden mb-4 bg-white dark:bg-[#161619] rounded-lg border border-gray-100 dark:border-gray-800 px-4 py-3">
+          <Skeleton className="h-4 w-40" />
+        </div>
+
+        {/* Desktop stats skeleton (2 cards) */}
+        <div className="hidden md:grid md:grid-cols-2 gap-3 mb-6">
+          {Array.from({ length: 2 }).map((_, i) => (
             <div
               key={i}
               className="bg-white dark:bg-[#161619] rounded-lg p-4 text-center border border-gray-100 dark:border-gray-800"
@@ -136,8 +142,9 @@ const MyWorkspacesSkeleton = () => (
           ))}
         </div>
 
+        {/* Desktop: 2 columns */}
         <div className="hidden md:flex md:flex-row md:items-stretch md:gap-4 flex-1">
-          {[0, 1, 2].map((i) => (
+          {[0, 1].map((i) => (
             <div key={i} className="flex-1 flex flex-col min-h-0">
               <div className="flex items-center gap-2 mb-3">
                 <Skeleton className="h-4 w-4 rounded" />
@@ -148,6 +155,17 @@ const MyWorkspacesSkeleton = () => (
               </div>
             </div>
           ))}
+        </div>
+
+        {/* Mobile tabs + list skeleton */}
+        <div className="md:hidden">
+          <div className="flex bg-gray-100 dark:bg-[#1c1c20] rounded-lg p-1 mb-4">
+            <div className="flex-1 h-8" />
+            <div className="flex-1 h-8" />
+          </div>
+          <div className="bg-white dark:bg-[#161619] rounded-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
+            <WorkspaceListSkeleton rows={4} />
+          </div>
         </div>
       </main>
     </div>
@@ -537,9 +555,11 @@ const FabOptionsSheet = ({ isOpen, onClose, onCreateWorkspace, onJoinWorkspace }
 );
 
 // ═════════════════════════════════════════════════════════════════════
-//  Workspace Card — used for Owned and Joined lists
+//  Workspace Card — used for Owned and Joined (incl. associates)
+//  • Every card navigates to /workspace/:id — no more /my-workspace/
+//  • Associates get a small amber badge + optional expiry
 // ═════════════════════════════════════════════════════════════════════
-const WorkspaceCard = ({ workspace, isOwner, userInfo }) => {
+const WorkspaceCard = ({ workspace, isOwner, isAssociate = false, userInfo }) => {
   const memberCount = workspace.members?.length || 0;
   const initials = workspace.initials || getInitials(workspace.name);
 
@@ -549,9 +569,14 @@ const WorkspaceCard = ({ workspace, isOwner, userInfo }) => {
   const membershipStatus = currentUserMembership?.status || 'active';
   const isPending = membershipStatus === 'pending';
   const isClickable = !isPending;
-  const routePath = isOwner
-    ? `/my-workspace/${workspace._id}`
-    : `/workspace/${workspace._id}`;
+
+  // ✅ Unified route — everything lives under /workspace now
+  const routePath = `/workspace/${workspace._id}`;
+
+  const expiryLabel =
+    isAssociate && currentUserMembership?.accessExpiresAt
+      ? `Expires ${formatExpiry(currentUserMembership.accessExpiresAt)}`
+      : null;
 
   const CardWrapper = isClickable ? Link : 'div';
   const cardProps = isClickable ? { to: routePath } : {};
@@ -559,6 +584,7 @@ const WorkspaceCard = ({ workspace, isOwner, userInfo }) => {
   const subtitle = [
     workspace.industry,
     `${memberCount} ${memberCount === 1 ? 'member' : 'members'}`,
+    expiryLabel,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -597,6 +623,12 @@ const WorkspaceCard = ({ workspace, isOwner, userInfo }) => {
               Owner
             </span>
           )}
+          {isAssociate && !isOwner && (
+            <span className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-0.5 rounded">
+              <FaUserShield className="text-[9px]" />
+              Associate
+            </span>
+          )}
           {isPending && (
             <span className="flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300">
               <FaClock className="text-[9px]" /> Pending
@@ -616,97 +648,33 @@ const WorkspaceCard = ({ workspace, isOwner, userInfo }) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  Associate Card — workspaces where the user is an associate.
-//
-//  Associates enter the workspace shell just like permanent members.
-//  Inside the workspace they only see:
-//    - Projects they've been added to
-//    - Chats they're part of
-//    - Tasks assigned to them
-//
-//  The "Associate" badge + optional expiry come from their membership
-//  record on this workspace.
+//  Quick Stats
+//  • Desktop: two cards (Owned / Joined)
+//  • Mobile: one slim inline card ("X owned · Y joined")
 // ═════════════════════════════════════════════════════════════════════
-const AssociateCard = ({ workspace, userInfo }) => {
-  const memberCount = workspace.members?.length || 0;
-  const initials = workspace.initials || getInitials(workspace.name);
-
-  const myMembership = workspace.members?.find(
-    (m) => getUserId(m.user) === String(userInfo?._id)
-  );
-
-  const expiryLabel = myMembership?.accessExpiresAt
-    ? `Expires ${formatExpiry(myMembership.accessExpiresAt)}`
-    : null;
-
-  const routePath = `/workspace/${workspace._id}`;
-
-  const subtitle = [
-    workspace.industry,
-    `${memberCount} ${memberCount === 1 ? 'member' : 'members'}`,
-    expiryLabel,
-  ]
-    .filter(Boolean)
-    .join(' · ');
-
-  return (
-    <Link
-      to={routePath}
-      className="group flex items-center gap-3 px-3 sm:px-4 min-h-[58px] transition-colors cursor-pointer hover:bg-gray-50 dark:hover:bg-white/[0.04]"
-    >
-      {workspace.logo ? (
-        <img
-          src={workspace.logo}
-          alt={workspace.name}
-          className="w-9 h-9 rounded-md object-cover flex-shrink-0 ring-1 ring-gray-200 dark:ring-gray-700"
-        />
-      ) : (
-        <div
-          className="w-9 h-9 rounded-md flex items-center justify-center text-white font-semibold text-[12px] flex-shrink-0"
-          style={{ backgroundColor: workspace.color || '#0d9488' }}
-        >
-          {initials}
-        </div>
-      )}
-
-      <div className="flex-1 min-w-0 overflow-hidden">
-        <div className="flex items-center gap-2 min-w-0">
-          <p className="font-semibold text-sm text-gray-900 dark:text-white truncate">
-            {workspace.name}
-          </p>
-          <span className="flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">
-            <FaUserShield className="text-[9px]" />
-            Associate
-          </span>
-        </div>
-        <p className="text-[11.5px] text-gray-500 dark:text-gray-400 truncate mt-0.5">
-          {subtitle}
-        </p>
+const QuickStats = ({ ownedCount, joinedCount }) => (
+  <>
+    {/* Desktop: 2 stat cards */}
+    <div className="hidden md:grid md:grid-cols-2 gap-3 mb-6">
+      <div className="bg-white dark:bg-[#161619] rounded-lg p-4 text-center border border-gray-100 dark:border-gray-800">
+        <p className="text-2xl font-bold text-gray-900 dark:text-white tabular-nums">{ownedCount}</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Owned</p>
       </div>
+      <div className="bg-white dark:bg-[#161619] rounded-lg p-4 text-center border border-gray-100 dark:border-gray-800">
+        <p className="text-2xl font-bold text-gray-900 dark:text-white tabular-nums">{joinedCount}</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Joined</p>
+      </div>
+    </div>
 
-      <FaChevronRight className="flex-shrink-0 text-gray-300 dark:text-gray-600 text-[10px] group-hover:text-gray-400 dark:group-hover:text-gray-500 group-hover:translate-x-0.5 transition-all" />
-    </Link>
-  );
-};
-
-// ═════════════════════════════════════════════════════════════════════
-//  Quick Stats — Owned / Joined / Associates
-// ═════════════════════════════════════════════════════════════════════
-const QuickStats = ({ ownedCount, joinedCount, associatesCount }) => (
-  <div className="grid grid-cols-3 gap-3 mb-6">
-    <div className="bg-white dark:bg-[#161619] rounded-lg p-4 text-center border border-gray-100 dark:border-gray-800">
-      <p className="text-2xl font-bold text-gray-900 dark:text-white tabular-nums">{ownedCount}</p>
-      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Owned</p>
+    {/* Mobile: one slim card */}
+    <div className="md:hidden mb-4 bg-white dark:bg-[#161619] rounded-lg border border-gray-100 dark:border-gray-800 px-4 py-2.5 flex items-center justify-between">
+      <p className="text-sm text-gray-600 dark:text-gray-400">
+        <span className="font-bold text-gray-900 dark:text-white tabular-nums">{ownedCount}</span> owned
+        <span className="mx-2 text-gray-300 dark:text-gray-600">·</span>
+        <span className="font-bold text-gray-900 dark:text-white tabular-nums">{joinedCount}</span> joined
+      </p>
     </div>
-    <div className="bg-white dark:bg-[#161619] rounded-lg p-4 text-center border border-gray-100 dark:border-gray-800">
-      <p className="text-2xl font-bold text-gray-900 dark:text-white tabular-nums">{joinedCount}</p>
-      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Joined</p>
-    </div>
-    <div className="bg-white dark:bg-[#161619] rounded-lg p-4 text-center border border-gray-100 dark:border-gray-800">
-      <p className="text-2xl font-bold text-gray-900 dark:text-white tabular-nums">{associatesCount}</p>
-      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Associates</p>
-    </div>
-  </div>
+  </>
 );
 
 // ─── Empty state ────────────────────────────────────────────────────
@@ -738,10 +706,13 @@ const MyWorkspaces = () => {
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
 
-  // One query, three buckets:
+  // Server buckets:
   //   myBusinesses        → owned
   //   joinedBusinesses    → permanent member
   //   associateBusinesses → associate (already filtered for expiry server-side)
+  //
+  // We merge the last two into one "Joined" bucket and tag each card
+  // with `_isAssociate` so the badge can render.
   const { data, isLoading, refetch } = useGetMyWorkspacesQuery(undefined, {
     pollingInterval: 30000,
   });
@@ -754,6 +725,12 @@ const MyWorkspaces = () => {
   const myWorkspaces = data?.myBusinesses || [];
   const joinedWorkspaces = data?.joinedBusinesses || [];
   const associateWorkspaces = data?.associateBusinesses || [];
+
+  // ✅ One combined "Joined" list — associates tagged for badge
+  const joinedAll = [
+    ...joinedWorkspaces.map((ws) => ({ ...ws, _isAssociate: false })),
+    ...associateWorkspaces.map((ws) => ({ ...ws, _isAssociate: true })),
+  ];
 
   const handleCreateSuccess = () => refetch();
   const handleJoinSuccess = () => refetch();
@@ -782,31 +759,24 @@ const MyWorkspaces = () => {
   };
 
   const renderJoinedList = () => {
-    if (joinedWorkspaces.length === 0) {
-      return <EmptyList icon={FaUsers} message="No joined workspaces yet." />;
-    }
-    return (
-      <div className="divide-y divide-gray-100 dark:divide-white/[0.06]">
-        {joinedWorkspaces.map((ws) => (
-          <WorkspaceCard key={ws._id} workspace={ws} isOwner={false} userInfo={userInfo} />
-        ))}
-      </div>
-    );
-  };
-
-  const renderAssociatesList = () => {
-    if (associateWorkspaces.length === 0) {
+    if (joinedAll.length === 0) {
       return (
         <EmptyList
-          icon={FaUserShield}
-          message="No associate workspaces yet. When someone adds you to a project, its workspace will show up here."
+          icon={FaUsers}
+          message="No joined workspaces yet. Ask for an invite code or wait for a project invite."
         />
       );
     }
     return (
       <div className="divide-y divide-gray-100 dark:divide-white/[0.06]">
-        {associateWorkspaces.map((ws) => (
-          <AssociateCard key={ws._id} workspace={ws} userInfo={userInfo} />
+        {joinedAll.map((ws) => (
+          <WorkspaceCard
+            key={ws._id}
+            workspace={ws}
+            isOwner={false}
+            isAssociate={ws._isAssociate}
+            userInfo={userInfo}
+          />
         ))}
       </div>
     );
@@ -845,24 +815,30 @@ const MyWorkspaces = () => {
           <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-4 pb-24 md:pb-6 flex flex-col">
             <QuickStats
               ownedCount={myWorkspaces.length}
-              joinedCount={joinedWorkspaces.length}
-              associatesCount={associateWorkspaces.length}
+              joinedCount={joinedAll.length}
             />
 
-            {/* ─── Desktop: three equal columns ─────────────────── */}
+            {/* ─── Desktop: 2 equal columns ─────────────────────── */}
             <div className="hidden md:flex md:flex-row md:items-stretch md:gap-4 flex-1 min-h-0">
-              <Column title="Owned" icon={FaUserCheck} iconColor="text-teal-500" count={myWorkspaces.length}>
+              <Column
+                title="Owned"
+                icon={FaUserCheck}
+                iconColor="text-teal-500"
+                count={myWorkspaces.length}
+              >
                 {renderOwnedList()}
               </Column>
-              <Column title="Joined" icon={FaUsers} iconColor="text-purple-500" count={joinedWorkspaces.length}>
+              <Column
+                title="Joined"
+                icon={FaUsers}
+                iconColor="text-purple-500"
+                count={joinedAll.length}
+              >
                 {renderJoinedList()}
-              </Column>
-              <Column title="Associates" icon={FaUserShield} iconColor="text-amber-500" count={associateWorkspaces.length}>
-                {renderAssociatesList()}
               </Column>
             </div>
 
-            {/* ─── Mobile: tabs ─────────────────────────────────── */}
+            {/* ─── Mobile: 2 tabs ───────────────────────────────── */}
             <div className="md:hidden">
               <div className="flex bg-gray-100 dark:bg-[#1c1c20] rounded-lg p-1 mb-4">
                 <button
@@ -883,24 +859,13 @@ const MyWorkspaces = () => {
                       : 'text-gray-500 dark:text-gray-400'
                   }`}
                 >
-                  Joined ({joinedWorkspaces.length})
-                </button>
-                <button
-                  onClick={() => setActiveTab('associates')}
-                  className={`flex-1 py-2 text-xs font-medium rounded-md transition ${
-                    activeTab === 'associates'
-                      ? 'bg-white dark:bg-[#0f0f12] text-gray-900 dark:text-white shadow-sm'
-                      : 'text-gray-500 dark:text-gray-400'
-                  }`}
-                >
-                  Associates ({associateWorkspaces.length})
+                  Joined ({joinedAll.length})
                 </button>
               </div>
 
               <div className="bg-white dark:bg-[#161619] rounded-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
                 {activeTab === 'owned' && renderOwnedList()}
                 {activeTab === 'joined' && renderJoinedList()}
-                {activeTab === 'associates' && renderAssociatesList()}
               </div>
             </div>
           </main>

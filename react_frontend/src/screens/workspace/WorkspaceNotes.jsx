@@ -1,4 +1,4 @@
-// src/workspaceScreens/YourWorkspaceNotes.jsx
+// src/screens/workspace/WorkspaceNotes.jsx
 import React, {
   useEffect,
   useMemo,
@@ -7,7 +7,7 @@ import React, {
   useCallback,
 } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
+import { useGetWorkspaceQuery } from '../../slices/workspaceApiSlice';
 import {
   useGetWorkspaceNotesQuery,
   useCreateWorkspaceNoteMutation,
@@ -20,10 +20,10 @@ import {
   useUpdateWorkspaceNoteFolderColorMutation,
   useDeleteWorkspaceNoteFolderMutation,
   useLazyExportWorkspaceNotePDFQuery,
-} from '../slices/workspaceNoteApiSlice';
-import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
-import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
-import toast from 'react-hot-toast';
+} from '../../slices/workspaceNoteApiSlice';
+import WorkspaceSidebar from '../../components/WorkspaceSidebar';
+import WorkspaceBottombar from '../../components/WorkspaceBottombar';
+import { toast } from 'react-toastify';
 import { formatDistanceToNow } from 'date-fns';
 import {
   FaPlus,
@@ -42,11 +42,14 @@ import {
   FaDownload,
   FaCheck,
   FaCheckSquare,
-  FaCheckDouble,
   FaTh,
   FaList,
+  FaCheckDouble,
   FaPalette,
 } from 'react-icons/fa';
+
+// ─── Base path (keep in sync with WorkspaceSidebar / WorkspaceBottombar / WorkspaceId / WorkspaceProjects / WorkspaceProjectId) ──
+const WORKSPACE_BASE_PATH = '/workspace';
 
 // ═════════════════════════════════════════════════════════════════════
 //  Global styles
@@ -641,8 +644,8 @@ const NoteCard = ({
   onMove,
   onExport,
   onColorChange,
-  folders = [],             // 👈 new — for badge lookup
-  showFolderBadge = false,  // 👈 new
+  folders = [],
+  showFolderBadge = false,
 }) => {
   const [showMenu, setShowMenu] = useState(false);
   const [menuPos, setMenuPos] = useState(null);
@@ -864,7 +867,8 @@ const NoteCard = ({
           onClick={() => { onExport(note); closeMenu(); }}
           className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50"
         >
-          <FaDownload className="text-xs" /> Export as PDF
+          <FaDownload className="text-xs" />
+          Export as PDF
         </button>
         <button
           type="button"
@@ -1058,17 +1062,18 @@ const NoteCard = ({
 // ═════════════════════════════════════════════════════════════════════
 //  Main
 // ═════════════════════════════════════════════════════════════════════
-const VIEW_MODE_KEY = 'xircle.yourWorkspaceNotes.viewMode';
+const VIEW_MODE_KEY = 'xircle.workspaceNotes.viewMode';
 const readViewMode = () => {
   try {
     const v = localStorage.getItem(VIEW_MODE_KEY);
+    // Grid is the default; only honor an explicit "list" preference.
     return v === 'list' ? 'list' : 'grid';
   } catch {
     return 'grid';
   }
 };
 
-const YourWorkspaceNotes = () => {
+const WorkspaceNotes = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
 
@@ -1208,7 +1213,7 @@ const YourWorkspaceNotes = () => {
 
   // ── Handlers ─────────────────────────────────────────────────────
   const openNote = (noteId) => {
-    navigate(`/workspace/${workspaceId}/notes/${noteId}`);
+    navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}/notes/${noteId}`);
   };
 
   const handleCreateNote = async () => {
@@ -1227,7 +1232,7 @@ const YourWorkspaceNotes = () => {
         folderId,
       }).unwrap();
 
-      navigate(`/workspace/${workspaceId}/notes/${result.note._id}`, {
+      navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}/notes/${result.note._id}`, {
         state: { justCreated: true },
       });
     } catch (err) {
@@ -1467,13 +1472,14 @@ const YourWorkspaceNotes = () => {
     </div>
   );
 
+  // ── Loading ──────────────────────────────────────────────────────
   if (wsLoading) {
     return (
       <>
         <GlobalStyles />
         <div className="ws-notes-root h-dvh w-full bg-gray-50 dark:bg-[#0b0b10] flex">
           <div className="hidden md:flex flex-shrink-0">
-            <YourWorkspaceSidebar />
+            <WorkspaceSidebar />
           </div>
           <div className="flex-1 flex items-center justify-center">
             <FaSpinner className="animate-spin text-3xl" style={{ color: '#0d9488' }} />
@@ -1484,15 +1490,18 @@ const YourWorkspaceNotes = () => {
   }
   if (!workspace) return null;
 
+  // ── Render ───────────────────────────────────────────────────────
   return (
     <>
       <GlobalStyles />
 
       <div className="ws-notes-root h-dvh w-full bg-white dark:bg-[#0f0f12] flex overflow-hidden">
+        {/* ── 1. Workspace sidebar (desktop) ─────────────────────── */}
         <div className="hidden md:flex flex-shrink-0 h-full">
-          <YourWorkspaceSidebar workspace={workspace} />
+          <WorkspaceSidebar workspace={workspace} />
         </div>
 
+        {/* ── 2. Folders sidebar (desktop) ───────────────────────── */}
         <aside className="hidden md:flex md:w-60 md:flex-shrink-0 h-full border-r border-gray-100 dark:border-gray-800 flex-col bg-white dark:bg-[#0f0f12]">
           <header className="h-12 px-3 flex items-center justify-between border-b border-gray-100 dark:border-gray-800 flex-shrink-0">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
@@ -1513,6 +1522,7 @@ const YourWorkspaceNotes = () => {
           </div>
         </aside>
 
+        {/* ── 3. Notes list column ───────────────────────────────── */}
         <section className="flex-1 min-w-0 flex flex-col h-full overflow-hidden bg-white dark:bg-[#0f0f12]">
           <header className="bg-white dark:bg-[#0f0f12] border-b border-gray-100 dark:border-gray-800 sticky top-0 z-30 flex-shrink-0 ws-mobile-header md:!pt-0">
             {selectionMode ? (
@@ -1668,8 +1678,8 @@ const YourWorkspaceNotes = () => {
                     onMove={setMoveTarget}
                     onExport={handleExport}
                     onColorChange={handleNoteColorChange}
-                    folders={folders}                    // 👈 new
-                    showFolderBadge={showFolderBadge}    // 👈 new
+                    folders={folders}
+                    showFolderBadge={showFolderBadge}
                   />
                 ))}
               </div>
@@ -1690,15 +1700,15 @@ const YourWorkspaceNotes = () => {
                     onMove={setMoveTarget}
                     onExport={handleExport}
                     onColorChange={handleNoteColorChange}
-                    folders={folders}                    // 👈 new
-                    showFolderBadge={showFolderBadge}    // 👈 new
+                    folders={folders}
+                    showFolderBadge={showFolderBadge}
                   />
                 ))}
               </div>
             )}
           </main>
 
-          <YourWorkspaceBottombar workspace={workspace} />
+          <WorkspaceBottombar workspace={workspace} />
         </section>
       </div>
 
@@ -1761,6 +1771,7 @@ const YourWorkspaceNotes = () => {
         </div>
       )}
 
+      {/* Folder context menu */}
       {folderMenu && (
         <FolderContextMenu
           pos={folderMenu.pos}
@@ -1786,6 +1797,7 @@ const YourWorkspaceNotes = () => {
         />
       )}
 
+      {/* Prompt modal */}
       <PromptModal
         isOpen={!!promptState}
         onClose={() => setPromptState(null)}
@@ -1804,18 +1816,18 @@ const YourWorkspaceNotes = () => {
         initialColor={null}
       />
 
+      {/* Single-note move */}
       <FolderPickerModal
         isOpen={!!moveTarget}
         onClose={() => setMoveTarget(null)}
         tree={tree}
-        currentFolderId={
-          moveTarget ? extractFolderId(moveTarget) : null
-        }
+        currentFolderId={moveTarget ? extractFolderId(moveTarget) : null}
         onPick={(folderId) => handleMove(moveTarget._id, folderId)}
         brandColor={brandColor}
         title="Move to folder"
       />
 
+      {/* Bulk move */}
       <FolderPickerModal
         isOpen={bulkMoveOpen}
         onClose={() => !bulkBusy && setBulkMoveOpen(false)}
@@ -1827,6 +1839,7 @@ const YourWorkspaceNotes = () => {
         busy={bulkBusy}
       />
 
+      {/* Single delete */}
       <ConfirmModal
         isOpen={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
@@ -1835,6 +1848,7 @@ const YourWorkspaceNotes = () => {
         message="This note will be permanently deleted. This action cannot be undone."
       />
 
+      {/* Bulk delete */}
       <ConfirmModal
         isOpen={bulkDeleteOpen}
         onClose={() => !bulkBusy && setBulkDeleteOpen(false)}
@@ -1845,6 +1859,7 @@ const YourWorkspaceNotes = () => {
         busy={bulkBusy}
       />
 
+      {/* Folder delete */}
       <ConfirmModal
         isOpen={!!folderToDelete}
         onClose={() => setFolderToDelete(null)}
@@ -1856,4 +1871,4 @@ const YourWorkspaceNotes = () => {
   );
 };
 
-export default YourWorkspaceNotes;
+export default WorkspaceNotes;

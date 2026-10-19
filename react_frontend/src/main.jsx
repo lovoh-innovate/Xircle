@@ -13,14 +13,15 @@ import { Capacitor } from "@capacitor/core";
 import { PushNotifications } from "@capacitor/push-notifications";
 import toast, { Toaster } from "react-hot-toast";
 
-// ─── NEW: SQLite & sync imports ──────────────────────────────────────
+// ─── SQLite & sync ───────────────────────────────────────────────────
 import { getDatabase } from "./database/database";
 import { syncManager } from "./sync/syncManager";
 
-// ─── Existing imports ────────────────────────────────────────────────
+// ─── Base styles & store ─────────────────────────────────────────────
 import "./index.css";
 import store from "./store";
 
+// ─── Core components ─────────────────────────────────────────────────
 import PrivateRoute from "./components/PrivateRoute.jsx";
 import AppUpdateChecker from "./components/AppUpdateChecker.jsx";
 import Welcome from "./screens/Welcome.jsx";
@@ -38,8 +39,6 @@ import Signup from "./screens/Signup.jsx";
 import Settings from "./screens/Settings.jsx";
 import MyWorkspaces from "./screens/MyWorkspaces.jsx";
 import Profile from "./screens/Profile.jsx";
-import YourWorkspaceId from "./screens/YourWorkspaceId.jsx";
-import MyWorkspaceId from "./workspaceScreens/MyWorkspaceId.jsx";
 import Notifications from "./screens/Notifications.jsx";
 import AppVersions from "./screens/AppVersions.jsx";
 import AuthCallback from "./screens/AuthCallback.jsx";
@@ -52,42 +51,31 @@ import Sticker from "./screens/Sticker.jsx";
 import PublicProject from "./screens/PublicProject.jsx";
 import ProjectCollaborate from "./screens/ProjectCollaborate.jsx";
 
-import AllTasks from "./screens/AllTasks.jsx";
+import Today from "./screens/Today.jsx";
 
-import Today from "./screens/Today.jsx"; // 👈 NEW — the front door
+// ═════════════════════════════════════════════════════════════════════
+//  UNIFIED WORKSPACE SCREENS
+//  One file per feature — serves both workspace-owner and admin roles.
+//  All live under /workspace/:workspaceId/* — no /my-workspace anywhere.
+//  Create/Edit project → modals inside WorkspaceProjects (no routes).
+//  Workspace notifications → sidebar popover (no dedicated route).
+// ═════════════════════════════════════════════════════════════════════
+import WorkspaceId from "./screens/workspace/WorkspaceId.jsx";
+import WorkspaceChannels from "./screens/workspace/WorkspaceChannels.jsx";
+import WorkspaceChatId from "./screens/workspace/WorkspaceChatId.jsx";
+import WorkspaceDMs from "./screens/workspace/WorkspaceDMs.jsx";
+import WorkspaceProjects from "./screens/workspace/WorkspaceProjects.jsx";
+import WorkspaceProjectId from "./screens/workspace/WorkspaceProjectId.jsx";
+import WorkspaceProjectTeam from "./screens/workspace/WorkspaceProjectTeam.jsx";
+import WorkspaceTaskId from "./screens/workspace/WorkspaceTaskId.jsx";
+import WorkspaceMembers from "./screens/workspace/WorkspaceMembers.jsx";
+import WorkspaceClockin from "./screens/workspace/WorkspaceClockin.jsx";
+import WorkspaceSettings from "./screens/workspace/WorkspaceSettings.jsx";
+import WorkspaceNotes from "./screens/workspace/WorkspaceNotes.jsx";
+import WorkspaceWriteNote from "./screens/workspace/WorkspaceWriteNote.jsx";
+import WorkspaceAllTasks from "./screens/workspace/WorkspaceAllTasks.jsx";
 
-// ─── MyWorkspace screens ─────────────────────────────────────────────
-import MyWorkspaceChannels from "./workspaceScreens/MyWorkspaceChannels.jsx";
-import MyWorkspaceChatId from "./workspaceScreens/MyWorkspaceChatId.jsx";
-import MyWorkspaceChannelId from "./workspaceScreens/MyWorkspaceChannelId.jsx";
-import MyWorkspaceProjects from "./workspaceScreens/MyWorkspaceProjects.jsx";
-import MyWorkspaceProjectId from "./workspaceScreens/MyWorkspaceProjectId.jsx";
-import MyWorkspaceProjectTeam from "./workspaceScreens/MyWorkspaceProjectTeam.jsx";
-import MyWorkspaceTaskId from "./workspaceScreens/MyWorkspaceTaskId.jsx";
-import MyWorkspaceMembers from "./workspaceScreens/MyWorkspaceMembers.jsx";
-import MyWorkspaceDMs from "./workspaceScreens/MyWorkspaceDMs.jsx";
-import MyWorkspaceSettings from "./workspaceScreens/MyWorkspaceSettings.jsx";
-import MyWorkspaceCreateProject from "./workspaceScreens/MyWorkspaceCreateProject.jsx";
-import MyWorkspaceUpdateProject from "./workspaceScreens/MyWorkspaceUpdateProject.jsx";
-import MyWorkspaceClockin from "./workspaceScreens/MyWorkspaceClockin.jsx";
-import MyWorkspaceNotifications from "./workspaceScreens/MyWorkspaceNotifications.jsx";
-import MyWorkspaceNotes from "./workspaceScreens/MyWorkspaceNotes.jsx";
-import MyWorkspaceWriteNote from "./workspaceScreens/MyWorkspaceWriteNote.jsx";
-
-// ─── YourWorkspace screens ───────────────────────────────────────────
-import YourWorkspaceChannels from "./screens/YourWorkspaceChannels.jsx";
-import YourWorkspaceChannelId from "./screens/YourWorkspaceChannelId.jsx";
-import YourWorkspaceDMs from "./screens/YourWorkspaceDMs.jsx";
-import YourWorkspaceProjects from "./screens/YourWorkspaceProjects.jsx";
-import YourWorkspaceProjectId from "./screens/YourWorkspaceProjectId.jsx";
-import YourWorkspaceTaskId from "./screens/YourWorkspaceTaskId.jsx";
-import YourWorkspaceProjectTeam from "./screens/YourWorkspaceProjectTeam.jsx";
-import YourWorkspaceMembers from "./screens/YourWorkspaceMembers.jsx";
-import YourWorkspaceClockin from "./screens/YourWorkspaceClockin.jsx";
-import YourWorkspaceNotifications from "./screens/YourWorkspaceNotifications.jsx";
-import YourWorkspaceNotes from "./screens/YourWorkspaceNotes.jsx";
-import YourWorkspaceWriteNote from "./screens/YourWorkspaceWriteNote.jsx";
-
+// ─── Calls & misc ────────────────────────────────────────────────────
 import CallScreen from "./components/CallScreen.jsx";
 
 import GeneralChannels from "./screens/GeneralChannels.jsx";
@@ -104,7 +92,7 @@ import {
   usePushNotificationContext,
 } from "./contexts/PushNotificationContext.jsx";
 
-// ─── NEW: AppInitializer – initializes SQLite and starts sync ──────
+// ─── AppInitializer – initializes SQLite and starts sync ──────────────
 const AppInitializer = ({ children }) => {
   const { userInfo } = useSelector((state) => state.auth);
   const [dbReady, setDbReady] = useState(false);
@@ -115,20 +103,16 @@ const AppInitializer = ({ children }) => {
 
     const init = async () => {
       try {
-        // 1. Open SQLite (creates tables if needed)
         await getDatabase();
         if (mounted) setDbReady(true);
 
-        // 2. If user is logged in and we haven't synced yet, do initial sync
         if (userInfo?.token && !initialSyncDone.current) {
           initialSyncDone.current = true;
           await syncManager.initialSync();
-          // Start background sync (every 30s) and outbox processing
           syncManager.startBackgroundSync(30000);
         }
       } catch (error) {
         console.error("❌ AppInitializer failed:", error);
-        // Even on error, we set dbReady to true so the app renders
         if (mounted) setDbReady(true);
       }
     };
@@ -139,9 +123,8 @@ const AppInitializer = ({ children }) => {
       mounted = false;
       syncManager.stopBackgroundSync();
     };
-  }, [userInfo?.token]); // re-run when auth changes (login/logout)
+  }, [userInfo?.token]);
 
-  // Show nothing until DB is ready (you could show a splash screen here)
   if (!dbReady) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[#0b0b10]">
@@ -153,7 +136,7 @@ const AppInitializer = ({ children }) => {
   return children;
 };
 
-// ─── Global Pull‑to‑Refresh Component ──────────────────────────────
+// ─── Global Pull‑to‑Refresh ──────────────────────────────────────────
 const PullToRefresh = ({ children }) => {
   const { refreshAll } = useRefresh();
   const [refreshing, setRefreshing] = useState(false);
@@ -226,7 +209,7 @@ const GlobalNavigator = () => {
   return null;
 };
 
-// ── Service worker registration ──────────────────────────────────────
+// ── Service worker registration ───────────────────────────────────────
 const ServiceWorkerRegister = () => {
   useEffect(() => {
     if ("serviceWorker" in navigator && !Capacitor.isNativePlatform()) {
@@ -327,13 +310,11 @@ const buildCallDataFromPush = (data) => ({
 
 // ── Route resolver from notification data ────────────────────────────
 const routeFromNotificationData = (data) => {
-  // ── App Update Notifications ──────────────────────────────────────
   if (
     data.type === "app_update" ||
     data.type === "APP_UPDATE" ||
     data.notificationType === "app_update"
   ) {
-    console.log("📱 Routing to app versions for update:", data.version);
     return "/app-versions";
   }
 
@@ -345,47 +326,40 @@ const routeFromNotificationData = (data) => {
     return "/app-versions";
   }
 
-  // ── Today (daily digest) ──────────────────────────────────────────
   if (data.notificationType === "daily_digest" || data.screen === "Today") {
     return "/today";
   }
 
-  // ── Call Notifications ────────────────────────────────────────────
   if (data.notificationType === "call" && data.roomId) {
     return `/call/${data.roomId}?autoJoin=true`;
   }
 
-  // ── Determine workspace prefix ────────────────────────────────────
-  const workspaceType = data.workspaceType || "owned";
-  const workspacePrefix =
-    workspaceType === "my" ? "/my-workspace" : "/workspace";
+  const workspacePrefix = "/workspace";
 
-  // ── Chat/Channel Notifications ────────────────────────────────────
   if (data.chatId) {
     if (data.workspaceId) {
-      return `${workspacePrefix}/${data.workspaceId}/chat/${data.chatId}`;
+      const isGroup =
+        data.notificationType === "channel" || data.chatType === "group";
+      const seg = isGroup ? "channel" : "chat";
+      return `${workspacePrefix}/${data.workspaceId}/${seg}/${data.chatId}`;
     }
     const isGroup =
       data.notificationType === "channel" || data.chatType === "group";
     return isGroup ? `/channels/${data.chatId}` : `/chats/${data.chatId}`;
   }
 
-  // ── Task Notifications ────────────────────────────────────────────
   if (data.taskId && data.projectId && data.workspaceId) {
     return `${workspacePrefix}/${data.workspaceId}/project/${data.projectId}/task/${data.taskId}`;
   }
 
-  // ── Project Notifications ─────────────────────────────────────────
   if (data.projectId && data.workspaceId) {
     return `${workspacePrefix}/${data.workspaceId}/project/${data.projectId}`;
   }
 
-  // ── Workspace Notifications ───────────────────────────────────────
   if (data.workspaceId) {
     return `${workspacePrefix}/${data.workspaceId}`;
   }
 
-  // ── Clock-in Notifications ────────────────────────────────────────
   if (
     data.type === "clockin" ||
     data.type === "clockout" ||
@@ -399,7 +373,6 @@ const routeFromNotificationData = (data) => {
     }
   }
 
-  // ── Default fallback ──────────────────────────────────────────────
   return "/my-workspaces";
 };
 
@@ -430,14 +403,12 @@ const RootLayout = () => {
     };
   }, [socket, refreshAll]);
 
-  // ── Push notification handlers ────────────────────────────────────
   useEffect(() => {
     const handlePushReceived = (event) => {
       const notification = event.detail;
       const data = notification?.data || {};
       console.log("📨 Push received in foreground:", data);
 
-      // ── Handle App Update Notifications ──────────────────────────
       if (
         data.type === "app_update" ||
         data.type === "APP_UPDATE" ||
@@ -484,14 +455,12 @@ const RootLayout = () => {
         return;
       }
 
-      // ── Handle Call Notifications ────────────────────────────────
       if (data.notificationType === "call" && data.roomId) {
         console.log("📞 Call push received in foreground:", data);
         setIncomingCallFromPush(buildCallDataFromPush(data));
         return;
       }
 
-      // ── Handle Other Notifications ───────────────────────────────
       if (notification?.title && notification?.body) {
         toast(`${notification.title}: ${notification.body}`, {
           icon: "ℹ️",
@@ -509,9 +478,6 @@ const RootLayout = () => {
         data.type === "APP_UPDATE" ||
         data.notificationType === "app_update"
       ) {
-        console.log(
-          "📱 User tapped app update notification, navigating to /app-versions",
-        );
         navigate("/app-versions");
         return;
       }
@@ -562,15 +528,11 @@ const RootLayout = () => {
           },
           success: {
             iconTheme: { primary: "#0d9488", secondary: "#fff" },
-            style: {
-              borderLeft: "4px solid #0d9488",
-            },
+            style: { borderLeft: "4px solid #0d9488" },
           },
           error: {
             iconTheme: { primary: "#ef4444", secondary: "#fff" },
-            style: {
-              borderLeft: "4px solid #ef4444",
-            },
+            style: { borderLeft: "4px solid #ef4444" },
           },
           loading: {
             iconTheme: { primary: "#f59e0b", secondary: "#fff" },
@@ -596,135 +558,51 @@ const router = createBrowserRouter([
       { path: "public/project/:token", element: <PublicProject /> },
       { path: "collaborate/:token", element: <ProjectCollaborate /> },
       { path: "*", element: <NotFound /> },
+
+      // ── Public workspace routes (view without login) ──────────────
       {
         path: "workspace/:workspaceId/project/:projectId",
-        element: <YourWorkspaceProjectId />,
+        element: <WorkspaceProjectId />,
       },
       {
         path: "workspace/:workspaceId/project/:projectId/task/:taskId",
-        element: <YourWorkspaceTaskId />,
+        element: <WorkspaceTaskId />,
       },
 
       {
         element: <PrivateRoute />,
         children: [
-          { path: "today", element: <Today /> }, // 👈 NEW — front door
+          { path: "today", element: <Today /> },
           { path: "settings", element: <Settings /> },
           { path: "my-workspaces", element: <MyWorkspaces /> },
-          { path: "workspace/:workspaceId", element: <YourWorkspaceId /> },
-          { path: "my-workspace/:workspaceId", element: <MyWorkspaceId /> },
 
-          // ── MyWorkspace routes ─────────────────────────────────
-          {
-            path: "my-workspace/:workspaceId/channels",
-            element: <MyWorkspaceChannels />,
-          },
-          {
-            path: "my-workspace/:workspaceId/chat/:chatId",
-            element: <MyWorkspaceChatId />,
-          },
-          {
-            path: "my-workspace/:workspaceId/channels/:chatId",
-            element: <MyWorkspaceChannelId />,
-          },
-          {
-            path: "my-workspace/:workspaceId/projects",
-            element: <MyWorkspaceProjects />,
-          },
-          {
-            path: "my-workspace/:workspaceId/project/:projectId",
-            element: <MyWorkspaceProjectId />,
-          },
-          {
-            path: "my-workspace/:workspaceId/project/:projectId/team",
-            element: <MyWorkspaceProjectTeam />,
-          },
-          {
-            path: "my-workspace/:workspaceId/project/:projectId/task/:taskId",
-            element: <MyWorkspaceTaskId />,
-          },
-          {
-            path: "my-workspace/:workspaceId/members",
-            element: <MyWorkspaceMembers />,
-          },
-          {
-            path: "my-workspace/:workspaceId/dms",
-            element: <MyWorkspaceDMs />,
-          },
-          {
-            path: "my-workspace/:workspaceId/settings",
-            element: <MyWorkspaceSettings />,
-          },
-          {
-            path: "my-workspace/:workspaceId/projects/create",
-            element: <MyWorkspaceCreateProject />,
-          },
-          {
-            path: "my-workspace/:workspaceId/projects/edit/:projectId",
-            element: <MyWorkspaceUpdateProject />,
-          },
-          {
-            path: "my-workspace/:workspaceId/clockin",
-            element: <MyWorkspaceClockin />,
-          },
-          { path: "my-workspace/:workspaceId/tasks", element: <AllTasks /> },
-          {
-            path: "my-workspace/:workspaceId/notifications",
-            element: <MyWorkspaceNotifications />,
-          },
-          {
-            path: "my-workspace/:workspaceId/notes",
-            element: <MyWorkspaceNotes />,
-          },
-          {
-            path: "my-workspace/:workspaceId/notes/:id",
-            element: <MyWorkspaceWriteNote />,
-          },
+          // ── Workspace (owner + admin + member unified) ────────────
+          { path: "workspace/:workspaceId", element: <WorkspaceId /> },
 
-          // ── YourWorkspace routes ───────────────────────────────
-          {
-            path: "workspace/:workspaceId/channels",
-            element: <YourWorkspaceChannels />,
-          },
-          {
-            path: "workspace/:workspaceId/chat/:chatId",
-            element: <YourWorkspaceChannelId />,
-          },
-          { path: "workspace/:workspaceId/dms", element: <YourWorkspaceDMs /> },
-          {
-            path: "workspace/:workspaceId/projects",
-            element: <YourWorkspaceProjects />,
-          },
-          // { path: 'workspace/:workspaceId/project/:projectId', element: <YourWorkspaceProjectId /> },
-          // { path: 'workspace/:workspaceId/project/:projectId/task/:taskId', element: <YourWorkspaceTaskId /> },
-          {
-            path: "workspace/:workspaceId/project/:projectId/team",
-            element: <YourWorkspaceProjectTeam />,
-          },
-          {
-            path: "workspace/:workspaceId/members",
-            element: <YourWorkspaceMembers />,
-          },
-          { path: "workspace/:workspaceId/tasks", element: <AllTasks /> },
-          {
-            path: "workspace/:workspaceId/clockin",
-            element: <YourWorkspaceClockin />,
-          },
-          {
-            path: "workspace/:workspaceId/notifications",
-            element: <YourWorkspaceNotifications />,
-          },
-          {
-            path: "workspace/:workspaceId/notes",
-            element: <YourWorkspaceNotes />,
-          },
-          {
-            path: "workspace/:workspaceId/notes/:id",
-            element: <YourWorkspaceWriteNote />,
-          },
+          // Chats & channels — both URLs resolve to the same merged chat screen
+          { path: "workspace/:workspaceId/channels", element: <WorkspaceChannels /> },
+          { path: "workspace/:workspaceId/channel/:chatId", element: <WorkspaceChatId /> },
+          { path: "workspace/:workspaceId/dms", element: <WorkspaceDMs /> },
+          { path: "workspace/:workspaceId/chat/:chatId", element: <WorkspaceChatId /> },
 
+          // Projects — create/edit are MODALS inside WorkspaceProjects
+          { path: "workspace/:workspaceId/projects", element: <WorkspaceProjects /> },
+          { path: "workspace/:workspaceId/project/:projectId/team", element: <WorkspaceProjectTeam /> },
+
+          // Team, tasks, clock-in
+          { path: "workspace/:workspaceId/members", element: <WorkspaceMembers /> },
+          { path: "workspace/:workspaceId/tasks", element: <WorkspaceAllTasks /> },
+          { path: "workspace/:workspaceId/clockin", element: <WorkspaceClockin /> },
+
+          // Settings
+          { path: "workspace/:workspaceId/settings", element: <WorkspaceSettings /> },
+
+          // Notes
+          { path: "workspace/:workspaceId/notes", element: <WorkspaceNotes /> },
+          { path: "workspace/:workspaceId/notes/:id", element: <WorkspaceWriteNote /> },
+
+          // ── Non-workspace screens ────────────────────────────────
           { path: "profile", element: <Profile /> },
-
           { path: "channels", element: <GeneralChannels /> },
           { path: "channels/:chatId", element: <GeneralChannelId /> },
           { path: "chat", element: <GeneralChats /> },
@@ -738,9 +616,7 @@ const router = createBrowserRouter([
           { path: "extensions", element: <Extensions /> },
           { path: "accept-task-collab", element: <AcceptTaskCollab /> },
           { path: "stickers", element: <Sticker /> },
-
           { path: "call/:roomId", element: <CallScreen /> },
-
           { path: "admin/upload", element: <UploadApp /> },
           { path: "*", element: <NotFound /> },
         ],
@@ -768,7 +644,7 @@ const AppRoot = () => {
   );
 };
 
-// ─── Main render ────────────────────────────────────────────────────
+// ─── Main render ─────────────────────────────────────────────────────
 createRoot(document.getElementById("root")).render(
   <Provider store={store}>
     <StrictMode>

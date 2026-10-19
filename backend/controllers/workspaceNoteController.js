@@ -76,9 +76,6 @@ const wouldCreateCycle = async (folderId, candidateParentId) => {
 //   null / ''  → clear the color              (returns null)
 //   valid      → normalize and return it
 //   invalid    → throw 400
-//
-// No whitelist — the frontend uses a native <input type="color"> picker
-// (or any third-party picker), so we accept any CSS-parseable color.
 const normalizeColor = (color) => {
   if (color === undefined) return undefined;
   if (color === null) return null;
@@ -113,16 +110,53 @@ const normalizeColor = (color) => {
   throw err;
 };
 
+// ─── VISIBILITY HELPER ─────────────────────────────────────────────────
+//   undefined  → "not provided, leave as-is"
+//   true/false → convenience for boolean UIs
+//   'public' | 'workspace' → normalized
+//   anything else → throw 400
+const normalizeVisibility = (visibility) => {
+  if (visibility === undefined) return undefined;
+  if (visibility === true) return 'public';
+  if (visibility === false) return 'workspace';
+  if (visibility === 'public' || visibility === 'workspace') return visibility;
+  const err = new Error("Visibility must be 'public' or 'workspace'.");
+  err.statusCode = 400;
+  throw err;
+};
+
+// ─── PERMISSION + ATTRIBUTION HELPERS ──────────────────────────────────
+const MAX_HISTORY_ENTRIES = 200;
+
+// Works whether `note.author` is an ObjectId or a populated doc.
+const authorIdOf = (note) =>
+  (note.author && note.author._id ? note.author._id : note.author).toString();
+
+// Author OR Admin OR Owner can edit/move/color/visibility/delete.
+const canManageNote = (note, workspace, userId) =>
+  authorIdOf(note) === userId.toString() || isAdminOrOwner(workspace, userId);
+
+// Append a history entry + stamp the note as last-edited by `userId`.
+const recordHistory = (note, userId, action, changes = []) => {
+  if (!Array.isArray(note.history)) note.history = [];
+  note.history.push({ user: userId, action, changes, at: new Date() });
+  if (note.history.length > MAX_HISTORY_ENTRIES) {
+    note.history = note.history.slice(-MAX_HISTORY_ENTRIES);
+  }
+  note.lastEditedBy = userId;
+  note.lastEditedAt = new Date();
+};
+
 // ══════════════════════════════════════════════════════════════════════════
 //  NOTE CONTROLLERS
 // ══════════════════════════════════════════════════════════════════════════
 
 // ─── Create Workspace Note (supports drafts / autosave) ─────────────────
 // POST /api/workspace-notes
-// Body: { workspaceId, title?, content?, folderId?, color? }
+// Body: { workspaceId, title?, content?, folderId?, color?, visibility? }
 export const createWorkspaceNote = asyncHandler(async (req, res) => {
   const userId = req.user.id;
-  const { workspaceId, title, content, folderId, color } = req.body;
+  const { workspaceId, title, content, folderId, color, visibility } = req.body;
 
   if (!workspaceId) {
     res.status(400);
@@ -149,11 +183,19 @@ export const createWorkspaceNote = asyncHandler(async (req, res) => {
     throw err;
   }
 
-  // ── NOTE COLOR ──
   let resolvedColor = null;
   try {
     const c = normalizeColor(color);
     if (c !== undefined) resolvedColor = c;
+  } catch (err) {
+    res.status(err.statusCode || 400);
+    throw err;
+  }
+
+  let resolvedVisibility = 'workspace';
+  try {
+    const v = normalizeVisibility(visibility);
+    if (v !== undefined) resolvedVisibility = v;
   } catch (err) {
     res.status(err.statusCode || 400);
     throw err;
@@ -167,17 +209,29 @@ export const createWorkspaceNote = asyncHandler(async (req, res) => {
       mimeType: file.mimetype,
     })) || [];
 
-  const note = await WorkspaceNote.create({
+  const note = new WorkspaceNote({
     workspace: workspaceId,
     folder: resolvedFolderId,
     author: userId,
     title: typeof title === 'string' ? title.trim() : '',
     content: typeof content === 'string' ? content.trim() : '',
-    color: resolvedColor, // 👈 saved here
+    color: resolvedColor,
+    visibility: resolvedVisibility,
     attachments,
   });
 
+  recordHistory(
+    note,
+    userId,
+    'created',
+    resolvedVisibility === 'public' ? ['created', 'visibility'] : ['created']
+  );
+
+  await note.save();
+
   await note.populate('author', 'name email profile');
+  await note.populate('lastEditedBy', 'name profile');
+  await note.populate('history.user', 'name profile');
 
   // Only notify for real notes (skip empty autosave drafts)
   const hasContent =
@@ -238,20 +292,25 @@ export const getWorkspaceNotes = asyncHandler(async (req, res) => {
     }
   }
 
+  // List stays light — omit full history for payload size.
   const notes = await WorkspaceNote.find(query)
+    .select('-history')
     .populate('author', 'name email profile')
+    .populate('lastEditedBy', 'name profile')
     .sort({ createdAt: -1 });
 
   res.status(200).json({ success: true, notes });
 });
 
-// ─── Get Single Workspace Note ──────────────────────────────────────────
+// ─── Get Single Workspace Note (members only) ───────────────────────────
 // GET /api/workspace-notes/note/:id
 export const getWorkspaceNote = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const note = await WorkspaceNote.findById(req.params.id)
     .populate('author', 'name email profile')
-    .populate('folder', 'name parent color'); // 👈 include folder color
+    .populate('lastEditedBy', 'name profile')
+    .populate('history.user', 'name profile')
+    .populate('folder', 'name parent color');
 
   if (!note) {
     res.status(404);
@@ -272,16 +331,42 @@ export const getWorkspaceNote = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, note });
 });
 
+// ─── Get PUBLIC Workspace Note (no auth) ────────────────────────────────
+// GET /api/workspace-notes/public/:workspaceId/:noteId
+// Anyone with the link can read — ONLY if visibility === 'public'.
+export const getPublicWorkspaceNote = asyncHandler(async (req, res) => {
+  const { workspaceId, noteId } = req.params;
+
+  if (
+    !mongoose.Types.ObjectId.isValid(workspaceId) ||
+    !mongoose.Types.ObjectId.isValid(noteId)
+  ) {
+    res.status(404);
+    throw new Error('Note not found or not publicly shared.');
+  }
+
+  const note = await WorkspaceNote.findOne({ _id: noteId, workspace: workspaceId })
+    .populate('author', 'name profile')
+    .populate('lastEditedBy', 'name profile')
+    .populate('history.user', 'name profile');
+
+  // 404 (not 403) so we don't leak the existence of private notes.
+  if (!note || note.visibility !== 'public') {
+    res.status(404);
+    throw new Error('Note not found or not publicly shared.');
+  }
+
+  res.status(200).json({ success: true, note });
+});
+
 // ─── Update Workspace Note (autosave-safe) ──────────────────────────────
 // PUT /api/workspace-notes/:id
-// Body (all optional): { title, content, folderId, color }
+// Body (all optional): { title, content, folderId, color, visibility }
 export const updateWorkspaceNote = asyncHandler(async (req, res) => {
   const userId = req.user.id;
-  const { title, content, folderId, color } = req.body;
+  const { title, content, folderId, color, visibility } = req.body;
 
-  const note = await WorkspaceNote.findById(req.params.id)
-    .populate('author', 'name');
-
+  const note = await WorkspaceNote.findById(req.params.id);
   if (!note) {
     res.status(404);
     throw new Error('Note not found.');
@@ -293,25 +378,51 @@ export const updateWorkspaceNote = asyncHandler(async (req, res) => {
     throw new Error('Workspace not found.');
   }
 
-  const isAuthor = note.author._id.toString() === userId;
-  const isManager = isAdminOrOwner(workspace, userId);
-
-  if (!isAuthor && !isManager) {
+  if (!canManageNote(note, workspace, userId)) {
     res.status(403);
     throw new Error('You do not have permission to edit this note.');
   }
 
+  const changes = [];
+
   if (title !== undefined) {
-    note.title = typeof title === 'string' ? title.trim() : '';
-  }
-  if (content !== undefined) {
-    note.content = typeof content === 'string' ? content.trim() : '';
+    const next = typeof title === 'string' ? title.trim() : '';
+    if (next !== note.title) {
+      note.title = next;
+      changes.push('title');
+    }
   }
 
-  // ── NOTE COLOR ──
+  if (content !== undefined) {
+    const next = typeof content === 'string' ? content.trim() : '';
+    if (next !== note.content) {
+      note.content = next;
+      changes.push('content');
+    }
+  }
+
   if (color !== undefined) {
     try {
-      note.color = normalizeColor(color);
+      const next = normalizeColor(color);
+      const cur = note.color ?? null;
+      const val = next ?? null;
+      if (val !== cur) {
+        note.color = val;
+        changes.push('color');
+      }
+    } catch (err) {
+      res.status(err.statusCode || 400);
+      throw err;
+    }
+  }
+
+  if (visibility !== undefined) {
+    try {
+      const next = normalizeVisibility(visibility);
+      if (next !== undefined && next !== note.visibility) {
+        note.visibility = next;
+        changes.push('visibility');
+      }
     } catch (err) {
       res.status(err.statusCode || 400);
       throw err;
@@ -320,7 +431,13 @@ export const updateWorkspaceNote = asyncHandler(async (req, res) => {
 
   if (folderId !== undefined) {
     try {
-      note.folder = await resolveFolderId(folderId, note.workspace);
+      const next = await resolveFolderId(folderId, note.workspace);
+      const cur = note.folder ? note.folder.toString() : null;
+      const val = next ? next.toString() : null;
+      if (cur !== val) {
+        note.folder = next;
+        changes.push('folder');
+      }
     } catch (err) {
       res.status(err.statusCode || 400);
       throw err;
@@ -334,10 +451,17 @@ export const updateWorkspaceNote = asyncHandler(async (req, res) => {
       size: file.size,
       mimeType: file.mimetype,
     }));
+    changes.push('attachments');
+  }
+
+  if (changes.length > 0) {
+    recordHistory(note, userId, 'updated', changes);
   }
 
   await note.save();
   await note.populate('author', 'name email profile');
+  await note.populate('lastEditedBy', 'name profile');
+  await note.populate('history.user', 'name profile');
   await note.populate('folder', 'name parent color');
 
   res.status(200).json({ success: true, note });
@@ -361,22 +485,28 @@ export const moveWorkspaceNote = asyncHandler(async (req, res) => {
     throw new Error('Workspace not found.');
   }
 
-  const isAuthor = note.author.toString() === userId;
-  const isManager = isAdminOrOwner(workspace, userId);
-  if (!isAuthor && !isManager) {
+  if (!canManageNote(note, workspace, userId)) {
     res.status(403);
     throw new Error('You do not have permission to move this note.');
   }
 
+  const previous = note.folder ? note.folder.toString() : null;
   try {
     note.folder = await resolveFolderId(folderId, note.workspace);
   } catch (err) {
     res.status(err.statusCode || 400);
     throw err;
   }
+  const next = note.folder ? note.folder.toString() : null;
+
+  if (previous !== next) {
+    recordHistory(note, userId, 'moved', ['folder']);
+  }
 
   await note.save();
   await note.populate('author', 'name email profile');
+  await note.populate('lastEditedBy', 'name profile');
+  await note.populate('history.user', 'name profile');
   await note.populate('folder', 'name parent color');
 
   res.status(200).json({ success: true, note });
@@ -401,26 +531,83 @@ export const updateWorkspaceNoteColor = asyncHandler(async (req, res) => {
     throw new Error('Workspace not found.');
   }
 
-  const isAuthor = note.author.toString() === userId;
-  const isManager = isAdminOrOwner(workspace, userId);
-  if (!isAuthor && !isManager) {
+  if (!canManageNote(note, workspace, userId)) {
     res.status(403);
     throw new Error('You do not have permission to change this note.');
   }
 
   try {
-    note.color = normalizeColor(color);
+    const next = normalizeColor(color);
+    const cur = note.color ?? null;
+    const val = next ?? null;
+    if (val !== cur) {
+      note.color = val;
+      recordHistory(note, userId, 'color-changed', ['color']);
+    }
   } catch (err) {
     res.status(err.statusCode || 400);
     throw err;
   }
 
   await note.save();
+  await note.populate('lastEditedBy', 'name profile');
+  await note.populate('history.user', 'name profile');
+
+  res.status(200).json({ success: true, note });
+});
+
+// ─── Update Note Visibility (dedicated endpoint) ────────────────────────
+// PATCH /api/workspace-notes/:id/visibility
+// Body: { visibility: "public" | "workspace" }
+// Allowed: note author OR workspace Admin OR workspace Owner.
+export const updateWorkspaceNoteVisibility = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { visibility } = req.body;
+
+  const note = await WorkspaceNote.findById(req.params.id);
+  if (!note) {
+    res.status(404);
+    throw new Error('Note not found.');
+  }
+
+  const workspace = await Workspace.findById(note.workspace);
+  if (!workspace) {
+    res.status(404);
+    throw new Error('Workspace not found.');
+  }
+
+  if (!canManageNote(note, workspace, userId)) {
+    res.status(403);
+    throw new Error('You do not have permission to change this note.');
+  }
+
+  let next;
+  try {
+    next = normalizeVisibility(visibility);
+  } catch (err) {
+    res.status(err.statusCode || 400);
+    throw err;
+  }
+  if (next === undefined) {
+    res.status(400);
+    throw new Error("Visibility is required ('public' or 'workspace').");
+  }
+
+  if (next !== note.visibility) {
+    note.visibility = next;
+    recordHistory(note, userId, 'visibility-changed', ['visibility']);
+    await note.save();
+  }
+
+  await note.populate('lastEditedBy', 'name profile');
+  await note.populate('history.user', 'name profile');
+
   res.status(200).json({ success: true, note });
 });
 
 // ─── Delete Workspace Note ──────────────────────────────────────────────
 // DELETE /api/workspace-notes/:id
+// Allowed: note author OR workspace Admin OR workspace Owner.
 export const deleteWorkspaceNote = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const note = await WorkspaceNote.findById(req.params.id);
@@ -436,10 +623,7 @@ export const deleteWorkspaceNote = asyncHandler(async (req, res) => {
     throw new Error('Workspace not found.');
   }
 
-  const isAuthor = note.author.toString() === userId;
-  const isManager = isAdminOrOwner(workspace, userId);
-
-  if (!isAuthor && !isManager) {
+  if (!canManageNote(note, workspace, userId)) {
     res.status(403);
     throw new Error('You do not have permission to delete this note.');
   }
@@ -500,10 +684,10 @@ export const exportWorkspaceNotePDF = asyncHandler(async (req, res) => {
 
 // ─── Import File to Workspace Note ──────────────────────────────────────
 // POST /api/workspace-notes/import
-// Body: { workspaceId, title?, folderId?, color? }
+// Body: { workspaceId, title?, folderId?, color?, visibility? }
 export const importFileToWorkspaceNote = asyncHandler(async (req, res) => {
   const userId = req.user.id;
-  const { workspaceId, title, folderId, color } = req.body;
+  const { workspaceId, title, folderId, color, visibility } = req.body;
   const file = req.file;
 
   if (!workspaceId || !file) {
@@ -531,11 +715,19 @@ export const importFileToWorkspaceNote = asyncHandler(async (req, res) => {
     throw err;
   }
 
-  // ── NOTE COLOR ──
   let resolvedColor = null;
   try {
     const c = normalizeColor(color);
     if (c !== undefined) resolvedColor = c;
+  } catch (err) {
+    res.status(err.statusCode || 400);
+    throw err;
+  }
+
+  let resolvedVisibility = 'workspace';
+  try {
+    const v = normalizeVisibility(visibility);
+    if (v !== undefined) resolvedVisibility = v;
   } catch (err) {
     res.status(err.statusCode || 400);
     throw err;
@@ -576,13 +768,14 @@ export const importFileToWorkspaceNote = asyncHandler(async (req, res) => {
 
     const noteTitle = (title || file.originalname || '').trim();
 
-    const note = await WorkspaceNote.create({
+    const note = new WorkspaceNote({
       workspace: workspaceId,
       folder: resolvedFolderId,
       author: userId,
       title: noteTitle,
       content: extractedText.trim() || 'No text could be extracted.',
-      color: resolvedColor, // 👈 saved here
+      color: resolvedColor,
+      visibility: resolvedVisibility,
       attachments: [
         {
           filename: file.originalname,
@@ -593,7 +786,18 @@ export const importFileToWorkspaceNote = asyncHandler(async (req, res) => {
       ],
     });
 
+    recordHistory(
+      note,
+      userId,
+      'imported',
+      resolvedVisibility === 'public' ? ['created', 'visibility'] : ['created']
+    );
+
+    await note.save();
+
     await note.populate('author', 'name email profile');
+    await note.populate('lastEditedBy', 'name profile');
+    await note.populate('history.user', 'name profile');
     await note.populate('folder', 'name parent color');
 
     const memberIds = getActiveMemberIds(workspace).filter(id => id !== userId);

@@ -1,9 +1,9 @@
-// src/workspaceScreens/YourWorkspaceProjects.jsx
+// src/screens/workspace/WorkspaceProjects.jsx
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
-import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
+import { useGetWorkspaceQuery } from '../../slices/workspaceApiSlice';
 import {
   useGetWorkspaceProjectsQuery,
   useDeleteProjectMutation,
@@ -20,32 +20,35 @@ import {
   useRemoveProjectAssociateMutation,
   useEnableProjectShareLinkMutation,
   useDisableProjectShareLinkMutation,
-} from '../slices/projectApiSlice';
-import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
+} from '../../slices/projectApiSlice';
+import { useGetProjectTasksQuery } from '../../slices/taskApiSlice';
 import {
   usePlanWithAIMutation,
   useExecuteAIPlanMutation,
   useSummarizeProjectMutation,
   useReviewProjectMutation,
   useGenerateProjectDocsMutation,
-} from '../slices/aiApiSlice';
+} from '../../slices/aiApiSlice';
 import { jsPDF } from 'jspdf';
-import YourWorkspaceSidebar from '../components/YourWorkspaceSidebar';
-import YourWorkspaceBottombar from '../components/YourWorkspaceBottombar';
+import WorkspaceSidebar from '../../components/WorkspaceSidebar';
+import WorkspaceBottombar from '../../components/WorkspaceBottombar';
 import {
   FaPlus, FaFolder, FaUsers, FaSearch, FaTasks, FaTrashAlt, FaEdit, FaEllipsisV,
   FaTimes, FaArrowLeft, FaSpinner, FaCheckCircle, FaClock, FaRocket, FaFilter,
-  FaChevronDown, FaChartPie, FaArchive, FaUndo, FaTrashRestore,
+  FaChevronDown, FaArchive, FaUndo, FaTrashRestore,
   FaMagic, FaPaperPlane, FaExclamationTriangle, FaCheck, FaUser,
   FaHeartbeat, FaLightbulb, FaFileAlt, FaDownload, FaExclamationCircle,
   FaAngleDown, FaPalette, FaCalendarAlt, FaAngleLeft, FaAngleRight,
   FaThLarge, FaList,
-  FaBolt, FaCube, FaStar, FaFire, FaFeather, FaCrown, FaGem, FaCompass, FaLayerGroup,
-  FaUserPlus, FaShareAlt, FaCopy, FaGlobe, FaUserShield, FaLink, FaEye,
+  FaCrown, FaLayerGroup,
+  FaUserPlus, FaCopy, FaGlobe, FaUserShield, FaLink, FaEye,
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
-// ─── Project color palette ─────────────────────────────────────────────
+// ─── Base path (keep in sync with WorkspaceSidebar / WorkspaceBottombar / WorkspaceId) ──
+const WORKSPACE_BASE_PATH = '/workspace';
+
+// ─── Project color palette ─────────────────────────────────────────
 const PROJECT_COLORS = [
   { name: 'Teal',    value: '#0d9488' },
   { name: 'Emerald', value: '#10b981' },
@@ -67,7 +70,7 @@ const PROJECT_COLORS = [
 
 const DEFAULT_PROJECT_COLOR = PROJECT_COLORS[0].value;
 
-// ─── Color utilities ──────────────────────────────────────────────────
+// ─── Color utilities ─────────────────────────────────────────────
 const NAMED_TO_HEX = {
   red: '#ef4444', blue: '#3b82f6', green: '#22c55e', yellow: '#eab308',
   orange: '#f97316', purple: '#a855f7', pink: '#ec4899', teal: '#14b8a6',
@@ -96,11 +99,11 @@ const shadeHex = (hex, percent) => {
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
 };
 
-// ─── Unified project icon (book / stacked layers) ─────────────────────
+// ─── Unified project icon ───────────────────────────────────────
 const PROJECT_ICON = FaLayerGroup;
 const pickProjectIcon = () => PROJECT_ICON;
 
-// ─── Member normalization ─────────────────────────────────────────────
+// ─── Member normalization ───────────────────────────────────────
 const getTeamUser = (tm) => {
   if (!tm) return null;
   if (typeof tm === 'string') return { _id: tm, name: '', profile: '' };
@@ -132,7 +135,7 @@ const getInitials = (name) => {
   return (first + second).toUpperCase();
 };
 
-// ─── Member avatar ────────────────────────────────────────────────────
+// ─── Member avatar ──────────────────────────────────────────────
 const MemberAvatar = ({ user, size = 'sm', fallbackColor, ring = false }) => {
   const sizes = {
     xs: 'w-5 h-5 text-[8px]',
@@ -159,7 +162,7 @@ const MemberAvatar = ({ user, size = 'sm', fallbackColor, ring = false }) => {
   );
 };
 
-// ─── Reusable color swatch picker ──────────────────────────────────────
+// ─── Color swatch picker ────────────────────────────────────────
 const ColorPicker = ({ value, onChange, disabled = false }) => (
   <div className="flex flex-wrap gap-2">
     {PROJECT_COLORS.map((c) => {
@@ -191,7 +194,7 @@ const ColorPicker = ({ value, onChange, disabled = false }) => (
   </div>
 );
 
-// ─── Custom Dropdown ───────────────────────────────────────────────────
+// ─── Custom Dropdown ────────────────────────────────────────────
 const CustomDropdown = ({ value, onChange, options, placeholder = 'Select', disabled = false }) => {
   const [open, setOpen] = useState(false);
   const [popupPos, setPopupPos] = useState({
@@ -318,7 +321,7 @@ const CustomDropdown = ({ value, onChange, options, placeholder = 'Select', disa
   );
 };
 
-// ─── Custom DateTime Picker ────────────────────────────────────────────
+// ─── Custom DateTime Picker ─────────────────────────────────────
 const CustomDateTimePicker = ({ value, onChange, placeholder = 'Select date & time', disabled = false }) => {
   const [open, setOpen] = useState(false);
   const [popupPos, setPopupPos] = useState({
@@ -607,10 +610,9 @@ const CustomDateTimePicker = ({ value, onChange, placeholder = 'Select date & ti
   );
 };
 
-// Helper: treat progress >= 100 as completed
+// ─── Helpers ────────────────────────────────────────────────────
 const isProjectCompleted = (p) => p.status === 'completed' || (p.progress || 0) >= 100;
 
-// ─── Media query hook ──────────────────────────────────────────────────
 const useMediaQuery = (query) => {
   const [matches, setMatches] = useState(() =>
     typeof window !== 'undefined' ? window.matchMedia(query).matches : false
@@ -624,7 +626,7 @@ const useMediaQuery = (query) => {
   return matches;
 };
 
-// ─── Confirm Modal ──────────────────────────────────────────────────────
+// ─── Confirm Modal ──────────────────────────────────────────────
 const ConfirmModal = ({
   isOpen, onConfirm, onCancel, title, message,
   confirmLabel = 'Confirm', confirmColor = 'bg-red-600 hover:bg-red-700',
@@ -644,7 +646,7 @@ const ConfirmModal = ({
   );
 };
 
-// ─── Filter Drawer (mobile) ─────────────────────────────────────────────
+// ─── Filter Drawer (mobile) ─────────────────────────────────────
 const FilterDrawer = ({ isOpen, onClose, filters, setFilters, view, setView, canManage }) => {
   if (!isOpen) return null;
   const statuses = view === 'active' ? ['all', 'planning', 'in-progress', 'completed'] : [];
@@ -698,7 +700,7 @@ const FilterDrawer = ({ isOpen, onClose, filters, setFilters, view, setView, can
   );
 };
 
-// ─── Search Projects Modal ─────────────────────────────────────────────
+// ─── Search Projects Modal ──────────────────────────────────────
 const SearchProjectsModal = ({ isOpen, onClose, projects, brandColor, workspaceId }) => {
   const [query, setQuery] = useState('');
   const navigate = useNavigate();
@@ -734,7 +736,7 @@ const SearchProjectsModal = ({ isOpen, onClose, projects, brandColor, workspaceI
               const cardHex = toHex(cardColor);
               const Icon = pickProjectIcon(project);
               return (
-                <div key={project._id} onClick={() => { onClose(); navigate(`/workspace/${workspaceId}/project/${project._id}`); }}
+                <div key={project._id} onClick={() => { onClose(); navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}/project/${project._id}`); }}
                   className="flex items-center gap-4 px-4 py-3 bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 hover:border-gray-300 dark:hover:border-gray-700 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition cursor-pointer group">
                   <div
                     className="w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0"
@@ -756,7 +758,7 @@ const SearchProjectsModal = ({ isOpen, onClose, projects, brandColor, workspaceI
   );
 };
 
-// ─── Create Project Modal ─────────────────────────────────────────────
+// ─── Create Project Modal ───────────────────────────────────────
 const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -882,63 +884,32 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Status</label>
-                  <CustomDropdown
-                    value={status}
-                    onChange={setStatus}
-                    options={STATUS_OPTIONS}
-                    placeholder="Select"
-                    disabled={loading}
-                  />
+                  <CustomDropdown value={status} onChange={setStatus} options={STATUS_OPTIONS} placeholder="Select" disabled={loading} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Priority</label>
-                  <CustomDropdown
-                    value={priority}
-                    onChange={setPriority}
-                    options={PRIORITY_OPTIONS}
-                    placeholder="Select"
-                    disabled={loading}
-                  />
+                  <CustomDropdown value={priority} onChange={setPriority} options={PRIORITY_OPTIONS} placeholder="Select" disabled={loading} />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Start Date</label>
-                  <CustomDateTimePicker
-                    value={startDate}
-                    onChange={setStartDate}
-                    placeholder="Pick start"
-                    disabled={loading}
-                  />
+                  <CustomDateTimePicker value={startDate} onChange={setStartDate} placeholder="Pick start" disabled={loading} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">End Date</label>
-                  <CustomDateTimePicker
-                    value={endDate}
-                    onChange={setEndDate}
-                    placeholder="Pick end"
-                    disabled={loading}
-                  />
+                  <CustomDateTimePicker value={endDate} onChange={setEndDate} placeholder="Pick end" disabled={loading} />
                 </div>
               </div>
             </div>
           )}
 
           <div className="flex gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition"
-            >
+            <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-90 disabled:opacity-50"
-              style={{ backgroundColor: color }}
-            >
+            <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-90 disabled:opacity-50" style={{ backgroundColor: color }}>
               {loading ? 'Creating...' : 'Create Project'}
             </button>
           </div>
@@ -948,7 +919,7 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
   );
 };
 
-// ─── Edit Project Modal ─────────────────────────────────────────────
+// ─── Edit Project Modal ─────────────────────────────────────────
 const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor, onSuccess }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -1046,42 +1017,20 @@ const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor,
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Status</label>
-                <CustomDropdown
-                  value={status}
-                  onChange={setStatus}
-                  options={STATUS_OPTIONS}
-                  placeholder="Select status"
-                  disabled={loading}
-                />
+                <CustomDropdown value={status} onChange={setStatus} options={STATUS_OPTIONS} placeholder="Select status" disabled={loading} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Priority</label>
-                <CustomDropdown
-                  value={priority}
-                  onChange={setPriority}
-                  options={PRIORITY_OPTIONS}
-                  placeholder="Select priority"
-                  disabled={loading}
-                />
+                <CustomDropdown value={priority} onChange={setPriority} options={PRIORITY_OPTIONS} placeholder="Select priority" disabled={loading} />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Start Date</label>
-                  <CustomDateTimePicker
-                    value={startDate}
-                    onChange={setStartDate}
-                    placeholder="Pick start"
-                    disabled={loading}
-                  />
+                  <CustomDateTimePicker value={startDate} onChange={setStartDate} placeholder="Pick start" disabled={loading} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">End Date</label>
-                  <CustomDateTimePicker
-                    value={endDate}
-                    onChange={setEndDate}
-                    placeholder="Pick end"
-                    disabled={loading}
-                  />
+                  <CustomDateTimePicker value={endDate} onChange={setEndDate} placeholder="Pick end" disabled={loading} />
                 </div>
               </div>
               <div className="flex gap-3 pt-2">
@@ -1096,9 +1045,9 @@ const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor,
   );
 };
 
-// ═════════════════════════════════════════════════════════════════════
-//  Manage Access Modal
-// ═════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════
+// Manage Access Modal — owner/admin only
+// ═════════════════════════════════════════════════════════════════
 const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
   const projectId = project?._id;
 
@@ -1146,7 +1095,7 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
       ? project.workspace
       : project.workspace?._id);
 
-  const projectUrl = `${window.location.origin}/workspace/${wsId}/project/${projectId}`;
+  const projectUrl = `${window.location.origin}${WORKSPACE_BASE_PATH}/${wsId}/project/${projectId}`;
   const shareUrl = publicEnabled ? projectUrl : '';
 
   const copyToClipboard = async (text, label = 'Link') => {
@@ -1195,11 +1144,7 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
 
   const handleChangeRole = async (assoc, newRole) => {
     try {
-      await updateAssociate({
-        projectId,
-        associateId: assoc._id,
-        role: newRole,
-      }).unwrap();
+      await updateAssociate({ projectId, associateId: assoc._id, role: newRole }).unwrap();
       toast.success(`Role updated to ${roleLabel(newRole)}`);
       refetch();
     } catch (err) {
@@ -1207,27 +1152,10 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
     }
   };
 
-  const handleChangeExpiry = async (assoc, newDate) => {
-    try {
-      await updateAssociate({
-        projectId,
-        associateId: assoc._id,
-        accessExpiresAt: newDate || null,
-      }).unwrap();
-      toast.success(newDate ? 'Expiry updated' : 'Expiry removed');
-      refetch();
-    } catch (err) {
-      toast.error(err?.data?.message || 'Failed to update expiry');
-    }
-  };
-
   const handleRemove = async () => {
     if (!pendingRemove) return;
     try {
-      await removeAssociate({
-        projectId,
-        associateId: pendingRemove._id,
-      }).unwrap();
+      await removeAssociate({ projectId, associateId: pendingRemove._id }).unwrap();
       toast.success('Associate removed');
       setPendingRemove(null);
       refetch();
@@ -1293,7 +1221,6 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
     <>
       <div className="fixed inset-0 z-[70] flex items-end md:items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-0 md:p-4" onClick={onClose}>
         <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-3xl md:rounded-2xl w-full md:max-w-lg max-h-[92vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
-
           <div className="shrink-0 flex justify-between items-center px-5 py-4 border-b border-gray-200 dark:border-gray-800/60">
             <div className="min-w-0">
               <h2 className="text-base font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
@@ -1307,18 +1234,13 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
           </div>
 
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
-
             <section>
               <div className="flex items-center gap-2 mb-2">
                 <FaGlobe className="text-xs text-[#0d9488]" />
-                <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">
-                  Public link
-                </h3>
+                <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">Public link</h3>
               </div>
 
-              <div className={`rounded-2xl border transition p-3 ${publicEnabled
-                ? 'bg-[#0d9488]/5 border-[#0d9488]/30'
-                : 'bg-gray-50 dark:bg-[#1a1a24] border-gray-200 dark:border-gray-800/40'}`}>
+              <div className={`rounded-2xl border transition p-3 ${publicEnabled ? 'bg-[#0d9488]/5 border-[#0d9488]/30' : 'bg-gray-50 dark:bg-[#1a1a24] border-gray-200 dark:border-gray-800/40'}`}>
                 <div className="flex items-start gap-3">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
@@ -1347,9 +1269,7 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
                 {publicEnabled && shareUrl && (
                   <div className="mt-3 flex items-center gap-2 bg-white dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800/60 rounded-lg px-2.5 py-1.5">
                     <FaLink className="text-gray-400 text-[10px] shrink-0" />
-                    <span className="flex-1 truncate text-[11px] text-gray-600 dark:text-gray-400 font-mono">
-                      {shareUrl}
-                    </span>
+                    <span className="flex-1 truncate text-[11px] text-gray-600 dark:text-gray-400 font-mono">{shareUrl}</span>
                     <button
                       type="button"
                       onClick={() => copyToClipboard(shareUrl, 'Public link')}
@@ -1366,9 +1286,7 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
             <section>
               <div className="flex items-center gap-2 mb-2">
                 <FaUserPlus className="text-xs text-[#0d9488]" />
-                <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">
-                  Add an associate
-                </h3>
+                <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">Add an associate</h3>
               </div>
 
               <form onSubmit={handleAdd} className="space-y-2">
@@ -1389,27 +1307,12 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
                   className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 focus:border-[#0d9488] outline-none disabled:opacity-60"
                 />
                 <div>
-                  <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-500 mb-1">
-                    Role
-                  </label>
-                  <CustomDropdown
-                    value={role}
-                    onChange={setRole}
-                    options={ROLE_OPTIONS}
-                    placeholder="Select role"
-                    disabled={isAdding}
-                  />
+                  <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-500 mb-1">Role</label>
+                  <CustomDropdown value={role} onChange={setRole} options={ROLE_OPTIONS} placeholder="Select role" disabled={isAdding} />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-500 mb-1">
-                    Access expires (optional)
-                  </label>
-                  <CustomDateTimePicker
-                    value={accessExpiresAt}
-                    onChange={setAccessExpiresAt}
-                    placeholder="No expiry"
-                    disabled={isAdding}
-                  />
+                  <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-500 mb-1">Access expires (optional)</label>
+                  <CustomDateTimePicker value={accessExpiresAt} onChange={setAccessExpiresAt} placeholder="No expiry" disabled={isAdding} />
                 </div>
                 <div className="flex gap-2 pt-1">
                   <button
@@ -1432,8 +1335,7 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
                 </div>
                 <p className="text-[10px] text-gray-500 dark:text-gray-500 leading-relaxed">
                   Associates are workspace members with limited access. If they don't have a Xircle account yet,
-                  they'll get an email with a link to the project. The moment they sign up with that email, they'll
-                  be linked and can act on tasks assigned to them. Promote them to Project Manager if they need
+                  they'll get an email with a link to the project. Promote them to Project Manager if they need
                   full control.
                 </p>
               </form>
@@ -1443,9 +1345,7 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <FaUsers className="text-xs text-[#0d9488]" />
-                  <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">
-                    Associates ({associates.length})
-                  </h3>
+                  <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">Associates ({associates.length})</h3>
                 </div>
                 {(activeCount > 0 || invitedCount > 0 || pmCount > 0) && (
                   <span className="text-[10px] text-gray-500 dark:text-gray-500">
@@ -1457,9 +1357,7 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
               </div>
 
               {isLoading ? (
-                <div className="flex justify-center py-6">
-                  <FaSpinner className="animate-spin text-lg text-[#0d9488]" />
-                </div>
+                <div className="flex justify-center py-6"><FaSpinner className="animate-spin text-lg text-[#0d9488]" /></div>
               ) : associates.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-gray-300 dark:border-gray-800/60 px-4 py-6 text-center">
                   <FaUserShield className="text-2xl text-gray-300 dark:text-gray-700 mx-auto mb-2" />
@@ -1500,34 +1398,23 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
 
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
-                                {displayName}
-                              </p>
+                              <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{displayName}</p>
                               {isPM && !isRevoked && (
                                 <span className="text-[9px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 inline-flex items-center gap-1">
                                   <FaCrown className="text-[7px]" /> PM
                                 </span>
                               )}
                               {isInvited && (
-                                <span className="text-[9px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">
-                                  Pending
-                                </span>
+                                <span className="text-[9px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">Pending</span>
                               )}
                               {expired && (
-                                <span className="text-[9px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
-                                  Expired
-                                </span>
+                                <span className="text-[9px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">Expired</span>
                               )}
                               {isRevoked && (
-                                <span className="text-[9px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
-                                  Revoked
-                                </span>
+                                <span className="text-[9px] font-bold tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400">Revoked</span>
                               )}
                             </div>
-                            {a.name && (
-                              <p className="text-[11px] text-gray-500 dark:text-gray-500 truncate">{a.email}</p>
-                            )}
-                            {!a.name && <p className="text-[11px] text-gray-400 dark:text-gray-600">—</p>}
+                            {a.name && <p className="text-[11px] text-gray-500 dark:text-gray-500 truncate">{a.email}</p>}
                             {expiryLabel && !isRevoked && (
                               <p className={`text-[10px] mt-0.5 inline-flex items-center gap-1 ${expired ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-500'}`}>
                                 <FaClock className="text-[8px]" />
@@ -1587,7 +1474,7 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
         title="Remove associate?"
         message={
           pendingRemove
-            ? `${pendingRemove.name || pendingRemove.email} will lose access to this project and this workspace. If they still have open tasks assigned, you'll need to reassign them first.`
+            ? `${pendingRemove.name || pendingRemove.email} will lose access to this project. If they still have open tasks assigned, reassign them first.`
             : ''
         }
         confirmLabel="Remove"
@@ -1596,7 +1483,7 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
   );
 };
 
-// ─── Project Menu Modal (bottom sheet on mobile) ──────────────────────
+// ─── Project Menu Modal (bottom sheet on mobile) ────────────────
 const ProjectMenuModal = ({
   isOpen, onClose, project, canManage,
   onEdit, onArchive, onUnarchive, onDelete, onPermanentDelete, onRestore,
@@ -1694,9 +1581,9 @@ const ProjectMenuModal = ({
   );
 };
 
-// ═════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════
 // Project Context Menu (right-click on desktop)
-// ═════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════
 const ProjectContextMenu = ({
   isOpen, x, y, project, canManage,
   onClose,
@@ -1708,7 +1595,6 @@ const ProjectContextMenu = ({
   const menuRef = useRef(null);
   const [pos, setPos] = useState({ left: x, top: y });
 
-  // Position the menu so it never leaves the viewport
   useEffect(() => {
     if (!isOpen || !menuRef.current) return;
     const MENU_W = 230;
@@ -1729,7 +1615,6 @@ const ProjectContextMenu = ({
     setPos({ left, top });
   }, [isOpen, x, y]);
 
-  // Close on outside click, escape, scroll, resize
   useEffect(() => {
     if (!isOpen) return;
     const onDown = (e) => {
@@ -1762,7 +1647,6 @@ const ProjectContextMenu = ({
 
   const handleAction = (action) => {
     onClose();
-    // Defer so the menu can unmount cleanly before the action runs
     setTimeout(() => action && action(), 0);
   };
 
@@ -1799,9 +1683,8 @@ const ProjectContextMenu = ({
       ref={menuRef}
       onContextMenu={(e) => e.preventDefault()}
       style={{ position: 'fixed', left: pos.left, top: pos.top, width: 230 }}
-      className="z-[120] rounded-xl border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-[#1a1a24] shadow-2xl shadow-black/20 backdrop-blur-md py-1.5 px-1.5 animate-[fadeIn_0.08s_ease-out]"
+      className="z-[120] rounded-xl border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-[#1a1a24] shadow-2xl shadow-black/20 backdrop-blur-md py-1.5 px-1.5"
     >
-      {/* Header: project name */}
       <div className="px-2 py-1.5 flex items-center gap-2 min-w-0">
         <span
           className="w-6 h-6 rounded-lg flex items-center justify-center text-white shrink-0"
@@ -1809,95 +1692,45 @@ const ProjectContextMenu = ({
         >
           <Icon className="text-[10px]" />
         </span>
-        <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate min-w-0">
-          {project.name}
-        </span>
+        <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate min-w-0">{project.name}</span>
       </div>
 
       <div className="my-1 h-px bg-gray-100 dark:bg-gray-800/60" />
 
       {isTrashed ? (
         <>
-          <Item
-            icon={<FaTrashRestore className="text-[11px]" />}
-            label="Restore"
-            tone="accent"
-            onClick={() => handleAction(onRestore)}
-          />
-          <Item
-            icon={<FaTrashAlt className="text-[11px]" />}
-            label="Delete permanently"
-            tone="danger"
-            onClick={() => handleAction(onPermanentDelete)}
-          />
+          <Item icon={<FaTrashRestore className="text-[11px]" />} label="Restore" tone="accent" onClick={() => handleAction(onRestore)} />
+          <Item icon={<FaTrashAlt className="text-[11px]" />} label="Delete permanently" tone="danger" onClick={() => handleAction(onPermanentDelete)} />
         </>
       ) : (
         <>
-          <Item
-            icon={<FaEye className="text-[11px]" />}
-            label="Open"
-            onClick={() => handleAction(onOpen)}
-          />
+          <Item icon={<FaEye className="text-[11px]" />} label="Open" onClick={() => handleAction(onOpen)} />
 
           {canManage && (
             <>
-              <Item
-                icon={<FaEdit className="text-[11px]" />}
-                label="Edit"
-                onClick={() => handleAction(() => onEdit(project._id))}
-              />
-              <Item
-                icon={<FaUserShield className="text-[11px]" />}
-                label="Manage access"
-                onClick={() => handleAction(() => onManageAccess(project))}
-              />
+              <Item icon={<FaEdit className="text-[11px]" />} label="Edit" onClick={() => handleAction(() => onEdit(project._id))} />
+              <Item icon={<FaUserShield className="text-[11px]" />} label="Manage access" onClick={() => handleAction(() => onManageAccess(project))} />
             </>
           )}
 
           <div className="my-1 h-px bg-gray-100 dark:bg-gray-800/60" />
           <SectionLabel>AI</SectionLabel>
-          <Item
-            icon={<FaLightbulb className="text-[11px]" />}
-            label="Summarize"
-            onClick={() => handleAction(() => onAISummary(project))}
-          />
+          <Item icon={<FaLightbulb className="text-[11px]" />} label="Summarize" onClick={() => handleAction(() => onAISummary(project))} />
           {canManage && (
-            <Item
-              icon={<FaHeartbeat className="text-[11px]" />}
-              label="Review"
-              onClick={() => handleAction(() => onAIReview(project))}
-            />
+            <Item icon={<FaHeartbeat className="text-[11px]" />} label="Review" onClick={() => handleAction(() => onAIReview(project))} />
           )}
-          <Item
-            icon={<FaFileAlt className="text-[11px]" />}
-            label="Documentation"
-            onClick={() => handleAction(() => onAIDocs(project))}
-          />
+          <Item icon={<FaFileAlt className="text-[11px]" />} label="Documentation" onClick={() => handleAction(() => onAIDocs(project))} />
 
           <div className="my-1 h-px bg-gray-100 dark:bg-gray-800/60" />
 
           {isArchivedForMe ? (
-            <Item
-              icon={<FaUndo className="text-[11px]" />}
-              label="Unarchive"
-              tone="accent"
-              onClick={() => handleAction(onUnarchive)}
-            />
+            <Item icon={<FaUndo className="text-[11px]" />} label="Unarchive" tone="accent" onClick={() => handleAction(onUnarchive)} />
           ) : (
-            <Item
-              icon={<FaArchive className="text-[11px]" />}
-              label="Archive for me"
-              onClick={() => handleAction(onArchive)}
-            />
+            <Item icon={<FaArchive className="text-[11px]" />} label="Archive for me" onClick={() => handleAction(onArchive)} />
           )}
 
           {canManage && (
-            <Item
-              icon={<FaTrashAlt className="text-[11px]" />}
-              label="Move to trash"
-              tone="warn"
-              onClick={() => handleAction(onDelete)}
-            />
+            <Item icon={<FaTrashAlt className="text-[11px]" />} label="Move to trash" tone="warn" onClick={() => handleAction(onDelete)} />
           )}
         </>
       )}
@@ -1906,7 +1739,7 @@ const ProjectContextMenu = ({
   );
 };
 
-// ─── Shared card helpers ──────────────────────────────────────────────
+// ─── Shared status helpers ──────────────────────────────────────
 const STATUS_LABELS = {
   planning: 'Planning',
   'in-progress': 'In Progress',
@@ -1920,8 +1753,8 @@ const STATUS_TEXT_COLOR = {
   archived: 'text-gray-500 dark:text-gray-400',
 };
 
-// ─── Project Card (grid view) ─────────────────────────────────────────
-const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen, onContextMenu }) => {
+// ─── Project Card (grid view) ───────────────────────────────────
+const ProjectCard = ({ project, brandColor, workspaceId, onMenuOpen, onContextMenu }) => {
   const navigate = useNavigate();
   const progress = project.progress || 0;
   const completed = isProjectCompleted(project);
@@ -1945,7 +1778,7 @@ const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen, 
 
   const handleCardClick = (e) => {
     if (e.target.closest('button')) return;
-    navigate(`/workspace/${workspaceId}/project/${project._id}`);
+    navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}/project/${project._id}`);
   };
 
   const handleContextMenu = (e) => {
@@ -1961,37 +1794,17 @@ const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen, 
       onContextMenu={handleContextMenu}
       className="group relative flex flex-col bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/70 dark:border-gray-800/50 hover:border-gray-300/80 dark:hover:border-gray-700/70 hover:shadow-[0_12px_40px_-12px_rgba(13,148,136,0.28)] dark:hover:shadow-[0_12px_40px_-12px_rgba(13,148,136,0.35)] transition-all duration-300 active:scale-[0.985] cursor-pointer overflow-hidden"
     >
-      <div
-        className="relative h-16 sm:h-20 md:h-24 flex items-center justify-center overflow-hidden shrink-0"
-        style={{ background: bannerBg }}
-      >
-        <div
-          className="absolute inset-0 opacity-[0.14] pointer-events-none"
-          style={{
-            backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.9) 1px, transparent 1px)',
-            backgroundSize: '12px 12px',
-          }}
-        />
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{ background: 'radial-gradient(circle at 30% 15%, rgba(255,255,255,0.28), transparent 60%)' }}
-        />
-        <div
-          className="absolute inset-x-0 bottom-0 h-8 pointer-events-none"
-          style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.18), transparent)' }}
-        />
+      <div className="relative h-16 sm:h-20 md:h-24 flex items-center justify-center overflow-hidden shrink-0" style={{ background: bannerBg }}>
+        <div className="absolute inset-0 opacity-[0.14] pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.9) 1px, transparent 1px)', backgroundSize: '12px 12px' }} />
+        <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(circle at 30% 15%, rgba(255,255,255,0.28), transparent 60%)' }} />
+        <div className="absolute inset-x-0 bottom-0 h-8 pointer-events-none" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.18), transparent)' }} />
 
         {project.coverImage && (
           <>
-            <img
-              src={project.coverImage}
-              alt=""
-              className="absolute inset-0 w-full h-full object-cover"
-            />
+            <img src={project.coverImage} alt="" className="absolute inset-0 w-full h-full object-cover" />
             <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-black/10 to-transparent" />
           </>
         )}
-
         {!project.coverImage && (
           <Icon className="relative text-white text-[22px] sm:text-[26px] md:text-[32px] drop-shadow-[0_2px_6px_rgba(0,0,0,0.35)]" />
         )}
@@ -2016,13 +1829,9 @@ const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen, 
         </h3>
 
         {project.description ? (
-          <p className="mt-0.5 md:mt-1 text-[10.5px] md:text-xs text-gray-500 dark:text-gray-500 line-clamp-1 md:line-clamp-2 leading-relaxed">
-            {project.description}
-          </p>
+          <p className="mt-0.5 md:mt-1 text-[10.5px] md:text-xs text-gray-500 dark:text-gray-500 line-clamp-1 md:line-clamp-2 leading-relaxed">{project.description}</p>
         ) : (
-          <p className="mt-0.5 md:mt-1 text-[10.5px] md:text-xs text-gray-400 dark:text-gray-600 italic truncate">
-            No description
-          </p>
+          <p className="mt-0.5 md:mt-1 text-[10.5px] md:text-xs text-gray-400 dark:text-gray-600 italic truncate">No description</p>
         )}
 
         <div className="flex-1 min-h-[6px]" />
@@ -2031,31 +1840,18 @@ const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen, 
           <>
             <div className="flex items-center gap-2 mt-2">
               <div className="flex-1 h-[3px] md:h-1 bg-gray-100 dark:bg-gray-800/70 rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all duration-700 ease-out"
-                  style={{ width: `${progress}%`, backgroundColor: cardColor }}
-                />
+                <div className="h-full rounded-full transition-all duration-700 ease-out" style={{ width: `${progress}%`, backgroundColor: cardColor }} />
               </div>
-              <span className="text-[9.5px] md:text-[10.5px] font-mono font-semibold text-gray-500 dark:text-gray-500 tabular-nums shrink-0">
-                {progress}%
-              </span>
+              <span className="text-[9.5px] md:text-[10.5px] font-mono font-semibold text-gray-500 dark:text-gray-500 tabular-nums shrink-0">{progress}%</span>
             </div>
 
             <div className="mt-2 flex items-center justify-between gap-2 min-w-0">
               <div className="flex -space-x-1.5 min-w-0 shrink">
                 {members.slice(0, 3).map((u, idx) => (
-                  <MemberAvatar
-                    key={u._id || idx}
-                    user={u}
-                    size="xs"
-                    fallbackColor={cardHex}
-                    ring
-                  />
+                  <MemberAvatar key={u._id || idx} user={u} size="xs" fallbackColor={cardHex} ring />
                 ))}
                 {members.length > 3 && (
-                  <span className="w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-[8px] font-semibold flex items-center justify-center ring-2 ring-white dark:ring-[#14141a]">
-                    +{members.length - 3}
-                  </span>
+                  <span className="w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-[8px] font-semibold flex items-center justify-center ring-2 ring-white dark:ring-[#14141a]">+{members.length - 3}</span>
                 )}
                 {members.length === 0 && (
                   <span className="text-[9.5px] md:text-[10px] text-gray-400 dark:text-gray-600">No members</span>
@@ -2080,8 +1876,8 @@ const ProjectCard = ({ project, brandColor, workspaceId, canManage, onMenuOpen, 
   );
 };
 
-// ─── Project List Item (list view) ────────────────────────────────────
-const ProjectListItem = ({ project, brandColor, workspaceId, canManage, onMenuOpen, onContextMenu }) => {
+// ─── Project List Item (list view) ──────────────────────────────
+const ProjectListItem = ({ project, brandColor, workspaceId, onMenuOpen, onContextMenu }) => {
   const navigate = useNavigate();
   const progress = project.progress || 0;
   const completed = isProjectCompleted(project);
@@ -2107,7 +1903,7 @@ const ProjectListItem = ({ project, brandColor, workspaceId, canManage, onMenuOp
 
   const handleClick = (e) => {
     if (e.target.closest('button')) return;
-    navigate(`/workspace/${workspaceId}/project/${project._id}`);
+    navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}/project/${project._id}`);
   };
 
   const handleContextMenu = (e) => {
@@ -2123,24 +1919,10 @@ const ProjectListItem = ({ project, brandColor, workspaceId, canManage, onMenuOp
       onContextMenu={handleContextMenu}
       className="group relative bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/70 dark:border-gray-800/50 hover:border-gray-300/80 dark:hover:border-gray-700/70 hover:shadow-md dark:hover:shadow-[0_4px_20px_rgba(13,148,136,0.12)] transition-all cursor-pointer pl-3 pr-2 py-3 md:pl-3.5 md:pr-3 md:py-3.5 flex items-start gap-3 md:gap-3.5 overflow-hidden"
     >
-      {/* Colored accent bar */}
-      <span
-        className="absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full"
-        style={{ backgroundColor: cardColor }}
-      />
+      <span className="absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full" style={{ backgroundColor: cardColor }} />
 
-      {/* Icon tile */}
-      <div
-        className="w-11 h-11 md:w-12 md:h-12 rounded-xl flex items-center justify-center text-white shrink-0 overflow-hidden relative"
-        style={{ background: tileBg }}
-      >
-        <div
-          className="absolute inset-0 opacity-[0.14] pointer-events-none"
-          style={{
-            backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.9) 1px, transparent 1px)',
-            backgroundSize: '8px 8px',
-          }}
-        />
+      <div className="w-11 h-11 md:w-12 md:h-12 rounded-xl flex items-center justify-center text-white shrink-0 overflow-hidden relative" style={{ background: tileBg }}>
+        <div className="absolute inset-0 opacity-[0.14] pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.9) 1px, transparent 1px)', backgroundSize: '8px 8px' }} />
         {project.coverImage ? (
           <img src={project.coverImage} alt="" className="absolute inset-0 w-full h-full object-cover" />
         ) : (
@@ -2148,76 +1930,46 @@ const ProjectListItem = ({ project, brandColor, workspaceId, canManage, onMenuOp
         )}
       </div>
 
-      {/* Main content — everything stacks vertically */}
       <div className="flex-1 min-w-0">
-        {/* Name + status badge */}
         <div className="flex items-center gap-2 min-w-0">
-          <h3 className="text-sm md:text-[15px] font-semibold text-gray-900 dark:text-gray-100 truncate min-w-0">
-            {project.name}
-          </h3>
-          <span
-            className={`inline-flex text-[10px] font-medium px-2 py-0.5 rounded-full border ${STATUS_TEXT_COLOR[displayStatus]} bg-white/60 dark:bg-black/20 border-gray-200 dark:border-gray-700/50 shrink-0`}
-          >
+          <h3 className="text-sm md:text-[15px] font-semibold text-gray-900 dark:text-gray-100 truncate min-w-0">{project.name}</h3>
+          <span className={`inline-flex text-[10px] font-medium px-2 py-0.5 rounded-full border ${STATUS_TEXT_COLOR[displayStatus]} bg-white/60 dark:bg-black/20 border-gray-200 dark:border-gray-700/50 shrink-0`}>
             {STATUS_LABELS[displayStatus] || 'Planning'}
           </span>
         </div>
 
-        {/* Description */}
         {project.description ? (
-          <p className="text-xs text-gray-500 dark:text-gray-500 truncate mt-0.5">
-            {project.description}
-          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-500 truncate mt-0.5">{project.description}</p>
         ) : (
-          <p className="text-xs text-gray-400 dark:text-gray-600 italic truncate mt-0.5">
-            No description
-          </p>
+          <p className="text-xs text-gray-400 dark:text-gray-600 italic truncate mt-0.5">No description</p>
         )}
 
         {!project.isTrash && (
           <>
-            {/* Progress bar — under the text, full width */}
             <div className="flex items-center gap-2 mt-2">
               <div className="flex-1 h-1 bg-gray-100 dark:bg-gray-800/70 rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all duration-700 ease-out"
-                  style={{ width: `${progress}%`, backgroundColor: cardColor }}
-                />
+                <div className="h-full rounded-full transition-all duration-700 ease-out" style={{ width: `${progress}%`, backgroundColor: cardColor }} />
               </div>
-              <span className="text-[10px] md:text-[10.5px] font-mono font-semibold text-gray-500 dark:text-gray-500 tabular-nums shrink-0 w-8 text-right">
-                {progress}%
-              </span>
+              <span className="text-[10px] md:text-[10.5px] font-mono font-semibold text-gray-500 dark:text-gray-500 tabular-nums shrink-0 w-8 text-right">{progress}%</span>
             </div>
 
-            {/* Bottom row — members on the left, task counts on the right */}
             <div className="flex items-center justify-between gap-2 mt-2 min-w-0">
               <div className="flex -space-x-1.5 min-w-0 shrink">
                 {members.slice(0, 3).map((u, idx) => (
-                  <MemberAvatar
-                    key={u._id || idx}
-                    user={u}
-                    size="xs"
-                    fallbackColor={cardHex}
-                    ring
-                  />
+                  <MemberAvatar key={u._id || idx} user={u} size="xs" fallbackColor={cardHex} ring />
                 ))}
                 {members.length > 3 && (
-                  <span className="w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-[8px] font-semibold flex items-center justify-center ring-2 ring-white dark:ring-[#14141a]">
-                    +{members.length - 3}
-                  </span>
+                  <span className="w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-[8px] font-semibold flex items-center justify-center ring-2 ring-white dark:ring-[#14141a]">+{members.length - 3}</span>
                 )}
                 {members.length === 0 && (
-                  <span className="text-[10px] text-gray-400 dark:text-gray-600">
-                    No members
-                  </span>
+                  <span className="text-[10px] text-gray-400 dark:text-gray-600">No members</span>
                 )}
               </div>
 
               <div className="flex items-center gap-2.5 md:gap-3 text-[10.5px] text-gray-500 dark:text-gray-500 shrink-0">
                 <span className="flex items-center gap-1">
                   <FaTasks className="text-[9.5px] text-[#0d9488]" />
-                  <span className="tabular-nums">
-                    {taskLoading ? <FaSpinner className="animate-spin text-[9px]" /> : totalTasks}
-                  </span>
+                  <span className="tabular-nums">{taskLoading ? <FaSpinner className="animate-spin text-[9px]" /> : totalTasks}</span>
                 </span>
                 <span className="flex items-center gap-1">
                   <FaCheckCircle className="text-[9.5px] text-green-500" />
@@ -2229,7 +1981,6 @@ const ProjectListItem = ({ project, brandColor, workspaceId, canManage, onMenuOp
         )}
       </div>
 
-      {/* Menu button */}
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); onMenuOpen(project); }}
@@ -2611,7 +2362,7 @@ const AIProjectPanel = ({ workspaceId, brandColor, workspaceMembers = [], onClos
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="e.g. Build a coffee shop landing page in 2 weeks. Include design, development and QA. Sarah can do UI, John backend."
+              placeholder="e.g. Build a coffee shop landing page in 2 weeks. Include design, development and QA."
               rows={6}
               disabled={isPlanning}
               className="w-full px-3 py-2.5 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-[#0d9488] outline-none resize-none disabled:opacity-60"
@@ -3111,7 +2862,7 @@ const AIDocsModal = ({ isOpen, onClose, projectId, brandColor }) => {
   );
 };
 
-// ─── Layout Toggle ──────────────────────────────────────────────────
+// ─── Layout Toggle ──────────────────────────────────────────────
 const LayoutToggle = ({ value, onChange }) => (
   <div className="flex items-center bg-gray-100 dark:bg-[#1a1a24] border border-gray-300 dark:border-gray-800/60 rounded-full p-0.5 shrink-0">
     <button
@@ -3143,8 +2894,10 @@ const LayoutToggle = ({ value, onChange }) => (
   </div>
 );
 
-// ─── Main Component ─────────────────────────────────────────────────────
-const YourWorkspaceProjects = () => {
+// ═════════════════════════════════════════════════════════════════
+// MAIN
+// ═════════════════════════════════════════════════════════════════
+const WorkspaceProjects = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
@@ -3161,7 +2914,6 @@ const YourWorkspaceProjects = () => {
   const [optimisticArchivedIds, setOptimisticArchivedIds] = useState([]);
   const [manageAccessProject, setManageAccessProject] = useState(null);
 
-  // Context menu state
   const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, project: null });
 
   const [layoutView, setLayoutView] = useState(() => {
@@ -3201,19 +2953,27 @@ const YourWorkspaceProjects = () => {
   const projects = projectsData?.projects || [];
   const brandColor = workspace?.color || '#0d9488';
 
-  const ownerId = workspace?.owner?._id || workspace?.owner;
-  const isOwner = !!ownerId && !!userInfo?._id && String(ownerId) === String(userInfo._id);
+  // ─── Identity & role ──────────────────────────────────────
+  const isLoggedIn = !!userInfo;
+  const myId = String(userInfo?._id || '');
 
-  const myMembership = workspace?.members?.find(
-    (m) => (m.user?._id || m.user)?.toString() === userInfo?._id?.toString()
-  );
-  const isAssociate = myMembership?.memberType === 'associate';
-  const isAdmin = !isAssociate && workspace?.members?.some(
-    (m) =>
-      (m.user?._id || m.user)?.toString() === userInfo?._id?.toString() &&
-      m.role === 'Admin' &&
-      m.status === 'active'
-  );
+  const myMembership = useMemo(() => {
+    if (!workspace?.members || !isLoggedIn) return null;
+    return workspace.members.find(
+      (m) => String(m.user?._id || m.user) === myId
+    );
+  }, [workspace, isLoggedIn, myId]);
+
+  const memberRole = String(myMembership?.role || '').toLowerCase();
+  const memberType = String(myMembership?.memberType || '').toLowerCase();
+  const ownerId = workspace?.owner?._id || workspace?.owner;
+
+  const isOwner =
+    (!!ownerId && !!myId && String(ownerId) === myId) ||
+    memberRole === 'owner';
+  const isMember = !!myMembership;
+  const isAssociate = isMember && memberType === 'associate';
+  const isAdmin = isMember && !isAssociate && memberRole === 'admin';
   const canManage = isOwner || isAdmin;
 
   const workspaceMembers = useMemo(() => {
@@ -3273,12 +3033,8 @@ const YourWorkspaceProjects = () => {
     refetchProjects();
   }, [refetchProjects]);
 
-  // ⭐ IMPORTANT: these hooks must live ABOVE the early returns below.
-  //    Having them below caused React error #310 (rendered more hooks
-  //    than during the previous render) whenever projects finished
-  //    loading after the initial spinner render.
+  // Must live above early returns (React hook order)
   const handleContextMenu = useCallback((project, x, y) => {
-    // Only enable on non-touch (desktop-ish) devices
     if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) {
       return;
     }
@@ -3289,12 +3045,19 @@ const YourWorkspaceProjects = () => {
     setContextMenu((prev) => (prev.open ? { ...prev, open: false, project: null } : prev));
   }, []);
 
-  // Navigate via effect so we don't call navigate() during render
+  // Redirect guests to workspace home (which shows the sign-in CTA)
   useEffect(() => {
-    if (workspaceError) navigate('/workspaces', { replace: true });
+    if (!isLoggedIn) {
+      navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}`, { replace: true });
+    }
+  }, [isLoggedIn, navigate, workspaceId]);
+
+  // Redirect on workspace error
+  useEffect(() => {
+    if (workspaceError) navigate('/my-workspaces', { replace: true });
   }, [workspaceError, navigate]);
 
-  // ────────── ALL HOOKS ARE ABOVE THIS LINE ──────────
+  // ────────── ALL HOOKS ABOVE ──────────
   if (workspaceLoading || projectsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0b10]">
@@ -3375,7 +3138,6 @@ const YourWorkspaceProjects = () => {
   const handleEditSuccess = () => { refetchProjects(); setEditProjectId(null); };
   const handleMenuOpen = (project) => { setSelectedProject(project); setMenuModalOpen(true); };
   const handleMenuClose = () => { setMenuModalOpen(false); setSelectedProject(null); };
-
   const handleManageAccess = (project) => setManageAccessProject(project);
 
   const gridCols = aiOpen && isDesktop
@@ -3385,14 +3147,14 @@ const YourWorkspaceProjects = () => {
   return (
     <div className="h-dvh bg-gray-50 dark:bg-[#0b0b10] flex flex-col lg:flex-row overflow-hidden">
       <div className="hidden md:block md:min-h-screen fixed top-0 left-0 z-20 workspace-shell-sidebar">
-        <YourWorkspaceSidebar workspace={workspace} chats={[]} />
+        <WorkspaceSidebar workspace={workspace} chats={[]} />
       </div>
 
-      <div className="flex-1 flex flex-col h-full overflow-hidden workspace-shell-main">
+      <div className="flex-1 flex flex-col h-full overflow-hidden md:ml-[260px] workspace-shell-main">
         <header className="sticky top-0 z-10 bg-white/80 dark:bg-[#0f0f12]/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800/40 flex-shrink-0">
           <div className="flex items-center justify-between px-4 h-14 lg:h-16">
             <div className="flex items-center gap-3 min-w-0">
-              <button onClick={() => navigate(`/workspace/${workspaceId}`)} className="p-1 lg:hidden text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"><FaArrowLeft /></button>
+              <button onClick={() => navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}`)} className="p-1 lg:hidden text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"><FaArrowLeft /></button>
               <h1 className="text-lg font-bold text-gray-800 dark:text-gray-100 tracking-tight">Projects</h1>
               <span className="text-xs font-normal text-gray-500 dark:text-gray-500 bg-gray-100 dark:bg-[#1a1a24] px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-800/40">{projects.length}</span>
             </div>
@@ -3467,53 +3229,27 @@ const YourWorkspaceProjects = () => {
                 <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 px-3 py-2.5 overflow-hidden">
                   <div className="flex items-center gap-1">
                     <div className="flex-1 min-w-0 text-center">
-                      <p className="text-base font-bold text-gray-800 dark:text-gray-100 leading-none tabular-nums">
-                        {totalProjects}
-                      </p>
-                      <p className="text-[9px] text-gray-500 dark:text-gray-500 uppercase tracking-wider mt-1">
-                        Total
-                      </p>
+                      <p className="text-base font-bold text-gray-800 dark:text-gray-100 leading-none tabular-nums">{totalProjects}</p>
+                      <p className="text-[9px] text-gray-500 dark:text-gray-500 uppercase tracking-wider mt-1">Total</p>
                     </div>
-
                     <div className="w-px h-6 bg-gray-200 dark:bg-gray-800/60" />
-
                     <div className="flex-1 min-w-0 text-center">
-                      <p className="text-base font-bold text-blue-600 dark:text-blue-400 leading-none tabular-nums">
-                        {planningProjects}
-                      </p>
-                      <p className="text-[9px] text-gray-500 dark:text-gray-500 uppercase tracking-wider mt-1">
-                        Plan
-                      </p>
+                      <p className="text-base font-bold text-blue-600 dark:text-blue-400 leading-none tabular-nums">{planningProjects}</p>
+                      <p className="text-[9px] text-gray-500 dark:text-gray-500 uppercase tracking-wider mt-1">Plan</p>
                     </div>
-
                     <div className="w-px h-6 bg-gray-200 dark:bg-gray-800/60" />
-
                     <div className="flex-1 min-w-0 text-center">
-                      <p className="text-base font-bold text-yellow-600 dark:text-yellow-400 leading-none tabular-nums">
-                        {inProgressProjects}
-                      </p>
-                      <p className="text-[9px] text-gray-500 dark:text-gray-500 uppercase tracking-wider mt-1">
-                        Doing
-                      </p>
+                      <p className="text-base font-bold text-yellow-600 dark:text-yellow-400 leading-none tabular-nums">{inProgressProjects}</p>
+                      <p className="text-[9px] text-gray-500 dark:text-gray-500 uppercase tracking-wider mt-1">Doing</p>
                     </div>
-
                     <div className="w-px h-6 bg-gray-200 dark:bg-gray-800/60" />
-
                     <div className="flex-1 min-w-0 text-center">
-                      <p className="text-base font-bold text-green-600 dark:text-green-400 leading-none tabular-nums">
-                        {completedProjects}
-                      </p>
-                      <p className="text-[9px] text-gray-500 dark:text-gray-500 uppercase tracking-wider mt-1">
-                        Done
-                      </p>
+                      <p className="text-base font-bold text-green-600 dark:text-green-400 leading-none tabular-nums">{completedProjects}</p>
+                      <p className="text-[9px] text-gray-500 dark:text-gray-500 uppercase tracking-wider mt-1">Done</p>
                     </div>
                   </div>
-
                   <div className="mt-2 h-[2px] w-full bg-gray-100 dark:bg-gray-800/60 rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all duration-700 ease-out"
-                      style={{ width: `${overallProgress}%`, backgroundColor: brandColor }}
-                    />
+                    <div className="h-full rounded-full transition-all duration-700 ease-out" style={{ width: `${overallProgress}%`, backgroundColor: brandColor }} />
                   </div>
                 </div>
               </div>
@@ -3560,7 +3296,6 @@ const YourWorkspaceProjects = () => {
                         project={project}
                         brandColor={brandColor}
                         workspaceId={workspaceId}
-                        canManage={canManage}
                         onMenuOpen={handleMenuOpen}
                         onContextMenu={handleContextMenu}
                       />
@@ -3574,7 +3309,6 @@ const YourWorkspaceProjects = () => {
                         project={project}
                         brandColor={brandColor}
                         workspaceId={workspaceId}
-                        canManage={canManage}
                         onMenuOpen={handleMenuOpen}
                         onContextMenu={handleContextMenu}
                       />
@@ -3594,7 +3328,7 @@ const YourWorkspaceProjects = () => {
                         activeProjects.map((p) => {
                           const pColor = p.color || brandColor;
                           return (
-                            <Link key={p._id} to={`/workspace/${workspaceId}/project/${p._id}`} className="flex items-center justify-between group">
+                            <Link key={p._id} to={`${WORKSPACE_BASE_PATH}/${workspaceId}/project/${p._id}`} className="flex items-center justify-between group">
                               <span className="flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white transition truncate min-w-0">
                                 <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: pColor }} />
                                 <span className="truncate">{p.name}</span>
@@ -3687,7 +3421,7 @@ const YourWorkspaceProjects = () => {
         </div>
       </div>
 
-      <YourWorkspaceBottombar workspace={workspace} />
+      <WorkspaceBottombar workspace={workspace} />
 
       <SearchProjectsModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} projects={projects} brandColor={brandColor} workspaceId={workspaceId} />
       <FilterDrawer isOpen={filterDrawerOpen} onClose={() => setFilterDrawerOpen(false)} filters={filters} setFilters={setFilters} view={view} setView={setView} canManage={canManage} />
@@ -3720,7 +3454,6 @@ const YourWorkspaceProjects = () => {
         brandColor={brandColor}
       />
 
-      {/* Right-click context menu (desktop) */}
       <ProjectContextMenu
         isOpen={contextMenu.open}
         x={contextMenu.x}
@@ -3728,7 +3461,7 @@ const YourWorkspaceProjects = () => {
         project={contextMenu.project}
         canManage={canManage}
         onClose={closeContextMenu}
-        onOpen={() => contextMenu.project && navigate(`/workspace/${workspaceId}/project/${contextMenu.project._id}`)}
+        onOpen={() => contextMenu.project && navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}/project/${contextMenu.project._id}`)}
         onEdit={handleEdit}
         onManageAccess={handleManageAccess}
         onAISummary={(p) => setAiSummaryProject(p)}
@@ -3771,4 +3504,4 @@ const YourWorkspaceProjects = () => {
   );
 };
 
-export default YourWorkspaceProjects;
+export default WorkspaceProjects;

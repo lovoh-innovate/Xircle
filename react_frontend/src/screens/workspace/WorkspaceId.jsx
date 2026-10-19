@@ -1,18 +1,19 @@
-// src/workspaceScreens/MyWorkspaceId.jsx
-import React, { useEffect, useState, useCallback, useRef, memo } from 'react';
+// src/screens/workspace/WorkspaceId.jsx
+import React, { useEffect, useState, useCallback, useRef, memo, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { useGetWorkspaceQuery } from '../slices/workspaceApiSlice';
-import { useGetWorkspaceProjectsQuery } from '../slices/projectApiSlice';
-import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
-import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
-import { useChatWithAIMutation } from '../slices/aiApiSlice';
-import { useWorkspacePresence } from '../services/useWorkspacePresence';
+import { useSelector } from 'react-redux';
+import { useGetWorkspaceQuery } from '../../slices/workspaceApiSlice';
+import { useGetWorkspaceProjectsQuery } from '../../slices/projectApiSlice';
+import { useGetUserChatsQuery } from '../../slices/messagingApiSlice';
+import { useGetProjectTasksQuery } from '../../slices/taskApiSlice';
+import { useChatWithAIMutation } from '../../slices/aiApiSlice';
+import { useWorkspacePresence } from '../../services/useWorkspacePresence';
 import {
   useGetClockInSettingsQuery,
   useGetUserClockInHistoryQuery,
-} from '../slices/clockinApiSlice';
-import MyWorkspaceSidebar from '../workspaceComponents/MyWorkspaceSidebar';
-import MyWorkspaceBottombar from '../workspaceComponents/MyWorkspaceBottombar';
+} from '../../slices/clockinApiSlice';
+import WorkspaceSidebar from '../../components/WorkspaceSidebar';
+import WorkspaceBottombar from '../../components/WorkspaceBottombar';
 import {
   FaUsers,
   FaHashtag,
@@ -31,12 +32,16 @@ import {
   FaPaperPlane,
   FaPlus,
   FaCog,
+  FaLock,
 } from 'react-icons/fa';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { toast } from 'react-hot-toast';
+import { toast } from 'react-toastify';
 
-// ─── Format "HH:MM" (24h) into friendly 12-hour time ──────────────
+// ─── Base path (keep in sync with WorkspaceSidebar / WorkspaceBottombar) ──
+const WORKSPACE_BASE_PATH = '/workspace';
+
+// ─── Format "HH:MM" into friendly 12-hour time ───────────────────
 const formatTime = (time24) => {
   if (!time24) return '';
   const [h, m] = time24.split(':').map(Number);
@@ -45,7 +50,7 @@ const formatTime = (time24) => {
   return `${hour12}:${String(m).padStart(2, '0')} ${period}`;
 };
 
-// ─── Global styles ─────────────────────────────────────────────────
+// ─── Global styles ──────────────────────────────────────────────
 const GlobalStyles = () => (
   <style>{`
     .skeleton {
@@ -79,7 +84,6 @@ const GlobalStyles = () => (
     .ai-markdown > *:last-child { margin-bottom: 0 !important; }
     .ai-markdown table { font-size: 12px; }
 
-    /* Mobile top bar: solid, always above page content, safe-area aware */
     .ws-mobile-header {
       padding-top: env(safe-area-inset-top, 0px);
     }
@@ -95,7 +99,7 @@ const GlobalStyles = () => (
   `}</style>
 );
 
-// ─── Skeleton primitives ───────────────────────────────────────────
+// ─── Skeleton primitives ────────────────────────────────────────
 const Skeleton = ({ className = '', style }) => (
   <div className={`skeleton rounded-lg ${className}`} style={style} />
 );
@@ -108,21 +112,22 @@ const MetricCardSkeleton = () => (
   </div>
 );
 
-// ─── Loading shell ─────────────────────────────────────────────────
+// ─── Loading shell ──────────────────────────────────────────────
 const WorkspaceLoadingShell = () => (
   <div className="min-h-screen bg-gray-50 dark:bg-[#0b0b10] flex flex-col">
     <div className="hidden md:block md:w-[260px] md:min-h-screen md:flex-shrink-0 fixed top-0 left-0 z-20">
-      <MyWorkspaceSidebar />
+      <WorkspaceSidebar />
     </div>
 
     <div className="flex-1 md:ml-[260px]">
       <div className="ws-mobile-header md:hidden fixed top-0 left-0 right-0 z-30 bg-white dark:bg-[#0b0b10] border-b border-gray-200 dark:border-gray-800/60">
-        <div className="h-14 flex items-center justify-between gap-3 px-3">
-          <div className="flex-1 min-w-0 space-y-1.5">
-            <Skeleton className="h-2.5 w-20" />
-            <Skeleton className="h-4 w-32" />
+        <div className="h-14 flex items-center gap-1 px-2">
+          <Skeleton className="w-9 h-9 rounded-full flex-shrink-0" />
+          <Skeleton className="h-3.5 w-32 flex-1 max-w-[60%]" />
+          <div className="ml-auto flex items-center gap-1 flex-shrink-0">
+            <Skeleton className="w-9 h-9 rounded-full" />
+            <Skeleton className="w-9 h-9 rounded-full" />
           </div>
-          <Skeleton className="w-8 h-8 rounded-full flex-shrink-0" />
         </div>
       </div>
       <div className="ws-mobile-header-spacer md:hidden" />
@@ -153,11 +158,11 @@ const WorkspaceLoadingShell = () => (
       </main>
     </div>
 
-    <MyWorkspaceBottombar />
+    <WorkspaceBottombar />
   </div>
 );
 
-// ─── Helper: task counter per project ────────────────────────────
+// ─── Helper: task counter per project ───────────────────────────
 const TaskCounter = memo(({ projectId, onCount, onLoading }) => {
   const { data, isLoading } = useGetProjectTasksQuery({ projectId });
   const mounted = useRef(true);
@@ -165,7 +170,9 @@ const TaskCounter = memo(({ projectId, onCount, onLoading }) => {
 
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; };
+    return () => {
+      mounted.current = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -186,9 +193,9 @@ const TaskCounter = memo(({ projectId, onCount, onLoading }) => {
 
 const getMemberId = (member) => (member?.user?._id || member?.user)?.toString();
 
-// ═════════════════════════════════════════════════════════════════════
-// ── AI CHAT PANEL ────────────────────────────────────────────────────
-// ═════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════
+// ── AI CHAT PANEL ────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════
 
 const MarkdownMessage = ({ content, brandColor }) => (
   <div className="ai-markdown text-sm break-words">
@@ -202,12 +209,8 @@ const MarkdownMessage = ({ content, brandColor }) => (
         em: ({ children }) => (
           <em className="italic text-gray-700 dark:text-gray-300">{children}</em>
         ),
-        ul: ({ children }) => (
-          <ul className="list-disc pl-5 mb-2 space-y-1">{children}</ul>
-        ),
-        ol: ({ children }) => (
-          <ol className="list-decimal pl-5 mb-2 space-y-1">{children}</ol>
-        ),
+        ul: ({ children }) => <ul className="list-disc pl-5 mb-2 space-y-1">{children}</ul>,
+        ol: ({ children }) => <ol className="list-decimal pl-5 mb-2 space-y-1">{children}</ol>,
         li: ({ children }) => <li className="leading-relaxed">{children}</li>,
         h1: ({ children }) => (
           <h1 className="text-base font-bold mt-2 mb-1 text-gray-900 dark:text-white">
@@ -281,7 +284,6 @@ const MarkdownMessage = ({ content, brandColor }) => (
 
 const MessageBubble = ({ message, brandColor }) => {
   const isUser = message.role === 'user';
-
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div className={`max-w-[85%] ${isUser ? '' : 'w-full'}`}>
@@ -341,12 +343,7 @@ const AIChatPanel = ({ workspaceId, brandColor, onClose }) => {
     setMessages((prev) => [...prev, { role: 'user', content: text, id: `u-${Date.now()}` }]);
 
     try {
-      const res = await chatWithAI({
-        message: text,
-        conversationId,
-        workspaceId,
-      }).unwrap();
-
+      const res = await chatWithAI({ message: text, conversationId, workspaceId }).unwrap();
       if (res.conversationId && res.conversationId !== conversationId) {
         setConversationId(res.conversationId);
       }
@@ -359,7 +356,7 @@ const AIChatPanel = ({ workspaceId, brandColor, onClose }) => {
           id: `a-${Date.now()}`,
         },
       ]);
-    } catch (err) {
+    } catch {
       setMessages((prev) => [
         ...prev,
         {
@@ -387,7 +384,6 @@ const AIChatPanel = ({ workspaceId, brandColor, onClose }) => {
 
   return (
     <div className="flex flex-col h-full min-h-0 w-full">
-      {/* Header */}
       <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
         <div className="flex items-center gap-2.5 min-w-0">
           <div
@@ -427,7 +423,6 @@ const AIChatPanel = ({ workspaceId, brandColor, onClose }) => {
         </div>
       </div>
 
-      {/* Messages */}
       <div
         ref={scrollRef}
         className="ai-chat-scroll flex-1 overflow-y-auto px-3 sm:px-5 py-4 space-y-3 min-h-0"
@@ -445,8 +440,8 @@ const AIChatPanel = ({ workspaceId, brandColor, onClose }) => {
                 Hi! I&apos;m your workspace AI.
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-500 mt-1 max-w-xs">
-                Ask me anything — workspace stuff, general questions, or tell me to
-                do something (clock in, schedule a call, message a teammate).
+                Ask me anything — workspace stuff, general questions, or tell me to do
+                something (clock in, schedule a call, message a teammate).
               </p>
             </div>
             <div className="flex flex-wrap gap-2 justify-center max-w-sm">
@@ -462,9 +457,7 @@ const AIChatPanel = ({ workspaceId, brandColor, onClose }) => {
             </div>
           </div>
         ) : (
-          messages.map((m) => (
-            <MessageBubble key={m.id} message={m} brandColor={brandColor} />
-          ))
+          messages.map((m) => <MessageBubble key={m.id} message={m} brandColor={brandColor} />)
         )}
         {isLoading && (
           <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500 px-2">
@@ -474,7 +467,6 @@ const AIChatPanel = ({ workspaceId, brandColor, onClose }) => {
         )}
       </div>
 
-      {/* Input */}
       <div className="border-t border-gray-200/60 dark:border-gray-800/40 p-3 flex-shrink-0">
         <div className="flex items-end gap-2 bg-gray-50 dark:bg-[#0b0b10] rounded-2xl border border-gray-200 dark:border-gray-800/60 p-1.5 focus-within:border-teal-500 dark:focus-within:border-[#0d9488] transition">
           <textarea
@@ -505,9 +497,9 @@ const AIChatPanel = ({ workspaceId, brandColor, onClose }) => {
   );
 };
 
-// ═════════════════════════════════════════════════════════════════════
-// ── Clock‑in widget ─────────────────────────────────────────────────
-// ═════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════
+// ── Clock-in widget / banner ─────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════
 
 const ClockInWidget = ({ workspaceId, brandColor }) => {
   const navigate = useNavigate();
@@ -526,13 +518,16 @@ const ClockInWidget = ({ workspaceId, brandColor }) => {
     new Date(latest.clockInTime).toISOString().split('T')[0] === today &&
     !latest.clockOutTime;
   const clockInTime = isClockedIn
-    ? new Date(latest.clockInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    ? new Date(latest.clockInTime).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      })
     : null;
 
   if (!isEnabled) return null;
   if (settingsLoading) return <FaSpinner className="animate-spin text-teal-500 text-sm" />;
 
-  const handleNavigate = () => navigate(`/my-workspace/${workspaceId}/clockin`);
+  const handleNavigate = () => navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}/clockin`);
 
   return (
     <div className="flex items-center gap-2 bg-gray-100 dark:bg-[#14141a] px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-800/60 text-xs">
@@ -609,7 +604,9 @@ const ClockInBanner = ({ workspaceId, brandColor }) => {
         }
         const lateMinutes = Math.floor(Math.abs(diffMs) / 60000);
         const lateSeconds = Math.floor((Math.abs(diffMs) % 60000) / 1000);
-        setCountdown(`-${String(lateMinutes).padStart(2, '0')}:${String(lateSeconds).padStart(2, '0')}`);
+        setCountdown(
+          `-${String(lateMinutes).padStart(2, '0')}:${String(lateSeconds).padStart(2, '0')}`
+        );
         return;
       }
       const minutes = Math.floor(diffMs / 60000);
@@ -630,7 +627,7 @@ const ClockInBanner = ({ workspaceId, brandColor }) => {
           <FaExclamationTriangle className="text-yellow-500 text-[11px] sm:text-xs" />
           No schedule set —{' '}
           <Link
-            to={`/my-workspace/${workspaceId}/clockin`}
+            to={`${WORKSPACE_BASE_PATH}/${workspaceId}/clockin`}
             className="underline font-medium hover:opacity-80 transition"
             style={{ color: brandColor }}
           >
@@ -644,7 +641,10 @@ const ClockInBanner = ({ workspaceId, brandColor }) => {
 
   if (isClockedIn) {
     const clockInTimeFormatted = latest
-      ? new Date(latest.clockInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      ? new Date(latest.clockInTime).toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        })
       : '';
     return (
       <div
@@ -684,18 +684,28 @@ const ClockInBanner = ({ workspaceId, brandColor }) => {
       >
         <FaClock className="text-[11px] sm:text-xs" />
         {windowClosed ? (
-          <>⛔ <span className="font-semibold text-red-700 dark:text-red-300">Closed</span></>
+          <>
+            ⛔ <span className="font-semibold text-red-700 dark:text-red-300">Closed</span>
+          </>
         ) : isLate ? (
           <>
             <span className="text-red-700 dark:text-red-300">⏰ Late</span>
-            <span className="font-mono font-bold text-red-700 dark:text-red-300">{countdown}</span>
+            <span className="font-mono font-bold text-red-700 dark:text-red-300">
+              {countdown}
+            </span>
           </>
         ) : (
-          <>In <span className="font-mono font-bold" style={{ color: brandColor }}>{countdown}</span></>
+          <>
+            In{' '}
+            <span className="font-mono font-bold" style={{ color: brandColor }}>
+              {countdown}
+            </span>
+          </>
         )}
         {!windowClosed && (
           <span className="text-gray-600 dark:text-gray-400 font-normal whitespace-nowrap">
-            · {formatTime(clockInStart)}{clockInEnd ? `–${formatTime(clockInEnd)}` : ''}
+            · {formatTime(clockInStart)}
+            {clockInEnd ? `–${formatTime(clockInEnd)}` : ''}
           </span>
         )}
       </span>
@@ -704,44 +714,105 @@ const ClockInBanner = ({ workspaceId, brandColor }) => {
   );
 };
 
-// ═════════════════════════════════════════════════════════════════════
-// ── MAIN ─────────────────────────────────────────────────────────────
-// ═════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════
+// ── MAIN ─────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════
 
-const MyWorkspaceId = () => {
+const WorkspaceId = () => {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
+  const { userInfo } = useSelector((state) => state.auth);
+
   const [hideStats, setHideStats] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
-
-  const { data, isLoading, error } = useGetWorkspaceQuery(workspaceId);
-  const { data: projectsData } = useGetWorkspaceProjectsQuery({ workspaceId });
-  const { data: chatsData } = useGetUserChatsQuery(workspaceId);
-
-  const onlineUserIds = useWorkspacePresence(workspaceId);
-
   const [totalTasks, setTotalTasks] = useState(0);
   const [taskCounts, setTaskCounts] = useState({});
   const [loadingTasks, setLoadingTasks] = useState({});
 
+  // ─── Identity & role ────────────────────────────────────────
+  const isLoggedIn = !!userInfo;
+  const myId = String(userInfo?._id || '');
+
+  // ─── Workspace query (needed for role detection) ────────────
+  const { data, isLoading, error } = useGetWorkspaceQuery(workspaceId);
+  const workspace = data?.workspace;
+
+  const members = useMemo(() => workspace?.members || [], [workspace]);
+
+  const myMembership = useMemo(
+    () =>
+      isLoggedIn ? members.find((m) => String(m.user?._id || m.user) === myId) : null,
+    [members, isLoggedIn, myId]
+  );
+
+  const isMember = !!myMembership;
+  const isAssociate = isLoggedIn && !isMember;
+  const isGuest = !isLoggedIn;
+
+  const memberRole = String(myMembership?.role || '').toLowerCase();
+  const isOwnerOrAdmin = isMember && ['owner', 'admin'].includes(memberRole);
+
+  // ─── Feature gating ─────────────────────────────────────────
+  const canSeeProjects = isLoggedIn;
+  const canSeeNotes = isLoggedIn;
+  const canSeeChats = isMember;
+  const canSeeMembers = isMember;
+  const canSeeClockin = isMember;
+  const canSeeSettings = isOwnerOrAdmin;
+  const canInvite = isMember;
+  const canSeeAI = isLoggedIn;
+
+  // ─── Role-gated data queries ────────────────────────────────
+  const { data: projectsData } = useGetWorkspaceProjectsQuery(
+    { workspaceId },
+    { skip: !canSeeProjects }
+  );
+  const projects = projectsData?.projects || [];
+
+  const { data: chatsData } = useGetUserChatsQuery(workspaceId, {
+    skip: !canSeeChats,
+  });
+
+  const chats = useMemo(() => {
+    if (!canSeeChats) return [];
+    const all = chatsData?.chats || [];
+    return all.filter((chat) => {
+      if (!chat) return false;
+      if (chat.scope && chat.scope !== 'workspace') return false;
+      const chatWsId =
+        typeof chat.workspace === 'object' && chat.workspace !== null
+          ? chat.workspace._id
+          : chat.workspace;
+      return !chatWsId || String(chatWsId) === String(workspaceId);
+    });
+  }, [chatsData, workspaceId, canSeeChats]);
+
+  // ─── Presence (only when the user is a member) ──────────────
+  const onlineUserIds = useWorkspacePresence(isMember ? workspaceId : null);
+
+  // ─── Callbacks ──────────────────────────────────────────────
   const handleTaskCount = useCallback((projectId, count) => {
-    setTaskCounts((prev) => (prev[projectId] === count ? prev : { ...prev, [projectId]: count }));
+    setTaskCounts((prev) =>
+      prev[projectId] === count ? prev : { ...prev, [projectId]: count }
+    );
   }, []);
 
   const handleTaskLoading = useCallback((projectId, loading) => {
-    setLoadingTasks((prev) => (prev[projectId] === loading ? prev : { ...prev, [projectId]: loading }));
+    setLoadingTasks((prev) =>
+      prev[projectId] === loading ? prev : { ...prev, [projectId]: loading }
+    );
   }, []);
 
   useEffect(() => {
-    const sum = Object.values(taskCounts).reduce((a, b) => a + b, 0);
-    setTotalTasks(sum);
+    setTotalTasks(Object.values(taskCounts).reduce((a, b) => a + b, 0));
   }, [taskCounts]);
 
   useEffect(() => {
     if (error) navigate('/my-workspaces');
   }, [error, navigate]);
 
+  // ─── Loading / error ────────────────────────────────────────
   if (isLoading) {
     return (
       <>
@@ -751,10 +822,15 @@ const MyWorkspaceId = () => {
     );
   }
 
-  const workspace = data?.workspace;
-  const chats = chatsData?.chats || [];
-  const projects = projectsData?.projects || [];
   if (!workspace) return null;
+
+  const brandColor = workspace.color || '#0d9488';
+  const activeMembers = workspace.members?.filter((m) => m.status === 'active') || [];
+  const onlineMembers = isMember
+    ? activeMembers.filter((m) => onlineUserIds.has(getMemberId(m)))
+    : [];
+  const onlineCount = onlineMembers.length;
+  const channelCount = chats.filter((c) => c.type === 'group').length;
 
   const copyInviteCode = () => {
     if (workspace?.inviteCode) {
@@ -765,16 +841,110 @@ const MyWorkspaceId = () => {
     }
   };
 
-  const activeMembers = workspace.members?.filter((m) => m.status === 'active') || [];
-  const isMemberOnline = (member) => onlineUserIds.has(getMemberId(member));
-  const onlineCount = activeMembers.filter(isMemberOnline).length;
-  const onlineMembers = activeMembers.filter(isMemberOnline);
+  // ═════════════════════════════════════════════════════════════
+  // GUEST VIEW
+  // ═════════════════════════════════════════════════════════════
+  if (isGuest) {
+    return (
+      <>
+        <GlobalStyles />
+        <div className="min-h-screen bg-gray-50 dark:bg-[#0b0b10] flex flex-col">
+          <div className="hidden md:block md:min-h-screen fixed top-0 left-0 z-20 workspace-shell-sidebar">
+            <WorkspaceSidebar workspace={workspace} chats={[]} />
+          </div>
 
-  const channelCount = chats.filter((c) => c.type === 'group').length || 0;
-  const brandColor = workspace.color || '#0d9488';
+          <div className="flex-1 md:ml-[260px] workspace-shell-main">
+            <header className="ws-mobile-header md:hidden fixed top-0 left-0 right-0 z-30 bg-white dark:bg-[#0b0b10] border-b border-gray-200 dark:border-gray-800/60">
+              <div className="h-14 flex items-center gap-1 px-2 overflow-hidden">
+                <button
+                  onClick={() => navigate(-1)}
+                  className="w-9 h-9 rounded-full flex items-center justify-center text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/60 active:scale-90 transition flex-shrink-0"
+                  aria-label="Back"
+                >
+                  <FaArrowLeft className="text-sm" />
+                </button>
+                <div className="flex-1 min-w-0 overflow-hidden px-1">
+                  <h1
+                    className="block w-full text-sm font-semibold text-gray-800 dark:text-gray-100 whitespace-nowrap overflow-hidden text-ellipsis"
+                    title={workspace.name}
+                  >
+                    {workspace.name}
+                  </h1>
+                </div>
+              </div>
+            </header>
+            <div className="ws-mobile-header-spacer md:hidden" />
 
-  // ─── Metric card ─────────────────────────────────────────────────
-  const MetricCard = ({ icon: Icon, label, value, subtitle, subtitleColor, to, badge, badgeColor }) => (
+            <main className="max-w-7xl mx-auto px-4 sm:px-6 py-10 sm:py-16 pb-24 md:pb-16">
+              <div className="max-w-md mx-auto text-center bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-8">
+                {workspace.logo ? (
+                  <img
+                    src={workspace.logo}
+                    alt={workspace.name}
+                    className="w-16 h-16 rounded-2xl object-cover mx-auto mb-4"
+                  />
+                ) : (
+                  <div
+                    className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center text-white text-xl font-bold"
+                    style={{ backgroundColor: brandColor }}
+                  >
+                    {workspace.initials || workspace.name.charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <h1 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-1">
+                  {workspace.name}
+                </h1>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+                  {activeMembers.length}{' '}
+                  {activeMembers.length === 1 ? 'member' : 'members'}
+                </p>
+
+                <div className="w-14 h-14 rounded-2xl bg-teal-50 dark:bg-teal-900/20 flex items-center justify-center mx-auto mb-3">
+                  <FaLock className="text-teal-600 dark:text-teal-400 text-xl" />
+                </div>
+                <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-1">
+                  Sign in to unlock
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-500 mb-4 max-w-[240px] mx-auto leading-relaxed">
+                  Get full access to projects, tasks, notes and chats.
+                </p>
+                <button
+                  onClick={() => navigate('/login')}
+                  className="w-full py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-sm font-medium transition mb-2"
+                >
+                  Sign in
+                </button>
+                <button
+                  onClick={() => navigate('/signup')}
+                  className="w-full py-2 border border-gray-300 dark:border-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition"
+                >
+                  Create account
+                </button>
+              </div>
+            </main>
+          </div>
+
+          <WorkspaceBottombar workspace={workspace} />
+        </div>
+      </>
+    );
+  }
+
+  // ═════════════════════════════════════════════════════════════
+  // LOGGED-IN VIEW — associate / member / admin / owner
+  // ═════════════════════════════════════════════════════════════
+
+  // ─── Metric card ────────────────────────────────────────────
+  const MetricCard = ({
+    icon: Icon,
+    label,
+    value,
+    subtitle,
+    subtitleColor,
+    to,
+    badge,
+    badgeColor,
+  }) => (
     <Link
       to={to}
       className="group relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-2.5 sm:p-3 md:p-4 flex flex-col items-start gap-0.5 sm:gap-1 hover:border-teal-500 dark:hover:border-[#0d9488]/40 hover:shadow-[0_0_20px_rgba(13,148,136,0.12)] active:scale-[0.97] transition-all duration-300 overflow-hidden"
@@ -786,7 +956,6 @@ const MyWorkspaceId = () => {
           {badge}
         </span>
       )}
-
       <div className="flex items-center justify-between w-full">
         <div
           className="w-7 h-7 md:w-9 md:h-9 rounded-lg md:rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform"
@@ -798,15 +967,12 @@ const MyWorkspaceId = () => {
           {hideStats ? '••' : '→'}
         </span>
       </div>
-
       <p className="text-base sm:text-lg md:text-xl font-bold text-gray-800 dark:text-gray-100 tracking-tight mt-0.5 md:mt-1 leading-none">
         {hideStats ? '••' : value}
       </p>
-
       <p className="text-[9px] sm:text-[10px] md:text-[11px] text-gray-500 dark:text-gray-500 uppercase tracking-wider leading-tight">
         {label}
       </p>
-
       {subtitle && (
         <p
           className={`text-[9px] md:text-[10px] font-medium leading-tight truncate w-full ${
@@ -819,7 +985,7 @@ const MyWorkspaceId = () => {
     </Link>
   );
 
-  // ─── Quick action ────────────────────────────────────────────────
+  // ─── Quick action row ───────────────────────────────────────
   const QuickActionRow = ({ icon: Icon, label, to, onClick }) => {
     const inner = (
       <div className="flex flex-col lg:flex-row items-center gap-1.5 lg:gap-3 px-2 lg:px-3 py-2.5 rounded-xl hover:bg-teal-50 dark:hover:bg-[#0d9488]/8 active:bg-teal-100 dark:active:bg-[#0d9488]/10 transition group cursor-pointer w-full">
@@ -834,11 +1000,20 @@ const MyWorkspaceId = () => {
         </span>
       </div>
     );
-    if (to) return <Link to={to} className="flex-1 lg:flex-none">{inner}</Link>;
-    return <button onClick={onClick} className="flex-1 lg:flex-none">{inner}</button>;
+    if (to)
+      return (
+        <Link to={to} className="flex-1 lg:flex-none">
+          {inner}
+        </Link>
+      );
+    return (
+      <button onClick={onClick} className="flex-1 lg:flex-none">
+        {inner}
+      </button>
+    );
   };
 
-  // ─── Hero Card (mobile) ──────────────────────────────────────────
+  // ─── Hero card (mobile) ─────────────────────────────────────
   const HeroCard = () => (
     <div className="relative bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl p-4 sm:p-5 mb-4">
       <div className="flex items-center justify-between gap-3 mb-3">
@@ -878,48 +1053,54 @@ const MyWorkspaceId = () => {
           >
             {hideStats ? <FaEyeSlash className="text-xs" /> : <FaEye className="text-xs" />}
           </button>
-          <Link
-            to={`/my-workspace/${workspaceId}/settings`}
-            className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition flex-shrink-0"
-            aria-label="Workspace settings"
-          >
-            <FaCog className="text-xs" />
-          </Link>
+          {canSeeSettings && (
+            <Link
+              to={`${WORKSPACE_BASE_PATH}/${workspaceId}/settings`}
+              className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition flex-shrink-0"
+              aria-label="Workspace settings"
+            >
+              <FaCog className="text-xs" />
+            </Link>
+          )}
         </div>
       </div>
 
-      {/* Clock in / out chip (hidden automatically when clock-in is disabled) */}
-      <div className="mb-3 flex justify-start empty:hidden">
-        <ClockInWidget workspaceId={workspaceId} brandColor={brandColor} />
-      </div>
+      {canSeeClockin && (
+        <div className="mb-3 flex justify-start empty:hidden">
+          <ClockInWidget workspaceId={workspaceId} brandColor={brandColor} />
+        </div>
+      )}
 
-      <div className="flex items-center justify-between gap-2 bg-gray-100 dark:bg-gray-800/30 rounded-xl px-3 sm:px-4 py-2 border border-gray-200 dark:border-gray-800/40">
-        <span className="text-[11px] text-gray-500 dark:text-gray-400">Invite code</span>
-        <span className="text-[11px] font-mono tracking-wider text-gray-800 dark:text-gray-300 flex items-center gap-2">
-          {hideStats ? '••••••••' : workspace.inviteCode || '—'}
-          {!hideStats && (
-            <button
-              onClick={copyInviteCode}
-              className="text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] transition-colors"
-              title="Copy invite code"
-            >
-              <FaCopy className="text-xs" />
-            </button>
+      {canInvite && (
+        <div className="flex items-center justify-between gap-2 bg-gray-100 dark:bg-gray-800/30 rounded-xl px-3 sm:px-4 py-2 border border-gray-200 dark:border-gray-800/40">
+          <span className="text-[11px] text-gray-500 dark:text-gray-400">Invite code</span>
+          <span className="text-[11px] font-mono tracking-wider text-gray-800 dark:text-gray-300 flex items-center gap-2">
+            {hideStats ? '••••••••' : workspace.inviteCode || '—'}
+            {!hideStats && (
+              <button
+                onClick={copyInviteCode}
+                className="text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] transition-colors"
+                title="Copy invite code"
+              >
+                <FaCopy className="text-xs" />
+              </button>
+            )}
+          </span>
+          {copySuccess && (
+            <span className="text-[10px] text-green-500 dark:text-green-400 animate-pulse">
+              Copied!
+            </span>
           )}
-        </span>
-        {copySuccess && (
-          <span className="text-[10px] text-green-500 dark:text-green-400 animate-pulse">Copied!</span>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 
-  // ─── Online member card ──────────────────────────────────────────
-  const OnlineMemberCard = ({ member, workspace }) => {
+  // ─── Online member card ─────────────────────────────────────
+  const OnlineMemberCard = ({ member }) => {
     const memberUser = member.user || member;
     const isOwner =
-      memberUser._id === workspace.owner?._id ||
-      memberUser._id === workspace.owner;
+      memberUser._id === workspace.owner?._id || memberUser._id === workspace.owner;
 
     return (
       <div className="relative flex flex-col items-center text-center gap-1.5 p-2.5 sm:p-3 rounded-xl bg-gray-50 dark:bg-[#0b0b10]/60 border border-gray-200/60 dark:border-gray-800/40 hover:border-teal-500 dark:hover:border-[#0d9488]/40 transition">
@@ -955,78 +1136,78 @@ const MyWorkspaceId = () => {
     );
   };
 
-  // ─── Main render ────────────────────────────────────────────────
+  // ─── Main render ────────────────────────────────────────────
   return (
     <>
       <GlobalStyles />
 
       <div className="min-h-screen bg-gray-50 dark:bg-[#0b0b10] flex flex-col">
-        {/* Desktop sidebar */}
         <div className="hidden md:block md:min-h-screen fixed top-0 left-0 z-20 workspace-shell-sidebar">
-          <MyWorkspaceSidebar workspace={workspace} chats={chats} />
+          <WorkspaceSidebar workspace={workspace} chats={chats} />
         </div>
 
         <div className="flex-1 md:ml-[260px] workspace-shell-main">
-          {/* ═══ Mobile fixed header — solid, one line, never overlaps ═══ */}
+          {/* Mobile fixed header */}
           <header className="ws-mobile-header md:hidden fixed top-0 left-0 right-0 z-30 bg-white dark:bg-[#0b0b10] border-b border-gray-200 dark:border-gray-800/60">
-            <div className="h-14 flex items-center gap-2 px-3 overflow-hidden">
+            <div className="h-14 flex items-center gap-1 px-2 overflow-hidden">
               <button
                 onClick={() => navigate('/my-workspaces')}
-                className="flex items-center gap-2 hover:opacity-80 transition-opacity flex-1 min-w-0 overflow-hidden"
+                className="w-9 h-9 rounded-full flex items-center justify-center text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/60 active:scale-90 transition flex-shrink-0"
+                aria-label="Back to workspaces"
               >
-                <span className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest flex items-center gap-1.5 flex-shrink-0">
-                  <FaArrowLeft className="text-[8px]" />
-                  Workspace
-                </span>
-                <span className="text-gray-300 dark:text-gray-700 flex-shrink-0">/</span>
-                <span
-                  className="text-sm font-semibold text-gray-800 dark:text-gray-100 whitespace-nowrap overflow-hidden text-ellipsis min-w-0"
+                <FaArrowLeft className="text-sm" />
+              </button>
+              <div className="flex-1 min-w-0 overflow-hidden px-1">
+                <h1
+                  className="block w-full text-sm font-semibold text-gray-800 dark:text-gray-100 whitespace-nowrap overflow-hidden text-ellipsis"
                   title={workspace.name}
                 >
                   {workspace.name}
-                </span>
+                </h1>
+              </div>
+              <button
+                onClick={() => setHideStats((v) => !v)}
+                className="w-9 h-9 rounded-full flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/60 active:scale-90 transition flex-shrink-0"
+                aria-label="Toggle stats"
+              >
+                {hideStats ? <FaEyeSlash className="text-xs" /> : <FaEye className="text-xs" />}
               </button>
-              <div className="flex items-center gap-1.5 flex-shrink-0">
-                <button
-                  onClick={() => setHideStats((v) => !v)}
-                  className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition flex-shrink-0"
-                  aria-label="Toggle stats"
-                >
-                  {hideStats ? <FaEyeSlash className="text-xs" /> : <FaEye className="text-xs" />}
-                </button>
+              {canSeeSettings && (
                 <Link
-                  to={`/my-workspace/${workspaceId}/settings`}
-                  className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition flex-shrink-0"
+                  to={`${WORKSPACE_BASE_PATH}/${workspaceId}/settings`}
+                  className="w-9 h-9 rounded-full flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/60 active:scale-90 transition flex-shrink-0"
                   aria-label="Workspace settings"
                 >
                   <FaCog className="text-xs" />
                 </Link>
-              </div>
+              )}
             </div>
           </header>
-          {/* Spacer so content starts below the fixed header */}
           <div className="ws-mobile-header-spacer md:hidden" />
 
           <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 md:pb-6">
             {/* Hidden task counters */}
-            {projects.map((p) => (
-              <TaskCounter
-                key={p._id}
-                projectId={p._id}
-                onCount={handleTaskCount}
-                onLoading={handleTaskLoading}
-              />
-            ))}
+            {canSeeProjects &&
+              projects.map((p) => (
+                <TaskCounter
+                  key={p._id}
+                  projectId={p._id}
+                  onCount={handleTaskCount}
+                  onLoading={handleTaskLoading}
+                />
+              ))}
 
             {/* Mobile hero card */}
             <div className="md:hidden">
               <HeroCard />
             </div>
 
-            {/* Clock-in banner */}
-            <div className="mb-3 sm:mb-4">
-              <ClockInBanner workspaceId={workspaceId} brandColor={brandColor} />
-            </div>
+            {/* Clock-in banner (member only) */}
+            {canSeeClockin && (
+              <div className="mb-3 sm:mb-4">
+                <ClockInBanner workspaceId={workspaceId} brandColor={brandColor} />
+              </div>
+            )}
 
             {/* Desktop hero bar */}
             <div className="hidden md:flex flex-wrap items-center justify-between gap-3 mb-6">
@@ -1060,151 +1241,184 @@ const MyWorkspaceId = () => {
               </button>
 
               <div className="flex items-center gap-2">
-                <ClockInWidget workspaceId={workspaceId} brandColor={brandColor} />
-                <span className="text-[10px] font-mono text-gray-500 dark:text-gray-600 bg-gray-100 dark:bg-[#14141a] px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-800/60 flex items-center gap-2">
-                  {hideStats ? '••••••••' : workspace.inviteCode}
-                  {!hideStats && (
-                    <button
-                      onClick={copyInviteCode}
-                      className="text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] transition-colors"
-                      title="Copy invite code"
-                    >
-                      <FaCopy className="text-[10px]" />
-                    </button>
-                  )}
-                  {copySuccess && (
-                    <span className="text-[10px] text-green-500 dark:text-green-400 animate-pulse">Copied!</span>
-                  )}
-                </span>
-                <Link
-                  to={`/my-workspace/${workspaceId}/settings`}
-                  className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition flex-shrink-0"
-                  aria-label="Workspace settings"
-                >
-                  <FaCog className="text-xs" />
-                </Link>
+                {canSeeClockin && (
+                  <ClockInWidget workspaceId={workspaceId} brandColor={brandColor} />
+                )}
+                {canInvite && (
+                  <span className="text-[10px] font-mono text-gray-500 dark:text-gray-600 bg-gray-100 dark:bg-[#14141a] px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-800/60 flex items-center gap-2">
+                    {hideStats ? '••••••••' : workspace.inviteCode}
+                    {!hideStats && (
+                      <button
+                        onClick={copyInviteCode}
+                        className="text-teal-600 dark:text-[#0d9488] hover:text-teal-700 dark:hover:text-[#14b8a6] transition-colors"
+                        title="Copy invite code"
+                      >
+                        <FaCopy className="text-[10px]" />
+                      </button>
+                    )}
+                    {copySuccess && (
+                      <span className="text-[10px] text-green-500 dark:text-green-400 animate-pulse">
+                        Copied!
+                      </span>
+                    )}
+                  </span>
+                )}
+                {canSeeSettings && (
+                  <Link
+                    to={`${WORKSPACE_BASE_PATH}/${workspaceId}/settings`}
+                    className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition flex-shrink-0"
+                    aria-label="Workspace settings"
+                  >
+                    <FaCog className="text-xs" />
+                  </Link>
+                )}
               </div>
             </div>
 
-            {/* ─── Metrics (3 compact cards) ──────────────────────── */}
+            {/* ─── Metrics ──────────────────────────────────────── */}
             <div className="grid grid-cols-3 gap-2 sm:gap-3 md:gap-4 mb-3 sm:mb-6">
               <MetricCard
                 icon={FaUsers}
                 label="Members"
                 value={activeMembers.length}
-                subtitle={onlineCount > 0 ? `● ${onlineCount} online` : 'Offline'}
+                subtitle={
+                  canSeeMembers
+                    ? onlineCount > 0
+                      ? `● ${onlineCount} online`
+                      : 'Offline'
+                    : null
+                }
                 subtitleColor={
                   onlineCount > 0
                     ? 'text-green-600 dark:text-green-400'
                     : 'text-gray-400 dark:text-gray-500'
                 }
-                to={`/my-workspace/${workspaceId}/members`}
-                badge={onlineCount > 0 ? 'LIVE' : null}
+                to={
+                  canSeeMembers
+                    ? `${WORKSPACE_BASE_PATH}/${workspaceId}/members`
+                    : `${WORKSPACE_BASE_PATH}/${workspaceId}`
+                }
+                badge={canSeeMembers && onlineCount > 0 ? 'LIVE' : null}
                 badgeColor="bg-green-500"
               />
-              <MetricCard
-                icon={FaFolder}
-                label="Projects"
-                value={projects.length}
-                subtitle={`${totalTasks} ${totalTasks === 1 ? 'task' : 'tasks'}`}
-                subtitleColor="text-gray-500 dark:text-gray-500"
-                to={`/my-workspace/${workspaceId}/projects`}
-              />
-              <MetricCard
-                icon={FaHashtag}
-                label="Channels"
-                value={channelCount}
-                to={`/my-workspace/${workspaceId}/channels`}
-              />
-            </div>
-
-            {/* ─── AI Chat (desktop) + Quick Actions ──────────────── */}
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 sm:gap-4 mb-3 sm:mb-6">
-              {/* Chat — desktop only. Mobile uses floating button. */}
-              <div className="hidden lg:flex lg:col-span-3 bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden h-[480px]">
-                <AIChatPanel workspaceId={workspaceId} brandColor={brandColor} />
-              </div>
-
-              <div className="lg:col-span-1 bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-1.5 sm:p-2">
-                <p className="hidden lg:block text-[10px] font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-widest px-2 pt-1.5 pb-1">
-                  Quick actions
-                </p>
-                <div className="flex lg:flex-col gap-1">
-                  <QuickActionRow
-                    icon={FaFolder}
-                    label="Projects"
-                    to={`/my-workspace/${workspaceId}/projects`}
-                  />
-                  <QuickActionRow
-                    icon={FaHashtag}
-                    label="Channels"
-                    to={`/my-workspace/${workspaceId}/channels`}
-                  />
-                  <QuickActionRow
-                    icon={FaUserPlus}
-                    label="Invite"
-                    onClick={copyInviteCode}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* ─── Online team (full width) ───────────────────────── */}
-            <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden">
-              <div className="px-3 sm:px-5 py-3 flex items-center justify-between border-b border-gray-200/60 dark:border-gray-800/40">
-                <h2 className="text-xs sm:text-sm font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
-                  </span>
-                  Online now
-                  <span className="text-[10px] font-normal text-gray-400 dark:text-gray-500">
-                    ({onlineCount})
-                  </span>
-                </h2>
-                <Link
-                  to={`/my-workspace/${workspaceId}/members`}
-                  className="text-[10px] font-medium uppercase tracking-wider hover:underline"
-                  style={{ color: brandColor }}
-                >
-                  See all
-                </Link>
-              </div>
-
-              {onlineMembers.length === 0 ? (
-                <p className="px-3 sm:px-5 py-6 sm:py-8 text-xs text-gray-500 dark:text-gray-500 text-center">
-                  No one online right now. Check back later.
-                </p>
-              ) : (
-                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 p-2.5 sm:p-4">
-                  {onlineMembers.slice(0, 12).map((member) => (
-                    <OnlineMemberCard
-                      key={getMemberId(member)}
-                      member={member}
-                      workspace={workspace}
-                    />
-                  ))}
-                </div>
+              {canSeeProjects && (
+                <MetricCard
+                  icon={FaFolder}
+                  label="Projects"
+                  value={projects.length}
+                  subtitle={`${totalTasks} ${totalTasks === 1 ? 'task' : 'tasks'}`}
+                  subtitleColor="text-gray-500 dark:text-gray-500"
+                  to={`${WORKSPACE_BASE_PATH}/${workspaceId}/projects`}
+                />
               )}
-
-              {onlineMembers.length > 12 && (
-                <Link
-                  to={`/my-workspace/${workspaceId}/members`}
-                  className="block text-[10px] font-medium uppercase tracking-wider px-3 sm:px-5 py-2.5 hover:bg-teal-50 dark:hover:bg-[#0d9488]/5 transition border-t border-gray-100 dark:border-gray-800/30 text-center"
-                  style={{ color: brandColor }}
-                >
-                  +{onlineMembers.length - 12} more online
-                </Link>
+              {canSeeChats && (
+                <MetricCard
+                  icon={FaHashtag}
+                  label="Channels"
+                  value={channelCount}
+                  to={`${WORKSPACE_BASE_PATH}/${workspaceId}/channels`}
+                />
               )}
             </div>
+
+            {/* ─── AI Chat + Quick actions ──────────────────────── */}
+            {(canSeeAI || canSeeProjects || canInvite) && (
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 sm:gap-4 mb-3 sm:mb-6">
+                {canSeeAI && (
+                  <div className="hidden lg:flex lg:col-span-3 bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden h-[480px]">
+                    <AIChatPanel workspaceId={workspaceId} brandColor={brandColor} />
+                  </div>
+                )}
+
+                <div
+                  className={`lg:col-span-1 bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-1.5 sm:p-2 ${
+                    canSeeAI ? '' : 'lg:col-span-4'
+                  }`}
+                >
+                  <p className="hidden lg:block text-[10px] font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-widest px-2 pt-1.5 pb-1">
+                    Quick actions
+                  </p>
+                  <div className="flex lg:flex-col gap-1">
+                    {canSeeProjects && (
+                      <QuickActionRow
+                        icon={FaFolder}
+                        label="Projects"
+                        to={`${WORKSPACE_BASE_PATH}/${workspaceId}/projects`}
+                      />
+                    )}
+                    {canSeeChats && (
+                      <QuickActionRow
+                        icon={FaHashtag}
+                        label="Channels"
+                        to={`${WORKSPACE_BASE_PATH}/${workspaceId}/channels`}
+                      />
+                    )}
+                    {canInvite && (
+                      <QuickActionRow
+                        icon={FaUserPlus}
+                        label="Invite"
+                        onClick={copyInviteCode}
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ─── Online team (member only) ────────────────────── */}
+            {canSeeMembers && (
+              <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden">
+                <div className="px-3 sm:px-5 py-3 flex items-center justify-between border-b border-gray-200/60 dark:border-gray-800/40">
+                  <h2 className="text-xs sm:text-sm font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+                    </span>
+                    Online now
+                    <span className="text-[10px] font-normal text-gray-400 dark:text-gray-500">
+                      ({onlineCount})
+                    </span>
+                  </h2>
+                  <Link
+                    to={`${WORKSPACE_BASE_PATH}/${workspaceId}/members`}
+                    className="text-[10px] font-medium uppercase tracking-wider hover:underline"
+                    style={{ color: brandColor }}
+                  >
+                    See all
+                  </Link>
+                </div>
+
+                {onlineMembers.length === 0 ? (
+                  <p className="px-3 sm:px-5 py-6 sm:py-8 text-xs text-gray-500 dark:text-gray-500 text-center">
+                    No one online right now. Check back later.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 p-2.5 sm:p-4">
+                    {onlineMembers.slice(0, 12).map((member) => (
+                      <OnlineMemberCard key={getMemberId(member)} member={member} />
+                    ))}
+                  </div>
+                )}
+
+                {onlineMembers.length > 12 && (
+                  <Link
+                    to={`${WORKSPACE_BASE_PATH}/${workspaceId}/members`}
+                    className="block text-[10px] font-medium uppercase tracking-wider px-3 sm:px-5 py-2.5 hover:bg-teal-50 dark:hover:bg-[#0d9488]/5 transition border-t border-gray-100 dark:border-gray-800/30 text-center"
+                    style={{ color: brandColor }}
+                  >
+                    +{onlineMembers.length - 12} more online
+                  </Link>
+                )}
+              </div>
+            )}
           </main>
         </div>
 
-        <MyWorkspaceBottombar workspace={workspace} />
+        <WorkspaceBottombar workspace={workspace} />
       </div>
 
-      {/* ─── Mobile + tablet: floating chat button ──────────────── */}
-      {!mobileChatOpen && (
+      {/* Mobile + tablet: floating AI chat button (logged-in only) */}
+      {canSeeAI && !mobileChatOpen && (
         <button
           onClick={() => setMobileChatOpen(true)}
           className="lg:hidden fixed bottom-24 right-4 z-40 w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-white active:scale-95 transition-transform"
@@ -1218,8 +1432,8 @@ const MyWorkspaceId = () => {
         </button>
       )}
 
-      {/* ─── Mobile + tablet: chat drawer ───────────────────────── */}
-      {mobileChatOpen && (
+      {/* Mobile + tablet: chat drawer */}
+      {canSeeAI && mobileChatOpen && (
         <div className="lg:hidden fixed inset-0 z-50">
           <div
             className="absolute inset-0 bg-black/50 backdrop-blur-sm"
@@ -1238,4 +1452,4 @@ const MyWorkspaceId = () => {
   );
 };
 
-export default MyWorkspaceId;
+export default WorkspaceId;
