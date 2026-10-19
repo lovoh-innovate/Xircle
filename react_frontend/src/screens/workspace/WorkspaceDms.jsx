@@ -2,15 +2,15 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
-import { useGetWorkspaceQuery } from '../../slices/workspaceApiSlice';
+import { useGetWorkspaceQuery } from '../../slices/workspaceApiSlice.js';
 import {
   useGetUserChatsQuery,
   useCreateDirectChatMutation,
   messagingApiSlice,
-} from '../../slices/messagingApiSlice';
+} from '../../slices/messagingApiSlice.js';
 import { useSocket } from '../../components/SocketContext.jsx';
-import WorkspaceSidebar from '../../components/WorkspaceSidebar';
-import WorkspaceBottombar from '../../components/WorkspaceBottombar';
+import WorkspaceSidebar from '../../components/WorkspaceSidebar.jsx';
+import WorkspaceBottombar from '../../components/WorkspaceBottombar.jsx';
 import {
   FaArrowLeft,
   FaSearch,

@@ -63,7 +63,7 @@ import Today from "./screens/Today.jsx";
 import WorkspaceId from "./screens/workspace/WorkspaceId.jsx";
 import WorkspaceChannels from "./screens/workspace/WorkspaceChannels.jsx";
 import WorkspaceChatId from "./screens/workspace/WorkspaceChatId.jsx";
-import WorkspaceDMs from "./screens/workspace/WorkspaceDMs.jsx";
+import WorkspaceDMs from "./screens/workspace/WorkspaceDms.jsx";
 import WorkspaceProjects from "./screens/workspace/WorkspaceProjects.jsx";
 import WorkspaceProjectId from "./screens/workspace/WorkspaceProjectId.jsx";
 import WorkspaceProjectTeam from "./screens/workspace/WorkspaceProjectTeam.jsx";
