@@ -9,12 +9,13 @@ import { createAndSendNotification } from './notificationController.js';
 import pdf from 'pdfkit';
 import mammoth from 'mammoth';
 import XLSX from 'xlsx';
+import { sendEmail } from '../utils/emailService.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
 const getUserName = async (userId) => {
   const user = await User.findById(userId).select('name');
-  return user?.name || 'Unknown User';
+  return user?.name || 'A Xircle user';
 };
 
 const resolveFolderId = async (folderId, userId) => {
@@ -54,12 +55,6 @@ const wouldCreateCycle = async (folderId, candidateParentId) => {
   return false;
 };
 
-// ─── COLOR HELPER ──────────────────────────────────────────────────────
-// Shared by BOTH notes and folders.
-//   undefined  → "not provided, leave as-is"  (returns undefined)
-//   null / ''  → clear the color              (returns null)
-//   valid      → normalize and return it
-//   invalid    → throw 400
 const normalizeColor = (color) => {
   if (color === undefined) return undefined;
   if (color === null) return null;
@@ -72,22 +67,10 @@ const normalizeColor = (color) => {
   const trimmed = color.trim();
   if (!trimmed) return null;
 
-  // Hex: #RGB, #RGBA, #RRGGBB, #RRGGBBAA
-  if (/^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(trimmed)) {
-    return trimmed.toLowerCase();
-  }
-  // rgb() / rgba()
-  if (/^rgba?\(\s*\d{1,3}\s*[, ]\s*\d{1,3}\s*[, ]\s*\d{1,3}(\s*[,/]\s*(0|1|0?\.\d+|\d{1,3}%))?\s*\)$/i.test(trimmed)) {
-    return trimmed;
-  }
-  // hsl() / hsla()
-  if (/^hsla?\(\s*\d{1,3}(deg)?\s*[, ]\s*\d{1,3}%\s*[, ]\s*\d{1,3}%(\s*[,/]\s*(0|1|0?\.\d+|\d{1,3}%))?\s*\)$/i.test(trimmed)) {
-    return trimmed;
-  }
-  // Named colors (basic set)
-  if (/^[a-z]{3,20}$/i.test(trimmed)) {
-    return trimmed.toLowerCase();
-  }
+  if (/^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(trimmed)) return trimmed.toLowerCase();
+  if (/^rgba?\(\s*\d{1,3}\s*[, ]\s*\d{1,3}\s*[, ]\s*\d{1,3}(\s*[,/]\s*(0|1|0?\.\d+|\d{1,3}%))?\s*\)$/i.test(trimmed)) return trimmed;
+  if (/^hsla?\(\s*\d{1,3}(deg)?\s*[, ]\s*\d{1,3}%\s*[, ]\s*\d{1,3}%(\s*[,/]\s*(0|1|0?\.\d+|\d{1,3}%))?\s*\)$/i.test(trimmed)) return trimmed;
+  if (/^[a-z]{3,20}$/i.test(trimmed)) return trimmed.toLowerCase();
 
   const err = new Error('Invalid color format.');
   err.statusCode = 400;
@@ -173,9 +156,11 @@ export const getNotes = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, notes });
 });
 
-// ─── Get Single Personal Note ────────────────────────────────────────────
+// ─── Get Single Personal Note (Guest Access Supported) ───────────────────
 export const getNote = asyncHandler(async (req, res) => {
-  const userId = req.user.id;
+  // req.user will be undefined if it's a guest, so we check gracefully
+  const userId = req.user ? req.user.id : null;
+
   const note = await PersonalNote.findById(req.params.id)
     .populate('collaborators.user', 'name email')
     .populate('folder', 'name parent color');
@@ -185,11 +170,13 @@ export const getNote = asyncHandler(async (req, res) => {
     throw new Error('Note not found.');
   }
 
-  const isOwner = note.user.toString() === userId;
-  const isCollaborator = note.collaborators.some(
+  const isOwner = userId && note.user.toString() === userId;
+  const isCollaborator = userId && note.collaborators.some(
     c => c.user._id.toString() === userId && c.permission === 'read'
   );
-  if (!isOwner && !isCollaborator) {
+
+  // Allow access if user is owner, collaborator, OR if the note is public
+  if (!isOwner && !isCollaborator && !note.isPublic) {
     res.status(403);
     throw new Error('You do not have permission to view this note.');
   }
@@ -294,8 +281,7 @@ export const moveNote = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, note });
 });
 
-// ─── Update Note Color (dedicated lightweight endpoint) ─────────────────
-// PATCH /api/personal-notes/:id/color   { color: "#RRGGBB" | null }
+// ─── Update Note Color ──────────────────────────────────────────────────
 export const updateNoteColor = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const { color } = req.body;
@@ -380,31 +366,27 @@ export const togglePublic = asyncHandler(async (req, res) => {
   });
 });
 
-// ─── Get Public Note by Share Link ────────────────────────────────────
-export const getNoteByShareLink = asyncHandler(async (req, res) => {
-  const { link } = req.params;
-  const note = await PersonalNote.findOne({ shareLink: link, isPublic: true })
-    .populate('user', 'name email')
-    .select('-__v');
+// ─── Manage Collaborators (Invite by Email or Username) ────────────────
 
-  if (!note) {
-    res.status(404);
-    throw new Error('Note not found or not public.');
-  }
-
-  res.status(200).json({ success: true, note });
-});
-
-// ─── Manage Collaborators ──────────────────────────────────────────────
-
-// Add collaborator
 export const addCollaborator = asyncHandler(async (req, res) => {
   const userId = req.user.id;
-  const { collaboratorEmail, permission = 'read' } = req.body;
 
-  if (!collaboratorEmail) {
+  // ── Accept ANY of these field names for maximum compatibility ──
+  // (Older frontend versions sent `collaboratorEmail` or `email`;
+  //  newer versions send `collaboratorIdentifier`.)
+  const rawIdentifier =
+    req.body.collaboratorIdentifier ||
+    req.body.collaboratorEmail ||
+    req.body.email ||
+    req.body.username ||
+    '';
+
+  const rawPermission = req.body.permission || 'read';
+  const permission = rawPermission === 'edit' ? 'edit' : 'read';
+
+  if (!rawIdentifier || !String(rawIdentifier).trim()) {
     res.status(400);
-    throw new Error('Collaborator email is required.');
+    throw new Error('Collaborator email or username is required.');
   }
 
   const note = await PersonalNote.findById(req.params.id);
@@ -418,46 +400,116 @@ export const addCollaborator = asyncHandler(async (req, res) => {
     throw new Error('Only the owner can add collaborators.');
   }
 
-  const collaborator = await User.findOne({
-    email: collaboratorEmail.trim().toLowerCase(),
+  const identifier = String(rawIdentifier).trim().toLowerCase();
+
+  // Check if user exists by email OR username
+  const existingUser = await User.findOne({
+    $or: [{ email: identifier }, { username: identifier }]
   });
-  if (!collaborator) {
-    res.status(404);
-    throw new Error('User not found with that email.');
+
+  const inviterName = await getUserName(userId);
+
+  // ── Case 1: User exists ──
+  if (existingUser) {
+    if (existingUser._id.toString() === userId) {
+      res.status(400);
+      throw new Error('You cannot add yourself as a collaborator.');
+    }
+
+    const alreadyCollaborator = note.collaborators.find(
+      c => c.user.toString() === existingUser._id.toString()
+    );
+    if (alreadyCollaborator) {
+      res.status(400);
+      throw new Error('User is already a collaborator.');
+    }
+
+    // Remove from pending list if they were invited previously
+    note.pendingCollaborators = (note.pendingCollaborators || []).filter(
+      p => p.email !== existingUser.email
+    );
+
+    note.collaborators.push({
+      user: existingUser._id,
+      permission,
+    });
+    await note.save();
+
+    // Send "Added" email
+    try {
+      await sendEmail({
+        to: existingUser.email,
+        subject: `You've been added as a collaborator to "${note.title}"`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+            <h2 style="color: #0d9488;">Xircle</h2>
+            <p>Hi ${existingUser.name || 'there'},</p>
+            <p><strong>${inviterName}</strong> added you as a <strong>${permission}</strong> collaborator on the note: <strong>${note.title}</strong>.</p>
+            <p><a href="${process.env.CLIENT_URL}/notes/${note._id}" style="display: inline-block; padding: 10px 20px; background-color: #0d9488; color: white; text-decoration: none; border-radius: 5px;">View Note</a></p>
+          </div>
+        `
+      });
+    } catch (err) {
+      console.error('Failed to send collaborator email:', err.message);
+    }
+
+    // In-app notification
+    try {
+      await createAndSendNotification({
+        recipient: existingUser._id,
+        title: `Added to a note: "${note.title}"`,
+        body: `${inviterName} added you as a ${permission} collaborator.`,
+        data: { noteId: note._id.toString() },
+        sendPush: true,
+      });
+    } catch (err) {
+      console.error('Failed to send collaborator notification:', err.message);
+    }
+
+    await note.populate('collaborators.user', 'name email');
+    return res.status(200).json({ success: true, note, message: 'Collaborator added successfully.' });
   }
 
-  if (collaborator._id.toString() === userId) {
+  // ── Case 2: User does NOT exist (Invite them) ──
+  // Ensure it looks like an email
+  if (!identifier.includes('@')) {
     res.status(400);
-    throw new Error('You cannot add yourself as a collaborator.');
+    throw new Error('User not found. If inviting a new user, please provide a valid email address.');
   }
 
-  const already = note.collaborators.find(
-    c => c.user.toString() === collaborator._id.toString()
-  );
-  if (already) {
+  const alreadyInvited = (note.pendingCollaborators || []).find(p => p.email === identifier);
+  if (alreadyInvited) {
     res.status(400);
-    throw new Error('User is already a collaborator.');
+    throw new Error('An invitation has already been sent to this email.');
   }
 
-  note.collaborators.push({
-    user: collaborator._id,
-    permission: permission === 'edit' ? 'edit' : 'read',
+  note.pendingCollaborators.push({
+    email: identifier,
+    permission,
   });
   await note.save();
 
-  await createAndSendNotification({
-    recipient: collaborator._id,
-    title: `You've been added to a note: "${note.title}"`,
-    body: `${req.user.name} added you as a ${permission} collaborator.`,
-    data: { noteId: note._id.toString() },
-    sendPush: true,
-    emailEventType: 'collaboration',
-    emailSubject: `Note collaboration: ${note.title}`,
-    emailHtml: `<p>${req.user.name} added you as a collaborator with <strong>${permission}</strong> permission on note: <strong>${note.title}</strong>.</p>`,
-  });
+  // Send "Invite" email
+  try {
+    await sendEmail({
+      to: identifier,
+      subject: `${inviterName} invited you to collaborate on a note on Xircle`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+          <h2 style="color: #0d9488;">Xircle</h2>
+          <p>Hi there,</p>
+          <p><strong>${inviterName}</strong> has invited you to be a <strong>${permission}</strong> collaborator on the note: <strong>${note.title}</strong>.</p>
+          <p><a href="${process.env.CLIENT_URL}/signup?invite_note=${note._id}&email=${encodeURIComponent(identifier)}" style="display: inline-block; padding: 10px 20px; background-color: #0d9488; color: white; text-decoration: none; border-radius: 5px;">Create your account now to join</a></p>
+          <p style="font-size: 12px; color: #666; margin-top: 20px;">Once you create your account, you will be automatically added to this note.</p>
+        </div>
+      `
+    });
+  } catch (err) {
+    console.error('Failed to send invite email:', err.message);
+    // Still return success because the invite was saved
+  }
 
-  await note.populate('collaborators.user', 'name email');
-  res.status(200).json({ success: true, note });
+  return res.status(200).json({ success: true, message: 'Invitation sent to new user.', pending: true });
 });
 
 // Remove collaborator
@@ -474,12 +526,19 @@ export const removeCollaborator = asyncHandler(async (req, res) => {
     throw new Error('Only the owner can remove collaborators.');
   }
 
-  const collaboratorId = req.params.collaboratorId;
+  const collaboratorId = decodeURIComponent(req.params.collaboratorId);
+
+  // Remove from active collaborators
   note.collaborators = note.collaborators.filter(
     c => c.user.toString() !== collaboratorId
   );
-  await note.save();
 
+  // Also remove from pending if they were somehow there (by email)
+  note.pendingCollaborators = (note.pendingCollaborators || []).filter(
+    p => p.email !== collaboratorId
+  );
+
+  await note.save();
   await note.populate('collaborators.user', 'name email');
   res.status(200).json({ success: true, note });
 });
@@ -518,6 +577,41 @@ export const updateCollaboratorPermission = asyncHandler(async (req, res) => {
 
   res.status(200).json({ success: true, note });
 });
+
+// ══════════════════════════════════════════════════════════════════════════
+//  AUTO-ASSIGN PENDING COLLABORATIONS (Call on Signup/Verify)
+// ══════════════════════════════════════════════════════════════════════════
+export const autoAssignPendingCollaborations = async (user) => {
+  try {
+    const notes = await PersonalNote.find({
+      'pendingCollaborators.email': user.email
+    });
+
+    for (const note of notes) {
+      const pendingInvite = note.pendingCollaborators.find(
+        p => p.email === user.email
+      );
+
+      if (pendingInvite) {
+        // Add as collaborator
+        note.collaborators.push({
+          user: user._id,
+          permission: pendingInvite.permission,
+        });
+
+        // Remove from pending
+        note.pendingCollaborators = note.pendingCollaborators.filter(
+          p => p.email !== user.email
+        );
+
+        await note.save();
+        console.log(`✅ Auto-added ${user.email} as collaborator to note: ${note.title}`);
+      }
+    }
+  } catch (err) {
+    console.error('❌ Error auto-assigning pending collaborations:', err);
+  }
+};
 
 // ─── Export Note as PDF ──────────────────────────────────────────────────
 export const exportNotePDF = asyncHandler(async (req, res) => {
@@ -660,8 +754,6 @@ export const importFileToNote = asyncHandler(async (req, res) => {
 //  FOLDER CONTROLLERS
 // ══════════════════════════════════════════════════════════════════════════
 
-// ─── Create Folder ──────────────────────────────────────────────────────
-// ✅ Color supported — pass `color` in body (any CSS string or null)
 export const createNoteFolder = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const { name, parentId = null, color = null } = req.body;
@@ -689,7 +781,6 @@ export const createNoteFolder = asyncHandler(async (req, res) => {
     parent = parentFolder._id;
   }
 
-  // ── FOLDER COLOR ──
   let resolvedColor = null;
   try {
     const c = normalizeColor(color);
@@ -704,7 +795,7 @@ export const createNoteFolder = asyncHandler(async (req, res) => {
       user: userId,
       name: name.trim(),
       parent,
-      color: resolvedColor, // 👈 saved here
+      color: resolvedColor,
     });
     res.status(201).json({ success: true, folder });
   } catch (err) {
@@ -716,7 +807,6 @@ export const createNoteFolder = asyncHandler(async (req, res) => {
   }
 });
 
-// ─── List Folders ───────────────────────────────────────────────────────
 export const getNoteFolders = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const folders = await PersonalNoteFolder.find({ user: userId })
@@ -725,8 +815,6 @@ export const getNoteFolders = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, folders });
 });
 
-// ─── Update Folder ──────────────────────────────────────────────────────
-// ✅ Color supported — pass `color` in body to change it
 export const updateNoteFolder = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const { name, color, order, parentId } = req.body;
@@ -749,7 +837,6 @@ export const updateNoteFolder = asyncHandler(async (req, res) => {
     folder.name = name.trim();
   }
 
-  // ── FOLDER COLOR ──
   if (color !== undefined) {
     try {
       folder.color = normalizeColor(color);
@@ -802,10 +889,6 @@ export const updateNoteFolder = asyncHandler(async (req, res) => {
   }
 });
 
-// ─── Update Folder Color (dedicated lightweight endpoint) ───────────────
-// PATCH /api/personal-note-folders/:id/color   { color: "#RRGGBB" | null }
-// Parallel to updateNoteColor — lets a color picker change just the color
-// without going through the full update payload.
 export const updateNoteFolderColor = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const { color } = req.body;
@@ -831,7 +914,6 @@ export const updateNoteFolderColor = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, folder });
 });
 
-// ─── Delete Folder ──────────────────────────────────────────────────────
 export const deleteNoteFolder = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const { moveNotesTo = 'parent' } = req.body || {};

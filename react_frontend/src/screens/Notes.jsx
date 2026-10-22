@@ -52,9 +52,6 @@ import { formatDistanceToNow } from 'date-fns';
 import GeneralSidebar from '../components/GeneralSidebar';
 import GeneralBottombar from '../components/GeneralBottombar';
 
-// ─── Share URL base ──────────────────────────────────────────────────
-const SHARE_BASE_URL = 'https://xircle.lovohcreate.com';
-
 // ═════════════════════════════════════════════════════════════════════
 //  Global styles
 // ═════════════════════════════════════════════════════════════════════
@@ -332,7 +329,6 @@ const FolderPickerModal = ({
   const flat = useMemo(() => flattenTree(tree), [tree]);
   if (!isOpen) return null;
 
-  // 👈 use the safe extractor, handles both object & id shapes
   const current = extractFolderId(note);
   const heading = title || 'Move to folder';
 
@@ -428,7 +424,6 @@ const FolderNode = ({
         style={{
           paddingLeft: 4 + depth * 12,
           paddingRight: 4,
-          // 👈 use the folder's own color when selected, fall back to teal
           ...(isSelected ? { backgroundColor: folderColor || '#14b8a6' } : {}),
         }}
         onClick={() => onSelect(folder._id)}
@@ -664,8 +659,8 @@ const NoteCard = ({
   onShareLink,
   onMove,
   onColorChange,
-  folders = [],             // 👈 for badge lookup
-  showFolderBadge = false,  // 👈 show tiny folder tag
+  folders = [],
+  showFolderBadge = false,
 }) => {
   const [showMenu, setShowMenu] = useState(false);
   const [menuPos, setMenuPos] = useState(null);
@@ -915,7 +910,7 @@ const NoteCard = ({
           <span>Move to folder…</span>
         </button>
 
-        {note.isPublic && note.shareLink && (
+        {note.isPublic && (
           <button
             type="button"
             onClick={() => { onShareLink(note); closeMenu(); }}
@@ -1296,11 +1291,13 @@ const Notes = () => {
   };
 
   const handleShareLink = useCallback(async (note) => {
-    if (!note?.shareLink) {
-      toast.error('No share link available');
+    if (!note?._id) {
+      toast.error('Note ID is missing');
       return;
     }
-    const url = `${SHARE_BASE_URL}/share/${note.shareLink}`;
+    
+    // Changed from SHARE_BASE_URL/share/... to the direct app route
+    const url = `${window.location.origin}/notes/${note._id}`;
 
     if (typeof navigator !== 'undefined' && navigator.share) {
       try {
@@ -1744,8 +1741,8 @@ const Notes = () => {
                     onShareLink={handleShareLink}
                     onMove={setMoveTarget}
                     onColorChange={handleNoteColorChange}
-                    folders={folders}                    // 👈 new
-                    showFolderBadge={showFolderBadge}    // 👈 new
+                    folders={folders}
+                    showFolderBadge={showFolderBadge}
                   />
                 ))}
               </div>
@@ -1766,8 +1763,8 @@ const Notes = () => {
                     onShareLink={handleShareLink}
                     onMove={setMoveTarget}
                     onColorChange={handleNoteColorChange}
-                    folders={folders}                    // 👈 new
-                    showFolderBadge={showFolderBadge}    // 👈 new
+                    folders={folders}
+                    showFolderBadge={showFolderBadge}
                   />
                 ))}
               </div>

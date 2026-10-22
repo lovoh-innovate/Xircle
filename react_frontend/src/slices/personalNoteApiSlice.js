@@ -5,11 +5,7 @@ const NOTES_URL = '/personal-notes';
 
 export const personalNoteApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
-    // ═══════════════════════════════════════════════════════════════════
-    // CRUD
-    // ═══════════════════════════════════════════════════════════════════
-
-    // ─── Create a note ──────────────────────────────────────────────
+    // ─── CRUD ───────────────────────────────────────────────────────
     createNote: builder.mutation({
       query: (data) => {
         const isFormData = data instanceof FormData;
@@ -23,11 +19,6 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['PersonalNote'],
     }),
 
-    // ─── Get all user's notes ───────────────────────────────────────
-    // Pass an optional folderId:
-    //   useGetNotesQuery()                     → all notes
-    //   useGetNotesQuery('root')               → unfiled only
-    //   useGetNotesQuery('<folderId>')         → notes in that folder
     getNotes: builder.query({
       query: (folderId) => ({
         url: `${NOTES_URL}`,
@@ -36,15 +27,15 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       providesTags: ['PersonalNote'],
     }),
 
-    // ─── Get a single note by ID ────────────────────────────────────
     getNote: builder.query({
       query: (noteId) => ({
         url: `${NOTES_URL}/${noteId}`,
       }),
-      providesTags: (result, error, noteId) => [{ type: 'PersonalNote', id: noteId }],
+      providesTags: (result, error, noteId) => [
+        { type: 'PersonalNote', id: noteId },
+      ],
     }),
 
-    // ─── Update a note ──────────────────────────────────────────────
     updateNote: builder.mutation({
       query: ({ noteId, data }) => {
         const isFormData = data instanceof FormData;
@@ -61,10 +52,6 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // ─── Change a note's color only ─────────────────────────────────
-    // Send { noteId, color } where color is any CSS color string or null
-    // (null clears the color). Uses the lightweight dedicated endpoint
-    // so it doesn't touch the title/content autosave pipeline.
     updateNoteColor: builder.mutation({
       query: ({ noteId, color }) => ({
         url: `${NOTES_URL}/${noteId}/color`,
@@ -77,9 +64,6 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // ─── Move a note to a folder (or root) ──────────────────────────
-    // Send { noteId, folderId } where folderId is a folder _id OR null
-    // (null = unfiled / root).
     moveNote: builder.mutation({
       query: ({ noteId, folderId }) => ({
         url: `${NOTES_URL}/${noteId}/move`,
@@ -89,11 +73,10 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (result, error, { noteId }) => [
         { type: 'PersonalNote', id: noteId },
         'PersonalNote',
-        'PersonalNoteFolder', // counts per folder may change
+        'PersonalNoteFolder',
       ],
     }),
 
-    // ─── Delete a note ──────────────────────────────────────────────
     deleteNote: builder.mutation({
       query: (noteId) => ({
         url: `${NOTES_URL}/${noteId}`,
@@ -105,8 +88,8 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // ─── Toggle public status ───────────────────────────────────────
-    togglePublic: builder.mutation({
+    // Renamed: "togglePublic" is a generic name that can collide with other slices
+    toggleNotePublic: builder.mutation({
       query: ({ noteId, isPublic }) => ({
         url: `${NOTES_URL}/${noteId}/public`,
         method: 'PATCH',
@@ -118,20 +101,7 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // ─── Get a public note by share link ────────────────────────────
-    getNoteByShareLink: builder.query({
-      query: (link) => ({
-        url: `${NOTES_URL}/share/${link}`,
-      }),
-      providesTags: (result, error, link) => [{ type: 'PersonalNote', id: link }],
-    }),
-
-    // ═══════════════════════════════════════════════════════════════════
-    // Folders
-    // ═══════════════════════════════════════════════════════════════════
-
-    // ─── Create a folder ────────────────────────────────────────────
-    // Send { name, parentId?, color? }
+    // ─── Folders ────────────────────────────────────────────────────
     createNoteFolder: builder.mutation({
       query: (data) => ({
         url: `${NOTES_URL}/folders`,
@@ -141,7 +111,6 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['PersonalNoteFolder'],
     }),
 
-    // ─── Get all folders (flat list; build the tree client-side) ────
     getNoteFolders: builder.query({
       query: () => ({
         url: `${NOTES_URL}/folders`,
@@ -149,10 +118,6 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       providesTags: ['PersonalNoteFolder'],
     }),
 
-    // ─── Update a folder ────────────────────────────────────────────
-    // Send { folderId, data } where data may contain:
-    //   { name?, color?, order?, parentId? }
-    //   parentId: null → move to root
     updateNoteFolder: builder.mutation({
       query: ({ folderId, data }) => ({
         url: `${NOTES_URL}/folders/${folderId}`,
@@ -162,9 +127,6 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['PersonalNoteFolder', 'PersonalNote'],
     }),
 
-    // ─── Change a folder's color only ───────────────────────────────
-    // Send { folderId, color } where color is any CSS color string or
-    // null (null clears the color).
     updateNoteFolderColor: builder.mutation({
       query: ({ folderId, color }) => ({
         url: `${NOTES_URL}/folders/${folderId}/color`,
@@ -174,9 +136,6 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['PersonalNoteFolder', 'PersonalNote'],
     }),
 
-    // ─── Delete a folder ────────────────────────────────────────────
-    // Send { folderId, moveNotesTo? }
-    //   moveNotesTo: 'parent' (default) | 'root' | '<folderId>'
     deleteNoteFolder: builder.mutation({
       query: ({ folderId, moveNotesTo }) => ({
         url: `${NOTES_URL}/folders/${folderId}`,
@@ -186,11 +145,13 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['PersonalNoteFolder', 'PersonalNote'],
     }),
 
-    // ═══════════════════════════════════════════════════════════════════
-    // Collaborators
-    // ═══════════════════════════════════════════════════════════════════
-
-    addCollaborator: builder.mutation({
+    // ─── Collaborators ──────────────────────────────────────────────
+    // Renamed with a "Note" prefix: the tasks slice already defines
+    // addCollaborator / removeCollaborator / updateCollaboratorPermission,
+    // and RTK Query silently keeps whichever was injected first.
+    //
+    // `data` = { collaboratorIdentifier: string, permission: 'read'|'edit' }
+    addNoteCollaborator: builder.mutation({
       query: ({ noteId, data }) => ({
         url: `${NOTES_URL}/${noteId}/collaborators`,
         method: 'POST',
@@ -202,7 +163,7 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    removeCollaborator: builder.mutation({
+    removeNoteCollaborator: builder.mutation({
       query: ({ noteId, collaboratorId }) => ({
         url: `${NOTES_URL}/${noteId}/collaborators/${collaboratorId}`,
         method: 'DELETE',
@@ -213,7 +174,7 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    updateCollaboratorPermission: builder.mutation({
+    updateNoteCollaboratorPermission: builder.mutation({
       query: ({ noteId, collaboratorId, permission }) => ({
         url: `${NOTES_URL}/${noteId}/collaborators/${collaboratorId}`,
         method: 'PATCH',
@@ -225,10 +186,7 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // ═══════════════════════════════════════════════════════════════════
-    // Export / Import
-    // ═══════════════════════════════════════════════════════════════════
-
+    // ─── Export / Import ────────────────────────────────────────────
     exportNotePDF: builder.query({
       query: (noteId) => ({
         url: `${NOTES_URL}/${noteId}/export-pdf`,
@@ -238,7 +196,6 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
-    // Send { file, title?, folderId?, color? }
     importFileToNote: builder.mutation({
       query: (data) => {
         const formData = new FormData();
@@ -255,10 +212,7 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ['PersonalNote'],
     }),
 
-    // ═══════════════════════════════════════════════════════════════════
-    // AI  (unchanged — nothing to cache, all mutations)
-    // ═══════════════════════════════════════════════════════════════════
-
+    // ─── AI ─────────────────────────────────────────────────────────
     lookupScripture: builder.mutation({
       query: ({ text, noteId }) => ({
         url: `${NOTES_URL}/ai/scripture`,
@@ -317,25 +271,23 @@ export const {
   useGetNoteQuery,
   useLazyGetNoteQuery,
   useUpdateNoteMutation,
-  useUpdateNoteColorMutation,        // 👈 new
+  useUpdateNoteColorMutation,
   useMoveNoteMutation,
   useDeleteNoteMutation,
-  useTogglePublicMutation,
-  useGetNoteByShareLinkQuery,
-  useLazyGetNoteByShareLinkQuery,
+  useToggleNotePublicMutation,
 
   // Folders
   useCreateNoteFolderMutation,
   useGetNoteFoldersQuery,
   useLazyGetNoteFoldersQuery,
   useUpdateNoteFolderMutation,
-  useUpdateNoteFolderColorMutation,  // 👈 new
+  useUpdateNoteFolderColorMutation,
   useDeleteNoteFolderMutation,
 
   // Collaborators
-  useAddCollaboratorMutation,
-  useRemoveCollaboratorMutation,
-  useUpdateCollaboratorPermissionMutation,
+  useAddNoteCollaboratorMutation,
+  useRemoveNoteCollaboratorMutation,
+  useUpdateNoteCollaboratorPermissionMutation,
 
   // Export / Import
   useExportNotePDFQuery,
@@ -350,3 +302,11 @@ export const {
   useCompleteNoteMutation,
   useRewriteNoteMutation,
 } = personalNoteApiSlice;
+
+// ─── Aliases so existing imports in WriteNote.jsx keep working ─────────
+export {
+  useAddNoteCollaboratorMutation as useAddCollaboratorMutation,
+  useRemoveNoteCollaboratorMutation as useRemoveCollaboratorMutation,
+  useUpdateNoteCollaboratorPermissionMutation as useUpdateCollaboratorPermissionMutation,
+  useToggleNotePublicMutation as useTogglePublicMutation,
+} from './personalNoteApiSlice';

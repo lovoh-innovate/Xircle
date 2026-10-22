@@ -107,6 +107,19 @@ const sanitizeColor = (value, fallback = DEFAULT_PROJECT_COLOR) => {
   return null;
 };
 
+// ─── Icon helpers ──────────────────────────────────────────────
+// Icon keys are simple alphanumeric identifiers (e.g. "bookStack", "rocket").
+// The frontend maps these to react-icons components and falls back to bookStack.
+const DEFAULT_PROJECT_ICON = 'bookStack';
+const ICON_KEY_RE = /^[a-zA-Z][a-zA-Z0-9]{0,39}$/;
+
+const sanitizeIcon = (value, fallback = DEFAULT_PROJECT_ICON) => {
+  if (value === undefined || value === null || value === '') return fallback;
+  const v = String(value).trim();
+  if (!ICON_KEY_RE.test(v)) return null;
+  return v;
+};
+
 // ─── Token generation (public share ONLY) ───────────────────────
 const generateShareToken = () => crypto.randomBytes(24).toString('hex');
 
@@ -344,6 +357,7 @@ const sanitizeProject = (project, viewer) => {
     detailedDescription: obj.detailedDescription,
     coverImage: obj.coverImage,
     color: obj.color,
+    icon: obj.icon || DEFAULT_PROJECT_ICON,
     status: obj.status,
     progress: obj.progress,
     priority: obj.priority,
@@ -554,6 +568,7 @@ const createProject = async (req, res) => {
       dailyReportTime = '17:00',
       startDate = new Date(), endDate = null,
       color = DEFAULT_PROJECT_COLOR,
+      icon = DEFAULT_PROJECT_ICON,
     } = req.body;
 
     const links = parseArrayField(req.body.links);
@@ -567,6 +582,11 @@ const createProject = async (req, res) => {
     const safeColor = sanitizeColor(color);
     if (safeColor === null) {
       return res.status(400).json({ success: false, message: 'Invalid color. Use a hex code or named color.' });
+    }
+
+    const safeIcon = sanitizeIcon(icon);
+    if (safeIcon === null) {
+      return res.status(400).json({ success: false, message: 'Invalid icon.' });
     }
 
     const workspace = await Workspace.findById(workspaceId);
@@ -624,6 +644,7 @@ const createProject = async (req, res) => {
       progress: 0,
       dailyReportTime, projectType, tags,
       color: safeColor,
+      icon: safeIcon,
       archivedBy: [],
       isTrash: false,
       associates: [],
@@ -829,7 +850,7 @@ const getProject = async (req, res) => {
     const { project, workspace } = resolved;
     if (!workspace) return res.status(404).json({ success: false, message: 'Workspace not found.' });
 
-    // ⬇ NEW: upgrade the mode to 'public' if an outsider hits the
+    // ⬇ upgrade the mode to 'public' if an outsider hits the
     // standard route on a public-shared project.
     const mode = deriveEffectiveMode(project, workspace, userId, resolved.mode);
 
@@ -919,7 +940,6 @@ const getProjectTasks = async (req, res) => {
     const { project, workspace } = resolved;
     if (!workspace) return res.status(404).json({ success: false, message: 'Workspace not found.' });
 
-    // ⬇ NEW
     const mode = deriveEffectiveMode(project, workspace, userId, resolved.mode);
 
     const viewer = resolveViewer(project, workspace, userId, mode);
@@ -986,7 +1006,6 @@ const getTask = async (req, res) => {
     const { project, workspace } = resolved;
     if (!workspace) return res.status(404).json({ success: false, message: 'Workspace not found.' });
 
-    // ⬇ NEW
     const mode = deriveEffectiveMode(project, workspace, userId, resolved.mode);
 
     const viewer = resolveViewer(project, workspace, userId, mode);
@@ -1058,6 +1077,7 @@ const updateProject = async (req, res) => {
     const {
       name, description, detailedDescription, startDate, endDate,
       priority, status, dailyReportTime, projectType, color,
+      icon,
     } = req.body;
 
     if (req.body.status === 'completed') {
@@ -1099,6 +1119,14 @@ const updateProject = async (req, res) => {
         return res.status(400).json({ success: false, message: 'Invalid color.' });
       }
       project.color = safeColor;
+    }
+
+    if (icon !== undefined) {
+      const safeIcon = sanitizeIcon(icon, project.icon || DEFAULT_PROJECT_ICON);
+      if (safeIcon === null) {
+        return res.status(400).json({ success: false, message: 'Invalid icon.' });
+      }
+      project.icon = safeIcon;
     }
 
     await project.save();

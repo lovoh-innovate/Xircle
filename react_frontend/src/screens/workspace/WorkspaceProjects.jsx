@@ -42,6 +42,8 @@ import {
   FaThLarge, FaList,
   FaCrown, FaLayerGroup,
   FaUserPlus, FaCopy, FaGlobe, FaUserShield, FaLink, FaEye,
+  FaBriefcase, FaCode, FaChartLine, FaBullseye, FaFire, FaStar, FaBolt,
+  FaCube, FaBox, FaProjectDiagram, FaShoppingCart, FaCamera, FaMusic, FaHeart,
 } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 
@@ -99,9 +101,53 @@ const shadeHex = (hex, percent) => {
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
 };
 
-// ─── Unified project icon ───────────────────────────────────────
-const PROJECT_ICON = FaLayerGroup;
-const pickProjectIcon = () => PROJECT_ICON;
+// ─── Project icons ─────────────────────────────────────────────
+// The user picks an icon per project; the backend stores a simple
+// key string. This map is the single source of truth for both the
+// picker UI and the renderer used on cards / menus / search.
+const PROJECT_ICONS = {
+  bookStack: { name: 'Book Stack', icon: FaLayerGroup },
+  rocket:    { name: 'Rocket',     icon: FaRocket },
+  briefcase: { name: 'Briefcase',  icon: FaBriefcase },
+  lightbulb: { name: 'Lightbulb',  icon: FaLightbulb },
+  palette:   { name: 'Palette',    icon: FaPalette },
+  globe:     { name: 'Globe',      icon: FaGlobe },
+  code:      { name: 'Code',       icon: FaCode },
+  chart:     { name: 'Chart',      icon: FaChartLine },
+  target:    { name: 'Target',     icon: FaBullseye },
+  fire:      { name: 'Fire',       icon: FaFire },
+  star:      { name: 'Star',       icon: FaStar },
+  bolt:      { name: 'Bolt',       icon: FaBolt },
+  cube:      { name: 'Cube',       icon: FaCube },
+  box:       { name: 'Box',        icon: FaBox },
+  folder:    { name: 'Folder',     icon: FaFolder },
+  project:   { name: 'Project',    icon: FaProjectDiagram },
+  shopping:  { name: 'Shopping',   icon: FaShoppingCart },
+  camera:    { name: 'Camera',     icon: FaCamera },
+  music:     { name: 'Music',      icon: FaMusic },
+  heart:     { name: 'Heart',      icon: FaHeart },
+  users:     { name: 'Team',       icon: FaUsers },
+  tasks:     { name: 'Tasks',      icon: FaTasks },
+  clock:     { name: 'Clock',      icon: FaClock },
+  calendar:  { name: 'Calendar',   icon: FaCalendarAlt },
+  file:      { name: 'File',       icon: FaFileAlt },
+  check:     { name: 'Done',       icon: FaCheckCircle },
+  health:    { name: 'Health',     icon: FaHeartbeat },
+  crown:     { name: 'Crown',      icon: FaCrown },
+};
+
+const DEFAULT_PROJECT_ICON = 'bookStack';
+
+// Resolve an icon component for a project. Falls back to bookStack
+// for legacy projects that pre-date the icon field, and for unknown
+// keys (e.g. one removed from the palette after the fact).
+const pickProjectIcon = (project) => {
+  const key = project?.icon || DEFAULT_PROJECT_ICON;
+  return (PROJECT_ICONS[key] || PROJECT_ICONS[DEFAULT_PROJECT_ICON]).icon;
+};
+
+const getIconLabel = (key) =>
+  (PROJECT_ICONS[key] || PROJECT_ICONS[DEFAULT_PROJECT_ICON]).name;
 
 // ─── Member normalization ───────────────────────────────────────
 const getTeamUser = (tm) => {
@@ -193,6 +239,43 @@ const ColorPicker = ({ value, onChange, disabled = false }) => (
     })}
   </div>
 );
+
+// ─── Icon picker ────────────────────────────────────────────────
+// Renders the palette as a compact grid. The currently-selected
+// icon is highlighted using the project's chosen color, so color
+// and icon feel visually linked in both create & edit flows.
+const IconPicker = ({ value, onChange, disabled = false, brandColor = DEFAULT_PROJECT_COLOR }) => {
+  const current = value || DEFAULT_PROJECT_ICON;
+  const accent = toHex(brandColor);
+  return (
+    <div className="grid grid-cols-7 gap-1.5">
+      {Object.entries(PROJECT_ICONS).map(([key, { name, icon: Icon }]) => {
+        const selected = current === key;
+        return (
+          <button
+            key={key}
+            type="button"
+            disabled={disabled}
+            onClick={() => onChange(key)}
+            title={name}
+            aria-label={name}
+            className={`relative aspect-square rounded-lg flex items-center justify-center transition-all duration-150 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed ${
+              selected
+                ? 'ring-2 ring-offset-1 ring-offset-white dark:ring-offset-[#14141a]'
+                : 'bg-gray-100 dark:bg-[#1a1a24] hover:bg-gray-200 dark:hover:bg-[#232330] ring-1 ring-black/5 dark:ring-white/5'
+            }`}
+            style={selected ? { backgroundColor: `${accent}20`, boxShadow: `0 0 0 2px ${accent}` } : {}}
+          >
+            <Icon
+              className={`text-[11px] ${selected ? '' : 'text-gray-600 dark:text-gray-400'}`}
+              style={selected ? { color: accent } : {}}
+            />
+          </button>
+        );
+      })}
+    </div>
+  );
+};
 
 // ─── Custom Dropdown ────────────────────────────────────────────
 const CustomDropdown = ({ value, onChange, options, placeholder = 'Select', disabled = false }) => {
@@ -763,6 +846,7 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [color, setColor] = useState(workspace?.color || DEFAULT_PROJECT_COLOR);
+  const [icon, setIcon] = useState(DEFAULT_PROJECT_ICON);
   const [status, setStatus] = useState('planning');
   const [priority, setPriority] = useState('medium');
   const [startDate, setStartDate] = useState('');
@@ -789,6 +873,7 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
       setName('');
       setDescription('');
       setColor(workspace?.color || DEFAULT_PROJECT_COLOR);
+      setIcon(DEFAULT_PROJECT_ICON);
       setStatus('planning');
       setPriority('medium');
       setStartDate('');
@@ -807,6 +892,7 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
       fd.append('name', name.trim());
       fd.append('description', description.trim());
       fd.append('color', color);
+      fd.append('icon', icon);
       fd.append('status', status);
       fd.append('priority', priority);
       if (startDate) fd.append('startDate', startDate);
@@ -821,13 +907,15 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
 
   if (!isOpen) return null;
 
+  const PreviewIcon = pickProjectIcon({ icon });
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
       <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">
             <span className="inline-flex items-center justify-center w-6 h-6 rounded-lg mr-2 align-middle" style={{ backgroundColor: `${color}25`, color }}>
-              <FaPlus className="text-xs" />
+              <PreviewIcon className="text-xs" />
             </span>
             New Project
           </h2>
@@ -865,6 +953,16 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
               </span>
             </label>
             <ColorPicker value={color} onChange={setColor} disabled={loading} />
+          </div>
+
+          <div>
+            <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-400 mb-2">
+              <FaLayerGroup className="text-xs" /> Icon
+              <span className="ml-auto text-xs font-normal text-gray-500 dark:text-gray-500">
+                {getIconLabel(icon)}
+              </span>
+            </label>
+            <IconPicker value={icon} onChange={setIcon} disabled={loading} brandColor={color} />
           </div>
 
           <button
@@ -928,6 +1026,7 @@ const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor,
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [color, setColor] = useState(DEFAULT_PROJECT_COLOR);
+  const [icon, setIcon] = useState(DEFAULT_PROJECT_ICON);
   const [loading, setLoading] = useState(false);
   const [updateProject] = useUpdateProjectMutation();
   const { data: projectData, isLoading: projectLoading } = useGetProjectByIdQuery(projectId, { skip: !isOpen || !projectId });
@@ -957,6 +1056,7 @@ const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor,
       setStartDate(p.startDate ? new Date(p.startDate).toISOString().slice(0, 16) : '');
       setEndDate(p.endDate ? new Date(p.endDate).toISOString().slice(0, 16) : '');
       setColor(p.color || DEFAULT_PROJECT_COLOR);
+      setIcon(p.icon || DEFAULT_PROJECT_ICON);
     }
   }, [projectData]);
 
@@ -971,6 +1071,7 @@ const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor,
       fd.append('status', status);
       fd.append('priority', priority);
       fd.append('color', color);
+      fd.append('icon', icon);
       if (startDate) fd.append('startDate', startDate);
       if (endDate) fd.append('endDate', endDate);
       await updateProject({ projectId, data: fd }).unwrap();
@@ -980,6 +1081,7 @@ const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor,
   };
   if (!isOpen) return null;
   const isMobile = window.innerWidth < 768;
+  const PreviewIcon = pickProjectIcon({ icon });
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-0 md:p-4" onClick={onClose}>
       <div className={`bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl md:rounded-2xl w-full md:max-w-md max-h-[90vh] overflow-y-auto transform transition-transform duration-300 ${isMobile ? 'mt-auto' : 'mx-auto'}`} onClick={(e) => e.stopPropagation()}>
@@ -987,7 +1089,7 @@ const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor,
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">
               <span className="inline-flex items-center justify-center w-6 h-6 rounded-lg mr-2 align-middle" style={{ backgroundColor: `${color}25`, color }}>
-                <FaEdit className="text-xs" />
+                <PreviewIcon className="text-xs" />
               </span>
               Edit Project
             </h2>
@@ -1014,6 +1116,15 @@ const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor,
                   </span>
                 </label>
                 <ColorPicker value={color} onChange={setColor} disabled={loading} />
+              </div>
+              <div>
+                <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-400 mb-2">
+                  <FaLayerGroup className="text-xs" /> Icon
+                  <span className="ml-auto text-xs font-normal text-gray-500 dark:text-gray-500">
+                    {getIconLabel(icon)}
+                  </span>
+                </label>
+                <IconPicker value={icon} onChange={setIcon} disabled={loading} brandColor={color} />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Status</label>

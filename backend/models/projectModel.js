@@ -9,6 +9,12 @@ const NAMED_COLORS = [
   'emerald', 'rose', 'amber', 'cyan', 'violet',
 ];
 
+// Icon keys are simple identifiers (e.g. "bookStack", "rocket").
+// The frontend maps these to react-icons components and falls back
+// to "bookStack" for legacy projects or unknown keys.
+const DEFAULT_PROJECT_ICON = 'bookStack';
+const ICON_KEY_RE = /^[a-zA-Z][a-zA-Z0-9]{0,39}$/;
+
 // ─── Associate sub-schema ─────────────────────────────────────────
 // Associates are limited external collaborators added to a project.
 // They are also mirrored as workspace members with
@@ -121,6 +127,24 @@ const projectSchema = new mongoose.Schema(
           `"${props.value}" is not a valid color. Use a hex code like #3B82F6 or one of: ${NAMED_COLORS.join(', ')}.`,
       },
     },
+
+    // ── Icon ─────────────────────────────────────────────────
+    // Key that the frontend maps to a react-icons component.
+    // Default is the "bookStack" / layers icon.
+    icon: {
+      type: String,
+      default: DEFAULT_PROJECT_ICON,
+      trim: true,
+      validate: {
+        validator: (v) => {
+          if (!v) return true;
+          return ICON_KEY_RE.test(String(v).trim());
+        },
+        message: (props) =>
+          `"${props.value}" is not a valid icon key. Use an alphanumeric identifier (e.g. "bookStack", "rocket").`,
+      },
+    },
+
     links: [{ type: String }],
     documents: [
       {
