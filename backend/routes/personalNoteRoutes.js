@@ -4,7 +4,8 @@ import {
   createNote,
   getNotes,
   getNote,
-  getNoteByShareLink, // 👈 Import the legacy route
+  getNoteCollaborators,          // 🌟 new: fetch collaborators & edit history
+  getNoteByShareLink,            // legacy /share/:link
   updateNote,
   moveNote,
   deleteNote,
@@ -13,6 +14,10 @@ import {
   addCollaborator,
   removeCollaborator,
   updateCollaboratorPermission,
+  requestNoteAccess,             // request access to a public note
+  getAllPendingRequests,         // 🌟 new: global dashboard for pending requests
+  getAccessRequests,             // owner — list pending requests for a single note
+  resolveAccessRequest,          // owner — approve/reject a request
   exportNotePDF,
   importFileToNote,
   // Folder handlers
@@ -72,19 +77,37 @@ const optionalAuth = async (req, res, next) => {
 };
 
 // ══════════════════════════════════════════════════════════════════════════
-//  1. PUBLIC ROUTES (Legacy Support & New Guest Access)
+//  1. PUBLIC & OPTIONAL AUTH ROUTES
 // ══════════════════════════════════════════════════════════════════════════
 
 // Legacy share link route (kept for existing users)
 router.get("/share/:link", getNoteByShareLink);
 
-// New direct link route (supports guests if the note is public)
+// Fetch a single note — accepts ObjectId, slug, or share link.
 router.get("/:id", optionalAuth, getNote);
+
+// Fetch collaborators & edit history for a specific note.
+// Uses optionalAuth so guests can see collaborators on a public note.
+router.get("/:id/collaborators", optionalAuth, getNoteCollaborators);
 
 // ══════════════════════════════════════════════════════════════════════════
 //  2. PROTECTED ROUTES
 // ══════════════════════════════════════════════════════════════════════════
 router.use(protect);
+
+// ── Folder routes ──
+// Note: These MUST be defined before dynamic routes like `/:id` to prevent
+// "folders" from being interpreted as a Note ID.
+router.get("/folders", getNoteFolders);
+router.post("/folders", createNoteFolder);
+router.put("/folders/:id", updateNoteFolder);
+router.patch("/folders/:id/color", updateNoteFolderColor);
+router.delete("/folders/:id", deleteNoteFolder);
+
+// ── Access Request Dashboard ──
+// Fetch ALL pending requests across all notes owned by the user.
+// Must be defined before `/:id` routes.
+router.get("/access-requests/all", getAllPendingRequests);
 
 // ── AI routes ──
 router.post("/ai/scripture", lookupScripture);
@@ -94,23 +117,16 @@ router.post("/ai/proofread", proofreadNoteHandler);
 router.post("/ai/complete", completeNoteHandler);
 router.post("/ai/rewrite", rewriteNoteHandler);
 
-// ── Folder routes ──
-router.post("/folders", createNoteFolder);
-router.get("/folders", getNoteFolders);
-router.put("/folders/:id", updateNoteFolder);
-router.patch("/folders/:id/color", updateNoteFolderColor);
-router.delete("/folders/:id", deleteNoteFolder);
-
 // ── Import route ──
 router.post("/import", upload.single("file"), importFileToNote);
 
-// ── Note CRUD ──
-router.post("/", upload.array("attachments", 5), createNote);
+// ── Note CRUD (Root) ──
 router.get("/", getNotes);
+router.post("/", upload.array("attachments", 5), createNote);
+
+// ── Note CRUD (Specific Note Actions) ──
 router.put("/:id", upload.array("attachments", 5), updateNote);
 router.delete("/:id", deleteNote);
-
-// ── Sub-resource / Action routes ──
 router.patch("/:id/public", togglePublic);
 router.patch("/:id/move", moveNote);
 router.patch("/:id/color", updateNoteColor);
@@ -120,5 +136,15 @@ router.get("/:id/export-pdf", exportNotePDF);
 router.post("/:id/collaborators", addCollaborator);
 router.delete("/:id/collaborators/:collaboratorId", removeCollaborator);
 router.patch("/:id/collaborators/:collaboratorId", updateCollaboratorPermission);
+
+// ── Access Requests (Specific Note) ──
+// Any signed-in user can request access to a public note.
+router.post("/:id/request-access", requestNoteAccess);
+
+// Owner-only — list pending access requests on their note.
+router.get("/:id/access-requests", getAccessRequests);
+
+// Owner-only — approve or reject a specific request.
+router.patch("/:id/access-requests/:requestId", resolveAccessRequest);
 
 export default router;

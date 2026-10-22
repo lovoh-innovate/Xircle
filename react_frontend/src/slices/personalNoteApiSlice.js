@@ -27,6 +27,7 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       providesTags: ['PersonalNote'],
     }),
 
+    // Accepts ObjectId OR slug — the backend resolves both transparently.
     getNote: builder.query({
       query: (noteId) => ({
         url: `${NOTES_URL}/${noteId}`,
@@ -36,9 +37,19 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    // 🌟 NEW: Fetch collaborators and edit history for a specific note
+    getNoteCollaborators: builder.query({
+      query: (noteId) => ({
+        url: `${NOTES_URL}/${noteId}/collaborators`,
+      }),
+      providesTags: (result, error, noteId) => [
+        { type: 'PersonalNote', id: `collaborators:${noteId}` },
+        { type: 'PersonalNote', id: noteId },
+      ],
+    }),
+
     // ─── LEGACY: Get public note by share link ──────────────────────
     // Kept for old users who have /share/:link URLs (e.g. PublicNote.jsx).
-    // The backend route is public (no auth required).
     getNoteByShareLink: builder.query({
       query: (link) => ({
         url: `${NOTES_URL}/share/${link}`,
@@ -60,6 +71,8 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       },
       invalidatesTags: (result, error, { noteId }) => [
         { type: 'PersonalNote', id: noteId },
+        // Also invalidate collaborators/history since editing updates history
+        { type: 'PersonalNote', id: `collaborators:${noteId}` },
         'PersonalNote',
       ],
     }),
@@ -96,6 +109,7 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (result, error, noteId) => [
         { type: 'PersonalNote', id: noteId },
+        { type: 'PersonalNote', id: 'all-pending-requests' }, // Clear requests on delete
         'PersonalNote',
       ],
     }),
@@ -158,19 +172,18 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
     }),
 
     // ─── Collaborators ──────────────────────────────────────────────
-    // Renamed with a "Note" prefix: the tasks slice already defines
-    // addCollaborator / removeCollaborator / updateCollaboratorPermission,
-    // and RTK Query silently keeps whichever was injected first.
-    //
-    // `data` = { collaboratorIdentifier: string, permission: 'read'|'edit' }
     addNoteCollaborator: builder.mutation({
       query: ({ noteId, data }) => ({
         url: `${NOTES_URL}/${noteId}/collaborators`,
         method: 'POST',
-        body: data,
+        body: {
+          ...data,
+          collaboratorEmail: data?.collaboratorIdentifier,
+        },
       }),
       invalidatesTags: (result, error, { noteId }) => [
         { type: 'PersonalNote', id: noteId },
+        { type: 'PersonalNote', id: `collaborators:${noteId}` },
         'PersonalNote',
       ],
     }),
@@ -182,6 +195,7 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (result, error, { noteId }) => [
         { type: 'PersonalNote', id: noteId },
+        { type: 'PersonalNote', id: `collaborators:${noteId}` },
         'PersonalNote',
       ],
     }),
@@ -194,6 +208,58 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (result, error, { noteId }) => [
         { type: 'PersonalNote', id: noteId },
+        { type: 'PersonalNote', id: `collaborators:${noteId}` },
+        'PersonalNote',
+      ],
+    }),
+
+    // ─── Access Requests ────────────────────────────────────────────
+    // Any signed-in user who can view a public note can request collaborator access.
+    requestNoteAccess: builder.mutation({
+      query: ({ noteId, message = '' }) => ({
+        url: `${NOTES_URL}/${noteId}/request-access`,
+        method: 'POST',
+        body: message ? { message } : {},
+      }),
+      invalidatesTags: (result, error, { noteId }) => [
+        { type: 'PersonalNote', id: noteId },
+        { type: 'PersonalNote', id: 'all-pending-requests' },
+        'PersonalNote',
+      ],
+    }),
+
+    // 🌟 NEW: Global Dashboard — fetch ALL pending requests across all owned notes
+    getAllPendingRequests: builder.query({
+      query: () => `${NOTES_URL}/access-requests/all`,
+      providesTags: [
+        { type: 'PersonalNote', id: 'all-pending-requests' },
+        'PersonalNote',
+      ],
+    }),
+
+    // Owner-only — list of pending access requests on a single note.
+    getNoteAccessRequests: builder.query({
+      query: (noteId) => ({
+        url: `${NOTES_URL}/${noteId}/access-requests`,
+      }),
+      providesTags: (result, error, noteId) => [
+        { type: 'PersonalNote', id: `access-requests:${noteId}` },
+      ],
+    }),
+
+    // Owner-only — approve or reject a specific request.
+    // `action` = 'approve' | 'reject'
+    resolveNoteAccessRequest: builder.mutation({
+      query: ({ noteId, requestId, action }) => ({
+        url: `${NOTES_URL}/${noteId}/access-requests/${requestId}`,
+        method: 'PATCH',
+        body: { action },
+      }),
+      invalidatesTags: (result, error, { noteId }) => [
+        { type: 'PersonalNote', id: noteId },
+        { type: 'PersonalNote', id: `access-requests:${noteId}` },
+        { type: 'PersonalNote', id: `collaborators:${noteId}` }, // Approved users become collabs
+        { type: 'PersonalNote', id: 'all-pending-requests' },
         'PersonalNote',
       ],
     }),
@@ -282,8 +348,10 @@ export const {
   useLazyGetNotesQuery,
   useGetNoteQuery,
   useLazyGetNoteQuery,
-  useGetNoteByShareLinkQuery,       // 👈 restored
-  useLazyGetNoteByShareLinkQuery,   // 👈 restored
+  useGetNoteCollaboratorsQuery,        // 🌟 NEW
+  useLazyGetNoteCollaboratorsQuery,    // 🌟 NEW
+  useGetNoteByShareLinkQuery,
+  useLazyGetNoteByShareLinkQuery,
   useUpdateNoteMutation,
   useUpdateNoteColorMutation,
   useMoveNoteMutation,
@@ -302,6 +370,14 @@ export const {
   useAddNoteCollaboratorMutation,
   useRemoveNoteCollaboratorMutation,
   useUpdateNoteCollaboratorPermissionMutation,
+
+  // Access Requests
+  useRequestNoteAccessMutation,
+  useGetAllPendingRequestsQuery,       // 🌟 NEW
+  useLazyGetAllPendingRequestsQuery,   // 🌟 NEW
+  useGetNoteAccessRequestsQuery,
+  useLazyGetNoteAccessRequestsQuery,
+  useResolveNoteAccessRequestMutation,
 
   // Export / Import
   useExportNotePDFQuery,

@@ -20,6 +20,8 @@ import {
   useUpdateNoteFolderMutation,
   useUpdateNoteFolderColorMutation,
   useDeleteNoteFolderMutation,
+  useGetAllPendingRequestsQuery,
+  useResolveNoteAccessRequestMutation,
 } from '../slices/personalNoteApiSlice';
 import toast from 'react-hot-toast';
 import {
@@ -47,6 +49,8 @@ import {
   FaTh,
   FaList,
   FaPalette,
+  FaUserShield,
+  FaEnvelope,
 } from 'react-icons/fa';
 import { formatDistanceToNow } from 'date-fns';
 import GeneralSidebar from '../components/GeneralSidebar';
@@ -170,7 +174,7 @@ const extractFolderId = (note) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  Confirm Modal  (centered on all screens)
+//  Confirm Modal
 // ═════════════════════════════════════════════════════════════════════
 const ConfirmModal = ({
   isOpen,
@@ -222,7 +226,7 @@ const ConfirmModal = ({
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  Prompt Modal  (centered on all screens)
+//  Prompt Modal
 // ═════════════════════════════════════════════════════════════════════
 const PromptModal = ({
   isOpen,
@@ -315,7 +319,7 @@ const PromptModal = ({
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  Move Note → Folder Modal (single or bulk)  (centered on all screens)
+//  Move Note → Folder Modal
 // ═════════════════════════════════════════════════════════════════════
 const FolderPickerModal = ({
   isOpen,
@@ -397,7 +401,7 @@ const FolderPickerModal = ({
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  Folder Tree (recursive, with color)
+//  Folder Tree Node
 // ═════════════════════════════════════════════════════════════════════
 const FolderNode = ({
   folder,
@@ -510,7 +514,7 @@ const FolderNode = ({
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  Folder context menu
+//  Folder Context Menu
 // ═════════════════════════════════════════════════════════════════════
 const FolderContextMenu = ({
   pos,
@@ -808,7 +812,6 @@ const NoteCard = ({
   const isGrid = viewMode === 'grid';
   const noteColor = note.color;
 
-  // ── Resolve folder info (populated object OR raw id) ───────────
   const folderId = extractFolderId(note);
   const folderFromList = folderId
     ? folders.find((f) => f._id === folderId)
@@ -821,7 +824,6 @@ const NoteCard = ({
   const folderColor =
     folderFromList?.color || populatedFolder?.color || null;
 
-  // ── Fixed-position menu geometry ───────────────────────────────
   const menuWidth = menuMode === 'color' ? MENU_WIDTH_COLOR : MENU_WIDTH_MAIN;
 
   const menuStyle = menuPos
@@ -844,7 +846,6 @@ const NoteCard = ({
   const menuClassName =
     'bg-white dark:bg-[#1e1e26] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl py-1 overflow-y-auto overflow-x-hidden notes-scroll';
 
-  // ── Tiny folder badge ──────────────────────────────────────────
   const renderFolderBadge = () => {
     if (!showFolderBadge || !folderName) return null;
     return (
@@ -946,7 +947,6 @@ const NoteCard = ({
     );
   };
 
-  // ── Grid variant ──────────────────────────────────────────────
   if (isGrid) {
     return (
       <div
@@ -1023,7 +1023,6 @@ const NoteCard = ({
           {preview || 'Empty note'}
         </p>
 
-        {/* Footer: timestamp + optional folder badge */}
         <div className="flex items-center gap-2 text-[10px] text-gray-400 dark:text-gray-500 mt-2 min-w-0">
           <span className="truncate flex-shrink-0">
             {formatDistanceToNow(new Date(note.updatedAt), { addSuffix: true })}
@@ -1034,7 +1033,6 @@ const NoteCard = ({
     );
   }
 
-  // ── List variant ──────────────────────────────────────────────
   return (
     <div
       className={`notes-card bg-white dark:bg-[#1a1a1a] border-b border-gray-100 dark:border-gray-800 px-4 py-3 transition cursor-pointer relative ${
@@ -1135,13 +1133,154 @@ const NoteCard = ({
 };
 
 // ═════════════════════════════════════════════════════════════════════
+//  Access Requests View
+// ═════════════════════════════════════════════════════════════════════
+const NoteRequestsCard = ({ noteId, noteTitle, requests }) => {
+  const [resolveRequest] = useResolveNoteAccessRequestMutation();
+  const [busyId, setBusyId] = useState(null);
+
+  const handleResolve = async (requestId, action) => {
+    setBusyId(requestId);
+    try {
+      await resolveRequest({ noteId, requestId, action }).unwrap();
+      toast.success(`Request ${action === 'approve' ? 'approved' : 'rejected'}`);
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to resolve request');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden mb-4 shadow-sm">
+      <div className="px-4 py-3 bg-gray-50 dark:bg-[#141418] border-b border-gray-200 dark:border-gray-800 flex items-center gap-2">
+        <FaFileAlt className="text-teal-500 text-sm" />
+        <h3 className="text-sm font-semibold text-gray-800 dark:text-white truncate">
+          {noteTitle || 'Untitled note'}
+        </h3>
+        <span className="ml-auto text-[10px] font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-2 py-0.5 rounded-full">
+          {requests.length} pending
+        </span>
+      </div>
+      <div className="divide-y divide-gray-100 dark:divide-gray-800/50">
+        {requests.map((req) => {
+          const u = req.user || {};
+          const name = u.name || u.email || 'Unknown user';
+          const initial = name.charAt(0).toUpperCase();
+          const isBusy = busyId === req.requestId;
+
+          return (
+            <div key={req.requestId} className="p-3 sm:p-4 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full bg-teal-100 dark:bg-teal-900/30 flex items-center justify-center flex-shrink-0 text-teal-600 dark:text-teal-400 font-bold text-sm">
+                {initial}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-800 dark:text-white truncate">
+                  {name}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 truncate">
+                  <FaEnvelope className="text-[10px]" />
+                  {u.email || 'No email'}
+                </p>
+                <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
+                  Requested {formatDistanceToNow(new Date(req.createdAt), { addSuffix: true })}
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <button
+                  onClick={() => handleResolve(req.requestId, 'reject')}
+                  disabled={isBusy}
+                  className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition disabled:opacity-50"
+                  title="Reject"
+                >
+                  <FaTimes className="text-sm" />
+                </button>
+                <button
+                  onClick={() => handleResolve(req.requestId, 'approve')}
+                  disabled={isBusy}
+                  className="px-3 py-1.5 bg-teal-600 text-white text-xs font-medium rounded-lg hover:bg-teal-700 transition disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {isBusy ? <FaSpinner className="animate-spin text-xs" /> : <FaCheck className="text-xs" />}
+                  Approve
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const AccessRequestsView = () => {
+  const { data, isLoading } = useGetAllPendingRequestsQuery();
+  const requests = data?.requests || [];
+
+  // Group requests by noteId for a clean UI
+  const groupedRequests = useMemo(() => {
+    const groups = {};
+    requests.forEach((req) => {
+      if (!groups[req.noteId]) {
+        groups[req.noteId] = {
+          noteId: req.noteId,
+          noteTitle: req.noteTitle,
+          requests: [],
+        };
+      }
+      groups[req.noteId].requests.push(req);
+    });
+    return Object.values(groups);
+  }, [requests]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <FaSpinner className="animate-spin text-teal-500 text-2xl" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 sm:p-6 max-w-4xl mx-auto">
+      <div className="mb-6">
+        <h1 className="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
+          <FaUserShield className="text-teal-500" />
+          Access Requests
+        </h1>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          People who want to collaborate on your notes. Approve or reject their requests below.
+        </p>
+      </div>
+      
+      {groupedRequests.length === 0 ? (
+        <div className="text-center py-12 bg-white dark:bg-[#1a1a1a] border border-dashed border-gray-300 dark:border-gray-700 rounded-xl">
+          <FaInbox className="text-4xl text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+          <h3 className="text-sm font-medium text-gray-800 dark:text-white">No pending requests</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">You're all caught up!</p>
+        </div>
+      ) : (
+        <div>
+          {groupedRequests.map((group) => (
+            <NoteRequestsCard 
+              key={group.noteId} 
+              noteId={group.noteId} 
+              noteTitle={group.noteTitle} 
+              requests={group.requests} 
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ═════════════════════════════════════════════════════════════════════
 //  Main Component
 // ═════════════════════════════════════════════════════════════════════
 const VIEW_MODE_KEY = 'xircle.notes.viewMode';
 const readViewMode = () => {
   try {
     const v = localStorage.getItem(VIEW_MODE_KEY);
-    // Grid is the default; only honor an explicit "list" preference.
     return v === 'list' ? 'list' : 'grid';
   } catch {
     return 'grid';
@@ -1179,8 +1318,10 @@ const Notes = () => {
   }, [viewMode]);
 
   // ── Data ──────────────────────────────────────────────────────────
-  const notesArg = selectedFolder === 'all' ? undefined : selectedFolder;
-  const { data: notesData, isLoading } = useGetNotesQuery(notesArg);
+  // If 'requests' is selected, we don't actually need to fetch all notes anymore
+  // since AccessRequestsView has its own global fetch.
+  const notesArg = selectedFolder === 'all' || selectedFolder === 'requests' ? undefined : selectedFolder;
+  const { data: notesData, isLoading } = useGetNotesQuery(notesArg, { skip: selectedFolder === 'requests' });
   const { data: foldersData, isLoading: foldersLoading } = useGetNoteFoldersQuery();
 
   const [createNote] = useCreateNoteMutation();
@@ -1206,7 +1347,7 @@ const Notes = () => {
   }, [folders.length]);
 
   useEffect(() => {
-    if (selectedFolder === 'all' || selectedFolder === 'root') return;
+    if (selectedFolder === 'all' || selectedFolder === 'root' || selectedFolder === 'requests') return;
     const exists = folders.some((f) => f._id === selectedFolder);
     if (!exists && !foldersLoading) setSelectedFolder('all');
   }, [folders, foldersLoading, selectedFolder]);
@@ -1233,11 +1374,11 @@ const Notes = () => {
   const currentFolderName = useMemo(() => {
     if (selectedFolder === 'all') return 'All Notes';
     if (selectedFolder === 'root') return 'Unfiled';
+    if (selectedFolder === 'requests') return 'Access Requests';
     const found = folders.find((f) => f._id === selectedFolder);
     return found?.name || 'All Notes';
   }, [selectedFolder, folders]);
 
-  // Show folder badge only when looking at "All Notes"
   const showFolderBadge = selectedFolder === 'all';
 
   // ── Selection handlers ─────────────────────────────────────────
@@ -1296,7 +1437,6 @@ const Notes = () => {
       return;
     }
     
-    // Changed from SHARE_BASE_URL/share/... to the direct app route
     const url = `${window.location.origin}/notes/${note._id}`;
 
     if (typeof navigator !== 'undefined' && navigator.share) {
@@ -1335,7 +1475,7 @@ const Notes = () => {
     setIsCreatingNote(true);
     try {
       const folderId =
-        selectedFolder === 'all' || selectedFolder === 'root'
+        selectedFolder === 'all' || selectedFolder === 'root' || selectedFolder === 'requests'
           ? null
           : selectedFolder;
 
@@ -1497,7 +1637,7 @@ const Notes = () => {
     <div className="flex flex-col h-full">
       <div className="space-y-0.5 pb-2">
         <div
-          onClick={() => { setSelectedFolder('all'); setFolderDrawerOpen(false); }}
+          onClick={() => { setSelectedFolder('all'); setFolderDrawerOpen(false); if (selectionMode) exitSelectionMode(); }}
           className={`flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer select-none ${
             selectedFolder === 'all'
               ? 'bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400'
@@ -1508,7 +1648,7 @@ const Notes = () => {
           <span className="text-xs font-medium truncate">All Notes</span>
         </div>
         <div
-          onClick={() => { setSelectedFolder('root'); setFolderDrawerOpen(false); }}
+          onClick={() => { setSelectedFolder('root'); setFolderDrawerOpen(false); if (selectionMode) exitSelectionMode(); }}
           className={`flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer select-none ${
             selectedFolder === 'root'
               ? 'bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400'
@@ -1517,6 +1657,17 @@ const Notes = () => {
         >
           <FaInbox className="text-xs flex-shrink-0" />
           <span className="text-xs font-medium truncate">Unfiled</span>
+        </div>
+        <div
+          onClick={() => { setSelectedFolder('requests'); setFolderDrawerOpen(false); if (selectionMode) exitSelectionMode(); }}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer select-none ${
+            selectedFolder === 'requests'
+              ? 'bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400'
+              : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+          }`}
+        >
+          <FaUserShield className="text-xs flex-shrink-0" />
+          <span className="text-xs font-medium truncate">Access Requests</span>
         </div>
       </div>
 
@@ -1554,7 +1705,7 @@ const Notes = () => {
   );
 
   // ── Loading screen ──────────────────────────────────────────────
-  if (isLoading && selectedFolder === 'all') {
+  if (isLoading && selectedFolder !== 'requests') {
     return (
       <>
         <GlobalStyles />
@@ -1661,49 +1812,57 @@ const Notes = () => {
                 </button>
 
                 <h1 className="text-sm font-semibold text-gray-800 dark:text-white flex items-center gap-2 flex-1 min-w-0">
-                  <FaFolder className="text-teal-500 text-sm hidden sm:block flex-shrink-0" />
+                  {selectedFolder === 'requests' ? (
+                    <FaUserShield className="text-teal-500 text-sm hidden sm:block flex-shrink-0" />
+                  ) : (
+                    <FaFolder className="text-teal-500 text-sm hidden sm:block flex-shrink-0" />
+                  )}
                   <span className="truncate">{currentFolderName}</span>
                 </h1>
 
-                <div className="flex items-center rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex-shrink-0">
-                  <button
-                    onClick={() => setViewMode('list')}
-                    className={`p-1.5 transition ${
-                      viewMode === 'list'
-                        ? 'bg-gray-100 dark:bg-gray-800 text-teal-500'
-                        : 'hover:bg-gray-50 dark:hover:bg-gray-900 text-gray-500 dark:text-gray-400'
-                    }`}
-                    title="List view"
-                    aria-label="List view"
-                  >
-                    <FaList className="text-xs" />
-                  </button>
-                  <button
-                    onClick={() => setViewMode('grid')}
-                    className={`p-1.5 transition border-l border-gray-200 dark:border-gray-700 ${
-                      viewMode === 'grid'
-                        ? 'bg-gray-100 dark:bg-gray-800 text-teal-500'
-                        : 'hover:bg-gray-50 dark:hover:bg-gray-900 text-gray-500 dark:text-gray-400'
-                    }`}
-                    title="Grid view"
-                    aria-label="Grid view"
-                  >
-                    <FaTh className="text-xs" />
-                  </button>
-                </div>
+                {selectedFolder !== 'requests' && (
+                  <div className="flex items-center rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex-shrink-0">
+                    <button
+                      onClick={() => setViewMode('list')}
+                      className={`p-1.5 transition ${
+                        viewMode === 'list'
+                          ? 'bg-gray-100 dark:bg-gray-800 text-teal-500'
+                          : 'hover:bg-gray-50 dark:hover:bg-gray-900 text-gray-500 dark:text-gray-400'
+                      }`}
+                      title="List view"
+                      aria-label="List view"
+                    >
+                      <FaList className="text-xs" />
+                    </button>
+                    <button
+                      onClick={() => setViewMode('grid')}
+                      className={`p-1.5 transition border-l border-gray-200 dark:border-gray-700 ${
+                        viewMode === 'grid'
+                          ? 'bg-gray-100 dark:bg-gray-800 text-teal-500'
+                          : 'hover:bg-gray-50 dark:hover:bg-gray-900 text-gray-500 dark:text-gray-400'
+                      }`}
+                      title="Grid view"
+                      aria-label="Grid view"
+                    >
+                      <FaTh className="text-xs" />
+                    </button>
+                  </div>
+                )}
 
-                <button
-                  onClick={handleCreateNote}
-                  disabled={isCreatingNote}
-                  className="p-1.5 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
-                  aria-label="New note"
-                >
-                  {isCreatingNote ? (
-                    <FaSpinner className="text-sm animate-spin" />
-                  ) : (
-                    <FaPlus className="text-sm" />
-                  )}
-                </button>
+                {selectedFolder !== 'requests' && (
+                  <button
+                    onClick={handleCreateNote}
+                    disabled={isCreatingNote}
+                    className="p-1.5 text-gray-400 hover:text-teal-500 transition rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                    aria-label="New note"
+                  >
+                    {isCreatingNote ? (
+                      <FaSpinner className="text-sm animate-spin" />
+                    ) : (
+                      <FaPlus className="text-sm" />
+                    )}
+                  </button>
+                )}
               </div>
             )}
           </header>
@@ -1714,7 +1873,9 @@ const Notes = () => {
               paddingBottom: 'calc(7rem + env(safe-area-inset-bottom, 0px))',
             }}
           >
-            {notes.length === 0 ? (
+            {selectedFolder === 'requests' ? (
+              <AccessRequestsView />
+            ) : notes.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500 p-8">
                 <FaFileAlt className="text-4xl mb-2 opacity-30" />
                 <p className="text-sm font-medium">
@@ -1776,20 +1937,22 @@ const Notes = () => {
       </div>
 
       {/* Floating action button */}
-      <button
-        onClick={handleCreateNote}
-        disabled={isCreatingNote || selectionMode}
-        className="fixed right-4 sm:right-6 z-30 w-12 h-12 bg-teal-600 dark:bg-teal-500 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-teal-700 dark:hover:bg-teal-600 transition active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
-        style={{
-          bottom: 'calc(5.5rem + env(safe-area-inset-bottom, 0px))',
-        }}
-      >
-        {isCreatingNote ? (
-          <FaSpinner className="text-xl animate-spin" />
-        ) : (
-          <FaPlus className="text-xl" />
-        )}
-      </button>
+      {selectedFolder !== 'requests' && (
+        <button
+          onClick={handleCreateNote}
+          disabled={isCreatingNote || selectionMode}
+          className="fixed right-4 sm:right-6 z-30 w-12 h-12 bg-teal-600 dark:bg-teal-500 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-teal-700 dark:hover:bg-teal-600 transition active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+          style={{
+            bottom: 'calc(5.5rem + env(safe-area-inset-bottom, 0px))',
+          }}
+        >
+          {isCreatingNote ? (
+            <FaSpinner className="text-xl animate-spin" />
+          ) : (
+            <FaPlus className="text-xl" />
+          )}
+        </button>
+      )}
 
       {/* Mobile folder drawer */}
       {folderDrawerOpen && (

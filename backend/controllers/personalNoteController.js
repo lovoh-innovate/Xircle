@@ -18,6 +18,53 @@ const getUserName = async (userId) => {
   return user?.name || 'A Xircle user';
 };
 
+const slugify = (text) => {
+  return String(text)
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, '') // remove non-word chars
+    .replace(/[\s_-]+/g, '-') // swap spaces/underscores for hyphens
+    .replace(/^-+|-+$/g, ''); // trim hyphens
+};
+
+// Generate a unique slug for a note
+const generateUniqueSlug = async (title, excludeId = null) => {
+  let base = slugify(title) || 'note';
+  let slug = base;
+  let counter = 1;
+
+  while (true) {
+    const query = { slug };
+    if (excludeId) query._id = { $ne: excludeId };
+    
+    const existing = await PersonalNote.findOne(query);
+    if (!existing) return slug;
+    
+    slug = `${base}-${counter++}`;
+  }
+};
+
+// Resolve note by ObjectId, Slug, or Share Link
+const resolveNoteByIdentifier = async (identifier) => {
+  if (!identifier) return null;
+
+  // 1. Try ObjectId (existing links)
+  if (mongoose.Types.ObjectId.isValid(identifier)) {
+    const note = await PersonalNote.findById(identifier);
+    if (note) return note;
+  }
+
+  // 2. Try Slug (new custom URLs)
+  const bySlug = await PersonalNote.findOne({ slug: identifier });
+  if (bySlug) return bySlug;
+
+  // 3. Try Share Link (legacy URLs)
+  const byShareLink = await PersonalNote.findOne({ shareLink: identifier, isPublic: true });
+  if (byShareLink) return byShareLink;
+
+  return null;
+};
+
 const resolveFolderId = async (folderId, userId) => {
   if (folderId === undefined) return undefined;
   if (folderId === null || folderId === '' || folderId === 'root') return null;
@@ -88,6 +135,7 @@ export const createNote = asyncHandler(async (req, res) => {
 
   const noteTitle = title?.trim() ? title.trim() : 'Untitled';
   const noteContent = content?.trim() ? content.trim() : 'Write your note here...';
+  const slug = await generateUniqueSlug(noteTitle);
 
   let resolvedFolderId = null;
   try {
@@ -122,10 +170,13 @@ export const createNote = asyncHandler(async (req, res) => {
     folder: resolvedFolderId,
     title: noteTitle,
     content: noteContent,
+    slug,
     color: resolvedColor,
     isPublic,
     shareLink,
     attachments,
+    lastEditedBy: userId,
+    editHistory: [{ user: userId, action: 'Created note' }]
   });
 
   res.status(201).json({ success: true, note });
@@ -151,31 +202,32 @@ export const getNotes = asyncHandler(async (req, res) => {
 
   const notes = await PersonalNote.find(query)
     .sort({ updatedAt: -1 })
-    .select('-__v');
+    .select('-__v -editHistory') // Keep list light, fetch history on single note view
+    .populate('lastEditedBy', 'name');
 
   res.status(200).json({ success: true, notes });
 });
 
-// ─── Get Single Personal Note (New App URL) ─────────────────────────────
+// ─── Get Single Personal Note (ID or Slug) ───────────────────────────────
 export const getNote = asyncHandler(async (req, res) => {
-  // req.user will be undefined if it's a guest, so we check gracefully
   const userId = req.user ? req.user.id : null;
-
-  const note = await PersonalNote.findById(req.params.id)
-    .populate('collaborators.user', 'name email')
-    .populate('folder', 'name parent color');
+  const note = await resolveNoteByIdentifier(req.params.id);
 
   if (!note) {
     res.status(404);
     throw new Error('Note not found.');
   }
 
+  await note.populate('collaborators.user', 'name email');
+  await note.populate('folder', 'name parent color');
+  await note.populate('lastEditedBy', 'name');
+  await note.populate('editHistory.user', 'name');
+
   const isOwner = userId && note.user.toString() === userId;
   const isCollaborator = userId && note.collaborators.some(
     c => c.user._id.toString() === userId && c.permission === 'read'
   );
 
-  // Allow access if user is owner, collaborator, OR if the note is public
   if (!isOwner && !isCollaborator && !note.isPublic) {
     res.status(403);
     throw new Error('You do not have permission to view this note.');
@@ -184,13 +236,46 @@ export const getNote = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, note });
 });
 
+// ─── Get Note Collaborators & Edit History ────────────────────────────────
+export const getNoteCollaborators = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const note = await resolveNoteByIdentifier(req.params.id);
+
+  if (!note) {
+    res.status(404);
+    throw new Error('Note not found.');
+  }
+
+  const isOwner = note.user.toString() === userId;
+  const isCollaborator = note.collaborators.some(c => c.user.toString() === userId);
+
+  if (!isOwner && !isCollaborator && !note.isPublic) {
+    res.status(403);
+    throw new Error('You do not have permission to view collaborators.');
+  }
+
+  await note.populate('collaborators.user', 'name email');
+  await note.populate('editHistory.user', 'name');
+
+  // Sort edit history newest first
+  const sortedHistory = [...note.editHistory].sort((a, b) => b.timestamp - a.timestamp);
+
+  res.status(200).json({
+    success: true,
+    collaborators: note.collaborators,
+    pendingCollaborators: note.pendingCollaborators,
+    editHistory: sortedHistory
+  });
+});
+
 // ─── Get Public Note by Share Link (Legacy URL Support) ─────────────────
 export const getNoteByShareLink = asyncHandler(async (req, res) => {
   const { link } = req.params;
   const note = await PersonalNote.findOne({ shareLink: link, isPublic: true })
     .populate('user', 'name email')
     .populate('folder', 'name parent color')
-    .select('-__v');
+    .populate('lastEditedBy', 'name')
+    .select('-__v -editHistory');
 
   if (!note) {
     res.status(404);
@@ -200,11 +285,11 @@ export const getNoteByShareLink = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, note });
 });
 
-// ─── Update Personal Note ────────────────────────────────────────────────
+// ─── Update Personal Note (Supports Slug editing) ────────────────────────
 export const updateNote = asyncHandler(async (req, res) => {
   const userId = req.user.id;
-  const { title, content, isPublic, folderId, color } = req.body;
-  const note = await PersonalNote.findById(req.params.id);
+  const { title, content, isPublic, folderId, color, slug } = req.body;
+  const note = await resolveNoteByIdentifier(req.params.id);
 
   if (!note) {
     res.status(404);
@@ -221,34 +306,57 @@ export const updateNote = asyncHandler(async (req, res) => {
     throw new Error('You do not have permission to edit this note.');
   }
 
-  if (title !== undefined) note.title = title.trim() || 'Untitled';
-  if (content !== undefined) note.content = content.trim();
+  let hasChanged = false;
+
+  if (title !== undefined && note.title !== title.trim()) {
+    note.title = title.trim() || 'Untitled';
+    hasChanged = true;
+  }
+  
+  if (content !== undefined && note.content !== content.trim()) {
+    note.content = content.trim();
+    hasChanged = true;
+  }
+
+  // Only owner can change the slug
+  if (slug !== undefined && isOwner) {
+    const newSlug = await generateUniqueSlug(slug, note._id);
+    if (note.slug !== newSlug) {
+      note.slug = newSlug;
+      hasChanged = true;
+    }
+  }
 
   if (color !== undefined) {
     try {
-      note.color = normalizeColor(color);
+      const newColor = normalizeColor(color);
+      if (note.color !== newColor) {
+        note.color = newColor;
+        hasChanged = true;
+      }
     } catch (err) {
       res.status(err.statusCode || 400);
       throw err;
     }
   }
 
-  if (isPublic !== undefined) {
+  if (isPublic !== undefined && note.isPublic !== isPublic) {
     note.isPublic = isPublic;
     if (isPublic && !note.shareLink) {
       note.shareLink = uuidv4();
     } else if (!isPublic) {
       note.shareLink = undefined;
     }
+    hasChanged = true;
   }
 
-  if (folderId !== undefined) {
-    if (!isOwner) {
-      res.status(403);
-      throw new Error('Only the owner can move this note.');
-    }
+  if (folderId !== undefined && isOwner) {
     try {
-      note.folder = await resolveFolderId(folderId, userId);
+      const newFolderId = await resolveFolderId(folderId, userId);
+      if (String(note.folder) !== String(newFolderId)) {
+        note.folder = newFolderId;
+        hasChanged = true;
+      }
     } catch (err) {
       res.status(err.statusCode || 400);
       throw err;
@@ -262,6 +370,22 @@ export const updateNote = asyncHandler(async (req, res) => {
       size: file.size,
       mimeType: file.mimetype,
     }));
+    hasChanged = true;
+  }
+
+  if (hasChanged) {
+    note.lastEditedBy = userId;
+    
+    // Add to edit history (keep last 50 entries)
+    note.editHistory.push({
+      user: userId,
+      action: isOwner ? 'Updated note' : 'Edited content',
+      timestamp: new Date()
+    });
+    
+    if (note.editHistory.length > 50) {
+      note.editHistory = note.editHistory.slice(-50);
+    }
   }
 
   await note.save();
@@ -272,8 +396,8 @@ export const updateNote = asyncHandler(async (req, res) => {
 export const moveNote = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const { folderId } = req.body;
+  const note = await resolveNoteByIdentifier(req.params.id);
 
-  const note = await PersonalNote.findById(req.params.id);
   if (!note) {
     res.status(404);
     throw new Error('Note not found.');
@@ -301,8 +425,8 @@ export const moveNote = asyncHandler(async (req, res) => {
 export const updateNoteColor = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const { color } = req.body;
+  const note = await resolveNoteByIdentifier(req.params.id);
 
-  const note = await PersonalNote.findById(req.params.id);
   if (!note) {
     res.status(404);
     throw new Error('Note not found.');
@@ -331,7 +455,7 @@ export const updateNoteColor = asyncHandler(async (req, res) => {
 // ─── Delete Personal Note ──────────────────────────────────────────────
 export const deleteNote = asyncHandler(async (req, res) => {
   const userId = req.user.id;
-  const note = await PersonalNote.findById(req.params.id);
+  const note = await resolveNoteByIdentifier(req.params.id);
 
   if (!note) {
     res.status(404);
@@ -356,7 +480,7 @@ export const togglePublic = asyncHandler(async (req, res) => {
     throw new Error('isPublic boolean required.');
   }
 
-  const note = await PersonalNote.findById(req.params.id);
+  const note = await resolveNoteByIdentifier(req.params.id);
   if (!note) {
     res.status(404);
     throw new Error('Note not found.');
@@ -382,19 +506,18 @@ export const togglePublic = asyncHandler(async (req, res) => {
   });
 });
 
-// ─── Manage Collaborators (Invite by Email or Username) ────────────────
+// ══════════════════════════════════════════════════════════════════════════
+//  COLLABORATOR MANAGEMENT & REQUEST ACCESS
+// ══════════════════════════════════════════════════════════════════════════
 
 export const addCollaborator = asyncHandler(async (req, res) => {
   const userId = req.user.id;
-
-  // ── Accept ANY of these field names for maximum compatibility ──
   const rawIdentifier =
     req.body.collaboratorIdentifier ||
     req.body.collaboratorEmail ||
     req.body.email ||
     req.body.username ||
     '';
-
   const rawPermission = req.body.permission || 'read';
   const permission = rawPermission === 'edit' ? 'edit' : 'read';
 
@@ -403,7 +526,7 @@ export const addCollaborator = asyncHandler(async (req, res) => {
     throw new Error('Collaborator email or username is required.');
   }
 
-  const note = await PersonalNote.findById(req.params.id);
+  const note = await resolveNoteByIdentifier(req.params.id);
   if (!note) {
     res.status(404);
     throw new Error('Note not found.');
@@ -415,8 +538,6 @@ export const addCollaborator = asyncHandler(async (req, res) => {
   }
 
   const identifier = String(rawIdentifier).trim().toLowerCase();
-
-  // Check if user exists by email OR username
   const existingUser = await User.findOne({
     $or: [{ email: identifier }, { username: identifier }]
   });
@@ -438,18 +559,24 @@ export const addCollaborator = asyncHandler(async (req, res) => {
       throw new Error('User is already a collaborator.');
     }
 
-    // Remove from pending list if they were invited previously
     note.pendingCollaborators = (note.pendingCollaborators || []).filter(
       p => p.email !== existingUser.email
     );
+    
+    note.collaboratorRequests = note.collaboratorRequests.filter(
+      r => r.user.toString() !== existingUser._id.toString()
+    );
 
-    note.collaborators.push({
-      user: existingUser._id,
-      permission,
+    note.collaborators.push({ user: existingUser._id, permission });
+    
+    note.editHistory.push({
+      user: userId,
+      action: `Added ${existingUser.name} as ${permission} collaborator`,
+      timestamp: new Date()
     });
+
     await note.save();
 
-    // Send "Added" email
     try {
       await sendEmail({
         to: existingUser.email,
@@ -459,7 +586,7 @@ export const addCollaborator = asyncHandler(async (req, res) => {
             <h2 style="color: #0d9488;">Xircle</h2>
             <p>Hi ${existingUser.name || 'there'},</p>
             <p><strong>${inviterName}</strong> added you as a <strong>${permission}</strong> collaborator on the note: <strong>${note.title}</strong>.</p>
-            <p><a href="${process.env.CLIENT_URL}/notes/${note._id}" style="display: inline-block; padding: 10px 20px; background-color: #0d9488; color: white; text-decoration: none; border-radius: 5px;">View Note</a></p>
+            <p><a href="${process.env.CLIENT_URL}/notes/${note.slug || note._id}" style="display: inline-block; padding: 10px 20px; background-color: #0d9488; color: white; text-decoration: none; border-radius: 5px;">View Note</a></p>
           </div>
         `
       });
@@ -467,7 +594,6 @@ export const addCollaborator = asyncHandler(async (req, res) => {
       console.error('Failed to send collaborator email:', err.message);
     }
 
-    // In-app notification
     try {
       await createAndSendNotification({
         recipient: existingUser._id,
@@ -496,13 +622,16 @@ export const addCollaborator = asyncHandler(async (req, res) => {
     throw new Error('An invitation has already been sent to this email.');
   }
 
-  note.pendingCollaborators.push({
-    email: identifier,
-    permission,
+  note.pendingCollaborators.push({ email: identifier, permission });
+  
+  note.editHistory.push({
+    user: userId,
+    action: `Invited ${identifier} as ${permission} collaborator`,
+    timestamp: new Date()
   });
+
   await note.save();
 
-  // Send "Invite" email
   try {
     await sendEmail({
       to: identifier,
@@ -513,7 +642,6 @@ export const addCollaborator = asyncHandler(async (req, res) => {
           <p>Hi there,</p>
           <p><strong>${inviterName}</strong> has invited you to be a <strong>${permission}</strong> collaborator on the note: <strong>${note.title}</strong>.</p>
           <p><a href="${process.env.CLIENT_URL}/signup?invite_note=${note._id}&email=${encodeURIComponent(identifier)}" style="display: inline-block; padding: 10px 20px; background-color: #0d9488; color: white; text-decoration: none; border-radius: 5px;">Create your account now to join</a></p>
-          <p style="font-size: 12px; color: #666; margin-top: 20px;">Once you create your account, you will be automatically added to this note.</p>
         </div>
       `
     });
@@ -524,10 +652,10 @@ export const addCollaborator = asyncHandler(async (req, res) => {
   return res.status(200).json({ success: true, message: 'Invitation sent to new user.', pending: true });
 });
 
-// Remove collaborator
 export const removeCollaborator = asyncHandler(async (req, res) => {
   const userId = req.user.id;
-  const note = await PersonalNote.findById(req.params.id);
+  const note = await resolveNoteByIdentifier(req.params.id);
+
   if (!note) {
     res.status(404);
     throw new Error('Note not found.');
@@ -539,6 +667,7 @@ export const removeCollaborator = asyncHandler(async (req, res) => {
   }
 
   const collaboratorId = decodeURIComponent(req.params.collaboratorId);
+  const removedUser = await User.findById(collaboratorId).select('name');
 
   note.collaborators = note.collaborators.filter(
     c => c.user.toString() !== collaboratorId
@@ -548,12 +677,17 @@ export const removeCollaborator = asyncHandler(async (req, res) => {
     p => p.email !== collaboratorId
   );
 
+  note.editHistory.push({
+    user: userId,
+    action: `Removed collaborator ${removedUser ? removedUser.name : collaboratorId}`,
+    timestamp: new Date()
+  });
+
   await note.save();
   await note.populate('collaborators.user', 'name email');
   res.status(200).json({ success: true, note });
 });
 
-// Update collaborator permission
 export const updateCollaboratorPermission = asyncHandler(async (req, res) => {
   const userId = req.user.id;
   const { permission } = req.body;
@@ -562,7 +696,7 @@ export const updateCollaboratorPermission = asyncHandler(async (req, res) => {
     throw new Error('Permission must be "read" or "edit".');
   }
 
-  const note = await PersonalNote.findById(req.params.id);
+  const note = await resolveNoteByIdentifier(req.params.id);
   if (!note) {
     res.status(404);
     throw new Error('Note not found.');
@@ -582,10 +716,263 @@ export const updateCollaboratorPermission = asyncHandler(async (req, res) => {
   }
 
   collaborator.permission = permission;
+  
+  const targetUser = await User.findById(req.params.collaboratorId).select('name');
+  note.editHistory.push({
+    user: userId,
+    action: `Changed ${targetUser ? targetUser.name : 'collaborator'}'s permission to ${permission}`,
+    timestamp: new Date()
+  });
+
   await note.save();
   await note.populate('collaborators.user', 'name email');
 
   res.status(200).json({ success: true, note });
+});
+
+// ─── Request Access to a Public Note ─────────────────────────────────────
+export const requestNoteAccess = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const note = await resolveNoteByIdentifier(req.params.id);
+
+  if (!note) {
+    res.status(404);
+    throw new Error('Note not found.');
+  }
+
+  if (!note.isPublic) {
+    res.status(403);
+    throw new Error('This note is not public.');
+  }
+
+  const isOwner = note.user.toString() === userId;
+  if (isOwner) {
+    return res.status(400).json({ success: false, message: 'You already own this note.' });
+  }
+
+  const isCollaborator = note.collaborators.some(
+    c => c.user.toString() === userId && c.permission === 'read'
+  );
+  if (isCollaborator) {
+    return res.status(400).json({ success: false, message: 'You already have access to this note.' });
+  }
+
+  const existingRequest = note.collaboratorRequests.find(
+    r => r.user.toString() === userId && r.status === 'pending'
+  );
+  if (existingRequest) {
+    return res.status(400).json({ success: false, message: 'You have already requested access.' });
+  }
+
+  // If a previous request exists (approved/rejected), clean it up
+  note.collaboratorRequests = note.collaboratorRequests.filter(
+    r => r.user.toString() !== userId
+  );
+  
+  note.collaboratorRequests.push({ user: userId, status: 'pending' });
+  await note.save();
+
+  const requester = await User.findById(userId).select('name email');
+  const requesterName = requester?.name || 'A user';
+  const noteUrl = `${process.env.CLIENT_URL}/notes/${note.slug || note._id}`;
+
+  // Notify Owner via Email
+  try {
+    const owner = await User.findById(note.user).select('email name');
+    if (owner?.email) {
+      await sendEmail({
+        to: owner.email,
+        subject: `${requesterName} is requesting access to "${note.title}"`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+            <h2 style="color: #0d9488;">Xircle</h2>
+            <p>Hi ${owner.name || 'there'},</p>
+            <p><strong>${requesterName}</strong> has requested access to collaborate on your note: <strong>${note.title}</strong>.</p>
+            <p><a href="${noteUrl}" style="display: inline-block; padding: 10px 20px; background-color: #0d9488; color: white; text-decoration: none; border-radius: 5px;">Open Note to Review</a></p>
+          </div>
+        `
+      });
+    }
+  } catch (err) {
+    console.error('Failed to send access request email:', err.message);
+  }
+
+  // Notify Owner via Push Notification
+  try {
+    await createAndSendNotification({
+      recipient: note.user,
+      title: `Access Request: "${note.title}"`,
+      body: `${requesterName} has requested access to view and collaborate on your note.`,
+      data: { noteId: note._id.toString() },
+      sendPush: true,
+    });
+  } catch (err) {
+    console.error('Failed to send access request notification:', err.message);
+  }
+
+  res.status(200).json({ success: true, message: 'Access request sent to the owner.' });
+});
+
+// ─── Get All Pending Access Requests (Dashboard) ──────────────────────────
+export const getAllPendingRequests = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+
+  const notes = await PersonalNote.find({
+    user: userId,
+    'collaboratorRequests.status': 'pending'
+  })
+  .select('title collaboratorRequests updatedAt')
+  .populate('collaboratorRequests.user', 'name email profile');
+
+  let allRequests = [];
+  notes.forEach(note => {
+    note.collaboratorRequests.forEach(req => {
+      if (req.status === 'pending') {
+        allRequests.push({
+          noteId: note._id,
+          noteTitle: note.title,
+          requestId: req._id,
+          user: req.user,
+          createdAt: req.createdAt || note.updatedAt 
+        });
+      }
+    });
+  });
+
+  // Sort newest first
+  allRequests.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  res.status(200).json({ success: true, requests: allRequests });
+});
+
+// ─── Get Pending Access Requests for Single Note (Owner only) ────────────
+export const getAccessRequests = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const note = await resolveNoteByIdentifier(req.params.id)
+    .populate('collaboratorRequests.user', 'name email profile');
+
+  if (!note) {
+    res.status(404);
+    throw new Error('Note not found.');
+  }
+
+  if (note.user.toString() !== userId) {
+    res.status(403);
+    throw new Error('Only the owner can view access requests.');
+  }
+
+  const pendingRequests = note.collaboratorRequests.filter(r => r.status === 'pending');
+
+  res.status(200).json({ success: true, requests: pendingRequests });
+});
+
+// ─── Resolve Access Request (Approve / Reject) ───────────────────────────
+export const resolveAccessRequest = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { action } = req.body; // 'approve' | 'reject'
+  const requestId = req.params.requestId;
+
+  if (!['approve', 'reject'].includes(action)) {
+    res.status(400);
+    throw new Error('Action must be "approve" or "reject".');
+  }
+
+  const note = await resolveNoteByIdentifier(req.params.id);
+  if (!note) {
+    res.status(404);
+    throw new Error('Note not found.');
+  }
+
+  if (note.user.toString() !== userId) {
+    res.status(403);
+    throw new Error('Only the owner can resolve access requests.');
+  }
+
+  const request = note.collaboratorRequests.id(requestId);
+  if (!request || request.status !== 'pending') {
+    res.status(404);
+    throw new Error('Pending request not found.');
+  }
+
+  const requesterId = request.user.toString();
+  const requester = await User.findById(requesterId).select('name email');
+
+  if (action === 'approve') {
+    note.collaborators.push({ user: requesterId, permission: 'read' });
+    
+    // Send Approval Email
+    if (requester?.email) {
+      try {
+        await sendEmail({
+          to: requester.email,
+          subject: `Access granted: "${note.title}"`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+              <h2 style="color: #0d9488;">Xircle</h2>
+              <p>Hi ${requester.name || 'there'},</p>
+              <p>Your request to collaborate on the note: <strong>${note.title}</strong> has been approved.</p>
+              <p><a href="${process.env.CLIENT_URL}/notes/${note.slug || note._id}" style="display: inline-block; padding: 10px 20px; background-color: #0d9488; color: white; text-decoration: none; border-radius: 5px;">Open Note</a></p>
+            </div>
+          `
+        });
+      } catch (err) {
+        console.error('Failed to send approval email:', err.message);
+      }
+    }
+
+    // Send Approval Notification
+    try {
+      await createAndSendNotification({
+        recipient: requesterId,
+        title: `Access granted: "${note.title}"`,
+        body: `Your request to collaborate on this note has been approved.`,
+        data: { noteId: note._id.toString() },
+        sendPush: true,
+      });
+    } catch (err) {
+      console.error('Failed to send approval notification:', err.message);
+    }
+    
+    note.editHistory.push({
+      user: userId,
+      action: `Approved access request for ${requester ? requester.name : 'a user'}`,
+      timestamp: new Date()
+    });
+
+  } else {
+    // Send Rejection Email
+    if (requester?.email) {
+      try {
+        await sendEmail({
+          to: requester.email,
+          subject: `Access request declined: "${note.title}"`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+              <h2 style="color: #0d9488;">Xircle</h2>
+              <p>Hi ${requester.name || 'there'},</p>
+              <p>Your request to collaborate on the note: <strong>${note.title}</strong> was declined by the owner.</p>
+            </div>
+          `
+        });
+      } catch (err) {
+        console.error('Failed to send rejection email:', err.message);
+      }
+    }
+    
+    note.editHistory.push({
+      user: userId,
+      action: `Rejected access request for ${requester ? requester.name : 'a user'}`,
+      timestamp: new Date()
+    });
+  }
+
+  // Remove the request from the array regardless of action
+  note.collaboratorRequests = note.collaboratorRequests.filter(
+    r => r._id.toString() !== requestId
+  );
+
+  await note.save();
+  res.status(200).json({ success: true, message: `Request ${action}d successfully.` });
 });
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -612,6 +999,12 @@ export const autoAssignPendingCollaborations = async (user) => {
           p => p.email !== user.email
         );
 
+        note.editHistory.push({
+          user: user._id,
+          action: 'Joined as collaborator',
+          timestamp: new Date()
+        });
+
         await note.save();
         console.log(`✅ Auto-added ${user.email} as collaborator to note: ${note.title}`);
       }
@@ -624,7 +1017,8 @@ export const autoAssignPendingCollaborations = async (user) => {
 // ─── Export Note as PDF ──────────────────────────────────────────────────
 export const exportNotePDF = asyncHandler(async (req, res) => {
   const userId = req.user.id;
-  const note = await PersonalNote.findById(req.params.id).populate('user', 'name');
+  const note = await resolveNoteByIdentifier(req.params.id).populate('user', 'name');
+  
   if (!note) {
     res.status(404);
     throw new Error('Note not found.');
@@ -729,11 +1123,13 @@ export const importFileToNote = asyncHandler(async (req, res) => {
     }
 
     const noteTitle = (title || file.originalname || '').trim();
+    const slug = await generateUniqueSlug(noteTitle);
 
     const note = await PersonalNote.create({
       user: userId,
       folder: resolvedFolderId,
       title: noteTitle,
+      slug,
       content: extractedText.trim() || 'No text could be extracted from the file.',
       color: resolvedColor,
       isPublic: false,
@@ -743,6 +1139,8 @@ export const importFileToNote = asyncHandler(async (req, res) => {
         size: file.size,
         mimeType: file.mimetype,
       }],
+      lastEditedBy: userId,
+      editHistory: [{ user: userId, action: 'Imported from file' }]
     });
 
     res.status(201).json({
