@@ -156,7 +156,7 @@ export const getNotes = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, notes });
 });
 
-// ─── Get Single Personal Note (Guest Access Supported) ───────────────────
+// ─── Get Single Personal Note (New App URL) ─────────────────────────────
 export const getNote = asyncHandler(async (req, res) => {
   // req.user will be undefined if it's a guest, so we check gracefully
   const userId = req.user ? req.user.id : null;
@@ -179,6 +179,22 @@ export const getNote = asyncHandler(async (req, res) => {
   if (!isOwner && !isCollaborator && !note.isPublic) {
     res.status(403);
     throw new Error('You do not have permission to view this note.');
+  }
+
+  res.status(200).json({ success: true, note });
+});
+
+// ─── Get Public Note by Share Link (Legacy URL Support) ─────────────────
+export const getNoteByShareLink = asyncHandler(async (req, res) => {
+  const { link } = req.params;
+  const note = await PersonalNote.findOne({ shareLink: link, isPublic: true })
+    .populate('user', 'name email')
+    .populate('folder', 'name parent color')
+    .select('-__v');
+
+  if (!note) {
+    res.status(404);
+    throw new Error('Note not found or not public.');
   }
 
   res.status(200).json({ success: true, note });
@@ -372,8 +388,6 @@ export const addCollaborator = asyncHandler(async (req, res) => {
   const userId = req.user.id;
 
   // ── Accept ANY of these field names for maximum compatibility ──
-  // (Older frontend versions sent `collaboratorEmail` or `email`;
-  //  newer versions send `collaboratorIdentifier`.)
   const rawIdentifier =
     req.body.collaboratorIdentifier ||
     req.body.collaboratorEmail ||
@@ -471,7 +485,6 @@ export const addCollaborator = asyncHandler(async (req, res) => {
   }
 
   // ── Case 2: User does NOT exist (Invite them) ──
-  // Ensure it looks like an email
   if (!identifier.includes('@')) {
     res.status(400);
     throw new Error('User not found. If inviting a new user, please provide a valid email address.');
@@ -506,7 +519,6 @@ export const addCollaborator = asyncHandler(async (req, res) => {
     });
   } catch (err) {
     console.error('Failed to send invite email:', err.message);
-    // Still return success because the invite was saved
   }
 
   return res.status(200).json({ success: true, message: 'Invitation sent to new user.', pending: true });
@@ -528,12 +540,10 @@ export const removeCollaborator = asyncHandler(async (req, res) => {
 
   const collaboratorId = decodeURIComponent(req.params.collaboratorId);
 
-  // Remove from active collaborators
   note.collaborators = note.collaborators.filter(
     c => c.user.toString() !== collaboratorId
   );
 
-  // Also remove from pending if they were somehow there (by email)
   note.pendingCollaborators = (note.pendingCollaborators || []).filter(
     p => p.email !== collaboratorId
   );
@@ -593,13 +603,11 @@ export const autoAssignPendingCollaborations = async (user) => {
       );
 
       if (pendingInvite) {
-        // Add as collaborator
         note.collaborators.push({
           user: user._id,
           permission: pendingInvite.permission,
         });
 
-        // Remove from pending
         note.pendingCollaborators = note.pendingCollaborators.filter(
           p => p.email !== user.email
         );

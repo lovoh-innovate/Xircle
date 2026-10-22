@@ -36,6 +36,18 @@ export const personalNoteApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    // ─── LEGACY: Get public note by share link ──────────────────────
+    // Kept for old users who have /share/:link URLs (e.g. PublicNote.jsx).
+    // The backend route is public (no auth required).
+    getNoteByShareLink: builder.query({
+      query: (link) => ({
+        url: `${NOTES_URL}/share/${link}`,
+      }),
+      providesTags: (result, error, link) => [
+        { type: 'PersonalNote', id: `share:${link}` },
+      ],
+    }),
+
     updateNote: builder.mutation({
       query: ({ noteId, data }) => {
         const isFormData = data instanceof FormData;
@@ -270,6 +282,8 @@ export const {
   useLazyGetNotesQuery,
   useGetNoteQuery,
   useLazyGetNoteQuery,
+  useGetNoteByShareLinkQuery,       // 👈 restored
+  useLazyGetNoteByShareLinkQuery,   // 👈 restored
   useUpdateNoteMutation,
   useUpdateNoteColorMutation,
   useMoveNoteMutation,

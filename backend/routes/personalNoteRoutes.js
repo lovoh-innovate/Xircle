@@ -4,6 +4,7 @@ import {
   createNote,
   getNotes,
   getNote,
+  getNoteByShareLink, // 👈 Import the legacy route
   updateNote,
   moveNote,
   deleteNote,
@@ -71,52 +72,53 @@ const optionalAuth = async (req, res, next) => {
 };
 
 // ══════════════════════════════════════════════════════════════════════════
-//  1. STATIC ROUTES (Must come before dynamic "/:id" routes)
+//  1. PUBLIC ROUTES (Legacy Support & New Guest Access)
 // ══════════════════════════════════════════════════════════════════════════
 
-// ── AI routes ──
-router.post("/ai/scripture", protect, lookupScripture);
-router.post("/ai/scripture/expand", protect, expandScripture);
-router.post("/ai/search", protect, searchHighlight);
-router.post("/ai/proofread", protect, proofreadNoteHandler);
-router.post("/ai/complete", protect, completeNoteHandler);
-router.post("/ai/rewrite", protect, rewriteNoteHandler);
+// Legacy share link route (kept for existing users)
+router.get("/share/:link", getNoteByShareLink);
 
-// ── Folder routes ──
-router.post("/folders", protect, createNoteFolder);
-router.get("/folders", protect, getNoteFolders);
-router.put("/folders/:id", protect, updateNoteFolder);
-router.patch("/folders/:id/color", protect, updateNoteFolderColor);
-router.delete("/folders/:id", protect, deleteNoteFolder);
-
-// ── Import route ──
-router.post("/import", protect, upload.single("file"), importFileToNote);
-
-// ══════════════════════════════════════════════════════════════════════════
-//  2. NOTE CRUD
-// ══════════════════════════════════════════════════════════════════════════
-
-// GET /:id is public IF the note is marked public (controller handles the logic).
-// It uses optionalAuth so logged-in users still get their user context (for collaborator checks).
+// New direct link route (supports guests if the note is public)
 router.get("/:id", optionalAuth, getNote);
 
-// The rest of the CRUD routes are fully protected
-router.post("/", protect, upload.array("attachments", 5), createNote);
-router.get("/", protect, getNotes);
-router.put("/:id", protect, upload.array("attachments", 5), updateNote);
-router.delete("/:id", protect, deleteNote);
+// ══════════════════════════════════════════════════════════════════════════
+//  2. PROTECTED ROUTES
+// ══════════════════════════════════════════════════════════════════════════
+router.use(protect);
 
-// ══════════════════════════════════════════════════════════════════════════
-//  3. SUB-RESOURCE / ACTION ROUTES
-// ══════════════════════════════════════════════════════════════════════════
-router.patch("/:id/public", protect, togglePublic);
-router.patch("/:id/move", protect, moveNote);
-router.patch("/:id/color", protect, updateNoteColor);
-router.get("/:id/export-pdf", protect, exportNotePDF);
+// ── AI routes ──
+router.post("/ai/scripture", lookupScripture);
+router.post("/ai/scripture/expand", expandScripture);
+router.post("/ai/search", searchHighlight);
+router.post("/ai/proofread", proofreadNoteHandler);
+router.post("/ai/complete", completeNoteHandler);
+router.post("/ai/rewrite", rewriteNoteHandler);
+
+// ── Folder routes ──
+router.post("/folders", createNoteFolder);
+router.get("/folders", getNoteFolders);
+router.put("/folders/:id", updateNoteFolder);
+router.patch("/folders/:id/color", updateNoteFolderColor);
+router.delete("/folders/:id", deleteNoteFolder);
+
+// ── Import route ──
+router.post("/import", upload.single("file"), importFileToNote);
+
+// ── Note CRUD ──
+router.post("/", upload.array("attachments", 5), createNote);
+router.get("/", getNotes);
+router.put("/:id", upload.array("attachments", 5), updateNote);
+router.delete("/:id", deleteNote);
+
+// ── Sub-resource / Action routes ──
+router.patch("/:id/public", togglePublic);
+router.patch("/:id/move", moveNote);
+router.patch("/:id/color", updateNoteColor);
+router.get("/:id/export-pdf", exportNotePDF);
 
 // ── Collaborators ──
-router.post("/:id/collaborators", protect, addCollaborator);
-router.delete("/:id/collaborators/:collaboratorId", protect, removeCollaborator);
-router.patch("/:id/collaborators/:collaboratorId", protect, updateCollaboratorPermission);
+router.post("/:id/collaborators", addCollaborator);
+router.delete("/:id/collaborators/:collaboratorId", removeCollaborator);
+router.patch("/:id/collaborators/:collaboratorId", updateCollaboratorPermission);
 
 export default router;

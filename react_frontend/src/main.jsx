@@ -45,7 +45,7 @@ import AuthCallback from "./screens/AuthCallback.jsx";
 import Notes from "./screens/Notes.jsx";
 import Extensions from "./screens/Extensions.jsx";
 import WriteNote from "./screens/WriteNote.jsx";
-// import PublicNote from "./screens/PublicNote.jsx";
+import PublicNote from "./screens/PublicNote.jsx";
 import AcceptTaskCollab from "./screens/AcceptTaskCollab.jsx";
 import Sticker from "./screens/Sticker.jsx";
 import PublicProject from "./screens/PublicProject.jsx";
@@ -554,6 +554,7 @@ const router = createBrowserRouter([
       { path: "signup", element: <Signup /> },
       { path: "forgot-password", element: <ForgotPassword /> },
       { path: "app/download/:versionId", element: <AppDownload /> },
+      { path: "share/:link", element: <PublicNote /> },
       { path: "public/project/:token", element: <PublicProject /> },
       { path: "collaborate/:token", element: <ProjectCollaborate /> },
        { path: "notes/:id", element: <WriteNote /> },
