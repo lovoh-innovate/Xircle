@@ -50,6 +50,7 @@ import AcceptTaskCollab from "./screens/AcceptTaskCollab.jsx";
 import Sticker from "./screens/Sticker.jsx";
 import PublicProject from "./screens/PublicProject.jsx";
 import ProjectCollaborate from "./screens/ProjectCollaborate.jsx";
+import JoinCall from "./screens/JoinCall.jsx";
 
 import Today from "./screens/Today.jsx";
 
@@ -561,6 +562,7 @@ const router = createBrowserRouter([
       { path: "public/project/:token", element: <PublicProject /> },
       { path: "collaborate/:token", element: <ProjectCollaborate /> },
        { path: "notes/:id", element: <WriteNote /> },
+       {path: "join/:code", element: <JoinCall />},
       { path: "*", element: <NotFound /> },
 
       // ── Public workspace routes (view without login) ──────────────

@@ -6,6 +6,7 @@ import { useGetUserNotificationsQuery } from "../slices/notificationApiSlice";
 import { useCheckAppUpdateQuery } from "../slices/appApiSlice";
 import { useGetUserChatsQuery, messagingApiSlice } from "../slices/messagingApiSlice";
 import { useGetTodayQuery } from "../slices/todayApiSlice";
+import { useGetOngoingCallsQuery } from "../slices/callApiSlice"; // ← NEW
 import { useSocket } from "../components/SocketContext.jsx";
 import {
   FiSun,
@@ -19,6 +20,7 @@ import {
   FiPackage,
   FiFile,
   FiGrid,
+  FiPhone, // ← NEW
 } from "react-icons/fi";
 import { FaTimes, FaExclamationTriangle } from "react-icons/fa";
 
@@ -114,6 +116,14 @@ const GeneralBottombar = () => {
   const allChats = chatsData?.chats || [];
   const generalChats = allChats.filter(isGeneralChat);
 
+  // ── Ongoing calls (for live dot on drawer) ──
+  const { data: ongoingCallsData } = useGetOngoingCallsQuery(undefined, {
+    skip: !token,
+    pollingInterval: 20_000,
+    refetchOnFocus: true,
+  });
+  const hasOngoingCall = (ongoingCallsData?.calls || []).length > 0;
+
   // ── Socket listener for real‑time unread updates ──
   useEffect(() => {
     if (!socket || !isConnected) return;
@@ -181,6 +191,15 @@ const GeneralBottombar = () => {
 
   // ── Drawer items ──
   const drawerItems = [
+    // Calls sits first — it's the most "real-time" item
+    {
+      to: "/calls",
+      icon: FiPhone,
+      label: "Calls",
+      live: hasOngoingCall,
+    },
+    // Tasks moved from bottom bar
+    { to: "/personal-tasks", icon: FiCheckSquare, label: "Tasks" },
     { to: "/notes", icon: FiFile, label: "Notes" },
     { to: "/notifications", icon: FiBell, label: "Notifications", badge: unreadCount },
     {
@@ -195,103 +214,6 @@ const GeneralBottombar = () => {
   ];
 
   // ─── Reusable tab renderer ───
-  const renderTab = ({ key, icon: Icon, label, badge = 0, isActive, to, onClick, isMenu = false }) => {
-    // Update indicator state (only relevant for the menu tab)
-    const showUpdateDot = isMenu && hasUpdate && !updateLoading;
-
-    const content = (
-      <>
-        <span
-          className={`relative flex items-center justify-center w-[46px] h-8 rounded-full transition-all duration-300 ease-out ${
-            isActive
-              ? "shadow-sm"
-              : "group-hover:bg-white/[0.07] group-active:scale-95"
-          }`}
-          style={isActive ? { backgroundColor: "rgba(6,182,212,0.15)" } : undefined}
-        >
-          <Icon
-            className={`w-[20px] h-[20px] transition-all duration-300 ${
-              isActive
-                ? "text-cyan-400"
-                : isMenu && hasUpdate
-                ? "text-cyan-400"
-                : "text-gray-400 group-hover:text-gray-200"
-            }`}
-            strokeWidth={isActive ? 2.4 : 1.9}
-          />
-
-          {/* Unread badge */}
-          {badge > 0 && (
-            <UnreadBadge count={badge} className="absolute -top-0.5 right-0.5" />
-          )}
-
-          {/* Update dot on menu */}
-          {showUpdateDot && (
-            <>
-              <span
-                className={`absolute -top-0.5 right-0.5 w-2.5 h-2.5 rounded-full ${
-                  isRequired ? "bg-red-500" : "bg-orange-400"
-                } shadow-[0_0_10px_currentColor] transition-all duration-500 ${
-                  pulseAnimation ? "scale-110 opacity-100" : "scale-100 opacity-80"
-                }`}
-                style={{ color: isRequired ? "#ef4444" : "#fb923c" }}
-              />
-              <span
-                className={`absolute -top-0.5 right-0.5 w-2.5 h-2.5 rounded-full ${
-                  isRequired ? "border-red-500" : "border-orange-400"
-                } border-2 transition-all duration-500 ${
-                  pulseAnimation ? "scale-150 opacity-0" : "scale-100 opacity-100"
-                }`}
-              />
-            </>
-          )}
-        </span>
-
-        <span
-          className={`text-[10px] leading-none font-semibold tracking-tight transition-colors duration-300 ${
-            isActive
-              ? "text-cyan-400"
-              : isMenu && hasUpdate
-              ? "text-cyan-400"
-              : "text-gray-400 group-hover:text-gray-200"
-          }`}
-        >
-          {label}
-        </span>
-      </>
-    );
-
-    const baseClass =
-      "group relative flex flex-1 flex-col items-center justify-center gap-[5px] pt-1 pb-1 select-none transition-transform active:scale-95";
-
-    if (to) {
-      return (
-        <NavLink key={key} to={to} className={baseClass} aria-label={label}>
-          {({ isActive: navActive }) =>
-            renderTabInner({
-              content,
-              isActive: navActive,
-              showUpdateDot,
-              isRequired,
-              pulseAnimation,
-              baseClass,
-            })
-          }
-        </NavLink>
-      );
-    }
-
-    return (
-      <button key={key} onClick={onClick} className={baseClass} aria-label={label}>
-        {content}
-      </button>
-    );
-  };
-
-  // Helper to inject active pill styling into NavLink render children
-  const renderTabInner = ({ content, isActive, baseClass }) => content;
-
-  // Simpler: build the tab content directly
   const TabButton = ({ to, icon: Icon, label, badge = 0, isMenu = false, onClick }) => {
     const showUpdateDot = isMenu && hasUpdate && !updateLoading;
 
@@ -374,14 +296,13 @@ const GeneralBottombar = () => {
 
   return (
     <>
-      {/* ─── Bottom Bar ────────────────────────────────────────────── */}
+      {/* ─── Bottom Bar — 5 slots: Spaces · Chat · Channels · Today · More ─── */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#0f0f12]/85 backdrop-blur-xl border-t border-white/[0.06] shadow-[0_-6px_24px_-8px_rgba(0,0,0,0.5)] pb-[env(safe-area-inset-bottom)]">
         <div className="flex items-stretch justify-around h-[62px] px-1 max-w-lg mx-auto">
           <TabButton to="/my-workspaces" icon={FiGrid} label="Spaces" />
           <TabButton to="/chat" icon={ChatIcon} label="Chat" badge={unreadGeneralDMs} />
           <TabButton to="/channels" icon={FiUsers} label="Channels" badge={unreadGeneralChannels} />
           <TabButton to="/today" icon={FiSun} label="Today" badge={todayAttention} />
-          <TabButton to="/personal-tasks" icon={FiCheckSquare} label="Tasks" />
           <TabButton icon={FiMenu} label="More" isMenu onClick={() => setShowDrawer(true)} />
         </div>
       </div>
@@ -431,6 +352,7 @@ const GeneralBottombar = () => {
                     updateBadge,
                     isRequired: req,
                     latestVersion: latestVer,
+                    live,
                   }) => (
                     <NavLink
                       key={to}
@@ -465,8 +387,18 @@ const GeneralBottombar = () => {
                                 style={{ color: req ? "#ef4444" : "#fb923c" }}
                               />
                             )}
+                            {/* Live dot for Calls */}
+                            {live && (
+                              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-red-500 ring-2 ring-[#14141a] animate-pulse" />
+                            )}
                           </span>
                           <span className="flex-1">{label}</span>
+                          {live && (
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-red-400 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                              Live
+                            </span>
+                          )}
                           {badge > 0 && <UnreadBadge count={badge} />}
                           {updateBadge && to === "/app-versions" && (
                             <div className="flex items-center gap-1.5">
