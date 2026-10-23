@@ -23,9 +23,7 @@ const isSocketUserOnline = (userId) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// REFERENCE SANITIZER — same shape as the one in messagingController.js
-// Validates tagged tasks/projects/notes/clock-ins against the workspace
-// before storing. Never trust anything from the socket payload.
+// REFERENCE SANITIZER
 // ─────────────────────────────────────────────────────────────────────────────
 
 const REFERENCE_TYPES = ['task', 'project', 'note', 'clockin'];
@@ -246,22 +244,13 @@ export const initSocket = (server) => {
       socket.leave(`chat:${chatId}`);
     });
 
-    // ── SEND MESSAGE (sticker + references supported) ──────────────
+    // ── SEND MESSAGE ──────────────────────────────────────────────
     socket.on('send-message', async (data, callback) => {
       try {
         const {
-          chatId,
-          content,
-          messageType,
-          mentions,
-          replyToId,
-          mediaUrl,
-          mediaName,
-          mediaSize,
-          mediaDuration,
-          stickerId,
-          clientMsgId,
-          references: rawReferences,
+          chatId, content, messageType, mentions, replyToId,
+          mediaUrl, mediaName, mediaSize, mediaDuration, stickerId,
+          clientMsgId, references: rawReferences,
         } = data;
 
         const chat = await Chat.findById(chatId);
@@ -272,7 +261,6 @@ export const initSocket = (server) => {
         );
         if (!isParticipant) return callback({ error: 'You are not a participant in this chat' });
 
-        // ─── Sticker handling ──────────────────────────────────────
         let stickerRef = null;
         if (messageType === 'sticker') {
           if (!stickerId) {
@@ -285,13 +273,9 @@ export const initSocket = (server) => {
           stickerRef = stickerId;
         }
 
-        let finalMessageType = messageType || 'text';
-
-        // ─── References validation ────────────────────────────────
+        const finalMessageType = messageType || 'text';
         const sanitizedReferences = await sanitizeReferences(
-          rawReferences,
-          chat.workspace,
-          socket.userId
+          rawReferences, chat.workspace, socket.userId
         );
 
         const message = await Message.create({
@@ -330,11 +314,9 @@ export const initSocket = (server) => {
         callback({ success: true, message: responseMessage });
 
         io.to(`chat:${chatId}`).emit('user-stopped-typing', {
-          chatId,
-          userId: socket.userId,
+          chatId, userId: socket.userId,
         });
 
-        // ─── Chat list update ──────────────────────────────────────
         const lastMessagePreview = {
           _id: message._id,
           content: message.content,
@@ -350,7 +332,6 @@ export const initSocket = (server) => {
           });
         });
 
-        // ─── Notifications (delayed) ──────────────────────────────
         const senderName = socket.user.name || 'Someone';
         const chatType = chat.type;
         const chatName = chat.type === 'group' ? chat.name : senderName;
@@ -381,9 +362,7 @@ export const initSocket = (server) => {
 
         const notificationData = {
           chatId: chat._id.toString(),
-          chatType,
-          chatName,
-          senderName,
+          chatType, chatName, senderName,
           url: chatLink,
           messageId: message._id.toString(),
         };
@@ -430,20 +409,124 @@ export const initSocket = (server) => {
       }
     });
 
-    // ⚠️ PUT YOUR REAL CODE BACK IN THESE FIVE HANDLERS (they were collapsed in what you pasted)
-    socket.on('typing:start', (data) => { /* ... */ });
-    socket.on('typing:stop', (data) => { /* ... */ });
-    socket.on('mark-read', async (data) => { /* ... */ });
-    socket.on('delete-message', async (data, callback) => { /* ... */ });
-    socket.on('edit-message', async (data, callback) => { /* ... */ });
-    socket.on('toggle-reaction', async (data, callback) => { /* ... */ });
+    // ── Typing / read / edit / delete / reactions ────────────────
+    socket.on('typing:start', (data) => {
+      const { chatId } = data || {};
+      if (!chatId) return;
+      socket.to(`chat:${chatId}`).emit('user-typing', {
+        chatId, userId: socket.userId, name: socket.user.name,
+      });
+    });
+
+    socket.on('typing:stop', (data) => {
+      const { chatId } = data || {};
+      if (!chatId) return;
+      socket.to(`chat:${chatId}`).emit('user-stopped-typing', {
+        chatId, userId: socket.userId,
+      });
+    });
+
+    socket.on('mark-read', async (data) => {
+      try {
+        const { chatId, messageIds } = data || {};
+        if (!chatId || !Array.isArray(messageIds) || !messageIds.length) return;
+        const now = new Date();
+        await Message.updateMany(
+          { _id: { $in: messageIds }, chat: chatId, 'readBy.user': { $ne: socket.userId } },
+          { $push: { readBy: { user: socket.userId, readAt: now } } }
+        );
+        io.to(`chat:${chatId}`).emit('messages-read', {
+          chatId, userId: socket.userId, messageIds, readAt: now,
+        });
+      } catch (err) {
+        console.error('mark-read error:', err.message);
+      }
+    });
+
+    socket.on('delete-message', async (data, callback) => {
+      try {
+        const { messageId } = data || {};
+        if (!messageId) return callback && callback({ error: 'messageId required' });
+        const msg = await Message.findById(messageId);
+        if (!msg) return callback && callback({ error: 'Message not found' });
+        if (msg.sender.toString() !== socket.userId) {
+          return callback && callback({ error: 'Not authorized' });
+        }
+        msg.isDeleted = true;
+        msg.content = '';
+        await msg.save();
+        io.to(`chat:${msg.chat}`).emit('message-deleted', {
+          messageId: msg._id, chatId: msg.chat,
+        });
+        callback && callback({ success: true });
+      } catch (err) {
+        callback && callback({ error: err.message });
+      }
+    });
+
+    socket.on('edit-message', async (data, callback) => {
+      try {
+        const { messageId, content } = data || {};
+        if (!messageId || !content?.trim()) {
+          return callback && callback({ error: 'messageId and content required' });
+        }
+        const msg = await Message.findById(messageId);
+        if (!msg) return callback && callback({ error: 'Message not found' });
+        if (msg.sender.toString() !== socket.userId) {
+          return callback && callback({ error: 'Not authorized' });
+        }
+        msg.content = content.trim();
+        msg.edited = true;
+        msg.editedAt = new Date();
+        await msg.save();
+        io.to(`chat:${msg.chat}`).emit('message-edited', {
+          messageId: msg._id, chatId: msg.chat, content: msg.content, editedAt: msg.editedAt,
+        });
+        callback && callback({ success: true });
+      } catch (err) {
+        callback && callback({ error: err.message });
+      }
+    });
+
+    socket.on('toggle-reaction', async (data, callback) => {
+      try {
+        const { messageId, emoji } = data || {};
+        if (!messageId || !emoji) return callback && callback({ error: 'messageId and emoji required' });
+        const msg = await Message.findById(messageId);
+        if (!msg) return callback && callback({ error: 'Message not found' });
+        if (!msg.reactions) msg.reactions = [];
+        const existing = msg.reactions.find(
+          (r) => r.emoji === emoji && r.user.toString() === socket.userId
+        );
+        if (existing) {
+          msg.reactions = msg.reactions.filter(
+            (r) => !(r.emoji === emoji && r.user.toString() === socket.userId)
+          );
+        } else {
+          msg.reactions.push({ emoji, user: socket.userId });
+        }
+        await msg.save();
+        io.to(`chat:${msg.chat}`).emit('message-reaction', {
+          messageId: msg._id, chatId: msg.chat, reactions: msg.reactions,
+        });
+        callback && callback({ success: true });
+      } catch (err) {
+        callback && callback({ error: err.message });
+      }
+    });
 
     // ─────────────────────────────────────────────────────────────
-    // ── Call events (LiveKit handles all media + in-call presence)
+    // ── Call events ─────────────────────────────────────────────
     //
-    // The socket room `room:${roomId}` is now ONLY used so clients
-    // receive 'call-ended' and 'call-participant-update' from
-    // callController.js. Offers/answers/ICE are no longer relayed.
+    // LiveKit handles all media + in-call presence. The socket room
+    // `room:${roomId}` is only used so clients receive:
+    //   • call-ended
+    //   • call-participant-update
+    //   • call-guest-joined
+    //
+    // Guests (no account) join via LiveKit only and learn about
+    // call-end via LiveKit's RoomDisconnected event. They do NOT
+    // need to connect to socket.io.
     // ─────────────────────────────────────────────────────────────
 
     socket.on('join-call-room', async (roomId, callback) => {
@@ -452,7 +535,6 @@ export const initSocket = (server) => {
           return typeof callback === 'function' && callback({ error: 'roomId required' });
         }
 
-        // Only participants of an active call may join its socket room
         const call = await Call.findOne({
           roomId,
           status: { $in: ['ringing', 'ongoing'] },
@@ -460,14 +542,15 @@ export const initSocket = (server) => {
         }).select('_id');
 
         if (!call) {
-          return typeof callback === 'function' && callback({ error: 'Not allowed to join this call' });
+          return typeof callback === 'function' &&
+            callback({ error: 'Not allowed to join this call' });
         }
 
         socket.join(`room:${roomId}`);
-        if (typeof callback === 'function') callback({ success: true });
+        typeof callback === 'function' && callback({ success: true });
       } catch (err) {
         console.error('join-call-room error:', err.message);
-        if (typeof callback === 'function') callback({ error: 'Failed to join call room' });
+        typeof callback === 'function' && callback({ error: 'Failed to join call room' });
       }
     });
 
@@ -476,16 +559,47 @@ export const initSocket = (server) => {
       socket.leave(`room:${roomId}`);
     });
 
-    // Kept as an alias so older clients that still emit 'leave-call' don't break
     socket.on('leave-call', (roomId) => {
       if (!roomId) return;
       socket.leave(`room:${roomId}`);
+    });
+
+    // Ask the workspace/room for the current ongoing-call snapshot
+    // (useful when a client reconnects or changes workspace)
+    socket.on('get-ongoing-calls', async (data, callback) => {
+      try {
+        const { workspaceId } = data || {};
+        let query;
+        if (workspaceId) {
+          query = { workspace: workspaceId, status: { $in: ['ringing', 'ongoing'] } };
+        } else {
+          query = {
+            status: { $in: ['ringing', 'ongoing'] },
+            $or: [
+              { 'participants.user': socket.userId },
+              { creator: socket.userId },
+            ],
+          };
+        }
+        const calls = await Call.find(query)
+          .populate('participants.user', 'name email username profile')
+          .populate('creator', 'name email username profile')
+          .sort({ updatedAt: -1 })
+          .limit(50);
+
+        typeof callback === 'function' && callback({ success: true, calls });
+      } catch (err) {
+        console.error('get-ongoing-calls error:', err.message);
+        typeof callback === 'function' && callback({ error: 'Failed to fetch' });
+      }
     });
 
     socket.on('disconnect', async () => {
       console.log(`❌ User disconnected: ${socket.userId} - ${socket.user.name}`);
       // Socket.io removes the socket from all rooms automatically.
       // LiveKit detects the dropped media connection on its own.
+      // If a user was the sole remaining participant in a group call,
+      // consider adding a LiveKit webhook to auto-end that call.
       await updateUserOnlineStatus(false);
     });
   });

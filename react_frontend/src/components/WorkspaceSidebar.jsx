@@ -1,4 +1,4 @@
-    // src/components/WorkspaceSidebar.jsx
+// src/components/WorkspaceSidebar.jsx
 import React, {
   useState,
   useMemo,
@@ -24,11 +24,13 @@ import {
   FiFileText,
   FiLock,
   FiSettings,
+  FiPhone,          // ← NEW: Calls icon
 } from 'react-icons/fi';
 import { FaSpinner, FaLayerGroup } from 'react-icons/fa';
 import { useGetUserChatsQuery } from '../slices/messagingApiSlice';
 import { useGetWorkspaceProjectsQuery } from '../slices/projectApiSlice';
 import { useGetProjectTasksQuery } from '../slices/taskApiSlice';
+import { useGetOngoingCallsQuery } from '../slices/callApiSlice';   // ← NEW
 import { useTheme } from '../contexts/ThemeContext';
 import useWorkspacePresence from '../services/useWorkspacePresence';
 
@@ -70,13 +72,11 @@ const forceUniqueById = (arr, getId = (item) => item?._id) => {
 
 const belongsToWorkspace = (chat, workspaceId) => {
   if (!chat) return false;
-  // If scope is explicitly set to something other than 'workspace', exclude it.
   if (chat.scope && chat.scope !== 'workspace') return false;
   const chatWsId =
     typeof chat.workspace === 'object' && chat.workspace !== null
       ? chat.workspace._id
       : chat.workspace;
-  // If a workspace reference exists, it must match. Otherwise trust the query.
   if (chatWsId) return String(chatWsId) === String(workspaceId);
   return true;
 };
@@ -130,6 +130,7 @@ const WorkspaceSidebar = ({ workspace, chats: propChats }) => {
   const canSeeAllTasks = isLoggedIn;
   const canSeeNotes = isLoggedIn;
   const canSeeChats = isMember;
+  const canSeeCalls = isMember;         // ← NEW: workspace calls = members only
   const canSeeMembers = isMember;
   const canSeeClockin = isMember;
   const canSeeSettings = isOwnerOrAdmin;
@@ -154,6 +155,17 @@ const WorkspaceSidebar = ({ workspace, chats: propChats }) => {
     { skip: !canSeeProjects }
   );
   const projects = projectsData?.projects || [];
+
+  // ─── NEW: live "ongoing call" indicator ──────────────────
+  // Polls as fallback; your app shell should also invalidate
+  // ['OngoingCall', 'CallLog'] on socket `call-log-updated`.
+  const { data: ongoingCallsData } = useGetOngoingCallsQuery(workspaceId, {
+    skip: !canSeeCalls || !workspaceId,
+    pollingInterval: 20_000,
+    refetchOnFocus: true,
+  });
+  const ongoingCalls = ongoingCallsData?.calls || [];
+  const hasOngoingCall = ongoingCalls.length > 0;
 
   const [expandedSections, setExpandedSections] = useState({
     projects: true,
@@ -353,6 +365,14 @@ const WorkspaceSidebar = ({ workspace, chats: propChats }) => {
       path: `${WORKSPACE_BASE_PATH}/${workspaceId}/dms`,
       show: canSeeChats,
     },
+    // ─── NEW: Calls ───────────────────────────────────────
+    {
+      id: 'calls',
+      label: 'Calls',
+      icon: FiPhone,
+      path: `${WORKSPACE_BASE_PATH}/${workspaceId}/calls`,
+      show: canSeeCalls,
+    },
     {
       id: 'members',
       label: 'Members',
@@ -420,8 +440,9 @@ const WorkspaceSidebar = ({ workspace, chats: propChats }) => {
       projects: projects.some((p) => (p.progress || 0) < 100),
       channels: channels.some((c) => c.unreadCount > 0),
       dms: directMessages.some((c) => c.unreadCount > 0),
+      calls: hasOngoingCall,   // ← NEW: pulsing dot when a call is live
     }),
-    [projects, channels, directMessages]
+    [projects, channels, directMessages, hasOngoingCall]
   );
 
   // ─── Project Item ────────────────────────────────────────
@@ -624,6 +645,8 @@ const WorkspaceSidebar = ({ workspace, chats: propChats }) => {
             const Icon = opt.icon;
             const active = isActive(opt.path);
             const showDot = isCollapsed && navUnread[opt.id];
+            // Expanded live indicator: only for Calls while a call is active
+            const showLiveBadge = !isCollapsed && opt.id === 'calls' && hasOngoingCall;
             return (
               <Link
                 key={opt.id}
@@ -641,10 +664,28 @@ const WorkspaceSidebar = ({ workspace, chats: propChats }) => {
                 <Icon
                   className={`${active ? 'text-white' : ''} ${isCollapsed ? 'text-lg' : ''}`}
                 />
-                {!isCollapsed && <span className="font-medium">{opt.label}</span>}
+                {!isCollapsed && (
+                  <span className="font-medium flex items-center gap-1.5">
+                    {opt.label}
+                    {showLiveBadge && (
+                      <span className="relative flex w-2 h-2">
+                        <span
+                          className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+                          style={{ backgroundColor: active ? '#ffffff' : brandColor }}
+                        />
+                        <span
+                          className="relative inline-flex rounded-full h-2 w-2"
+                          style={{ backgroundColor: active ? '#ffffff' : brandColor }}
+                        />
+                      </span>
+                    )}
+                  </span>
+                )}
                 {showDot && (
                   <span
-                    className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full"
+                    className={`absolute top-1.5 right-1.5 w-2 h-2 rounded-full ${
+                      opt.id === 'calls' ? 'animate-pulse' : ''
+                    }`}
                     style={{ backgroundColor: active ? '#fff' : brandColor }}
                   />
                 )}

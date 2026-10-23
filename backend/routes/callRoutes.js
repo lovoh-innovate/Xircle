@@ -2,6 +2,7 @@
 import express from 'express';
 import { protect } from '../middleware/authMiddleware.js';
 import {
+  // Existing
   initiateCall,
   scheduleCall,
   joinCall,
@@ -9,46 +10,68 @@ import {
   endCall,
   cancelScheduledCall,
   getScheduledCalls,
-  getCallHistory,
-  inviteToCall,           // ← new import
+  inviteToCall,
+
+  // New
+  initiateDirectCall,
+  createMeeting,
+  joinByMeetingCode,
+  leaveCall,
+  getCallLogs,
+  getOngoingCalls,
+  getCallById,
+  inviteByUsername,
 } from '../controllers/callController.js';
 
-import { getCallToken } from '../controllers/callTokenController.js';
+import {
+  getCallToken,
+  getGuestCallToken,
+} from '../controllers/callTokenController.js';
 
 const router = express.Router();
 
-// All routes are protected – only authenticated users can use calls
+// ─────────────────────────────────────────────────────────────
+// PUBLIC ROUTE — guests joining a meeting by code.
+// No auth middleware, must be registered BEFORE router.use(protect).
+// ─────────────────────────────────────────────────────────────
+router.post('/guest-token/:code', getGuestCallToken);
+
+// ─────────────────────────────────────────────────────────────
+// Everything below requires authentication
+// ─────────────────────────────────────────────────────────────
 router.use(protect);
 
-// Initiate an immediate call (voice / video)
-router.post('/initiate', initiateCall);
+// ── Static GET routes (MUST come before GET /:callId) ────────
+router.get('/scheduled', getScheduledCalls);
+router.get('/logs', getCallLogs);
+router.get('/history', getCallLogs);       // back-compat alias for the old route
+router.get('/ongoing', getOngoingCalls);
 
-// Schedule a future call
-router.post('/schedule', scheduleCall);
+// ── Static POST routes ───────────────────────────────────────
+router.post('/initiate', initiateCall);              // workspace call (existing)
+router.post('/schedule', scheduleCall);              // schedule (admins/owners only)
+router.post('/direct', initiateDirectCall);          // 1-on-1 call by username
+router.post('/meeting', createMeeting);              // shareable meeting link
 
-// Join a ringing or ongoing call
+// ── Join a meeting by code (logged-in user clicking a link) ──
+// 3 segments — no conflict with /:callId/join (2 segments)
+router.get('/by-code/:code/join', joinByMeetingCode);
+
+// ── Per-call actions ────────────────────────────────────────
 router.put('/:callId/join', joinCall);
-
-// Reject an incoming call
 router.put('/:callId/reject', rejectCall);
-
-// End an active call (any participant can end)
-router.put('/:callId/end', endCall);
-
-// Cancel a scheduled call (only the creator)
+router.put('/:callId/end', endCall);                 // force-end for everyone
+router.put('/:callId/leave', leaveCall);             // leave without ending (group)
 router.put('/:callId/cancel', cancelScheduledCall);
 
-// Get upcoming (scheduled) calls for the current user
-router.get('/scheduled', getScheduledCalls);
+// ── Invitations ─────────────────────────────────────────────
+router.post('/:callId/invite', inviteToCall);                 // by user IDs
+router.post('/:callId/invite-username', inviteByUsername);    // by usernames
 
-// Get call history for the current user
-router.get('/history', getCallHistory);
+// ── LiveKit token for an accepted participant ───────────────
+router.post('/:callId/token', getCallToken);
 
-// ✅ NEW: Invite / re‑ring additional participants to an ongoing call
-router.post('/:callId/invite', inviteToCall);
-
-//call token 
-
-router.post('/:callId/token', protect, getCallToken);
+// ── Single call by ID — MUST be the LAST GET ────────────────
+router.get('/:callId', getCallById);
 
 export default router;

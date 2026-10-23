@@ -22,6 +22,7 @@ import {
 import { useGetTodayQuery, todayApiSlice } from '../slices/todayApiSlice';
 import { useCheckAppUpdateQuery } from '../slices/appApiSlice';
 import { personalNoteApiSlice } from '../slices/personalNoteApiSlice';
+import { useGetOngoingCallsQuery } from '../slices/callApiSlice';   // ← NEW
 import {
   FiSun,
   FiHome,
@@ -30,6 +31,7 @@ import {
   FiUpload,
   FiPackage,
   FiFile,
+  FiPhone,          // ← NEW
 } from 'react-icons/fi';
 import {
   FaExclamationCircle,
@@ -91,15 +93,13 @@ const GeneralSidebar = () => {
   const [sidebarWidth, setSidebarWidth] = useState(readSavedWidth);
   const [isResizing, setIsResizing] = useState(false);
 
-  // Live drag bookkeeping (refs → no re-renders during drag)
+  // Live drag bookkeeping
   const isResizingRef = useRef(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(sidebarWidth);
   const pendingWidthRef = useRef(null);
   const rafRef = useRef(null);
 
-  // ── Apply width instantly to the DOM (no React re-render) ────────
-  // This is the core of the "smooth 1:1 with cursor" behaviour.
   const applyWidth = useCallback((w) => {
     const px = `${w}px`;
     document.documentElement.style.setProperty(CSS_VAR, px);
@@ -107,12 +107,10 @@ const GeneralSidebar = () => {
     if (handleRef.current) handleRef.current.style.left = `${w - 5}px`;
   }, []);
 
-  // Set the initial width before paint (avoids a flash at default size)
   useLayoutEffect(() => {
     applyWidth(sidebarWidth);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Persist on commit (only when not actively dragging)
   useEffect(() => {
     if (isResizing) return;
     try {
@@ -122,7 +120,6 @@ const GeneralSidebar = () => {
     }
   }, [sidebarWidth, isResizing]);
 
-  // ── Drag handlers ────────────────────────────────────────────────
   const handleResizeStart = useCallback((e) => {
     if (e.button !== undefined && e.button !== 0) return;
     e.preventDefault();
@@ -131,7 +128,6 @@ const GeneralSidebar = () => {
     isResizingRef.current = true;
     setIsResizing(true);
 
-    // Anchor using the *live* rendered width so grab point is exact
     const liveWidth =
       asideRef.current?.getBoundingClientRect().width ?? sidebarWidth;
     startWidthRef.current = liveWidth;
@@ -146,15 +142,10 @@ const GeneralSidebar = () => {
   useEffect(() => {
     const onMove = (e) => {
       if (!isResizingRef.current) return;
-
-      // 1:1 mapping: new width = width at grab time + cursor delta
       const next = clampWidth(
         startWidthRef.current + (e.clientX - startXRef.current)
       );
       pendingWidthRef.current = next;
-
-      // Coalesce all pointer events in this frame into a single paint.
-      // This is what makes it match the cursor exactly — no lag, no jitter.
       if (rafRef.current == null) {
         rafRef.current = requestAnimationFrame(() => {
           rafRef.current = null;
@@ -169,18 +160,13 @@ const GeneralSidebar = () => {
       if (!isResizingRef.current) return;
       isResizingRef.current = false;
       setIsResizing(false);
-
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       document.body.style.touchAction = '';
-
       if (rafRef.current != null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
-
-      // Commit the final width to React state (triggers save + any
-      // consumers that listen to state rather than the CSS var).
       if (pendingWidthRef.current != null) {
         const finalWidth = pendingWidthRef.current;
         pendingWidthRef.current = null;
@@ -202,7 +188,6 @@ const GeneralSidebar = () => {
     };
   }, [applyWidth]);
 
-  // Double-click / keyboard reset & nudge
   const resetWidth = useCallback(() => {
     setSidebarWidth(DEFAULT_WIDTH);
     applyWidth(DEFAULT_WIDTH);
@@ -228,7 +213,7 @@ const GeneralSidebar = () => {
     [sidebarWidth, applyWidth, resetWidth]
   );
 
-  // ── App update check for ALL users ──
+  // ── App update check ────────────────────────────────────────────
   const token = userInfo?.token;
   const currentVersion = userInfo?.appVersion;
   const { data: updateData, isLoading: updateLoading } = useCheckAppUpdateQuery(
@@ -248,12 +233,19 @@ const GeneralSidebar = () => {
       : 'bg-orange-400'
     : null;
 
-  // ── Today attention badge ──
+  // ── Today attention badge ──────────────────────────────────────
   const { data: todayData } = useGetTodayQuery(undefined, {
     pollingInterval: 60000,
     refetchOnFocus: true,
   });
   const todayAttention = todayData?.totalAttention || 0;
+
+  // ── Ongoing calls (personal) — live indicator ──────────────────
+  const { data: ongoingCallsData } = useGetOngoingCallsQuery(undefined, {
+    pollingInterval: 20_000,
+    refetchOnFocus: true,
+  });
+  const hasOngoingCall = (ongoingCallsData?.calls || []).length > 0;
 
   const handleLogout = async () => {
     try {
@@ -378,8 +370,10 @@ const GeneralSidebar = () => {
               { to: '/notes', icon: FiFile, label: 'Notes', onHover: prefetchAllNotes },
               { to: '/chat', icon: ChatIcon, label: 'Chat', onHover: prefetchAllChats },
               { to: '/channels', icon: FiUsers, label: 'Channels' },
+              // ─── NEW: Calls ──────────────────────────────
+              { to: '/calls', icon: FiPhone, label: 'Calls', live: hasOngoingCall },
               { to: '/app-versions', icon: FiPackage, label: 'App Versions' },
-            ].map(({ to, icon: Icon, label, onHover, badge, primary }) => (
+            ].map(({ to, icon: Icon, label, onHover, badge, primary, live }) => (
               <li key={to}>
                 <NavLink
                   to={to}
@@ -402,12 +396,21 @@ const GeneralSidebar = () => {
                         style={{ color: isRequired ? '#ef4444' : '#fb923c' }}
                       />
                     )}
+                    {to === '/calls' && live && (
+                      <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse" />
+                    )}
                   </div>
                   <span>{label}</span>
 
                   {to === '/today' && badge > 0 && (
                     <span className="ml-auto min-w-[18px] h-5 px-1.5 rounded-full bg-cyan-500 text-white text-[10px] font-bold flex items-center justify-center shadow-[0_0_8px_rgba(6,182,212,0.6)]">
                       {badge > 99 ? '99+' : badge}
+                    </span>
+                  )}
+
+                  {to === '/calls' && live && (
+                    <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-500 text-white">
+                      Live
                     </span>
                   )}
 
@@ -436,11 +439,6 @@ const GeneralSidebar = () => {
                 >
                   <FiUpload className="text-lg w-6 text-center" />
                   <span>Upload App</span>
-                  {({ isActive }) =>
-                    isActive && (
-                      <span className="ml-auto w-1.5 h-1.5 rounded-full bg-cyan-400" />
-                    )
-                  }
                 </NavLink>
               </li>
             )}

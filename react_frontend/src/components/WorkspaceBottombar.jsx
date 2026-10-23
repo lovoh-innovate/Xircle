@@ -20,9 +20,11 @@ import {
   FiCopy,
   FiCheck,
   FiLock,
+  FiPhone,         // ← NEW
 } from 'react-icons/fi';
 import { FaLayerGroup } from 'react-icons/fa';
 import { useGetUserChatsQuery, messagingApiSlice } from '../slices/messagingApiSlice';
+import { useGetOngoingCallsQuery } from '../slices/callApiSlice'; // ← NEW
 import { useSocket } from '../components/SocketContext.jsx';
 
 // ─── Base path (keep in sync with WorkspaceSidebar) ──────────────
@@ -177,6 +179,7 @@ const WorkspaceBottombar = ({ workspace }) => {
   const canSeeProjects = isLoggedIn;
   const canSeeNotes = isLoggedIn;
   const canSeeChats = isMember;
+  const canSeeCalls = isMember;              // ← NEW
   const canSeeMembers = isMember;
   const canSeeClockin = isMember;
   const canSeeSettings = isOwnerOrAdmin;
@@ -195,6 +198,15 @@ const WorkspaceBottombar = ({ workspace }) => {
     () => (canSeeChats ? allChats.filter((chat) => belongsToWorkspace(chat, workspaceId)) : []),
     [allChats, workspaceId, canSeeChats]
   );
+
+  // ─── NEW: ongoing calls (for live dot in drawer) ─────────────
+  const { data: ongoingData } = useGetOngoingCallsQuery(workspaceId, {
+    skip: !canSeeCalls || !workspaceId,
+    pollingInterval: 20_000,
+    refetchOnFocus: true,
+  });
+  const ongoingCalls = ongoingData?.calls || [];
+  const hasOngoingCall = ongoingCalls.length > 0;
 
   // ─── Socket listener for real-time unread updates ────────────
   useEffect(() => {
@@ -266,7 +278,8 @@ const WorkspaceBottombar = ({ workspace }) => {
     }
   };
 
-  // ─── Tabs (role-filtered) ────────────────────────────────────
+  // ─── Bottom bar tabs — MAX 5 (4 nav + Menu) ─────────────────
+  // Members has been moved to the drawer to keep the bar at 5.
   const navItems = [
     {
       id: 'home',
@@ -302,18 +315,26 @@ const WorkspaceBottombar = ({ workspace }) => {
       activeCheck: '/projects',
       show: canSeeProjects,
     },
+    // NOTE: 'members' removed from bottom bar → moved to drawer
+  ].filter((i) => i.show);
+
+  // ─── Drawer items (role-filtered) ────────────────────────────
+  const menuItems = [
+    {
+      id: 'calls',
+      label: 'Calls',
+      icon: FiPhone,
+      path: `${WORKSPACE_BASE_PATH}/${workspaceId}/calls`,
+      show: canSeeCalls,
+      liveBadge: hasOngoingCall,   // ← live dot when call is ringing/ongoing
+    },
     {
       id: 'members',
       label: 'Members',
       icon: FiUsers,
       path: `${WORKSPACE_BASE_PATH}/${workspaceId}/members`,
-      activeCheck: '/members',
       show: canSeeMembers,
     },
-  ].filter((i) => i.show);
-
-  // ─── Menu items (role-filtered) ──────────────────────────────
-  const menuItems = [
     {
       id: 'notes',
       label: 'Notes',
@@ -440,7 +461,7 @@ const WorkspaceBottombar = ({ workspace }) => {
   // ═════════════════════════════════════════════════════════════
   return (
     <>
-      {/* ─── Bottom Bar (mobile only) ─── */}
+      {/* ─── Bottom Bar (mobile only) — 5 slots ─── */}
       <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-white/85 dark:bg-[#0f0f12]/85 backdrop-blur-xl border-t border-gray-200/70 dark:border-white/[0.06] shadow-[0_-6px_24px_-8px_rgba(0,0,0,0.12)] pb-[env(safe-area-inset-bottom)]">
         <div className="flex items-stretch justify-around h-[62px] px-1 max-w-lg mx-auto">
           {navItems.map((item) =>
@@ -528,14 +549,23 @@ const WorkspaceBottombar = ({ workspace }) => {
             const inner = (
               <>
                 <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center transition-transform group-hover:scale-105 flex-shrink-0"
+                  className="relative w-10 h-10 rounded-xl flex items-center justify-center transition-transform group-hover:scale-105 flex-shrink-0"
                   style={{ backgroundColor: `${brandColor}1a`, color: brandColor }}
                 >
                   <Icon className="w-[18px] h-[18px]" strokeWidth={2} />
+                  {item.liveBadge && (
+                    <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-red-500 ring-2 ring-white dark:ring-[#14141a] animate-pulse" />
+                  )}
                 </div>
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white transition truncate">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white transition truncate flex-1">
                   {item.label}
                 </span>
+                {item.liveBadge && (
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-red-500 dark:text-red-400 flex items-center gap-1 flex-shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                    Live
+                  </span>
+                )}
               </>
             );
 

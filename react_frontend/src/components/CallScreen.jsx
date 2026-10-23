@@ -1,9 +1,14 @@
-// src/components/CallScreen.jsx
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams, useLocation, useNavigate } from 'react-router-dom';
-import { useSocket } from './SocketContext.jsx';
-import { useCallSocket } from '../hooks/useCallSocket';
-import { ensureCallPermissions } from '../utils/callPermissions';
+// src/screens/CallScreen.jsx
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useSelector } from 'react-redux';
+import { toast } from 'react-toastify';
 import {
   LiveKitRoom,
   RoomAudioRenderer,
@@ -25,11 +30,32 @@ import {
   FaVideoSlash,
   FaSpinner,
   FaExclamationTriangle,
+  FaLink,
+  FaPhone,
+  FaArrowLeft,
+  FaCheck,
+  FaSignOutAlt,
+  FaCopy,
+  FaCircle,
 } from 'react-icons/fa';
 
-const CALL_DATA_GRACE_MS = 4000;
+import { useSocket } from '../components/SocketContext.jsx';
+import { ensureCallPermissions } from '../utils/callPermissions';
+import {
+  useGetCallByIdQuery,
+  useGetCallTokenMutation,
+  useJoinCallMutation,
+  useLeaveCallMutation,
+  useEndCallMutation,
+  useRejectCallMutation,
+} from '../slices/callApiSlice';
 
-// Stable reference (LiveKitRoom re-creates the room if this changes)
+// ─────────────────────────────────────────────────────────────────────
+// Config
+// ─────────────────────────────────────────────────────────────────────
+const BRAND = '#06b6d4'; // cyan-500 — matches GeneralSidebar accent
+const POLL_MS = 20_000;
+
 const ROOM_OPTIONS = {
   audioCaptureDefaults: {
     echoCancellation: true,
@@ -42,9 +68,10 @@ const ROOM_OPTIONS = {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────
 const formatClock = (total) => {
-  const m = Math.floor(total / 60).toString().padStart(2, '0');
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60).toString().padStart(2, '0');
   const s = Math.floor(total % 60).toString().padStart(2, '0');
-  return `${m}:${s}`;
+  return h > 0 ? `${h}:${m}:${s}` : `${m}:${s}`;
 };
 
 const getInfo = (participant) => {
@@ -60,6 +87,18 @@ const getInfo = (participant) => {
     profile: meta.profile || '',
   };
 };
+
+const getInitials = (name) => {
+  if (!name) return '?';
+  return name
+    .split(' ')
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join('')
+    .toUpperCase();
+};
+
+const getUserId = (p) => String(p?.user?._id || p?.user || p?._id || '');
 
 const deviceFailureMessage = (failure) => {
   switch (failure) {
@@ -77,7 +116,7 @@ const deviceFailureMessage = (failure) => {
 // ─────────────────────────────────────────────────────────────────────
 // Avatar
 // ─────────────────────────────────────────────────────────────────────
-const Avatar = ({ info, size, brandColor }) => {
+const Avatar = ({ info, size, brandColor = BRAND }) => {
   const style = { width: size, height: size, fontSize: size * 0.4 };
   if (info.profile) {
     return (
@@ -85,14 +124,14 @@ const Avatar = ({ info, size, brandColor }) => {
         src={info.profile}
         alt={info.name}
         style={style}
-        className="rounded-full object-cover"
+        className="rounded-full object-cover flex-shrink-0"
       />
     );
   }
   return (
     <div
       style={{ ...style, backgroundColor: brandColor }}
-      className="rounded-full flex items-center justify-center font-bold text-white"
+      className="rounded-full flex items-center justify-center font-bold text-white flex-shrink-0"
     >
       {info.name.charAt(0).toUpperCase()}
     </div>
@@ -100,13 +139,13 @@ const Avatar = ({ info, size, brandColor }) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// One participant tile (main or thumbnail)
+// Participant tile
 // ─────────────────────────────────────────────────────────────────────
 const ParticipantCard = ({
   participant,
   cameraRef,
   variant,
-  brandColor,
+  brandColor = BRAND,
   active,
   onClick,
 }) => {
@@ -119,8 +158,8 @@ const ParticipantCard = ({
   const ringStyle = isSpeaking
     ? { boxShadow: `0 0 0 3px ${brandColor}` }
     : active
-      ? { boxShadow: `0 0 0 2px rgba(255,255,255,0.35)` }
-      : {};
+    ? { boxShadow: '0 0 0 2px rgba(255,255,255,0.35)' }
+    : {};
 
   return (
     <div
@@ -155,17 +194,13 @@ const ParticipantCard = ({
         </div>
       )}
 
-      {/* Name pill (thumbs, or main when camera is on) */}
       {(!isMain || camOn) && (
         <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center gap-1 bg-black/55 rounded-full px-2 py-0.5 text-[11px] sm:text-xs">
           {micMuted && <FaMicrophoneSlash className="text-red-400 flex-shrink-0" />}
-          <span className="truncate">
-            {participant.isLocal ? 'You' : info.name}
-          </span>
+          <span className="truncate">{participant.isLocal ? 'You' : info.name}</span>
         </div>
       )}
 
-      {/* Main tile extras */}
       {isMain && (
         <>
           {micMuted && (
@@ -194,9 +229,18 @@ const ParticipantCard = ({
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// In-call UI (must live INSIDE <LiveKitRoom>)
+// In-call stage (must live INSIDE <LiveKitRoom>)
 // ─────────────────────────────────────────────────────────────────────
-const CallStage = ({ isVideo, brandColor, onHangUp, deviceError }) => {
+const CallStage = ({
+  isVideo,
+  brandColor,
+  onHangUp,
+  onEndForAll,
+  isCreator,
+  deviceError,
+  call,
+  onCopyLink,
+}) => {
   const participants = useParticipants();
   const cameraTracks = useTracks([Track.Source.Camera]);
   const speaking = useSpeakingParticipants();
@@ -206,6 +250,7 @@ const CallStage = ({ isVideo, brandColor, onHangUp, deviceError }) => {
   const [pinned, setPinned] = useState(null);
   const [lastSpeaker, setLastSpeaker] = useState(null);
   const [secs, setSecs] = useState(0);
+  const [endMenuOpen, setEndMenuOpen] = useState(false);
 
   useEffect(() => {
     const t = setInterval(() => setSecs((s) => s + 1), 1000);
@@ -243,6 +288,12 @@ const CallStage = ({ isVideo, brandColor, onHangUp, deviceError }) => {
     }
   };
 
+  // Show "End for everyone" only when creator AND (meeting OR 3+ people)
+  const showEndMenu =
+    isCreator &&
+    remotes.length > 0 &&
+    (call?.isMeeting || (call?.participants || []).length > 2);
+
   return (
     <div className="h-dvh bg-[#0b0b10] text-white flex flex-col">
       <style>{`
@@ -252,21 +303,40 @@ const CallStage = ({ isVideo, brandColor, onHangUp, deviceError }) => {
 
       {/* Header */}
       <div
-        className="px-4 py-3 flex items-center justify-between border-b border-white/10"
+        className="px-4 py-3 flex items-center justify-between border-b border-white/10 gap-2"
         style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}
       >
-        <div>
-          <h3 className="text-base font-semibold">
-            {isVideo ? 'Video Call' : 'Voice Call'}
+        <div className="min-w-0">
+          <h3 className="text-base font-semibold truncate">
+            {call?.isMeeting
+              ? 'Meeting'
+              : isVideo
+              ? 'Video Call'
+              : 'Voice Call'}
           </h3>
           <p className="text-xs text-gray-400">
             {participants.length} participant{participants.length === 1 ? '' : 's'}
+            {call?.isMeeting && call?.meetingCode && (
+              <span className="ml-2 text-gray-500">· {call.meetingCode}</span>
+            )}
           </p>
         </div>
-        <span className="text-sm tabular-nums text-gray-300">{formatClock(secs)}</span>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {call?.isMeeting && call?.meetingLink && (
+            <button
+              onClick={onCopyLink}
+              className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+              title="Copy meeting link"
+            >
+              <FaLink className="text-sm" />
+            </button>
+          )}
+          <span className="text-sm tabular-nums text-gray-300 ml-1">
+            {formatClock(secs)}
+          </span>
+        </div>
       </div>
 
-      {/* Device error banner */}
       {deviceError && (
         <div className="mx-3 mt-3 flex items-center gap-2 rounded-xl bg-red-500/15 border border-red-500/30 px-3 py-2 text-sm text-red-300">
           <FaExclamationTriangle className="flex-shrink-0" />
@@ -301,7 +371,6 @@ const CallStage = ({ isVideo, brandColor, onHangUp, deviceError }) => {
         )}
       </div>
 
-      {/* Audio output + autoplay unlock */}
       <RoomAudioRenderer />
       <StartAudio
         label="Tap to enable audio"
@@ -310,7 +379,7 @@ const CallStage = ({ isVideo, brandColor, onHangUp, deviceError }) => {
 
       {/* Controls */}
       <div
-        className="px-4 py-4 bg-white/5 border-t border-white/10 flex items-center justify-center gap-4"
+        className="px-4 py-4 bg-white/5 border-t border-white/10 flex items-center justify-center gap-4 relative"
         style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
       >
         <button
@@ -344,277 +413,665 @@ const CallStage = ({ isVideo, brandColor, onHangUp, deviceError }) => {
         )}
 
         <button
-          onClick={onHangUp}
+          onClick={() => (showEndMenu ? setEndMenuOpen((v) => !v) : onHangUp())}
+          onContextMenu={(e) => {
+            if (showEndMenu) {
+              e.preventDefault();
+              setEndMenuOpen(true);
+            }
+          }}
           className="w-16 h-16 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center transition shadow-lg"
-          aria-label="End call"
+          aria-label="Leave / End call"
         >
           <FaPhoneSlash className="text-2xl" />
         </button>
+
+        {endMenuOpen && showEndMenu && (
+          <>
+            <div
+              className="fixed inset-0 z-[60]"
+              onClick={() => setEndMenuOpen(false)}
+            />
+            <div className="absolute bottom-24 z-[70] bg-[#1a1a24] border border-white/10 rounded-xl shadow-2xl overflow-hidden w-52">
+              <button
+                onClick={() => {
+                  setEndMenuOpen(false);
+                  onHangUp();
+                }}
+                className="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-white/5 flex items-center gap-2"
+              >
+                <FaSignOutAlt className="text-xs" /> Leave only
+              </button>
+              <button
+                onClick={() => {
+                  setEndMenuOpen(false);
+                  onEndForAll();
+                }}
+                className="w-full text-left px-4 py-3 text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2 border-t border-white/5"
+              >
+                <FaPhoneSlash className="text-xs" /> End for everyone
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// Screen
+// Full-screen wrapper
 // ─────────────────────────────────────────────────────────────────────
+const FullScreen = ({ children }) => (
+  <div
+    className="min-h-dvh bg-[#0b0b10] text-white flex flex-col items-center justify-center p-6"
+    style={{
+      paddingTop: 'calc(1rem + env(safe-area-inset-top, 0px))',
+      paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))',
+    }}
+  >
+    {children}
+  </div>
+);
+
+// ═════════════════════════════════════════════════════════════════════
+// MAIN — CallScreen
+// ═════════════════════════════════════════════════════════════════════
 const CallScreen = () => {
-  const { roomId } = useParams();
-  const location = useLocation();
+  const params = useParams();
   const navigate = useNavigate();
-
+  const location = useLocation();
+  const { userInfo } = useSelector((s) => s.auth);
   const socketContext = useSocket();
-  const { incomingCall, clearIncomingCall } = socketContext || {};
+  const socket = socketContext?.socket;
 
-  const stateCallData = location.state?.callData;
-  const socketCallData =
-    incomingCall && incomingCall.roomId === roomId ? incomingCall : null;
-  const callData = stateCallData || socketCallData;
+  // Accept both route shapes: /call/:callId  (new)  and  /call/:roomId  (legacy)
+  const callId = params.callId || params.roomId;
+  const myId = String(userInfo?._id || '');
 
-  const [waitedTooLong, setWaitedTooLong] = useState(false);
-  const [connectionLost, setConnectionLost] = useState(false);
-  const [deviceError, setDeviceError] = useState('');
-  const [permState, setPermState] = useState('idle'); // idle | checking | granted | denied
+  // ─── Queries ───────────────────────────────────────────────
+  const {
+    data: callData,
+    isLoading: callLoading,
+    error: callError,
+    refetch: refetchCall,
+  } = useGetCallByIdQuery(callId, {
+    skip: !callId || !userInfo,
+    pollingInterval: POLL_MS,
+    refetchOnFocus: true,
+  });
+  const call = callData?.call;
+
+  // ─── Mutations ─────────────────────────────────────────────
+  const [getCallToken] = useGetCallTokenMutation();
+  const [joinCall] = useJoinCallMutation();
+  const [leaveCall] = useLeaveCallMutation();
+  const [endCall] = useEndCallMutation();
+  const [rejectCall] = useRejectCallMutation();
+
+  // ─── Local state ───────────────────────────────────────────
+  const [phase, setPhase] = useState('loading');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [tokenData, setTokenData] = useState(null);
+  const [permState, setPermState] = useState('idle');
   const [permError, setPermError] = useState('');
+  const [deviceError, setDeviceError] = useState('');
+  const [connectionLost, setConnectionLost] = useState(false);
+  const [endConfirmOpen, setEndConfirmOpen] = useState(false);
+
   const leavingRef = useRef(false);
-  const hasInitialized = useRef(false);
-  const permStartedRef = useRef(false);
+  const hasJoinedRef = useRef(false);
 
-  const wantsVideo = callData?.type === 'video';
+  // ─── My participant ────────────────────────────────────────
+  const myParticipant = useMemo(
+    () => call?.participants?.find((p) => getUserId(p) === myId),
+    [call, myId]
+  );
+  const isCreator = String(call?.creator?._id || call?.creator || '') === myId;
+  const wantsVideo = call?.type === 'video';
 
-  const goBackFromCall = useCallback(() => {
+  // ─── Navigation helper ─────────────────────────────────────
+  const goBack = useCallback(() => {
     if (location.key && location.key !== 'default') {
       navigate(-1);
     } else {
-      navigate('/my-workspaces', { replace: true });
+      navigate('/calls', { replace: true });
     }
   }, [location.key, navigate]);
 
+  // ─── Auth guard ────────────────────────────────────────────
   useEffect(() => {
-    if (callData) return;
-    const timeout = setTimeout(() => setWaitedTooLong(true), CALL_DATA_GRACE_MS);
-    return () => clearTimeout(timeout);
-  }, [callData]);
+    if (!userInfo) navigate('/login', { replace: true });
+  }, [userInfo, navigate]);
 
+  // ─── Phase resolution ──────────────────────────────────────
   useEffect(() => {
-    if (!callData && waitedTooLong) {
-      navigate('/my-workspaces', { replace: true });
+    if (!call) return;
+    if (!myParticipant) {
+      setPhase('error');
+      setErrorMsg("You're not a participant in this call.");
+      return;
     }
-  }, [callData, waitedTooLong, navigate]);
 
-  useEffect(() => {
-    if (socketCallData && clearIncomingCall) {
-      clearIncomingCall();
+    const callIsOver = ['ended', 'missed', 'cancelled'].includes(call.status);
+    const myStatus = myParticipant.status;
+
+    if (myStatus === 'rejected' || myStatus === 'left') {
+      setPhase('ended-for-you');
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socketCallData?.roomId]);
 
-  const { callStatus, media, mediaError, isVideo, acceptCall, hangUp, retryMedia } =
-    useCallSocket(callData);
+    if (callIsOver) {
+      setPhase('ended');
+      return;
+    }
 
-  // ── Ask for mic/camera permission as soon as the call screen opens ──
+    if (myStatus === 'accepted') {
+      if (phase !== 'in-call' && phase !== 'joining') setPhase('joining');
+      return;
+    }
+
+    if (['ringing', 'missed', 'pending'].includes(myStatus)) {
+      if (phase !== 'in-call' && phase !== 'joining') setPhase('can-join');
+      return;
+    }
+  }, [call, myParticipant, phase]);
+
+  // ─── Permission pre-flight ─────────────────────────────────
   const runPermissionCheck = useCallback(async () => {
     setPermState('checking');
     setPermError('');
     const res = await ensureCallPermissions(wantsVideo);
     if (res.ok) {
       setPermState('granted');
-    } else {
-      setPermState('denied');
-      setPermError(res.message || 'Microphone permission is required.');
+      return true;
     }
+    setPermState('denied');
+    setPermError(res.message || 'Microphone permission is required.');
+    return false;
   }, [wantsVideo]);
 
-  useEffect(() => {
-    if (!callData || permStartedRef.current) return;
-    permStartedRef.current = true;
-    runPermissionCheck();
-  }, [callData, runPermissionCheck]);
+  // ─── Join: permission → joinCall (if needed) → token ───────
+  const doJoin = useCallback(
+    async ({ markAccepted = false } = {}) => {
+      if (hasJoinedRef.current) return;
+      hasJoinedRef.current = true;
+      setPhase('joining');
 
-  // ── Receiver: accept once callData exists ──
+      if (permState !== 'granted') {
+        const ok = await runPermissionCheck();
+        if (!ok) {
+          hasJoinedRef.current = false;
+          setPhase('can-join');
+          return;
+        }
+      }
+
+      if (markAccepted || myParticipant?.status !== 'accepted') {
+        try {
+          await joinCall(callId).unwrap();
+        } catch (err) {
+          const msg = err?.data?.message || 'Failed to join call';
+          setErrorMsg(msg);
+          setPhase('can-join');
+          hasJoinedRef.current = false;
+          toast.error(msg);
+          return;
+        }
+      }
+
+      try {
+        const res = await getCallToken(callId).unwrap();
+        setTokenData(res);
+        setPhase('in-call');
+      } catch (err) {
+        const msg = err?.data?.message || 'Failed to get media token';
+        setErrorMsg(msg);
+        setPhase('can-join');
+        hasJoinedRef.current = false;
+        toast.error(msg);
+      }
+    },
+    [callId, joinCall, getCallToken, myParticipant, permState, runPermissionCheck]
+  );
+
+  // Auto-join if already accepted (creator, or user accepted via Calls page)
   useEffect(() => {
-    if (!callData || hasInitialized.current) return;
-    hasInitialized.current = true;
-    if (!callData.isInitiator) {
-      acceptCall();
+    if (phase === 'joining' && !tokenData && myParticipant?.status === 'accepted') {
+      doJoin({ markAccepted: false });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [callData]);
+  }, [phase, tokenData, myParticipant, doJoin]);
+
+  // ─── Socket: room + call-ended listener ────────────────────
+  useEffect(() => {
+    if (!socket || !call?.roomId) return;
+    socket.emit('join-call-room', call.roomId, () => {});
+
+    const onEnded = () => {
+      if (leavingRef.current) return;
+      setPhase('ended');
+      refetchCall?.();
+    };
+
+    socket.on('call-ended', onEnded);
+    return () => {
+      socket.off('call-ended', onEnded);
+      socket.emit('leave-call-room', call.roomId);
+    };
+  }, [socket, call?.roomId, refetchCall]);
+
+  // ─── Actions ───────────────────────────────────────────────
+  const handleAnswer = () => doJoin({ markAccepted: true });
+
+  const handleDecline = async () => {
+    try {
+      await rejectCall(callId).unwrap();
+    } catch {
+      /* ignore */
+    }
+    goBack();
+  };
 
   const handleHangUp = useCallback(async () => {
     leavingRef.current = true;
-    await hangUp();
-    goBackFromCall();
-  }, [hangUp, goBackFromCall]);
+    try {
+      await leaveCall(callId).unwrap();
+    } catch {
+      /* ignore */
+    }
+    goBack();
+  }, [callId, leaveCall, goBack]);
 
-  const handleDisconnected = useCallback((reason) => {
-    if (leavingRef.current) return;
-    if (reason === DisconnectReason.CLIENT_INITIATED) return;
-    setConnectionLost(true);
-  }, []);
+  const handleEndForAll = useCallback(async () => {
+    leavingRef.current = true;
+    try {
+      await endCall(callId).unwrap();
+    } catch {
+      /* ignore */
+    }
+    goBack();
+  }, [callId, endCall, goBack]);
+
+  const handleDisconnected = useCallback(
+    async (reason) => {
+      if (leavingRef.current) return;
+      if (reason === DisconnectReason.CLIENT_INITIATED) return;
+      // Try to fetch latest state — maybe the call actually ended
+      try {
+        const result = await refetchCall().unwrap();
+        if (['ended', 'missed', 'cancelled'].includes(result?.call?.status)) {
+          setPhase('ended');
+          return;
+        }
+      } catch {
+        /* ignore */
+      }
+      setConnectionLost(true);
+    },
+    [refetchCall]
+  );
 
   const handleDeviceFailure = useCallback((failure) => {
     console.error('[call] media device failure:', failure);
     setDeviceError(deviceFailureMessage(failure));
   }, []);
 
-  const handleReconnect = useCallback(() => {
-    setConnectionLost(false);
-    setDeviceError('');
-    retryMedia();
-  }, [retryMedia]);
+  const handleCopyLink = () => {
+    if (!call?.meetingLink) return;
+    navigator.clipboard.writeText(call.meetingLink);
+    toast.success('Link copied — share it to invite guests');
+  };
 
-  if (!socketContext || !callData) {
+  // ─── Early returns ─────────────────────────────────────────
+  if (!callId || !userInfo) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white">
-        <FaSpinner className="animate-spin text-3xl" />
-      </div>
+      <FullScreen>
+        <FaExclamationTriangle className="text-3xl text-amber-400 mb-3" />
+        <p className="text-white text-base mb-4">Invalid call link.</p>
+        <button
+          onClick={goBack}
+          className="px-6 py-3 rounded-full text-white font-semibold"
+          style={{ backgroundColor: BRAND }}
+        >
+          Go back
+        </button>
+      </FullScreen>
     );
   }
 
-  const { type = 'voice', workspaceColor = '#0d9488', participants = [] } = callData;
-
-  // ── Call ended ──
-  if (callStatus === 'ended') {
+  if (callLoading && !call) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#0b0b10] text-white p-6">
-        <div className="text-center max-w-md">
-          <div className="text-6xl mb-6">📞</div>
-          <h2 className="text-2xl font-bold mb-2">Call Ended</h2>
-          <p className="text-gray-400 mb-8">
-            {mediaError ||
-              (type === 'video' ? 'Your video call has ended.' : 'Your voice call has ended.')}
-          </p>
+      <FullScreen>
+        <FaSpinner className="animate-spin text-3xl text-white/70" />
+        <p className="text-gray-400 text-sm mt-4">Loading call…</p>
+      </FullScreen>
+    );
+  }
+
+  if (callError) {
+    return (
+      <FullScreen>
+        <FaExclamationTriangle className="text-3xl text-red-400 mb-3" />
+        <p className="text-white text-base mb-4">
+          {callError?.data?.message || "We couldn't load this call."}
+        </p>
+        <button
+          onClick={goBack}
+          className="px-6 py-3 rounded-full text-white font-semibold"
+          style={{ backgroundColor: BRAND }}
+        >
+          Go back
+        </button>
+      </FullScreen>
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Phase: error
+  // ═══════════════════════════════════════════════════════════
+  if (phase === 'error') {
+    return (
+      <FullScreen>
+        <FaExclamationTriangle className="text-3xl text-red-400 mb-3" />
+        <p className="text-white text-base mb-4">{errorMsg}</p>
+        <button
+          onClick={goBack}
+          className="px-6 py-3 rounded-full text-white font-semibold"
+          style={{ backgroundColor: BRAND }}
+        >
+          Go back
+        </button>
+      </FullScreen>
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Phase: ended-for-you
+  // ═══════════════════════════════════════════════════════════
+  if (phase === 'ended-for-you') {
+    const wasLeft = myParticipant?.status === 'left';
+    return (
+      <FullScreen>
+        <div className="text-6xl mb-6">📞</div>
+        <h2 className="text-2xl font-bold mb-2">
+          {wasLeft ? 'You left this call' : 'You rejected this call'}
+        </h2>
+        <p className="text-gray-400 mb-8 text-sm max-w-sm mx-auto text-center">
+          {call?.status === 'ongoing'
+            ? 'The call is still going on for other participants.'
+            : 'The call has ended.'}
+        </p>
+        <button
+          onClick={goBack}
+          className="px-6 py-3 rounded-full font-semibold text-white transition"
+          style={{ backgroundColor: BRAND }}
+        >
+          Back to calls
+        </button>
+      </FullScreen>
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Phase: ended
+  // ═══════════════════════════════════════════════════════════
+  if (phase === 'ended') {
+    return (
+      <FullScreen>
+        <div className="text-6xl mb-6">📞</div>
+        <h2 className="text-2xl font-bold mb-2">Call Ended</h2>
+        <p className="text-gray-400 mb-8 text-sm">
+          {call?.type === 'video' ? 'Your video call has ended.' : 'Your voice call has ended.'}
+        </p>
+        <button
+          onClick={goBack}
+          className="px-6 py-3 rounded-full font-semibold text-white transition"
+          style={{ backgroundColor: BRAND }}
+        >
+          Back to calls
+        </button>
+      </FullScreen>
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Phase: can-join / joining
+  // ═══════════════════════════════════════════════════════════
+  if (phase === 'can-join' || phase === 'joining') {
+    const myStatus = myParticipant?.status;
+    const isRinging = myStatus === 'ringing';
+    const isLateJoin = myStatus === 'missed' || myStatus === 'pending';
+    const others = (call.participants || []).filter(
+      (p) => getUserId(p) !== myId && p.status === 'accepted'
+    );
+
+    const title = isRinging
+      ? 'Incoming call'
+      : isLateJoin
+      ? 'Call in progress'
+      : 'Join call';
+
+    const subtitle = isRinging
+      ? call?.creator?.name
+        ? `${call.creator.name} is calling…`
+        : 'You have an incoming call'
+      : isLateJoin
+      ? 'You missed this call — you can still join while it’s ongoing.'
+      : 'Ready to jump in?';
+
+    return (
+      <div
+        className="min-h-dvh bg-[#0b0b10] text-white flex flex-col"
+        style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+      >
+        <div className="p-4 flex items-center justify-between border-b border-white/10">
           <button
-            onClick={goBackFromCall}
-            className="px-6 py-3 rounded-full font-semibold text-white transition"
-            style={{ backgroundColor: workspaceColor }}
+            onClick={goBack}
+            className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center"
           >
-            Go Back
+            <FaArrowLeft className="text-sm" />
           </button>
+          <div className="text-right">
+            <h3 className="text-sm font-semibold">
+              {call.type === 'video' ? 'Video Call' : 'Voice Call'}
+              {call.isMeeting && (
+                <span className="text-[10px] font-normal text-cyan-400 ml-2 uppercase tracking-wide">
+                  Meeting
+                </span>
+              )}
+            </h3>
+            <p className="text-[11px] text-gray-400">
+              {call.participants?.length || 0} invited
+            </p>
+          </div>
         </div>
-      </div>
-    );
-  }
 
-  // ── Permission denied ──
-  if (permState === 'denied') {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#0b0b10] text-white p-6">
-        <div className="text-center max-w-sm">
-          <FaMicrophoneSlash className="text-5xl text-red-400 mx-auto mb-5" />
-          <h2 className="text-xl font-bold mb-2">Microphone needed</h2>
-          <p className="text-gray-400 mb-6 text-sm">{permError}</p>
-          <div className="flex gap-3 justify-center">
-            <button
-              onClick={runPermissionCheck}
-              className="px-5 py-3 rounded-full font-semibold text-white"
-              style={{ backgroundColor: workspaceColor }}
-            >
-              Try again
-            </button>
-            <button
-              onClick={handleHangUp}
-              className="px-5 py-3 rounded-full font-semibold bg-red-600 hover:bg-red-700"
-            >
-              Leave call
-            </button>
+        <div className="flex-1 flex items-center justify-center p-4">
+          <div className="text-center max-w-sm w-full">
+            <div className="flex justify-center gap-3 mb-6 flex-wrap">
+              {others.slice(0, 4).map((p) => (
+                <Avatar
+                  key={getUserId(p)}
+                  info={{ name: p.user?.name || '?', profile: p.user?.profile }}
+                  size={72}
+                />
+              ))}
+              {others.length === 0 && (
+                <Avatar
+                  info={{
+                    name: call.creator?.name || '?',
+                    profile: call.creator?.profile,
+                  }}
+                  size={72}
+                />
+              )}
+            </div>
+
+            <h2 className="text-xl font-bold mb-1">{title}</h2>
+            <p className="text-sm text-gray-400 mb-6">{subtitle}</p>
+
+            {permState === 'checking' && (
+              <p className="text-xs text-gray-400 mb-4 flex items-center justify-center gap-2">
+                <FaSpinner className="animate-spin" /> Allow mic access…
+              </p>
+            )}
+
+            {permState === 'denied' && (
+              <div className="mb-4 rounded-xl bg-red-500/15 border border-red-500/30 px-3 py-2 text-sm text-red-300">
+                {permError}
+              </div>
+            )}
+
+            {errorMsg && (
+              <div className="mb-4 rounded-xl bg-amber-500/15 border border-amber-500/30 px-3 py-2 text-sm text-amber-300">
+                {errorMsg}
+              </div>
+            )}
+
+            <div className="flex items-center justify-center gap-3">
+              {isRinging && (
+                <button
+                  onClick={handleDecline}
+                  className="w-16 h-16 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center transition shadow-lg"
+                  aria-label="Decline"
+                >
+                  <FaPhoneSlash className="text-xl" />
+                </button>
+              )}
+              <button
+                onClick={handleAnswer}
+                disabled={phase === 'joining'}
+                className="w-20 h-20 rounded-full flex items-center justify-center text-white shadow-lg transition hover:opacity-90 disabled:opacity-60"
+                style={{ backgroundColor: '#16a34a' }}
+                aria-label={isLateJoin ? 'Join' : 'Answer'}
+              >
+                {phase === 'joining' ? (
+                  <FaSpinner className="animate-spin text-2xl" />
+                ) : (
+                  <FaPhone className="text-2xl" />
+                )}
+              </button>
+            </div>
+
+            {call.isMeeting && call.meetingLink && (
+              <button
+                onClick={handleCopyLink}
+                className="mt-6 inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition"
+              >
+                <FaLink className="text-[10px]" /> Copy meeting link
+              </button>
+            )}
           </div>
         </div>
       </div>
     );
   }
 
-  // ── Live call ──
-  if (media && permState === 'granted' && !connectionLost) {
+  // ═══════════════════════════════════════════════════════════
+  // Phase: in-call
+  // ═══════════════════════════════════════════════════════════
+  if (phase === 'in-call' && tokenData && !connectionLost) {
     return (
-      <LiveKitRoom
-        serverUrl={media.url}
-        token={media.token}
-        connect
-        audio
-        video={isVideo}
-        options={ROOM_OPTIONS}
-        onDisconnected={handleDisconnected}
-        onMediaDeviceFailure={handleDeviceFailure}
-      >
-        <CallStage
-          isVideo={isVideo}
-          brandColor={workspaceColor}
-          onHangUp={handleHangUp}
-          deviceError={deviceError}
-        />
-      </LiveKitRoom>
+      <>
+        <LiveKitRoom
+          serverUrl={tokenData.url}
+          token={tokenData.token}
+          connect
+          audio
+          video={wantsVideo}
+          options={ROOM_OPTIONS}
+          onDisconnected={handleDisconnected}
+          onMediaDeviceFailure={handleDeviceFailure}
+        >
+          <CallStage
+            isVideo={wantsVideo}
+            brandColor={BRAND}
+            call={call}
+            isCreator={isCreator}
+            deviceError={deviceError}
+            onHangUp={handleHangUp}
+            onEndForAll={() => setEndConfirmOpen(true)}
+            onCopyLink={handleCopyLink}
+          />
+        </LiveKitRoom>
+
+        {endConfirmOpen && (
+          <div
+            className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={() => setEndConfirmOpen(false)}
+          >
+            <div
+              className="bg-[#14141a] border border-white/10 rounded-2xl max-w-sm w-full p-5 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-base font-bold text-white mb-2">End for everyone?</h3>
+              <p className="text-xs text-gray-400 mb-5">
+                This will disconnect all participants. It cannot be undone.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setEndConfirmOpen(false)}
+                  className="py-2.5 border border-white/15 rounded-xl text-sm text-gray-300 hover:bg-white/5"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    setEndConfirmOpen(false);
+                    handleEndForAll();
+                  }}
+                  className="py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-medium"
+                >
+                  End call
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
     );
   }
 
-  // ── Ringing / connecting / error / connection lost ──
-  const isRinging = callStatus === 'ringing';
-  const others = participants.filter((p) => p._id !== callData?.caller?._id).slice(0, 3);
-
-  let statusText = 'Connecting to the call...';
-  if (isRinging) statusText = 'Ringing...';
-  if (permState === 'checking') statusText = 'Allow microphone access to continue...';
+  // ═══════════════════════════════════════════════════════════
+  // Phase: connection lost
+  // ═══════════════════════════════════════════════════════════
+  if (connectionLost) {
+    return (
+      <FullScreen>
+        <FaExclamationTriangle className="text-3xl text-amber-400 mb-3" />
+        <h2 className="text-xl font-bold mb-2">Connection lost</h2>
+        <p className="text-sm text-gray-400 mb-6 max-w-sm text-center">
+          We couldn’t reconnect to the call. Try again or leave.
+        </p>
+        <div className="flex gap-3">
+          <button
+            onClick={() => {
+              setConnectionLost(false);
+              leavingRef.current = false;
+              hasJoinedRef.current = false;
+              doJoin({ markAccepted: false });
+            }}
+            className="px-6 py-3 rounded-full font-semibold text-white"
+            style={{ backgroundColor: BRAND }}
+          >
+            Reconnect
+          </button>
+          <button
+            onClick={handleHangUp}
+            className="px-6 py-3 rounded-full font-semibold bg-red-600 hover:bg-red-700 text-white"
+          >
+            Leave
+          </button>
+        </div>
+      </FullScreen>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-[#0b0b10] text-white flex flex-col">
-      <div
-        className="p-4 flex items-center justify-between border-b border-white/10"
-        style={{ paddingTop: 'calc(1rem + env(safe-area-inset-top, 0px))' }}
-      >
-        <h3 className="text-lg font-semibold">
-          {type === 'video' ? 'Video Call' : 'Voice Call'}
-        </h3>
-      </div>
-
-      <div className="flex-1 flex items-center justify-center p-4">
-        <div className="text-center">
-          {mediaError || connectionLost ? (
-            <>
-              <p className="text-lg mb-4">{mediaError || 'Connection lost.'}</p>
-              <button
-                onClick={handleReconnect}
-                className="px-6 py-3 rounded-full font-semibold text-white transition"
-                style={{ backgroundColor: workspaceColor }}
-              >
-                Reconnect
-              </button>
-            </>
-          ) : (
-            <>
-              <div className="flex justify-center gap-3 mb-6">
-                {others.map((p) => (
-                  <Avatar
-                    key={p._id}
-                    info={{ name: p.name || '?', profile: '' }}
-                    size={72}
-                    brandColor={workspaceColor}
-                  />
-                ))}
-              </div>
-              <FaSpinner
-                className="animate-spin text-3xl mx-auto mb-4"
-                style={{ color: workspaceColor }}
-              />
-              <p className="text-lg">{statusText}</p>
-            </>
-          )}
-        </div>
-      </div>
-
-      <div
-        className="p-4 bg-white/5 border-t border-white/10 flex items-center justify-center"
-        style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
-      >
-        <button
-          onClick={handleHangUp}
-          className="w-16 h-16 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center transition shadow-lg"
-          aria-label="End call"
-        >
-          <FaPhoneSlash className="text-2xl" />
-        </button>
-      </div>
-    </div>
+    <FullScreen>
+      <FaSpinner className="animate-spin text-3xl text-white/70" />
+      <p className="text-gray-400 text-sm mt-4">Preparing your call…</p>
+    </FullScreen>
   );
 };
 

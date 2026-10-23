@@ -74,6 +74,8 @@ import WorkspaceSettings from "./screens/workspace/WorkspaceSettings.jsx";
 import WorkspaceNotes from "./screens/workspace/WorkspaceNotes.jsx";
 import WorkspaceWriteNote from "./screens/workspace/WorkspaceWriteNote.jsx";
 import WorkspaceAllTasks from "./screens/workspace/WorkspaceAllTasks.jsx";
+import WorkspaceCall from "./screens/workspace/WorkspaceCall.jsx";
+import WorkspaceCallScreen from "./screens/workspace/WorkspaceCallScreen";
 
 // ─── Calls & misc ────────────────────────────────────────────────────
 import CallScreen from "./components/CallScreen.jsx";
@@ -83,6 +85,7 @@ import GeneralChannelId from "./screens/GeneralChannelId.jsx";
 import GeneralChats from "./screens/GeneralChats.jsx";
 import GeneralChatId from "./screens/GeneralChatId.jsx";
 import PersonalTasks from "./screens/PersonalTasks.jsx";
+import Calls from "./screens/Calls.jsx";
 
 import AppDownload from "./screens/AppDownload";
 import UploadApp from "./screens/UploadApp.jsx";
@@ -602,8 +605,13 @@ const router = createBrowserRouter([
           { path: "workspace/:workspaceId/notes", element: <WorkspaceNotes /> },
           { path: "workspace/:workspaceId/notes/:id", element: <WorkspaceWriteNote /> },
 
+          //calls
+          {path: "workspace/:workspaceId/calls", element: <WorkspaceCall />},
+          {path: "workspace/:workspaceId/calls/:roomId", element: <WorkspaceCallScreen />},
+
           // ── Non-workspace screens ────────────────────────────────
           { path: "profile", element: <Profile /> },
+          {path: "calls", element: <Calls />},
           { path: "channels", element: <GeneralChannels /> },
           { path: "channels/:chatId", element: <GeneralChannelId /> },
           { path: "chat", element: <GeneralChats /> },
