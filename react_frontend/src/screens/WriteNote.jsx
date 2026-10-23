@@ -4281,11 +4281,11 @@ const ViewerSidebar = ({
           className="w-12 h-12 rounded-xl object-cover shadow-sm mb-5 border border-gray-100 dark:border-gray-800"
         />
         <h2 className="text-xl font-semibold text-gray-900 dark:text-white tracking-tight">
-          {isGuest ? 'Love this note?' : 'Make it yours'}
+          {isGuest ? 'About Xircle' : 'Make it yours'}
         </h2>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-2 leading-relaxed">
           {isGuest
-            ? 'Create your own beautifully crafted notes on Xircle — completely free.'
+            ? 'Try the editor to see what you can do. Click Edit above to get started.'
             : `You are viewing a note shared by ${ownerName || 'a collaborator'}.`}
         </p>
       </div>
@@ -4293,20 +4293,9 @@ const ViewerSidebar = ({
       {/* CTAs */}
       <div className="px-6 py-5 space-y-3 flex-shrink-0 bg-gray-50/50 dark:bg-[#0f0f12]/50">
         {isGuest ? (
-          <>
-            <Link
-              to="/signup"
-              className="w-full py-2.5 bg-teal-600 text-white rounded-lg text-sm font-medium text-center block hover:bg-teal-700 transition shadow-sm"
-            >
-              Create free account
-            </Link>
-            <Link
-              to="/login"
-              className="w-full py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg text-sm font-medium text-center block text-gray-700 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-800 transition"
-            >
-              Log in
-            </Link>
-          </>
+          <p className="text-xs text-gray-500 dark:text-gray-400 text-center leading-relaxed">
+            Click <span className="font-semibold text-teal-600 dark:text-teal-400">Edit</span> in the header to try the editor.
+          </p>
         ) : (
           <>
             {accessRequested ? (
@@ -4378,9 +4367,9 @@ const ViewerSidebar = ({
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  GUEST WELCOME MODAL (Professional & Mature)
+//  GUEST ENGAGEMENT MODAL (Professional & Mature)
 // ═════════════════════════════════════════════════════════════════════
-const GuestWelcomeModal = ({ open, onClose, noteTitle }) => {
+const GuestWelcomeModal = ({ open, onClose, onLogIn, noteTitle }) => {
   if (!open) return null;
   const features = [
     { icon: FaMagic, text: 'AI-powered proofreading & rewriting' },
@@ -4410,20 +4399,20 @@ const GuestWelcomeModal = ({ open, onClose, noteTitle }) => {
             alt="Xircle" 
             className="w-16 h-16 rounded-2xl object-cover mx-auto mb-4 shadow-sm border border-gray-100 dark:border-gray-800"
           />
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white tracking-tight">Welcome to Xircle Notes</h2>
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white tracking-tight">Log in to edit</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-            A beautifully simple way to write, share & create together.
+            Create beautiful notes, collaborate, and unlock AI writing features on Xircle.
           </p>
         </div>
 
         {/* Body */}
         <div className="px-8 py-6">
           <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed text-center">
-            You're reading{' '}
+            You're viewing{' '}
             <span className="font-medium text-gray-900 dark:text-gray-200">
               "{noteTitle || 'this note'}"
             </span>{' '}
-            shared by someone. Sign up to create notes like this one.
+            shared by someone. Log in to make changes and save your work.
           </p>
 
           <div className="space-y-3 mt-6">
@@ -4443,24 +4432,19 @@ const GuestWelcomeModal = ({ open, onClose, noteTitle }) => {
 
         {/* Footer CTAs */}
         <div className="px-8 pb-8 pt-2 space-y-2">
-          <Link
-            to="/signup"
+          <button
+            type="button"
+            onClick={onLogIn}
             className="w-full py-2.5 bg-teal-600 text-white rounded-lg text-sm font-medium text-center block hover:bg-teal-700 transition shadow-sm"
           >
-            Create free account
-          </Link>
-          <Link
-            to="/login"
-            className="w-full py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg text-sm font-medium text-center block text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
-          >
-            Log in
-          </Link>
+            Log in to continue
+          </button>
           <button
             type="button"
             onClick={onClose}
             className="w-full py-3 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-teal-600 dark:hover:text-teal-400 transition"
           >
-            Continue reading as guest
+            Keep viewing
           </button>
         </div>
       </div>
@@ -4549,6 +4533,7 @@ const WriteNote = () => {
 
   // ── State for viewer/engagement UX ──
   const [showGuestModal, setShowGuestModal] = useState(false);
+  const [guestEditing, setGuestEditing] = useState(false);
   const [requestingAccess, setRequestingAccess] = useState(false);
   const [accessRequested, setAccessRequested] = useState(false);
 
@@ -4654,25 +4639,6 @@ const WriteNote = () => {
     return () => window.removeEventListener('scroll', clear, true);
   }, [aiSelection]);
 
-  // ── Guest welcome modal ──
-  useEffect(() => {
-    if (!isGuest || !currentNote) return;
-    try {
-      const shown = sessionStorage.getItem('xircle-guest-modal-shown');
-      if (shown) return;
-      const timer = setTimeout(() => setShowGuestModal(true), 450);
-      return () => clearTimeout(timer);
-    } catch {
-      const timer = setTimeout(() => setShowGuestModal(true), 450);
-      return () => clearTimeout(timer);
-    }
-  }, [isGuest, currentNote]);
-
-  const dismissGuestModal = () => {
-    setShowGuestModal(false);
-    try { sessionStorage.setItem('xircle-guest-modal-shown', '1'); } catch { /* noop */ }
-  };
-
   const startResize = useCallback((e) => {
     if (showViewerSidebar) return;
     e.preventDefault();
@@ -4726,6 +4692,7 @@ const WriteNote = () => {
     setShowRewriteSetup(false);
     setShowCollaboratorsModal(false);
     setAccessRequested(false);
+    setGuestEditing(false);
   }, [noteId, isGuest, location.state]);
 
   useEffect(() => {
@@ -4917,6 +4884,17 @@ const WriteNote = () => {
   }, [aiPanel, aiPreview, canUseAskAi, isGuest, hasWriteAccess]);
 
   const handleEditorReady = useCallback((ed) => { editorRef.current = ed; }, []);
+
+  // ── Guest edit interaction ──
+  const handleGuestToolbarClick = useCallback((e) => {
+    if (!isGuest) return;
+    const toolbar = e.target.closest('[data-editor-toolbar]');
+    if (toolbar) {
+      e.preventDefault();
+      e.stopPropagation();
+      setShowGuestModal(true);
+    }
+  }, [isGuest]);
 
   const runBibleLookup = useCallback(async ({ book, chapter, verseStart, verseEnd }) => {
     if (isGuest) return;
@@ -5136,6 +5114,12 @@ const WriteNote = () => {
       setAiApplying(false);
     }
   };
+
+  const handleGuestLogIn = useCallback(() => {
+    setShowGuestModal(false);
+    setGuestEditing(false);
+    navigate('/login', { state: { from: `/notes/${noteId}` } });
+  }, [navigate, noteId]);
 
   // ── Access denied states ──
   if (isNoteError) {
@@ -5456,39 +5440,18 @@ const WriteNote = () => {
               >
                 <FaFilePdf className="text-sm" />
               </button>
-              <Link
-                to="/signup"
+              <button
+                onClick={() => setGuestEditing((v) => !v)}
                 className="ml-1 px-3 sm:px-4 py-1.5 bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition flex items-center gap-1.5 text-xs sm:text-sm font-semibold shadow-sm"
+                title={guestEditing ? 'Exit preview mode' : 'Try the editor'}
               >
-                Sign up
-              </Link>
+                <FaEdit className="text-xs" />
+                <span>{guestEditing ? 'Cancel' : 'Edit'}</span>
+              </button>
             </>
           )}
         </div>
       </div>
-
-      {/* ── Guest persistent banner ── */}
-      {isGuest && (
-        <div className="bg-gray-50 dark:bg-[#1c1c1f] border-t border-gray-200 dark:border-gray-800 px-3 sm:px-6 py-2 flex items-center justify-between gap-3 flex-shrink-0">
-          <p className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">
-            Create beautiful, AI-powered notes with Xircle.
-          </p>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <Link
-              to="/login"
-              className="px-3 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition"
-            >
-              Log in
-            </Link>
-            <Link
-              to="/signup"
-              className="px-3 py-1 text-xs font-semibold bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-900/50 rounded-lg hover:bg-teal-100 dark:hover:bg-teal-900/40 transition"
-            >
-              Sign up free
-            </Link>
-          </div>
-        </div>
-      )}
     </div>
   );
 
@@ -5498,23 +5461,45 @@ const WriteNote = () => {
         <div
           className="w-full px-3 sm:px-6 py-6"
           style={
-            isMobile && effectiveIsEditing
+            isMobile && (effectiveIsEditing || (isGuest && guestEditing))
               ? { paddingBottom: keyboardOffset + MOBILE_TOOLBAR_BASE_GAP }
               : undefined
           }
         >
-          {(!effectiveIsEditing || isGuest) && <NoteViewer content={content} />}
-          {effectiveIsEditing && !isGuest && canAccessEditor && (
-            <NoteEditor
-              key={editorKey}
-              initialContent={content}
-              isMobile={isMobile}
-              keyboardOffset={keyboardOffset}
-              onChange={handleEditorChange}
-              onSelectionChange={handleSelectionChange}
-              onEditorReady={handleEditorReady}
-              editable={hasWriteAccess}
-            />
+          {isGuest && guestEditing ? (
+            <>
+              <div className="mb-3 px-3 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-lg text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2">
+                <FaInfoCircle className="flex-shrink-0" />
+                <span>Preview mode — log in to make changes</span>
+              </div>
+              <div onClickCapture={handleGuestToolbarClick}>
+                <NoteEditor
+                  key={`guest-${editorKey}`}
+                  initialContent={content}
+                  isMobile={isMobile}
+                  keyboardOffset={keyboardOffset}
+                  onChange={() => {}}
+                  onSelectionChange={() => {}}
+                  editable={false}
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              {(!effectiveIsEditing || isGuest) && <NoteViewer content={content} />}
+              {effectiveIsEditing && !isGuest && canAccessEditor && (
+                <NoteEditor
+                  key={editorKey}
+                  initialContent={content}
+                  isMobile={isMobile}
+                  keyboardOffset={keyboardOffset}
+                  onChange={handleEditorChange}
+                  onSelectionChange={handleSelectionChange}
+                  onEditorReady={handleEditorReady}
+                  editable={hasWriteAccess}
+                />
+              )}
+            </>
           )}
         </div>
       </div>
@@ -5616,11 +5601,12 @@ const WriteNote = () => {
         />
       )}
 
-      {/* ── Guest welcome modal ── */}
+      {/* ── Guest engagement modal (triggered on edit interaction) ── */}
       {isGuest && (
         <GuestWelcomeModal
           open={showGuestModal}
-          onClose={dismissGuestModal}
+          onClose={() => setShowGuestModal(false)}
+          onLogIn={handleGuestLogIn}
           noteTitle={title}
         />
       )}
