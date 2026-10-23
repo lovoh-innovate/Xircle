@@ -716,7 +716,6 @@ const TaskActionModal = ({
           )}
         </div>
 
-        {/* Google Calendar toggle — only for non-reminders, non-archived, non-trash */}
         {!isArchived && !isReminder && onToggleGoogleSync && (
           <button
             onClick={() => { onToggleGoogleSync(task); onClose(); }}
@@ -2079,7 +2078,6 @@ const FolderModal = ({ isOpen, onClose, folders, onSave, onDelete, isLoading }) 
 
 // ─── Google Calendar Sync Toggle ──────────────────────────────
 const GoogleSyncToggle = ({ isReminder, isArchived, checked, onChange, googleConnected, onConnectClick }) => {
-  // Reminders and archived tasks don't need a calendar event toggle.
   if (isReminder || isArchived) return null;
 
   return (
@@ -2165,7 +2163,6 @@ const TaskForm = ({
     task?.recurrenceEndDate ? new Date(task.recurrenceEndDate).toISOString().slice(0, 16) : ''
   );
 
-  // Google Calendar opt-in — defaults to whatever the task already has.
   const [syncToGoogleCalendar, setSyncToGoogleCalendar] = useState(!!task?.syncToGoogleCalendar);
 
   const [showDetails, setShowDetails] = useState(isEditing);
@@ -2211,7 +2208,6 @@ const TaskForm = ({
       recurrenceType: isReminder ? frequency : 'none',
       recurrenceDays: isReminder && frequency === 'weekly' ? recurrenceDays : [],
       recurrenceEndDate: isReminder ? (recurrenceEndDate || null) : null,
-      // Reminders never sync to Google Calendar — the toggle is hidden for them.
       syncToGoogleCalendar: isReminder ? false : syncToGoogleCalendar,
     });
   };
@@ -2355,7 +2351,6 @@ const TaskForm = ({
         </div>
       )}
 
-      {/* ─── Google Calendar sync toggle (hidden for reminders) ─── */}
       <GoogleSyncToggle
         isReminder={isReminder}
         checked={syncToGoogleCalendar}
@@ -2587,19 +2582,18 @@ const PersonalTasks = () => {
   const [acceptInvitation, { isLoading: isAcceptingInvite }] = useAcceptInvitationWithTokenMutation();
   const pendingInvites = pendingInvitesData?.invitations || [];
 
-  // ─── Google Calendar connection status ─────────────────────────
   const { data: googleStatus } = useGetGoogleCalendarStatusQuery();
   const googleConnected = !!googleStatus?.enabled;
 
- const token = userInfo?.token;
+  const token = userInfo?.token;
 
-const handleConnectGoogle = useCallback(() => {
-  if (!token) {
-    toast.error('You must be logged in to connect Google Calendar.');
-    return;
-  }
-  window.location.href = getGoogleCalendarConnectUrl(token);
-}, [token]);
+  const handleConnectGoogle = useCallback(() => {
+    if (!token) {
+      toast.error('You must be logged in to connect Google Calendar.');
+      return;
+    }
+    window.location.href = getGoogleCalendarConnectUrl(token);
+  }, [token]);
 
   const [viewType, setViewType] = useState('personal');
 
@@ -2611,6 +2605,10 @@ const handleConnectGoogle = useCallback(() => {
   const [moveTask, setMoveTask] = useState(null);
 
   const gestureShownRef = useRef(false);
+
+  // ✅ NEW: track in-flight status/checklist mutations per task (or per subtask)
+  // so refetches don't clobber optimistic state.
+  const pendingMutationsRef = useRef(new Map());
 
   const getQueryParams = useCallback(() => {
     const base = {
@@ -2662,6 +2660,8 @@ const handleConnectGoogle = useCallback(() => {
   const [localTasks, setLocalTasks] = useState([]);
   const orderMap = useRef({});
 
+  // ✅ CHANGED: sync effect now skips tasks with in-flight mutations,
+  // so background refetches don't overwrite the optimistic UI.
   useEffect(() => {
     if (tasksData?.tasks) {
       const fetched = tasksData.tasks;
@@ -2670,8 +2670,20 @@ const handleConnectGoogle = useCallback(() => {
         const orderB = orderMap.current[b._id] ?? b.order ?? 0;
         return orderA - orderB;
       });
-      setLocalTasks(sorted);
-      setManageCollabTask(prev => prev ? sorted.find(t => t._id === prev._id) || prev : null);
+
+      setLocalTasks(prev => {
+        const pending = pendingMutationsRef.current;
+        if (pending.size === 0) return sorted;
+        const frozen = new Map();
+        prev.forEach(t => {
+          if (pending.has(t._id)) frozen.set(t._id, t);
+        });
+        return sorted.map(t => frozen.get(t._id) || t);
+      });
+
+      setManageCollabTask(prev =>
+        prev ? sorted.find(t => t._id === prev._id) || prev : null
+      );
     }
   }, [tasksData]);
 
@@ -3087,18 +3099,38 @@ const handleConnectGoogle = useCallback(() => {
     }
   };
 
-  const handleStatusToggle = async (taskId, newStatus) => {
-    const prevTasks = [...localTasks];
-    setLocalTasks(prev => prev.map(t => t._id === taskId ? { ...t, status: newStatus } : t));
-    try {
-      await updateTask({ taskId, data: { status: newStatus } }).unwrap();
-      toast.success(newStatus === 'completed' ? 'Task completed' : 'Task reopened');
-      refetchTasks();
-    } catch (err) {
-      setLocalTasks(prevTasks);
-      toast.error(err?.data?.message || 'Failed to update status');
+  // ✅ CHANGED: coalesced + no refetch on success
+  const handleStatusToggle = useCallback(async (taskId, newStatus) => {
+    // 1. Optimistic UI — instant
+    setLocalTasks(prev =>
+      prev.map(t => (t._id === taskId ? { ...t, status: newStatus } : t))
+    );
+
+    // 2. If a call is already in-flight for this task, just update the target
+    const existing = pendingMutationsRef.current.get(taskId);
+    if (existing) {
+      existing.target = newStatus;
+      return;
     }
-  };
+
+    const entry = { target: newStatus };
+    pendingMutationsRef.current.set(taskId, entry);
+
+    // 3. Loop until the last desired state is sent
+    let lastSent = null;
+    try {
+      while (entry.target !== lastSent) {
+        const toSend = entry.target;
+        lastSent = toSend;
+        await updateTask({ taskId, data: { status: toSend } }).unwrap();
+      }
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to update status');
+      refetchTasks();
+    } finally {
+      pendingMutationsRef.current.delete(taskId);
+    }
+  }, [updateTask, refetchTasks]);
 
   const handleCardStatusToggle = (task) => {
     const newStatus = task.status === 'completed' ? 'pending' : 'completed';
@@ -3128,7 +3160,7 @@ const handleConnectGoogle = useCallback(() => {
     }
   };
 
-  // ─── Google Calendar per-task toggle ───────────────────────────
+  // ✅ CHANGED: no refetch on success (optimistic state stands)
   const handleToggleGoogleSync = async (task) => {
     if (!googleConnected) {
       handleConnectGoogle();
@@ -3140,19 +3172,20 @@ const handleConnectGoogle = useCallback(() => {
     }
     const next = !task.syncToGoogleCalendar;
     const prevTasks = [...localTasks];
+
     setLocalTasks(prev =>
       prev.map(t => (t._id === task._id ? { ...t, syncToGoogleCalendar: next } : t))
     );
     setManageCollabTask(prev =>
       prev && prev._id === task._id ? { ...prev, syncToGoogleCalendar: next } : prev
     );
+
     try {
       await updateTask({
         taskId: task._id,
         data: { syncToGoogleCalendar: next },
       }).unwrap();
       toast.success(next ? 'Added to Google Calendar' : 'Removed from Google Calendar');
-      refetchTasks();
     } catch (err) {
       setLocalTasks(prevTasks);
       toast.error(err?.data?.message || 'Failed to update Google Calendar sync');
@@ -3204,25 +3237,43 @@ const handleConnectGoogle = useCallback(() => {
     }
   };
 
-  const handleToggleChecklist = async (taskId, subTaskIndex, done) => {
-    const prevTasks = [...localTasks];
-    setLocalTasks(prev => prev.map(t => {
-      if (t._id === taskId) {
+  // ✅ CHANGED: coalesced + no refetch on success
+  const handleToggleChecklist = useCallback(async (taskId, subTaskIndex, done) => {
+    // Optimistic
+    setLocalTasks(prev =>
+      prev.map(t => {
+        if (t._id !== taskId) return t;
         const subtasks = (t.subtasks || []).map((st, i) =>
           i === subTaskIndex ? { ...st, done } : st
         );
         return { ...t, subtasks };
-      }
-      return t;
-    }));
-    try {
-      await toggleSubtask({ taskId, subTaskIndex, done }).unwrap();
-      refetchTasks();
-    } catch (err) {
-      setLocalTasks(prevTasks);
-      toast.error(err?.data?.message || 'Failed to toggle checklist item');
+      })
+    );
+
+    const key = `${taskId}:${subTaskIndex}`;
+    const existing = pendingMutationsRef.current.get(key);
+    if (existing) {
+      existing.target = done;
+      return;
     }
-  };
+
+    const entry = { target: done };
+    pendingMutationsRef.current.set(key, entry);
+
+    let lastSent = null;
+    try {
+      while (entry.target !== lastSent) {
+        const toSend = entry.target;
+        lastSent = toSend;
+        await toggleSubtask({ taskId, subTaskIndex, done: toSend }).unwrap();
+      }
+    } catch (err) {
+      toast.error(err?.data?.message || 'Failed to toggle checklist item');
+      refetchTasks();
+    } finally {
+      pendingMutationsRef.current.delete(key);
+    }
+  }, [toggleSubtask, refetchTasks]);
 
   const handleDeleteChecklist = async (taskId, subTaskIndex) => {
     const prevTasks = [...localTasks];
@@ -3508,7 +3559,6 @@ const handleConnectGoogle = useCallback(() => {
                       </h1>
                       {viewType === 'personal' && (
                         <div className="flex items-center gap-1">
-                          {/* Connect Google Calendar quick link — only when not connected */}
                           {!googleConnected && (
                             <button
                               onClick={handleConnectGoogle}
@@ -3659,7 +3709,6 @@ const handleConnectGoogle = useCallback(() => {
         </div>
       </div>
 
-      {/* ─── Modals ────────────────────────────────────────────────── */}
       <BottomSheet isOpen={showCreateModal} onClose={() => { setShowCreateModal(false); setEditingTask(null); }}>
         <TaskForm
           task={editingTask}

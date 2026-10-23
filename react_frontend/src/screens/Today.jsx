@@ -1,5 +1,5 @@
 // src/screens/Today.jsx
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -27,7 +27,6 @@ import {
   FaArrowRight,
   FaMagic,
   FaTimes,
-  FaCircle,
   FaPaperPlane,
   FaLightbulb,
   FaCheckCircle,
@@ -42,7 +41,6 @@ import { useAskXircleMutation } from '../slices/aiApiSlice';
 // ─────────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────────
-
 const getFirstName = (name) => {
   if (!name) return null;
   return String(name).trim().split(/\s+/)[0] || null;
@@ -87,137 +85,65 @@ const todayLabel = () =>
   });
 
 // ─────────────────────────────────────────────────────────────────
-// ACCENT SYSTEM
+// ACCENT MAP — muted, only used for text/icon/border accents
 // ─────────────────────────────────────────────────────────────────
-
 const accentMap = {
-  teal: {
-    text: 'text-teal-600 dark:text-[#0d9488]',
-    bg: 'bg-teal-50/60 dark:bg-[#0d9488]/8',
-    border: 'border-teal-200/50 dark:border-[#0d9488]/20',
-    dot: 'bg-teal-500',
-    hex: '#0d9488',
-  },
-  red: {
-    text: 'text-red-600 dark:text-red-400',
-    bg: 'bg-red-50/60 dark:bg-red-950/15',
-    border: 'border-red-200/50 dark:border-red-900/30',
-    dot: 'bg-red-500',
-    hex: '#ef4444',
-  },
-  amber: {
-    text: 'text-amber-600 dark:text-amber-400',
-    bg: 'bg-amber-50/60 dark:bg-amber-950/15',
-    border: 'border-amber-200/50 dark:border-amber-900/30',
-    dot: 'bg-amber-500',
-    hex: '#f59e0b',
-  },
-  indigo: {
-    text: 'text-indigo-600 dark:text-indigo-400',
-    bg: 'bg-indigo-50/60 dark:bg-indigo-950/15',
-    border: 'border-indigo-200/50 dark:border-indigo-900/30',
-    dot: 'bg-indigo-500',
-    hex: '#6366f1',
-  },
-  purple: {
-    text: 'text-purple-600 dark:text-purple-400',
-    bg: 'bg-purple-50/60 dark:bg-purple-950/15',
-    border: 'border-purple-200/50 dark:border-purple-900/30',
-    dot: 'bg-purple-500',
-    hex: '#a855f7',
-  },
+  teal: { text: 'text-teal-600 dark:text-teal-400', hex: '#0d9488' },
+  red: { text: 'text-red-600 dark:text-red-400', hex: '#ef4444' },
+  amber: { text: 'text-amber-600 dark:text-amber-500', hex: '#f59e0b' },
+  gray: { text: 'text-gray-500 dark:text-gray-400', hex: '#6b7280' },
 };
 
 // ─────────────────────────────────────────────────────────────────
-// GLOBAL STYLES — scrollbar + skeleton shimmer
+// GLOBAL STYLES
 // ─────────────────────────────────────────────────────────────────
-
 const GlobalStyles = () => (
   <style>{`
-    .scrollbar-hide {
-      -ms-overflow-style: none;
-      scrollbar-width: none;
-    }
-    .scrollbar-hide::-webkit-scrollbar {
-      display: none;
-    }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
 
-    /* ── Skeleton shimmer ───────────────────────────────────────── */
-    .skeleton {
-      position: relative;
-      overflow: hidden;
-      background-color: rgb(229 231 235); /* gray-200 */
-    }
-    .dark .skeleton {
-      background-color: rgba(255, 255, 255, 0.07);
-    }
+    .skeleton { position: relative; overflow: hidden; background-color: rgb(229 231 235); }
+    .dark .skeleton { background-color: rgba(255, 255, 255, 0.07); }
     .skeleton::after {
       content: '';
       position: absolute;
       inset: 0;
       transform: translateX(-100%);
-      background: linear-gradient(
-        90deg,
-        transparent,
-        rgba(255, 255, 255, 0.55),
-        transparent
-      );
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
       animation: skeletonShimmer 1.5s ease-in-out infinite;
     }
     .dark .skeleton::after {
-      background: linear-gradient(
-        90deg,
-        transparent,
-        rgba(255, 255, 255, 0.07),
-        transparent
-      );
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.07), transparent);
     }
-    @keyframes skeletonShimmer {
-      100% {
-        transform: translateX(100%);
-      }
-    }
-    @media (prefers-reduced-motion: reduce) {
-      .skeleton::after {
-        animation: none;
-      }
-    }
+    @keyframes skeletonShimmer { 100% { transform: translateX(100%); } }
+    @media (prefers-reduced-motion: reduce) { .skeleton::after { animation: none; } }
   `}</style>
 );
 
 // ─────────────────────────────────────────────────────────────────
-// SKELETON PRIMITIVES
+// SKELETONS
 // ─────────────────────────────────────────────────────────────────
-
 const Skeleton = ({ className = '' }) => (
-  <div className={`skeleton rounded-lg ${className}`} />
+  <div className={`skeleton rounded ${className}`} />
 );
 
 const SectionCardSkeleton = ({ rows = 3, accentWidth = 'w-24' }) => (
-  <section className="bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl overflow-hidden">
-    {/* Header */}
-    <header className="px-4 lg:px-5 py-3 flex items-center gap-2.5 border-b border-gray-100 dark:border-gray-800/40">
-      <Skeleton className="w-7 h-7 rounded-lg flex-shrink-0" />
+  <section className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
+    <header className="px-4 lg:px-5 py-3 flex items-center gap-2.5 border-b border-gray-100 dark:border-gray-800">
+      <Skeleton className="w-5 h-5 flex-shrink-0" />
       <div className="min-w-0 flex-1 space-y-1.5">
         <Skeleton className={`h-3.5 ${accentWidth}`} />
         <Skeleton className="h-2.5 w-32" />
       </div>
-      <Skeleton className="h-4 w-6 rounded-full" />
     </header>
-
-    {/* Rows */}
     <div>
       {Array.from({ length: rows }).map((_, i) => (
-        <div
-          key={i}
-          className="px-4 lg:px-5 py-3 flex items-start gap-3 border-b border-gray-100 dark:border-gray-800/30 last:border-0"
-        >
+        <div key={i} className="px-4 lg:px-5 py-3 flex items-start gap-3 border-b border-gray-100 dark:border-gray-800 last:border-0">
           <div className="flex-1 min-w-0 space-y-2">
             <Skeleton className="h-3.5 w-4/5" />
             <div className="flex items-center gap-2">
-              <Skeleton className="h-3 w-16 rounded-full" />
+              <Skeleton className="h-2.5 w-16" />
               <Skeleton className="h-2.5 w-14" />
-              <Skeleton className="h-2.5 w-10" />
             </div>
           </div>
         </div>
@@ -227,16 +153,16 @@ const SectionCardSkeleton = ({ rows = 3, accentWidth = 'w-24' }) => (
 );
 
 const StatTileSkeleton = () => (
-  <div className="flex flex-col items-center text-center gap-1 py-1">
-    <Skeleton className="w-9 h-9 rounded-xl" />
+  <div className="flex flex-col items-center text-center gap-1.5 py-1">
+    <Skeleton className="w-4 h-4" />
     <Skeleton className="h-5 w-6" />
     <Skeleton className="h-2 w-12" />
   </div>
 );
 
 const StatTileDesktopSkeleton = () => (
-  <div className="bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl p-4 flex items-center gap-3.5">
-    <Skeleton className="w-11 h-11 rounded-xl flex-shrink-0" />
+  <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 rounded-lg p-4 flex items-center gap-3">
+    <Skeleton className="w-8 h-8 flex-shrink-0" />
     <div className="min-w-0 space-y-1.5">
       <Skeleton className="h-6 w-8" />
       <Skeleton className="h-2.5 w-14" />
@@ -246,43 +172,28 @@ const StatTileDesktopSkeleton = () => (
 
 const AskXircleSkeleton = () => (
   <div className="mb-5">
-    <div className="w-full bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl px-4 lg:px-5 py-3.5 flex items-center gap-3">
-      <Skeleton className="w-9 h-9 rounded-full flex-shrink-0" />
-      <div className="flex-1 min-w-0 space-y-1.5">
-        <Skeleton className="h-3.5 w-56 max-w-full" />
-        <Skeleton className="hidden lg:block h-2.5 w-72 max-w-full" />
-      </div>
+    <div className="w-full bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 rounded-lg px-4 py-3 flex items-center gap-3">
+      <Skeleton className="w-4 h-4 flex-shrink-0" />
+      <Skeleton className="h-3.5 flex-1 max-w-xs" />
     </div>
   </div>
 );
 
 const ChartToggleSkeleton = () => (
-  <div className="w-full bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl px-4 lg:px-5 py-3 flex items-center justify-between">
-    <div className="flex items-center gap-2">
-      <Skeleton className="h-3.5 w-3.5 rounded-full" />
-      <Skeleton className="h-3.5 w-24" />
-    </div>
-    <Skeleton className="h-3 w-3 rounded-full" />
+  <div className="w-full bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 rounded-lg px-4 py-3 flex items-center justify-between">
+    <Skeleton className="h-3.5 w-24" />
+    <Skeleton className="h-3 w-3" />
   </div>
 );
 
-// ─────────────────────────────────────────────────────────────────
-// FULL PAGE SKELETON — sidebar & bottombar render normally (static)
-// ─────────────────────────────────────────────────────────────────
-
 const TodaySkeleton = () => (
   <div className="min-h-screen bg-white dark:bg-[#0f0f12] flex flex-col md:flex-row">
-    {/* Sidebar (desktop) — static, no skeleton */}
-    <div className="hidden md:block md:w-72 md:flex-shrink-0">
-      <GeneralSidebar />
-    </div>
-
+    <div className="hidden md:block md:w-72 md:flex-shrink-0"><GeneralSidebar /></div>
     <div className="flex-1 flex flex-col min-h-screen min-w-0">
-      {/* Top bar */}
-      <header className="sticky top-0 z-30 bg-white/85 dark:bg-[#0f0f12]/85 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/60">
+      <header className="sticky top-0 z-30 bg-white dark:bg-[#0f0f12] border-b border-gray-200 dark:border-gray-800">
         <div className="w-full max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <Skeleton className="w-9 h-9 rounded-xl flex-shrink-0" />
+            <Skeleton className="w-8 h-8 flex-shrink-0" />
             <div className="min-w-0 space-y-1.5">
               <Skeleton className="h-4 w-16" />
               <Skeleton className="h-2.5 w-32" />
@@ -291,137 +202,95 @@ const TodaySkeleton = () => (
           <Skeleton className="w-8 h-8 rounded-full flex-shrink-0" />
         </div>
       </header>
-
-      <main className="flex-1 w-full max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 pt-4 lg:pt-6 pb-24 md:pb-12">
-        {/* Greeting */}
-        <div className="mb-4 lg:mb-5 space-y-2">
-          <Skeleton className="h-7 lg:h-9 w-56 lg:w-72" />
+      <main className="flex-1 w-full max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 pt-6 pb-24 md:pb-12">
+        <div className="mb-6 space-y-2">
+          <Skeleton className="h-8 lg:h-9 w-56 lg:w-72" />
           <Skeleton className="h-4 w-64 max-w-full" />
         </div>
-
-        {/* Mobile stats — single card with 4 tiles */}
-        <div className="md:hidden mb-4 bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl px-2 py-3">
+        <div className="md:hidden mb-5 bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 rounded-lg px-2 py-3">
           <div className="grid grid-cols-4 gap-1">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <StatTileSkeleton key={i} />
-            ))}
+            {Array.from({ length: 4 }).map((_, i) => <StatTileSkeleton key={i} />)}
           </div>
         </div>
-
-        {/* Desktop stats — 4 separate cards */}
         <div className="hidden md:grid md:grid-cols-4 md:gap-4 mb-5">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <StatTileDesktopSkeleton key={i} />
-          ))}
+          {Array.from({ length: 4 }).map((_, i) => <StatTileDesktopSkeleton key={i} />)}
         </div>
-
-        {/* Chart toggle */}
-        <div className="mb-5">
-          <ChartToggleSkeleton />
-        </div>
-
-        {/* Ask Xircle */}
+        <div className="mb-5"><ChartToggleSkeleton /></div>
         <AskXircleSkeleton />
-
-        {/* Content grid */}
-        <div className="grid gap-4 lg:gap-5 lg:grid-cols-5">
-          <div className="space-y-4 lg:space-y-5 lg:col-span-3">
+        <div className="grid gap-5 lg:grid-cols-5">
+          <div className="space-y-5 lg:col-span-3">
             <SectionCardSkeleton rows={3} accentWidth="w-24" />
             <SectionCardSkeleton rows={2} accentWidth="w-24" />
           </div>
-          <div className="space-y-4 lg:space-y-5 lg:col-span-2">
+          <div className="space-y-5 lg:col-span-2">
             <SectionCardSkeleton rows={2} accentWidth="w-28" />
-            <SectionCardSkeleton rows={2} accentWidth="w-24" />
           </div>
         </div>
       </main>
-
-      {/* Bottombar — static, no skeleton */}
       <GeneralBottombar />
     </div>
   </div>
 );
 
 // ─────────────────────────────────────────────────────────────────
-// WORKSPACE CHIP
+// COMPONENTS
 // ─────────────────────────────────────────────────────────────────
-
 const WorkspaceChip = ({ workspace }) => {
   if (!workspace?.name) return null;
   return (
-    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800/60 max-w-[140px]">
-      <span
-        className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-        style={{ backgroundColor: workspace.color || '#0d9488' }}
-      />
-      <span className="text-[10px] font-medium text-gray-600 dark:text-gray-400 truncate">
+    <span className="inline-flex items-center gap-1.5 max-w-[140px]">
+      <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: workspace.color || '#0d9488' }} />
+      <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400 truncate">
         {workspace.name}
       </span>
     </span>
   );
 };
 
-// ─────────────────────────────────────────────────────────────────
-// SECTION CARD
-// ─────────────────────────────────────────────────────────────────
-
-const SectionCard = ({ icon: Icon, title, subtitle, count, accent = 'teal', action, children }) => {
-  const a = accentMap[accent] || accentMap.teal;
-  return (
-    <section className="bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl overflow-hidden">
-      <header className={`px-4 lg:px-5 py-3 flex items-center justify-between gap-3 border-b ${a.bg} ${a.border}`}>
-        <div className="flex items-center gap-2.5 min-w-0">
-          <span className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${a.bg} border ${a.border}`}>
-            <Icon className={`text-sm ${a.text}`} />
-          </span>
-          <div className="min-w-0">
-            <h2 className={`text-sm font-semibold truncate ${a.text}`}>{title}</h2>
-            {subtitle && (
-              <p className="text-[11px] text-gray-500 dark:text-gray-500 truncate">{subtitle}</p>
-            )}
-          </div>
-          {count > 0 && (
-            <span className={`ml-1 text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-white/60 dark:bg-black/30 ${a.text}`}>
-              {count}
-            </span>
-          )}
+const SectionCard = ({ icon: Icon, title, subtitle, count, action, children }) => (
+  <section className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
+    <header className="px-4 lg:px-5 py-3 flex items-center justify-between gap-3 border-b border-gray-100 dark:border-gray-800">
+      <div className="flex items-center gap-2.5 min-w-0">
+        <Icon className="text-sm text-gray-500 dark:text-gray-400 flex-shrink-0" />
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-white truncate">{title}</h2>
+          {subtitle && <p className="text-[11px] text-gray-500 dark:text-gray-500 truncate">{subtitle}</p>}
         </div>
-        {action}
-      </header>
-      {children}
-    </section>
-  );
-};
+        {count > 0 && (
+          <span className="ml-1 text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+            {count}
+          </span>
+        )}
+      </div>
+      {action}
+    </header>
+    <div>{children}</div>
+  </section>
+);
 
 const SubGroupLabel = ({ label, accent = 'gray' }) => {
-  const a = accentMap[accent] || { text: 'text-gray-500 dark:text-gray-400', dot: 'bg-gray-400' };
+  const a = accentMap[accent] || accentMap.gray;
   return (
-    <div className="px-4 lg:px-5 pt-3 pb-1.5 flex items-center gap-2">
-      <span className={`w-1 h-1 rounded-full ${a.dot}`} />
-      <span className={`text-[10px] font-semibold uppercase tracking-widest ${a.text}`}>
+    <div className="px-4 lg:px-5 pt-3 pb-1 flex items-center gap-2">
+      <span className={`w-1 h-1 rounded-full ${a.text.replace('text-', 'bg-').split(' ')[0]}`} />
+      <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-500">
         {label}
       </span>
     </div>
   );
 };
 
-// ─────────────────────────────────────────────────────────────────
-// ROWS
-// ─────────────────────────────────────────────────────────────────
-
 const TaskRow = ({ task, onOpen, isOverdue = false }) => (
   <button
     onClick={onOpen}
-    className="relative w-full text-left pl-4 lg:pl-5 pr-3 lg:pr-4 py-3 hover:bg-gray-50 dark:hover:bg-[#0d9488]/5 transition flex items-start gap-3 border-b border-gray-100 dark:border-gray-800/30 last:border-0 group"
+    className="relative w-full text-left px-4 lg:px-5 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition flex items-start gap-3 border-b border-gray-100 dark:border-gray-800 last:border-0 group"
   >
-    {isOverdue && (
-      <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r-full bg-red-500" />
-    )}
+    {isOverdue && <span className="absolute left-0 top-2 bottom-2 w-[2px] rounded-r bg-red-500" />}
     <div className="flex-1 min-w-0">
-      <p className="text-sm text-gray-800 dark:text-gray-100 break-words leading-snug">
+      <p className="text-sm text-gray-800 dark:text-gray-200 break-words leading-snug group-hover:text-gray-900 dark:group-hover:text-white transition">
         {task.title}
       </p>
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-[11px] text-gray-500 dark:text-gray-500">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-[11px] text-gray-500 dark:text-gray-500">
         {task.project?.workspace && <WorkspaceChip workspace={task.project.workspace} />}
         {task.projectName && (
           <span className="flex items-center gap-1 min-w-0">
@@ -436,23 +305,15 @@ const TaskRow = ({ task, onOpen, isOverdue = false }) => (
           </span>
         )}
         {task.dueDate && (
-          <span
-            className={`flex items-center gap-1 font-medium ${
-              isOverdue ? 'text-red-500 dark:text-red-400' : 'text-gray-500 dark:text-gray-500'
-            }`}
-          >
+          <span className={`flex items-center gap-1 ${isOverdue ? 'text-red-500 font-medium' : ''}`}>
             <FaRegClock className="text-[9px]" />
             {formatDue(task.dueDate)}
           </span>
         )}
-        {task.subtaskCount > 0 && (
-          <span>
-            {task.subtaskDone}/{task.subtaskCount}
-          </span>
-        )}
+        {task.subtaskCount > 0 && <span>{task.subtaskDone}/{task.subtaskCount}</span>}
       </div>
     </div>
-    <FaArrowRight className="text-[10px] text-gray-300 dark:text-gray-600 flex-shrink-0 mt-1 opacity-0 group-hover:opacity-100 transition-opacity" />
+    <FaArrowRight className="text-[9px] text-gray-300 dark:text-gray-600 flex-shrink-0 mt-1 opacity-0 group-hover:opacity-100 transition-opacity" />
   </button>
 );
 
@@ -461,28 +322,24 @@ const ChatRow = ({ chat, onOpen }) => {
   return (
     <button
       onClick={onOpen}
-      className="w-full text-left px-4 lg:px-5 py-3 hover:bg-gray-50 dark:hover:bg-[#0d9488]/5 transition flex items-center gap-3 border-b border-gray-100 dark:border-gray-800/30 last:border-0 group"
+      className="w-full text-left px-4 lg:px-5 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition flex items-center gap-3 border-b border-gray-100 dark:border-gray-800 last:border-0 group"
     >
-      <div className="w-9 h-9 rounded-full bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center flex-shrink-0">
-        <FaHashtag className="text-indigo-600 dark:text-indigo-400 text-[11px]" />
-      </div>
+      <FaHashtag className="text-sm text-gray-400 dark:text-gray-500 flex-shrink-0" />
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
+        <p className="text-sm text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
           {displayName}
         </p>
         <p className="text-[11px] text-gray-500 dark:text-gray-500">
           {chat.unreadCount} unread
           {chat.mentionCount > 0 && (
-            <span className="ml-2 text-indigo-500 dark:text-indigo-400 font-medium">
+            <span className="ml-1.5 text-gray-700 dark:text-gray-300 font-medium">
               · {chat.mentionCount} mention{chat.mentionCount > 1 ? 's' : ''}
             </span>
           )}
         </p>
       </div>
-      {chat.mentionCount > 0 && (
-        <span className="w-2 h-2 rounded-full bg-indigo-500 flex-shrink-0" />
-      )}
-      <FaArrowRight className="text-[10px] text-gray-300 dark:text-gray-600 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+      {chat.mentionCount > 0 && <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />}
+      <FaArrowRight className="text-[9px] text-gray-300 dark:text-gray-600 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
     </button>
   );
 };
@@ -490,70 +347,52 @@ const ChatRow = ({ chat, onOpen }) => {
 const ConfirmRow = ({ item, onOpen }) => (
   <button
     onClick={onOpen}
-    className="w-full text-left px-4 lg:px-5 py-3 hover:bg-gray-50 dark:hover:bg-[#0d9488]/5 transition flex items-start gap-3 border-b border-gray-100 dark:border-gray-800/30 last:border-0 group"
+    className="w-full text-left px-4 lg:px-5 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition flex items-start gap-3 border-b border-gray-100 dark:border-gray-800 last:border-0 group"
   >
-    <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
-      <FaCheckDouble className="text-amber-600 dark:text-amber-400 text-xs" />
-    </div>
+    <FaCheckDouble className="text-sm text-gray-400 dark:text-gray-500 flex-shrink-0 mt-0.5" />
     <div className="flex-1 min-w-0">
-      <p className="text-sm text-gray-800 dark:text-gray-100 break-words leading-snug">
+      <p className="text-sm text-gray-800 dark:text-gray-200 break-words leading-snug group-hover:text-gray-900 dark:group-hover:text-white transition">
         {item.title || item.taskTitle}
       </p>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-[11px] text-gray-500 dark:text-gray-500">
         {item.project?.workspace && <WorkspaceChip workspace={item.project.workspace} />}
         {item.projectName && <span className="truncate">{item.projectName}</span>}
-        <span className="text-amber-600 dark:text-amber-400 font-medium">
-          {item.completedBy
-            ? `${getFirstName(item.completedBy)} marked it done`
-            : `${item.pendingSubtasks?.length || 0} subtask(s) to review`}
+        <span className="text-gray-600 dark:text-gray-400">
+          {item.completedBy ? `${getFirstName(item.completedBy)} marked it done` : `${item.pendingSubtasks?.length || 0} subtask(s) to review`}
         </span>
       </div>
     </div>
-    <FaArrowRight className="text-[10px] text-gray-300 dark:text-gray-600 flex-shrink-0 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+    <FaArrowRight className="text-[9px] text-gray-300 dark:text-gray-600 flex-shrink-0 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity" />
   </button>
 );
 
-// ─────────────────────────────────────────────────────────────────
-// STAT TILES
-// ─────────────────────────────────────────────────────────────────
-
+// Mobile stat tile — NO colored backgrounds, only numbers
 const StatTile = ({ icon: Icon, label, value, accent }) => {
-  const a = accentMap[accent];
+  const a = accentMap[accent] || accentMap.gray;
   return (
     <div className="flex flex-col items-center text-center gap-1 py-1">
-      <span className={`w-9 h-9 rounded-xl flex items-center justify-center ${a.bg} border ${a.border}`}>
-        <Icon className={`text-sm ${a.text}`} />
-      </span>
-      <p
-        className={`text-lg font-bold tabular-nums leading-none ${
-          value > 0 ? a.text : 'text-gray-300 dark:text-gray-700'
-        }`}
-      >
+      <Icon className={`text-xs ${value > 0 ? a.text : 'text-gray-300 dark:text-gray-700'}`} />
+      <p className={`text-base font-bold tabular-nums leading-none ${value > 0 ? a.text : 'text-gray-300 dark:text-gray-700'}`}>
         {value}
       </p>
-      <p className="text-[9px] uppercase tracking-wider text-gray-500 dark:text-gray-500 font-semibold leading-tight">
+      <p className="text-[9px] uppercase tracking-wider text-gray-500 dark:text-gray-500 font-medium leading-tight">
         {label}
       </p>
     </div>
   );
 };
 
+// Desktop stat tile — NO colored backgrounds
 const StatTileDesktop = ({ icon: Icon, label, value, accent }) => {
-  const a = accentMap[accent];
+  const a = accentMap[accent] || accentMap.gray;
   return (
-    <div className="bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl p-4 flex items-center gap-3.5 hover:border-gray-300 dark:hover:border-gray-700/60 transition">
-      <span className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${a.bg} border ${a.border}`}>
-        <Icon className={`text-base ${a.text}`} />
-      </span>
+    <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 rounded-lg p-4 flex items-center gap-3">
+      <Icon className={`text-lg flex-shrink-0 ${value > 0 ? a.text : 'text-gray-300 dark:text-gray-700'}`} />
       <div className="min-w-0">
-        <p
-          className={`text-2xl font-bold tabular-nums leading-none ${
-            value > 0 ? a.text : 'text-gray-300 dark:text-gray-700'
-          }`}
-        >
+        <p className={`text-xl font-bold tabular-nums leading-none ${value > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-300 dark:text-gray-700'}`}>
           {value}
         </p>
-        <p className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-500 font-semibold mt-1">
+        <p className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-500 font-medium mt-1">
           {label}
         </p>
       </div>
@@ -561,74 +400,47 @@ const StatTileDesktop = ({ icon: Icon, label, value, accent }) => {
   );
 };
 
-// ─────────────────────────────────────────────────────────────────
-// CHART — matches the workspace chart style (AreaChart + gradient)
-// ─────────────────────────────────────────────────────────────────
-
+// Chart — very muted
 const ChartCard = ({ stats, brandColor = '#0d9488' }) => {
   const data = stats.filter((s) => s.value > 0);
 
   if (data.length === 0) {
     return (
-      <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-8 flex flex-col items-center justify-center text-center">
-        <FaChartBar className="text-3xl text-gray-300 dark:text-gray-700 mb-2" />
+      <div className="bg-white dark:bg-[#14141a] rounded-lg border border-gray-200 dark:border-gray-800 p-8 flex flex-col items-center justify-center text-center">
+        <FaChartBar className="text-2xl text-gray-300 dark:text-gray-700 mb-2" />
         <p className="text-sm text-gray-500 dark:text-gray-500">Nothing to chart yet.</p>
-        <p className="text-xs text-gray-400 dark:text-gray-600 mt-0.5">
-          Your attention breakdown will show here.
-        </p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-4 sm:p-5 relative overflow-hidden group">
-      <div className="absolute top-0 right-0 w-32 h-32 bg-teal-500/5 dark:bg-[#0d9488]/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-
+    <div className="bg-white dark:bg-[#14141a] rounded-lg border border-gray-200 dark:border-gray-800 p-4 sm:p-5">
       <div className="flex items-center justify-between mb-3">
-        <div>
-          <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-widest">
-            Attention Breakdown
-          </p>
-          <h2 className="text-lg font-bold text-gray-800 dark:text-gray-100 flex items-center gap-3">
-            <span>{data.reduce((s, d) => s + d.value, 0)} items</span>
-            <span className="text-sm font-normal text-gray-500 dark:text-gray-400">
-              Where your day is loaded
-            </span>
-          </h2>
-        </div>
+        <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-widest">
+          Attention breakdown
+        </p>
+        <span className="text-xs text-gray-500 dark:text-gray-500">
+          {data.reduce((s, d) => s + d.value, 0)} items
+        </span>
       </div>
-
-      <div className="h-40 lg:h-48 w-full">
+      <div className="h-40 lg:h-44 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: -20 }}>
+          <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -24 }}>
             <defs>
               <linearGradient id="todayChartGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={brandColor} stopOpacity={0.4} />
+                <stop offset="5%" stopColor={brandColor} stopOpacity={0.15} />
                 <stop offset="95%" stopColor={brandColor} stopOpacity={0} />
               </linearGradient>
             </defs>
-            <XAxis
-              dataKey="label"
-              tick={{ fontSize: 10, fill: '#6b7280' }}
-              tickLine={false}
-              axisLine={false}
-            />
-            <YAxis
-              allowDecimals={false}
-              tick={{ fontSize: 9, fill: '#6b7280' }}
-              tickLine={false}
-              axisLine={false}
-              tickCount={5}
-              width={28}
-            />
+            <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9ca3af' }} tickLine={false} axisLine={false} />
+            <YAxis allowDecimals={false} tick={{ fontSize: 9, fill: '#9ca3af' }} tickLine={false} axisLine={false} tickCount={5} width={24} />
             <Tooltip
               contentStyle={{
-                borderRadius: '12px',
+                borderRadius: '6px',
                 border: '1px solid rgba(148, 163, 184, 0.2)',
                 fontSize: '11px',
                 backgroundColor: '#1e1e2a',
                 color: '#f0f0f0',
-                boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
               }}
               labelStyle={{ color: '#9ca3af', fontSize: '11px' }}
               formatter={(value) => [value, 'items']}
@@ -637,10 +449,10 @@ const ChartCard = ({ stats, brandColor = '#0d9488' }) => {
               type="monotone"
               dataKey="value"
               stroke={brandColor}
-              strokeWidth={2}
+              strokeWidth={1.5}
               fill="url(#todayChartGradient)"
-              dot={{ r: 3, fill: brandColor }}
-              activeDot={{ r: 5, stroke: '#fff', strokeWidth: 1 }}
+              dot={{ r: 2, fill: brandColor }}
+              activeDot={{ r: 4, stroke: '#fff', strokeWidth: 1 }}
             />
           </AreaChart>
         </ResponsiveContainer>
@@ -649,17 +461,13 @@ const ChartCard = ({ stats, brandColor = '#0d9488' }) => {
   );
 };
 
-// ─────────────────────────────────────────────────────────────────
-// ASK XIRCLE
-// ─────────────────────────────────────────────────────────────────
-
+// Ask Xircle — plain gray, no teal tint
 const AskXircle = () => {
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState('');
   const [history, setHistory] = useState([]);
   const [answer, setAnswer] = useState(null);
   const inputRef = useRef(null);
-
   const [ask, { isLoading }] = useAskXircleMutation();
 
   useEffect(() => {
@@ -699,23 +507,16 @@ const AskXircle = () => {
       <AnimatePresence initial={false}>
         {!open && (
           <motion.button
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setOpen(true)}
-            className="w-full bg-gradient-to-r from-teal-50/60 to-transparent dark:from-[#0d9488]/10 dark:to-transparent border border-teal-200/60 dark:border-[#0d9488]/25 hover:border-teal-500/60 dark:hover:border-[#0d9488]/50 rounded-2xl px-4 lg:px-5 py-3.5 flex items-center gap-3 text-left transition group"
+            className="w-full bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700 rounded-lg px-4 py-3 flex items-center gap-3 text-left transition group"
           >
-            <span className="w-9 h-9 rounded-full bg-white dark:bg-[#14141a] flex items-center justify-center flex-shrink-0 shadow-sm">
-              <FaMagic className="text-teal-600 dark:text-[#0d9488] text-sm" />
+            <FaMagic className="text-sm text-gray-400 dark:text-gray-500 group-hover:text-teal-600 dark:group-hover:text-teal-400 transition-colors flex-shrink-0" />
+            <span className="flex-1 text-sm text-gray-500 dark:text-gray-500 group-hover:text-gray-700 dark:group-hover:text-gray-300 transition-colors">
+              Ask Xircle anything…
             </span>
-            <div className="flex-1 min-w-0">
-              <span className="block text-sm font-medium text-gray-700 dark:text-gray-200">
-                Ask Xircle anything about your work…
-              </span>
-              <span className="hidden lg:block text-[11px] text-gray-500 dark:text-gray-500 mt-0.5">
-                What's overdue · What did I finish this week · Summarize my projects
-              </span>
-            </div>
           </motion.button>
         )}
       </AnimatePresence>
@@ -723,72 +524,49 @@ const AskXircle = () => {
       <AnimatePresence initial={false}>
         {open && (
           <motion.div
-            initial={{ opacity: 0, y: -6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            className="bg-white dark:bg-[#14141a] border border-teal-200/60 dark:border-[#0d9488]/25 rounded-2xl overflow-hidden"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="bg-white dark:bg-[#14141a] border border-gray-300 dark:border-gray-700 rounded-lg overflow-hidden"
           >
-            <form
-              onSubmit={handleSubmit}
-              className="flex items-center gap-2 px-3 lg:px-4 py-2.5 border-b border-gray-100 dark:border-gray-800/40"
-            >
-              <FaMagic className="text-teal-600 dark:text-[#0d9488] text-sm flex-shrink-0 ml-1" />
+            <form onSubmit={handleSubmit} className="flex items-center gap-2 px-3 lg:px-4 py-2.5 border-b border-gray-100 dark:border-gray-800">
+              <FaMagic className="text-sm text-teal-600 dark:text-teal-400 flex-shrink-0" />
               <input
                 ref={inputRef}
                 type="text"
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
-                placeholder="What's overdue? What did I finish this week?…"
+                placeholder="What's overdue? What did I finish this week?"
                 disabled={isLoading}
-                className="flex-1 bg-transparent text-sm text-gray-800 dark:text-white placeholder-gray-400 outline-none py-1.5"
+                className="flex-1 bg-transparent text-sm text-gray-800 dark:text-white placeholder-gray-400 outline-none py-1"
               />
               {isLoading ? (
                 <FaSpinner className="animate-spin text-teal-500 text-sm flex-shrink-0" />
               ) : (
-                <button
-                  type="submit"
-                  disabled={!question.trim()}
-                  className="p-1.5 text-teal-600 dark:text-[#0d9488] hover:bg-teal-50 dark:hover:bg-teal-900/20 rounded-lg transition disabled:opacity-40 disabled:hover:bg-transparent"
-                  aria-label="Ask"
-                >
-                  <FaPaperPlane className="text-sm" />
+                <button type="submit" disabled={!question.trim()} className="p-1 text-teal-600 dark:text-teal-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded transition disabled:opacity-40" aria-label="Ask">
+                  <FaPaperPlane className="text-xs" />
                 </button>
               )}
-              <button
-                type="button"
-                onClick={dismiss}
-                className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-lg transition"
-                aria-label="Close"
-              >
+              <button type="button" onClick={dismiss} className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded transition" aria-label="Close">
                 <FaTimes className="text-xs" />
               </button>
             </form>
 
             <AnimatePresence>
               {answer && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="overflow-hidden"
-                >
-                  <div className="px-4 lg:px-5 py-3 border-b border-gray-100 dark:border-gray-800/40">
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                  <div className="px-4 lg:px-5 py-3 border-b border-gray-100 dark:border-gray-800">
                     <div className="flex items-start gap-2.5">
-                      <FaLightbulb className="text-amber-500 text-sm flex-shrink-0 mt-0.5" />
-                      <p className="text-sm text-gray-800 dark:text-gray-100 whitespace-pre-wrap leading-relaxed">
+                      <FaLightbulb className="text-amber-500 text-xs flex-shrink-0 mt-0.5" />
+                      <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
                         {answer.text}
                       </p>
                     </div>
                   </div>
                   {answer.followUps.length > 0 && (
-                    <div className="px-4 lg:px-5 py-3 flex flex-wrap gap-1.5 bg-gray-50/60 dark:bg-[#0f0f12]/40">
+                    <div className="px-4 lg:px-5 py-2.5 flex flex-wrap gap-1.5 bg-gray-50 dark:bg-[#0f0f12]">
                       {answer.followUps.map((fu, i) => (
-                        <button
-                          key={i}
-                          onClick={() => runAsk(fu)}
-                          disabled={isLoading}
-                          className="text-[11px] px-2.5 py-1 rounded-full border border-gray-200 dark:border-gray-700/60 text-gray-600 dark:text-gray-300 hover:border-teal-500 hover:text-teal-600 dark:hover:text-[#0d9488] transition disabled:opacity-50"
-                        >
+                        <button key={i} onClick={() => runAsk(fu)} disabled={isLoading} className="text-[11px] px-2 py-1 rounded border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600 transition disabled:opacity-50">
                           {fu}
                         </button>
                       ))}
@@ -804,38 +582,19 @@ const AskXircle = () => {
   );
 };
 
-// ─────────────────────────────────────────────────────────────────
-// CHART TOGGLE — shared wrapper used on both mobile & desktop
-// ─────────────────────────────────────────────────────────────────
-
 const ChartToggle = ({ stats, brandColor, isOpen, onToggle }) => (
   <>
-    <button
-      type="button"
-      onClick={onToggle}
-      className="w-full flex items-center justify-between px-4 lg:px-5 py-2.5 bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl text-left transition"
-    >
-      <span className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-        <FaChartBar className="text-teal-600 dark:text-[#0d9488] text-xs" />
+    <button type="button" onClick={onToggle} className="w-full flex items-center justify-between px-4 lg:px-5 py-2.5 bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 rounded-lg text-left transition hover:border-gray-300 dark:hover:border-gray-700">
+      <span className="flex items-center gap-2 text-xs font-medium text-gray-600 dark:text-gray-400">
+        <FaChartBar className="text-xs" />
         {isOpen ? 'Hide chart' : 'Show chart'}
       </span>
-      <FaChevronDown
-        className={`text-xs text-gray-400 transition-transform duration-200 ${
-          isOpen ? 'rotate-180' : ''
-        }`}
-      />
+      <FaChevronDown className={`text-xs text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
     </button>
     <AnimatePresence initial={false}>
       {isOpen && (
-        <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: 'auto' }}
-          exit={{ opacity: 0, height: 0 }}
-          className="overflow-hidden"
-        >
-          <div className="pt-3">
-            <ChartCard stats={stats} brandColor={brandColor} />
-          </div>
+        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+          <div className="pt-3"><ChartCard stats={stats} brandColor={brandColor} /></div>
         </motion.div>
       )}
     </AnimatePresence>
@@ -845,18 +604,16 @@ const ChartToggle = ({ stats, brandColor, isOpen, onToggle }) => (
 // ─────────────────────────────────────────────────────────────────
 // MAIN
 // ─────────────────────────────────────────────────────────────────
-
 const Today = () => {
   const navigate = useNavigate();
   const { userInfo } = useSelector((state) => state.auth);
   const [showChart, setShowChart] = useState(false);
 
-  const { data, isLoading, isError, error, refetch, isFetching } =
-    useGetTodayQuery(undefined, {
-      pollingInterval: 60000,
-      refetchOnFocus: true,
-      refetchOnReconnect: true,
-    });
+  const { data, isLoading, isError, error, refetch, isFetching } = useGetTodayQuery(undefined, {
+    pollingInterval: 60000,
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
+  });
 
   const openPersonalTask = () => navigate('/personal-tasks');
   const openProjectTask = (task) => {
@@ -874,8 +631,7 @@ const Today = () => {
     const projId = item.project?._id || item.projectId;
     if (wsId && projId) navigate(`/workspace/${wsId}/project/${projId}`);
   };
-  const openJoinRequests = (pulse) =>
-    navigate(`/workspace/${pulse.workspaceId}/members`);
+  const openJoinRequests = (pulse) => navigate(`/workspace/${pulse.workspaceId}/members`);
 
   const firstName = getFirstName(userInfo?.name);
   const attention = data?.totalAttention || 0;
@@ -894,12 +650,9 @@ const Today = () => {
   });
 
   const hasWorkColumn =
-    myWork.overdue.length > 0 ||
-    myWork.dueToday.length > 0 ||
-    teamWork.overdue.length > 0 ||
-    teamWork.dueToday.length > 0 ||
-    awaiting.taskConfirmations.length > 0 ||
-    awaiting.subtaskReviews.length > 0;
+    myWork.overdue.length > 0 || myWork.dueToday.length > 0 ||
+    teamWork.overdue.length > 0 || teamWork.dueToday.length > 0 ||
+    awaiting.taskConfirmations.length > 0 || awaiting.subtaskReviews.length > 0;
 
   const hasAwarenessColumn =
     convos.unreadChats.length > 0 ||
@@ -914,13 +667,12 @@ const Today = () => {
   const mentionTotal = convos.counts?.mentions || 0;
 
   const statsData = [
-    { key: 'overdue', label: 'Overdue', value: overdueTotal, accent: 'red', icon: FaExclamationCircle, hex: accentMap.red.hex },
-    { key: 'dueToday', label: 'Due today', value: dueTodayTotal, accent: 'teal', icon: FaRegClock, hex: accentMap.teal.hex },
-    { key: 'awaiting', label: 'Awaiting', value: awaitingTotal, accent: 'amber', icon: FaCheckDouble, hex: accentMap.amber.hex },
-    { key: 'mentions', label: 'Mentions', value: mentionTotal, accent: 'indigo', icon: FaComments, hex: accentMap.indigo.hex },
+    { key: 'overdue', label: 'Overdue', value: overdueTotal, accent: 'red', icon: FaExclamationCircle },
+    { key: 'dueToday', label: 'Due today', value: dueTodayTotal, accent: 'teal', icon: FaRegClock },
+    { key: 'awaiting', label: 'Awaiting', value: awaitingTotal, accent: 'amber', icon: FaCheckDouble },
+    { key: 'mentions', label: 'Mentions', value: mentionTotal, accent: 'gray', icon: FaComments },
   ];
 
-  // ── Loading — sidebar & bottombar stay live, only content shimmers ──
   if (isLoading && !data) {
     return (
       <>
@@ -935,20 +687,15 @@ const Today = () => {
       <>
         <GlobalStyles />
         <div className="min-h-screen bg-white dark:bg-[#0f0f12] flex flex-col md:flex-row">
-          <div className="hidden md:block md:w-72 md:flex-shrink-0">
-            <GeneralSidebar />
-          </div>
+          <div className="hidden md:block md:w-72 md:flex-shrink-0"><GeneralSidebar /></div>
           <div className="flex-1 flex flex-col min-h-screen min-w-0">
             <div className="flex-1 flex items-center justify-center p-6">
               <div className="text-center max-w-sm">
-                <FaExclamationCircle className="text-red-500 text-3xl mx-auto mb-3" />
-                <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
+                <FaExclamationCircle className="text-red-500 text-2xl mx-auto mb-3" />
+                <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
                   {error?.data?.message || 'Could not load your Today.'}
                 </p>
-                <button
-                  onClick={refetch}
-                  className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm rounded-xl transition"
-                >
+                <button onClick={refetch} className="px-5 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium rounded-lg transition">
                   Try again
                 </button>
               </div>
@@ -960,26 +707,22 @@ const Today = () => {
     );
   }
 
-  // ── Render ──
   return (
     <>
       <GlobalStyles />
-
       <div className="min-h-screen bg-white dark:bg-[#0f0f12] flex flex-col md:flex-row">
         <div className="hidden md:block md:w-72 md:flex-shrink-0">
           <GeneralSidebar />
         </div>
 
         <div className="flex-1 flex flex-col min-h-screen min-w-0">
-          {/* ═══ FIXED TOP BAR ═══ */}
-          <header className="sticky top-0 z-30 bg-white/85 dark:bg-[#0f0f12]/85 backdrop-blur-xl border-b border-gray-200/60 dark:border-gray-800/60">
+          {/* HEADER */}
+          <header className="sticky top-0 z-30 bg-white dark:bg-[#0f0f12] border-b border-gray-200 dark:border-gray-800">
             <div className="w-full max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-3">
               <div className="flex items-center gap-3 min-w-0">
-                <span className="w-9 h-9 rounded-xl bg-teal-50 dark:bg-[#0d9488]/15 border border-teal-200/60 dark:border-[#0d9488]/25 flex items-center justify-center flex-shrink-0">
-                  <FaSun className="text-teal-600 dark:text-[#0d9488] text-sm" />
-                </span>
+                <FaSun className="text-sm text-gray-500 dark:text-gray-400 flex-shrink-0" />
                 <div className="min-w-0">
-                  <h1 className="text-sm lg:text-base font-bold text-gray-900 dark:text-white leading-tight truncate">
+                  <h1 className="text-sm lg:text-base font-semibold text-gray-900 dark:text-white leading-tight truncate">
                     Today
                   </h1>
                   <p className="text-[10px] lg:text-[11px] text-gray-500 dark:text-gray-500 leading-tight truncate">
@@ -987,19 +730,12 @@ const Today = () => {
                   </p>
                 </div>
               </div>
-
               <div className="flex items-center gap-2.5 flex-shrink-0">
-                {isFetching && !isLoading && (
-                  <FaSpinner className="animate-spin text-gray-400 text-xs" />
-                )}
+                {isFetching && !isLoading && <FaSpinner className="animate-spin text-gray-400 text-xs" />}
                 {userInfo?.profile ? (
-                  <img
-                    src={userInfo.profile}
-                    alt=""
-                    className="w-8 h-8 rounded-full object-cover border border-gray-200 dark:border-gray-700/60"
-                  />
+                  <img src={userInfo.profile} alt="" className="w-7 h-7 rounded-full object-cover border border-gray-200 dark:border-gray-700" />
                 ) : (
-                  <div className="w-8 h-8 rounded-full bg-teal-500 flex items-center justify-center text-white text-xs font-bold">
+                  <div className="w-7 h-7 rounded-full bg-gray-600 dark:bg-gray-700 flex items-center justify-center text-white text-[11px] font-semibold">
                     {(firstName || '?').charAt(0).toUpperCase()}
                   </div>
                 )}
@@ -1007,104 +743,59 @@ const Today = () => {
             </div>
           </header>
 
-          {/* ═══ MAIN ═══ */}
-          <main className="flex-1 w-full max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 pt-4 lg:pt-6 pb-24 md:pb-12">
-
+          {/* MAIN */}
+          <main className="flex-1 w-full max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 pt-6 lg:pt-8 pb-24 md:pb-12">
             {/* Greeting */}
-            <div className="mb-4 lg:mb-5">
-              <h2 className="text-xl lg:text-3xl font-bold text-gray-900 dark:text-white tracking-tight">
-                {getGreeting()}
-                {firstName && (
-                  <>
-                    , <span className="text-teal-600 dark:text-[#0d9488]">{firstName}</span>
-                  </>
-                )}
+            <div className="mb-6">
+              <h2 className="text-2xl lg:text-3xl font-bold text-gray-900 dark:text-white tracking-tight">
+                {getGreeting()}{firstName && <>, <span className="text-teal-600 dark:text-teal-400">{firstName}</span></>}
               </h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1.5">
                 {hasAnything ? (
-                  <>
-                    <span className="font-semibold text-gray-700 dark:text-gray-200">{attention}</span>{' '}
-                    {attention === 1 ? 'thing needs' : 'things need'} your attention
-                  </>
+                  <><span className="font-semibold text-gray-800 dark:text-gray-200">{attention}</span> {attention === 1 ? 'thing needs' : 'things need'} your attention</>
                 ) : (
-                  <>You're all caught up. Nothing needs you right now.</>
+                  <>You're all caught up.</>
                 )}
               </p>
             </div>
 
-            {/* ═══ STATS ═══ */}
-            {/* Mobile — single card with 4 tiles inside */}
-            <div className="md:hidden mb-4 bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl px-2 py-3">
+            {/* Stats — mobile */}
+            <div className="md:hidden mb-5 bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800 rounded-lg px-2 py-3">
               <div className="grid grid-cols-4 gap-1">
-                {statsData.map((s) => (
-                  <StatTile key={s.key} {...s} />
-                ))}
+                {statsData.map((s) => <StatTile key={s.key} {...s} />)}
               </div>
             </div>
 
-            {/* Desktop — 4 separate cards */}
-            <div className="hidden md:grid md:grid-cols-4 md:gap-4 mb-5">
-              {statsData.map((s) => (
-                <StatTileDesktop key={s.key} {...s} />
-              ))}
+            {/* Stats — desktop */}
+            <div className="hidden md:grid md:grid-cols-4 md:gap-3 mb-5">
+              {statsData.map((s) => <StatTileDesktop key={s.key} {...s} />)}
             </div>
 
-            {/* ═══ CHART — optional on both mobile and desktop ═══ */}
+            {/* Chart */}
             <div className="mb-5">
-              <ChartToggle
-                stats={statsData}
-                brandColor={accentMap.teal.hex}
-                isOpen={showChart}
-                onToggle={() => setShowChart((v) => !v)}
-              />
+              <ChartToggle stats={statsData} brandColor={accentMap.teal.hex} isOpen={showChart} onToggle={() => setShowChart((v) => !v)} />
             </div>
 
             {/* Ask Xircle */}
             <AskXircle />
 
-            {/* ═══ CONTENT GRID ═══ */}
-            <div
-              className={`grid gap-4 lg:gap-5 ${
-                hasWorkColumn && hasAwarenessColumn ? 'lg:grid-cols-5' : 'lg:grid-cols-1'
-              }`}
-            >
+            {/* Content */}
+            <div className={`grid gap-5 ${hasWorkColumn && hasAwarenessColumn ? 'lg:grid-cols-5' : 'lg:grid-cols-1'}`}>
               {hasWorkColumn && (
-                <div
-                  className={`space-y-4 lg:space-y-5 ${
-                    hasWorkColumn && hasAwarenessColumn ? 'lg:col-span-3' : ''
-                  }`}
-                >
+                <div className={`space-y-5 ${hasWorkColumn && hasAwarenessColumn ? 'lg:col-span-3' : ''}`}>
                   {(myWork.overdue.length > 0 || myWork.dueToday.length > 0) && (
                     <SectionCard
                       icon={FaTasks}
                       title="My Work"
-                      subtitle="Your personal tasks"
-                      accent="teal"
+                      subtitle="Personal tasks"
                       count={myWork.overdue.length + myWork.dueToday.length}
-                      action={
-                        <Link
-                          to="/personal-tasks"
-                          className="text-[10px] font-medium uppercase tracking-wider text-teal-600 dark:text-[#0d9488] hover:underline"
-                        >
-                          Open
-                        </Link>
-                      }
+                      action={<Link to="/personal-tasks" className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-500 hover:text-gray-800 dark:hover:text-white transition">Open</Link>}
                     >
                       {myWork.overdue.length > 0 && (
-                        <>
-                          <SubGroupLabel label="Overdue" accent="red" />
-                          {myWork.overdue.map((t) => (
-                            <TaskRow key={t.id} task={t} onOpen={openPersonalTask} isOverdue />
-                          ))}
-                        </>
+                        <><SubGroupLabel label="Overdue" accent="red" />{myWork.overdue.map((t) => <TaskRow key={t.id} task={t} onOpen={openPersonalTask} isOverdue />)}</>
                       )}
                       {myWork.dueToday.length > 0 && (
-                        <>
-                          <SubGroupLabel label="Due Today" accent="teal" />
-                          {myWork.dueToday.map((t) => (
-                            <TaskRow key={t.id} task={t} onOpen={openPersonalTask} />
-                          ))}
-                        </>
+                        <><SubGroupLabel label="Due Today" accent="teal" />{myWork.dueToday.map((t) => <TaskRow key={t.id} task={t} onOpen={openPersonalTask} />)}</>
                       )}
                     </SectionCard>
                   )}
@@ -1113,40 +804,14 @@ const Today = () => {
                     <SectionCard
                       icon={FaFolderOpen}
                       title="Team Work"
-                      subtitle="Assigned to you across your workspaces"
-                      accent="teal"
+                      subtitle="Assigned across workspaces"
                       count={teamWork.overdue.length + teamWork.dueToday.length}
                     >
                       {teamWork.overdue.length > 0 && (
-                        <>
-                          <SubGroupLabel label="Overdue" accent="red" />
-                          {teamWork.overdue.map((t) => {
-                            const n = normProjectTask(t);
-                            return (
-                              <TaskRow
-                                key={n.id}
-                                task={n}
-                                onOpen={() => openProjectTask(n)}
-                                isOverdue
-                              />
-                            );
-                          })}
-                        </>
+                        <><SubGroupLabel label="Overdue" accent="red" />{teamWork.overdue.map((t) => { const n = normProjectTask(t); return <TaskRow key={n.id} task={n} onOpen={() => openProjectTask(n)} isOverdue />; })}</>
                       )}
                       {teamWork.dueToday.length > 0 && (
-                        <>
-                          <SubGroupLabel label="Due Today" accent="teal" />
-                          {teamWork.dueToday.map((t) => {
-                            const n = normProjectTask(t);
-                            return (
-                              <TaskRow
-                                key={n.id}
-                                task={n}
-                                onOpen={() => openProjectTask(n)}
-                              />
-                            );
-                          })}
-                        </>
+                        <><SubGroupLabel label="Due Today" accent="teal" />{teamWork.dueToday.map((t) => { const n = normProjectTask(t); return <TaskRow key={n.id} task={n} onOpen={() => openProjectTask(n)} />; })}</>
                       )}
                     </SectionCard>
                   )}
@@ -1156,41 +821,25 @@ const Today = () => {
                       icon={FaCheckDouble}
                       title="Awaiting You"
                       subtitle="Blocked on your review"
-                      accent="amber"
                       count={awaiting.taskConfirmations.length + awaiting.subtaskReviews.length}
                     >
-                      {awaiting.taskConfirmations.map((item) => (
-                        <ConfirmRow key={item.id} item={item} onOpen={() => openConfirm(item)} />
-                      ))}
-                      {awaiting.subtaskReviews.map((item) => (
-                        <ConfirmRow
-                          key={item.taskId}
-                          item={item}
-                          onOpen={() => openConfirm(item)}
-                        />
-                      ))}
+                      {awaiting.taskConfirmations.map((item) => <ConfirmRow key={item.id} item={item} onOpen={() => openConfirm(item)} />)}
+                      {awaiting.subtaskReviews.map((item) => <ConfirmRow key={item.taskId} item={item} onOpen={() => openConfirm(item)} />)}
                     </SectionCard>
                   )}
                 </div>
               )}
 
               {hasAwarenessColumn && (
-                <div
-                  className={`space-y-4 lg:space-y-5 ${
-                    hasWorkColumn && hasAwarenessColumn ? 'lg:col-span-2' : ''
-                  }`}
-                >
+                <div className={`space-y-5 ${hasWorkColumn && hasAwarenessColumn ? 'lg:col-span-2' : ''}`}>
                   {convos.unreadChats.length > 0 && (
                     <SectionCard
                       icon={FaComments}
                       title="Conversations"
-                      subtitle="Unread messages and mentions"
-                      accent="indigo"
+                      subtitle="Unread messages"
                       count={convos.unreadChats.length}
                     >
-                      {convos.unreadChats.map((c) => (
-                        <ChatRow key={c.chatId} chat={c} onOpen={() => openChat(c)} />
-                      ))}
+                      {convos.unreadChats.map((c) => <ChatRow key={c.chatId} chat={c} onOpen={() => openChat(c)} />)}
                     </SectionCard>
                   )}
 
@@ -1198,44 +847,25 @@ const Today = () => {
                     <SectionCard
                       icon={FaUsers}
                       title="Team Pulse"
-                      subtitle="Recent activity in your workspaces"
-                      accent="purple"
-                      count={
-                        pulse.pendingJoinRequests.reduce((s, w) => s + w.count, 0) +
-                        pulse.recentProjects.length
-                      }
+                      subtitle="Recent activity"
+                      count={pulse.pendingJoinRequests.reduce((s, w) => s + w.count, 0) + pulse.recentProjects.length}
                     >
                       {pulse.pendingJoinRequests.map((p) => (
-                        <button
-                          key={p.workspaceId}
-                          onClick={() => openJoinRequests(p)}
-                          className="w-full text-left px-4 lg:px-5 py-3 hover:bg-gray-50 dark:hover:bg-[#0d9488]/5 transition flex items-center gap-3 border-b border-gray-100 dark:border-gray-800/30 last:border-0 group"
-                        >
-                          <div className="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center flex-shrink-0">
-                            <FaUserPlus className="text-purple-600 dark:text-purple-400 text-xs" />
-                          </div>
+                        <button key={p.workspaceId} onClick={() => openJoinRequests(p)} className="w-full text-left px-4 lg:px-5 py-3 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition flex items-center gap-3 border-b border-gray-100 dark:border-gray-800 last:border-0 group">
+                          <FaUserPlus className="text-sm text-gray-400 dark:text-gray-500 flex-shrink-0" />
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm text-gray-800 dark:text-gray-100 truncate">
+                            <p className="text-sm text-gray-800 dark:text-gray-200 truncate group-hover:text-gray-900 dark:group-hover:text-white transition">
                               {p.count} join request{p.count > 1 ? 's' : ''}
                             </p>
-                            <p className="text-[11px] text-gray-500 dark:text-gray-500 truncate">
-                              {p.workspaceName}
-                            </p>
+                            <p className="text-[11px] text-gray-500 dark:text-gray-500 truncate">{p.workspaceName}</p>
                           </div>
-                          <FaArrowRight className="text-[10px] text-gray-300 dark:text-gray-600 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          <FaArrowRight className="text-[9px] text-gray-300 dark:text-gray-600 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
                         </button>
                       ))}
                       {pulse.recentProjects.map((p) => (
-                        <div
-                          key={p._id}
-                          className="px-4 lg:px-5 py-3 border-b border-gray-100 dark:border-gray-800/30 last:border-0"
-                        >
-                          <p className="text-sm text-gray-700 dark:text-gray-300 truncate">
-                            {p.name}
-                          </p>
-                          <p className="text-[11px] text-gray-400 dark:text-gray-500">
-                            new project · {formatRelative(p.createdAt)}
-                          </p>
+                        <div key={p._id} className="px-4 lg:px-5 py-3 border-b border-gray-100 dark:border-gray-800 last:border-0">
+                          <p className="text-sm text-gray-800 dark:text-gray-200 truncate">{p.name}</p>
+                          <p className="text-[11px] text-gray-500 dark:text-gray-500">new project · {formatRelative(p.createdAt)}</p>
                         </div>
                       ))}
                     </SectionCard>
@@ -1244,16 +874,11 @@ const Today = () => {
               )}
             </div>
 
-            {/* Empty state */}
             {!hasAnything && (
-              <div className="flex flex-col items-center justify-center py-16 lg:py-24 text-gray-400 dark:text-gray-500">
-                <FaCheckCircle className="text-4xl lg:text-5xl mb-3 text-teal-500/60" />
-                <p className="text-sm lg:text-base font-medium text-gray-500 dark:text-gray-400">
-                  Nothing needs you right now
-                </p>
-                <p className="text-xs lg:text-sm mt-1">
-                  Come back when something shows up.
-                </p>
+              <div className="flex flex-col items-center justify-center py-20 text-gray-400 dark:text-gray-500">
+                <FaCheckCircle className="text-4xl mb-3 text-gray-300 dark:text-gray-700" />
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Nothing needs you right now</p>
+                <p className="text-xs mt-1">Come back when something shows up.</p>
               </div>
             )}
           </main>

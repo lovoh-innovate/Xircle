@@ -102,9 +102,6 @@ const shadeHex = (hex, percent) => {
 };
 
 // ─── Project icons ─────────────────────────────────────────────
-// The user picks an icon per project; the backend stores a simple
-// key string. This map is the single source of truth for both the
-// picker UI and the renderer used on cards / menus / search.
 const PROJECT_ICONS = {
   bookStack: { name: 'Book Stack', icon: FaLayerGroup },
   rocket:    { name: 'Rocket',     icon: FaRocket },
@@ -138,9 +135,6 @@ const PROJECT_ICONS = {
 
 const DEFAULT_PROJECT_ICON = 'bookStack';
 
-// Resolve an icon component for a project. Falls back to bookStack
-// for legacy projects that pre-date the icon field, and for unknown
-// keys (e.g. one removed from the palette after the fact).
 const pickProjectIcon = (project) => {
   const key = project?.icon || DEFAULT_PROJECT_ICON;
   return (PROJECT_ICONS[key] || PROJECT_ICONS[DEFAULT_PROJECT_ICON]).icon;
@@ -241,9 +235,6 @@ const ColorPicker = ({ value, onChange, disabled = false }) => (
 );
 
 // ─── Icon picker ────────────────────────────────────────────────
-// Renders the palette as a compact grid. The currently-selected
-// icon is highlighted using the project's chosen color, so color
-// and icon feel visually linked in both create & edit flows.
 const IconPicker = ({ value, onChange, disabled = false, brandColor = DEFAULT_PROJECT_COLOR }) => {
   const current = value || DEFAULT_PROJECT_ICON;
   const accent = toHex(brandColor);
@@ -359,7 +350,7 @@ const CustomDropdown = ({ value, onChange, options, placeholder = 'Select', disa
         type="button"
         onClick={() => !disabled && setOpen((v) => !v)}
         disabled={disabled}
-        className="w-full flex items-center justify-between gap-2 px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-left text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none disabled:opacity-50 disabled:cursor-not-allowed transition"
+        className="w-full flex items-center justify-between gap-2 px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-left text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none disabled:opacity-50 disabled:cursor-not-allowed transition"
       >
         <span className={`truncate ${selected ? '' : 'text-gray-400 dark:text-gray-500'}`}>
           {selected ? selected.label : placeholder}
@@ -377,7 +368,7 @@ const CustomDropdown = ({ value, onChange, options, placeholder = 'Select', disa
             width: popupPos.width,
             maxHeight: popupPos.maxHeight,
           }}
-          className="fixed z-[100] bg-white dark:bg-[#1a1a24] border border-gray-200 dark:border-gray-800/60 rounded-xl shadow-xl py-1 overflow-y-auto"
+          className="fixed z-[100] bg-white dark:bg-[#1a1a24] border border-gray-200 dark:border-gray-800/60 rounded-lg shadow-xl py-1 overflow-y-auto"
         >
           {options.map((o) => {
             const isSel = o.value === value;
@@ -564,7 +555,7 @@ const CustomDateTimePicker = ({ value, onChange, placeholder = 'Select date & ti
         type="button"
         onClick={() => !disabled && setOpen((v) => !v)}
         disabled={disabled}
-        className="w-full flex items-center justify-between gap-2 px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-left text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none disabled:opacity-50 disabled:cursor-not-allowed transition"
+        className="w-full flex items-center justify-between gap-2 px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-left text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none disabled:opacity-50 disabled:cursor-not-allowed transition"
       >
         <span className={`truncate ${display ? '' : 'text-gray-400 dark:text-gray-500'}`}>
           {display || placeholder}
@@ -582,7 +573,7 @@ const CustomDateTimePicker = ({ value, onChange, placeholder = 'Select date & ti
             width: POPUP_W,
             maxHeight: popupPos.maxHeight,
           }}
-          className="fixed z-[100] bg-white dark:bg-[#1a1a24] border border-gray-200 dark:border-gray-800/60 rounded-2xl shadow-2xl p-3 overflow-y-auto"
+          className="fixed z-[100] bg-white dark:bg-[#1a1a24] border border-gray-200 dark:border-gray-800/60 rounded-xl shadow-2xl p-3 overflow-y-auto"
         >
           <div className="flex items-center justify-between mb-2">
             <button
@@ -717,12 +708,12 @@ const ConfirmModal = ({
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-sm w-full p-6 shadow-xl">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-xl max-w-sm w-full p-6 shadow-xl">
         <h3 className="text-lg font-bold text-gray-800 dark:text-gray-200 mb-2">{title}</h3>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{message}</p>
         <div className="flex gap-3">
-          <button onClick={onCancel} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
-          <button onClick={onConfirm} className={`flex-1 py-2 text-white rounded-xl text-sm font-medium transition ${confirmColor}`}>{confirmLabel}</button>
+          <button onClick={onCancel} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
+          <button onClick={onConfirm} className={`flex-1 py-2 text-white rounded-lg text-sm font-medium transition ${confirmColor}`}>{confirmLabel}</button>
         </div>
       </div>
     </div>
@@ -757,7 +748,7 @@ const FilterDrawer = ({ isOpen, onClose, filters, setFilters, view, setView, can
               <div className="mt-2 space-y-1">
                 {statuses.map((status) => (
                   <button key={status} onClick={() => setFilters({ ...filters, status })}
-                    className={`w-full text-left px-3 py-2 rounded-xl text-sm transition ${filters.status === status ? 'bg-[#0d9488]/20 text-[#0d9488] border border-[#0d9488]/30' : 'text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30'}`}>
+                    className={`w-full text-left px-3 py-2 rounded-lg text-sm transition ${filters.status === status ? 'bg-[#0d9488]/20 text-[#0d9488] border border-[#0d9488]/30' : 'text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30'}`}>
                     {status === 'all' ? 'All Projects' : status.charAt(0).toUpperCase() + status.slice(1)}
                   </button>
                 ))}
@@ -766,7 +757,7 @@ const FilterDrawer = ({ isOpen, onClose, filters, setFilters, view, setView, can
             <div>
               <label className="text-xs text-gray-500 dark:text-gray-500 uppercase tracking-wider">Sort By</label>
               <select value={filters.sort} onChange={(e) => setFilters({ ...filters, sort: e.target.value })}
-                className="w-full bg-white dark:bg-[#1e1e26] border border-gray-300 dark:border-gray-800/60 rounded-xl px-3 py-2 text-sm text-gray-800 dark:text-gray-200 outline-none focus:border-[#0d9488]/50 mt-2">
+                className="w-full bg-white dark:bg-[#1e1e26] border border-gray-300 dark:border-gray-800/60 rounded-lg px-3 py-2 text-sm text-gray-800 dark:text-gray-200 outline-none focus:border-[#0d9488]/50 mt-2">
                 <option value="newest">Newest</option>
                 <option value="oldest">Oldest</option>
                 <option value="progress">Progress</option>
@@ -795,7 +786,7 @@ const SearchProjectsModal = ({ isOpen, onClose, projects, brandColor, workspaceI
     <div className="fixed inset-0 z-50 bg-white/90 dark:bg-[#0b0b10]/90 backdrop-blur-xl flex flex-col">
       <div className="flex items-center gap-3 px-4 h-16 border-b border-gray-200/60 dark:border-gray-800/60 bg-gray-50 dark:bg-[#14141a]/80">
         <button onClick={onClose} className="p-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"><FaArrowLeft /></button>
-        <div className="flex-1 bg-gray-100 dark:bg-[#1e1e26] rounded-2xl px-4 py-2 flex items-center gap-3 border border-gray-300 dark:border-gray-800/40 focus-within:border-[#0d9488]/50 transition">
+        <div className="flex-1 bg-gray-100 dark:bg-[#1e1e26] rounded-lg px-4 py-2 flex items-center gap-3 border border-gray-300 dark:border-gray-800/40 focus-within:border-[#0d9488]/50 transition">
           <FaSearch className="text-gray-400 dark:text-gray-500 text-xs" />
           <input type="text" placeholder="Search projects..." value={query} onChange={(e) => setQuery(e.target.value)}
             className="bg-transparent w-full outline-none text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500" autoFocus />
@@ -820,9 +811,9 @@ const SearchProjectsModal = ({ isOpen, onClose, projects, brandColor, workspaceI
               const Icon = pickProjectIcon(project);
               return (
                 <div key={project._id} onClick={() => { onClose(); navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}/project/${project._id}`); }}
-                  className="flex items-center gap-4 px-4 py-3 bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 hover:border-gray-300 dark:hover:border-gray-700 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition cursor-pointer group">
+                  className="flex items-center gap-4 px-4 py-3 bg-white dark:bg-[#14141a] rounded-lg border border-gray-200 dark:border-gray-800/40 hover:border-gray-300 dark:hover:border-gray-700 hover:bg-gray-50 dark:hover:bg-[#1a1a24] transition cursor-pointer group">
                   <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0"
+                    className="w-10 h-10 rounded-lg flex items-center justify-center text-white shrink-0"
                     style={{ background: `linear-gradient(135deg, ${cardHex} 0%, ${shadeHex(cardHex, -18)} 100%)` }}
                   >
                     <Icon className="text-sm" />
@@ -911,7 +902,7 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-2xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">
             <span className="inline-flex items-center justify-center w-6 h-6 rounded-lg mr-2 align-middle" style={{ backgroundColor: `${color}25`, color }}>
@@ -929,7 +920,7 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
+              className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
               required
             />
           </div>
@@ -940,7 +931,7 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
+              className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none"
             />
           </div>
 
@@ -968,7 +959,7 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
           <button
             type="button"
             onClick={() => setShowMore((v) => !v)}
-            className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-700/60 rounded-xl text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/40 transition"
+            className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-700/60 rounded-lg text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/40 transition"
           >
             <span className="font-medium">Add more details (optional)</span>
             <span className="flex items-center gap-1 text-gray-400">
@@ -1004,10 +995,10 @@ const CreateProjectModal = ({ workspace, isOpen, onClose, onCreated }) => {
           )}
 
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+            <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
               Cancel
             </button>
-            <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-90 disabled:opacity-50" style={{ backgroundColor: color }}>
+            <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-lg text-sm font-medium transition hover:opacity-90 disabled:opacity-50" style={{ backgroundColor: color }}>
               {loading ? 'Creating...' : 'Create Project'}
             </button>
           </div>
@@ -1084,7 +1075,7 @@ const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor,
   const PreviewIcon = pickProjectIcon({ icon });
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-0 md:p-4" onClick={onClose}>
-      <div className={`bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl md:rounded-2xl w-full md:max-w-md max-h-[90vh] overflow-y-auto transform transition-transform duration-300 ${isMobile ? 'mt-auto' : 'mx-auto'}`} onClick={(e) => e.stopPropagation()}>
+      <div className={`bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-xl md:rounded-xl w-full md:max-w-md max-h-[90vh] overflow-y-auto transform transition-transform duration-300 ${isMobile ? 'mt-auto' : 'mx-auto'}`} onClick={(e) => e.stopPropagation()}>
         <div className="p-5">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">
@@ -1101,11 +1092,11 @@ const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor,
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Project Name *</label>
-                <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" required />
+                <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" required />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1.5">Description</label>
-                <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
+                <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className="w-full px-4 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 focus:border-[#0d9488] outline-none" />
               </div>
               <div>
                 <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-400 mb-2">
@@ -1145,8 +1136,8 @@ const EditProjectModal = ({ isOpen, onClose, projectId, workspaceId, brandColor,
                 </div>
               </div>
               <div className="flex gap-3 pt-2">
-                <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
-                <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-90 disabled:opacity-50" style={{ backgroundColor: color }}>{loading ? 'Updating...' : 'Update Project'}</button>
+                <button type="button" onClick={onClose} className="flex-1 py-2 border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-700 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">Cancel</button>
+                <button type="submit" disabled={loading} className="flex-1 py-2 text-white rounded-lg text-sm font-medium transition hover:opacity-90 disabled:opacity-50" style={{ backgroundColor: color }}>{loading ? 'Updating...' : 'Update Project'}</button>
               </div>
             </form>
           )}
@@ -1331,7 +1322,7 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
   return (
     <>
       <div className="fixed inset-0 z-[70] flex items-end md:items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-0 md:p-4" onClick={onClose}>
-        <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-3xl md:rounded-2xl w-full md:max-w-lg max-h-[92vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-xl md:rounded-xl w-full md:max-w-lg max-h-[92vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
           <div className="shrink-0 flex justify-between items-center px-5 py-4 border-b border-gray-200 dark:border-gray-800/60">
             <div className="min-w-0">
               <h2 className="text-base font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
@@ -1351,7 +1342,7 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
                 <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider">Public link</h3>
               </div>
 
-              <div className={`rounded-2xl border transition p-3 ${publicEnabled ? 'bg-[#0d9488]/5 border-[#0d9488]/30' : 'bg-gray-50 dark:bg-[#1a1a24] border-gray-200 dark:border-gray-800/40'}`}>
+              <div className={`rounded-xl border transition p-3 ${publicEnabled ? 'bg-[#0d9488]/5 border-[#0d9488]/30' : 'bg-gray-50 dark:bg-[#1a1a24] border-gray-200 dark:border-gray-800/40'}`}>
                 <div className="flex items-start gap-3">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
@@ -1407,7 +1398,7 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="their@email.com"
                   disabled={isAdding}
-                  className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 focus:border-[#0d9488] outline-none disabled:opacity-60"
+                  className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 focus:border-[#0d9488] outline-none disabled:opacity-60"
                 />
                 <input
                   type="text"
@@ -1415,7 +1406,7 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Name (optional)"
                   disabled={isAdding}
-                  className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 focus:border-[#0d9488] outline-none disabled:opacity-60"
+                  className="w-full px-3 py-2 bg-white dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 focus:border-[#0d9488] outline-none disabled:opacity-60"
                 />
                 <div>
                   <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-500 mb-1">Role</label>
@@ -1429,7 +1420,7 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
                   <button
                     type="button"
                     onClick={() => copyToClipboard(projectUrl, 'Project link')}
-                    className="px-3 py-2 border border-gray-300 dark:border-gray-700/60 rounded-xl text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition flex items-center gap-1.5"
+                    className="px-3 py-2 border border-gray-300 dark:border-gray-700/60 rounded-lg text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition flex items-center gap-1.5"
                     title="Copy project link to share manually"
                   >
                     <FaCopy className="text-[10px]" /> Copy project link
@@ -1437,7 +1428,7 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
                   <button
                     type="submit"
                     disabled={isAdding || !email.trim()}
-                    className="flex-1 px-4 py-2 text-white rounded-xl text-sm font-medium transition hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    className="flex-1 px-4 py-2 text-white rounded-lg text-sm font-medium transition hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     style={{ backgroundColor: brandColor }}
                   >
                     {isAdding ? <FaSpinner className="animate-spin text-xs" /> : <FaPaperPlane className="text-xs" />}
@@ -1489,7 +1480,7 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
                     return (
                       <div
                         key={a._id}
-                        className={`rounded-xl border p-3 transition ${
+                        className={`rounded-lg border p-3 transition ${
                           isRevoked
                             ? 'bg-gray-50 dark:bg-[#14141a] border-gray-200 dark:border-gray-800/40 opacity-60'
                             : expired
@@ -1540,7 +1531,7 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
                                 <select
                                   value={a.role}
                                   onChange={(e) => handleChangeRole(a, e.target.value)}
-                                  className="text-[11px] font-medium px-2 py-1 rounded-lg bg-gray-100 dark:bg-[#1a1a24] border border-gray-200 dark:border-gray-800/60 text-gray-700 dark:text-gray-300 outline-none cursor-pointer hover:border-[#0d9488]/50 transition"
+                                  className="text-[11px] font-medium px-2 py-1 rounded-md bg-gray-100 dark:bg-[#1a1a24] border border-gray-200 dark:border-gray-800/60 text-gray-700 dark:text-gray-300 outline-none cursor-pointer hover:border-[#0d9488]/50 transition"
                                 >
                                   <option value="viewer">Viewer</option>
                                   <option value="editor">Editor</option>
@@ -1569,7 +1560,7 @@ const ManageAccessModal = ({ isOpen, onClose, project, brandColor }) => {
           <div className="shrink-0 flex gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-800/60">
             <button
               onClick={onClose}
-              className="flex-1 py-2.5 text-white rounded-xl text-sm font-medium hover:opacity-90 transition"
+              className="flex-1 py-2.5 text-white rounded-lg text-sm font-medium hover:opacity-90 transition"
               style={{ backgroundColor: brandColor }}
             >
               Done
@@ -1612,12 +1603,12 @@ const ProjectMenuModal = ({
   const Icon = pickProjectIcon(project);
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 dark:bg-[#0b0b10]/80 backdrop-blur-sm p-0 md:p-4" onClick={onClose}>
-      <div className={`bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-2xl md:rounded-2xl w-full md:max-w-sm max-h-[85vh] overflow-y-auto transform transition-transform duration-300 ${isMobile ? 'mt-auto' : 'mx-auto'}`} onClick={(e) => e.stopPropagation()}>
+      <div className={`bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-xl md:rounded-xl w-full md:max-w-sm max-h-[85vh] overflow-y-auto transform transition-transform duration-300 ${isMobile ? 'mt-auto' : 'mx-auto'}`} onClick={(e) => e.stopPropagation()}>
         <div className="p-5">
           <div className="flex justify-between items-center mb-4">
             <div className="flex items-center gap-2.5 min-w-0 pr-4">
               <span
-                className="w-8 h-8 rounded-xl flex items-center justify-center text-white shrink-0"
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-white shrink-0"
                 style={{ background: `linear-gradient(135deg, ${cardHex} 0%, ${shadeHex(cardHex, -18)} 100%)` }}
               >
                 <Icon className="text-xs" />
@@ -1630,10 +1621,10 @@ const ProjectMenuModal = ({
           <div className="space-y-1">
             {isTrashed ? (
               <>
-                <button onClick={() => handleAction(onRestore)} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[#0d9488] hover:bg-[#0d9488]/10 transition">
+                <button onClick={() => handleAction(onRestore)} className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-[#0d9488] hover:bg-[#0d9488]/10 transition">
                   <FaTrashRestore className="text-sm" /><span className="text-sm font-medium">Restore</span>
                 </button>
-                <button onClick={() => handleAction(onPermanentDelete)} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-red-600 dark:text-red-400 hover:bg-red-500/10 transition">
+                <button onClick={() => handleAction(onPermanentDelete)} className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-red-600 dark:text-red-400 hover:bg-red-500/10 transition">
                   <FaTrashAlt className="text-sm" /><span className="text-sm font-medium">Delete Permanently</span>
                 </button>
               </>
@@ -1641,10 +1632,10 @@ const ProjectMenuModal = ({
               <>
                 {canManage && (
                   <>
-                    <button onClick={() => handleAction(() => onEdit(project._id))} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+                    <button onClick={() => handleAction(() => onEdit(project._id))} className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
                       <FaEdit className="text-sm text-[#0d9488]" /><span className="text-sm font-medium">Edit</span>
                     </button>
-                    <button onClick={() => handleAction(() => onManageAccess(project))} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
+                    <button onClick={() => handleAction(() => onManageAccess(project))} className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition">
                       <FaUserShield className="text-sm text-[#0d9488]" /><span className="text-sm font-medium">Manage access</span>
                     </button>
                   </>
@@ -1654,31 +1645,31 @@ const ProjectMenuModal = ({
                   <p className="px-4 py-1 text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-600 flex items-center gap-1.5">
                     <FaMagic className="text-[10px] text-[#0d9488]" /> AI
                   </p>
-                  <button onClick={() => handleAction(() => onAISummary(project))} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-[#0d9488]/10 transition">
+                  <button onClick={() => handleAction(() => onAISummary(project))} className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-[#0d9488]/10 transition">
                     <FaLightbulb className="text-sm text-[#0d9488]" /><span className="text-sm font-medium">Summarize</span>
                   </button>
                   {canManage && (
-                    <button onClick={() => handleAction(() => onAIReview(project))} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-[#0d9488]/10 transition">
+                    <button onClick={() => handleAction(() => onAIReview(project))} className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-[#0d9488]/10 transition">
                       <FaHeartbeat className="text-sm text-[#0d9488]" /><span className="text-sm font-medium">Review</span>
                     </button>
                   )}
-                  <button onClick={() => handleAction(() => onAIDocs(project))} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-[#0d9488]/10 transition">
+                  <button onClick={() => handleAction(() => onAIDocs(project))} className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-[#0d9488]/10 transition">
                     <FaFileAlt className="text-sm text-[#0d9488]" /><span className="text-sm font-medium">Documentation</span>
                   </button>
                 </div>
 
                 <div className="pt-2 mt-2 border-t border-gray-100 dark:border-gray-800/40">
                   {isArchivedForMe ? (
-                    <button onClick={() => handleAction(onUnarchive)} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-[#0d9488] hover:bg-[#0d9488]/10 transition">
+                    <button onClick={() => handleAction(onUnarchive)} className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-[#0d9488] hover:bg-[#0d9488]/10 transition">
                       <FaUndo className="text-sm" /><span className="text-sm font-medium">Unarchive</span>
                     </button>
                   ) : (
-                    <button onClick={() => handleAction(onArchive)} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-gray-600 dark:text-gray-400 hover:bg-[#0d9488]/10 transition">
+                    <button onClick={() => handleAction(onArchive)} className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-[#0d9488]/10 transition">
                       <FaArchive className="text-sm" /><span className="text-sm font-medium">Archive for me</span>
                     </button>
                   )}
                   {canManage && (
-                    <button onClick={() => handleAction(onDelete)} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/10 transition">
+                    <button onClick={() => handleAction(onDelete)} className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/10 transition">
                       <FaTrashAlt className="text-sm" /><span className="text-sm font-medium">Move to Trash</span>
                     </button>
                   )}
@@ -1794,11 +1785,11 @@ const ProjectContextMenu = ({
       ref={menuRef}
       onContextMenu={(e) => e.preventDefault()}
       style={{ position: 'fixed', left: pos.left, top: pos.top, width: 230 }}
-      className="z-[120] rounded-xl border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-[#1a1a24] shadow-2xl shadow-black/20 backdrop-blur-md py-1.5 px-1.5"
+      className="z-[120] rounded-lg border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-[#1a1a24] shadow-2xl shadow-black/20 backdrop-blur-md py-1.5 px-1.5"
     >
       <div className="px-2 py-1.5 flex items-center gap-2 min-w-0">
         <span
-          className="w-6 h-6 rounded-lg flex items-center justify-center text-white shrink-0"
+          className="w-6 h-6 rounded-md flex items-center justify-center text-white shrink-0"
           style={{ background: `linear-gradient(135deg, ${cardHex} 0%, ${shadeHex(cardHex, -18)} 100%)` }}
         >
           <Icon className="text-[10px]" />
@@ -1903,7 +1894,7 @@ const ProjectCard = ({ project, brandColor, workspaceId, onMenuOpen, onContextMe
     <article
       onClick={handleCardClick}
       onContextMenu={handleContextMenu}
-      className="group relative flex flex-col bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/70 dark:border-gray-800/50 hover:border-gray-300/80 dark:hover:border-gray-700/70 hover:shadow-[0_12px_40px_-12px_rgba(13,148,136,0.28)] dark:hover:shadow-[0_12px_40px_-12px_rgba(13,148,136,0.35)] transition-all duration-300 active:scale-[0.985] cursor-pointer overflow-hidden"
+      className="group relative flex flex-col bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/70 dark:border-gray-800/50 hover:border-gray-300/80 dark:hover:border-gray-700/70 hover:shadow-[0_12px_40px_-12px_rgba(13,148,136,0.28)] dark:hover:shadow-[0_12px_40px_-12px_rgba(13,148,136,0.35)] transition-all duration-300 active:scale-[0.985] cursor-pointer overflow-hidden"
     >
       <div className="relative h-16 sm:h-20 md:h-24 flex items-center justify-center overflow-hidden shrink-0" style={{ background: bannerBg }}>
         <div className="absolute inset-0 opacity-[0.14] pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.9) 1px, transparent 1px)', backgroundSize: '12px 12px' }} />
@@ -1920,14 +1911,14 @@ const ProjectCard = ({ project, brandColor, workspaceId, onMenuOpen, onContextMe
           <Icon className="relative text-white text-[22px] sm:text-[26px] md:text-[32px] drop-shadow-[0_2px_6px_rgba(0,0,0,0.35)]" />
         )}
 
-        <span className="absolute top-1.5 left-1.5 md:top-2 md:left-2 text-[8px] md:text-[9.5px] font-bold tracking-wider uppercase px-1.5 md:px-2 py-0.5 rounded-full bg-black/25 text-white backdrop-blur-md border border-white/15 pointer-events-none">
+        <span className="absolute top-1.5 left-1.5 md:top-2 md:left-2 text-[8px] md:text-[9.5px] font-bold tracking-wider uppercase px-1.5 md:px-2 py-0.5 rounded-lg bg-black/25 text-white backdrop-blur-md border border-white/15 pointer-events-none">
           {STATUS_LABELS[displayStatus] || 'Planning'}
         </span>
 
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onMenuOpen(project); }}
-          className="absolute top-1.5 right-1.5 md:top-2 md:right-2 p-1 md:p-1.5 rounded-lg bg-black/25 text-white backdrop-blur-md border border-white/15 hover:bg-black/45 transition z-10"
+          className="absolute top-1.5 right-1.5 md:top-2 md:right-2 p-1 md:p-1.5 rounded-md bg-black/25 text-white backdrop-blur-md border border-white/15 hover:bg-black/45 transition z-10"
           aria-label="Project menu"
         >
           <FaEllipsisV className="text-[10px] md:text-[11px]" />
@@ -2028,11 +2019,11 @@ const ProjectListItem = ({ project, brandColor, workspaceId, onMenuOpen, onConte
     <div
       onClick={handleClick}
       onContextMenu={handleContextMenu}
-      className="group relative bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/70 dark:border-gray-800/50 hover:border-gray-300/80 dark:hover:border-gray-700/70 hover:shadow-md dark:hover:shadow-[0_4px_20px_rgba(13,148,136,0.12)] transition-all cursor-pointer pl-3 pr-2 py-3 md:pl-3.5 md:pr-3 md:py-3.5 flex items-start gap-3 md:gap-3.5 overflow-hidden"
+      className="group relative bg-white dark:bg-[#14141a] rounded-lg border border-gray-200/70 dark:border-gray-800/50 hover:border-gray-300/80 dark:hover:border-gray-700/70 hover:shadow-md dark:hover:shadow-[0_4px_20px_rgba(13,148,136,0.12)] transition-all cursor-pointer pl-3 pr-2 py-3 md:pl-3.5 md:pr-3 md:py-3.5 flex items-start gap-3 md:gap-3.5 overflow-hidden"
     >
       <span className="absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full" style={{ backgroundColor: cardColor }} />
 
-      <div className="w-11 h-11 md:w-12 md:h-12 rounded-xl flex items-center justify-center text-white shrink-0 overflow-hidden relative" style={{ background: tileBg }}>
+      <div className="w-11 h-11 md:w-12 md:h-12 rounded-lg flex items-center justify-center text-white shrink-0 overflow-hidden relative" style={{ background: tileBg }}>
         <div className="absolute inset-0 opacity-[0.14] pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.9) 1px, transparent 1px)', backgroundSize: '8px 8px' }} />
         {project.coverImage ? (
           <img src={project.coverImage} alt="" className="absolute inset-0 w-full h-full object-cover" />
@@ -2044,7 +2035,7 @@ const ProjectListItem = ({ project, brandColor, workspaceId, onMenuOpen, onConte
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 min-w-0">
           <h3 className="text-sm md:text-[15px] font-semibold text-gray-900 dark:text-gray-100 truncate min-w-0">{project.name}</h3>
-          <span className={`inline-flex text-[10px] font-medium px-2 py-0.5 rounded-full border ${STATUS_TEXT_COLOR[displayStatus]} bg-white/60 dark:bg-black/20 border-gray-200 dark:border-gray-700/50 shrink-0`}>
+          <span className={`inline-flex text-[10px] font-medium px-2 py-0.5 rounded-md border ${STATUS_TEXT_COLOR[displayStatus]} bg-white/60 dark:bg-black/20 border-gray-200 dark:border-gray-700/50 shrink-0`}>
             {STATUS_LABELS[displayStatus] || 'Planning'}
           </span>
         </div>
@@ -2449,7 +2440,7 @@ const AIProjectPanel = ({ workspaceId, brandColor, workspaceMembers = [], onClos
     <div className="flex flex-col h-full bg-white dark:bg-[#14141a]">
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800/60 bg-gradient-to-r from-[#0d9488]/5 to-transparent">
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#0d9488] to-[#0f766e] flex items-center justify-center flex-shrink-0 shadow-lg shadow-[#0d9488]/30">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#0d9488] to-[#0f766e] flex items-center justify-center flex-shrink-0 shadow-lg shadow-[#0d9488]/30">
             <FaMagic className="text-white text-xs" />
           </div>
           <div className="min-w-0">
@@ -2476,21 +2467,21 @@ const AIProjectPanel = ({ workspaceId, brandColor, workspaceMembers = [], onClos
               placeholder="e.g. Build a coffee shop landing page in 2 weeks. Include design, development and QA."
               rows={6}
               disabled={isPlanning}
-              className="w-full px-3 py-2.5 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-[#0d9488] outline-none resize-none disabled:opacity-60"
+              className="w-full px-3 py-2.5 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-500 focus:border-[#0d9488] outline-none resize-none disabled:opacity-60"
             />
             <div className="mt-3">
               <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-500 mb-2">Try an example</p>
               <div className="flex flex-wrap gap-1.5">
                 {EXAMPLE_PROMPTS.map((ex, i) => (
                   <button key={i} type="button" onClick={() => setPrompt(ex)} disabled={isPlanning}
-                    className="text-[10px] px-2.5 py-1 rounded-full bg-gray-100 dark:bg-[#1a1a24] hover:bg-[#0d9488]/10 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-800/40 hover:border-[#0d9488]/40 transition disabled:opacity-50 text-left max-w-full truncate">
+                    className="text-[10px] px-2.5 py-1 rounded-lg bg-gray-100 dark:bg-[#1a1a24] hover:bg-[#0d9488]/10 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-800/40 hover:border-[#0d9488]/40 transition disabled:opacity-50 text-left max-w-full truncate">
                     {ex.length > 45 ? `${ex.slice(0, 45)}…` : ex}
                   </button>
                 ))}
               </div>
             </div>
             <button onClick={handlePlan} disabled={isPlanning || !prompt.trim()}
-              className="w-full mt-4 py-2.5 rounded-xl text-sm font-medium text-white flex items-center justify-center gap-2 transition hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-[#0d9488]/20"
+              className="w-full mt-4 py-2.5 rounded-lg text-sm font-medium text-white flex items-center justify-center gap-2 transition hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-[#0d9488]/20"
               style={{ backgroundColor: brandColor }}>
               {isPlanning ? <><FaSpinner className="animate-spin text-xs" /> Planning…</> : <><FaMagic className="text-xs" /> Generate Plan</>}
             </button>
@@ -2501,7 +2492,7 @@ const AIProjectPanel = ({ workspaceId, brandColor, workspaceMembers = [], onClos
         {stage === 'edit' && plan && (
           <div className="space-y-5">
             {plan.warnings?.length > 0 && (
-              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 rounded-xl p-3 flex gap-2">
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 rounded-lg p-3 flex gap-2">
                 <FaExclamationTriangle className="text-amber-600 dark:text-amber-400 text-sm mt-0.5 shrink-0" />
                 <div className="text-xs text-amber-800 dark:text-amber-300 space-y-0.5">
                   {plan.warnings.map((w, i) => <div key={i}>{w}</div>)}
@@ -2513,18 +2504,18 @@ const AIProjectPanel = ({ workspaceId, brandColor, workspaceMembers = [], onClos
               <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-2">Project</h3>
               <div className="space-y-2">
                 <input value={plan.project.name} onChange={(e) => updateProject({ name: e.target.value })} placeholder="Project name"
-                  className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm font-medium text-gray-800 dark:text-gray-100 outline-none focus:border-[#0d9488]" />
+                  className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm font-medium text-gray-800 dark:text-gray-100 outline-none focus:border-[#0d9488]" />
                 <input value={plan.project.description || ''} onChange={(e) => updateProject({ description: e.target.value })} placeholder="Short description"
-                  className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none focus:border-[#0d9488]" />
+                  className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 outline-none focus:border-[#0d9488]" />
                 <textarea value={plan.project.detailedDescription || ''} onChange={(e) => updateProject({ detailedDescription: e.target.value })} rows={3} placeholder="Detailed description"
-                  className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none focus:border-[#0d9488] resize-none" />
+                  className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 outline-none focus:border-[#0d9488] resize-none" />
                 <div className="grid grid-cols-2 gap-2">
                   <select value={plan.project.priority} onChange={(e) => updateProject({ priority: e.target.value })}
-                    className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none">
+                    className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 outline-none">
                     {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
                   </select>
                   <select value={plan.project.projectType} onChange={(e) => updateProject({ projectType: e.target.value })}
-                    className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none">
+                    className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 outline-none">
                     {PROJECT_TYPES.map((p) => <option key={p} value={p}>{p}</option>)}
                   </select>
                 </div>
@@ -2564,11 +2555,11 @@ const AIProjectPanel = ({ workspaceId, brandColor, workspaceMembers = [], onClos
                 {plan.tasks.map((t, idx) => {
                   const expanded = expandedTask === idx;
                   return (
-                    <div key={idx} className="bg-gray-50 dark:bg-[#1a1a24] rounded-xl border border-gray-200/60 dark:border-gray-800/40 overflow-hidden">
+                    <div key={idx} className="bg-gray-50 dark:bg-[#1a1a24] rounded-lg border border-gray-200/60 dark:border-gray-800/40 overflow-hidden">
                       <div className="flex items-start gap-2 p-3">
                         <div className="flex-1 min-w-0 space-y-2">
                           <input value={t.title} onChange={(e) => updateTask(idx, { title: e.target.value })}
-                            className="w-full px-2.5 py-1.5 bg-white dark:bg-[#0f0f12] border border-gray-200 dark:border-gray-800/60 rounded-lg text-sm font-medium text-gray-800 dark:text-gray-100 outline-none focus:border-[#0d9488]" />
+                            className="w-full px-2.5 py-1.5 bg-white dark:bg-[#0f0f12] border border-gray-200 dark:border-gray-800/60 rounded-md text-sm font-medium text-gray-800 dark:text-gray-100 outline-none focus:border-[#0d9488]" />
                           <div className="flex flex-wrap gap-1.5">
                             <select value={t.priority} onChange={(e) => updateTask(idx, { priority: e.target.value })}
                               className="px-2 py-1 bg-white dark:bg-[#0f0f12] border border-gray-200 dark:border-gray-800/60 rounded-md text-[11px] text-gray-700 dark:text-gray-300 outline-none">
@@ -2611,7 +2602,7 @@ const AIProjectPanel = ({ workspaceId, brandColor, workspaceMembers = [], onClos
                       {expanded && (
                         <div className="px-3 pb-3 space-y-3 border-t border-gray-200/60 dark:border-gray-800/40 pt-3">
                           <textarea value={t.description || ''} onChange={(e) => updateTask(idx, { description: e.target.value })} rows={2} placeholder="Task description"
-                            className="w-full px-2.5 py-1.5 bg-white dark:bg-[#0f0f12] border border-gray-200 dark:border-gray-800/60 rounded-lg text-xs text-gray-700 dark:text-gray-300 outline-none resize-none" />
+                            className="w-full px-2.5 py-1.5 bg-white dark:bg-[#0f0f12] border border-gray-200 dark:border-gray-800/60 rounded-md text-xs text-gray-700 dark:text-gray-300 outline-none resize-none" />
                           <div className="flex items-center justify-between">
                             <span className="text-[11px] font-medium text-gray-500 dark:text-gray-500">Subtasks ({(t.subtasks || []).length})</span>
                             <button onClick={() => addSubtask(idx)} className="text-[11px] text-teal-600 dark:text-[#0d9488] font-medium flex items-center gap-1 hover:underline">
@@ -2622,11 +2613,11 @@ const AIProjectPanel = ({ workspaceId, brandColor, workspaceMembers = [], onClos
                             {(t.subtasks || []).map((s, sidx) => (
                               <div key={sidx} className="flex items-start gap-2">
                                 <input value={s.title} onChange={(e) => updateSubtask(idx, sidx, { title: e.target.value })}
-                                  className="flex-1 px-2.5 py-1.5 bg-white dark:bg-[#0f0f12] border border-gray-200 dark:border-gray-800/60 rounded-lg text-xs text-gray-700 dark:text-gray-300 outline-none" />
+                                  className="flex-1 px-2.5 py-1.5 bg-white dark:bg-[#0f0f12] border border-gray-200 dark:border-gray-800/60 rounded-md text-xs text-gray-700 dark:text-gray-300 outline-none" />
                                 <input type="number" min={0} value={s.dueDateOffsetDays ?? ''}
                                   onChange={(e) => updateSubtask(idx, sidx, { dueDateOffsetDays: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
                                   placeholder="N"
-                                  className="w-14 px-2 py-1.5 bg-white dark:bg-[#0f0f12] border border-gray-200 dark:border-gray-800/60 rounded-lg text-xs text-gray-700 dark:text-gray-300 outline-none" />
+                                  className="w-14 px-2 py-1.5 bg-white dark:bg-[#0f0f12] border border-gray-200 dark:border-gray-800/60 rounded-md text-xs text-gray-700 dark:text-gray-300 outline-none" />
                                 <button onClick={() => removeSubtask(idx, sidx)} className="p-1.5 text-gray-400 hover:text-red-500 rounded">
                                   <FaTrashAlt className="text-[11px]" />
                                 </button>
@@ -2648,11 +2639,11 @@ const AIProjectPanel = ({ workspaceId, brandColor, workspaceMembers = [], onClos
       {stage === 'edit' && plan && (
         <div className="flex gap-2 px-4 py-3 border-t border-gray-200/60 dark:border-gray-800/60">
           <button onClick={reset} disabled={isExecuting}
-            className="flex-1 py-2 rounded-xl border border-gray-300 dark:border-gray-700/60 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition disabled:opacity-50">
+            className="flex-1 py-2 rounded-lg border border-gray-300 dark:border-gray-700/60 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/30 transition disabled:opacity-50">
             Back
           </button>
           <button onClick={handleExecute} disabled={isExecuting}
-            className="flex-1 py-2 rounded-xl text-sm text-white font-medium flex items-center justify-center gap-2 transition hover:opacity-90 disabled:opacity-50 shadow-lg shadow-[#0d9488]/20"
+            className="flex-1 py-2 rounded-lg text-sm text-white font-medium flex items-center justify-center gap-2 transition hover:opacity-90 disabled:opacity-50 shadow-lg shadow-[#0d9488]/20"
             style={{ backgroundColor: brandColor }}>
             {isExecuting ? <><FaSpinner className="animate-spin text-xs" /> Creating…</> : <><FaCheck className="text-xs" /> Confirm & Create</>}
           </button>
@@ -2684,7 +2675,7 @@ const AISummaryModal = ({ isOpen, onClose, projectId, brandColor }) => {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-[75] flex items-end md:items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
-      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-3xl md:rounded-2xl w-full md:max-w-2xl shadow-2xl flex flex-col max-h-[95dvh] md:max-h-[90vh]">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-xl md:rounded-xl w-full md:max-w-2xl shadow-2xl flex flex-col max-h-[95dvh] md:max-h-[90vh]">
         <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-gray-200/60 dark:border-gray-800/60">
           <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
             <FaLightbulb className="text-[#0d9488]" /> Project Summary
@@ -2705,7 +2696,7 @@ const AISummaryModal = ({ isOpen, onClose, projectId, brandColor }) => {
                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-2 break-words leading-relaxed whitespace-pre-wrap">{result.summary}</p>
               </div>
               {result.currentState && (
-                <div className="bg-gray-50 dark:bg-[#1a1a24] rounded-xl p-3 border border-gray-200/60 dark:border-gray-800/40">
+                <div className="bg-gray-50 dark:bg-[#1a1a24] rounded-lg p-3 border border-gray-200/60 dark:border-gray-800/40">
                   <p className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-1">Current state</p>
                   <p className="text-sm text-gray-700 dark:text-gray-300 break-words">{result.currentState}</p>
                 </div>
@@ -2753,7 +2744,7 @@ const AISummaryModal = ({ isOpen, onClose, projectId, brandColor }) => {
           )}
         </div>
         <div className="shrink-0 flex gap-2 px-5 py-3 border-t border-gray-200/60 dark:border-gray-800/60">
-          <button onClick={onClose} className="flex-1 py-2.5 text-white rounded-xl text-sm font-medium hover:opacity-90 transition" style={{ backgroundColor: brandColor }}>Done</button>
+          <button onClick={onClose} className="flex-1 py-2.5 text-white rounded-lg text-sm font-medium hover:opacity-90 transition" style={{ backgroundColor: brandColor }}>Done</button>
         </div>
       </div>
     </div>
@@ -2783,7 +2774,7 @@ const AIReviewModal = ({ isOpen, onClose, projectId, brandColor }) => {
 
   return (
     <div className="fixed inset-0 z-[75] flex items-end md:items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
-      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-3xl md:rounded-2xl w-full md:max-w-2xl shadow-2xl flex flex-col max-h-[95dvh] md:max-h-[90vh]">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-xl md:rounded-xl w-full md:max-w-2xl shadow-2xl flex flex-col max-h-[95dvh] md:max-h-[90vh]">
         <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-gray-200/60 dark:border-gray-800/60">
           <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
             <FaHeartbeat className="text-[#0d9488]" /> Project Review
@@ -2795,14 +2786,14 @@ const AIReviewModal = ({ isOpen, onClose, projectId, brandColor }) => {
             <div className="space-y-3">
               <input value={focus} onChange={(e) => setFocus(e.target.value)}
                 placeholder="Optional focus — e.g. 'deadlines' or 'team balance'"
-                className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-800 dark:text-gray-200 outline-none focus:border-[#0d9488]" />
+                className="w-full px-3 py-2 bg-gray-50 dark:bg-[#0b0b10] border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-800 dark:text-gray-200 outline-none focus:border-[#0d9488]" />
               <p className="text-[11px] text-gray-500 dark:text-gray-500">The AI audits workload, priorities, deadlines, and gaps.</p>
             </div>
           )}
           {result && (
             <div className="space-y-5">
               <div className="flex items-center gap-4">
-                <div className="w-20 h-20 rounded-2xl flex items-center justify-center font-bold text-2xl text-white shrink-0" style={{ backgroundColor: scoreColor }}>{result.healthScore}</div>
+                <div className="w-20 h-20 rounded-lg flex items-center justify-center font-bold text-2xl text-white shrink-0" style={{ backgroundColor: scoreColor }}>{result.healthScore}</div>
                 <div className="min-w-0">
                   <p className="text-xs text-gray-500 dark:text-gray-500 uppercase font-semibold tracking-wide">Health Score</p>
                   <p className="text-sm text-gray-700 dark:text-gray-300 mt-1 break-words">{result.overallAssessment}</p>
@@ -2826,7 +2817,7 @@ const AIReviewModal = ({ isOpen, onClose, projectId, brandColor }) => {
                   <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-2">Issues ({result.issues.length})</h4>
                   <div className="space-y-2">
                     {result.issues.map((it, i) => (
-                      <div key={i} className="bg-gray-50 dark:bg-[#1a1a24] rounded-xl p-3 border border-gray-200/60 dark:border-gray-800/40">
+                      <div key={i} className="bg-gray-50 dark:bg-[#1a1a24] rounded-lg p-3 border border-gray-200/60 dark:border-gray-800/40">
                         <div className="flex items-start gap-2">
                           <FaExclamationCircle className={`text-xs mt-1 shrink-0 ${sevColor[it.severity] || 'text-gray-400'}`} />
                           <div className="min-w-0 flex-1">
@@ -2847,7 +2838,7 @@ const AIReviewModal = ({ isOpen, onClose, projectId, brandColor }) => {
                   <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-2">Recommendations</h4>
                   <div className="space-y-2">
                     {result.recommendations.map((r, i) => (
-                      <div key={i} className="bg-teal-50/60 dark:bg-[#0d9488]/10 rounded-xl p-3 border border-teal-200/60 dark:border-[#0d9488]/20">
+                      <div key={i} className="bg-teal-50/60 dark:bg-[#0d9488]/10 rounded-lg p-3 border border-teal-200/60 dark:border-[#0d9488]/20">
                         <div className="flex items-start gap-2">
                           <FaLightbulb className="text-[#0d9488] text-xs mt-1 shrink-0" />
                           <div className="min-w-0 flex-1">
@@ -2869,17 +2860,17 @@ const AIReviewModal = ({ isOpen, onClose, projectId, brandColor }) => {
         <div className="shrink-0 flex gap-2 px-5 py-3 border-t border-gray-200/60 dark:border-gray-800/60">
           {!result ? (
             <>
-              <button onClick={onClose} className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">Cancel</button>
+              <button onClick={onClose} className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">Cancel</button>
               <button onClick={run} disabled={busy}
-                className="flex-1 py-2.5 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 transition disabled:opacity-50"
+                className="flex-1 py-2.5 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 transition disabled:opacity-50"
                 style={{ backgroundColor: brandColor }}>
                 {busy ? <><FaSpinner className="animate-spin text-xs" /> Analyzing…</> : <><FaHeartbeat className="text-xs" /> Run review</>}
               </button>
             </>
           ) : (
             <>
-              <button onClick={() => setResult(null)} className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">Run again</button>
-              <button onClick={onClose} className="flex-1 py-2.5 text-white rounded-xl text-sm font-medium hover:opacity-90 transition" style={{ backgroundColor: brandColor }}>Done</button>
+              <button onClick={() => setResult(null)} className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">Run again</button>
+              <button onClick={onClose} className="flex-1 py-2.5 text-white rounded-lg text-sm font-medium hover:opacity-90 transition" style={{ backgroundColor: brandColor }}>Done</button>
             </>
           )}
         </div>
@@ -2907,7 +2898,7 @@ const AIDocsModal = ({ isOpen, onClose, projectId, brandColor }) => {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-[75] flex items-end md:items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
-      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-3xl md:rounded-2xl w-full md:max-w-3xl shadow-2xl flex flex-col max-h-[95dvh] md:max-h-[90vh]">
+      <div className="bg-white dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 rounded-t-xl md:rounded-xl w-full md:max-w-3xl shadow-2xl flex flex-col max-h-[95dvh] md:max-h-[90vh]">
         <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-gray-200/60 dark:border-gray-800/60">
           <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
             <FaFileAlt className="text-[#0d9488]" /> Project Documentation
@@ -2942,7 +2933,7 @@ const AIDocsModal = ({ isOpen, onClose, projectId, brandColor }) => {
                     </ul>
                   )}
                   {s.table?.headers?.length > 0 && s.table?.rows?.length > 0 && (
-                    <div className="overflow-x-auto rounded-xl border border-gray-200/60 dark:border-gray-800/40">
+                    <div className="overflow-x-auto rounded-lg border border-gray-200/60 dark:border-gray-800/40">
                       <table className="w-full text-xs">
                         <thead className="bg-gray-50 dark:bg-[#1a1a24]">
                           <tr>{s.table.headers.map((h, j) => (<th key={j} className="text-left px-3 py-2 font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">{h}</th>))}</tr>
@@ -2961,9 +2952,9 @@ const AIDocsModal = ({ isOpen, onClose, projectId, brandColor }) => {
           )}
         </div>
         <div className="shrink-0 flex gap-2 px-5 py-3 border-t border-gray-200/60 dark:border-gray-800/60">
-          <button onClick={onClose} className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-xl text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">Close</button>
+          <button onClick={onClose} className="flex-1 py-2.5 border border-gray-300 dark:border-gray-700/60 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition">Close</button>
           <button onClick={() => doc && downloadDocsPDF(doc)} disabled={!doc || busy}
-            className="flex-1 py-2.5 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 transition disabled:opacity-50"
+            className="flex-1 py-2.5 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 transition disabled:opacity-50"
             style={{ backgroundColor: brandColor }}>
             <FaDownload className="text-xs" /> Download PDF
           </button>
@@ -2975,13 +2966,13 @@ const AIDocsModal = ({ isOpen, onClose, projectId, brandColor }) => {
 
 // ─── Layout Toggle ──────────────────────────────────────────────
 const LayoutToggle = ({ value, onChange }) => (
-  <div className="flex items-center bg-gray-100 dark:bg-[#1a1a24] border border-gray-300 dark:border-gray-800/60 rounded-full p-0.5 shrink-0">
+  <div className="flex items-center bg-gray-100 dark:bg-[#1a1a24] border border-gray-300 dark:border-gray-800/60 rounded-lg p-0.5 shrink-0">
     <button
       type="button"
       onClick={() => onChange('grid')}
       title="Grid view"
       aria-label="Grid view"
-      className={`p-1.5 rounded-full transition ${
+      className={`p-1.5 rounded-md transition ${
         value === 'grid'
           ? 'bg-white dark:bg-[#0f0f12] text-[#0d9488] shadow-sm'
           : 'text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
@@ -2994,7 +2985,7 @@ const LayoutToggle = ({ value, onChange }) => (
       onClick={() => onChange('list')}
       title="List view"
       aria-label="List view"
-      className={`p-1.5 rounded-full transition ${
+      className={`p-1.5 rounded-md transition ${
         value === 'list'
           ? 'bg-white dark:bg-[#0f0f12] text-[#0d9488] shadow-sm'
           : 'text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
@@ -3267,10 +3258,10 @@ const WorkspaceProjects = () => {
             <div className="flex items-center gap-3 min-w-0">
               <button onClick={() => navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}`)} className="p-1 lg:hidden text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition"><FaArrowLeft /></button>
               <h1 className="text-lg font-bold text-gray-800 dark:text-gray-100 tracking-tight">Projects</h1>
-              <span className="text-xs font-normal text-gray-500 dark:text-gray-500 bg-gray-100 dark:bg-[#1a1a24] px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-800/40">{projects.length}</span>
+              <span className="text-xs font-normal text-gray-500 dark:text-gray-500 bg-gray-100 dark:bg-[#1a1a24] px-2 py-0.5 rounded-md border border-gray-200 dark:border-gray-800/40">{projects.length}</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="hidden md:flex items-center bg-gray-100 dark:bg-[#1a1a24] border border-gray-300 dark:border-gray-800/60 rounded-full px-3 py-1.5 gap-2 focus-within:border-[#0d9488]/50 transition">
+              <div className="hidden md:flex items-center bg-gray-100 dark:bg-[#1a1a24] border border-gray-300 dark:border-gray-800/60 rounded-lg px-3 py-1.5 gap-2 focus-within:border-[#0d9488]/50 transition">
                 <FaSearch className="text-gray-400 dark:text-gray-500 text-xs" />
                 <input type="text" placeholder="Search projects..." className="bg-transparent outline-none text-sm text-gray-800 dark:text-gray-200 w-32 lg:w-48"
                   value={filters.search || ''} onChange={(e) => setFilters({ ...filters, search: e.target.value })} />
@@ -3278,13 +3269,13 @@ const WorkspaceProjects = () => {
                   <button onClick={() => setFilters({ ...filters, search: '' })} className="text-gray-500 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"><FaTimes className="text-xs" /></button>
                 )}
               </div>
-              <button onClick={() => setFilterDrawerOpen(true)} className="hidden md:flex items-center gap-1.5 bg-gray-100 dark:bg-[#1a1a24] border border-gray-300 dark:border-gray-800/60 rounded-full px-3 py-1.5 text-xs text-gray-700 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:border-gray-400 dark:hover:border-gray-600 transition">
+              <button onClick={() => setFilterDrawerOpen(true)} className="hidden md:flex items-center gap-1.5 bg-gray-100 dark:bg-[#1a1a24] border border-gray-300 dark:border-gray-800/60 rounded-lg px-3 py-1.5 text-xs text-gray-700 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:border-gray-400 dark:hover:border-gray-600 transition">
                 <FaFilter className="text-[10px]" /> Filter <FaChevronDown className="text-[8px] ml-1" />
               </button>
-              <button onClick={() => setSearchOpen(true)} className="md:hidden p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition">
+              <button onClick={() => setSearchOpen(true)} className="md:hidden p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition">
                 <FaSearch className="text-sm" />
               </button>
-              <button onClick={() => setFilterDrawerOpen(true)} className="md:hidden p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-xl transition">
+              <button onClick={() => setFilterDrawerOpen(true)} className="md:hidden p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/30 rounded-lg transition">
                 <FaFilter className="text-sm" />
               </button>
 
@@ -3292,7 +3283,7 @@ const WorkspaceProjects = () => {
 
               {canManage && (
                 <button onClick={() => setAiOpen(v => !v)}
-                  className={`text-sm font-medium px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 ${aiOpen
+                  className={`text-sm font-medium px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${aiOpen
                     ? 'bg-gradient-to-r from-[#0d9488] to-[#0f766e] text-white shadow-lg shadow-[#0d9488]/30'
                     : 'bg-gray-100 dark:bg-[#1a1a24] border border-gray-300 dark:border-gray-800/60 text-gray-700 dark:text-gray-300 hover:border-[#0d9488]/50 hover:text-[#0d9488]'}`}
                   title={aiOpen ? 'Close AI planner' : 'Open AI planner'}>
@@ -3302,7 +3293,7 @@ const WorkspaceProjects = () => {
               )}
 
               {canManage && (
-                <button onClick={() => setShowCreateModal(true)} className="bg-[#0d9488] hover:bg-[#0f9e96] text-white text-sm font-medium px-3 py-1.5 rounded-xl transition flex items-center gap-1.5">
+                <button onClick={() => setShowCreateModal(true)} className="bg-[#0d9488] hover:bg-[#0f9e96] text-white text-sm font-medium px-3 py-1.5 rounded-lg transition flex items-center gap-1.5">
                   <FaPlus className="text-xs" /> <span className="hidden sm:inline">New</span>
                 </button>
               )}
@@ -3313,7 +3304,7 @@ const WorkspaceProjects = () => {
             <div className="flex gap-1">
               {['active', 'archived', ...(canManage ? ['trash'] : [])].map((tab) => (
                 <button key={tab} onClick={() => setView(tab)}
-                  className={`text-xs px-3 py-1 rounded-full transition ${view === tab ? 'bg-[#0d9488]/20 text-[#0d9488] border border-[#0d9488]/30' : 'text-gray-600 dark:text-gray-500 hover:text-gray-800 dark:hover:text-gray-300'}`}>
+                  className={`text-xs px-3 py-1 rounded-lg transition ${view === tab ? 'bg-[#0d9488]/20 text-[#0d9488] border border-[#0d9488]/30' : 'text-gray-600 dark:text-gray-500 hover:text-gray-800 dark:hover:text-gray-300'}`}>
                   {tab === 'active' ? 'All' : tab === 'archived' ? 'Archived' : 'Trash'}
                 </button>
               ))}
@@ -3322,7 +3313,7 @@ const WorkspaceProjects = () => {
               <div className="hidden md:flex items-center gap-2 overflow-x-auto">
                 {['all', 'planning', 'in-progress', 'completed'].map((status) => (
                   <button key={status} onClick={() => setFilters({ ...filters, status })}
-                    className={`text-xs px-3 py-1 rounded-full transition whitespace-nowrap ${filters.status === status ? 'bg-[#0d9488]/20 text-[#0d9488] border border-[#0d9488]/30' : 'text-gray-600 dark:text-gray-500 hover:text-gray-800 dark:hover:text-gray-300 border border-transparent hover:border-gray-300 dark:hover:border-gray-700'}`}>
+                    className={`text-xs px-3 py-1 rounded-lg transition whitespace-nowrap ${filters.status === status ? 'bg-[#0d9488]/20 text-[#0d9488] border border-[#0d9488]/30' : 'text-gray-600 dark:text-gray-500 hover:text-gray-800 dark:hover:text-gray-300 border border-transparent hover:border-gray-300 dark:hover:border-gray-700'}`}>
                     {status === 'all' ? 'All' : status.charAt(0).toUpperCase() + status.slice(1)}
                   </button>
                 ))}
@@ -3337,7 +3328,7 @@ const WorkspaceProjects = () => {
 
             {view === 'active' && !aiOpen && (
               <div className="md:hidden mb-3">
-                <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 px-3 py-2.5 overflow-hidden">
+                <div className="bg-white dark:bg-[#14141a] rounded-lg border border-gray-200 dark:border-gray-800/40 px-3 py-2.5 overflow-hidden">
                   <div className="flex items-center gap-1">
                     <div className="flex-1 min-w-0 text-center">
                       <p className="text-base font-bold text-gray-800 dark:text-gray-100 leading-none tabular-nums">{totalProjects}</p>
@@ -3368,19 +3359,19 @@ const WorkspaceProjects = () => {
 
             {view === 'active' && !aiOpen && (
               <div className="hidden md:grid md:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-                <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 p-4 backdrop-blur-sm hover:border-[#0d9488]/30 transition group">
+                <div className="bg-white dark:bg-[#14141a] rounded-lg border border-gray-200 dark:border-gray-800/40 p-4 backdrop-blur-sm hover:border-[#0d9488]/30 transition group">
                   <p className="text-2xl font-bold text-gray-800 dark:text-gray-100 group-hover:text-[#0d9488] transition">{totalProjects}</p>
                   <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">Total</p>
                 </div>
-                <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 p-4 hover:border-blue-400 dark:hover:border-blue-500/30 transition group">
+                <div className="bg-white dark:bg-[#14141a] rounded-lg border border-gray-200 dark:border-gray-800/40 p-4 hover:border-blue-400 dark:hover:border-blue-500/30 transition group">
                   <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 group-hover:text-blue-500 dark:group-hover:text-blue-300 transition">{planningProjects}</p>
                   <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">Planning</p>
                 </div>
-                <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 p-4 hover:border-yellow-400 dark:hover:border-yellow-500/30 transition group">
+                <div className="bg-white dark:bg-[#14141a] rounded-lg border border-gray-200 dark:border-gray-800/40 p-4 hover:border-yellow-400 dark:hover:border-yellow-500/30 transition group">
                   <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400 group-hover:text-yellow-500 dark:group-hover:text-yellow-300 transition">{inProgressProjects}</p>
                   <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">In Progress</p>
                 </div>
-                <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 p-4 hover:border-green-400 dark:hover:border-green-500/30 transition group">
+                <div className="bg-white dark:bg-[#14141a] rounded-lg border border-gray-200 dark:border-gray-800/40 p-4 hover:border-green-400 dark:hover:border-green-500/30 transition group">
                   <p className="text-2xl font-bold text-green-600 dark:text-green-400 group-hover:text-green-500 dark:group-hover:text-green-300 transition">{completedProjects}</p>
                   <p className="text-[10px] text-gray-500 dark:text-gray-500 uppercase tracking-wider">Completed</p>
                 </div>
@@ -3391,7 +3382,7 @@ const WorkspaceProjects = () => {
               <div className={aiOpen ? '' : 'lg:col-span-2'}>
                 {filteredProjects.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-16 text-gray-500 dark:text-gray-500">
-                    <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 flex items-center justify-center mb-4">
+                    <div className="w-16 h-16 rounded-lg bg-gray-100 dark:bg-[#14141a] border border-gray-200 dark:border-gray-800/60 flex items-center justify-center mb-4">
                       <FaFolder className="text-3xl text-gray-400 dark:text-gray-700" />
                     </div>
                     <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300">No projects</h3>
@@ -3430,7 +3421,7 @@ const WorkspaceProjects = () => {
 
               {view === 'active' && !aiOpen && (
                 <div className="hidden lg:block space-y-5">
-                  <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 p-4">
+                  <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 p-4">
                     <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-2"><FaRocket className="text-[#0d9488]" /> Active Projects</h4>
                     <div className="mt-3 space-y-3">
                       {activeProjects.length === 0 ? (
@@ -3457,7 +3448,7 @@ const WorkspaceProjects = () => {
                     </div>
                   </div>
 
-                  <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 p-4">
+                  <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 p-4">
                     <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-2"><FaClock className="text-[#0d9488]" /> Recent Activity</h4>
                     <div className="mt-3 space-y-2">
                       {recentActivity.length === 0 ? (
@@ -3477,7 +3468,7 @@ const WorkspaceProjects = () => {
                     </div>
                   </div>
 
-                  <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200 dark:border-gray-800/40 p-4">
+                  <div className="bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-gray-800/40 p-4">
                     <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wider flex items-center gap-2"><FaCheckCircle className="text-[#0d9488]" /> Completion Rate</h4>
                     <div className="mt-3 flex items-center gap-4">
                       <div className="relative w-16 h-16">
@@ -3581,7 +3572,7 @@ const WorkspaceProjects = () => {
         onArchive={() => contextMenu.project && handleArchive(contextMenu.project._id)}
         onUnarchive={() => contextMenu.project && handleUnarchive(contextMenu.project._id)}
         onDelete={() => contextMenu.project && handleDeleteProject(contextMenu.project._id)}
-        onPermanentDelete={() => contextMenu.project && handlePermanentDelete(contextMenu.project._id)}
+        onPermanentDelete={() => contextMenu.project && handlePermanentlyDeleteProject(contextMenu.project._id)}
         onRestore={() => contextMenu.project && handleRestore(contextMenu.project._id)}
         brandColor={brandColor}
       />

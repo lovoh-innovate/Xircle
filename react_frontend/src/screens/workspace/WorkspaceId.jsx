@@ -101,12 +101,12 @@ const GlobalStyles = () => (
 
 // ─── Skeleton primitives ────────────────────────────────────────
 const Skeleton = ({ className = '', style }) => (
-  <div className={`skeleton rounded-lg ${className}`} style={style} />
+  <div className={`skeleton rounded-md ${className}`} style={style} />
 );
 
 const MetricCardSkeleton = () => (
-  <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-2.5 sm:p-3 md:p-4 flex flex-col items-start gap-1">
-    <Skeleton className="w-7 h-7 md:w-9 md:h-9 rounded-lg md:rounded-xl" />
+  <div className="bg-white dark:bg-[#14141a] rounded-lg border border-gray-200/60 dark:border-gray-800/60 p-2.5 sm:p-3 md:p-4 flex flex-col items-start gap-1">
+    <Skeleton className="w-7 h-7 md:w-9 md:h-9 rounded-md md:rounded-lg" />
     <Skeleton className="h-5 md:h-6 w-10 md:w-14 mt-1" />
     <Skeleton className="h-2.5 w-14 md:w-20" />
   </div>
@@ -140,18 +140,18 @@ const WorkspaceLoadingShell = () => (
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
-          <div className="hidden lg:flex lg:col-span-3 bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-4 sm:p-5 h-[480px]">
+          <div className="hidden lg:flex lg:col-span-3 bg-white dark:bg-[#14141a] rounded-lg border border-gray-200/60 dark:border-gray-800/60 p-4 sm:p-5 h-[480px]">
             <div className="w-full space-y-3">
               <Skeleton className="h-3.5 w-32" />
               <Skeleton className="h-3 w-3/4" />
               <Skeleton className="h-3 w-1/2" />
             </div>
           </div>
-          <div className="lg:col-span-1 bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-2">
+          <div className="lg:col-span-1 bg-white dark:bg-[#14141a] rounded-lg border border-gray-200/60 dark:border-gray-800/60 p-2">
             <div className="flex lg:flex-col gap-1">
-              <Skeleton className="flex-1 lg:flex-none h-14 lg:h-9 rounded-xl" />
-              <Skeleton className="flex-1 lg:flex-none h-14 lg:h-9 rounded-xl" />
-              <Skeleton className="flex-1 lg:flex-none h-14 lg:h-9 rounded-xl" />
+              <Skeleton className="flex-1 lg:flex-none h-14 lg:h-9 rounded-lg" />
+              <Skeleton className="flex-1 lg:flex-none h-14 lg:h-9 rounded-lg" />
+              <Skeleton className="flex-1 lg:flex-none h-14 lg:h-9 rounded-lg" />
             </div>
           </div>
         </div>
@@ -288,10 +288,10 @@ const MessageBubble = ({ message, brandColor }) => {
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div className={`max-w-[85%] ${isUser ? '' : 'w-full'}`}>
         <div
-          className={`rounded-2xl px-3.5 py-2.5 ${
+          className={`rounded-xl px-3.5 py-2.5 ${
             isUser
-              ? 'text-white rounded-br-md'
-              : 'bg-gray-100 dark:bg-[#1a1a22] text-gray-800 dark:text-gray-200 rounded-bl-md'
+              ? 'text-white rounded-br-sm'
+              : 'bg-gray-100 dark:bg-[#1a1a22] text-gray-800 dark:text-gray-200 rounded-bl-sm'
           }`}
           style={isUser ? { backgroundColor: brandColor } : undefined}
         >
@@ -387,7 +387,7 @@ const AIChatPanel = ({ workspaceId, brandColor, onClose }) => {
       <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-gray-200/60 dark:border-gray-800/40 flex-shrink-0">
         <div className="flex items-center gap-2.5 min-w-0">
           <div
-            className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
+            className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
             style={{ backgroundColor: `${brandColor}20`, color: brandColor }}
           >
             <FaRobot className="text-sm" />
@@ -430,7 +430,7 @@ const AIChatPanel = ({ workspaceId, brandColor, onClose }) => {
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center gap-4 text-center px-2">
             <div
-              className="w-14 h-14 rounded-2xl flex items-center justify-center"
+              className="w-14 h-14 rounded-xl flex items-center justify-center"
               style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
             >
               <FaRobot className="text-xl" />
@@ -449,7 +449,7 @@ const AIChatPanel = ({ workspaceId, brandColor, onClose }) => {
                 <button
                   key={s}
                   onClick={() => handleSend(s)}
-                  className="text-[11px] px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-[#14141a] hover:border-teal-500 dark:hover:border-[#0d9488]/40 text-gray-600 dark:text-gray-300 transition"
+                  className="text-[11px] px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-800/60 bg-white dark:bg-[#14141a] hover:border-teal-500 dark:hover:border-[#0d9488]/40 text-gray-600 dark:text-gray-300 transition"
                 >
                   {s}
                 </button>
@@ -468,7 +468,7 @@ const AIChatPanel = ({ workspaceId, brandColor, onClose }) => {
       </div>
 
       <div className="border-t border-gray-200/60 dark:border-gray-800/40 p-3 flex-shrink-0">
-        <div className="flex items-end gap-2 bg-gray-50 dark:bg-[#0b0b10] rounded-2xl border border-gray-200 dark:border-gray-800/60 p-1.5 focus-within:border-teal-500 dark:focus-within:border-[#0d9488] transition">
+        <div className="flex items-end gap-2 bg-gray-50 dark:bg-[#0b0b10] rounded-lg border border-gray-200 dark:border-gray-800/60 p-1.5 focus-within:border-teal-500 dark:focus-within:border-[#0d9488] transition">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -486,7 +486,7 @@ const AIChatPanel = ({ workspaceId, brandColor, onClose }) => {
           <button
             onClick={() => handleSend()}
             disabled={!input.trim() || isLoading}
-            className="w-8 h-8 rounded-xl flex items-center justify-center text-white disabled:opacity-40 transition flex-shrink-0"
+            className="w-8 h-8 rounded-md flex items-center justify-center text-white disabled:opacity-40 transition flex-shrink-0"
             style={{ backgroundColor: brandColor }}
           >
             <FaPaperPlane className="text-[11px]" />
@@ -530,7 +530,7 @@ const ClockInWidget = ({ workspaceId, brandColor }) => {
   const handleNavigate = () => navigate(`${WORKSPACE_BASE_PATH}/${workspaceId}/clockin`);
 
   return (
-    <div className="flex items-center gap-2 bg-gray-100 dark:bg-[#14141a] px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-800/60 text-xs">
+    <div className="flex items-center gap-2 bg-gray-100 dark:bg-[#14141a] px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-800/60 text-xs">
       <FaClock className="text-teal-600 dark:text-[#0d9488]" />
       {isClockedIn ? (
         <>
@@ -539,7 +539,7 @@ const ClockInWidget = ({ workspaceId, brandColor }) => {
           </span>
           <button
             onClick={handleNavigate}
-            className="flex items-center gap-1 px-2 py-0.5 bg-red-500/10 text-red-600 dark:text-red-400 rounded-full hover:bg-red-500/20 transition"
+            className="flex items-center gap-1 px-2 py-0.5 bg-red-500/10 text-red-600 dark:text-red-400 rounded-md hover:bg-red-500/20 transition"
           >
             <FaTimes className="text-[10px]" />
             <span className="hidden sm:inline">Out</span>
@@ -548,7 +548,7 @@ const ClockInWidget = ({ workspaceId, brandColor }) => {
       ) : (
         <button
           onClick={handleNavigate}
-          className="flex items-center gap-1 px-2 py-0.5 bg-teal-500/10 rounded-full hover:bg-teal-500/20 transition"
+          className="flex items-center gap-1 px-2 py-0.5 bg-teal-500/10 rounded-md hover:bg-teal-500/20 transition"
           style={{ color: brandColor }}
         >
           <FaCheck className="text-[10px]" />
@@ -876,16 +876,16 @@ const WorkspaceId = () => {
             <div className="ws-mobile-header-spacer md:hidden" />
 
             <main className="max-w-7xl mx-auto px-4 sm:px-6 py-10 sm:py-16 pb-24 md:pb-16">
-              <div className="max-w-md mx-auto text-center bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-8">
+              <div className="max-w-md mx-auto text-center bg-white dark:bg-[#14141a] rounded-xl border border-gray-200/60 dark:border-gray-800/60 p-8">
                 {workspace.logo ? (
                   <img
                     src={workspace.logo}
                     alt={workspace.name}
-                    className="w-16 h-16 rounded-2xl object-cover mx-auto mb-4"
+                    className="w-16 h-16 rounded-xl object-cover mx-auto mb-4"
                   />
                 ) : (
                   <div
-                    className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center text-white text-xl font-bold"
+                    className="w-16 h-16 rounded-xl mx-auto mb-4 flex items-center justify-center text-white text-xl font-bold"
                     style={{ backgroundColor: brandColor }}
                   >
                     {workspace.initials || workspace.name.charAt(0).toUpperCase()}
@@ -899,7 +899,7 @@ const WorkspaceId = () => {
                   {activeMembers.length === 1 ? 'member' : 'members'}
                 </p>
 
-                <div className="w-14 h-14 rounded-2xl bg-teal-50 dark:bg-teal-900/20 flex items-center justify-center mx-auto mb-3">
+                <div className="w-14 h-14 rounded-xl bg-teal-50 dark:bg-teal-900/20 flex items-center justify-center mx-auto mb-3">
                   <FaLock className="text-teal-600 dark:text-teal-400 text-xl" />
                 </div>
                 <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-1">
@@ -910,13 +910,13 @@ const WorkspaceId = () => {
                 </p>
                 <button
                   onClick={() => navigate('/login')}
-                  className="w-full py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-sm font-medium transition mb-2"
+                  className="w-full py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium transition mb-2"
                 >
                   Sign in
                 </button>
                 <button
                   onClick={() => navigate('/signup')}
-                  className="w-full py-2 border border-gray-300 dark:border-gray-700 rounded-xl text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition"
+                  className="w-full py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition"
                 >
                   Create account
                 </button>
@@ -947,18 +947,18 @@ const WorkspaceId = () => {
   }) => (
     <Link
       to={to}
-      className="group relative bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-2.5 sm:p-3 md:p-4 flex flex-col items-start gap-0.5 sm:gap-1 hover:border-teal-500 dark:hover:border-[#0d9488]/40 hover:shadow-[0_0_20px_rgba(13,148,136,0.12)] active:scale-[0.97] transition-all duration-300 overflow-hidden"
+      className="group relative bg-white dark:bg-[#14141a] rounded-lg border border-gray-200/60 dark:border-gray-800/60 p-2.5 sm:p-3 md:p-4 flex flex-col items-start gap-0.5 sm:gap-1 hover:border-teal-500 dark:hover:border-[#0d9488]/40 hover:shadow-[0_0_20px_rgba(13,148,136,0.12)] active:scale-[0.97] transition-all duration-300 overflow-hidden"
     >
       {badge && (
         <span
-          className={`absolute top-1.5 right-1.5 md:top-2 md:right-2 text-[7px] md:text-[9px] font-bold px-1.5 md:px-2 py-0.5 rounded-full text-white ${badgeColor}`}
+          className={`absolute top-1.5 right-1.5 md:top-2 md:right-2 text-[7px] md:text-[9px] font-bold px-1.5 md:px-2 py-0.5 rounded-md text-white ${badgeColor}`}
         >
           {badge}
         </span>
       )}
       <div className="flex items-center justify-between w-full">
         <div
-          className="w-7 h-7 md:w-9 md:h-9 rounded-lg md:rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform"
+          className="w-7 h-7 md:w-9 md:h-9 rounded-md md:rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform"
           style={{ color: brandColor, backgroundColor: `${brandColor}15` }}
         >
           <Icon className="text-[11px] md:text-sm" />
@@ -988,9 +988,9 @@ const WorkspaceId = () => {
   // ─── Quick action row ───────────────────────────────────────
   const QuickActionRow = ({ icon: Icon, label, to, onClick }) => {
     const inner = (
-      <div className="flex flex-col lg:flex-row items-center gap-1.5 lg:gap-3 px-2 lg:px-3 py-2.5 rounded-xl hover:bg-teal-50 dark:hover:bg-[#0d9488]/8 active:bg-teal-100 dark:active:bg-[#0d9488]/10 transition group cursor-pointer w-full">
+      <div className="flex flex-col lg:flex-row items-center gap-1.5 lg:gap-3 px-2 lg:px-3 py-2.5 rounded-lg hover:bg-teal-50 dark:hover:bg-[#0d9488]/8 active:bg-teal-100 dark:active:bg-[#0d9488]/10 transition group cursor-pointer w-full">
         <div
-          className="w-8 h-8 lg:w-7 lg:h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+          className="w-8 h-8 lg:w-7 lg:h-7 rounded-md flex items-center justify-center flex-shrink-0"
           style={{ backgroundColor: `${brandColor}12`, color: brandColor }}
         >
           <Icon className="text-xs" />
@@ -1015,8 +1015,8 @@ const WorkspaceId = () => {
 
   // ─── Hero card (mobile) ─────────────────────────────────────
   const HeroCard = () => (
-    <div className="relative bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-2xl p-4 sm:p-5 mb-4">
-      <div className="flex items-center justify-between gap-3 mb-3">
+    <div className="relative bg-white dark:bg-[#14141a] border border-gray-200/60 dark:border-gray-800/60 rounded-xl p-4 mb-4">
+      <div className="flex items-center gap-3 mb-3">
         <button
           onClick={() => navigate('/my-workspaces')}
           className="flex items-center gap-3 hover:opacity-80 transition-opacity min-w-0 flex-1 overflow-hidden"
@@ -1025,11 +1025,11 @@ const WorkspaceId = () => {
             <img
               src={workspace.logo}
               alt={workspace.name}
-              className="w-11 h-11 rounded-xl object-cover border border-gray-200 dark:border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)] flex-shrink-0"
+              className="w-11 h-11 rounded-lg object-cover border border-gray-200 dark:border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)] flex-shrink-0"
             />
           ) : (
             <div
-              className="w-11 h-11 rounded-xl flex items-center justify-center text-white font-bold text-base border border-gray-200 dark:border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)] flex-shrink-0"
+              className="w-11 h-11 rounded-lg flex items-center justify-center text-white font-bold text-base border border-gray-200 dark:border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)] flex-shrink-0"
               style={{ backgroundColor: brandColor }}
             >
               {workspace.initials || workspace.name.charAt(0).toUpperCase()}
@@ -1045,24 +1045,6 @@ const WorkspaceId = () => {
             </h2>
           </div>
         </button>
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          <button
-            onClick={() => setHideStats((v) => !v)}
-            className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition flex-shrink-0"
-            aria-label="Toggle stats"
-          >
-            {hideStats ? <FaEyeSlash className="text-xs" /> : <FaEye className="text-xs" />}
-          </button>
-          {canSeeSettings && (
-            <Link
-              to={`${WORKSPACE_BASE_PATH}/${workspaceId}/settings`}
-              className="w-8 h-8 rounded-full bg-gray-100 dark:bg-[#0b0b10] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-400 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition flex-shrink-0"
-              aria-label="Workspace settings"
-            >
-              <FaCog className="text-xs" />
-            </Link>
-          )}
-        </div>
       </div>
 
       {canSeeClockin && (
@@ -1072,7 +1054,7 @@ const WorkspaceId = () => {
       )}
 
       {canInvite && (
-        <div className="flex items-center justify-between gap-2 bg-gray-100 dark:bg-gray-800/30 rounded-xl px-3 sm:px-4 py-2 border border-gray-200 dark:border-gray-800/40">
+        <div className="flex items-center justify-between gap-2 bg-gray-100 dark:bg-gray-800/30 rounded-lg px-3 sm:px-4 py-2 border border-gray-200 dark:border-gray-800/40">
           <span className="text-[11px] text-gray-500 dark:text-gray-400">Invite code</span>
           <span className="text-[11px] font-mono tracking-wider text-gray-800 dark:text-gray-300 flex items-center gap-2">
             {hideStats ? '••••••••' : workspace.inviteCode || '—'}
@@ -1103,7 +1085,7 @@ const WorkspaceId = () => {
       memberUser._id === workspace.owner?._id || memberUser._id === workspace.owner;
 
     return (
-      <div className="relative flex flex-col items-center text-center gap-1.5 p-2.5 sm:p-3 rounded-xl bg-gray-50 dark:bg-[#0b0b10]/60 border border-gray-200/60 dark:border-gray-800/40 hover:border-teal-500 dark:hover:border-[#0d9488]/40 transition">
+      <div className="relative flex flex-col items-center text-center gap-1.5 p-2.5 sm:p-3 rounded-lg bg-gray-50 dark:bg-[#0b0b10]/60 border border-gray-200/60 dark:border-gray-800/40 hover:border-teal-500 dark:hover:border-[#0d9488]/40 transition">
         <div className="relative">
           {memberUser?.profile ? (
             <img
@@ -1219,11 +1201,11 @@ const WorkspaceId = () => {
                   <img
                     src={workspace.logo}
                     alt={workspace.name}
-                    className="w-10 h-10 rounded-xl object-cover border border-gray-200 dark:border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)]"
+                    className="w-10 h-10 rounded-lg object-cover border border-gray-200 dark:border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)]"
                   />
                 ) : (
                   <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm border border-gray-200 dark:border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)]"
+                    className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold text-sm border border-gray-200 dark:border-gray-700/60 shadow-[0_0_15px_rgba(13,148,136,0.15)]"
                     style={{ backgroundColor: brandColor }}
                   >
                     {workspace.initials || workspace.name.charAt(0).toUpperCase()}
@@ -1245,7 +1227,7 @@ const WorkspaceId = () => {
                   <ClockInWidget workspaceId={workspaceId} brandColor={brandColor} />
                 )}
                 {canInvite && (
-                  <span className="text-[10px] font-mono text-gray-500 dark:text-gray-600 bg-gray-100 dark:bg-[#14141a] px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-800/60 flex items-center gap-2">
+                  <span className="text-[10px] font-mono text-gray-500 dark:text-gray-600 bg-gray-100 dark:bg-[#14141a] px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-800/60 flex items-center gap-2">
                     {hideStats ? '••••••••' : workspace.inviteCode}
                     {!hideStats && (
                       <button
@@ -1325,13 +1307,13 @@ const WorkspaceId = () => {
             {(canSeeAI || canSeeProjects || canInvite) && (
               <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 sm:gap-4 mb-3 sm:mb-6">
                 {canSeeAI && (
-                  <div className="hidden lg:flex lg:col-span-3 bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden h-[480px]">
+                  <div className="hidden lg:flex lg:col-span-3 bg-white dark:bg-[#14141a] rounded-lg border border-gray-200/60 dark:border-gray-800/60 overflow-hidden h-[480px]">
                     <AIChatPanel workspaceId={workspaceId} brandColor={brandColor} />
                   </div>
                 )}
 
                 <div
-                  className={`lg:col-span-1 bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 p-1.5 sm:p-2 ${
+                  className={`lg:col-span-1 bg-white dark:bg-[#14141a] rounded-lg border border-gray-200/60 dark:border-gray-800/60 p-1.5 sm:p-2 ${
                     canSeeAI ? '' : 'lg:col-span-4'
                   }`}
                 >
@@ -1367,7 +1349,7 @@ const WorkspaceId = () => {
 
             {/* ─── Online team (member only) ────────────────────── */}
             {canSeeMembers && (
-              <div className="bg-white dark:bg-[#14141a] rounded-2xl border border-gray-200/60 dark:border-gray-800/60 overflow-hidden">
+              <div className="bg-white dark:bg-[#14141a] rounded-lg border border-gray-200/60 dark:border-gray-800/60 overflow-hidden">
                 <div className="px-3 sm:px-5 py-3 flex items-center justify-between border-b border-gray-200/60 dark:border-gray-800/40">
                   <h2 className="text-xs sm:text-sm font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
                     <span className="relative flex h-2 w-2">
@@ -1421,14 +1403,14 @@ const WorkspaceId = () => {
       {canSeeAI && !mobileChatOpen && (
         <button
           onClick={() => setMobileChatOpen(true)}
-          className="lg:hidden fixed bottom-24 right-4 z-40 w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-white active:scale-95 transition-transform"
+          className="lg:hidden fixed bottom-24 right-4 z-40 w-12 h-12 rounded-lg shadow-lg flex items-center justify-center text-white active:scale-95 transition-transform"
           style={{
             backgroundColor: brandColor,
-            boxShadow: `0 8px 24px ${brandColor}55`,
+            boxShadow: `0 4px 12px ${brandColor}55`,
           }}
           aria-label="Open AI chat"
         >
-          <FaRobot className="text-xl" />
+          <FaRobot className="text-lg" />
         </button>
       )}
 
@@ -1439,7 +1421,7 @@ const WorkspaceId = () => {
             className="absolute inset-0 bg-black/50 backdrop-blur-sm"
             onClick={() => setMobileChatOpen(false)}
           />
-          <div className="absolute bottom-0 left-0 right-0 top-10 bg-white dark:bg-[#0b0b10] rounded-t-3xl shadow-2xl overflow-hidden flex flex-col">
+          <div className="absolute bottom-0 left-0 right-0 top-10 bg-white dark:bg-[#0b0b10] rounded-t-2xl shadow-2xl overflow-hidden flex flex-col">
             <AIChatPanel
               workspaceId={workspaceId}
               brandColor={brandColor}
