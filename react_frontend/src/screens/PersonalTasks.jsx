@@ -2606,8 +2606,10 @@ const PersonalTasks = () => {
 
   const gestureShownRef = useRef(false);
 
-  // ✅ NEW: track in-flight status/checklist mutations per task (or per subtask)
+  // ✅ Track in-flight status/checklist mutations per task (or per subtask)
   // so refetches don't clobber optimistic state.
+  // Task-level keys: "taskId"
+  // Checklist-level keys: "taskId:subTaskIndex"
   const pendingMutationsRef = useRef(new Map());
 
   const getQueryParams = useCallback(() => {
@@ -2660,8 +2662,8 @@ const PersonalTasks = () => {
   const [localTasks, setLocalTasks] = useState([]);
   const orderMap = useRef({});
 
-  // ✅ CHANGED: sync effect now skips tasks with in-flight mutations,
-  // so background refetches don't overwrite the optimistic UI.
+  // ✅ Sync effect — freeze ANY task that has a pending mutation.
+  // This covers both task-level keys ("taskId") AND checklist-level keys ("taskId:idx").
   useEffect(() => {
     if (tasksData?.tasks) {
       const fetched = tasksData.tasks;
@@ -2674,9 +2676,18 @@ const PersonalTasks = () => {
       setLocalTasks(prev => {
         const pending = pendingMutationsRef.current;
         if (pending.size === 0) return sorted;
+
+        // Collect the set of task IDs that have any pending mutation
+        // (whether the key is "taskId" or "taskId:subTaskIndex")
+        const frozenTaskIds = new Set();
+        pending.forEach((_, key) => {
+          const colonIdx = key.indexOf(':');
+          frozenTaskIds.add(colonIdx === -1 ? key : key.slice(0, colonIdx));
+        });
+
         const frozen = new Map();
         prev.forEach(t => {
-          if (pending.has(t._id)) frozen.set(t._id, t);
+          if (frozenTaskIds.has(t._id)) frozen.set(t._id, t);
         });
         return sorted.map(t => frozen.get(t._id) || t);
       });
@@ -3099,14 +3110,12 @@ const PersonalTasks = () => {
     }
   };
 
-  // ✅ CHANGED: coalesced + no refetch on success
+  // ✅ Coalesced + no refetch on success
   const handleStatusToggle = useCallback(async (taskId, newStatus) => {
-    // 1. Optimistic UI — instant
     setLocalTasks(prev =>
       prev.map(t => (t._id === taskId ? { ...t, status: newStatus } : t))
     );
 
-    // 2. If a call is already in-flight for this task, just update the target
     const existing = pendingMutationsRef.current.get(taskId);
     if (existing) {
       existing.target = newStatus;
@@ -3116,7 +3125,6 @@ const PersonalTasks = () => {
     const entry = { target: newStatus };
     pendingMutationsRef.current.set(taskId, entry);
 
-    // 3. Loop until the last desired state is sent
     let lastSent = null;
     try {
       while (entry.target !== lastSent) {
@@ -3160,7 +3168,6 @@ const PersonalTasks = () => {
     }
   };
 
-  // ✅ CHANGED: no refetch on success (optimistic state stands)
   const handleToggleGoogleSync = async (task) => {
     if (!googleConnected) {
       handleConnectGoogle();
@@ -3237,7 +3244,8 @@ const PersonalTasks = () => {
     }
   };
 
-  // ✅ CHANGED: coalesced + no refetch on success
+  // ✅ Coalesced + no refetch on success. Keyed per subtask so different items
+  // in the same task don't block each other.
   const handleToggleChecklist = useCallback(async (taskId, subTaskIndex, done) => {
     // Optimistic
     setLocalTasks(prev =>
