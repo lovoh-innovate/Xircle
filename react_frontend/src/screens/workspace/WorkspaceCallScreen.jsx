@@ -20,6 +20,7 @@ import {
   useSpeakingParticipants,
   useIsSpeaking,
   useIsMuted,
+  useRoomContext,
 } from '@livekit/components-react';
 import {
   Track,
@@ -35,7 +36,6 @@ import {
   FaVideoSlash,
   FaSpinner,
   FaExclamationTriangle,
-  FaCopy,
   FaUserPlus,
   FaTimes,
   FaCheck,
@@ -43,8 +43,10 @@ import {
   FaArrowLeft,
   FaLink,
   FaSignOutAlt,
-  FaPhoneAlt,
-  FaUsers,
+  FaEllipsisH,
+  FaSyncAlt,
+  FaDesktop,
+  FaVolumeUp,
   // ── AI + meeting controls ──
   FaRobot,
   FaBrain,
@@ -59,7 +61,6 @@ import {
   FaCircle,
 } from 'react-icons/fa';
 
-// ─── Paths: file is at src/screens/workspace/ → use ../../ ────────
 import {
   useGetCallByIdQuery,
   useGetCallTokenMutation,
@@ -68,7 +69,6 @@ import {
   useEndCallMutation,
   useRejectCallMutation,
   useInviteByUsernameMutation,
-  // ── AI + live notes ──
   useStartCallAIMutation,
   useStopCallAIMutation,
   useFinalizeCallNotesMutation,
@@ -120,11 +120,6 @@ const getInfo = (participant) => {
   };
 };
 
-const getInitials = (name) => {
-  if (!name) return '?';
-  return name.split(' ').slice(0, 2).map((w) => w[0]).join('').toUpperCase();
-};
-
 const deviceFailureMessage = (failure) => {
   switch (failure) {
     case MediaDeviceFailure.PermissionDenied:
@@ -140,11 +135,15 @@ const deviceFailureMessage = (failure) => {
 
 const getUserId = (p) => String(p?.user?._id || p?.user || p?._id || '');
 
+const IS_TOUCH_DEVICE =
+  typeof navigator !== 'undefined' &&
+  /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent
+  );
+
 // ─────────────────────────────────────────────────────────────────────
 // AI helpers — audio playback, voice recorder, live transcript
 // ─────────────────────────────────────────────────────────────────────
-
-/** Play base64-encoded TTS audio; returns the HTMLAudioElement. */
 const playAudioDataUrl = (base64, format = 'wav', onEnded) => {
   try {
     const audio = new Audio(`data:audio/${format};base64,${base64}`);
@@ -157,7 +156,6 @@ const playAudioDataUrl = (base64, format = 'wav', onEnded) => {
   }
 };
 
-/** Record a push-to-talk clip and resolve to a Blob. */
 const useVoiceRecorder = () => {
   const [recording, setRecording] = useState(false);
   const mediaRecorderRef = useRef(null);
@@ -231,7 +229,6 @@ const useVoiceRecorder = () => {
   return { recording, start, stop };
 };
 
-/** Browser STT — fires `onFinal(text)` for each completed phrase. */
 const useLiveTranscript = ({ enabled, onFinal }) => {
   const recognitionRef = useRef(null);
   const [supported, setSupported] = useState(false);
@@ -322,6 +319,52 @@ const Avatar = ({ info, size, brandColor }) => {
   );
 };
 
+const CtrlBtn = ({ onClick, label, tone = 'neutral', children, className = '' }) => {
+  const tones = {
+    neutral: 'bg-white/10 hover:bg-white/20 text-white',
+    danger: 'bg-red-600 hover:bg-red-700 text-white',
+    active: 'bg-teal-600 hover:bg-teal-700 text-white',
+  };
+  return (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center transition ${tones[tone]} ${className}`}
+    >
+      {children}
+    </button>
+  );
+};
+
+const Sheet = ({ open, onClose, title, children, maxWidth = 'sm:max-w-md' }) => {
+  if (!open) return null;
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className={`bg-[#14141a] border border-white/10 rounded-t-2xl sm:rounded-2xl w-full ${maxWidth} p-4`}
+        style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-white">{title}</h3>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="p-1.5 text-gray-400 hover:text-white rounded-lg"
+          >
+            <FaTimes />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+};
+
 const ParticipantCard = ({
   participant,
   cameraRef,
@@ -348,7 +391,7 @@ const ParticipantCard = ({
       style={ringStyle}
       className={`relative overflow-hidden bg-[#1a1a24] transition-shadow ${
         isMain
-          ? 'w-full h-full rounded-3xl'
+          ? 'w-full h-full rounded-2xl'
           : 'w-28 h-20 sm:w-36 sm:h-24 rounded-xl flex-shrink-0 cursor-pointer'
       }`}
     >
@@ -376,21 +419,25 @@ const ParticipantCard = ({
       )}
 
       {(!isMain || camOn) && (
-        <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center gap-1 bg-black/55 rounded-full px-2 py-0.5 text-[11px] sm:text-xs">
-          {micMuted && <FaMicrophoneSlash className="text-red-400 flex-shrink-0" />}
-          <span className="truncate">{participant.isLocal ? 'You' : info.name}</span>
+        <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center gap-1 bg-black/55 rounded-md px-2 py-0.5 text-[11px] sm:text-xs">
+          {micMuted && (
+            <FaMicrophoneSlash className="text-red-400 flex-shrink-0" />
+          )}
+          <span className="truncate">
+            {participant.isLocal ? 'You' : info.name}
+          </span>
         </div>
       )}
 
       {isMain && (
         <>
           {micMuted && (
-            <div className="absolute top-3 right-3 bg-black/55 rounded-full p-2">
+            <div className="absolute top-3 right-3 bg-black/55 rounded-lg p-2">
               <FaMicrophoneSlash className="text-red-400" />
             </div>
           )}
           {isSpeaking && (
-            <div className="absolute top-3 left-3 flex items-end gap-[3px] h-5 bg-black/55 rounded-full px-3 py-1.5">
+            <div className="absolute top-3 left-3 flex items-end gap-[3px] h-5 bg-black/55 rounded-lg px-3 py-1.5">
               {[0, 1, 2].map((i) => (
                 <span
                   key={i}
@@ -444,11 +491,14 @@ const InviteByUsernameModal = ({ isOpen, onClose, brandColor, onInvite }) => {
 
   return (
     <div
-      className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4"
+      className="fixed inset-0 z-[85] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4"
       onClick={onClose}
     >
       <div
         className="bg-[#14141a] border border-white/10 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md shadow-xl p-5"
+        style={{
+          paddingBottom: 'calc(1.25rem + env(safe-area-inset-bottom, 0px))',
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-3">
@@ -456,35 +506,41 @@ const InviteByUsernameModal = ({ isOpen, onClose, brandColor, onInvite }) => {
             <FaUserPlus className="text-sm" style={{ color: brandColor }} />
             Invite to call
           </h3>
-          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-white rounded-lg">
+          <button
+            onClick={onClose}
+            className="p-1.5 text-gray-400 hover:text-white rounded-lg"
+          >
             <FaTimes />
           </button>
         </div>
         <p className="text-xs text-gray-400 mb-3">
-          Enter one or more @usernames (comma or space separated). They'll be
-          rung instantly and show up in their ongoing calls list.
+          Enter one or more @usernames (comma or space separated).
         </p>
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="@johndoe, @janedoe"
-          className="w-full px-3 py-2.5 bg-[#0b0b10] border border-white/10 rounded-xl text-sm text-white outline-none focus:border-teal-500"
+          className="w-full px-3 py-2.5 bg-[#0b0b10] border border-white/10 rounded-lg text-sm text-white outline-none focus:border-teal-500"
           autoFocus
         />
         <div className="grid grid-cols-2 gap-2 mt-4">
           <button
             onClick={onClose}
-            className="py-2.5 border border-white/15 rounded-xl text-sm text-gray-300 hover:bg-white/5 transition"
+            className="py-2.5 border border-white/15 rounded-lg text-sm text-gray-300 hover:bg-white/5 transition"
           >
             Cancel
           </button>
           <button
             onClick={submit}
             disabled={busy || !text.trim()}
-            className="py-2.5 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-60"
+            className="py-2.5 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-60"
             style={{ backgroundColor: brandColor }}
           >
-            {busy ? <FaSpinner className="animate-spin text-xs" /> : <FaCheck className="text-xs" />}
+            {busy ? (
+              <FaSpinner className="animate-spin text-xs" />
+            ) : (
+              <FaCheck className="text-xs" />
+            )}
             Invite
           </button>
         </div>
@@ -494,9 +550,8 @@ const InviteByUsernameModal = ({ isOpen, onClose, brandColor, onInvite }) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════
-// ── NEW: AI + meeting UI components ─────────────────────────────────
+// AI + meeting UI
 // ═════════════════════════════════════════════════════════════════════
-
 const FloatingReactions = ({ reactions }) => (
   <div className="pointer-events-none fixed inset-0 z-[60] overflow-hidden">
     {reactions.map((r) => (
@@ -521,87 +576,167 @@ const FloatingReactions = ({ reactions }) => (
   </div>
 );
 
-const ReactionPicker = ({ open, onClose, onPick }) => {
-  if (!open) return null;
-  const emojis = ['👍', '❤️', '😂', '😮', '👏', '🎉', '🔥', '👎'];
-  return (
-    <>
-      <div className="fixed inset-0 z-[68]" onClick={onClose} />
-      <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-[69] bg-[#1a1a24] border border-white/10 rounded-2xl shadow-2xl p-2 flex gap-1">
-        {emojis.map((e) => (
-          <button
-            key={e}
-            onClick={() => {
-              onPick(e);
-              onClose();
-            }}
-            className="w-10 h-10 rounded-xl hover:bg-white/10 text-2xl transition"
-          >
-            {e}
-          </button>
-        ))}
-      </div>
-    </>
-  );
-};
+const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '👏', '🎉', '🔥', '👎'];
+
+const ReactionPicker = ({ open, onClose, onPick }) => (
+  <Sheet
+    open={open}
+    onClose={onClose}
+    title="Send a reaction"
+    maxWidth="sm:max-w-sm"
+  >
+    <div className="grid grid-cols-4 gap-2">
+      {REACTION_EMOJIS.map((e) => (
+        <button
+          key={e}
+          onClick={() => {
+            onPick(e);
+            onClose();
+          }}
+          className="h-12 rounded-lg hover:bg-white/10 text-2xl transition"
+        >
+          {e}
+        </button>
+      ))}
+    </div>
+  </Sheet>
+);
 
 const DataSaverMenu = ({ open, onClose, dataSaver, onChange }) => {
-  if (!open) return null;
   const qualities = [
     { v: 'auto', label: 'Auto' },
-    { v: 'low', label: 'Low (data saver)' },
-    { v: 'medium', label: 'Medium' },
+    { v: 'low', label: 'Low' },
+    { v: 'medium', label: 'Med' },
     { v: 'high', label: 'High' },
   ];
   return (
-    <>
-      <div className="fixed inset-0 z-[68]" onClick={onClose} />
-      <div className="absolute bottom-24 right-4 z-[69] bg-[#1a1a24] border border-white/10 rounded-2xl shadow-2xl p-3 w-64">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-semibold">Data saver</p>
-          <FaWifi className="text-xs text-gray-400" />
-        </div>
-        <label className="flex items-center gap-2 py-1.5 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={!!dataSaver.enabled}
-            onChange={(e) => onChange({ enabled: e.target.checked })}
-          />
-          <span className="text-sm">Enable data saver</span>
-        </label>
-        <label className="flex items-center gap-2 py-1.5 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={!!dataSaver.audioOnly}
-            onChange={(e) => onChange({ audioOnly: e.target.checked })}
-          />
-          <span className="text-sm">Audio only (no video)</span>
-        </label>
-        <div className="mt-2">
-          <p className="text-xs text-gray-400 mb-1">Video quality</p>
-          <div className="grid grid-cols-2 gap-1">
-            {qualities.map((q) => (
-              <button
-                key={q.v}
-                onClick={() => onChange({ videoQuality: q.v })}
-                className={`text-xs py-1.5 rounded-lg transition ${
-                  dataSaver.videoQuality === q.v
-                    ? 'bg-teal-600 text-white'
-                    : 'bg-white/5 text-gray-300 hover:bg-white/10'
-                }`}
-              >
-                {q.label}
-              </button>
-            ))}
-          </div>
+    <Sheet open={open} onClose={onClose} title="Data saver" maxWidth="sm:max-w-sm">
+      <label className="flex items-center gap-2 py-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={!!dataSaver.enabled}
+          onChange={(e) => onChange({ enabled: e.target.checked })}
+        />
+        <span className="text-sm text-gray-200">Enable data saver</span>
+      </label>
+      <label className="flex items-center gap-2 py-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={!!dataSaver.audioOnly}
+          onChange={(e) => onChange({ audioOnly: e.target.checked })}
+        />
+        <span className="text-sm text-gray-200">Audio only (no video)</span>
+      </label>
+      <div className="mt-2">
+        <p className="text-xs text-gray-400 mb-1.5">Video quality</p>
+        <div className="grid grid-cols-4 gap-1">
+          {qualities.map((q) => (
+            <button
+              key={q.v}
+              onClick={() => onChange({ videoQuality: q.v })}
+              className={`text-xs py-2 rounded-lg transition ${
+                dataSaver.videoQuality === q.v
+                  ? 'bg-teal-600 text-white'
+                  : 'bg-white/5 text-gray-300 hover:bg-white/10'
+              }`}
+            >
+              {q.label}
+            </button>
+          ))}
         </div>
       </div>
-    </>
+    </Sheet>
   );
 };
 
+/** Audio output (loudspeaker / earpiece / headset) picker. */
+const SpeakerMenu = ({
+  open,
+  onClose,
+  outputs,
+  currentId,
+  onSelect,
+  supported,
+}) => (
+  <Sheet
+    open={open}
+    onClose={onClose}
+    title="Audio output"
+    maxWidth="sm:max-w-sm"
+  >
+    {!supported && (
+      <div className="text-sm text-gray-400 leading-relaxed">
+        This browser doesn't let apps choose the audio output. On iOS, call
+        audio always plays through the speaker — set the device volume / mute
+        switch to control it. On other devices, system audio controls still
+        work.
+      </div>
+    )}
+    {supported && outputs.length === 0 && (
+      <p className="text-sm text-gray-400">
+        No audio output devices found. Try again after a call starts.
+      </p>
+    )}
+    {supported && outputs.length > 0 && (
+      <div className="space-y-1">
+        {outputs.map((o) => {
+          const selected = currentId === o.deviceId;
+          return (
+            <button
+              key={o.deviceId}
+              onClick={() => {
+                onSelect(o.deviceId);
+                onClose();
+              }}
+              className={`w-full text-left px-3 py-2.5 rounded-lg flex items-center justify-between text-sm transition ${
+                selected
+                  ? 'bg-teal-600/20 text-teal-300'
+                  : 'bg-white/5 text-gray-200 hover:bg-white/10'
+              }`}
+            >
+              <span className="truncate">
+                {o.label || `Audio device (${o.deviceId.slice(0, 6)})`}
+              </span>
+              {selected && <FaCheck className="text-xs flex-shrink-0 ml-2" />}
+            </button>
+          );
+        })}
+      </div>
+    )}
+  </Sheet>
+);
+
+const MoreMenu = ({ open, onClose, brandColor, items }) => (
+  <Sheet open={open} onClose={onClose} title="More options">
+    <div className="grid grid-cols-3 gap-2">
+      {items.map((it) => (
+        <button
+          key={it.label}
+          onClick={() => {
+            onClose();
+            it.onClick();
+          }}
+          className={`flex flex-col items-center gap-2 p-3 rounded-xl transition text-gray-200 ${
+            it.active ? 'bg-white/15' : 'bg-white/5 hover:bg-white/10'
+          }`}
+        >
+          <span
+            className="text-lg"
+            style={it.active ? { color: brandColor } : undefined}
+          >
+            {it.icon}
+          </span>
+          <span className="text-[11px] text-center leading-tight">
+            {it.label}
+          </span>
+        </button>
+      ))}
+    </div>
+  </Sheet>
+);
+
 // ─────────────────────────────────────────────────────────────────────
-// AI Panel — right drawer (desktop) / bottom sheet (mobile)
+// AI Panel
 // ─────────────────────────────────────────────────────────────────────
 const AIPanel = ({
   open,
@@ -644,7 +779,6 @@ const AIPanel = ({
       <div className="flex-1 bg-black/40" onClick={onClose} />
 
       <div className="w-full sm:w-[420px] h-[85dvh] sm:h-full bg-[#0f0f15] border-l border-white/10 flex flex-col sm:rounded-none rounded-t-2xl shadow-2xl overflow-hidden">
-        {/* Header */}
         <div
           className="flex items-center justify-between px-4 py-3 border-b border-white/10 flex-shrink-0"
           style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}
@@ -653,7 +787,7 @@ const AIPanel = ({
             <FaRobot style={{ color: brandColor }} />
             <h3 className="text-base font-semibold">Xircle AI</h3>
             <span
-              className={`text-[10px] px-2 py-0.5 rounded-full ${
+              className={`text-[10px] px-2 py-0.5 rounded-md ${
                 aiEnabled
                   ? 'bg-green-500/20 text-green-400'
                   : 'bg-gray-500/20 text-gray-400'
@@ -670,18 +804,19 @@ const AIPanel = ({
           </button>
         </div>
 
-        {/* Tabs */}
         <div className="flex border-b border-white/10 flex-shrink-0">
           {tabs.map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
               className={`flex-1 py-2.5 text-xs font-medium flex flex-col items-center gap-1 transition ${
-                tab === t.id
-                  ? 'text-white border-b-2'
-                  : 'text-gray-400 hover:text-gray-200'
+                tab === t.id ? 'text-white' : 'text-gray-400 hover:text-gray-200'
               }`}
-              style={tab === t.id ? { borderBottomColor: brandColor } : undefined}
+              style={
+                tab === t.id
+                  ? { borderBottom: `2px solid ${brandColor}` }
+                  : { borderBottom: '2px solid transparent' }
+              }
             >
               {t.icon}
               <span>{t.label}</span>
@@ -689,20 +824,17 @@ const AIPanel = ({
           ))}
         </div>
 
-        {/* Body */}
         <div className="flex-1 overflow-y-auto px-4 py-3">
           {tab === 'summary' && (
             <div className="space-y-4">
               {!aiEnabled && (
                 <div className="text-sm text-gray-400">
-                  Turn on AI to start recording notes. The summary will update
-                  live as people speak.
+                  Turn on AI to start recording notes.
                 </div>
               )}
               {aiEnabled && !liveSummary && (
                 <div className="text-sm text-gray-400 flex items-center gap-2">
-                  <FaSpinner className="animate-spin" />
-                  Listening for context…
+                  <FaSpinner className="animate-spin" /> Listening for context…
                 </div>
               )}
               {liveSummary && (
@@ -757,7 +889,7 @@ const AIPanel = ({
               {noteReady?.noteId && (
                 <button
                   onClick={onOpenNote}
-                  className="w-full py-2.5 rounded-xl text-white text-sm font-medium flex items-center justify-center gap-2 transition hover:opacity-90"
+                  className="w-full py-2.5 rounded-lg text-white text-sm font-medium flex items-center justify-center gap-2 transition hover:opacity-90"
                   style={{ backgroundColor: brandColor }}
                 >
                   <FaBookOpen /> Open AI notes
@@ -769,9 +901,8 @@ const AIPanel = ({
           {tab === 'transcript' && (
             <div className="space-y-2">
               {!transcriptSupported && aiEnabled && (
-                <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-xs text-amber-300">
-                  Live transcription isn't supported in this browser. Use text
-                  chat or ask AI below — they still work.
+                <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-xs text-amber-300">
+                  Live transcription isn't supported in this browser.
                 </div>
               )}
               {!aiEnabled && (
@@ -798,10 +929,8 @@ const AIPanel = ({
           {tab === 'ask' && (
             <div className="space-y-3">
               <p className="text-xs text-gray-400">
-                Ask about anything in the call. Voice answers play out loud —
-                speaking over them stops the playback.
+                Ask anything about the call. Voice answers play aloud.
               </p>
-
               <div className="flex items-center gap-2">
                 <input
                   value={askText}
@@ -813,12 +942,12 @@ const AIPanel = ({
                     }
                   }}
                   placeholder="What's the status on Cassia?"
-                  className="flex-1 px-3 py-2.5 bg-[#0b0b10] border border-white/10 rounded-xl text-sm text-white outline-none focus:border-teal-500"
+                  className="flex-1 px-3 py-2.5 bg-[#0b0b10] border border-white/10 rounded-lg text-sm text-white outline-none focus:border-teal-500"
                 />
                 <button
                   onClick={onAskText}
                   disabled={askingText || !askText.trim()}
-                  className="w-11 h-11 rounded-xl flex items-center justify-center disabled:opacity-60"
+                  className="w-11 h-11 rounded-lg flex items-center justify-center disabled:opacity-60"
                   style={{ backgroundColor: brandColor }}
                 >
                   {askingText ? (
@@ -828,14 +957,13 @@ const AIPanel = ({
                   )}
                 </button>
               </div>
-
               <button
                 onMouseDown={onAskVoiceStart}
                 onMouseUp={onAskVoiceStop}
                 onTouchStart={onAskVoiceStart}
                 onTouchEnd={onAskVoiceStop}
                 disabled={askingVoice}
-                className={`w-full py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2 ${
+                className={`w-full py-2.5 rounded-lg text-sm font-medium flex items-center justify-center gap-2 ${
                   voiceRecording
                     ? 'bg-red-600 text-white'
                     : 'bg-white/10 hover:bg-white/15 text-white'
@@ -847,8 +975,7 @@ const AIPanel = ({
                   </>
                 ) : voiceRecording ? (
                   <>
-                    <FaCircle className="text-xs animate-pulse" /> Release to
-                    ask
+                    <FaCircle className="text-xs animate-pulse" /> Release to ask
                   </>
                 ) : (
                   <>
@@ -856,7 +983,6 @@ const AIPanel = ({
                   </>
                 )}
               </button>
-
               <div className="space-y-3 pt-2">
                 {exchanges.length === 0 && (
                   <p className="text-xs text-gray-500">
@@ -867,7 +993,7 @@ const AIPanel = ({
                   <div key={i} className="space-y-1">
                     <p className="text-xs text-gray-400">{x.question}</p>
                     <div
-                      className="rounded-xl px-3 py-2 text-sm text-gray-100"
+                      className="rounded-lg px-3 py-2 text-sm text-gray-100"
                       style={{ backgroundColor: `${brandColor}22` }}
                     >
                       {x.answer}
@@ -897,10 +1023,8 @@ const AIPanel = ({
                       }`}
                     >
                       <div
-                        className={`max-w-[80%] px-3 py-1.5 rounded-2xl ${
-                          mine
-                            ? 'text-white rounded-br-sm'
-                            : 'bg-white/10 text-gray-100 rounded-bl-sm'
+                        className={`max-w-[80%] px-3 py-1.5 rounded-xl ${
+                          mine ? 'text-white' : 'bg-white/10 text-gray-100'
                         }`}
                         style={mine ? { backgroundColor: brandColor } : undefined}
                       >
@@ -920,7 +1044,12 @@ const AIPanel = ({
         </div>
 
         {tab === 'chat' && (
-          <div className="border-t border-white/10 p-3 flex items-center gap-2 flex-shrink-0">
+          <div
+            className="border-t border-white/10 p-3 flex items-center gap-2 flex-shrink-0"
+            style={{
+              paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))',
+            }}
+          >
             <input
               value={chatText}
               onChange={(e) => setChatText(e.target.value)}
@@ -931,12 +1060,12 @@ const AIPanel = ({
                 }
               }}
               placeholder="Type a message…"
-              className="flex-1 px-3 py-2 bg-[#0b0b10] border border-white/10 rounded-xl text-sm text-white outline-none"
+              className="flex-1 px-3 py-2 bg-[#0b0b10] border border-white/10 rounded-lg text-sm text-white outline-none"
             />
             <button
               onClick={onSendChat}
               disabled={!chatText.trim()}
-              className="w-10 h-10 rounded-xl flex items-center justify-center disabled:opacity-60"
+              className="w-10 h-10 rounded-lg flex items-center justify-center disabled:opacity-60"
               style={{ backgroundColor: brandColor }}
             >
               <FaPaperPlane />
@@ -949,7 +1078,7 @@ const AIPanel = ({
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// In-call UI (must be inside <LiveKitRoom>)
+// In-call UI (inside <LiveKitRoom>)
 // ─────────────────────────────────────────────────────────────────────
 const CallStage = ({
   isVideo,
@@ -961,7 +1090,6 @@ const CallStage = ({
   call,
   onOpenInvite,
   onCopyLink,
-  // ── NEW: AI + meeting ──
   aiEnabled,
   aiStarting,
   onStartAI,
@@ -977,27 +1105,173 @@ const CallStage = ({
   dataSaver,
   onDataSaverChange,
   reactions,
+  onSinkIdChange,
 }) => {
   const participants = useParticipants();
   const cameraTracks = useTracks([Track.Source.Camera]);
+  const screenTracks = useTracks([Track.Source.ScreenShare]);
   const speaking = useSpeakingParticipants();
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled } =
     useLocalParticipant();
+  const room = useRoomContext();
 
   const [pinned, setPinned] = useState(null);
   const [lastSpeaker, setLastSpeaker] = useState(null);
   const [secs, setSecs] = useState(0);
   const [endMenuOpen, setEndMenuOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const [dataSaverOpen, setDataSaverOpen] = useState(false);
+  const [speakerOpen, setSpeakerOpen] = useState(false);
+  const [audioOutputs, setAudioOutputs] = useState([]);
+  const [currentSinkId, setCurrentSinkId] = useState('default');
+  const [flipping, setFlipping] = useState(false);
 
-  // ── AI STT (inside LiveKit) — pauses on mute ──
+  // Screen share state (reactive)
+  const localScreenShare = screenTracks.find(
+    (t) => t.participant.isLocal && !t.publication?.isMuted
+  );
+  const remoteScreenShare = screenTracks.find(
+    (t) => !t.participant.isLocal && !t.publication?.isMuted
+  );
+  const activeScreen = remoteScreenShare || localScreenShare;
+  const isSharingScreen = !!localScreenShare;
+
+  // Whether `setSinkId` is available at all
+  const sinkSupported =
+    typeof window !== 'undefined' &&
+    'setSinkId' in HTMLMediaElement.prototype;
+
+  // ── Enumerate audio output devices ──
+  const refreshOutputs = useCallback(async () => {
+    if (!sinkSupported || !navigator.mediaDevices?.enumerateDevices) return;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const outs = devices.filter((d) => d.kind === 'audiooutput');
+      setAudioOutputs(outs);
+      // Pick first as default if we haven't picked one
+      if (!currentSinkId || currentSinkId === 'default') {
+        const def =
+          outs.find((d) => d.deviceId === 'default') || outs[0] || null;
+        if (def) setCurrentSinkId(def.deviceId);
+      }
+    } catch (err) {
+      console.warn('[speaker] enumerate failed:', err);
+    }
+  }, [sinkSupported, currentSinkId]);
+
+  useEffect(() => {
+    refreshOutputs();
+    navigator.mediaDevices?.addEventListener?.('devicechange', refreshOutputs);
+    return () =>
+      navigator.mediaDevices?.removeEventListener?.(
+        'devicechange',
+        refreshOutputs
+      );
+  }, [refreshOutputs]);
+
+  // ── Change audio output ──
+  const handleChangeOutput = useCallback(
+    async (deviceId) => {
+      try {
+        if (room?.switchActiveDevice) {
+          await room.switchActiveDevice('audiooutput', deviceId);
+        } else {
+          // Fallback: set sink on rendered audio elements
+          const els = document.querySelectorAll('audio');
+          for (const el of els) {
+            try {
+              await el.setSinkId(deviceId);
+            } catch (e) {
+              /* ignore individual failures */
+            }
+          }
+        }
+        setCurrentSinkId(deviceId);
+        onSinkIdChange?.(deviceId);
+        toast.success('Audio output changed');
+      } catch (err) {
+        console.error('[speaker] switch failed:', err);
+        toast.error('Could not switch audio output.');
+      }
+    },
+    [room, onSinkIdChange]
+  );
+
+  // ── Camera flip (front/back) ──
+  const flipCamera = useCallback(async () => {
+    if (!localParticipant || !room || flipping) return;
+    setFlipping(true);
+    try {
+      const videoPub = localParticipant.getTrackPublication(Track.Source.Camera);
+      const track = videoPub?.videoTrack;
+      if (!track) {
+        toast.info('Turn your camera on first.');
+        return;
+      }
+      const settings = track.mediaStreamTrack?.getSettings?.() || {};
+      const currentFacing = settings.facingMode;
+
+      // Preferred: restart with opposite facingMode (mobile-friendly)
+      if (currentFacing) {
+        const nextFacing =
+          currentFacing === 'user' ? 'environment' : 'user';
+        try {
+          await track.restartTrack({ facingMode: nextFacing });
+          return;
+        } catch (e) {
+          console.warn('[flip] restartTrack failed, falling back:', e);
+        }
+      }
+
+      // Fallback: switch to next videoinput device
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cams = devices.filter((d) => d.kind === 'videoinput');
+      if (cams.length <= 1) {
+        toast.info('No other camera found.');
+        return;
+      }
+      const currentId = settings.deviceId;
+      const next = cams.find((c) => c.deviceId !== currentId) || cams[0];
+      await room.switchActiveDevice('videoinput', next.deviceId);
+    } catch (err) {
+      console.error('[flip] failed:', err);
+      toast.error('Could not switch camera.');
+    } finally {
+      setFlipping(false);
+    }
+  }, [localParticipant, room, flipping]);
+
+  // ── Screen share toggle ──
+  const toggleScreenShare = useCallback(async () => {
+    if (!localParticipant) return;
+    try {
+      await localParticipant.setScreenShareEnabled(!isSharingScreen, {
+        audio: true,
+        selfBrowserSurface: 'exclude',
+      });
+    } catch (err) {
+      if (err?.name === 'NotAllowedError') {
+        // user cancelled the picker — silent
+      } else if (
+        err?.name === 'NotSupportedError' ||
+        /not supported/i.test(err?.message || '')
+      ) {
+        toast.info('Screen sharing is not supported on this device.');
+      } else {
+        console.error('[screen] failed:', err);
+        toast.error('Could not share screen.');
+      }
+    }
+  }, [localParticipant, isSharingScreen]);
+
+  // ── AI STT ──
   useLiveTranscript({
     enabled: aiEnabled && isMicrophoneEnabled && transcriptSupported,
     onFinal: onTranscriptSegment,
   });
 
-  // ── Apply data saver to local publishing ──
+  // ── Apply data saver ──
   useEffect(() => {
     if (!localParticipant) return;
     try {
@@ -1057,6 +1331,56 @@ const CallStage = ({
 
   const handsUpCount = raisedHands?.length || 0;
 
+  // Build More menu items
+  const moreItems = [];
+  if (isVideo) {
+    moreItems.push({
+      label: isSharingScreen ? 'Stop share' : 'Share screen',
+      icon: <FaDesktop />,
+      active: isSharingScreen,
+      onClick: toggleScreenShare,
+    });
+  }
+  moreItems.push({
+    label: 'Audio output',
+    icon: <FaVolumeUp />,
+    onClick: () => {
+      refreshOutputs();
+      setSpeakerOpen(true);
+    },
+  });
+  moreItems.push({
+    label: handRaised ? 'Lower hand' : 'Raise hand',
+    icon: <FaHandPaper />,
+    active: handRaised,
+    onClick: onToggleHand,
+  });
+  moreItems.push({
+    label: 'React',
+    icon: <FaSmile />,
+    onClick: () => setReactionPickerOpen(true),
+  });
+  moreItems.push({
+    label: 'Data saver',
+    icon: <FaWifi />,
+    active: !!dataSaver?.enabled,
+    onClick: () => setDataSaverOpen(true),
+  });
+  if (call.meetingLink) {
+    moreItems.push({
+      label: 'Copy link',
+      icon: <FaLink />,
+      onClick: onCopyLink,
+    });
+  }
+  if (call.workspace) {
+    moreItems.push({
+      label: 'Invite',
+      icon: <FaUserPlus />,
+      onClick: onOpenInvite,
+    });
+  }
+
   return (
     <div className="h-dvh bg-[#0b0b10] text-white flex flex-col">
       <style>{`
@@ -1071,34 +1395,39 @@ const CallStage = ({
         className="px-4 py-3 flex items-center justify-between border-b border-white/10 gap-2"
         style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}
       >
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h3 className="text-base font-semibold truncate flex items-center gap-2">
             {call.isMeeting ? 'Meeting' : isVideo ? 'Video Call' : 'Voice Call'}
             {aiEnabled && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 flex items-center gap-1">
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 flex items-center gap-1">
                 <FaRobot /> AI
               </span>
             )}
+            {isSharingScreen && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-300 flex items-center gap-1">
+                <FaDesktop /> Sharing
+              </span>
+            )}
             {handsUpCount > 0 && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 flex items-center gap-1">
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 flex items-center gap-1">
                 <FaHandPaper /> {handsUpCount}
               </span>
             )}
           </h3>
-          <p className="text-xs text-gray-400">
-            {participants.length} participant{participants.length === 1 ? '' : 's'}
+          <p className="text-xs text-gray-400 truncate">
+            {participants.length} participant
+            {participants.length === 1 ? '' : 's'}
             {call.isMeeting && call.meetingCode && (
               <span className="ml-2 text-gray-500">· {call.meetingCode}</span>
             )}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          {/* AI toggle */}
           <button
             onClick={aiEnabled ? onStopAI : onStartAI}
             disabled={aiStarting}
             title={aiEnabled ? 'Stop AI notes' : 'Start AI notes'}
-            className={`h-9 px-3 rounded-full flex items-center justify-center gap-1.5 text-xs font-medium transition ${
+            className={`h-9 px-2.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-medium transition ${
               aiEnabled
                 ? 'bg-green-600 hover:bg-green-700'
                 : 'bg-white/10 hover:bg-white/20'
@@ -1113,25 +1442,6 @@ const CallStage = ({
               {aiEnabled ? 'Stop AI' : 'Start AI'}
             </span>
           </button>
-
-          {call.meetingLink && (
-            <button
-              onClick={onCopyLink}
-              className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
-              title="Copy meeting link"
-            >
-              <FaLink className="text-sm" />
-            </button>
-          )}
-          {call.workspace && (
-            <button
-              onClick={onOpenInvite}
-              className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
-              title="Invite by username"
-            >
-              <FaUserPlus className="text-sm" />
-            </button>
-          )}
           <span className="text-sm tabular-nums text-gray-300 ml-1">
             {formatClock(secs)}
           </span>
@@ -1139,7 +1449,7 @@ const CallStage = ({
       </div>
 
       {deviceError && (
-        <div className="mx-3 mt-3 flex items-center gap-2 rounded-xl bg-red-500/15 border border-red-500/30 px-3 py-2 text-sm text-red-300">
+        <div className="mx-3 mt-3 flex items-center gap-2 rounded-lg bg-red-500/15 border border-red-500/30 px-3 py-2 text-sm text-red-300">
           <FaExclamationTriangle className="flex-shrink-0" />
           <span>{deviceError}</span>
         </div>
@@ -1160,109 +1470,104 @@ const CallStage = ({
         ))}
       </div>
 
-      {/* Main tile */}
+      {/* Main tile — screen share takes priority */}
       <div className="flex-1 min-h-0 px-3 pb-3">
-        {mainP && (
+        {activeScreen ? (
+          <div className="relative w-full h-full rounded-2xl overflow-hidden bg-black">
+            <VideoTrack
+              trackRef={activeScreen}
+              className="w-full h-full object-contain"
+            />
+            <div className="absolute bottom-2 left-2 bg-black/70 rounded-md px-2 py-1 text-xs flex items-center gap-1.5">
+              <FaDesktop className="text-[10px]" />
+              {activeScreen.participant.isLocal
+                ? 'Your screen'
+                : `${getInfo(activeScreen.participant).name}'s screen`}
+            </div>
+          </div>
+        ) : mainP ? (
           <ParticipantCard
             participant={mainP}
             cameraRef={camRefFor(mainP)}
             variant="main"
             brandColor={brandColor}
           />
-        )}
+        ) : null}
       </div>
 
       <RoomAudioRenderer />
       <StartAudio
         label="Tap to enable audio"
-        className="fixed top-24 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-white text-gray-900 font-medium shadow-lg"
+        className="fixed top-24 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-white text-gray-900 font-medium shadow-lg"
       />
 
-      {/* Floating AI panel button */}
+      {/* Floating AI button */}
       <button
         onClick={onOpenAIPanel}
-        className="fixed bottom-28 right-4 z-[65] w-14 h-14 rounded-full flex items-center justify-center shadow-xl transition"
+        className="fixed bottom-24 right-3 z-[65] w-12 h-12 rounded-xl flex items-center justify-center shadow-xl transition active:scale-95"
         style={{ backgroundColor: brandColor }}
         title="Open AI panel"
       >
-        <FaRobot className="text-xl" />
+        <FaRobot className="text-lg" />
         {transcriptCount > 0 && (
-          <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold rounded-full min-w-[20px] h-5 px-1 flex items-center justify-center">
+          <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold rounded-md min-w-[18px] h-[18px] px-1 flex items-center justify-center">
             {transcriptCount > 99 ? '99+' : transcriptCount}
           </span>
         )}
       </button>
 
-      {/* Controls */}
+      {/* Primary control bar */}
       <div
-        className="px-4 py-4 bg-white/5 border-t border-white/10 flex items-center justify-center gap-3 relative"
-        style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
+        className="px-3 py-3 bg-white/5 border-t border-white/10 flex items-center justify-center gap-1.5 sm:gap-2"
+        style={{
+          paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))',
+        }}
       >
-        <button
+        <CtrlBtn
           onClick={toggleMic}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition ${
-            isMicrophoneEnabled ? 'bg-gray-600 hover:bg-gray-500' : 'bg-red-600'
-          }`}
-          aria-label={isMicrophoneEnabled ? 'Mute' : 'Unmute'}
+          label={isMicrophoneEnabled ? 'Mute' : 'Unmute'}
+          tone={isMicrophoneEnabled ? 'neutral' : 'danger'}
         >
           {isMicrophoneEnabled ? (
             <FaMicrophone className="text-lg" />
           ) : (
             <FaMicrophoneSlash className="text-lg" />
           )}
-        </button>
+        </CtrlBtn>
 
         {isVideo && (
-          <button
+          <CtrlBtn
             onClick={toggleCam}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition ${
-              isCameraEnabled ? 'bg-gray-600 hover:bg-gray-500' : 'bg-red-600'
-            }`}
-            aria-label={isCameraEnabled ? 'Turn camera off' : 'Turn camera on'}
+            label={isCameraEnabled ? 'Turn camera off' : 'Turn camera on'}
+            tone={isCameraEnabled ? 'neutral' : 'danger'}
           >
             {isCameraEnabled ? (
               <FaVideo className="text-lg" />
             ) : (
               <FaVideoSlash className="text-lg" />
             )}
-          </button>
+          </CtrlBtn>
         )}
 
-        {/* Raise hand */}
-        <button
-          onClick={onToggleHand}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition ${
-            handRaised ? 'bg-amber-500 text-black' : 'bg-gray-600 hover:bg-gray-500'
-          }`}
-          aria-label={handRaised ? 'Lower hand' : 'Raise hand'}
-          title={handRaised ? 'Lower hand' : 'Raise hand'}
-        >
-          <FaHandPaper className="text-lg" />
-        </button>
+        {/* Flip front/back camera — mobile only, video + cam on */}
+        {isVideo && isCameraEnabled && IS_TOUCH_DEVICE && (
+          <CtrlBtn
+            onClick={flipCamera}
+            label="Switch camera"
+            tone="neutral"
+            className={flipping ? 'opacity-60' : ''}
+          >
+            {flipping ? (
+              <FaSpinner className="animate-spin text-lg" />
+            ) : (
+              <FaSyncAlt className="text-lg" />
+            )}
+          </CtrlBtn>
+        )}
 
-        {/* Reactions */}
-        <button
-          onClick={() => setReactionPickerOpen((v) => !v)}
-          className="w-12 h-12 rounded-full bg-gray-600 hover:bg-gray-500 flex items-center justify-center transition"
-          aria-label="Send reaction"
-          title="React"
-        >
-          <FaSmile className="text-lg" />
-        </button>
-
-        {/* Data saver */}
-        <button
-          onClick={() => setDataSaverOpen((v) => !v)}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition ${
-            dataSaver?.enabled
-              ? 'bg-yellow-500 text-black'
-              : 'bg-gray-600 hover:bg-gray-500'
-          }`}
-          aria-label="Data saver"
-          title="Data saver"
-        >
-          <FaWifi className="text-lg" />
-        </button>
+        <CtrlBtn onClick={() => setMoreOpen(true)} label="More options">
+          <FaEllipsisH className="text-lg" />
+        </CtrlBtn>
 
         <button
           onClick={() => (showEndMenu ? setEndMenuOpen((v) => !v) : onHangUp())}
@@ -1272,55 +1577,73 @@ const CallStage = ({
               setEndMenuOpen(true);
             }
           }}
-          className="w-14 h-14 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center transition shadow-lg"
-          aria-label="Leave / End call"
+          className="h-11 sm:h-12 px-3 sm:px-5 ml-1 rounded-xl bg-red-600 hover:bg-red-700 flex items-center justify-center gap-2 transition text-white font-medium shadow-md"
+          aria-label="Leave call"
         >
-          <FaPhoneSlash className="text-xl" />
+          <FaPhoneSlash className="text-lg" />
+          <span className="hidden sm:inline text-sm">Leave</span>
         </button>
-
-        <ReactionPicker
-          open={reactionPickerOpen}
-          onClose={() => setReactionPickerOpen(false)}
-          onPick={onReact}
-        />
-
-        <DataSaverMenu
-          open={dataSaverOpen}
-          onClose={() => setDataSaverOpen(false)}
-          dataSaver={dataSaver}
-          onChange={onDataSaverChange}
-        />
-
-        {/* End-for-everyone dropdown (creator only) */}
-        {endMenuOpen && showEndMenu && (
-          <>
-            <div
-              className="fixed inset-0 z-[60]"
-              onClick={() => setEndMenuOpen(false)}
-            />
-            <div className="absolute bottom-24 z-[70] bg-[#1a1a24] border border-white/10 rounded-xl shadow-2xl overflow-hidden w-52">
-              <button
-                onClick={() => {
-                  setEndMenuOpen(false);
-                  onHangUp();
-                }}
-                className="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-white/5 flex items-center gap-2"
-              >
-                <FaSignOutAlt className="text-xs" /> Leave only
-              </button>
-              <button
-                onClick={() => {
-                  setEndMenuOpen(false);
-                  onEndForAll();
-                }}
-                className="w-full text-left px-4 py-3 text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2 border-t border-white/5"
-              >
-                <FaPhoneSlash className="text-xs" /> End for everyone
-              </button>
-            </div>
-          </>
-        )}
       </div>
+
+      {/* Overlays */}
+      <MoreMenu
+        open={moreOpen}
+        onClose={() => setMoreOpen(false)}
+        brandColor={brandColor}
+        items={moreItems}
+      />
+
+      <ReactionPicker
+        open={reactionPickerOpen}
+        onClose={() => setReactionPickerOpen(false)}
+        onPick={onReact}
+      />
+
+      <DataSaverMenu
+        open={dataSaverOpen}
+        onClose={() => setDataSaverOpen(false)}
+        dataSaver={dataSaver}
+        onChange={onDataSaverChange}
+      />
+
+      <SpeakerMenu
+        open={speakerOpen}
+        onClose={() => setSpeakerOpen(false)}
+        outputs={audioOutputs}
+        currentId={currentSinkId}
+        onSelect={handleChangeOutput}
+        supported={sinkSupported}
+      />
+
+      {/* End-for-everyone dropdown */}
+      {endMenuOpen && showEndMenu && (
+        <>
+          <div
+            className="fixed inset-0 z-[75]"
+            onClick={() => setEndMenuOpen(false)}
+          />
+          <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-[80] bg-[#1a1a24] border border-white/10 rounded-xl shadow-2xl overflow-hidden w-56">
+            <button
+              onClick={() => {
+                setEndMenuOpen(false);
+                onHangUp();
+              }}
+              className="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-white/5 flex items-center gap-2"
+            >
+              <FaSignOutAlt className="text-xs" /> Leave only
+            </button>
+            <button
+              onClick={() => {
+                setEndMenuOpen(false);
+                onEndForAll();
+              }}
+              className="w-full text-left px-4 py-3 text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2 border-t border-white/5"
+            >
+              <FaPhoneSlash className="text-xs" /> End for everyone
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 };
@@ -1336,11 +1659,10 @@ const WorkspaceCallScreen = () => {
   const socketContext = useSocket();
   const socket = socketContext?.socket;
 
-  const callId = params.callId || params.roomId; // backward compat
+  const callId = params.callId || params.roomId;
   const workspaceId = params.workspaceId || null;
   const myId = String(userInfo?._id || '');
 
-  // ─── Queries ────────────────────────────────────────────────
   const {
     data: callData,
     isLoading: callLoading,
@@ -1359,7 +1681,6 @@ const WorkspaceCallScreen = () => {
   const workspace = wData?.workspace || call?.workspace || null;
   const brandColor = workspace?.color || '#0d9488';
 
-  // ─── Mutations ──────────────────────────────────────────────
   const [getCallToken] = useGetCallTokenMutation();
   const [joinCall] = useJoinCallMutation();
   const [leaveCall] = useLeaveCallMutation();
@@ -1367,7 +1688,6 @@ const WorkspaceCallScreen = () => {
   const [rejectCall] = useRejectCallMutation();
   const [inviteByUsername] = useInviteByUsernameMutation();
 
-  // ─── AI mutations ───────────────────────────────────────────
   const [startCallAI] = useStartCallAIMutation();
   const [stopCallAI] = useStopCallAIMutation();
   const [finalizeCallNotes] = useFinalizeCallNotesMutation();
@@ -1379,7 +1699,6 @@ const WorkspaceCallScreen = () => {
   const [sendCallReaction] = useSendCallReactionMutation();
   const [updateCallDataSaver] = useUpdateCallDataSaverMutation();
 
-  // ─── Local state ────────────────────────────────────────────
   const [phase, setPhase] = useState('loading');
   const [errorMsg, setErrorMsg] = useState('');
   const [tokenData, setTokenData] = useState(null);
@@ -1391,7 +1710,6 @@ const WorkspaceCallScreen = () => {
   const [endConfirmOpen, setEndConfirmOpen] = useState(false);
   const [roomReady, setRoomReady] = useState(false);
 
-  // ─── AI state ───────────────────────────────────────────────
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiTab, setAiTab] = useState('summary');
   const [aiStarting, setAiStarting] = useState(false);
@@ -1409,23 +1727,18 @@ const WorkspaceCallScreen = () => {
   const [reactions, setReactions] = useState([]);
   const [noteReady, setNoteReady] = useState(null);
 
-  // Ask-AI state
   const [askText, setAskText] = useState('');
   const [askingText, setAskingText] = useState(false);
   const [askingVoice, setAskingVoice] = useState(false);
   const audioRef = useRef(null);
 
-  // Chat state
   const [chatText, setChatText] = useState('');
 
-  // Voice recorder for ask-AI
   const voiceRec = useVoiceRecorder();
 
   const leavingRef = useRef(false);
   const hasJoinedRef = useRef(false);
-  const permStartedRef = useRef(false);
 
-  // ─── My participant ─────────────────────────────────────────
   const myParticipant = useMemo(
     () => call?.participants?.find((p) => getUserId(p) === myId),
     [call, myId]
@@ -1434,7 +1747,6 @@ const WorkspaceCallScreen = () => {
   const wantsVideo = call?.type === 'video';
   const aiEnabled = !!call?.ai?.enabled;
 
-  // ─── Navigation helper ──────────────────────────────────────
   const goBack = useCallback(() => {
     if (workspaceId) {
       navigate(`/workspace/${workspaceId}/calls`, { replace: true });
@@ -1445,7 +1757,6 @@ const WorkspaceCallScreen = () => {
     }
   }, [navigate, workspaceId, location.key]);
 
-  // ─── Phase resolution from call + participant state ─────────
   useEffect(() => {
     if (!call) return;
     if (!myParticipant) {
@@ -1461,29 +1772,24 @@ const WorkspaceCallScreen = () => {
       setPhase('ended-for-you');
       return;
     }
-
     if (callIsOver) {
       setPhase('ended');
       return;
     }
-
     if (call.status === 'scheduled') {
       setPhase('can-join');
       return;
     }
-
     if (myStatus === 'accepted') {
       if (phase !== 'in-call' && phase !== 'joining') setPhase('joining');
       return;
     }
-
     if (['ringing', 'missed', 'pending'].includes(myStatus)) {
       if (phase !== 'in-call' && phase !== 'joining') setPhase('can-join');
       return;
     }
   }, [call, myParticipant, phase]);
 
-  // ─── Permission pre-flight ──────────────────────────────────
   const runPermissionCheck = useCallback(async () => {
     setPermState('checking');
     setPermError('');
@@ -1497,7 +1803,6 @@ const WorkspaceCallScreen = () => {
     return false;
   }, [wantsVideo]);
 
-  // ─── Token fetch + join ─────────────────────────────────────
   const doJoin = useCallback(
     async ({ markAccepted = false } = {}) => {
       if (hasJoinedRef.current) return;
@@ -1529,10 +1834,11 @@ const WorkspaceCallScreen = () => {
       try {
         const res = await getCallToken(callId).unwrap();
 
-        // ── Hydrate AI + meeting state from the token response ──
-        if (Array.isArray(res.recentTranscript)) setTranscript(res.recentTranscript);
+        if (Array.isArray(res.recentTranscript))
+          setTranscript(res.recentTranscript);
         if (res.liveSummary) setLiveSummary(res.liveSummary);
-        if (Array.isArray(res.recentMessages)) setInCallMessages(res.recentMessages);
+        if (Array.isArray(res.recentMessages))
+          setInCallMessages(res.recentMessages);
         if (Array.isArray(res.raisedHands)) {
           setRaisedHands(res.raisedHands);
           setHandRaised(res.raisedHands.some((h) => String(h.userId) === myId));
@@ -1560,7 +1866,6 @@ const WorkspaceCallScreen = () => {
     ]
   );
 
-  // Auto-join if already accepted
   useEffect(() => {
     if (
       phase === 'joining' &&
@@ -1571,7 +1876,6 @@ const WorkspaceCallScreen = () => {
     }
   }, [phase, tokenData, myParticipant, doJoin]);
 
-  // ─── Socket: room + all call events (basic + AI) ────────────
   useEffect(() => {
     if (!socket || !call?.roomId) return;
     const room = call.roomId;
@@ -1582,9 +1886,7 @@ const WorkspaceCallScreen = () => {
       setPhase('ended');
       refetchCall?.();
     };
-    const onParticipant = () => {
-      refetchCall?.();
-    };
+    const onParticipant = () => refetchCall?.();
     const onTranscript = ({ callId: cid, segments }) => {
       if (String(cid) !== String(callId)) return;
       setTranscript((prev) => [...prev, ...segments].slice(-500));
@@ -1651,17 +1953,12 @@ const WorkspaceCallScreen = () => {
     };
   }, [socket, call?.roomId, callId, workspaceId, refetchCall]);
 
-  // ─── Actions ────────────────────────────────────────────────
-  const handleAnswer = () => {
-    doJoin({ markAccepted: true });
-  };
+  const handleAnswer = () => doJoin({ markAccepted: true });
 
   const handleDecline = async () => {
     try {
       await rejectCall(callId).unwrap();
-    } catch {
-      /* ignore */
-    }
+    } catch {}
     goBack();
   };
 
@@ -1669,9 +1966,7 @@ const WorkspaceCallScreen = () => {
     leavingRef.current = true;
     try {
       await leaveCall(callId).unwrap();
-    } catch {
-      /* ignore */
-    }
+    } catch {}
     goBack();
   }, [callId, leaveCall, goBack]);
 
@@ -1679,9 +1974,7 @@ const WorkspaceCallScreen = () => {
     leavingRef.current = true;
     try {
       await endCall(callId).unwrap();
-    } catch {
-      /* ignore */
-    }
+    } catch {}
     goBack();
   }, [callId, endCall, goBack]);
 
@@ -1699,7 +1992,9 @@ const WorkspaceCallScreen = () => {
   const handleInvite = async (usernames) => {
     await inviteByUsername({ callId, usernames }).unwrap();
     toast.success(
-      `Invited ${usernames.length} ${usernames.length === 1 ? 'person' : 'people'}`
+      `Invited ${usernames.length} ${
+        usernames.length === 1 ? 'person' : 'people'
+      }`
     );
   };
 
@@ -1709,12 +2004,12 @@ const WorkspaceCallScreen = () => {
     toast.success('Link copied — share it to invite guests');
   };
 
-  // ─── AI handlers ────────────────────────────────────────────
   const handleStartAI = useCallback(async () => {
     if (aiStarting) return;
     setAiStarting(true);
     try {
-      const noteDestination = workspaceId || call?.workspace ? 'workspace' : 'personal';
+      const noteDestination =
+        workspaceId || call?.workspace ? 'workspace' : 'personal';
       await startCallAI({ callId, noteDestination }).unwrap();
       toast.success('AI notes started');
     } catch (err) {
@@ -1750,7 +2045,6 @@ const WorkspaceCallScreen = () => {
 
   const handleTranscriptSegment = useCallback(
     (text) => {
-      // Barge-in — user speech stops any playing TTS
       if (audioRef.current) {
         try {
           audioRef.current.pause();
@@ -1906,7 +2200,6 @@ const WorkspaceCallScreen = () => {
     }
   }, [noteReady, workspaceId, call?.workspace, navigate]);
 
-  // ─── Loading / error before phase resolution ────────────────
   if (!callId) {
     return (
       <FullScreen>
@@ -1914,7 +2207,7 @@ const WorkspaceCallScreen = () => {
         <p className="text-white text-base mb-4">Invalid call link.</p>
         <button
           onClick={goBack}
-          className="px-6 py-3 rounded-full text-white font-semibold"
+          className="px-6 py-3 rounded-lg text-white font-semibold"
           style={{ backgroundColor: brandColor }}
         >
           Go back
@@ -1941,7 +2234,7 @@ const WorkspaceCallScreen = () => {
         </p>
         <button
           onClick={goBack}
-          className="px-6 py-3 rounded-full text-white font-semibold"
+          className="px-6 py-3 rounded-lg text-white font-semibold"
           style={{ backgroundColor: brandColor }}
         >
           Go back
@@ -1950,9 +2243,6 @@ const WorkspaceCallScreen = () => {
     );
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // Phase: error
-  // ═══════════════════════════════════════════════════════════
   if (phase === 'error') {
     return (
       <FullScreen>
@@ -1960,7 +2250,7 @@ const WorkspaceCallScreen = () => {
         <p className="text-white text-base mb-4">{errorMsg}</p>
         <button
           onClick={goBack}
-          className="px-6 py-3 rounded-full text-white font-semibold"
+          className="px-6 py-3 rounded-lg text-white font-semibold"
           style={{ backgroundColor: brandColor }}
         >
           Go back
@@ -1969,9 +2259,6 @@ const WorkspaceCallScreen = () => {
     );
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // Phase: ended-for-you (rejected / left)
-  // ═══════════════════════════════════════════════════════════
   if (phase === 'ended-for-you') {
     const wasLeft = myParticipant?.status === 'left';
     return (
@@ -1988,7 +2275,7 @@ const WorkspaceCallScreen = () => {
         {noteReady?.noteId && (
           <button
             onClick={handleOpenNote}
-            className="mb-3 px-6 py-3 rounded-full font-semibold text-white flex items-center gap-2 mx-auto"
+            className="mb-3 px-6 py-3 rounded-lg font-semibold text-white flex items-center gap-2 mx-auto"
             style={{ backgroundColor: brandColor }}
           >
             <FaBookOpen /> View AI notes
@@ -1996,7 +2283,7 @@ const WorkspaceCallScreen = () => {
         )}
         <button
           onClick={goBack}
-          className="px-6 py-3 rounded-full font-semibold text-white transition"
+          className="px-6 py-3 rounded-lg font-semibold text-white transition"
           style={{ backgroundColor: brandColor }}
         >
           {workspaceId ? 'Back to calls' : 'Go back'}
@@ -2005,21 +2292,20 @@ const WorkspaceCallScreen = () => {
     );
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // Phase: ended (call itself is over)
-  // ═══════════════════════════════════════════════════════════
   if (phase === 'ended') {
     return (
       <FullScreen>
         <div className="text-6xl mb-6">📞</div>
         <h2 className="text-2xl font-bold mb-2">Call Ended</h2>
         <p className="text-gray-400 mb-6 text-sm">
-          {call?.type === 'video' ? 'Your video call has ended.' : 'Your voice call has ended.'}
+          {call?.type === 'video'
+            ? 'Your video call has ended.'
+            : 'Your voice call has ended.'}
         </p>
         {noteReady?.noteId && (
           <button
             onClick={handleOpenNote}
-            className="mb-3 px-6 py-3 rounded-full font-semibold text-white flex items-center gap-2 mx-auto"
+            className="mb-3 px-6 py-3 rounded-lg font-semibold text-white flex items-center gap-2 mx-auto"
             style={{ backgroundColor: brandColor }}
           >
             <FaBookOpen /> View AI notes
@@ -2027,7 +2313,7 @@ const WorkspaceCallScreen = () => {
         )}
         <button
           onClick={goBack}
-          className="px-6 py-3 rounded-full font-semibold text-white transition"
+          className="px-6 py-3 rounded-lg font-semibold text-white transition"
           style={{ backgroundColor: brandColor }}
         >
           {workspaceId ? 'Back to calls' : 'Go back'}
@@ -2036,9 +2322,6 @@ const WorkspaceCallScreen = () => {
     );
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // Phase: can-join (ringing / missed-but-ongoing / scheduled)
-  // ═══════════════════════════════════════════════════════════
   if (phase === 'can-join' || phase === 'joining') {
     const myStatus = myParticipant?.status;
     const isRinging = myStatus === 'ringing';
@@ -2069,7 +2352,7 @@ const WorkspaceCallScreen = () => {
         <div className="p-4 flex items-center justify-between border-b border-white/10">
           <button
             onClick={goBack}
-            className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center"
+            className="w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center"
           >
             <FaArrowLeft className="text-sm" />
           </button>
@@ -2094,7 +2377,10 @@ const WorkspaceCallScreen = () => {
               {others.slice(0, 4).map((p) => (
                 <Avatar
                   key={getUserId(p)}
-                  info={{ name: p.user?.name || '?', profile: p.user?.profile }}
+                  info={{
+                    name: p.user?.name || '?',
+                    profile: p.user?.profile,
+                  }}
                   size={72}
                   brandColor={brandColor}
                 />
@@ -2121,13 +2407,13 @@ const WorkspaceCallScreen = () => {
             )}
 
             {permState === 'denied' && (
-              <div className="mb-4 rounded-xl bg-red-500/15 border border-red-500/30 px-3 py-2 text-sm text-red-300">
+              <div className="mb-4 rounded-lg bg-red-500/15 border border-red-500/30 px-3 py-2 text-sm text-red-300">
                 {permError}
               </div>
             )}
 
             {errorMsg && (
-              <div className="mb-4 rounded-xl bg-amber-500/15 border border-amber-500/30 px-3 py-2 text-sm text-amber-300">
+              <div className="mb-4 rounded-lg bg-amber-500/15 border border-amber-500/30 px-3 py-2 text-sm text-amber-300">
                 {errorMsg}
               </div>
             )}
@@ -2136,7 +2422,7 @@ const WorkspaceCallScreen = () => {
               {isRinging && (
                 <button
                   onClick={handleDecline}
-                  className="w-16 h-16 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center transition shadow-lg"
+                  className="w-16 h-16 rounded-xl bg-red-600 hover:bg-red-700 flex items-center justify-center transition shadow-lg"
                   aria-label="Decline"
                 >
                   <FaPhoneSlash className="text-xl" />
@@ -2145,7 +2431,7 @@ const WorkspaceCallScreen = () => {
               <button
                 onClick={handleAnswer}
                 disabled={phase === 'joining'}
-                className="w-20 h-20 rounded-full flex items-center justify-center text-white shadow-lg transition hover:opacity-90 disabled:opacity-60"
+                className="w-20 h-20 rounded-xl flex items-center justify-center text-white shadow-lg transition hover:opacity-90 disabled:opacity-60"
                 style={{ backgroundColor: '#16a34a' }}
                 aria-label={isLateJoin ? 'Join' : 'Answer'}
               >
@@ -2171,9 +2457,6 @@ const WorkspaceCallScreen = () => {
     );
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // Phase: in-call (LiveKit connected)
-  // ═══════════════════════════════════════════════════════════
   if (phase === 'in-call' && tokenData && !connectionLost) {
     return (
       <>
@@ -2198,7 +2481,6 @@ const WorkspaceCallScreen = () => {
             onEndForAll={() => setEndConfirmOpen(true)}
             onOpenInvite={() => setInviteOpen(true)}
             onCopyLink={handleCopyLink}
-            // AI + meeting
             aiEnabled={aiEnabled}
             aiStarting={aiStarting}
             onStartAI={handleStartAI}
@@ -2267,15 +2549,16 @@ const WorkspaceCallScreen = () => {
               className="bg-[#14141a] border border-white/10 rounded-2xl max-w-sm w-full p-5 shadow-xl"
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 className="text-base font-bold text-white mb-2">End for everyone?</h3>
+              <h3 className="text-base font-bold text-white mb-2">
+                End for everyone?
+              </h3>
               <p className="text-xs text-gray-400 mb-5">
-                This will disconnect all participants from the call. It cannot be
-                undone.
+                This will disconnect all participants. It cannot be undone.
               </p>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => setEndConfirmOpen(false)}
-                  className="py-2.5 border border-white/15 rounded-xl text-sm text-gray-300 hover:bg-white/5"
+                  className="py-2.5 border border-white/15 rounded-lg text-sm text-gray-300 hover:bg-white/5"
                 >
                   Cancel
                 </button>
@@ -2284,7 +2567,7 @@ const WorkspaceCallScreen = () => {
                     setEndConfirmOpen(false);
                     handleEndForAll();
                   }}
-                  className="py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-medium"
+                  className="py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium"
                 >
                   End call
                 </button>
@@ -2296,16 +2579,13 @@ const WorkspaceCallScreen = () => {
     );
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // Phase: connection lost
-  // ═══════════════════════════════════════════════════════════
   if (connectionLost) {
     return (
       <FullScreen>
         <FaExclamationTriangle className="text-3xl text-amber-400 mb-3" />
         <h2 className="text-xl font-bold mb-2">Connection lost</h2>
         <p className="text-sm text-gray-400 mb-6 max-w-sm text-center">
-          We couldn’t reconnect to the call. Try again or leave.
+          We couldn't reconnect to the call. Try again or leave.
         </p>
         <div className="flex gap-3">
           <button
@@ -2316,14 +2596,14 @@ const WorkspaceCallScreen = () => {
               hasJoinedRef.current = false;
               doJoin({ markAccepted: false });
             }}
-            className="px-6 py-3 rounded-full font-semibold text-white"
+            className="px-6 py-3 rounded-lg font-semibold text-white"
             style={{ backgroundColor: brandColor }}
           >
             Reconnect
           </button>
           <button
             onClick={handleHangUp}
-            className="px-6 py-3 rounded-full font-semibold bg-red-600 hover:bg-red-700 text-white"
+            className="px-6 py-3 rounded-lg font-semibold bg-red-600 hover:bg-red-700 text-white"
           >
             Leave
           </button>
@@ -2340,9 +2620,6 @@ const WorkspaceCallScreen = () => {
   );
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// Utility
-// ─────────────────────────────────────────────────────────────────────
 const FullScreen = ({ children }) => (
   <div
     className="min-h-dvh bg-[#0b0b10] text-white flex flex-col items-center justify-center p-6"

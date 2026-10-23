@@ -70,7 +70,7 @@ const allowedOrigins = [
   'http://localhost',
   'https://localhost',
   'https://www.xircle.in',
-  'https://.xircle.in',
+  'https://xircle.in',
 ];
 
 app.use(cors({
