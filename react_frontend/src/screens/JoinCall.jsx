@@ -40,7 +40,27 @@ import { ensureCallPermissions } from '../utils/callPermissions';
 // ─────────────────────────────────────────────────────────────────────
 // Config
 // ─────────────────────────────────────────────────────────────────────
-const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/+$/, '');
+// Robust API_BASE builder to prevent missing /api prefix in production
+const RAW_API_URL = import.meta.env.VITE_API_URL;
+const API_BASE = (() => {
+  // 1. Not set → default to same-origin /api
+  if (!RAW_API_URL) return '/api';
+
+  // 2. Strip trailing slashes
+  const cleaned = String(RAW_API_URL).replace(/\/+$/, '');
+
+  // 3. If it ends up empty (e.g. VITE_API_URL was "/"), fall back
+  if (!cleaned) return '/api';
+
+  // 4. If it's just an origin (no /api suffix), append /api
+  //    e.g. "https://api.xircle.io" → "https://api.xircle.io/api"
+  if (/^https?:\/\//i.test(cleaned) && !/\/api$/.test(cleaned)) {
+    return `${cleaned}/api`;
+  }
+
+  return cleaned;
+})();
+
 const BRAND = '#0d9488';
 
 const ROOM_OPTIONS = {
