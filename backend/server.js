@@ -38,11 +38,17 @@ import {
 } from "./controllers/clockInController.js";
 import { sendDailyDigest } from "./controllers/todayController.js";
 
+// 👇 ADDED — triggers scheduled calls when their time arrives
+import { startCallScheduler } from "./controllers/callController.js";
+
 // 👇 Standalone cleanup script
 import {
   startClockOutPreviousDayScheduler,
   runClockOutPreviousDayForAllWorkspaces,
 } from "./scripts/clockOutPreviousDay.js";
+
+// 👇 ADDED — auto-ends calls that are stuck "ongoing"
+import { startCallCleanup } from "./services/callCleanupService.js";
 
 // 👇 ADDED — the model itself, for the /share/:link OG endpoint below
 import PersonalNote from "./models/personalNoteModel.js";
@@ -291,7 +297,13 @@ mongoose
     startClockOutPreviousDayScheduler();
     console.log('⏰ Previous-day cleanup scheduler started.');
 
-    // ─── 8. Monthly leaderboard email (1st of month, 9 AM) ───────────
+    // ─── 8. Call cleanup (ends calls left "ongoing" after everyone leaves) ──
+    startCallCleanup();
+
+    // ─── 9. Call scheduler (rings participants when a scheduled call is due) ──
+    startCallScheduler();
+
+    // ─── 10. Monthly leaderboard email (1st of month, 9 AM) ──────────
     cron.schedule('0 9 1 * *', async () => {
       console.log('📊 Running monthly leaderboard email job...');
       try {
@@ -303,7 +315,7 @@ mongoose
     });
     console.log('📊 Monthly leaderboard email cron scheduled (1st of month at 09:00).');
 
-    // ─── 9. Daily Today digest (7:00 AM every day) ───────────────────
+    // ─── 11. Daily Today digest (7:00 AM every day) ──────────────────
     cron.schedule('0 7 * * *', async () => {
       console.log('🌅 Running daily Today digest...');
       try {

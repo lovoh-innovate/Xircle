@@ -60,8 +60,16 @@ const callSchema = mongoose.Schema(
     },
     endedReason: {
       type: String,
-      enum: ['host-ended', 'everyone-left', 'timeout', 'cancelled', null],
+      enum: ['host-ended', 'everyone-left', 'timeout', 'cancelled', 'never-joined', null],
       default: null,          // used in call logs to show *why* a call ended
+    },
+
+    // ─── Live presence (maintained by callCleanupService) ─────
+    // everOccupied: someone has actually been seen inside the LiveKit room.
+    // emptySince:   when the room was first seen empty (null = not empty).
+    presence: {
+      everOccupied: { type: Boolean, default: false },
+      emptySince:   { type: Date, default: null },
     },
 
     // ─── Participants (registered users) ──────────────────────
