@@ -7,7 +7,7 @@ const callSchema = mongoose.Schema(
     workspace: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Workspace',
-      default: null,          // ← now optional: direct calls & meetings have no workspace
+      default: null,          // ← optional: direct calls & meetings have no workspace
       index: true,
     },
     creator: {
@@ -96,6 +96,122 @@ const callSchema = mongoose.Schema(
         leftAt:   { type: Date, default: null },
       },
     ],
+
+    // ═════════════════════════════════════════════════════════
+    // AI + LIVE NOTES
+    // ═════════════════════════════════════════════════════════
+
+    // Master AI state for this call. All AI features gate on `ai.enabled`.
+    ai: {
+      enabled: { type: Boolean, default: false },
+
+      // Who turned it on + when
+      startedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+      startedAt: { type: Date, default: null },
+      stoppedAt: { type: Date, default: null },
+
+      // Where the final generated note lands.
+      //   workspace → WorkspaceNote for call.workspace
+      //   personal  → PersonalNote owned by call.creator (used for
+      //               direct calls & meetings with no workspace)
+      //   none      → AI ran for live Q&A / summary but no final note
+      noteDestination: {
+        type: String,
+        enum: ['workspace', 'personal', 'none'],
+        default: 'none',
+      },
+
+      // Reference to the note that finalizeCallNotes() created
+      generatedNoteId: {
+        type: mongoose.Schema.Types.ObjectId,
+        default: null,
+        refPath: 'ai.generatedNoteKind', // 'WorkspaceNote' | 'PersonalNote'
+      },
+      generatedNoteKind: {
+        type: String,
+        enum: ['WorkspaceNote', 'PersonalNote', null],
+        default: null,
+      },
+
+      // Rolling summary bookkeeping (see callAIService.maybeRollingSummary)
+      lastSummarizedAt: { type: Date, default: null },
+      lastSummarizedSegmentIndex: { type: Number, default: 0 },
+    },
+
+    // ── Live transcript ────────────────────────────────────────
+    // Each entry is one short utterance, attributed to a speaker.
+    // Capped by the service to keep the doc under Mongo's 16 MB limit.
+    transcript: [
+      {
+        _id: false,
+        speakerId:   { type: String, default: null }, // userId OR guest identity
+        speakerName: { type: String, default: 'Someone' },
+        text:        { type: String, default: '' },
+        at:          { type: Date, default: Date.now },
+        isFinal:     { type: Boolean, default: true },
+      },
+    ],
+
+    // ── Rolling live summary (updated in-place by the service) ──
+    liveSummary: {
+      text:        { type: String, default: '' },
+      keyPoints:   { type: [String], default: [] },
+      actionItems: [
+        {
+          _id: false,
+          text:     { type: String, default: '' },
+          assignee: { type: String, default: null },
+          due:      { type: String, default: null },
+        },
+      ],
+      updatedAt: { type: Date, default: null },
+    },
+
+    // ── In-call chat (text fallback — bad network / noisy room) ──
+    inCallMessages: [
+      {
+        sender: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
+          default: null,       // null for 'system' or AI-answer messages
+        },
+        senderName: { type: String, default: 'Someone' },
+        content:    { type: String, default: '' },
+        kind: {
+          type: String,
+          enum: ['text', 'ai-question', 'ai-answer', 'system'],
+          default: 'text',
+        },
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+
+    // ── Meeting interactions ───────────────────────────────────
+    raisedHands: [
+      {
+        user:     { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+        raisedAt: { type: Date, default: Date.now },
+        loweredAt:{ type: Date, default: null },
+      },
+    ],
+    reactions: [
+      {
+        user:  { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+        emoji: { type: String, required: true },
+        at:    { type: Date, default: Date.now },
+      },
+    ],
+
+    // ── Data saver ─────────────────────────────────────────────
+    dataSaver: {
+      enabled:      { type: Boolean, default: false },
+      audioOnly:    { type: Boolean, default: false },
+      videoQuality: {
+        type: String,
+        enum: ['low', 'medium', 'high', 'auto'],
+        default: 'auto',
+      },
+    },
   },
   {
     timestamps: true,
@@ -127,6 +243,9 @@ callSchema.index({ 'participants.user': 1, status: 1, updatedAt: -1 });
 // Fast scheduler tick (find calls whose scheduledAt has passed)
 callSchema.index({ status: 1, scheduledAt: 1 });
 
+// AI: quickly find calls with AI enabled that still need a final note
+callSchema.index({ 'ai.enabled': 1, 'ai.generatedNoteId': 1 });
+
 // ─────────────────────────────────────────────────────────────
 // Virtuals
 // ─────────────────────────────────────────────────────────────
@@ -144,6 +263,11 @@ callSchema.virtual('activeParticipantCount').get(function () {
   ).length;
   const activeGuests = (this.guests || []).filter((g) => !g.leftAt).length;
   return accepted + activeGuests;
+});
+
+// Convenience: hands currently up (ignores lowered ones)
+callSchema.virtual('activeRaisedHands').get(function () {
+  return (this.raisedHands || []).filter((h) => !h.loweredAt);
 });
 
 export default mongoose.model('Call', callSchema);

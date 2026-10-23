@@ -15,7 +15,12 @@ import {
   useIsSpeaking,
   useIsMuted,
 } from '@livekit/components-react';
-import { Track, DisconnectReason, MediaDeviceFailure } from 'livekit-client';
+import {
+  Track,
+  DisconnectReason,
+  MediaDeviceFailure,
+  VideoQuality,
+} from 'livekit-client';
 import {
   FaPhone,
   FaVideo,
@@ -32,6 +37,17 @@ import {
   FaLock,
   FaUsers,
   FaCircle,
+  // ── AI additions ──
+  FaRobot,
+  FaBrain,
+  FaCommentDots,
+  FaLightbulb,
+  FaWifi,
+  FaBookOpen,
+  FaTimes,
+  FaHandPaper,
+  FaPaperPlane,
+  FaChevronDown,
 } from 'react-icons/fa';
 
 import { useJoinByMeetingCodeMutation } from '../slices/callApiSlice';
@@ -40,24 +56,14 @@ import { ensureCallPermissions } from '../utils/callPermissions';
 // ─────────────────────────────────────────────────────────────────────
 // Config
 // ─────────────────────────────────────────────────────────────────────
-// Robust API_BASE builder to prevent missing /api prefix in production
 const RAW_API_URL = import.meta.env.VITE_API_URL;
 const API_BASE = (() => {
-  // 1. Not set → default to same-origin /api
   if (!RAW_API_URL) return '/api';
-
-  // 2. Strip trailing slashes
   const cleaned = String(RAW_API_URL).replace(/\/+$/, '');
-
-  // 3. If it ends up empty (e.g. VITE_API_URL was "/"), fall back
   if (!cleaned) return '/api';
-
-  // 4. If it's just an origin (no /api suffix), append /api
-  //    e.g. "https://api.xircle.io" → "https://api.xircle.io/api"
   if (/^https?:\/\//i.test(cleaned) && !/\/api$/.test(cleaned)) {
     return `${cleaned}/api`;
   }
-
   return cleaned;
 })();
 
@@ -70,6 +76,8 @@ const ROOM_OPTIONS = {
     autoGainControl: true,
   },
 };
+
+const GUEST_STATE_POLL_MS = 15_000;
 
 // ─────────────────────────────────────────────────────────────────────
 // Helpers
@@ -136,7 +144,7 @@ const GlobalStyles = () => (
 );
 
 // ═════════════════════════════════════════════════════════════════════
-// Participant tile (shared for main + thumb)
+// Participant tile (shared for main + thumb) — unchanged
 // ═════════════════════════════════════════════════════════════════════
 const ParticipantTile = ({
   participant,
@@ -246,9 +254,278 @@ const ParticipantTile = ({
 };
 
 // ═════════════════════════════════════════════════════════════════════
-// Guest stage (must live inside <LiveKitRoom>)
+// ── NEW: Guest AI panel (read-only) ─────────────────────────────────
 // ═════════════════════════════════════════════════════════════════════
-const GuestCallStage = ({ isVideo, onHangUp, deviceError, code }) => {
+const GuestAIPanel = ({
+  open,
+  onClose,
+  tab,
+  setTab,
+  aiEnabled,
+  transcript,
+  liveSummary,
+  chatMessages,
+  noteReady,
+}) => {
+  if (!open) return null;
+
+  const tabs = [
+    { id: 'summary', label: 'Summary', icon: <FaBrain /> },
+    { id: 'transcript', label: 'Transcript', icon: <FaCommentDots /> },
+    { id: 'chat', label: 'Chat', icon: <FaLightbulb /> },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-[70] flex sm:items-stretch sm:justify-end">
+      <div className="flex-1 bg-black/40" onClick={onClose} />
+
+      <div className="w-full sm:w-[420px] h-[85dvh] sm:h-full bg-[#0f0f15] border-l border-white/10 flex flex-col sm:rounded-none rounded-t-2xl shadow-2xl overflow-hidden">
+        {/* Header */}
+        <div
+          className="flex items-center justify-between px-4 py-3 border-b border-white/10 flex-shrink-0"
+          style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}
+        >
+          <div className="flex items-center gap-2">
+            <FaRobot style={{ color: BRAND }} />
+            <h3 className="text-base font-semibold">Xircle AI</h3>
+            <span
+              className={`text-[10px] px-2 py-0.5 rounded-full ${
+                aiEnabled
+                  ? 'bg-green-500/20 text-green-400'
+                  : 'bg-gray-500/20 text-gray-400'
+              }`}
+            >
+              {aiEnabled ? 'LIVE' : 'OFF'}
+            </span>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 text-gray-400 hover:text-white rounded-lg"
+          >
+            <FaTimes />
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex border-b border-white/10 flex-shrink-0">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`flex-1 py-2.5 text-xs font-medium flex flex-col items-center gap-1 transition ${
+                tab === t.id
+                  ? 'text-white border-b-2'
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+              style={tab === t.id ? { borderBottomColor: BRAND } : undefined}
+            >
+              {t.icon}
+              <span>{t.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-4 py-3 join-scroll">
+          {tab === 'summary' && (
+            <div className="space-y-4">
+              {!aiEnabled && (
+                <div className="text-sm text-gray-400">
+                  The host hasn't turned on AI notes for this meeting.
+                </div>
+              )}
+              {aiEnabled && !liveSummary && (
+                <div className="text-sm text-gray-400 flex items-center gap-2">
+                  <FaSpinner className="animate-spin" />
+                  Listening for context…
+                </div>
+              )}
+              {liveSummary && (
+                <>
+                  {liveSummary.text && (
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-400 mb-1">
+                        Live summary
+                      </p>
+                      <p className="text-sm text-gray-200 whitespace-pre-wrap">
+                        {liveSummary.text}
+                      </p>
+                    </div>
+                  )}
+                  {liveSummary.keyPoints?.length > 0 && (
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-400 mb-1">
+                        Key points
+                      </p>
+                      <ul className="text-sm text-gray-200 list-disc pl-5 space-y-1">
+                        {liveSummary.keyPoints.map((k, i) => (
+                          <li key={i}>{k}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {liveSummary.actionItems?.length > 0 && (
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-400 mb-1">
+                        Action items
+                      </p>
+                      <ul className="text-sm text-gray-200 space-y-1">
+                        {liveSummary.actionItems.map((a, i) => (
+                          <li key={i} className="flex gap-2">
+                            <span style={{ color: BRAND }}>•</span>
+                            <span>
+                              {a.text}
+                              {a.assignee && (
+                                <span className="text-gray-400">
+                                  {' '}— {a.assignee}
+                                </span>
+                              )}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </>
+              )}
+              {noteReady?.noteId && (
+                <div className="rounded-xl bg-teal-500/10 border border-teal-500/30 px-3 py-2 text-xs text-teal-200">
+                  <FaBookOpen className="inline mr-1" />
+                  Notes were saved. Sign in to view them in your workspace.
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === 'transcript' && (
+            <div className="space-y-2">
+              {!aiEnabled && (
+                <div className="text-sm text-gray-400">
+                  AI notes are off for this meeting.
+                </div>
+              )}
+              {aiEnabled && transcript.length === 0 && (
+                <div className="text-sm text-gray-400">
+                  Waiting for the first words…
+                </div>
+              )}
+              {transcript.map((s, i) => (
+                <div key={i} className="text-sm">
+                  <span className="font-medium" style={{ color: BRAND }}>
+                    {s.speakerName || 'Someone'}:
+                  </span>{' '}
+                  <span className="text-gray-200">{s.text}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {tab === 'chat' && (
+            <div className="space-y-2">
+              {chatMessages.length === 0 && (
+                <p className="text-sm text-gray-500">No messages yet.</p>
+              )}
+              {chatMessages.map((m, i) => (
+                <div key={i} className="text-sm flex justify-start">
+                  <div className="max-w-[85%] px-3 py-1.5 rounded-2xl rounded-bl-sm bg-white/10 text-gray-100">
+                    {m.senderName && (
+                      <p className="text-[10px] text-gray-400 mb-0.5">
+                        {m.senderName}
+                      </p>
+                    )}
+                    {m.content}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Footer CTA — guests can't ask AI or chat */}
+        <div className="border-t border-white/10 p-3 flex-shrink-0">
+          <Link
+            to="/signup"
+            className="w-full py-2.5 rounded-xl text-white text-sm font-medium flex items-center justify-center gap-2 transition hover:opacity-90"
+            style={{ backgroundColor: BRAND }}
+          >
+            <FaRobot className="text-sm" />
+            Sign up to ask AI & chat
+          </Link>
+          <p className="text-[10px] text-gray-500 text-center mt-2">
+            Guests can view AI notes but need an account to interact.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// Data saver menu (client-side only for guests)
+// ─────────────────────────────────────────────────────────────────────
+const GuestDataSaverMenu = ({ open, onClose, dataSaver, onChange }) => {
+  if (!open) return null;
+  const qualities = [
+    { v: 'auto', label: 'Auto' },
+    { v: 'low', label: 'Low (data saver)' },
+    { v: 'medium', label: 'Medium' },
+    { v: 'high', label: 'High' },
+  ];
+  return (
+    <>
+      <div className="fixed inset-0 z-[68]" onClick={onClose} />
+      <div className="absolute bottom-24 right-4 z-[69] bg-[#1a1a24] border border-white/10 rounded-2xl shadow-2xl p-3 w-64">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-sm font-semibold">Data saver</p>
+          <FaWifi className="text-xs text-gray-400" />
+        </div>
+        <label className="flex items-center gap-2 py-1.5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={!!dataSaver.audioOnly}
+            onChange={(e) => onChange({ audioOnly: e.target.checked })}
+          />
+          <span className="text-sm">Audio only (no video)</span>
+        </label>
+        <div className="mt-2">
+          <p className="text-xs text-gray-400 mb-1">Video quality</p>
+          <div className="grid grid-cols-2 gap-1">
+            {qualities.map((q) => (
+              <button
+                key={q.v}
+                onClick={() => onChange({ videoQuality: q.v })}
+                className={`text-xs py-1.5 rounded-lg transition ${
+                  dataSaver.videoQuality === q.v
+                    ? 'bg-teal-600 text-white'
+                    : 'bg-white/5 text-gray-300 hover:bg-white/10'
+                }`}
+              >
+                {q.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
+// ═════════════════════════════════════════════════════════════════════
+// Guest stage (inside LiveKit) — extended with data saver + AI button
+// ═════════════════════════════════════════════════════════════════════
+const GuestCallStage = ({
+  isVideo,
+  onHangUp,
+  deviceError,
+  code,
+  // ── NEW ──
+  aiEnabled,
+  transcriptCount,
+  onOpenAIPanel,
+  raisedHands,
+  dataSaver,
+  onDataSaverChange,
+}) => {
   const participants = useParticipants();
   const cameraTracks = useTracks([Track.Source.Camera]);
   const speaking = useSpeakingParticipants();
@@ -258,6 +535,26 @@ const GuestCallStage = ({ isVideo, onHangUp, deviceError, code }) => {
   const [pinned, setPinned] = useState(null);
   const [lastSpeaker, setLastSpeaker] = useState(null);
   const [secs, setSecs] = useState(0);
+  const [dataSaverOpen, setDataSaverOpen] = useState(false);
+
+  // Apply data saver to local publishing
+  useEffect(() => {
+    if (!localParticipant) return;
+    try {
+      if (dataSaver?.audioOnly && isCameraEnabled) {
+        localParticipant.setCameraEnabled(false).catch(() => {});
+      }
+      if (dataSaver?.videoQuality === 'low') {
+        localParticipant.setVideoQuality?.(VideoQuality.LOW);
+      } else if (dataSaver?.videoQuality === 'medium') {
+        localParticipant.setVideoQuality?.(VideoQuality.MEDIUM);
+      } else if (dataSaver?.videoQuality === 'high') {
+        localParticipant.setVideoQuality?.(VideoQuality.HIGH);
+      }
+    } catch (err) {
+      console.warn('[guest][dataSaver] apply failed:', err);
+    }
+  }, [dataSaver, localParticipant, isCameraEnabled]);
 
   useEffect(() => {
     const t = setInterval(() => setSecs((s) => s + 1), 1000);
@@ -295,6 +592,8 @@ const GuestCallStage = ({ isVideo, onHangUp, deviceError, code }) => {
     }
   };
 
+  const handsUpCount = raisedHands?.length || 0;
+
   return (
     <div className="h-dvh bg-[#0b0b10] text-white flex flex-col">
       {/* Header */}
@@ -303,8 +602,18 @@ const GuestCallStage = ({ isVideo, onHangUp, deviceError, code }) => {
         style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}
       >
         <div className="min-w-0">
-          <h3 className="text-base font-semibold truncate">
+          <h3 className="text-base font-semibold truncate flex items-center gap-2">
             {isVideo ? 'Video Meeting' : 'Voice Meeting'}
+            {aiEnabled && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 flex items-center gap-1">
+                <FaRobot /> AI
+              </span>
+            )}
+            {handsUpCount > 0 && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 flex items-center gap-1">
+                <FaHandPaper /> {handsUpCount}
+              </span>
+            )}
           </h3>
           <p className="text-xs text-gray-400">
             {participants.length} participant{participants.length === 1 ? '' : 's'}
@@ -352,55 +661,91 @@ const GuestCallStage = ({ isVideo, onHangUp, deviceError, code }) => {
         className="fixed top-24 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-white text-gray-900 font-medium shadow-lg"
       />
 
+      {/* Floating AI panel button */}
+      <button
+        onClick={onOpenAIPanel}
+        className="fixed bottom-28 right-4 z-[65] w-14 h-14 rounded-full flex items-center justify-center shadow-xl transition"
+        style={{ backgroundColor: BRAND }}
+        title="Open AI notes"
+      >
+        <FaRobot className="text-xl" />
+        {transcriptCount > 0 && (
+          <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold rounded-full min-w-[20px] h-5 px-1 flex items-center justify-center">
+            {transcriptCount > 99 ? '99+' : transcriptCount}
+          </span>
+        )}
+      </button>
+
       {/* Controls */}
       <div
-        className="px-4 py-4 bg-white/5 border-t border-white/10 flex items-center justify-center gap-4"
+        className="px-4 py-4 bg-white/5 border-t border-white/10 flex items-center justify-center gap-3 relative"
         style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
       >
         <button
           onClick={toggleMic}
-          className={`w-14 h-14 rounded-full flex items-center justify-center transition ${
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition ${
             isMicrophoneEnabled ? 'bg-gray-600 hover:bg-gray-500' : 'bg-red-600'
           }`}
           aria-label={isMicrophoneEnabled ? 'Mute' : 'Unmute'}
         >
           {isMicrophoneEnabled ? (
-            <FaMicrophone className="text-xl" />
+            <FaMicrophone className="text-lg" />
           ) : (
-            <FaMicrophoneSlash className="text-xl" />
+            <FaMicrophoneSlash className="text-lg" />
           )}
         </button>
 
         {isVideo && (
           <button
             onClick={toggleCam}
-            className={`w-14 h-14 rounded-full flex items-center justify-center transition ${
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition ${
               isCameraEnabled ? 'bg-gray-600 hover:bg-gray-500' : 'bg-red-600'
             }`}
             aria-label={isCameraEnabled ? 'Camera off' : 'Camera on'}
           >
             {isCameraEnabled ? (
-              <FaVideo className="text-xl" />
+              <FaVideo className="text-lg" />
             ) : (
-              <FaVideoSlash className="text-xl" />
+              <FaVideoSlash className="text-lg" />
             )}
           </button>
         )}
 
+        {/* Data saver */}
+        <button
+          onClick={() => setDataSaverOpen((v) => !v)}
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition ${
+            dataSaver?.enabled || dataSaver?.videoQuality !== 'auto'
+              ? 'bg-yellow-500 text-black'
+              : 'bg-gray-600 hover:bg-gray-500'
+          }`}
+          aria-label="Data saver"
+          title="Data saver"
+        >
+          <FaWifi className="text-lg" />
+        </button>
+
         <button
           onClick={onHangUp}
-          className="w-16 h-16 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center transition shadow-lg"
+          className="w-14 h-14 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center transition shadow-lg"
           aria-label="Leave call"
         >
-          <FaPhoneSlash className="text-2xl" />
+          <FaPhoneSlash className="text-xl" />
         </button>
+
+        <GuestDataSaverMenu
+          open={dataSaverOpen}
+          onClose={() => setDataSaverOpen(false)}
+          dataSaver={dataSaver}
+          onChange={onDataSaverChange}
+        />
       </div>
     </div>
   );
 };
 
 // ═════════════════════════════════════════════════════════════════════
-// Full-screen shell
+// Full-screen shell — unchanged
 // ═════════════════════════════════════════════════════════════════════
 const Shell = ({ children }) => (
   <div
@@ -425,7 +770,6 @@ const JoinCall = () => {
 
   const [joinByCode] = useJoinByMeetingCodeMutation();
 
-  // phases: loading | need-name | permission-denied | connecting | in-call | ended | error
   const [phase, setPhase] = useState('loading');
   const [errorMsg, setErrorMsg] = useState('');
   const [permError, setPermError] = useState('');
@@ -434,6 +778,23 @@ const JoinCall = () => {
   const [name, setName] = useState('');
   const [guestTokenData, setGuestTokenData] = useState(null);
   const [callType, setCallType] = useState('video');
+
+  // ─── AI state (populated on join + refreshed via polling) ──
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [transcript, setTranscript] = useState([]);
+  const [liveSummary, setLiveSummary] = useState(null);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [raisedHands, setRaisedHands] = useState([]);
+  const [noteReady, setNoteReady] = useState(null);
+  const [dataSaver, setDataSaver] = useState({
+    enabled: false,
+    audioOnly: false,
+    videoQuality: 'auto',
+  });
+
+  // AI panel
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiTab, setAiTab] = useState('summary');
 
   const leavingRef = useRef(false);
 
@@ -462,7 +823,7 @@ const JoinCall = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code, isLoggedIn]);
 
-  // ─── Fetch guest token (public endpoint — no auth) ────────
+  // ─── Fetch guest token (creates guest record — one-time) ──
   const fetchGuestToken = async (guestName) => {
     const url = `${API_BASE}/calls/guest-token/${encodeURIComponent(code.trim())}`;
     const res = await fetch(url, {
@@ -490,7 +851,20 @@ const JoinCall = () => {
       setGuestTokenData(data);
       setCallType(data.type || 'video');
 
-      // Pre-check mic permission (video is best-effort via LiveKit)
+      // Hydrate AI state from the token response
+      if (data.ai?.enabled) setAiEnabled(true);
+      if (Array.isArray(data.recentTranscript)) setTranscript(data.recentTranscript);
+      if (data.liveSummary) setLiveSummary(data.liveSummary);
+      if (Array.isArray(data.recentMessages)) setChatMessages(data.recentMessages);
+      if (Array.isArray(data.raisedHands)) setRaisedHands(data.raisedHands);
+      if (data.ai?.generatedNoteId) {
+        setNoteReady({
+          noteId: data.ai.generatedNoteId,
+          kind: data.ai.generatedNoteKind,
+        });
+      }
+      if (data.dataSaver) setDataSaver(data.dataSaver);
+
       const perm = await ensureCallPermissions(false);
       if (!perm.ok) {
         setPermError(perm.message || 'Microphone permission is required.');
@@ -504,6 +878,54 @@ const JoinCall = () => {
       setErrorMsg(err.message || 'Failed to join meeting.');
     }
   };
+
+  // ─── Poll public state every 15s (while in-call) ──────────
+  useEffect(() => {
+    if (phase !== 'in-call' || !code) return;
+    let cancelled = false;
+
+    const fetchState = async () => {
+      try {
+        const url = `${API_BASE}/calls/public/${encodeURIComponent(code.trim())}/state`;
+        const res = await fetch(url);
+        if (cancelled) return;
+        if (res.status === 404) {
+          setPhase('ended');
+          return;
+        }
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled || !data.success) return;
+
+        setAiEnabled(!!data.ai?.enabled);
+        if (Array.isArray(data.recentTranscript)) setTranscript(data.recentTranscript);
+        setLiveSummary(data.liveSummary || null);
+        if (Array.isArray(data.recentMessages)) setChatMessages(data.recentMessages);
+        if (Array.isArray(data.raisedHands)) setRaisedHands(data.raisedHands);
+        if (data.ai?.generatedNoteId) {
+          setNoteReady({
+            noteId: data.ai.generatedNoteId,
+            kind: data.ai.generatedNoteKind,
+          });
+        }
+      } catch {
+        // ignore network blips
+      }
+    };
+
+    fetchState();
+    const timer = setInterval(fetchState, GUEST_STATE_POLL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [phase, code]);
+
+  // ─── Client-side data saver (no backend call — guests can't auth) ──
+  const handleDataSaverChange = useCallback((patch) => {
+    setDataSaver((prev) => ({ ...prev, ...patch }));
+  }, []);
 
   // ─── Retry permission (token already cached) ──────────────
   const retryPermission = async () => {
@@ -551,7 +973,7 @@ const JoinCall = () => {
   }
 
   // ═══════════════════════════════════════════════════════════
-  // Phase: connecting (logged-in auto-join, or guest awaiting token)
+  // Phase: connecting
   // ═══════════════════════════════════════════════════════════
   if (phase === 'connecting') {
     return (
@@ -647,7 +1069,6 @@ const JoinCall = () => {
         <GlobalStyles />
         <Shell>
           <div className="w-full max-w-sm">
-            {/* Header */}
             <div className="text-center mb-6">
               <div
                 className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center shadow-lg"
@@ -661,7 +1082,6 @@ const JoinCall = () => {
               </p>
             </div>
 
-            {/* Code chip */}
             <div className="flex items-center justify-center mb-6">
               <div className="inline-flex items-center gap-2 bg-white/5 border border-white/10 rounded-full px-3 py-1.5 text-xs">
                 <FaLink className="text-[10px] text-gray-400" />
@@ -669,7 +1089,6 @@ const JoinCall = () => {
               </div>
             </div>
 
-            {/* Form */}
             <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-5">
               <label className="block text-xs font-medium text-gray-300 mb-2">
                 Your name
@@ -705,11 +1124,13 @@ const JoinCall = () => {
               </button>
             </div>
 
-            {/* Bottom links */}
             <div className="mt-6 text-center space-y-3">
               <p className="text-xs text-gray-500">
                 Already have a Xircle account?{' '}
-                <Link to="/login" className="text-teal-400 hover:text-teal-300 font-medium">
+                <Link
+                  to="/login"
+                  className="text-teal-400 hover:text-teal-300 font-medium"
+                >
                   Sign in
                 </Link>
               </p>
@@ -745,14 +1166,32 @@ const JoinCall = () => {
             onHangUp={handleHangUp}
             deviceError={deviceError}
             code={code}
+            aiEnabled={aiEnabled}
+            transcriptCount={transcript.length}
+            onOpenAIPanel={() => setAiPanelOpen(true)}
+            raisedHands={raisedHands}
+            dataSaver={dataSaver}
+            onDataSaverChange={handleDataSaverChange}
           />
         </LiveKitRoom>
+
+        <GuestAIPanel
+          open={aiPanelOpen}
+          onClose={() => setAiPanelOpen(false)}
+          tab={aiTab}
+          setTab={setAiTab}
+          aiEnabled={aiEnabled}
+          transcript={transcript}
+          liveSummary={liveSummary}
+          chatMessages={chatMessages}
+          noteReady={noteReady}
+        />
       </>
     );
   }
 
   // ═══════════════════════════════════════════════════════════
-  // Phase: connection lost (rare — LiveKit gave up)
+  // Phase: connection lost
   // ═══════════════════════════════════════════════════════════
   if (connectionLost) {
     return (

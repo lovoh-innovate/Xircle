@@ -24,6 +24,133 @@ const buildToken = async ({ identity, name, metadata }) => {
 };
 
 // ─────────────────────────────────────────────────────────────
+// Shared state builder — the client hydrates its entire call UI
+// from this payload on join (no second round-trip needed).
+// ─────────────────────────────────────────────────────────────
+const buildCallState = (call, { qualityOverride } = {}) => {
+  // ── Data saver ────────────────────────────────────────────
+  // NOTE: `call.dataSaver` is the last value written on the call.
+  // For strict per-user prefs, store them on the User model or in
+  // the client — this field is a shared "current room setting".
+  let dataSaver = call.dataSaver
+    ? {
+        enabled: !!call.dataSaver.enabled,
+        audioOnly: !!call.dataSaver.audioOnly,
+        videoQuality: call.dataSaver.videoQuality || 'auto',
+      }
+    : { enabled: false, audioOnly: false, videoQuality: 'auto' };
+
+  // Query override — e.g. ?quality=low to force low bandwidth on this join
+  if (['low', 'medium', 'high'].includes(qualityOverride)) {
+    dataSaver = {
+      ...dataSaver,
+      enabled: true,
+      videoQuality: qualityOverride,
+    };
+  }
+
+  // ── AI / live-notes hints ─────────────────────────────────
+  const transcriptArr = Array.isArray(call.transcript) ? call.transcript : [];
+  const messagesArr = Array.isArray(call.inCallMessages) ? call.inCallMessages : [];
+  const handsArr = Array.isArray(call.raisedHands) ? call.raisedHands : [];
+
+  const ai = {
+    enabled: !!call.ai?.enabled,
+    noteDestination: call.ai?.noteDestination || null,
+    startedAt: call.ai?.startedAt || null,
+    stoppedAt: call.ai?.stoppedAt || null,
+    transcriptCount: transcriptArr.length,
+    summaryUpdatedAt: call.liveSummary?.updatedAt || null,
+    // Present only after finalization — lets the UI deep-link
+    // straight to the generated note when a user rejoins.
+    generatedNoteId: call.ai?.generatedNoteId ? String(call.ai.generatedNoteId) : null,
+    generatedNoteKind: call.ai?.generatedNoteKind || null,
+  };
+
+  const liveSummary = call.liveSummary?.updatedAt
+    ? {
+        text: call.liveSummary.text || '',
+        keyPoints: Array.isArray(call.liveSummary.keyPoints)
+          ? call.liveSummary.keyPoints
+          : [],
+        actionItems: Array.isArray(call.liveSummary.actionItems)
+          ? call.liveSummary.actionItems
+          : [],
+        updatedAt: call.liveSummary.updatedAt,
+      }
+    : null;
+
+  // Last 100 transcript turns — enough to rebuild the transcript panel
+  // on rejoin without shipping the whole doc.
+  const recentTranscript = transcriptArr.slice(-100).map((s) => ({
+    speakerId: s.speakerId,
+    speakerName: s.speakerName,
+    text: s.text,
+    at: s.at,
+  }));
+
+  // Last 50 in-call chat messages — hydrated into the chat panel
+  const recentMessages = messagesArr.slice(-50).map((m) => ({
+    sender: m.sender ? String(m.sender) : null,
+    senderName: m.senderName,
+    content: m.content,
+    kind: m.kind,
+    createdAt: m.createdAt,
+  }));
+
+  // Only currently-raised hands (lowered ones are ignored)
+  const raisedHands = handsArr
+    .filter((h) => !h.loweredAt)
+    .map((h) => ({
+      userId: String(h.user),
+      raisedAt: h.raisedAt,
+    }));
+
+  // Lightweight participants — no emails, no profiles.
+  // Detailed user data lives on the call detail endpoint.
+  const participants = (call.participants || []).map((p) => ({
+    userId: String(p.user),
+    status: p.status,
+    joinedAt: p.joinedAt,
+    leftAt: p.leftAt,
+  }));
+
+  const guests = (call.guests || []).map((g) => ({
+    identity: g.identity,
+    name: g.name,
+    joinedAt: g.joinedAt,
+    leftAt: g.leftAt,
+  }));
+
+  const durationSec = call.startedAt
+    ? Math.floor(
+        ((call.endedAt ? new Date(call.endedAt) : Date.now()) -
+          new Date(call.startedAt).getTime()) /
+          1000
+      )
+    : 0;
+
+  return {
+    isMeeting: !!call.isMeeting,
+    isDirect: !!call.isDirect,
+    workspaceId: call.workspace ? String(call.workspace) : null,
+    meetingCode: call.meetingCode || null,
+    meetingLink: call.meetingLink || null,
+    creatorId: call.creator ? String(call.creator) : null,
+    startedAt: call.startedAt || null,
+    durationSec,
+    dataSaver,
+    ai,
+    liveSummary,
+    recentTranscript,
+    recentMessages,
+    raisedHands,
+    participants,
+    guests,
+  };
+};
+
+// ─────────────────────────────────────────────────────────────
 // Logged-in users: POST /api/calls/:callId/token
 // ─────────────────────────────────────────────────────────────
 const getCallToken = asyncHandler(async (req, res) => {
@@ -62,9 +189,17 @@ const getCallToken = asyncHandler(async (req, res) => {
     name: user?.name || 'User',
     metadata: { username: user?.username || '', profile, isGuest: false },
   });
-  at.addGrant({ roomJoin: true, room: call.roomId, canPublish: true, canSubscribe: true });
+  at.addGrant({
+    roomJoin: true,
+    room: call.roomId,
+    canPublish: true,
+    canSubscribe: true,
+  });
 
   const token = await at.toJwt();
+
+  const qualityOverride = String(req.query.quality || '').toLowerCase();
+  const state = buildCallState(call, { qualityOverride });
 
   res.status(200).json({
     success: true,
@@ -73,6 +208,9 @@ const getCallToken = asyncHandler(async (req, res) => {
     roomId: call.roomId,
     callId: call._id,
     type: call.type,
+    isGuest: false,
+    // Everything the client needs to hydrate the call UI in one shot
+    ...state,
   });
 });
 
@@ -115,7 +253,12 @@ const getGuestCallToken = asyncHandler(async (req, res) => {
     name: displayName,
     metadata: { isGuest: true },
   });
-  at.addGrant({ roomJoin: true, room: call.roomId, canPublish: true, canSubscribe: true });
+  at.addGrant({
+    roomJoin: true,
+    room: call.roomId,
+    canPublish: true,
+    canSubscribe: true,
+  });
 
   const token = await at.toJwt();
 
@@ -132,6 +275,11 @@ const getGuestCallToken = asyncHandler(async (req, res) => {
     console.error('guest-join socket emit:', err.message);
   }
 
+  const qualityOverride = String(req.query.quality || '').toLowerCase();
+  const state = buildCallState(call, { qualityOverride });
+
+  // Guests can SEE the transcript + summary if AI is on, but the client
+  // is expected to hide the "Ask AI" button (no account = no ask access).
   res.status(200).json({
     success: true,
     token,
@@ -139,8 +287,10 @@ const getGuestCallToken = asyncHandler(async (req, res) => {
     roomId: call.roomId,
     callId: call._id,
     type: call.type,
-    guestName: displayName,
     isGuest: true,
+    guestName: displayName,
+    guestId,
+    ...state,
   });
 });
 

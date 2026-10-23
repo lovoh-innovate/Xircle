@@ -755,4 +755,246 @@ ${content}
   return callGroq({ system: COMPLETE_SYSTEM, user, temperature: 0.6 });
 }
 
+// ═════════════════════════════════════════════════════════════════════
+// LIVE CALL AI
+// ═════════════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────────────────
+// 7. GENERATE CALL NOTES  (rolling + final)
+// ─────────────────────────────────────────────────────────────────────
+const CALL_NOTES_SYSTEM = `
+You are a professional AI meeting scribe.
+
+Given a transcript, produce STRUCTURED notes.
+
+RULES:
+1. Only use facts present in the transcript. NEVER invent.
+2. Attribute statements to real speakers when possible — use their names.
+3. Do not include filler, small talk, or repeated lines.
+4. If mode is "rolling", prioritize what is NEW or CHANGED in the recent
+   transcript window. Keep it compact so the UI can update live.
+5. If mode is "final", produce a polished, complete summary of the call.
+6. "summary": 2-4 short paragraphs, plain English, no fluff. Separate with
+   \\n\\n. Never use markdown headings.
+7. "keyPoints": 3-10 bullets, one line each.
+8. "actionItems": only clear commitments (someone explicitly said they
+   would do something). If nobody committed, return [].
+9. "decisions": only explicit decisions the group agreed on.
+10. "topics": 3-8 short keywords.
+11. "title": short (< 70 chars), descriptive of what was discussed.
+    Not "Team meeting" — something like "Cassia launch blockers & QA".
+
+Return STRICT JSON only:
+
+{
+  "title": "string",
+  "summary": "string",
+  "keyPoints": ["string"],
+  "actionItems": [
+    { "text": "string", "assignee": "string|null", "due": "string|null" }
+  ],
+  "decisions": ["string"],
+  "topics": ["string"]
+}
+`.trim();
+
+/**
+ * Generate notes from a call transcript.
+ *
+ * @param {Object}   opts
+ * @param {Array}    opts.transcript      Array of { speakerName, text, at? }
+ * @param {string}   opts.callType        'voice' | 'video'
+ * @param {Array}    opts.participants    Array of { user: { name } } or { name }
+ * @param {'rolling'|'final'} [opts.mode]
+ * @returns {Promise<{
+ *   title: string,
+ *   summary: string,
+ *   keyPoints: string[],
+ *   actionItems: { text: string, assignee: string|null, due: string|null }[],
+ *   decisions: string[],
+ *   topics: string[]
+ * }>}
+ */
+export async function generateCallNotes({
+  transcript,
+  callType,
+  participants,
+  mode = 'final',
+}) {
+  if (!Array.isArray(transcript) || transcript.length === 0) {
+    return {
+      title: '',
+      summary: '',
+      keyPoints: [],
+      actionItems: [],
+      decisions: [],
+      topics: [],
+    };
+  }
+
+  // ── Shape transcript to a compact text block ──
+  // Rolling = last 100 turns (fresh context only)
+  // Final   = last 600 turns, capped at 40k chars
+  const window =
+    mode === 'rolling' ? transcript.slice(-100) : transcript.slice(-600);
+
+  const lines = window
+    .map((s) => {
+      const who = String(s.speakerName || s.speaker || 'Speaker').slice(0, 60);
+      const what = String(s.text || '').trim();
+      return what ? `${who}: ${what}` : '';
+    })
+    .filter(Boolean)
+    .join('\n')
+    .slice(0, 40000);
+
+  const names = (participants || [])
+    .map((p) => p?.user?.name || p?.name)
+    .filter(Boolean)
+    .slice(0, 30)
+    .join(', ');
+
+  const user = `
+CALL TYPE: ${callType}
+MODE: ${mode}
+PARTICIPANTS: ${names || '(unknown)'}
+
+TRANSCRIPT:
+${lines}
+`.trim();
+
+  const result = await callGroq({
+    system: CALL_NOTES_SYSTEM,
+    user,
+    temperature: mode === 'rolling' ? 0.4 : 0.3,
+  });
+
+  // ── Sanitize output ──
+  return {
+    title: String(result?.title || '').slice(0, 200).trim(),
+    summary: String(result?.summary || '').slice(0, 6000).trim(),
+    keyPoints: Array.isArray(result?.keyPoints)
+      ? result.keyPoints
+          .filter((x) => typeof x === 'string' && x.trim())
+          .slice(0, 12)
+          .map((x) => x.trim())
+      : [],
+    actionItems: Array.isArray(result?.actionItems)
+      ? result.actionItems
+          .filter((a) => a && typeof a === 'object')
+          .map((a) => ({
+            text: String(a.text || '').slice(0, 500).trim(),
+            assignee: a.assignee ? String(a.assignee).slice(0, 100).trim() : null,
+            due: a.due ? String(a.due).slice(0, 100).trim() : null,
+          }))
+          .filter((a) => a.text)
+          .slice(0, 20)
+      : [],
+    decisions: Array.isArray(result?.decisions)
+      ? result.decisions
+          .filter((x) => typeof x === 'string' && x.trim())
+          .slice(0, 10)
+          .map((x) => x.trim())
+      : [],
+    topics: Array.isArray(result?.topics)
+      ? result.topics
+          .filter((x) => typeof x === 'string' && x.trim())
+          .slice(0, 8)
+          .map((x) => x.trim())
+      : [],
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 8. ANSWER CALL QUESTION  (voice or text, mid-call)
+// ─────────────────────────────────────────────────────────────────────
+const CALL_Q_SYSTEM = `
+You are Xircle AI, embedded in a LIVE call. The user just asked a question
+by voice or text. Your answer will likely be spoken aloud, so:
+
+RULES:
+1. Keep it SHORT — 1-3 short sentences (max ~60 words).
+2. No markdown, no bullets, no emoji. Plain spoken English.
+3. Only answer from the transcript context and call metadata.
+   If the answer is not in the transcript, say so plainly.
+4. Use first names of speakers when referring to what was said.
+5. If the user asks a general knowledge question unrelated to the call,
+   you may answer briefly — but stay concise.
+6. Do not repeat the user's question back to them.
+
+Return STRICT JSON only:
+{ "answer": "string", "sources": ["string"] }
+
+"sources" = 0-3 short identifiers of where the answer came from,
+e.g. "Amaka, 4 min ago" or "Live summary" or "Transcript (recent)".
+`.trim();
+
+/**
+ * Answer a live mid-call question using recent transcript + metadata.
+ *
+ * @param {Object} opts
+ * @param {string} opts.question
+ * @param {Array}  opts.transcript   Recent transcript entries
+ * @param {Object} [opts.callMeta]   { type, isMeeting, participants, durationSec, liveSummary }
+ * @returns {Promise<{ answer: string, sources: string[] }>}
+ */
+export async function answerCallQuestion({ question, transcript, callMeta }) {
+  const q = String(question || '').trim().slice(0, 1000);
+  if (!q) {
+    return { answer: 'I need a question to answer.', sources: [] };
+  }
+
+  // Last 200 turns, capped at 24k chars
+  const recentTranscript = (transcript || [])
+    .slice(-200)
+    .map((s) => {
+      const who = String(s.speakerName || s.speaker || 'Speaker').slice(0, 60);
+      const what = String(s.text || '').trim();
+      return what ? `${who}: ${what}` : '';
+    })
+    .filter(Boolean)
+    .join('\n')
+    .slice(0, 24000);
+
+  const metaBlock = JSON.stringify({
+    callType: callMeta?.type || 'voice',
+    isMeeting: !!callMeta?.isMeeting,
+    participants: (callMeta?.participants || []).slice(0, 30),
+    durationSec: callMeta?.durationSec || 0,
+    liveSummaryText: callMeta?.liveSummary?.text || null,
+    liveSummaryKeyPoints: callMeta?.liveSummary?.keyPoints || [],
+  });
+
+  const user = `
+CALL META:
+${metaBlock}
+
+RECENT TRANSCRIPT:
+${recentTranscript || '(empty)'}
+
+USER QUESTION:
+${q}
+`.trim();
+
+  const result = await callGroq({
+    system: CALL_Q_SYSTEM,
+    user,
+    temperature: 0.3,
+  });
+
+  const answer =
+    typeof result?.answer === 'string' && result.answer.trim()
+      ? result.answer.trim().slice(0, 2000)
+      : "I couldn't find that in the transcript. Could you rephrase?";
+
+  const sources = Array.isArray(result?.sources)
+    ? result.sources
+        .filter((s) => typeof s === 'string' && s.trim())
+        .slice(0, 5)
+        .map((s) => s.trim())
+    : [];
+
+  return { answer, sources };
+}
+
 export { callGroq };

@@ -523,10 +523,17 @@ export const initSocket = (server) => {
     //   • call-ended
     //   • call-participant-update
     //   • call-guest-joined
+    //   • call-transcript-update      (AI)
+    //   • call-summary-update          (AI)
+    //   • call-ai-exchange             (AI)
+    //   • call-chat-message            (in-call text)
+    //   • call-hand-update             (raise hand)
+    //   • call-reaction                (emoji)
+    //   • call-note-ready              (finalized AI notes)
     //
     // Guests (no account) join via LiveKit only and learn about
     // call-end via LiveKit's RoomDisconnected event. They do NOT
-    // need to connect to socket.io.
+    // connect to socket.io.
     // ─────────────────────────────────────────────────────────────
 
     socket.on('join-call-room', async (roomId, callback) => {
@@ -591,6 +598,220 @@ export const initSocket = (server) => {
       } catch (err) {
         console.error('get-ongoing-calls error:', err.message);
         typeof callback === 'function' && callback({ error: 'Failed to fetch' });
+      }
+    });
+
+    // ═════════════════════════════════════════════════════════════
+    // ── LIVE AI + INTERACTIONS ───────────────────────────────────
+    // ═════════════════════════════════════════════════════════════
+
+    // ── 1. Transcript segment (client-side STT) ──────────────────
+    // SECURITY: we DO NOT trust the client's `speakerId` /
+    // `speakerName`. A malicious participant could otherwise post
+    // segments claiming to be someone else, poisoning the summary.
+    // We force the speaker to be the socket's own user.
+    socket.on('call-transcript-segment', async (data, callback) => {
+      try {
+        const { callId, segments } = data || {};
+        if (!callId || !Array.isArray(segments) || segments.length === 0) {
+          return callback && callback({ error: 'callId and segments required' });
+        }
+
+        const call = await Call.findOne({
+          _id: callId,
+          'participants.user': socket.userId,
+        }).select('roomId ai');
+
+        if (!call) {
+          return callback && callback({ error: 'Access denied.' });
+        }
+        if (!call.ai?.enabled) {
+          return callback && callback({ error: 'AI is not enabled on this call.' });
+        }
+
+        const trustedSegments = segments.map((s) => ({
+          speakerId: socket.userId,
+          speakerName: socket.user.name || 'You',
+          text: String(s?.text || '').slice(0, 2000),
+          at: s?.at ? new Date(s.at) : new Date(),
+          isFinal: s?.isFinal !== false,
+        }));
+
+        // Dynamic import avoids a circular dependency
+        // (callAIService → socket.getIO → socket.js).
+        const { ingestTranscript } = await import('./callAIService.js');
+        const result = await ingestTranscript({
+          callId,
+          segments: trustedSegments,
+        });
+
+        callback && callback({ success: true, ...result });
+      } catch (err) {
+        console.error('call-transcript-segment error:', err.message);
+        callback && callback({ error: err.message });
+      }
+    });
+
+    // ── 2. Ask AI mid-call (text only — voice goes via REST) ─────
+    // `askCallAI` broadcasts `call-ai-exchange` to the room itself,
+    // so we do NOT re-emit here.
+    socket.on('call-ask-ai', async (data, callback) => {
+      try {
+        const { callId, question } = data || {};
+        if (!callId || !question?.trim()) {
+          return callback && callback({ error: 'callId and question required' });
+        }
+
+        const { askCallAI } = await import('./callAIService.js');
+        const result = await askCallAI({
+          callId,
+          userId: socket.userId,
+          question: question.trim(),
+        });
+
+        callback && callback({ success: true, ...result });
+      } catch (err) {
+        console.error('call-ask-ai error:', err.message);
+        callback && callback({ error: err.message });
+      }
+    });
+
+    // ── 3. In-call text chat ────────────────────────────────────
+    socket.on('call-chat-message', async (data, callback) => {
+      try {
+        const { callId, content } = data || {};
+        if (!callId || !content?.trim()) {
+          return callback && callback({ error: 'callId and content required' });
+        }
+
+        const call = await Call.findOne({
+          _id: callId,
+          'participants.user': socket.userId,
+          status: { $in: ['ringing', 'ongoing'] },
+        });
+        if (!call) {
+          return callback && callback({ error: 'Access denied.' });
+        }
+
+        const trimmed = content.trim().slice(0, 2000);
+
+        call.inCallMessages.push({
+          sender: socket.userId,
+          senderName: socket.user.name || 'Someone',
+          content: trimmed,
+          kind: 'text',
+          createdAt: new Date(),
+        });
+        if (call.inCallMessages.length > 1000) {
+          call.inCallMessages = call.inCallMessages.slice(-1000);
+        }
+        await call.save();
+
+        const saved = call.inCallMessages[call.inCallMessages.length - 1];
+
+        io.to(`room:${call.roomId}`).emit('call-chat-message', {
+          callId: String(call._id),
+          message: {
+            sender: socket.userId,
+            senderName: socket.user.name || 'Someone',
+            content: trimmed,
+            kind: 'text',
+            createdAt: saved.createdAt,
+          },
+        });
+
+        callback && callback({ success: true });
+      } catch (err) {
+        console.error('call-chat-message error:', err.message);
+        callback && callback({ error: err.message });
+      }
+    });
+
+    // ── 4. Raise / lower hand ───────────────────────────────────
+    socket.on('call-raise-hand', async (data, callback) => {
+      try {
+        const { callId, raised } = data || {};
+        if (!callId || typeof raised !== 'boolean') {
+          return callback && callback({ error: 'callId and raised (bool) required' });
+        }
+
+        const call = await Call.findOne({
+          _id: callId,
+          'participants.user': socket.userId,
+        });
+        if (!call) {
+          return callback && callback({ error: 'Access denied.' });
+        }
+
+        if (!call.raisedHands) call.raisedHands = [];
+
+        if (raised) {
+          const existing = call.raisedHands.find(
+            (h) => h.user.toString() === socket.userId && !h.loweredAt
+          );
+          if (!existing) {
+            call.raisedHands.push({ user: socket.userId, raisedAt: new Date() });
+          }
+        } else {
+          call.raisedHands.forEach((h) => {
+            if (h.user.toString() === socket.userId && !h.loweredAt) {
+              h.loweredAt = new Date();
+            }
+          });
+        }
+
+        await call.save();
+
+        io.to(`room:${call.roomId}`).emit('call-hand-update', {
+          callId: String(call._id),
+          userId: socket.userId,
+          raised,
+          raisedHands: (call.raisedHands || []).filter((h) => !h.loweredAt),
+        });
+
+        callback && callback({ success: true });
+      } catch (err) {
+        console.error('call-raise-hand error:', err.message);
+        callback && callback({ error: err.message });
+      }
+    });
+
+    // ── 5. Reaction (👍 ❤️ 😂 …) ─────────────────────────────────
+    socket.on('call-reaction', async (data, callback) => {
+      try {
+        const { callId, emoji } = data || {};
+        if (!callId || !emoji || typeof emoji !== 'string' || emoji.length > 8) {
+          return callback && callback({ error: 'callId and valid emoji required' });
+        }
+
+        const call = await Call.findOne({
+          _id: callId,
+          'participants.user': socket.userId,
+        }).select('roomId reactions');
+
+        if (!call) {
+          return callback && callback({ error: 'Access denied.' });
+        }
+
+        if (!call.reactions) call.reactions = [];
+        call.reactions.push({ user: socket.userId, emoji, at: new Date() });
+        if (call.reactions.length > 500) {
+          call.reactions = call.reactions.slice(-500);
+        }
+        await call.save();
+
+        io.to(`room:${call.roomId}`).emit('call-reaction', {
+          callId: String(call._id),
+          userId: socket.userId,
+          userName: socket.user.name || 'Someone',
+          emoji,
+          at: new Date(),
+        });
+
+        callback && callback({ success: true });
+      } catch (err) {
+        console.error('call-reaction error:', err.message);
+        callback && callback({ error: err.message });
       }
     });
 

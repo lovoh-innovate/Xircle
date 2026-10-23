@@ -7,6 +7,16 @@ import { v4 as uuidv4 } from 'uuid';
 import { createAndSendNotification } from './notificationController.js';
 import { getIO } from './socket.js';
 
+// AI services
+import {
+  enableCallAI,
+  disableCallAI,
+  ingestTranscript,
+  askCallAI,
+  finalizeCallNotes,
+} from '../services/callAIService.js';
+import { transcribeAudio, synthesizeSpeech } from '../services/voiceService.js';
+
 // ─────────────────────────────────────────────────────────────
 // Ring timeout management
 // ─────────────────────────────────────────────────────────────
@@ -168,6 +178,15 @@ const shouldCallEnd = (call) => {
 
   // Meetings keep going while anyone is present
   return false;
+};
+
+// Fire-and-forget: finalize any AI notes on a call that is ending.
+// Safe to call even if AI was never enabled — finalizeCallNotes returns early.
+const finalizeAINotesIfNeeded = (call) => {
+  if (!call?.ai?.enabled) return;
+  finalizeCallNotes(call._id).catch((err) =>
+    console.error('Finalize on call-end failed:', err.message)
+  );
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -782,6 +801,13 @@ const leaveCall = asyncHandler(async (req, res) => {
     (call.guests || []).forEach((g) => {
       if (!g.leftAt) g.leftAt = new Date();
     });
+
+    const shouldFinalizeAI = !!call.ai?.enabled;
+    if (shouldFinalizeAI) {
+      call.ai.enabled = false;
+      call.ai.stoppedAt = new Date();
+    }
+
     await call.save();
 
     io.to(`room:${call.roomId}`).emit('call-ended', {
@@ -802,6 +828,8 @@ const leaveCall = asyncHandler(async (req, res) => {
         { callId: call._id.toString() }
       );
     }
+
+    if (shouldFinalizeAI) finalizeAINotesIfNeeded(call);
   } else {
     await call.save();
     io.to(`room:${call.roomId}`).emit('call-participant-update', {
@@ -854,6 +882,13 @@ const endCall = asyncHandler(async (req, res) => {
   (call.guests || []).forEach((g) => {
     if (!g.leftAt) g.leftAt = new Date();
   });
+
+  const shouldFinalizeAI = !!call.ai?.enabled;
+  if (shouldFinalizeAI) {
+    call.ai.enabled = false;
+    call.ai.stoppedAt = new Date();
+  }
+
   await call.save();
 
   cancelRingTimeout(call._id);
@@ -872,6 +907,8 @@ const endCall = asyncHandler(async (req, res) => {
     `The ${call.type} call has ended.`,
     { callId: call._id.toString() }
   );
+
+  if (shouldFinalizeAI) finalizeAINotesIfNeeded(call);
 
   res.status(200).json({ success: true, call });
 });
@@ -1284,6 +1321,476 @@ const startCallScheduler = (intervalMs = 30_000) => {
   return id;
 };
 
+// ═════════════════════════════════════════════════════════════
+// AI + LIVE NOTES
+// ═════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────────
+// 18. Enable AI on a call
+// ─────────────────────────────────────────────────────────────
+const startCallAI = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { callId } = req.params;
+  const { noteDestination } = req.body || {};
+
+  const result = await enableCallAI({ callId, userId, noteDestination });
+  res.status(200).json({ success: true, ...result });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 19. Disable AI → generate final notes
+// ─────────────────────────────────────────────────────────────
+const stopCallAI = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { callId } = req.params;
+
+  const result = await disableCallAI({ callId, userId });
+  res.status(200).json({ success: true, ...result });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 20. Push transcript segments (client-side STT)
+// ─────────────────────────────────────────────────────────────
+const pushCallTranscript = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { callId } = req.params;
+  const { segments } = req.body || {};
+
+  // Guard: ingestTranscript doesn't check participants itself
+  const call = await Call.findById(callId).select('participants');
+  if (!call) {
+    res.status(404);
+    throw new Error('Call not found.');
+  }
+  if (!call.participants.some((p) => p.user.toString() === userId)) {
+    res.status(403);
+    throw new Error('Access denied.');
+  }
+
+  const result = await ingestTranscript({ callId, segments: segments || [] });
+  res.status(200).json({ success: true, ...result });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 21. Push audio chunk → STT → ingest (server-side transcription)
+// ─────────────────────────────────────────────────────────────
+const pushCallAudioChunk = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { callId } = req.params;
+
+  if (!req.file) {
+    res.status(400);
+    throw new Error('Audio file required.');
+  }
+
+  const call = await Call.findById(callId).select('participants ai');
+  if (!call) {
+    res.status(404);
+    throw new Error('Call not found.');
+  }
+  if (!call.participants.some((p) => p.user.toString() === userId)) {
+    res.status(403);
+    throw new Error('Access denied.');
+  }
+  if (!call.ai?.enabled) {
+    res.status(400);
+    throw new Error('AI is not enabled on this call.');
+  }
+
+  const stt = await transcribeAudio({
+    buffer: req.file.buffer,
+    mimeType: req.file.mimetype,
+    prompt:
+      'Team meeting conversation. Common product and people names may appear.',
+  });
+
+  if (!stt.text) {
+    return res.status(200).json({ success: true, added: 0 });
+  }
+
+  const user = await User.findById(userId).select('name');
+
+  const result = await ingestTranscript({
+    callId,
+    segments: [
+      {
+        speakerId: userId,
+        speakerName: user?.name || 'You',
+        text: stt.text,
+        at: new Date(),
+      },
+    ],
+  });
+
+  res.status(200).json({ success: true, text: stt.text, ...result });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 22. Ask AI in-call — text question
+// ─────────────────────────────────────────────────────────────
+const askCallAIText = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { callId } = req.params;
+  const { question, wantAudio = false } = req.body || {};
+
+  if (!question?.trim()) {
+    res.status(400);
+    throw new Error('Question is required.');
+  }
+
+  const result = await askCallAI({ callId, userId, question: question.trim() });
+
+  let audio = null;
+  if (wantAudio) {
+    try {
+      const tts = await synthesizeSpeech({ text: result.answer, format: 'wav' });
+      audio = {
+        base64: tts.audio.toString('base64'),
+        format: tts.format,
+        provider: tts.provider,
+      };
+    } catch (err) {
+      console.error('TTS failed:', err.message);
+    }
+  }
+
+  res.status(200).json({ success: true, ...result, audio });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 23. Ask AI in-call — voice (push-to-talk)
+// ─────────────────────────────────────────────────────────────
+const askCallAIVoice = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { callId } = req.params;
+
+  if (!req.file) {
+    res.status(400);
+    throw new Error('Audio file required.');
+  }
+
+  const stt = await transcribeAudio({
+    buffer: req.file.buffer,
+    mimeType: req.file.mimetype,
+    prompt: 'A short question about the current meeting.',
+  });
+
+  if (!stt.text) {
+    return res.status(200).json({ success: true, empty: true });
+  }
+
+  const result = await askCallAI({ callId, userId, question: stt.text });
+
+  let audio = null;
+  try {
+    const tts = await synthesizeSpeech({ text: result.answer, format: 'wav' });
+    audio = {
+      base64: tts.audio.toString('base64'),
+      format: tts.format,
+      provider: tts.provider,
+    };
+  } catch (err) {
+    console.error('TTS failed:', err.message);
+  }
+
+  res.status(200).json({
+    success: true,
+    question: stt.text,
+    answer: result.answer,
+    sources: result.sources,
+    audio,
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 24. In-call text chat (bad network / noisy room)
+// ─────────────────────────────────────────────────────────────
+const sendInCallMessage = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { callId } = req.params;
+  const { content } = req.body || {};
+
+  if (!content?.trim()) {
+    res.status(400);
+    throw new Error('Message is required.');
+  }
+
+  const call = await Call.findById(callId).select(
+    'participants roomId inCallMessages status'
+  );
+  if (!call) {
+    res.status(404);
+    throw new Error('Call not found.');
+  }
+  if (!call.participants.some((p) => p.user.toString() === userId)) {
+    res.status(403);
+    throw new Error('Access denied.');
+  }
+  if (!['ringing', 'ongoing'].includes(call.status)) {
+    res.status(400);
+    throw new Error('Call is not active.');
+  }
+
+  const user = await User.findById(userId).select('name');
+
+  call.inCallMessages.push({
+    sender: userId,
+    senderName: user?.name || 'Someone',
+    content: content.trim().slice(0, 2000),
+    kind: 'text',
+    createdAt: new Date(),
+  });
+  if (call.inCallMessages.length > 1000) {
+    call.inCallMessages = call.inCallMessages.slice(-1000);
+  }
+  await call.save();
+
+  const saved = call.inCallMessages[call.inCallMessages.length - 1];
+
+  const io = getIO();
+  io.to(`room:${call.roomId}`).emit('call-chat-message', {
+    callId: String(call._id),
+    message: saved,
+  });
+
+  res.status(201).json({ success: true, message: saved });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 25. Raise / lower hand
+// ─────────────────────────────────────────────────────────────
+const setRaisedHand = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { callId } = req.params;
+  const { raised } = req.body || {};
+
+  if (typeof raised !== 'boolean') {
+    res.status(400);
+    throw new Error('"raised" must be a boolean.');
+  }
+
+  const call = await Call.findById(callId);
+  if (!call) {
+    res.status(404);
+    throw new Error('Call not found.');
+  }
+  if (!call.participants.some((p) => p.user.toString() === userId)) {
+    res.status(403);
+    throw new Error('Access denied.');
+  }
+
+  if (!call.raisedHands) call.raisedHands = [];
+
+  if (raised) {
+    const existing = call.raisedHands.find(
+      (h) => h.user.toString() === userId && !h.loweredAt
+    );
+    if (!existing) {
+      call.raisedHands.push({ user: userId, raisedAt: new Date() });
+    }
+  } else {
+    call.raisedHands.forEach((h) => {
+      if (h.user.toString() === userId && !h.loweredAt) {
+        h.loweredAt = new Date();
+      }
+    });
+  }
+
+  await call.save();
+
+  const io = getIO();
+  io.to(`room:${call.roomId}`).emit('call-hand-update', {
+    callId: String(call._id),
+    userId,
+    raised,
+    raisedHands: (call.raisedHands || []).filter((h) => !h.loweredAt),
+  });
+
+  res.status(200).json({ success: true, raised });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 26. Reaction (👍 ❤️ 😂 …)
+// ─────────────────────────────────────────────────────────────
+const sendCallReaction = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { callId } = req.params;
+  const { emoji } = req.body || {};
+
+  if (!emoji || typeof emoji !== 'string' || emoji.length > 8) {
+    res.status(400);
+    throw new Error('Valid emoji required.');
+  }
+
+  const call = await Call.findById(callId).select('participants roomId reactions');
+  if (!call) {
+    res.status(404);
+    throw new Error('Call not found.');
+  }
+  if (!call.participants.some((p) => p.user.toString() === userId)) {
+    res.status(403);
+    throw new Error('Access denied.');
+  }
+
+  if (!call.reactions) call.reactions = [];
+  call.reactions.push({ user: userId, emoji, at: new Date() });
+  if (call.reactions.length > 500) {
+    call.reactions = call.reactions.slice(-500);
+  }
+  await call.save();
+
+  const io = getIO();
+  io.to(`room:${call.roomId}`).emit('call-reaction', {
+    callId: String(call._id),
+    userId,
+    emoji,
+    at: new Date(),
+  });
+
+  res.status(201).json({ success: true });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 27. Data saver toggle
+// ─────────────────────────────────────────────────────────────
+const updateCallDataSaver = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { callId } = req.params;
+  const { enabled, audioOnly, videoQuality } = req.body || {};
+
+  const call = await Call.findById(callId).select('participants dataSaver');
+  if (!call) {
+    res.status(404);
+    throw new Error('Call not found.');
+  }
+  if (!call.participants.some((p) => p.user.toString() === userId)) {
+    res.status(403);
+    throw new Error('Access denied.');
+  }
+
+  if (!call.dataSaver) call.dataSaver = {};
+  if (typeof enabled === 'boolean') call.dataSaver.enabled = enabled;
+  if (typeof audioOnly === 'boolean') call.dataSaver.audioOnly = audioOnly;
+  if (['low', 'medium', 'high', 'auto'].includes(videoQuality)) {
+    call.dataSaver.videoQuality = videoQuality;
+  }
+  await call.save();
+
+  res.status(200).json({ success: true, dataSaver: call.dataSaver });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 28. Manually finalize notes (idempotent)
+// ─────────────────────────────────────────────────────────────
+const finalizeCallNotesHandler = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const { callId } = req.params;
+
+  const call = await Call.findById(callId).select('participants');
+  if (!call) {
+    res.status(404);
+    throw new Error('Call not found.');
+  }
+  if (!call.participants.some((p) => p.user.toString() === userId)) {
+    res.status(403);
+    throw new Error('Access denied.');
+  }
+
+  const result = await finalizeCallNotes(callId);
+  res.status(200).json({ success: true, ...result });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 29. Public meeting state — read-only, no guest creation
+//     Used by the JoinCall guest screen to poll for live
+//     transcript / summary / chat / hand updates.
+// ─────────────────────────────────────────────────────────────
+const getPublicMeetingState = asyncHandler(async (req, res) => {
+  const { code } = req.params;
+  if (!code || String(code).trim().length < 4) {
+    res.status(404);
+    throw new Error('Meeting not found or has ended.');
+  }
+
+  const call = await Call.findOne({
+    meetingCode: String(code).trim(),
+    isMeeting: true,
+    status: { $in: ['ringing', 'ongoing'] },
+  }).select(
+    'type status ai liveSummary transcript inCallMessages raisedHands meetingCode startedAt endedAt'
+  );
+
+  if (!call) {
+    res.status(404);
+    throw new Error('Meeting not found or has ended.');
+  }
+
+  const ai = {
+    enabled: !!call.ai?.enabled,
+    transcriptCount: Array.isArray(call.transcript) ? call.transcript.length : 0,
+    generatedNoteId: call.ai?.generatedNoteId ? String(call.ai.generatedNoteId) : null,
+    generatedNoteKind: call.ai?.generatedNoteKind || null,
+    summaryUpdatedAt: call.liveSummary?.updatedAt || null,
+  };
+
+  const liveSummary = call.liveSummary?.updatedAt
+    ? {
+        text: call.liveSummary.text || '',
+        keyPoints: Array.isArray(call.liveSummary.keyPoints)
+          ? call.liveSummary.keyPoints
+          : [],
+        actionItems: Array.isArray(call.liveSummary.actionItems)
+          ? call.liveSummary.actionItems
+          : [],
+        updatedAt: call.liveSummary.updatedAt,
+      }
+    : null;
+
+  // Last 100 transcript turns, last 50 chat messages — capped for payload size
+  const recentTranscript = (Array.isArray(call.transcript) ? call.transcript : [])
+    .slice(-100)
+    .map((s) => ({
+      speakerName: s.speakerName,
+      text: s.text,
+      at: s.at,
+    }));
+
+  const recentMessages = (
+    Array.isArray(call.inCallMessages) ? call.inCallMessages : []
+  )
+    .slice(-50)
+    .map((m) => ({
+      sender: m.sender ? String(m.sender) : null,
+      senderName: m.senderName,
+      content: m.content,
+      kind: m.kind,
+      createdAt: m.createdAt,
+    }));
+
+  const raisedHands = (Array.isArray(call.raisedHands) ? call.raisedHands : [])
+    .filter((h) => !h.loweredAt)
+    .map((h) => ({
+      userId: String(h.user),
+      raisedAt: h.raisedAt,
+    }));
+
+  res.status(200).json({
+    success: true,
+    ai,
+    liveSummary,
+    recentTranscript,
+    recentMessages,
+    raisedHands,
+    durationSec: call.startedAt
+      ? Math.floor(
+          ((call.endedAt ? new Date(call.endedAt) : Date.now()) -
+            new Date(call.startedAt).getTime()) /
+            1000
+        )
+      : 0,
+  });
+});
+
 // ─────────────────────────────────────────────────────────────
 // EXPORTS
 // ─────────────────────────────────────────────────────────────
@@ -1307,6 +1814,23 @@ export {
   inviteByUsername,
   processScheduledCalls,
   startCallScheduler,
+
+  // AI + live notes
+  startCallAI,
+  stopCallAI,
+  pushCallTranscript,
+  pushCallAudioChunk,
+  askCallAIText,
+  askCallAIVoice,
+  sendInCallMessage,
+  setRaisedHand,
+  sendCallReaction,
+  updateCallDataSaver,
+  finalizeCallNotesHandler,
+
+  // in the export { ... } block, add:
+getPublicMeetingState,
+
   // back-compat alias
   getCallLogs as getCallHistory,
 };

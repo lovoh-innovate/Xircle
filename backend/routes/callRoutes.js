@@ -1,5 +1,6 @@
 // routes/callRoutes.js
 import express from 'express';
+import multer from 'multer';
 import { protect } from '../middleware/authMiddleware.js';
 import {
   // Existing
@@ -21,6 +22,21 @@ import {
   getOngoingCalls,
   getCallById,
   inviteByUsername,
+
+  // AI + live notes + interactions
+  startCallAI,
+  stopCallAI,
+  pushCallTranscript,
+  pushCallAudioChunk,
+  askCallAIText,
+  askCallAIVoice,
+  sendInCallMessage,
+  setRaisedHand,
+  sendCallReaction,
+  updateCallDataSaver,
+  finalizeCallNotesHandler,
+  // in the export { ... } block, add:
+getPublicMeetingState,
 } from '../controllers/callController.js';
 
 import {
@@ -31,10 +47,21 @@ import {
 const router = express.Router();
 
 // ─────────────────────────────────────────────────────────────
+// Multer — memory storage for AI audio (STT)
+// Controllers read `req.file.buffer` directly (no disk writes).
+// 10 MB cap ≈ several minutes of compressed webm.
+// ─────────────────────────────────────────────────────────────
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+// ─────────────────────────────────────────────────────────────
 // PUBLIC ROUTE — guests joining a meeting by code.
 // No auth middleware, must be registered BEFORE router.use(protect).
 // ─────────────────────────────────────────────────────────────
 router.post('/guest-token/:code', getGuestCallToken);
+router.get('/public/:code/state', getPublicMeetingState);
 
 // ─────────────────────────────────────────────────────────────
 // Everything below requires authentication
@@ -70,6 +97,41 @@ router.post('/:callId/invite-username', inviteByUsername);    // by usernames
 
 // ── LiveKit token for an accepted participant ───────────────
 router.post('/:callId/token', getCallToken);
+
+// ═════════════════════════════════════════════════════════════
+// ── AI + LIVE NOTES ──────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
+//   start    → toggle AI on  (records who started, note destination)
+//   stop     → toggle AI off → auto-finalize the note
+//   finalize → manually generate the note (idempotent)
+//   transcript         → client-STT segments, JSON body
+//   transcript/audio   → server-STT, multipart 'audio'
+//   ask / ask-voice    → mid-call Q&A (text/voice) + optional TTS reply
+//   messages / hand / reaction / data-saver → meeting UX
+// ─────────────────────────────────────────────────────────────
+
+router.post('/:callId/ai/start',        startCallAI);
+router.post('/:callId/ai/stop',         stopCallAI);
+router.post('/:callId/ai/finalize',     finalizeCallNotesHandler);
+
+router.post('/:callId/transcript',       pushCallTranscript);
+router.post(
+  '/:callId/transcript/audio',
+  upload.single('audio'),
+  pushCallAudioChunk
+);
+
+router.post('/:callId/ai/ask',          askCallAIText);
+router.post(
+  '/:callId/ai/ask-voice',
+  upload.single('audio'),
+  askCallAIVoice
+);
+
+router.post('/:callId/messages',        sendInCallMessage);
+router.post('/:callId/hand',            setRaisedHand);
+router.post('/:callId/reaction',        sendCallReaction);
+router.patch('/:callId/data-saver',     updateCallDataSaver);
 
 // ── Single call by ID — MUST be the LAST GET ────────────────
 router.get('/:callId', getCallById);
