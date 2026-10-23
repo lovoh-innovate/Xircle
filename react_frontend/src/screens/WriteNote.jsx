@@ -2688,15 +2688,15 @@ const NoteEditor = ({
       )}
 
       {!editable && (
-        <div className="bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 text-xs p-3 rounded-lg mb-4 flex items-center justify-between border border-amber-200 dark:border-amber-800/40">
-          <span>You have read-only access to this note.</span>
+        <div className="bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 text-xs px-3 py-2 rounded-lg mb-4 flex items-center justify-between gap-2 border border-amber-200 dark:border-amber-800/40">
+          <span className="whitespace-nowrap">Read-only</span>
           <button
             onClick={() => {
               toast('Ask the owner to upgrade your permission to edit.', { icon: '🔒' });
             }}
-            className="font-semibold underline text-amber-900 dark:text-amber-200 hover:text-amber-700"
+            className="font-semibold underline text-amber-900 dark:text-amber-200 hover:text-amber-700 whitespace-nowrap"
           >
-            Request edit access
+            Request access
           </button>
         </div>
       )}
@@ -4285,16 +4285,16 @@ const ViewerSidebar = ({
         </h2>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-2 leading-relaxed">
           {isGuest
-            ? 'Try the editor to see what you can do. Click Edit above to get started.'
-            : `You are viewing a note shared by ${ownerName || 'a collaborator'}.`}
+            ? 'Click Edit above to try the editor.'
+            : `Shared by ${ownerName || 'a collaborator'}.`}
         </p>
       </div>
 
       {/* CTAs */}
       <div className="px-6 py-5 space-y-3 flex-shrink-0 bg-gray-50/50 dark:bg-[#0f0f12]/50">
         {isGuest ? (
-          <p className="text-xs text-gray-500 dark:text-gray-400 text-center leading-relaxed">
-            Click <span className="font-semibold text-teal-600 dark:text-teal-400">Edit</span> in the header to try the editor.
+          <p className="text-xs text-gray-500 dark:text-gray-400 text-center whitespace-nowrap">
+            Tap <span className="font-semibold text-teal-600 dark:text-teal-400">Edit</span> above to try it
           </p>
         ) : (
           <>
@@ -4401,18 +4401,14 @@ const GuestWelcomeModal = ({ open, onClose, onLogIn, noteTitle }) => {
           />
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white tracking-tight">Log in to edit</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-            Create beautiful notes, collaborate, and unlock AI writing features on Xircle.
+            Create notes and unlock AI writing on Xircle.
           </p>
         </div>
 
         {/* Body */}
         <div className="px-8 py-6">
           <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed text-center">
-            You're viewing{' '}
-            <span className="font-medium text-gray-900 dark:text-gray-200">
-              "{noteTitle || 'this note'}"
-            </span>{' '}
-            shared by someone. Log in to make changes and save your work.
+            Log in to edit this note and save your changes.
           </p>
 
           <div className="space-y-3 mt-6">
@@ -4462,7 +4458,7 @@ const AccessDeniedScreen = ({ isGuest }) => (
     </div>
     <h1 className="text-xl font-semibold text-gray-900 dark:text-white mb-2 tracking-tight">Note Unavailable</h1>
     <p className="text-sm text-gray-500 dark:text-gray-400 mb-8 max-w-md">
-      This note is private, or it doesn't exist. If you are the owner, please log in to view it.
+      This note is private or doesn't exist.
     </p>
     {isGuest ? (
       <div className="flex flex-col sm:flex-row gap-3">
@@ -5132,7 +5128,7 @@ const WriteNote = () => {
         <FaExclamationTriangle className="text-3xl text-amber-500 mb-4" />
         <h1 className="text-lg font-bold text-gray-800 dark:text-white mb-2">Something went wrong</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 max-w-md">
-          We couldn't load this note. Please check your connection and try again.
+          Couldn't load this note. Try again.
         </p>
         <button
           onClick={() => refetchNote?.()}
@@ -5470,7 +5466,7 @@ const WriteNote = () => {
             <>
               <div className="mb-3 px-3 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-lg text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2">
                 <FaInfoCircle className="flex-shrink-0" />
-                <span>Preview mode — log in to make changes</span>
+                <span className="whitespace-nowrap">Preview — log in to edit</span>
               </div>
               <div onClickCapture={handleGuestToolbarClick}>
                 <NoteEditor
